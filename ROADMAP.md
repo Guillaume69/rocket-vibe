@@ -42,10 +42,10 @@ Prises explicitement, elles ne se rediscutent pas en cours de route.
 | Build | **Local** : `expo prebuild` + `./gradlew` | Jamais d'EAS pour Android. |
 | Distribution | **Sideload `adb install`** | Ni Play Store, ni revue, ni risque de marque. |
 | Client DDP | **Le nôtre, minimal** | Zéro ambiguïté de licence, zéro dépendance à `core-typings`. |
-| Serveur | **Auto-hébergé, admin** | Rend le push faisable et permet `E2E_Enable=false`. |
+| Serveur | **Auto-hébergé, admin** | Rend le push faisable. Cible réelle : `chat.barrut.me`, Rocket.Chat **8.5** (LTS). |
 | Source de vérité | **SQLite locale** | L'UI est une projection, pas un miroir du réseau. |
 | Actions / écoute | **REST pour agir, DDP pour écouter** | Les appels de méthodes DDP sont dépréciés (8.0), retrait en 9.0. |
-| E2EE | **Hors périmètre** | `E2E_Enable=false` par défaut en 8.6. |
+| E2EE | **Hors périmètre, avec dégradation soignée** | `E2E_Enable=true` sur le serveur cible, mais **1 salon chiffré sur 25** (mesuré). Plusieurs semaines de crypto pour 4 % de l'usage : mauvais rapport. |
 
 ### Pourquoi le client DDP maison est plus petit qu'annoncé
 
@@ -63,7 +63,7 @@ Les noms de streams et les clés d'événements sont des faits d'interface, déj
 
 | Exclu | Raison |
 |---|---|
-| **E2EE** | `E2E_Enable=false` par défaut en 8.6, et tu contrôles le serveur. Coût élevé (`react-native-quick-crypto` pour RSA-OAEP, `expo-crypto` ne fait pas de RSA). Les salons `encrypted` affichent un cadenas et « Message chiffré ». |
+| **E2EE** | Mesuré sur le serveur cible : `E2E_Enable=true`, mais **un seul salon chiffré sur 25** (`p:laprivitude`). Coût élevé (`react-native-quick-crypto` pour RSA-OAEP, `expo-crypto` ne fait pas de RSA) pour 4 % de l'usage. Le v1 **dégrade proprement** : cadenas dans la liste, aperçu `lastMessage` masqué, messages `t='e2e'` remplacés par un placeholder, composer désactivé, notification générique. Voir §6.6. |
 | **Appels audio/vidéo** | Hors motivation. C'est ce que tire `@rocket.chat/media-signaling` — on l'évite. |
 | **Administration serveur** | Client de consommation, pas console admin. |
 | **Apps / blocs UiKit interactifs** | On rend `attachments` et `md`, on ignore proprement les `blocks` inconnus. |
@@ -321,11 +321,23 @@ Pagination par keyset (`WHERE rid = ? ORDER BY ts DESC`), et **débounce des mes
 
 Le mécanisme est **générique et son nom trompe** : `errorType = totp-required` couvre aussi `email` et `password`. Toujours lire `details.method` et `details.availableMethods`. Rejouer avec `x-2fa-code` / `x-2fa-method`. Pour `password`, envoyer `digestStringAsync(SHA256, mdp)`. Backoff sur les 429 : le rate limiter du login est plus agressif que le REST générique, ne jamais boucler sur `sendEmailCode`.
 
-### 6.6 E2EE, si tu changes d'avis
+### 6.6 E2EE — un salon sur vingt-cinq
 
-Le serveur 8.6 **rejette activement** un message en clair dans un salon `encrypted` (`error-not-allowed`), garde appliqué aussi à `chat.sendMessage`. Bonne nouvelle : un client sans E2EE **ne peut pas corrompre** un salon chiffré, il est simplement incapable d'y poster. Un client non-déchiffrant voit `t='e2e'` et un `msg` base64 opaque → afficher un cadenas, jamais le blob.
+**Le fait mesuré.** Sur `chat.barrut.me` : `E2E_Enable = true`, `E2E_Allow_Unencrypted_Messages = false`, `E2E_Enabled_Default_PrivateRooms = false`, et **un seul salon chiffré sur 25** (`p:laprivitude`). Les nouveaux salons privés ne sont donc pas chiffrés d'office.
 
-Si l'E2EE devenait nécessaire : RSA-OAEP 2048/SHA-256 pour la paire utilisateur, **AES-GCM 256** pour les nouveaux messages (`rc.v2.aes-sha2` — et non AES-CBC, qui n'est conservé que pour l'historique `rc.v1`), PBKDF2-SHA256 à 100 000 itérations. `expo-crypto` **ne fait pas de RSA** : il faudrait `react-native-quick-crypto`.
+**Le comportement du serveur.** Il **rejette activement** un message en clair dans un salon `encrypted` (`error-not-allowed`), garde appliqué aussi à `chat.sendMessage`. Bonne nouvelle : un client sans E2EE **ne peut pas corrompre** un salon chiffré, il est simplement incapable d'y poster. Un client non-déchiffrant voit `t='e2e'` et un `msg` base64 opaque.
+
+**La solution retenue : dégrader proprement, à trois endroits.**
+
+1. **Liste des salons** — cadenas sur `room.encrypted`, et **aperçu `lastMessage` masqué** : il contient du chiffré. Ne jamais rendre le blob.
+2. **Écran salon** — les messages `t === 'e2e'` deviennent « 🔒 Message chiffré, non pris en charge ». Le composer est désactivé avec l'explication, puisque le serveur refuserait l'envoi de toute façon.
+3. **Notifications** — `Push_show_message = true` sur ce serveur, donc le corps d'une notification venant d'un salon chiffré est du ciphertext. Le remplacer par un texte générique côté client.
+
+Ce salon se consulte depuis le web ou l'app officielle. Coût de la dégradation : moins d'une journée.
+
+**Plan B — l'implémenter (étape 10 optionnelle, hors chemin critique).** RSA-OAEP 2048/SHA-256 pour la paire utilisateur, **AES-GCM 256** pour les nouveaux messages (`rc.v2.aes-sha2` — et non AES-CBC, qui n'est conservé que pour l'historique `rc.v1`), PBKDF2-SHA256 à 100 000 itérations. `expo-crypto` **ne fait pas de RSA** : il faudrait `react-native-quick-crypto` (New-Arch only, via `react-native-nitro-modules`). Compter plusieurs semaines, et le risque réel de rendre des messages définitivement illisibles.
+
+**Plan C — désactiver le chiffrement de ce salon.** Tu en es propriétaire : le basculer en clair rend tout accessible, au prix du chiffrement pour tous les clients.
 
 ---
 

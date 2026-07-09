@@ -225,10 +225,11 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
 > Objectif : **l'APK devient utile au quotidien**.
 > Réf. `ROADMAP.md` §5 phase 2, §6.3, §6.4.
 
-- [ ] **4.1 — Liste des salons** · `@claude` · `[code]` — `subscriptions.get` + `rooms.get` fusionnés par `rid` ; souscriptions `stream-notify-user/<uid>/subscriptions-changed` et `/rooms-changed` ; `fname`, aperçu `lastMessage`, badge `unread`, tri par activité. Fait le : `____`
+- [ ] **4.1 — Liste des salons** · `@claude` · `[code]` — `subscriptions.get` + `rooms.get` fusionnés par `rid` ; souscriptions `stream-notify-user/<uid>/subscriptions-changed` et `/rooms-changed` ; `fname`, aperçu `lastMessage`, badge `unread`, tri par activité. **Si `room.encrypted` : cadenas, et aperçu `lastMessage` masqué** — il contient du ciphertext. Fait le : `____`
 - [ ] **4.2 — Écran salon** · `@claude` · `[code]` — historique via `channels.history` / `groups.history` / `im.history` selon `t` ; `@shopify/flash-list` **`inverted`** + `maintainVisibleContentPosition` ; pagination keyset `WHERE rid = ? ORDER BY ts DESC` ; `sub` à l'ouverture, **`unsub` à la fermeture** ; **débounce des entrants** (des insertions en tête à moins de ~200 ms font sauter le scroll). Fait le : `____`
 - [ ] **4.3 — Rendu markdown** · `@claude` · `[code]` — `@rocket.chat/message-parser` sur `msg.md`, rendu en `<Text>` imbriqués. **Repli sur `parse()` obligatoire** : `md` est absent des vieux messages. Sous-chantier à part entière, ne pas le sous-estimer. Fait le : `____`
 - [ ] **4.4 — Messages système** · `@claude` · `[code]` — `t = uj / ul / rm / r / ...`, table de traduction. Fait le : `____`
+- [ ] **4.6 — Dégradation des salons chiffrés** · `@claude` · `[code]` — le serveur cible a `E2E_Enable = true` et **un salon chiffré** (`p:laprivitude`). Les messages `t === 'e2e'` deviennent « 🔒 Message chiffré, non pris en charge », jamais le blob base64 ; le composer est désactivé avec l'explication, puisque le serveur rejette un message en clair (`error-not-allowed`, `E2E_Allow_Unencrypted_Messages = false`). Voir `ROADMAP.md` §6.6. Fait le : `____`
 - [ ] **4.5 — Outbox et optimistic UI** · `@claude` · `[code]` — `_id` 24-hex généré **avant** l'affichage → insert `pending` → `chat.sendMessage` → réconciliation au retour du même `_id`. Retry au retour du réseau, statut `failed` actionnable.
   **Critère de sortie** : tuer l'app avec un message `pending`, la relancer → le message part **sans doublon** (le serveur déduplique sur `_id`). Fait le : `____`
 
@@ -255,7 +256,7 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
 
 - [ ] **6.1 — Cycle de vie du token** · `@claude` · `[code]` — enregistrement à la connexion, dé-enregistrement au logout. Fait le : `____`
 - [ ] **6.2 — Cycle de vie du socket** · `@claude` · `[code]` — fermeture propre sur `AppState 'background'`, réouverture et resynchronisation sur `'active'`. Fait le : `____`
-- [ ] **6.3 — Deep link** · `@claude` · `[code]` — handler de notification → route `expo-router` vers le salon ; badge cohérent avec `subscription.unread` ; canaux de notification Android. Fait le : `____`
+- [ ] **6.3 — Deep link** · `@claude` · `[code]` — handler de notification → route `expo-router` vers le salon ; badge cohérent avec `subscription.unread` ; canaux de notification Android. **`Push_show_message = true` sur le serveur cible** : une notification venant du salon chiffré transporte du ciphertext → la remplacer par un texte générique. Fait le : `____`
 
 ---
 

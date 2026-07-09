@@ -78,7 +78,7 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
 
 | Étape | Titre | Statut |
 |---|---|---|
-| 1 | Socle vérifiable | ☐ |
+| 1 | Socle vérifiable | ✅ 2026-07-10 |
 | 2 | Spike push — **kill gate** | ☐ |
 | 3 | Transport et données | ☐ |
 | 4 | Première tranche verticale | ☐ |
@@ -127,11 +127,11 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
   **Critère de sortie** : sur l'AVD, l'écran affiche la version du serveur Docker.
   Fait le : **2026-07-10** — affiche `8.5`, `TOTP, email`, fichiers et avatars protégés. HTTP en clair OK via l'overlay debug d'Expo et `adb reverse tcp:3000`.
 
-- [ ] **1.7 — Spike DDP jetable** · `@claude` · `[code]`
-  Script Node : ouvrir `ws://<IP_LAN>:3000/websocket`, envoyer `{"msg":"connect","version":"1","support":["1"]}`, se loguer avec un resume token, souscrire à `stream-room-messages`. Poster un message depuis le web, vérifier qu'il arrive.
-  **Lève l'incertitude n°2** de `ROADMAP.md` §7 : les streams privés exigent-ils un `login` DDP en plus de l'auth REST ?
-  **Critère de sortie** : le script imprime le message posté depuis le web. Le verdict sur le `login` DDP est écrit dans `docs/DEV.md`.
-  Fait le : `____`
+- [x] **1.7 — Spike DDP jetable** · `@claude` · `[code]`
+  `scripts/spike-ddp.mjs` : deux connexions WebSocket (anonyme et authentifiée), souscriptions croisées sur salon privé et public, message déclencheur posté via REST.
+  **Incertitude n°2 levée** : le login DDP (`method login {resume}`) est **obligatoire pour toute souscription, même sur un canal public** (`nosub: not-allowed` sinon), et le token REST sert tel quel. Verdict complet dans `docs/DEV.md`.
+  **Critère de sortie** : le script imprime le message posté et sort en 0.
+  Fait le : **2026-07-10** — PASS. Temps réel prouvé avec le `WebSocket` global (API navigateur = API React Native).
 
 **Sortie d'étape** : un APK installé affiche la version d'un vrai serveur Rocket.Chat, et je sais comment le temps réel s'authentifie.
 

@@ -92,6 +92,15 @@ Crée `alice` et `bob`, le canal public `test-public`, le groupe privé `test-pr
 
 Le script est **idempotent y compris après une interruption**. Chaque message seedé porte un marqueur `[seed i/12]` : la relance lit l'historique, calcule les indices manquants et ne repose que ceux-là. Une idempotence en tout-ou-rien (« ce salon a déjà des messages, je passe ») figerait pour toujours un salon interrompu à 7 messages sur 12.
 
+## Verdict du spike DDP (étape 1.7, incertitude n°2)
+
+`node scripts/spike-ddp.mjs` contre le serveur Docker 8.5, deux connexions WebSocket (une anonyme, une authentifiée) :
+
+- **Le login DDP est obligatoire pour toute souscription**, y compris sur un canal **public** : sans lui, `sub stream-room-messages` répond `nosub: not-allowed`. Le client de l'étape 3.3 fera donc systématiquement `connect` → `method login {resume}` → `sub`, aucun mode dégradé anonyme à prévoir.
+- **Le même token sert aux deux transports** : `method login {resume: <authToken REST>}` est accepté tel quel. Pas de second secret à stocker.
+- Temps réel prouvé : un message posté via REST arrive par `stream-room-messages` (collection = nom du stream, clé dans `fields.eventName`, charge dans `fields.args[0]`), et `stream-notify-user <uid>/subscriptions-changed` est émis dans la foulée.
+- Le `WebSocket` **global** de Node 22+ (API navigateur, la même que React Native) suffit : handshake `{"msg":"connect","version":"1","support":["1"]}`, `ping`/`pong`, `sub`/`ready`/`nosub`.
+
 ## Ce que dit le serveur cible (`chat.barrut.me`, relevé sans authentification)
 
 | Réglage | Valeur | Conséquence |

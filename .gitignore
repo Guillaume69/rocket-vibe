@@ -3,6 +3,7 @@
 .env.local
 google-services.json
 *-service-account*.json
+*firebase-adminsdk*.json
 
 # Génération native continue (CNG) : android/ et ios/ sont des artefacts.
 # Toute personnalisation native passe par un config plugin.

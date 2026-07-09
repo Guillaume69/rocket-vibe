@@ -101,10 +101,10 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
   **Critère de sortie** : `source scripts/env.sh && java -version 2>&1 | grep -q '17\.0\.19' && adb devices`
   Fait le : **2026-07-09** — vert sous zsh *et* bash. `ROOT_URL` résolu à `http://192.168.1.106:3000`.
 
-- [ ] **1.2 — Serveur Rocket.Chat 8.6 en Docker** · `@claude` · `[infra]`
-  `docker-compose.yml` : Rocket.Chat 8.6 + MongoDB en **replica set `rs0`** (sinon RC refuse de démarrer). `ROOT_URL` sur l'**IP LAN**, pas `10.0.2.2` — le téléphone physique de l'étape 2 en dépend, ainsi que les payloads push. `.env.example` versionné, `.env` gitignoré.
-  **Critère de sortie** : `curl -sf $ROOT_URL/api/v1/info | node -e 'process.exit(JSON.parse(require("fs").readFileSync(0)).info.version.startsWith("8.")?0:1)'`
-  Fait le : `____`
+- [x] **1.2 — Serveur Rocket.Chat en Docker** · `@claude` · `[infra]`
+  `docker/compose.yml` : Rocket.Chat **8.5.1** (la version de `chat.barrut.me`, LTS) + MongoDB **8.0** en **replica set `rs0`** (requis : RC lit les *change streams*). `ROOT_URL` sur l'**IP LAN**. `.env.example` versionné, `.env` en `chmod 600` et gitignoré.
+  **Critère de sortie** : `curl -sf $ROOT_URL/api/info | node -e 'process.exit(JSON.parse(require("fs").readFileSync(0)).version.startsWith("8.5")?0:1)'`
+  Fait le : **2026-07-09** — `version = 8.5`, replica set PRIMARY, login admin vérifié.
 
 - [ ] **1.3 — Seed de données de test** · `@claude` · `[code]`
   `scripts/seed.mjs` : crée l'admin, deux utilisateurs, un canal public, un groupe privé, un DM, quelques messages et un thread, via l'API REST admin. Idempotent.

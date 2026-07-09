@@ -1,0 +1,32 @@
+# Secrets — jamais dans le dépôt.
+.env
+.env.local
+google-services.json
+*-service-account*.json
+
+# Génération native continue (CNG) : android/ et ios/ sont des artefacts.
+# Toute personnalisation native passe par un config plugin.
+/android/
+/ios/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Expo
+.expo/
+dist/
+web-build/
+*.tsbuildinfo
+
+# Android
+*.apk
+*.aab
+*.keystore
+!debug.keystore
+
+# Système
+.DS_Store
+*.log

@@ -1,0 +1,104 @@
+# Serveur Rocket.Chat de développement.
+#
+#   cd docker && cp .env.example .env && docker compose up -d
+#
+# Version épinglée sur 8.5.x, celle du serveur de production visé, et non sur la
+# dernière (8.6) : les écarts d'API entre mineures se paient en fin de parcours.
+# 8.5 est une LTS supportée jusqu'au 2027-06-30.
+name: rocket-vibe
+
+services:
+  mongodb:
+    # `compatibleMongoVersions` de la release 8.5.x vaut exactement ["8.0"].
+    # Vérifié sur https://releases.rocket.chat/8.5.1/info
+    image: mongodb/mongodb-community-server:${MONGODB_VERSION:-8.0-ubi8}
+    # Le replica set est requis même à un seul nœud : Rocket.Chat s'appuie sur
+    # les change streams MongoDB, qui n'existent pas sur un mongod autonome.
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      # Premier passage : rs.status() lève NotYetInitialized, on initie le
+      # replica set et on sort en échec pour être rejoué. Passage suivant :
+      # myState == 1 (PRIMARY) et le service devient healthy. C'est ce qui
+      # garantit que Rocket.Chat ne démarre pas sur un nœud non initialisé.
+      # On n'initie QUE sur NotYetInitialized (code 94). Un catch fourre-tout
+      # rejouerait rs.initiate() sur une erreur transitoire, donc potentiellement
+      # sur un replica set déjà formé.
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - |
+          try {
+            if (rs.status().myState !== 1) quit(1);
+          } catch (e) {
+            if (e.code !== 94) { print('rs.status(): ' + e); quit(1); }
+            rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongodb:27017' }] });
+            quit(1);
+          }
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 15s
+    restart: unless-stopped
+
+  rocketchat:
+    image: registry.rocket.chat/rocketchat/rocket.chat:${RC_VERSION:-8.5.1}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      # ROOT_URL porte l'IP LAN, pas 10.0.2.2 : un appareil physique doit
+      # joindre le serveur, et ROOT_URL conditionne les payloads push et les
+      # deep links. Pour l'émulateur : adb reverse tcp:3000 tcp:3000
+      # `:?` fait échouer `docker compose up` immédiatement si la variable est
+      # absente, au lieu de substituer une chaîne vide. Meteor construit ses URL
+      # absolues depuis ROOT_URL : un ROOT_URL vide donne des liens de
+      # notification et des deep links silencieusement cassés.
+      ROOT_URL: ${ROOT_URL:?ROOT_URL est requis — copie docker/.env.example en docker/.env}
+      PORT: 3000
+      # Pas de MONGO_OPLOG_URL : la variable a été supprimée en 8.0.0, le
+      # serveur lit désormais les change streams.
+      MONGO_URL: mongodb://mongodb:27017/rocketchat?replicaSet=rs0
+      DEPLOY_METHOD: docker
+      # Création de l'administrateur au tout premier démarrage.
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_NAME: ${ADMIN_NAME:-Admin}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@rocket-vibe.test}
+      # Sans garde, un `up` lancé sans .env créerait le compte admin avec un mot
+      # de passe VIDE, sur un serveur écoutant sur l'IP du LAN.
+      ADMIN_PASS: ${ADMIN_PASS:?ADMIN_PASS est requis — copie docker/.env.example en docker/.env}
+      # Le préfixe OVERWRITE_SETTING_ force la valeur à chaque démarrage. Ici
+      # c'est nécessaire : la création de l'admin par les variables ADMIN_*
+      # écrit elle-même Show_Setup_Wizard à "in_progress", et une valeur sans
+      # préfixe (appliquée seulement si le réglage n'a jamais été écrit)
+      # arriverait trop tard. Sans ça, l'interface d'admin reste bloquée
+      # derrière l'assistant de configuration.
+      #
+      # On se garde d'utiliser OVERWRITE_SETTING_ pour les réglages qu'on veut
+      # pouvoir basculer depuis l'admin pendant les tests (2FA, Push_*, E2E) :
+      # il les réécrirait à chaque redémarrage.
+      OVERWRITE_SETTING_Show_Setup_Wizard: completed
+    healthcheck:
+      # L'image ne définit pas de HEALTHCHECK et n'embarque pas curl ;
+      # elle embarque node.
+      test:
+        - CMD
+        - node
+        - -e
+        - |
+          require('http')
+            .get('http://127.0.0.1:3000/api/info', (r) => process.exit(r.statusCode === 200 ? 0 : 1))
+            .on('error', () => process.exit(1));
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:

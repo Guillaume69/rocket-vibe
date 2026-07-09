@@ -64,6 +64,41 @@ Deux remarques :
 - L'image `google_apis` embarque les **Google Play Services**, que FCM exige. L'émulateur peut donc servir à valider la chaîne de push (Firebase → serveur → token → réception). Il ne reproduit en revanche ni Doze ni le kill de process : le critère binaire du *kill gate* reste sur un appareil physique.
 - `hw.ramSize = 1536M` est un peu juste pour Hermes et le bundler. Passer à `4096` dans `~/.android/avd/duogo_test.avd/config.ini` si le bundle rame.
 
+## Serveur Rocket.Chat de développement
+
+```sh
+cd docker && cp .env.example .env && chmod 600 .env   # renseigner ADMIN_PASS
+docker compose up -d
+curl -sf "$ROOT_URL/api/info"                          # {"version":"8.5",...}
+```
+
+Épinglé sur **Rocket.Chat 8.5.1** — la version de `chat.barrut.me` — et non sur la dernière publiée (8.6.0). Coller à la production évite les écarts d'API qui se paient en fin de parcours. 8.5 est une LTS supportée jusqu'au 2027-06-30.
+
+**MongoDB 8.0 est imposé** : `https://releases.rocket.chat/8.5.1/info` renvoie `compatibleMongoVersions: ["8.0"]`. Les séries 6 et 7 ne sont plus supportées depuis la 8.2.
+
+Le **replica set est obligatoire**, même à un seul nœud : Rocket.Chat s'appuie sur les *change streams* MongoDB, qui n'existent pas sur un `mongod` autonome. Le healthcheck du service `mongodb` initie le replica set lui-même, puis n'est vert qu'une fois le nœud `PRIMARY` — c'est ce qui garantit que Rocket.Chat ne démarre pas trop tôt.
+
+`MONGO_OPLOG_URL` n'est **pas** définie : la variable a été supprimée en 8.0.0.
+
+`ROOT_URL` et `ADMIN_PASS` utilisent la forme `${VAR:?message}` : un `docker compose up` sans `.env` échoue immédiatement, au lieu de créer un compte `admin` sans mot de passe sur un serveur exposé au LAN.
+
+## Ce que dit le serveur cible (`chat.barrut.me`, relevé sans authentification)
+
+| Réglage | Valeur | Conséquence |
+|---|---|---|
+| `version` | `8.5` | `rooms.upload` supprimé, appels de méthodes DDP dépréciés. |
+| `cloudWorkspaceId` | présent | Le workspace **est enregistré sur Rocket.Chat Cloud** : le Push Gateway officiel est actif, il faudra le désactiver. |
+| `Accounts_TwoFactorAuthentication_Enabled` | `true` | 2FA obligatoire dès l'étape 3.2. |
+| `..._By_TOTP_Enabled` / `..._By_Email_Enabled` | `true` / `false` | Seul le TOTP est à implémenter, plus le repli mot de passe. |
+| OAuth, SAML, CAS, LDAP | tous inactifs | **Aucun chantier SSO** dans le v1. |
+| `E2E_Enable` | `true` | Un salon marqué `encrypted` sera illisible et inaccessible en écriture. À arbitrer. |
+| `E2E_Allow_Unencrypted_Messages` | `false` | Le serveur **rejette** un message en clair dans un salon chiffré. |
+| `E2E_Enabled_Default_PrivateRooms` | `false` | Les nouveaux salons privés ne sont pas chiffrés d'office. |
+| `FileUpload_ProtectFiles` | `true` | Fichiers accessibles seulement authentifié (`rc_uid`/`rc_token`). |
+| `Accounts_AvatarBlockUnauthenticatedAccess` | `true` | Les avatars aussi. |
+| `Presence_broadcast_disabled` | `false` | La présence fonctionne. |
+| `Message_AllowEditing_BlockEditInMinutes` | `0` | Pas de limite de temps d'édition. |
+
 ## Outils
 
 `docker` et `docker compose` sont disponibles, daemon accessible sans `sudo`. `jq` est absent : les scripts utilisent `node` pour lire du JSON.

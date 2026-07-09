@@ -63,7 +63,7 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
 
 | # | Ce dont j'ai besoin | Pourquoi |
 |---|---|---|
-| B1 | Un **téléphone Android physique**, débogage USB activé (`adb devices` le voit) | **Uniquement pour le critère binaire du kill gate.** L'émulateur ne reproduit ni Doze ni le kill de process. |
+| ~~B1~~ | ~~Un téléphone Android physique~~ — **fourni** : Pixel 10 Pro, Android 16, `arm64-v8a`, Play Services présents, vu par `adb` (`56211FDCH004E7`). Un Pixel est le meilleur cas : aucune surcouche constructeur n'y tue les services en arrière-plan, donc un échec du *kill gate* sera un vrai échec. | ✔ |
 | B2 | Un **projet Firebase**, une app Android dont le `package_name` = notre `applicationId`, et le `google-services.json` | Lie l'APK au sender-id FCM. |
 | B3 | Une **clé JSON de compte de service** Firebase, rôle *Firebase Cloud Messaging API Admin*, API *FCM (V1)* activée dans Google Cloud | C'est ce que le serveur Rocket.Chat utilise pour signer ses envois. |
 | B4 | Sur le téléphone : **Autostart activé**, **optimisation de batterie désactivée** pour l'app | Vrai facteur de fiabilité du push au quotidien, surtout sur MIUI/Samsung. |
@@ -114,13 +114,13 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
 - [x] **1.4 — Squelette Expo** · `@claude` · `[code]`
   Expo **SDK 57** (RN 0.86, React 19.2.3), `expo-router`, `expo-dev-client`, TypeScript strict, `expo lint`. Template `blank-typescript` et non `default` : ce dernier impose Reanimated et un écran de démo. `applicationId = me.barrut.rocketvibe` (devra correspondre au `package_name` Firebase).
   **Critère de sortie** : `npx tsc --noEmit` sort en 0, et `expo lint` est propre.
-  Fait le : **2026-07-10** — les deux verts. Reanimated **non** installé.
+  Fait le : **2026-07-10** — les deux verts. *Correction :* Reanimated **est** installé, `expo-router` en dépend directement. Voir `docs/DEV.md`.
 
-- [ ] **1.5 — Premier APK local** · `@claude` · `[infra]`
-  `npx expo prebuild --platform android`, puis `./gradlew app:assembleDebug`, puis installation sur l'AVD `duogo_test`.
-  **Vérifie l'incertitude n°5** de `ROADMAP.md` §7 (compatibilité `com.google.gms:google-services` × Gradle 9.3.1).
+- [x] **1.5 — Premier APK local** · `@claude` · `[infra]`
+  `npx expo prebuild --platform android --clean`, puis `./gradlew app:assembleDebug`, puis installation sur l'AVD `duogo_test`.
   **Critère de sortie** : `./gradlew app:assembleDebug` sort en 0 ; `adb install -r <apk>` réussit ; l'app s'ouvre sans crash.
-  Fait le : `____`
+  Fait le : **2026-07-10** — `BUILD SUCCESSFUL in 3m 7s` (Gradle 9.3.1, JDK 17, New Arch + Hermes + edge-to-edge actifs par défaut). APK universel de 248 Mo, 4 ABI. Lancé sur l'AVD via le deep link du dev client : écran rendu, `logcat` sans erreur fatale.
+  > L'**incertitude n°5** (`com.google.gms:google-services` × Gradle 9.3.1) **reste ouverte** : le plugin GMS n'est pas encore au projet. Elle se lèvera au premier build de l'étape 2.2.
 
 - [ ] **1.6 — Écran « serveur »** · `@claude` · `[code]`
   Saisie de l'URL du serveur, `GET /api/v1/info` et `GET /api/v1/settings.public`, affichage de la version et des méthodes d'authentification disponibles. Aucun état global, aucune base : c'est un bout de ficelle qui prouve la chaîne.

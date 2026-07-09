@@ -120,7 +120,9 @@ npm run android       # expo run:android
 
 Expo **SDK 57** (React Native 0.86, React 19.2.3), `expo-router` sur le stack natif de `react-native-screens`.
 
-Le squelette vient du template **`blank-typescript`**, pas de `default` : ce dernier impose `react-native-reanimated` et un écran de démo à onglets. Chaque dépendance est choisie, pas subie — d'autant que Reanimated coûte 25 à 30 % de RAM depuis RN 0.85, même inutilisé.
+Le squelette vient du template **`blank-typescript`**, pas de `default` : ce dernier ajoute un écran de démo à onglets et des dépendances non demandées. Chaque dépendance est choisie, pas subie.
+
+**Correction d'une affirmation initiale.** J'ai d'abord écrit que ce choix évitait `react-native-reanimated`. C'est faux : `expo-router@57.0.4` en dépend **directement** (ainsi que de `react-native-worklets`), comme le montre `npm ls react-native-reanimated`. Reanimated est donc présent quel que soit le template, et le build Gradle le compile. La régression mémoire de 25 à 30 % introduite par RN 0.85 s'applique, et n'est pas évitable tant qu'on utilise `expo-router`. À surveiller au profilage ; s'en débarrasser supposerait d'abandonner `expo-router` pour `react-navigation` nu, ce qui n'en vaut probablement pas le prix.
 
 `applicationId` = `me.barrut.rocketvibe`. Il devra correspondre **exactement** au `package_name` déclaré dans le projet Firebase, sinon le plugin Gradle GMS refuse de builder.
 

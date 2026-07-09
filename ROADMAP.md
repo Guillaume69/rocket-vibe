@@ -149,7 +149,7 @@ C'est ce qu'on utilisera pour la feuille d'actions sur un message, le sélecteur
 
 **Interdits fermes** : tout kit UI (NativeBase, Tamagui, gluestack, RN Paper), toute **WebView**, `react-native-markdown-display`, `react-native-render-html`, et **`@gorhom/bottom-sheet`** — c'est une réimplémentation JS/Reanimated d'un composant que la plateforme fournit déjà.
 
-> **Piège transverse** : importer `react-native-reanimated` — même sans l'utiliser — augmente la RAM de 25 à 30 % depuis RN 0.85 (changement Hermes). Il est tiré par `gesture-handler` et `keyboard-controller`. À surveiller au profilage.
+> **Piège transverse, et il est inévitable** : `react-native-reanimated` augmente la RAM de 25 à 30 % depuis RN 0.85 (changement Hermes), même inutilisé. Vérifié après installation : **`expo-router@57.0.4` en dépend directement**, ainsi que de `react-native-worklets`. Aucun choix de template ne l'évite. S'en passer supposerait d'abandonner `expo-router` pour `react-navigation` nu — probablement pas rentable. À surveiller au profilage plutôt qu'à combattre.
 
 ---
 

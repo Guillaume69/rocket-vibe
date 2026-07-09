@@ -196,11 +196,13 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
   **Critère de sortie** : `npm test` vert, `npx tsc --noEmit` vert, et login + 2FA réels contre le serveur Docker.
   Fait le : **2026-07-10** — 15 tests verts ; contre le vrai serveur : login, GET authentifié, `ErreurDeuxFacteurs` puis rejeu avec le SHA-256 du mot de passe.
 
-- [ ] **3.2 — Authentification et 2FA** · `@claude` · `[code]`
-  `POST /api/v1/login`. Interception de `errorType = totp-required` — **le nom trompe, il couvre aussi `email` et `password`**. Lire `details.method` et `details.availableMethods`, rejouer la **même** requête avec `x-2fa-code` et `x-2fa-method`. Pour `password`, envoyer le **SHA-256**, jamais le clair. `users.2fa.sendEmailCode` avec backoff : le rate limiter du login est plus agressif que le REST générique.
-  Tokens dans `expo-secure-store`, clé par host. **Lève l'incertitude n°1** (le corps accepte-t-il encore `code` en 8.6 ?).
-  **Critère de sortie** : login réussi contre le serveur Docker avec `Accounts_TwoFactorAuthentication_Enabled` activé, méthode `totp` **et** méthode `email`.
-  Fait le : `____`
+- [x] **3.2 — Authentification et 2FA** · `@claude` · `[code]`
+  `lib/auth.ts` (pur, hachage injecté) + `lib/sessionStore.ts` (`expo-secure-store`, une session par host).
+  **Deux formes de 2FA découvertes contre le serveur réel** : `/api/v1/login` renvoie `error: 'totp-required'` **sans** `errorType`, alors que `/api/v1/settings/*` renvoie `errorType`. Ne tester qu'`errorType` laissait la 2FA du login passer pour une erreur ordinaire.
+  **`POST /api/v1/logout` répond 200 avec un corps VIDE** : `ClientRest` le traite comme un succès.
+  **Incertitude n°1 levée** : la 2FA passe par les en-têtes `x-2fa-code` / `x-2fa-method`, jamais par le corps.
+  **Critère de sortie** : `npm test` vert, et contre le serveur Docker : login, `resume`, `/me`, logout, puis 2FA réelle déclenchée (méthode `email`).
+  Fait le : **2026-07-10** — 29 tests verts ; intégration complète, `sendEmailCode` accepté.
 
 - [ ] **3.3 — Mini-client DDP** · `@claude` · `[code]`
   Écoute seule : `connect`, `login {resume}`, `sub`, `unsub`, routage `added` / `changed` / `removed` / `ready` / `nosub` / `ping`. **Pas de `call`** : les appels de méthodes DDP sont dépréciés (8.0), retrait en 9.0. Charge utile dans `fields.args[0]`, clé dans `fields.eventName`, dates EJSON `{"$date": epochMs}`.

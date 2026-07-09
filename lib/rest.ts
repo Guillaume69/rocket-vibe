@@ -217,6 +217,11 @@ export class ClientRest {
     // Lire le texte avant de parser : un reverse proxy peut renvoyer du HTML
     // avec un code 200, et « JSON invalide » n'est pas « serveur injoignable ».
     const texte = await reponse.text();
+
+    // `POST /api/v1/logout` répond 200 avec un corps VIDE — vérifié contre un
+    // serveur 8.5. Un succès sans contenu n'est pas une erreur de format.
+    if (texte.trim() === '' && reponse.ok) return {} as T;
+
     let json: ReponseRocketChat & Record<string, unknown>;
     try {
       json = JSON.parse(texte) as typeof json;
@@ -227,7 +232,12 @@ export class ClientRest {
       );
     }
 
-    if (json.errorType === 'totp-required') {
+    // Rocket.Chat 8.5 signale la 2FA sous DEUX formes selon l'endpoint :
+    //   /api/v1/login      -> { error: 'totp-required' }      (sans errorType)
+    //   /api/v1/settings/* -> { errorType: 'totp-required' }  (sans error)
+    // Vérifié contre un serveur réel. Ne tester que `errorType` laissait la 2FA
+    // du login remonter comme une ErreurRest ordinaire.
+    if (json.errorType === 'totp-required' || json.error === 'totp-required') {
       const brutes = json.details?.availableMethods ?? [];
       const methodeDemandee = estMethode(json.details?.method) ? json.details.method : 'password';
       throw new ErreurDeuxFacteurs(

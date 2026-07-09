@@ -101,6 +101,24 @@ describe('ClientRest', () => {
     });
   });
 
+  test('la forme 2FA de /login (`error`, sans `errorType`) est reconnue', async () => {
+    // Relevé tel quel sur un serveur 8.5 : /api/v1/login ne pose PAS errorType.
+    poignee = (_q, res) =>
+      repondre(res, 401, {
+        success: false,
+        error: 'totp-required',
+        status: 'error',
+        message: 'TOTP Required',
+        details: { method: 'email', availableMethods: ['email'], codeGenerated: false },
+      });
+    await assert.rejects(client().post('login', { anonyme: true }), (e: unknown) => {
+      assert.ok(e instanceof ErreurDeuxFacteurs, 'doit être une ErreurDeuxFacteurs, pas ErreurRest');
+      assert.equal(e.methode, 'email');
+      assert.deepEqual(e.methodesDisponibles, ['email']);
+      return true;
+    });
+  });
+
   test('une méthode 2FA inconnue retombe sur `password` sans planter', async () => {
     poignee = (_q, res) =>
       repondre(res, 401, {
@@ -181,6 +199,23 @@ describe('ClientRest', () => {
       assert.match(e.message, /non JSON/);
       return true;
     });
+  });
+
+  test('un 200 au corps vide est un succès, pas un « JSON invalide »', async () => {
+    // `POST /api/v1/logout` se comporte exactement ainsi sur un serveur 8.5.
+    poignee = (_q, res) => {
+      res.writeHead(200);
+      res.end();
+    };
+    assert.deepEqual(await client().post('logout'), {});
+  });
+
+  test('un corps vide avec un code 4xx reste une erreur', async () => {
+    poignee = (_q, res) => {
+      res.writeHead(502);
+      res.end();
+    };
+    await assert.rejects(client().get('info'), ErreurRest);
   });
 
   test("une annulation par l'appelant propage AbortError, pas une ErreurRest", async () => {

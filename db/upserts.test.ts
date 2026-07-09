@@ -1,0 +1,175 @@
+import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { beforeEach, describe, test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+import type { AbonnementLocal, MessageLocal, SalonLocal } from '../lib/normaliser.ts';
+import {
+  SUPPRIMER_MESSAGE,
+  UPSERT_ABONNEMENT,
+  UPSERT_CURSEUR,
+  UPSERT_MESSAGE,
+  UPSERT_SALON,
+  paramsAbonnement,
+  paramsMessage,
+  paramsSalon,
+} from './upserts.ts';
+
+const DOSSIER = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
+
+/**
+ * `node:sqlite` renvoie des objets à prototype `null`, que `assert.deepEqual`
+ * en mode strict refuse de comparer à un littéral. On les remet à plat.
+ */
+function ligne(v: unknown): Record<string, unknown> {
+  return { ...(v as Record<string, unknown>) };
+}
+
+function baseMigree(): DatabaseSync {
+  const db = new DatabaseSync(':memory:');
+  for (const f of readdirSync(DOSSIER).filter((x) => x.endsWith('.sql')).sort()) {
+    for (const r of readFileSync(join(DOSSIER, f), 'utf8').split('--> statement-breakpoint')) {
+      if (r.trim() !== '') db.exec(r.trim());
+    }
+  }
+  return db;
+}
+
+/**
+ * On construit les paramètres avec `paramsMessage` de `db/upserts.ts`, la
+ * fonction même qu'utilise l'application : un ordre de colonnes qui divergerait
+ * de l'ordre des valeurs ferait échouer ces tests, au lieu de corrompre la base
+ * en silence.
+ */
+function msg(o: Partial<MessageLocal> & { id: string; misAJourLe: number }) {
+  return paramsMessage({
+    rid: 'rid-1',
+    texte: 'bonjour',
+    horodatage: 1000,
+    auteurId: 'u1',
+    auteurNom: 'alice',
+    typeSysteme: null,
+    filId: null,
+    filReponses: 0,
+    modifieLe: null,
+    md: null,
+    piecesJointes: null,
+    reactions: null,
+    ...o,
+  });
+}
+
+function salon(o: Partial<SalonLocal> & { rid: string; misAJourLe: number }) {
+  return paramsSalon({
+    type: 'c',
+    nom: 'nom',
+    nomAffiche: 'nom',
+    chiffre: false,
+    lectureSeule: false,
+    dernierMessage: null,
+    horodatageDernierMessage: null,
+    ...o,
+  });
+}
+
+function abo(o: Partial<AbonnementLocal> & { rid: string; misAJourLe: number }) {
+  return paramsAbonnement({
+    nonLus: 0,
+    mentions: 0,
+    mentionsGroupe: 0,
+    alerte: false,
+    ouvert: true,
+    favori: false,
+    luJusquA: null,
+    ...o,
+  });
+}
+
+let db: DatabaseSync;
+beforeEach(() => {
+  db = baseMigree();
+});
+
+describe('upserts idempotents', () => {
+  test('rejouer le même message ne crée pas de doublon', () => {
+    const p = msg({ id: 'm1', misAJourLe: 100 });
+    db.prepare(UPSERT_MESSAGE).run(...p);
+    db.prepare(UPSERT_MESSAGE).run(...p);
+    db.prepare(UPSERT_MESSAGE).run(...p);
+    const n = db.prepare('SELECT count(*) c FROM messages').get() as { c: number };
+    assert.equal(n.c, 1);
+  });
+
+  test('un événement plus récent met bien à jour le message', () => {
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', texte: 'v1', misAJourLe: 100 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', texte: 'v2', misAJourLe: 200 }));
+    const m = ligne(db.prepare('SELECT texte, mis_a_jour_le FROM messages WHERE id = ?').get('m1'));
+    assert.deepEqual(m, { texte: 'v2', mis_a_jour_le: 200 });
+  });
+
+  test('un événement PLUS ANCIEN n’écrase pas un état plus récent', () => {
+    // Scénario réel : un rattrapage REST, lancé après une reconnexion, livre la
+    // version d'un message que le WebSocket a déjà mise à jour depuis.
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', texte: 'récent', misAJourLe: 200 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', texte: 'ancien', misAJourLe: 100 }));
+    const m = ligne(db.prepare('SELECT texte, mis_a_jour_le FROM messages WHERE id = ?').get('m1'));
+    assert.deepEqual(m, { texte: 'récent', mis_a_jour_le: 200 }, 'le passé ne doit pas gagner');
+  });
+
+  test('un événement de même horodatage est appliqué (rejeu idempotent)', () => {
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', texte: 'a', misAJourLe: 100 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', texte: 'b', misAJourLe: 100 }));
+    const m = ligne(db.prepare('SELECT texte FROM messages WHERE id = ?').get('m1'));
+    assert.deepEqual(m, { texte: 'b' }, '>= et non > : deux écritures dans la même ms');
+  });
+
+  test('les salons suivent la même règle d’antériorité', () => {
+    db.prepare(UPSERT_SALON).run(...salon({ rid: 'r1', nom: 'récent', misAJourLe: 200 }));
+    db.prepare(UPSERT_SALON).run(...salon({ rid: 'r1', nom: 'ancien', misAJourLe: 100 }));
+    const s = ligne(db.prepare('SELECT nom FROM salons WHERE rid = ?').get('r1'));
+    assert.deepEqual(s, { nom: 'récent' });
+  });
+
+  test('les abonnements aussi : des non-lus remis à zéro ne réapparaissent pas', () => {
+    db.prepare(UPSERT_ABONNEMENT).run(...abo({ rid: 'r1', nonLus: 0, misAJourLe: 200 })); // je viens de lire
+    db.prepare(UPSERT_ABONNEMENT).run(...abo({ rid: 'r1', nonLus: 7, misAJourLe: 100 })); // rattrapage
+    const a = ligne(db.prepare('SELECT non_lus FROM abonnements WHERE rid = ?').get('r1'));
+    assert.deepEqual(a, { non_lus: 0 });
+  });
+
+  test('un curseur de rattrapage ne recule jamais', () => {
+    db.prepare(UPSERT_CURSEUR).run('r1', 'messages', 500);
+    db.prepare(UPSERT_CURSEUR).run('r1', 'messages', 300);
+    const c = ligne(
+      db
+        .prepare('SELECT mis_a_jour_depuis FROM etat_synchro WHERE portee = ? AND flux = ?')
+        .get('r1', 'messages'),
+    );
+    assert.deepEqual(c, { mis_a_jour_depuis: 500 }, 'un curseur qui régresse re-télécharge tout');
+
+    db.prepare(UPSERT_CURSEUR).run('r1', 'messages', 700);
+    const d = ligne(
+      db
+        .prepare('SELECT mis_a_jour_depuis FROM etat_synchro WHERE portee = ? AND flux = ?')
+        .get('r1', 'messages'),
+    );
+    assert.deepEqual(d, { mis_a_jour_depuis: 700 });
+  });
+
+  test('deux flux du même salon ont des curseurs indépendants', () => {
+    db.prepare(UPSERT_CURSEUR).run('r1', 'messages', 500);
+    db.prepare(UPSERT_CURSEUR).run('r1', 'abonnements', 100);
+    const n = db.prepare('SELECT count(*) c FROM etat_synchro').get() as { c: number };
+    assert.equal(n.c, 2);
+  });
+
+  test('la suppression est idempotente', () => {
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', misAJourLe: 100 }));
+    db.prepare(SUPPRIMER_MESSAGE).run('m1');
+    db.prepare(SUPPRIMER_MESSAGE).run('m1'); // ne doit pas lever
+    const n = db.prepare('SELECT count(*) c FROM messages').get() as { c: number };
+    assert.equal(n.c, 0);
+  });
+});

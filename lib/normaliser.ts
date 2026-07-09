@@ -1,0 +1,145 @@
+/**
+ * Traduction des charges utiles Rocket.Chat vers les lignes locales.
+ *
+ * Module pur : aucun accès réseau, aucune base. C'est ici que se concentrent
+ * les bizarreries du serveur, pour qu'elles ne se répandent pas ailleurs.
+ */
+
+/** Le serveur envoie soit `{"$date": epochMs}` (EJSON), soit une chaîne ISO. */
+export function versEpoch(valeur: unknown): number | null {
+  if (typeof valeur === 'number' && Number.isFinite(valeur)) return valeur;
+  if (typeof valeur === 'string') {
+    const t = Date.parse(valeur);
+    return Number.isNaN(t) ? null : t;
+  }
+  if (typeof valeur === 'object' && valeur !== null) {
+    const brut = (valeur as { $date?: unknown }).$date;
+    if (typeof brut === 'number' && Number.isFinite(brut)) return brut;
+    if (typeof brut === 'string') {
+      const t = Date.parse(brut);
+      return Number.isNaN(t) ? null : t;
+    }
+  }
+  return null;
+}
+
+export type MessageLocal = {
+  id: string;
+  rid: string;
+  texte: string | null;
+  horodatage: number;
+  auteurId: string;
+  auteurNom: string | null;
+  typeSysteme: string | null;
+  filId: string | null;
+  filReponses: number;
+  modifieLe: number | null;
+  md: string | null;
+  piecesJointes: string | null;
+  reactions: string | null;
+  misAJourLe: number;
+};
+
+export type SalonLocal = {
+  rid: string;
+  type: string;
+  nom: string | null;
+  nomAffiche: string | null;
+  chiffre: boolean;
+  lectureSeule: boolean;
+  dernierMessage: string | null;
+  horodatageDernierMessage: number | null;
+  misAJourLe: number;
+};
+
+export type AbonnementLocal = {
+  rid: string;
+  nonLus: number;
+  mentions: number;
+  mentionsGroupe: number;
+  alerte: boolean;
+  ouvert: boolean;
+  favori: boolean;
+  luJusquA: number | null;
+  misAJourLe: number;
+};
+
+const chaine = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
+const entier = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+const booleen = (v: unknown): boolean => v === true;
+const jsonOuNull = (v: unknown): string | null =>
+  v === undefined || v === null ? null : JSON.stringify(v);
+
+/** Un message chiffré n'est pas déchiffrable ici : on n'expose jamais le blob. */
+export const TYPE_CHIFFRE = 'e2e';
+
+export function versMessage(brut: Record<string, unknown>): MessageLocal | null {
+  const id = chaine(brut._id);
+  const rid = chaine(brut.rid);
+  const horodatage = versEpoch(brut.ts);
+  const auteur = brut.u as { _id?: unknown; username?: unknown } | undefined;
+  const auteurId = chaine(auteur?._id);
+  if (id === null || rid === null || horodatage === null || auteurId === null) return null;
+
+  const typeSysteme = chaine(brut.t);
+  // `msg` d'un message chiffré contient du base64 opaque. Le stocker inviterait
+  // à l'afficher un jour par accident.
+  const chiffre = typeSysteme === TYPE_CHIFFRE;
+
+  return {
+    id,
+    rid,
+    texte: chiffre ? null : chaine(brut.msg),
+    horodatage,
+    auteurId,
+    auteurNom: chaine(auteur?.username),
+    typeSysteme,
+    filId: chaine(brut.tmid),
+    filReponses: entier(brut.tcount),
+    modifieLe: versEpoch(brut.editedAt),
+    md: chiffre ? null : jsonOuNull(brut.md),
+    piecesJointes: chiffre ? null : jsonOuNull(brut.attachments),
+    reactions: jsonOuNull(brut.reactions),
+    // `_updatedAt` est l'horloge du serveur : c'est elle qui arbitre les
+    // conflits entre le WebSocket et un rattrapage REST plus lent.
+    misAJourLe: versEpoch(brut._updatedAt) ?? horodatage,
+  };
+}
+
+export function versSalon(brut: Record<string, unknown>): SalonLocal | null {
+  const rid = chaine(brut._id);
+  const type = chaine(brut.t);
+  if (rid === null || type === null) return null;
+
+  const chiffre = booleen(brut.encrypted);
+  const dernier = brut.lastMessage as Record<string, unknown> | undefined;
+
+  return {
+    rid,
+    type,
+    nom: chaine(brut.name),
+    nomAffiche: chaine(brut.fname) ?? chaine(brut.name),
+    chiffre,
+    lectureSeule: booleen(brut.ro),
+    // L'aperçu d'un salon chiffré est du ciphertext : jamais affiché.
+    dernierMessage: chiffre ? null : chaine(dernier?.msg),
+    horodatageDernierMessage: versEpoch(dernier?.ts) ?? versEpoch(brut.lm),
+    misAJourLe: versEpoch(brut._updatedAt) ?? 0,
+  };
+}
+
+export function versAbonnement(brut: Record<string, unknown>): AbonnementLocal | null {
+  const rid = chaine(brut.rid);
+  if (rid === null) return null;
+  return {
+    rid,
+    nonLus: entier(brut.unread),
+    mentions: entier(brut.userMentions),
+    mentionsGroupe: entier(brut.groupMentions),
+    alerte: booleen(brut.alert),
+    ouvert: booleen(brut.open),
+    favori: booleen(brut.f),
+    luJusquA: versEpoch(brut.ls),
+    misAJourLe: versEpoch(brut._updatedAt) ?? 0,
+  };
+}

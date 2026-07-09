@@ -80,7 +80,7 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
 |---|---|---|
 | 1 | Socle vérifiable | ✅ 2026-07-10 |
 | 2 | Spike push — **kill gate** | ✅ PASS sur émulateur — 2.5b (Pixel) en attente |
-| 3 | Transport et données | ☐ |
+| 3 | Transport et données | ✅ 2026-07-10 (3.6 partiel) |
 | 4 | Première tranche verticale | ☐ |
 | 5 | Résilience et rattrapage | ☐ |
 | 6 | Push intégré | ☐ |
@@ -215,10 +215,11 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
   **Critère de sortie** : les migrations s'appliquent, `useLiveQuery` réagit à une écriture.
   Fait le : **2026-07-10** — vérifié **sur l'appareil** via `sqlite3` : `journal_mode = wal`, 1 migration enregistrée, les 4 index présents, et `EXPLAIN QUERY PLAN` confirme `SEARCH messages USING INDEX idx_messages_salon_date`. Les compteurs de l'écran debug se rafraîchissent sans rechargement.
 
-- [ ] **3.5 — Moteur de synchro** · `@claude` · `[code]`
-  Le WebSocket et le REST écrivent tous deux par **upserts idempotents**. Dédup par `_id`. `SyncState` par salon.
-  **Critère de sortie** : rejouer deux fois le même événement ne crée pas de doublon (test).
-  Fait le : `____`
+- [x] **3.5 — Moteur de synchro** · `@claude` · `[code]`
+  `lib/normaliser.ts` (traduction pure des charges Rocket.Chat), `lib/sync.ts` (routage DDP + ingestion REST, derrière une interface `Depot`), `db/upserts.ts` (le SQL **et** les constructeurs de paramètres, une seule source), `db/depot.ts` (implémentation `expo-sqlite`).
+  Deux invariants dans le SQL : `ON CONFLICT DO UPDATE` (pas de doublon) et `WHERE excluded.mis_a_jour_le >= …` (**un événement plus ancien n'écrase pas un état plus récent** — un rattrapage REST en retard ne ressuscite pas un message édité, ni des non-lus déjà remis à zéro).
+  **Critère de sortie** : rejouer deux fois le même événement ne crée pas de doublon.
+  Fait le : **2026-07-10** — 89 tests verts ; bout en bout contre le serveur Docker : ingestion REST (14 messages), rejeu → toujours 14, message temps réel écrit en base avec son `md`, suppression propagée, `ignores: 0`.
 
 - [x] **3.6 — Écran debug** · `@claude` · `[code]` — *première moitié*
   `app/debug.tsx` : compteurs de lignes en base, insertion et purge. Il **ne sera pas jeté** : c'est l'instrument de mesure du test de torture de 5.5. Les compteurs passent par `count(*)`, pas par `select *`.

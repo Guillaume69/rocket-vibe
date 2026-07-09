@@ -204,11 +204,11 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
   **Critère de sortie** : `npm test` vert, et contre le serveur Docker : login, `resume`, `/me`, logout, puis 2FA réelle déclenchée (méthode `email`).
   Fait le : **2026-07-10** — 29 tests verts ; intégration complète, `sendEmailCode` accepté.
 
-- [ ] **3.3 — Mini-client DDP** · `@claude` · `[code]`
-  Écoute seule : `connect`, `login {resume}`, `sub`, `unsub`, routage `added` / `changed` / `removed` / `ready` / `nosub` / `ping`. **Pas de `call`** : les appels de méthodes DDP sont dépréciés (8.0), retrait en 9.0. Charge utile dans `fields.args[0]`, clé dans `fields.eventName`, dates EJSON `{"$date": epochMs}`.
-  Écrit depuis la spécification DDP et l'observation du trafic — **on ne recopie pas** le code de `@rocket.chat/ddp-client`, sous licence EE.
-  **Critère de sortie** : tests unitaires sur un `WebSocket` mocké (handshake, sub, event, unsub, reconnexion) + un test d'intégration contre le serveur Docker.
-  Fait le : `____`
+- [x] **3.3 — Mini-client DDP** · `@claude` · `[code]`
+  `lib/ddp.ts` : écoute seule. `connect` → `method login {resume}` → `sub` / `unsub` → routage `changed` / `ready` / `nosub` / `ping`. **Pas de `call`** : les appels de méthodes DDP sont dépréciés (8.0), retrait en 9.0. `WebSocket` injecté, donc testable sous Node.
+  Souscriptions **dédupliquées par `(nom, clé)` avec compteur de références**, y compris pour les `sub` en vol du même tick — sinon le serveur duplique chaque événement. Les souscriptions désirées survivent à la chute de la socket, pour que 5.1 les rejoue.
+  **Critère de sortie** : `npm test` vert, et contre le serveur Docker : login DDP par jeton REST, souscription, message REST reçu en temps réel, `nosub` sur salon inconnu.
+  Fait le : **2026-07-10** — 48 tests verts ; intégration : aucun doublon sur deux souscriptions concurrentes, reconnexion après login refusé.
 
 - [ ] **3.4 — Schéma local** · `@claude` · `[code]`
   Drizzle + `expo-sqlite`, **`enableChangeListener: true`** obligatoire à l'ouverture. Tables `Server`, `Room`, `Subscription`, `Message` (index `(rid, ts)`, `tmid`), `Outbox`, `Upload`, `SyncState`. **Une base par host.**

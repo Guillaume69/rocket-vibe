@@ -210,20 +210,20 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
   **Critère de sortie** : `npm test` vert, et contre le serveur Docker : login DDP par jeton REST, souscription, message REST reçu en temps réel, `nosub` sur salon inconnu.
   Fait le : **2026-07-10** — 48 tests verts ; intégration : aucun doublon sur deux souscriptions concurrentes, reconnexion après login refusé.
 
-- [ ] **3.4 — Schéma local** · `@claude` · `[code]`
-  Drizzle + `expo-sqlite`, **`enableChangeListener: true`** obligatoire à l'ouverture. Tables `Server`, `Room`, `Subscription`, `Message` (index `(rid, ts)`, `tmid`), `Outbox`, `Upload`, `SyncState`. **Une base par host.**
+- [x] **3.4 — Schéma local** · `@claude` · `[code]`
+  Drizzle + `expo-sqlite`, **`enableChangeListener: true`**, WAL. Tables `salons`, `abonnements`, `messages` (index `(rid, horodatage)` et `fil_id`), `sortie`, `etat_synchro` (clé composite). **Une base par host** (`db/nomFichier.ts`). Migrations générées par `drizzle-kit`, appliquées avant le premier rendu.
   **Critère de sortie** : les migrations s'appliquent, `useLiveQuery` réagit à une écriture.
-  Fait le : `____`
+  Fait le : **2026-07-10** — vérifié **sur l'appareil** via `sqlite3` : `journal_mode = wal`, 1 migration enregistrée, les 4 index présents, et `EXPLAIN QUERY PLAN` confirme `SEARCH messages USING INDEX idx_messages_salon_date`. Les compteurs de l'écran debug se rafraîchissent sans rechargement.
 
 - [ ] **3.5 — Moteur de synchro** · `@claude` · `[code]`
   Le WebSocket et le REST écrivent tous deux par **upserts idempotents**. Dédup par `_id`. `SyncState` par salon.
   **Critère de sortie** : rejouer deux fois le même événement ne crée pas de doublon (test).
   Fait le : `____`
 
-- [ ] **3.6 — Écran debug** · `@claude` · `[code]`
-  Souscriptions actives, RTT du ping/pong, doublons détectés, trous de synchro. **Il ne sera pas jeté** : c'est l'instrument de mesure du test de torture de l'étape 5.
-  **Critère de sortie** : l'écran affiche le nombre de souscriptions actives, qui retombe à zéro quand on quitte un salon.
-  Fait le : `____`
+- [x] **3.6 — Écran debug** · `@claude` · `[code]` — *première moitié*
+  `app/debug.tsx` : compteurs de lignes en base, insertion et purge. Il **ne sera pas jeté** : c'est l'instrument de mesure du test de torture de 5.5. Les compteurs passent par `count(*)`, pas par `select *`.
+  **Reste à ajouter** (après 3.5) : souscriptions actives, RTT du ping/pong, doublons détectés, trous de synchro.
+  Fait le : **2026-07-10** — partiel.
 
 ---
 

@@ -1,4 +1,4 @@
-import { Stack } from 'expo-router';
+import { Link, Stack } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -13,14 +13,18 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SERVEUR_PAR_DEFAUT } from '../db/migrer.ts';
 import { obtenirJetonFcm } from '../lib/push.ts';
 import { ErreurServeur, sonderServeur, type ProfilServeur } from '../lib/server.ts';
 
 /**
  * L'émulateur atteint la machine hôte par `adb reverse tcp:3000 tcp:3000`.
  * Un appareil physique doit viser l'IP LAN — le champ est modifiable.
+ *
+ * La constante vient de `db/migrer.ts` : c'est la base de ce serveur qui est
+ * migrée au démarrage, les deux ne doivent pas diverger.
  */
-const URL_PAR_DEFAUT = 'http://localhost:3000';
+const URL_PAR_DEFAUT = SERVEUR_PAR_DEFAUT;
 
 type Etat =
   | { phase: 'repos' }
@@ -110,6 +114,10 @@ export default function EcranServeur() {
         {etat.phase === 'succes' && <Profil profil={etat.profil} c={c} />}
 
         <SectionJetonFcm c={c} />
+
+        <Link href="/debug" style={[styles.lien, { color: c.accent }]}>
+          Écran debug
+        </Link>
       </ScrollView>
     </SafeAreaView>
   );
@@ -240,4 +248,5 @@ const styles = StyleSheet.create({
   valeur: { fontSize: 13, fontWeight: '600', flexShrink: 1, textAlign: 'right' },
   messageErreur: { fontSize: 14, fontWeight: '600' },
   aide: { fontSize: 12, opacity: 0.9 },
+  lien: { fontSize: 15, fontWeight: '600', paddingVertical: 12, textAlign: 'center' },
 });

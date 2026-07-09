@@ -129,7 +129,11 @@ async function ensureUser({ username, name, password }) {
     name,
     password,
     email: `${username}@rocket-vibe.test`,
-    verified: true,
+    // `verified: false` volontairement. Rocket.Chat n'active la 2FA par email
+    // que sur une adresse vérifiée : un utilisateur vérifié ne peut plus se
+    // connecter en dev, faute de serveur mail pour recevoir le code.
+    // La 2FA de l'étape 3.2 se teste en enrôlant un TOTP, pas par email.
+    verified: false,
     requirePasswordChange: false,
     joinDefaultChannels: false,
     sendWelcomeEmail: false,

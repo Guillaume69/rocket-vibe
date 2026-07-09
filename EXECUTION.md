@@ -64,13 +64,13 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
 | # | Ce dont j'ai besoin | Pourquoi |
 |---|---|---|
 | ~~B1~~ | ~~Un téléphone Android physique~~ — **fourni** : Pixel 10 Pro, Android 16, `arm64-v8a`, Play Services présents, vu par `adb` (`56211FDCH004E7`). Un Pixel est le meilleur cas : aucune surcouche constructeur n'y tue les services en arrière-plan, donc un échec du *kill gate* sera un vrai échec. | ✔ |
-| B2 | Un **projet Firebase**, une app Android dont le `package_name` = notre `applicationId`, et le `google-services.json` | Lie l'APK au sender-id FCM. |
-| B3 | Une **clé JSON de compte de service** Firebase, rôle *Firebase Cloud Messaging API Admin*, API *FCM (V1)* activée dans Google Cloud | C'est ce que le serveur Rocket.Chat utilise pour signer ses envois. |
+| ~~B2~~ | ~~Projet Firebase + `google-services.json`~~ — **fourni** : projet `rocket-vibe`, `package_name: com.rocketvibe.app`. | ✔ |
+| ~~B3~~ | ~~Clé JSON de compte de service~~ — **fournie** : `rocket-vibe-firebase-adminsdk-*.json`, même projet que le `google-services.json` (condition anti-`SENDER_ID_MISMATCH`). | ✔ |
 | B4 | Sur le téléphone : **Autostart activé**, **optimisation de batterie désactivée** pour l'app | Vrai facteur de fiabilité du push au quotidien, surtout sur MIUI/Samsung. |
 
 > **L'émulateur couvre une bonne partie du chemin.** L'AVD `duogo_test` tourne sur une image `google_apis` : `com.google.android.gms` y est présent (vérifié), or FCM exige les **Google Play Services**, pas le Play Store. Je peux donc prouver seul toute la chaîne Firebase → serveur → token → réception. Seul le « app tuée, deux fois de suite » exige B1.
 >
-> `adb devices` ne voit actuellement aucun appareil physique.
+> Le Pixel 10 Pro est branché et vu par `adb`. Je n'y installe rien sans accord : la chaîne est déjà prouvée sur l'émulateur (`docs/PUSH.md`).
 
 ---
 
@@ -79,7 +79,7 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
 | Étape | Titre | Statut |
 |---|---|---|
 | 1 | Socle vérifiable | ✅ 2026-07-10 |
-| 2 | Spike push — **kill gate** | ☐ |
+| 2 | Spike push — **kill gate** | ✅ PASS sur émulateur — 2.5b (Pixel) en attente |
 | 3 | Transport et données | ☐ |
 | 4 | Première tranche verticale | ☐ |
 | 5 | Résilience et rattrapage | ☐ |
@@ -154,9 +154,11 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
   **Critère de sortie** : un token FCM est visible.
   Fait le : **2026-07-10** — le dialogue de permission s'affiche, et un **vrai jeton FCM** (`…:APA91b…`) émis pour le projet `rocket-vibe` s'affiche à l'écran de l'émulateur (image `google_apis`, GMS présents).
 
-- [ ] **2.3 — Configurer le push côté serveur** · `@duo` · `[infra]`
-  Admin → Push : `Push_enable_gateway = false`, `Push_UseLegacy = false`, coller le JSON du compte de service dans `Push_google_api_credentials`. **Redémarrer le workspace** (obligatoire).
-  **Critère de sortie** : le bouton admin « Send a test push to my user » ne renvoie pas `error-no-tokens-for-this-user`.
+- [x] **2.3 — Configurer le push côté serveur** · `@claude` · `[infra]` — *serveur Docker local uniquement, `chat.barrut.me` non touché*
+  `Push_enable = true`, `Push_enable_gateway = false`, JSON du compte de service dans `Push_google_api_credentials`, workspace redémarré.
+  **`Push_UseLegacy` n'existe pas en 8.5** — ni `Push_gcm_api_key`, ni `Push_gcm_project_number`. Le legacy est entièrement retiré ; 8.x ne parle que FCM v1. Le dossier de recherche se trompait.
+  **Modifier un réglage privilégié exige la 2FA** : `totp-required`, `method: "password"` → rejouer avec `x-2fa-code: <SHA-256 du mot de passe>` et `x-2fa-method: password`. Mécanisme de 3.2, validé en avance.
+  Fait le : **2026-07-10**
 
 - [x] **2.4 — Enregistrer le token** · `@claude` · `[code]`
   `lib/pushToken.ts` : `enregistrerJeton` / `desenregistrerJeton`.
@@ -164,19 +166,21 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
   **Critère de sortie** : POST → `success:true`, DELETE → `success:true`, DELETE rejoué → 404.
   Fait le : **2026-07-10** — contrat validé contre le serveur Docker 8.5 (200/200/404).
 
-- [ ] **2.5a — La chaîne, sur émulateur** · `@claude` · `[infra]`
-  Sur l'AVD `duogo_test` (image `google_apis`, GMS présent). Déclencheurs : le bouton admin « Send a test push to my user », puis un **vrai message direct** depuis un autre compte, le compte cible étant **hors ligne**.
-  > ⚠️ Rocket.Chat ne pousse **que vers les utilisateurs hors ligne**, et par défaut **uniquement sur DM ou mention**. Un message de canal ordinaire ne déclenche rien, quelle que soit la configuration. C'est le faux échec qui tuerait le projet à tort.
-  > ⚠️ Le token de l'app et le compte de service doivent venir du **même projet Firebase**, sinon FCM renvoie 403 `SENDER_ID_MISMATCH` et le serveur supprime le token en silence.
-  **Critère de sortie** : une notification arrive sur l'AVD, app au premier plan puis en arrière-plan. Prouve Firebase, le serveur, le token et la réception.
+- [x] **2.5a — La chaîne, sur émulateur** · `@claude` · `[infra]` — **PASS**
+  Serveur → `POST https://fcm.googleapis.com/v1/projects/rocket-vibe/messages:send`, `android.priority: HIGH`. Notification affichée (`pkg=com.rocketvibe.app`, `title=admin`), **y compris processus tué** (`am kill`), avec réveil du process par FCM.
+  > ⚠️ **`am force-stop` ≠ balayage depuis les récents.** Il place l'app dans l'état *stopped*, où FCM ne livre plus rien. Un spike qui l'utiliserait conclurait à tort que le push est mort. Utiliser **`am kill`**.
+  > ⚠️ Rien ne s'affiche **au premier plan** : le message est remis à l'app, et `expo-notifications` n'affiche rien sans `setNotificationHandler`. Ce n'est pas un échec du push.
+  > ⚠️ Rocket.Chat ne pousse **que vers les utilisateurs hors ligne**, sur **DM ou mention** seulement.
+  Fait le : **2026-07-10** — verdict complet dans `docs/PUSH.md`.
 
-- [ ] **2.5b — Le kill gate, sur appareil physique** · `@duo` · `[infra]` — *nécessite B1 et B4*
-  App **swipe-killed** sur un vrai téléphone.
-  **Critère de sortie (binaire)** : une notification **visible** arrive **deux fois de suite**, app tuée, en quelques secondes. C'est ce critère, et lui seul, qui tranche le gate.
+- [ ] **2.5b — Le kill gate, sur appareil physique** · `@duo` · `[infra]` — *le Pixel est branché, mais je n'y installe rien sans toi*
+  App **swipe-killed** depuis les récents (pas `force-stop`) sur le Pixel 10 Pro.
+  **Critère de sortie (binaire)** : une notification **visible** arrive **deux fois de suite**, app tuée. Confirme Doze et les conditions réelles ; l'émulateur a déjà validé la chaîne.
 
-- [ ] **2.6 — Consigner le verdict** · `@claude` · `[doc]`
-  Payload FCM réel observé (blocs `notification` et `data`), comportement du double affichage (**incertitude n°6**), et verdict du gate dans `docs/PUSH.md`.
-  Fait le : `____`
+- [x] **2.6 — Consigner le verdict** · `@claude` · `[doc]`
+  `docs/PUSH.md` : payload FCM réel, les trois pièges de terrain, et les deux défauts connus à corriger en 6.3 (canal `fcm_fallback_notification_channel` au lieu du nôtre en `HIGH` ; rien au premier plan sans `setNotificationHandler`).
+  **Incertitude n°6 levée** : le serveur envoie **les deux blocs** `notification` et `data`. Le système affiche le premier ; le `rid` du deep link vit dans `data.ejson`.
+  Fait le : **2026-07-10**
 
 **Sortie d'étape** : PASS → l'étape 6 est planifiable telle quelle. FAIL sur appareil OEM après réglages batterie → le verdict reste « FCM viable », on documente les réglages. FAIL total → bascule sur le plan B de `ROADMAP.md` §6.1, et le périmètre « notifications » est renégocié.
 

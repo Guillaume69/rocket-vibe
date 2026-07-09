@@ -143,25 +143,26 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
 > Code jetable, zéro UI. Rien de l'étape 3 ne commence avant que ce gate soit tranché.
 > Réf. `ROADMAP.md` §5 phase 1 et §6.1. Prérequis : **B1 à B4**.
 
-- [ ] **2.1 — Fournir les accès Firebase** · `@guillaume` · `[infra]`
-  Voir B2 et B3. Déposer `google-services.json` à la racine (gitignoré) et le JSON de compte de service hors du dépôt.
-  **Critère de sortie** : les deux fichiers existent, et `expo.android.package` = `package_name` Firebase.
+- [~] **2.1 — Fournir les accès Firebase** · `@guillaume` · `[infra]` — **à moitié fait**
+  ✔ `google-services.json` déposé (projet `rocket-vibe`, sender `321528905029`, `package_name: com.rocketvibe.app`) ; `app.json` aligné dessus (`me.barrut.rocketvibe` → `com.rocketvibe.app`, ancien APK désinstallé).
+  ✖ **Manque la clé JSON du compte de service** (console Firebase → Paramètres du projet → Comptes de service → Générer une clé privée ; rôle *Firebase Cloud Messaging API Admin* ; API *FCM V1* activée). C'est elle que le serveur colle dans `Push_google_api_credentials` — sans elle, 2.3 et 2.5 sont bloquées. À déposer **hors du dépôt** (ex. `~/rocket-vibe-secrets/`).
 
-- [ ] **2.2 — Intégration `expo-notifications`** · `@claude` · `[code]`
-  `setNotificationChannelAsync('default', { importance: HIGH })` **avant** `requestPermissionsAsync()` — sinon le prompt `POST_NOTIFICATIONS` (Android 13+) n'apparaît jamais. Puis `getDevicePushTokenAsync()`, log du token FCM natif.
-  **Vérifie l'incertitude n°4** : `grep POST_NOTIFICATIONS android/app/src/main/AndroidManifest.xml` après prebuild.
-  **Critère de sortie** : un token FCM est imprimé dans `adb logcat`.
-  Fait le : `____`
+- [x] **2.2 — Intégration `expo-notifications`** · `@claude` · `[code]`
+  `lib/push.ts` : canal `default` (HIGH) **avant** `requestPermissionsAsync()`, puis `getDevicePushTokenAsync()`. Bouton de preuve sur l'écran serveur.
+  **Incertitude n°4 levée, avec une nuance** : `POST_NOTIFICATIONS` est absent de `src/main/AndroidManifest.xml` mais **présent dans le manifeste fusionné** — il vient du manifeste de la bibliothèque `expo-notifications`, fusionné au build. Deux services `MESSAGING_EVENT` FCM déclarés.
+  **Incertitude n°5 levée** : `com.google.gms:google-services:4.4.4` × Gradle 9.3.1 → `BUILD SUCCESSFUL`.
+  **Critère de sortie** : un token FCM est visible.
+  Fait le : **2026-07-10** — le dialogue de permission s'affiche, et un **vrai jeton FCM** (`…:APA91b…`) émis pour le projet `rocket-vibe` s'affiche à l'écran de l'émulateur (image `google_apis`, GMS présents).
 
 - [ ] **2.3 — Configurer le push côté serveur** · `@duo` · `[infra]`
   Admin → Push : `Push_enable_gateway = false`, `Push_UseLegacy = false`, coller le JSON du compte de service dans `Push_google_api_credentials`. **Redémarrer le workspace** (obligatoire).
   **Critère de sortie** : le bouton admin « Send a test push to my user » ne renvoie pas `error-no-tokens-for-this-user`.
 
-- [ ] **2.4 — Enregistrer le token** · `@claude` · `[code]`
-  `POST /api/v1/push.token`, corps `{ type: 'gcm', value, appName }`, en-têtes `X-Auth-Token` / `X-User-Id`.
-  **Lève l'incertitude n°3** : valeur attendue d'`appName`, et existence d'un `DELETE /api/v1/push.token`. À trancher en lisant `apps/meteor/app/api/server` au tag `8.6.0`.
-  **Critère de sortie** : la réponse est `{"success":true}` et le token apparaît côté serveur.
-  Fait le : `____`
+- [x] **2.4 — Enregistrer le token** · `@claude` · `[code]`
+  `lib/pushToken.ts` : `enregistrerJeton` / `desenregistrerJeton`.
+  **Incertitude n°3 levée**, dans le code au tag `8.5.0` (`apps/meteor/app/api/server/v1/push.ts`) : `appName` est une **chaîne libre** (`minLength: 1`, aucun lien avec l'applicationId) ; **`DELETE /api/v1/push.token` existe**, corps `{ token }`. Schéma strict (`additionalProperties: false`). Un DELETE rejoué répond **404** — toléré par `desenregistrerJeton` (test sur le statut, pas sur le texte).
+  **Critère de sortie** : POST → `success:true`, DELETE → `success:true`, DELETE rejoué → 404.
+  Fait le : **2026-07-10** — contrat validé contre le serveur Docker 8.5 (200/200/404).
 
 - [ ] **2.5a — La chaîne, sur émulateur** · `@claude` · `[infra]`
   Sur l'AVD `duogo_test` (image `google_apis`, GMS présent). Déclencheurs : le bouton admin « Send a test push to my user », puis un **vrai message direct** depuis un autre compte, le compte cible étant **hors ligne**.

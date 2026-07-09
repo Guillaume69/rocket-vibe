@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { obtenirJetonFcm } from '../lib/push';
 import { ErreurServeur, sonderServeur, type ProfilServeur } from '../lib/server';
 
 /**
@@ -107,8 +108,44 @@ export default function EcranServeur() {
         )}
 
         {etat.phase === 'succes' && <Profil profil={etat.profil} c={c} />}
+
+        <SectionJetonFcm c={c} />
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+/** Spike 2.2 : prouve l'obtention du jeton FCM natif. Sera déplacé au login. */
+function SectionJetonFcm({ c }: { c: Couleurs }) {
+  const [jeton, setJeton] = useState<string | null>(null);
+  const [erreur, setErreur] = useState<string | null>(null);
+
+  const demander = useCallback(async () => {
+    setErreur(null);
+    const r = await obtenirJetonFcm();
+    if (r.ok) {
+      setJeton(r.jeton);
+      console.log('JETON_FCM', r.jeton);
+    } else {
+      setErreur(`${r.raison}${r.detail ? ` — ${r.detail}` : ''}`);
+      console.log('JETON_FCM_ECHEC', r.raison, r.detail ?? '');
+    }
+  }, []);
+
+  return (
+    <View style={[styles.carte, { backgroundColor: c.carte }]}>
+      <Pressable onPress={demander} android_ripple={{ color: c.ondulation }}>
+        <Text style={[styles.valeur, { color: c.accent, textAlign: 'left' }]}>
+          Obtenir le jeton FCM
+        </Text>
+      </Pressable>
+      {jeton !== null && (
+        <Text style={[styles.aide, { color: c.texte }]} selectable numberOfLines={3}>
+          {jeton}
+        </Text>
+      )}
+      {erreur !== null && <Text style={[styles.aide, { color: c.texteErreur }]}>{erreur}</Text>}
+    </View>
   );
 }
 

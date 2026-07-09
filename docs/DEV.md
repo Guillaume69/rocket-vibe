@@ -109,6 +109,31 @@ Le script est **idempotent y compris après une interruption**. Chaque message s
 | `Presence_broadcast_disabled` | `false` | La présence fonctionne. |
 | `Message_AllowEditing_BlockEditInMinutes` | `0` | Pas de limite de temps d'édition. |
 
+## L'application
+
+```sh
+npm run typecheck     # tsc --noEmit, strict
+npm run lint          # expo lint
+npm run prebuild      # expo prebuild --platform android --clean
+npm run android       # expo run:android
+```
+
+Expo **SDK 57** (React Native 0.86, React 19.2.3), `expo-router` sur le stack natif de `react-native-screens`.
+
+Le squelette vient du template **`blank-typescript`**, pas de `default` : ce dernier impose `react-native-reanimated` et un écran de démo à onglets. Chaque dépendance est choisie, pas subie — d'autant que Reanimated coûte 25 à 30 % de RAM depuis RN 0.85, même inutilisé.
+
+`applicationId` = `me.barrut.rocketvibe`. Il devra correspondre **exactement** au `package_name` déclaré dans le projet Firebase, sinon le plugin Gradle GMS refuse de builder.
+
+### L'override `react-dom`
+
+`expo-router` tire `react-dom@19.2.7`, qui exige `react ^19.2.7`, alors qu'Expo SDK 57 épingle `react@19.2.3`. Toute installation échoue en `ERESOLVE`. On ne cible pas le web, `react-dom` n'est qu'une dépendance transitive : on l'aligne sur `react` plutôt que de recourir à `--legacy-peer-deps`, qui masquerait l'incohérence.
+
+```json
+"overrides": { "react-dom": "$react" }
+```
+
+La forme `$react` référence la version de la dépendance directe `react` : l'alignement se maintient tout seul lors des montées de SDK. Une version figée en dur dériverait en silence, et mélangerait deux versions de React dans le bundle devtools.
+
 ## Outils
 
 `docker` et `docker compose` sont disponibles, daemon accessible sans `sudo`. `jq` est absent : les scripts utilisent `node` pour lire du JSON.

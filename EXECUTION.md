@@ -111,10 +111,10 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
   **Critère de sortie** : `node scripts/seed.mjs` deux fois de suite, puis `channels.list` contient `test-public`, sans doublon.
   Fait le : **2026-07-10** — vérifié sur base vierge, puis en supprimant 2 messages et 1 réponse : la relance repose exactement ce qui manque.
 
-- [ ] **1.4 — Squelette Expo** · `@claude` · `[code]`
-  `npx create-expo-app` (SDK 57), `expo-router`, `expo-dev-client`, TypeScript strict, lint. `android/`, `ios/`, `.env`, `google-services.json` gitignorés.
-  **Critère de sortie** : `npx tsc --noEmit` sort en 0, et le lint est propre.
-  Fait le : `____`
+- [x] **1.4 — Squelette Expo** · `@claude` · `[code]`
+  Expo **SDK 57** (RN 0.86, React 19.2.3), `expo-router`, `expo-dev-client`, TypeScript strict, `expo lint`. Template `blank-typescript` et non `default` : ce dernier impose Reanimated et un écran de démo. `applicationId = me.barrut.rocketvibe` (devra correspondre au `package_name` Firebase).
+  **Critère de sortie** : `npx tsc --noEmit` sort en 0, et `expo lint` est propre.
+  Fait le : **2026-07-10** — les deux verts. Reanimated **non** installé.
 
 - [ ] **1.5 — Premier APK local** · `@claude` · `[infra]`
   `npx expo prebuild --platform android`, puis `./gradlew app:assembleDebug`, puis installation sur l'AVD `duogo_test`.

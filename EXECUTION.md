@@ -191,10 +191,10 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
 > Le cœur invisible. Aucune UI. Tout est testable hors écran.
 > Réf. `ROADMAP.md` §5 phase 2 et §6.2.
 
-- [ ] **3.1 — Client REST typé** · `@claude` · `[code]`
-  `fetch` enveloppé : en-têtes d'auth, erreurs typées, backoff sur `429`. Pas de dépendance HTTP tierce.
-  **Critère de sortie** : tests unitaires verts sur les cas 200 / 401 / 429.
-  Fait le : `____`
+- [x] **3.1 — Client REST typé** · `@claude` · `[code]`
+  `lib/rest.ts` : `ClientRest`, en-têtes d'auth et 2FA, erreurs typées (`ErreurRest`, `ErreurDeuxFacteurs`), rejeu sur `429` honorant `x-ratelimit-reset`. Aucune dépendance HTTP tierce, et **aucun import de `react-native`** : le module tourne sous Node, donc ses tests s'exécutent contre de vrais serveurs HTTP. `lib/server.ts` et `lib/pushToken.ts` reposent désormais dessus.
+  **Critère de sortie** : `npm test` vert, `npx tsc --noEmit` vert, et login + 2FA réels contre le serveur Docker.
+  Fait le : **2026-07-10** — 15 tests verts ; contre le vrai serveur : login, GET authentifié, `ErreurDeuxFacteurs` puis rejeu avec le SHA-256 du mot de passe.
 
 - [ ] **3.2 — Authentification et 2FA** · `@claude` · `[code]`
   `POST /api/v1/login`. Interception de `errorType = totp-required` — **le nom trompe, il couvre aussi `email` et `password`**. Lire `details.method` et `details.availableMethods`, rejouer la **même** requête avec `x-2fa-code` et `x-2fa-method`. Pour `password`, envoyer le **SHA-256**, jamais le clair. `users.2fa.sendEmailCode` avec backoff : le rate limiter du login est plus agressif que le REST générique.

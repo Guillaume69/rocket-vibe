@@ -5,7 +5,13 @@
  * découvrir la version, les méthodes d'authentification activées et les
  * réglages qui changent le comportement du client. C'est ce que fera l'écran de
  * connexion avant d'afficher quoi que ce soit.
+ *
+ * Le transport vient de `ClientRest` (délai, annulation, JSON défensif, rejeu
+ * sur 429). Seul `/api/info` échappe à `ClientRest`, car il ne vit pas sous
+ * `/api/v1/`.
  */
+
+import { ClientRest, ErreurRest } from './rest.ts';
 
 export type DeuxFacteurs = {
   actif: boolean;
@@ -28,11 +34,7 @@ export type ProfilServeur = {
 /** Le champ `value` de `settings.public` est hétérogène : on ne le contraint pas. */
 type ReglagePublic = { _id: string; value: unknown };
 
-const DELAI_MS = 8_000;
-
 export class ErreurServeur extends Error {
-  // Champ ordinaire plutôt que « parameter property » : cette dernière n'est pas
-  // une syntaxe effaçable, et empêche de charger le module tel quel sous Node.
   readonly origine?: unknown;
 
   constructor(message: string, origine?: unknown) {
@@ -44,8 +46,7 @@ export class ErreurServeur extends Error {
 
 /**
  * Accepte « chat.example.com », « http://192.168.1.106:3000 » ou une URL avec
- * barre finale. Sans schéma, on suppose `https://` : un serveur public est en
- * HTTPS, et le HTTP en clair n'est autorisé que dans le variant debug.
+ * barre finale. Sans schéma, on suppose `https://`.
  *
  * Le **sous-chemin est conservé** : un Rocket.Chat servi derrière un reverse
  * proxy vit souvent sous `/chat`, et `new URL(…).origin` le supprimerait.
@@ -63,55 +64,8 @@ export function normaliserUrl(entree: string): string {
   return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
 }
 
-/**
- * `fetch` borné dans le temps et annulable.
- *
- * Une annulation demandée par l'appelant propage l'`AbortError` tel quel, pour
- * qu'il la distingue d'un vrai échec ; un dépassement de délai, lui, devient
- * une `ErreurServeur` lisible. `AbortSignal.timeout` n'est pas garanti sous
- * Hermes, d'où le `setTimeout`.
- */
-async function recuperer(url: string, signalExterne?: AbortSignal): Promise<unknown> {
-  const controleur = new AbortController();
-  let expire = false;
-  const minuterie = setTimeout(() => {
-    expire = true;
-    controleur.abort();
-  }, DELAI_MS);
-  const relayer = () => controleur.abort();
-  signalExterne?.addEventListener('abort', relayer);
-
-  try {
-    const reponse = await fetch(url, { signal: controleur.signal });
-    if (!reponse.ok) {
-      throw new ErreurServeur(`${url} a répondu ${reponse.status}.`);
-    }
-    // On lit le texte avant de parser : un reverse proxy peut renvoyer une page
-    // HTML avec un code 200, et « JSON invalide » n'est pas « injoignable ».
-    const texte = await reponse.text();
-    try {
-      return JSON.parse(texte) as unknown;
-    } catch (e) {
-      throw new ErreurServeur(`${url} n'a pas renvoyé du JSON (${texte.length} octets).`, e);
-    }
-  } catch (e) {
-    if (e instanceof ErreurServeur) throw e;
-    if (e instanceof Error && e.name === 'AbortError') {
-      if (expire) throw new ErreurServeur(`Pas de réponse en ${DELAI_MS / 1000} s.`, e);
-      throw e; // Annulation volontaire : l'appelant sait quoi en faire.
-    }
-    throw new ErreurServeur('Serveur injoignable.', e);
-  } finally {
-    clearTimeout(minuterie);
-    signalExterne?.removeEventListener('abort', relayer);
-  }
-}
-
 function indexerReglages(charge: unknown): Map<string, unknown> {
-  if (typeof charge !== 'object' || charge === null) {
-    throw new ErreurServeur('`settings.public` a renvoyé une charge inattendue.');
-  }
-  const settings = (charge as { settings?: unknown }).settings;
+  const settings = (charge as { settings?: unknown } | null)?.settings;
   if (!Array.isArray(settings)) {
     throw new ErreurServeur('`settings.public` ne contient pas de tableau `settings`.');
   }
@@ -124,37 +78,55 @@ function indexerReglages(charge: unknown): Map<string, unknown> {
 
 const vraiSi = (v: unknown): boolean => v === true;
 
+/** `/api/info` vit hors de `/api/v1/`, d'où cet appel direct. */
+async function recupererVersion(base: string, signal?: AbortSignal): Promise<string> {
+  const reponse = await fetch(`${base}/api/info`, { signal });
+  if (!reponse.ok) throw new ErreurServeur(`/api/info a répondu ${reponse.status}.`);
+  const texte = await reponse.text();
+  let charge: unknown;
+  try {
+    charge = JSON.parse(texte) as unknown;
+  } catch (e) {
+    throw new ErreurServeur(`/api/info n'a pas renvoyé du JSON (${texte.length} octets).`, e);
+  }
+  const version = (charge as { version?: unknown } | null)?.version;
+  if (typeof version !== 'string') {
+    throw new ErreurServeur("La réponse ne ressemble pas à celle d'un Rocket.Chat.");
+  }
+  return version;
+}
+
 export async function sonderServeur(entree: string, signal?: AbortSignal): Promise<ProfilServeur> {
   const base = normaliserUrl(entree);
+  const client = new ClientRest(base);
 
   const controleur = new AbortController();
   const relayer = () => controleur.abort();
   signal?.addEventListener('abort', relayer);
+  if (signal?.aborted) controleur.abort();
 
   try {
-    // `/api/info` et non `/api/v1/info` : le premier est ouvert, le second peut
-    // exiger des droits d'administration pour une partie de sa réponse.
-    // `count=0` désactive la pagination : sans lui on n'obtient qu'une page.
     // Les deux appels sont indépendants : les enchaîner doublerait la latence.
-    const pInfo = recuperer(`${base}/api/info`, controleur.signal);
-    const pReglages = recuperer(`${base}/api/v1/settings.public?count=0`, controleur.signal);
-    // Marque les rejets comme gérés : `Promise.all` n'en remonte qu'un, et le
-    // second produirait sinon un rejet non géré.
-    pInfo.catch(() => {});
+    // `count=0` désactive la pagination, sans quoi on n'obtient qu'une page.
+    const pVersion = recupererVersion(base, controleur.signal);
+    const pReglages = client.get<unknown>('settings.public', {
+      params: { count: 0 },
+      anonyme: true,
+      signal: controleur.signal,
+    });
+    pVersion.catch(() => {});
     pReglages.catch(() => {});
 
-    let info: unknown;
+    let version: string;
     let brutReglages: unknown;
     try {
-      [info, brutReglages] = await Promise.all([pInfo, pReglages]);
+      [version, brutReglages] = await Promise.all([pVersion, pReglages]);
     } catch (e) {
       controleur.abort(); // Ne pas laisser la requête sœur traîner.
-      throw e;
-    }
-
-    const version = (info as { version?: unknown } | null)?.version;
-    if (typeof version !== 'string') {
-      throw new ErreurServeur("La réponse ne ressemble pas à celle d'un Rocket.Chat.");
+      if (e instanceof ErreurServeur) throw e;
+      if (e instanceof ErreurRest) throw new ErreurServeur(e.message, e);
+      if (e instanceof Error && e.name === 'AbortError') throw e;
+      throw new ErreurServeur('Serveur injoignable.', e);
     }
 
     const reglages = indexerReglages(brutReglages);

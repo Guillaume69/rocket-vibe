@@ -13,8 +13,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { obtenirJetonFcm } from '../lib/push';
-import { ErreurServeur, sonderServeur, type ProfilServeur } from '../lib/server';
+import { obtenirJetonFcm } from '../lib/push.ts';
+import { ErreurServeur, sonderServeur, type ProfilServeur } from '../lib/server.ts';
 
 /**
  * L'émulateur atteint la machine hôte par `adb reverse tcp:3000 tcp:3000`.

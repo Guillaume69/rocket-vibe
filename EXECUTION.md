@@ -106,10 +106,10 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
   **Critère de sortie** : `curl -sf $ROOT_URL/api/info | node -e 'process.exit(JSON.parse(require("fs").readFileSync(0)).version.startsWith("8.5")?0:1)'`
   Fait le : **2026-07-09** — `version = 8.5`, replica set PRIMARY, login admin vérifié.
 
-- [ ] **1.3 — Seed de données de test** · `@claude` · `[code]`
-  `scripts/seed.mjs` : crée l'admin, deux utilisateurs, un canal public, un groupe privé, un DM, quelques messages et un thread, via l'API REST admin. Idempotent.
-  **Critère de sortie** : `node scripts/seed.mjs && curl -sf ... /api/v1/channels.list` renvoie les canaux attendus.
-  Fait le : `____`
+- [x] **1.3 — Seed de données de test** · `@claude` · `[code]`
+  `scripts/seed.mjs` : deux utilisateurs, un canal public, un groupe privé, un DM, 12 messages par salon, un fil de 3 réponses. **Idempotent même après un échec partiel** : chaque message porte un marqueur `[seed i/n]`, seuls les manquants sont reposés.
+  **Critère de sortie** : `node scripts/seed.mjs` deux fois de suite, puis `channels.list` contient `test-public`, sans doublon.
+  Fait le : **2026-07-10** — vérifié sur base vierge, puis en supprimant 2 messages et 1 réponse : la relance repose exactement ce qui manque.
 
 - [ ] **1.4 — Squelette Expo** · `@claude` · `[code]`
   `npx create-expo-app` (SDK 57), `expo-router`, `expo-dev-client`, TypeScript strict, lint. `android/`, `ios/`, `.env`, `google-services.json` gitignorés.

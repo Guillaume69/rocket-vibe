@@ -82,6 +82,16 @@ Le **replica set est obligatoire**, même à un seul nœud : Rocket.Chat s'appui
 
 `ROOT_URL` et `ADMIN_PASS` utilisent la forme `${VAR:?message}` : un `docker compose up` sans `.env` échoue immédiatement, au lieu de créer un compte `admin` sans mot de passe sur un serveur exposé au LAN.
 
+### Données de test
+
+```sh
+node scripts/seed.mjs
+```
+
+Crée `alice` et `bob`, le canal public `test-public`, le groupe privé `test-prive`, un message direct, 12 messages par salon et un fil de 3 réponses.
+
+Le script est **idempotent y compris après une interruption**. Chaque message seedé porte un marqueur `[seed i/12]` : la relance lit l'historique, calcule les indices manquants et ne repose que ceux-là. Une idempotence en tout-ou-rien (« ce salon a déjà des messages, je passe ») figerait pour toujours un salon interrompu à 7 messages sur 12.
+
 ## Ce que dit le serveur cible (`chat.barrut.me`, relevé sans authentification)
 
 | Réglage | Valeur | Conséquence |

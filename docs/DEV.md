@@ -126,6 +126,17 @@ Le squelette vient du template **`blank-typescript`**, pas de `default` : ce der
 
 `applicationId` = `me.barrut.rocketvibe`. Il devra correspondre **exactement** au `package_name` déclaré dans le projet Firebase, sinon le plugin Gradle GMS refuse de builder.
 
+### HTTP en clair : rien à faire
+
+Android bloque le trafic cleartext depuis `targetSdk 28`, et le serveur de dev est en `http://`. **Expo le gère déjà** : `prebuild` génère `android/app/src/debug/AndroidManifest.xml` avec `usesCleartextTraffic="true"` (plus la permission `SYSTEM_ALERT_WINDOW` de l'overlay LogBox). AGP ne fusionne cet overlay que dans le variant `debug` — le manifeste `src/main` n'en contient rien, donc la **release reste sûre par construction**.
+
+N'ajoute **ni** `expo-build-properties` avec `usesCleartextTraffic` (il l'activerait aussi en release), **ni** un config plugin qui réécrit `src/debug/AndroidManifest.xml` : il écraserait le fichier d'Expo et supprimerait `SYSTEM_ALERT_WINDOW`. Vérifier avant d'agir :
+
+```sh
+grep -c usesCleartextTraffic android/app/src/main/AndroidManifest.xml   # 0
+grep -c usesCleartextTraffic android/app/src/debug/AndroidManifest.xml  # 1
+```
+
 ### L'override `react-dom`
 
 `expo-router` tire `react-dom@19.2.7`, qui exige `react ^19.2.7`, alors qu'Expo SDK 57 épingle `react@19.2.3`. Toute installation échoue en `ERESOLVE`. On ne cible pas le web, `react-dom` n'est qu'une dépendance transitive : on l'aligne sur `react` plutôt que de recourir à `--legacy-peer-deps`, qui masquerait l'incohérence.

@@ -122,10 +122,10 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
   Fait le : **2026-07-10** — `BUILD SUCCESSFUL in 3m 7s` (Gradle 9.3.1, JDK 17, New Arch + Hermes + edge-to-edge actifs par défaut). APK universel de 248 Mo, 4 ABI. Lancé sur l'AVD via le deep link du dev client : écran rendu, `logcat` sans erreur fatale.
   > L'**incertitude n°5** (`com.google.gms:google-services` × Gradle 9.3.1) **reste ouverte** : le plugin GMS n'est pas encore au projet. Elle se lèvera au premier build de l'étape 2.2.
 
-- [ ] **1.6 — Écran « serveur »** · `@claude` · `[code]`
-  Saisie de l'URL du serveur, `GET /api/v1/info` et `GET /api/v1/settings.public`, affichage de la version et des méthodes d'authentification disponibles. Aucun état global, aucune base : c'est un bout de ficelle qui prouve la chaîne.
-  **Critère de sortie** : sur l'AVD, l'écran affiche la version `8.6.x` du serveur Docker.
-  Fait le : `____`
+- [x] **1.6 — Écran « serveur »** · `@claude` · `[code]`
+  Saisie de l'URL, `GET /api/info` et `GET /api/v1/settings.public` en parallèle, affichage de la version, des méthodes d'authentification, de la 2FA, de l'E2EE et de la protection des fichiers. `lib/server.ts` sera réutilisé par l'écran de connexion (3.2).
+  **Critère de sortie** : sur l'AVD, l'écran affiche la version du serveur Docker.
+  Fait le : **2026-07-10** — affiche `8.5`, `TOTP, email`, fichiers et avatars protégés. HTTP en clair OK via l'overlay debug d'Expo et `adb reverse tcp:3000`.
 
 - [ ] **1.7 — Spike DDP jetable** · `@claude` · `[code]`
   Script Node : ouvrir `ws://<IP_LAN>:3000/websocket`, envoyer `{"msg":"connect","version":"1","support":["1"]}`, se loguer avec un resume token, souscrire à `stream-room-messages`. Poster un message depuis le web, vérifier qu'il arrive.

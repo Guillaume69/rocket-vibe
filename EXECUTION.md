@@ -233,6 +233,11 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
 > Objectif : **l'APK devient utile au quotidien**.
 > Réf. `ROADMAP.md` §5 phase 2, §6.3, §6.4.
 
+- [ ] **4.0 — Écran de connexion** · `@claude` · `[code]` — *manquait à la checklist*
+  L'étape 3.2 a livré la **bibliothèque** d'authentification, pas son écran. Rien dans 4.1 ne peut charger des salons sans session. Écran : saisie serveur (réutilise `sonderServeur`), identifiant, mot de passe ; interception de `ErreurDeuxFacteurs` et UI selon `erreur.methode` (`totp` → code à 6 chiffres, `email` → bouton « envoyer le code » puis saisie, `password` → ressaisie du mot de passe, haché en SHA-256) ; session dans `expo-secure-store`, reprise au démarrage par `reprendreSession`.
+  **Critère de sortie** : sur l'AVD, se connecter comme `alice`, tuer l'app, la relancer → toujours connecté. Puis activer un TOTP sur le compte et refaire le tour.
+  Fait le : `____`
+
 - [ ] **4.1 — Liste des salons** · `@claude` · `[code]` — `subscriptions.get` + `rooms.get` fusionnés par `rid` ; souscriptions `stream-notify-user/<uid>/subscriptions-changed` et `/rooms-changed` ; `fname`, aperçu `lastMessage`, badge `unread`, tri par activité. **Si `room.encrypted` : cadenas, et aperçu `lastMessage` masqué** — il contient du ciphertext. Fait le : `____`
 - [ ] **4.2 — Écran salon** · `@claude` · `[code]` — historique via `channels.history` / `groups.history` / `im.history` selon `t` ; `@shopify/flash-list` **`inverted`** + `maintainVisibleContentPosition` ; pagination keyset `WHERE rid = ? ORDER BY ts DESC` ; `sub` à l'ouverture, **`unsub` à la fermeture** ; **débounce des entrants** (des insertions en tête à moins de ~200 ms font sauter le scroll). Fait le : `____`
 - [ ] **4.3 — Rendu markdown** · `@claude` · `[code]` — `@rocket.chat/message-parser` sur `msg.md`, rendu en `<Text>` imbriqués. **Repli sur `parse()` obligatoire** : `md` est absent des vieux messages. Sous-chantier à part entière, ne pas le sous-estimer. Fait le : `____`

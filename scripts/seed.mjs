@@ -11,6 +11,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { EMOJIS_CUSTOM } from './emojis-seed.mjs';
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 const NB_MESSAGES = 12;
@@ -232,6 +234,56 @@ async function seedThread(historyEndpoint, roomId) {
   console.log(`  fil : ${manquants.length} réponse(s) postée(s), total ${NB_REPONSES}`);
 }
 
+/**
+ * Poste `emoji-custom.create` (multipart). `must`/`api` ne font que du JSON,
+ * d'où ce `fetch` direct — mais il REJOUE le 429 comme `api`, sinon un burst
+ * d'emojis mourrait sous le rate limiter là où le reste du seed patiente. La
+ * `FormData` est reconstruite à chaque tentative (son corps est consommé).
+ */
+async function creerEmojiCustom(e, attempt = 0) {
+  // `atob` plutôt que `Buffer` : global standard, que le lint RN connaît.
+  const octets = Uint8Array.from(atob(e.b64), (c) => c.charCodeAt(0));
+  const fd = new FormData();
+  fd.set('emoji', new Blob([octets], { type: e.type }), `${e.name}.${e.ext}`);
+  fd.set('name', e.name);
+  fd.set('aliases', e.aliases);
+  const res = await fetch(`${BASE}/api/v1/emoji-custom.create`, {
+    method: 'POST',
+    headers: { 'X-Auth-Token': auth.token, 'X-User-Id': auth.userId },
+    body: fd,
+  });
+  if (res.status === 429 && attempt < 5) {
+    const reset = Number(res.headers.get('x-ratelimit-reset'));
+    const waitMs = Number.isFinite(reset) ? Math.max(reset - Date.now(), 0) : 0;
+    const delay = waitMs > 0 ? waitMs + 250 : 1000 * 2 ** attempt;
+    process.stderr.write(`  429 sur emoji-custom.create, attente ${Math.round(delay)} ms\n`);
+    await res.body?.cancel();
+    await sleep(delay);
+    return creerEmojiCustom(e, attempt + 1);
+  }
+  const json = await res.json();
+  if (!res.ok || json.success === false) {
+    throw new Error(`emoji-custom.create ${e.name} : (${res.status}) ${JSON.stringify(json)}`);
+  }
+}
+
+/**
+ * Emojis custom. `emoji-custom.create` refuse un nom déjà pris : on liste
+ * d'abord, on ne crée que les manquants.
+ */
+async function seedEmojisCustom() {
+  const liste = await must('GET', 'emoji-custom.list');
+  const existants = new Set((liste.emojis?.update ?? []).map((e) => e.name));
+  for (const e of EMOJIS_CUSTOM) {
+    if (existants.has(e.name)) {
+      console.log(`  emoji ${e.name} : existe déjà`);
+      continue;
+    }
+    await creerEmojiCustom(e);
+    console.log(`  emoji ${e.name} : créé`);
+  }
+}
+
 async function main() {
   console.log(`serveur : ${BASE}`);
   await login();
@@ -244,6 +296,9 @@ async function main() {
   const publicId = await ensureRoom('channels', 'test-public', ['alice', 'bob']);
   const priveId = await ensureRoom('groups', 'test-prive', ['alice']);
   const dmId = await ensureIm('alice');
+
+  console.log('emojis custom');
+  await seedEmojisCustom();
 
   console.log('messages');
   await seedMessages('channels.history', publicId, 'test-public');

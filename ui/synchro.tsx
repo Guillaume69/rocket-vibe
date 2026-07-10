@@ -24,12 +24,18 @@ import type { BaseLocale } from '../db/client.ts';
 import { ouvrirBase } from '../db/client.ts';
 import {
   creerDepot,
+  creerDepotEmojis,
   creerDepotEnvoi,
   creerDepotTeleversements,
   creerFileEcritures,
 } from '../db/depot.ts';
 import { migrerBase } from '../db/migrer.ts';
 import { ClientDdp } from '../lib/ddp.ts';
+import {
+  restaurerEmojisCustom,
+  synchroniserEmojisCustom,
+  viderEmojisCustom,
+} from '../lib/emojisCustom.ts';
 import { MoteurEnvoi, idDepuisOctets } from '../lib/envoi.ts';
 import { MoteurTeleversement } from '../lib/envoiFichiers.ts';
 import { MoteurPresence, EVENEMENT_PRESENCE, STREAM_NOTIFY_LOGGED } from '../lib/presence.ts';
@@ -80,6 +86,8 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (etat.phase !== 'connecte') {
+      // L'index emoji du serveur quitté ne doit pas servir au prochain.
+      viderEmojisCustom();
       setSynchro({ phase: 'inactif' });
       return;
     }
@@ -123,9 +131,17 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           await moteur.ingererMessages([doc]);
         },
       });
+      const depotEmojis = creerDepotEmojis(brute, fileEcritures);
       let salonActif: string | null = null;
       let jetonPushEnregistre = false;
+      let emojisSynchronises = false;
       const presence = new MoteurPresence();
+      // Emojis custom : l'index mémoire depuis SQLite AVANT « pret », pour que
+      // le premier rendu résolve déjà `:party_parrot:` (offline compris). Le
+      // rafraîchissement réseau vient au raccordement. Un échec de lecture ne
+      // doit pas retenir l'écran — les customs dégraderaient en `:nom:`.
+      await restaurerEmojisCustom(session.baseUrl, depotEmojis, estAbandonne).catch(() => {});
+      if (abandonne) return;
       // « pret » dès la base disponible : l'UI montre le cache local sans
       // attendre le réseau.
       setSynchro({
@@ -181,6 +197,18 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           // Présence : photo initiale, puis deltas (`from`). Ornement — un
           // échec ne compte jamais comme un échec de raccordement.
           void presence.charger(client);
+          // Liste des emojis custom : rafraîchie UNE fois par session (comme le
+          // jeton push), pas à chaque flap réseau — c'est un download complet et
+          // une réécriture de toute la table. La version SQLite a déjà servi le
+          // premier rendu ; les nouveaux emojis apparaissent au rendu suivant.
+          // `estAbandonne` empêche un fetch tardif de réarmer l'index d'un
+          // serveur qu'on a quitté. Échec → non armé, retenté au prochain flap.
+          if (!emojisSynchronises) {
+            emojisSynchronises = true;
+            synchroniserEmojisCustom(client, depotEmojis, estAbandonne).catch(() => {
+              emojisSynchronises = false;
+            });
+          }
           // Cycle de vie du jeton push (6.1) : enregistré au premier
           // raccordement de la session. Idempotent côté serveur ; un échec
           // sera retenté au prochain raccordement.

@@ -8,15 +8,20 @@
  * disparaître ou de planter. Les liens n'ouvrent que http(s) — un `md` forgé
  * ne doit pas pouvoir déclencher un intent arbitraire.
  *
- * Les emojis sont des CARACTÈRES, rendus par la police du système : le serveur
- * ne livre que le code court (`:smile:`), que `lib/emojis.ts` résout. Aucune
- * image, donc rien à charger ni à cacher.
+ * Les emojis STANDARD sont des caractères, rendus par la police du système :
+ * le serveur ne livre que le code court (`:smile:`), que `lib/emojis.ts`
+ * résout. Les emojis PERSONNALISÉS, eux, sont des images distantes
+ * (`lib/emojisCustom.ts`) : `rendreEmoji` en fait une `<Image>` inline, animée
+ * (GIF via Fresco), chargée depuis `/emoji-custom/:nom.:ext` — URL publique,
+ * sans jeton. La priorité va au caractère : un code court qui est à la fois
+ * Unicode et custom rend le glyphe.
  */
 
 import type { BigEmoji, Blocks, Inlines, Paragraph } from '@rocket.chat/message-parser';
-import { Component } from 'react';
-import { Linking, Platform, StyleSheet, Text, View } from 'react-native';
+import { Component, type ReactElement, type ReactNode } from 'react';
+import { Image, Linking, Platform, StyleSheet, Text, View } from 'react-native';
 
+import { urlEmojiCustom } from '../lib/emojisCustom.ts';
 import { texteDe, unicodeDEmoji, type Root } from '../lib/markdown.ts';
 import type { Couleurs } from './theme.ts';
 
@@ -111,15 +116,17 @@ function Bloc({ bloc, c }: { bloc: Paragraph | Blocks | BigEmoji; c: Couleurs })
     case 'BIG_EMOJI': {
       // Le parseur ne VALIDE aucun code court : `:pas_un_emoji:` seul sur sa
       // ligne sort du serveur en `BIG_EMOJI`, exactement comme `:smile:`. On
-      // ne grossit donc que si CHAQUE nœud se résout ; sinon, paragraphe.
-      //
-      // Conséquence assumée : un emoji PERSONNALISÉ du serveur, qu'on ne sait
-      // pas afficher, se lit en texte normal au lieu de s'étaler en 36 px de
-      // `:nom:` littéral. C'est le moins mauvais des deux rendus faux.
+      // ne grossit donc que si CHAQUE nœud se résout — en glyphe Unicode OU en
+      // image custom ; sinon, paragraphe littéral.
       const noeuds = Array.isArray(bloc.value) ? bloc.value : [];
-      const glyphes = noeuds.map((e) => unicodeDEmoji(e));
-      if (glyphes.length > 0 && glyphes.every((g) => g !== null)) {
-        return <Text style={styles.grosEmoji}>{glyphes.join(' ')}</Text>;
+      const rendus = noeuds.map((e, i) => rendreEmoji(e, i, 'grand'));
+      if (rendus.length > 0 && rendus.every((r) => r !== null)) {
+        const contenu: ReactNode[] = [];
+        rendus.forEach((r, i) => {
+          contenu.push(r);
+          if (i < rendus.length - 1) contenu.push(' ');
+        });
+        return <Text style={styles.grosEmoji}>{contenu}</Text>;
       }
       return (
         <Text style={[styles.paragraphe, { color: c.texte }]}>
@@ -229,12 +236,51 @@ function rendreInline(noeud: Inlines, cle: number, c: Couleurs): React.ReactNode
         </Text>
       );
 
-    case 'EMOJI':
+    case 'EMOJI': {
+      // Glyphe Unicode, sinon image custom, sinon `:nom:` littéral.
+      const rendu = rendreEmoji(noeud, cle, 'inline');
+      return rendu ?? texteDe(noeud);
+    }
+
     default:
-      // EMOJI : `texteDe` résout le code court, ou rend `:nom:` littéral.
       // TIMESTAMP, COLOR, IMAGE, KaTeX inline… : le texte, plutôt que rien.
       return texteDe(noeud);
   }
+}
+
+/**
+ * Un nœud `EMOJI` en glyphe (chaîne, stylé par le `<Text>` parent) ou en
+ * `<Image>` custom (animée : le GIF s'anime via Fresco `animated-gif`, activé
+ * dans le build). `null` si le code court n'est ni Unicode ni un custom connu —
+ * l'appelant décide alors du repli (`:nom:` inline, paragraphe pour un
+ * `BIG_EMOJI` non résolu). L'image s'imbrique nativement dans le texte, aucun
+ * calcul de layout côté JS.
+ */
+function rendreEmoji(
+  noeud: unknown,
+  cle: number,
+  taille: 'inline' | 'grand',
+): string | ReactElement | null {
+  const glyphe = unicodeDEmoji(noeud);
+  if (glyphe !== null) return glyphe;
+  const shortCode =
+    typeof noeud === 'object' && noeud !== null && 'shortCode' in noeud
+      ? (noeud as { shortCode?: unknown }).shortCode
+      : undefined;
+  if (typeof shortCode !== 'string') return null;
+  const uri = urlEmojiCustom(shortCode);
+  if (uri === null) return null;
+  return (
+    <Image
+      key={cle}
+      source={{ uri }}
+      style={taille === 'grand' ? styles.emojiCustomGrand : styles.emojiCustomInline}
+      // `contain` : un emoji non carré (bannière, mascotte large) doit tenir
+      // entier dans sa boîte, pas être rogné par le `cover` par défaut.
+      resizeMode="contain"
+      accessibilityLabel={`:${shortCode}:`}
+    />
+  );
 }
 
 const styles = StyleSheet.create({
@@ -248,6 +294,10 @@ const styles = StyleSheet.create({
   itemListe: { flexDirection: 'row', gap: 8 },
   texteItem: { flexShrink: 1 },
   grosEmoji: { fontSize: 36, lineHeight: 44 },
+  // Emojis custom : au fil du texte (aligné sur la hauteur de ligne) et en
+  // grand pour un BIG_EMOJI. `<Image>` inline dans `<Text>` = alignement natif.
+  emojiCustomInline: { width: 18, height: 18 },
+  emojiCustomGrand: { width: 36, height: 36 },
   sautDeLigne: { height: 8 },
   gras: { fontWeight: '700' },
   italique: { fontStyle: 'italic' },

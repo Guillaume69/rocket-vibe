@@ -43,6 +43,7 @@ describe('migrations', () => {
     assert.deepEqual(tables(db), [
       'abonnements',
       'brouillons',
+      'emojis_custom',
       'etat_synchro',
       'messages',
       'salons',

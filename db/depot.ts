@@ -13,12 +13,17 @@
 
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { filtrerAliases, type DepotEmojis, type EmojiCustom } from '../lib/emojisCustom.ts';
 import type { DepotEnvoi, LigneSortie } from '../lib/envoi.ts';
 import type { DepotTeleversements, LigneTeleversement } from '../lib/envoiFichiers.ts';
 import type { Depot, EcrituresDepot } from '../lib/sync.ts';
 import {
+  INSERER_EMOJI_CUSTOM,
   INSERER_SORTIE,
   INSERER_TELEVERSEMENT,
+  LISTER_EMOJIS_CUSTOM,
+  VIDER_EMOJIS_CUSTOM,
+  paramsEmojiCustom,
   LISTER_TELEVERSEMENTS_A_ENVOYER,
   MARQUER_TELEVERSEMENT_ECHEC,
   SUPPRIMER_TELEVERSEMENT,
@@ -135,6 +140,52 @@ export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot
       return enSerie(() => brute.withTransactionAsync(() => fn(direct)));
     },
   };
+}
+
+/**
+ * Emojis custom : même connexion, même file que les autres dépôts (un `BEGIN`
+ * concurrent hors file mourrait sur « no transaction is active »). Le
+ * remplacement est un `DELETE`+`INSERT` sous UNE transaction — donc UN seul
+ * événement de changement pour `useLiveQuery`, et pas de fenêtre où la table
+ * est vide.
+ */
+export function creerDepotEmojis(brute: SQLiteDatabase, enSerie: FileEcritures): DepotEmojis {
+  return {
+    remplacer(entrees: EmojiCustom[]) {
+      return enSerie(() =>
+        brute.withTransactionAsync(async () => {
+          await brute.runAsync(VIDER_EMOJIS_CUSTOM);
+          for (const e of entrees) {
+            await brute.runAsync(
+              INSERER_EMOJI_CUSTOM,
+              paramsEmojiCustom({ ...e, misAJourLe: Date.now() }),
+            );
+          }
+        }),
+      );
+    },
+    async lister(): Promise<EmojiCustom[]> {
+      const lignes = await brute.getAllAsync<{ nom: string; extension: string; aliases: string }>(
+        LISTER_EMOJIS_CUSTOM,
+      );
+      return lignes.map((l) => ({
+        nom: l.nom,
+        extension: l.extension,
+        // `aliases` est du JSON écrit par nous ; un `catch` évite qu'une ligne
+        // corrompue prive tout le salon de ses autres emojis. Le même filtre
+        // (`filtrerAliases`) qu'à l'ingestion réseau, une fois le JSON parsé.
+        aliases: parseAliases(l.aliases),
+      }));
+    },
+  };
+}
+
+function parseAliases(brut: string): string[] {
+  try {
+    return filtrerAliases(JSON.parse(brut));
+  } catch {
+    return [];
+  }
 }
 
 type BruteSortie = {

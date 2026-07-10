@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url';
 
 import type { AbonnementLocal, MessageLocal, SalonLocal } from '../lib/normaliser.ts';
 import {
+  INSERER_EMOJI_CUSTOM,
   INSERER_SORTIE,
+  LISTER_EMOJIS_CUSTOM,
   LISTER_SORTIE_A_ENVOYER,
   MARQUER_SORTIE_ECHEC,
   SUPPRIMER_MESSAGE,
@@ -17,7 +19,9 @@ import {
   UPSERT_CURSEUR,
   UPSERT_MESSAGE,
   UPSERT_SALON,
+  VIDER_EMOJIS_CUSTOM,
   paramsAbonnement,
+  paramsEmojiCustom,
   paramsMessage,
   paramsSalon,
 } from './upserts.ts';
@@ -315,5 +319,29 @@ describe('file d’envoi (outbox)', () => {
     db.prepare(INSERER_SORTIE).run('c'.repeat(24), 'r1', 'premier', null, 1000);
     const ordres = db.prepare(LISTER_SORTIE_A_ENVOYER).all().map((l) => ligne(l).texte);
     assert.deepEqual(ordres, ['premier', 'deuxième']);
+  });
+});
+
+describe('emojis custom', () => {
+  test('round-trip : insérés puis relus, aliases préservés en JSON', () => {
+    db.prepare(INSERER_EMOJI_CUSTOM).run(
+      ...paramsEmojiCustom({ nom: 'party_parrot', extension: 'gif', aliases: ['parrot'], misAJourLe: 10 }),
+    );
+    db.prepare(INSERER_EMOJI_CUSTOM).run(
+      ...paramsEmojiCustom({ nom: 'shipit', extension: 'png', aliases: [], misAJourLe: 10 }),
+    );
+    const lignes = db.prepare(LISTER_EMOJIS_CUSTOM).all().map(ligne);
+    assert.equal(lignes.length, 2);
+    const parrot = lignes.find((l) => l.nom === 'party_parrot');
+    assert.equal(parrot?.extension, 'gif');
+    assert.deepEqual(JSON.parse(parrot?.aliases as string), ['parrot']);
+  });
+
+  test('VIDER efface tout — le remplacement en bloc ne laisse pas de fantôme', () => {
+    db.prepare(INSERER_EMOJI_CUSTOM).run(
+      ...paramsEmojiCustom({ nom: 'obsolete', extension: 'png', aliases: [], misAJourLe: 1 }),
+    );
+    db.prepare(VIDER_EMOJIS_CUSTOM).run();
+    assert.equal(db.prepare(LISTER_EMOJIS_CUSTOM).all().length, 0);
   });
 });

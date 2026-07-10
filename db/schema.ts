@@ -161,6 +161,26 @@ export const brouillons = sqliteTable('brouillons', {
 });
 
 /**
+ * Emojis personnalisés du serveur (`emoji-custom.list`). Table de RÉFÉRENCE,
+ * pas de flux : `msg.md` ne livre que le code court (`:party_parrot:`), c'est
+ * elle qui donne le nom de FICHIER à afficher. Persistée pour l'offline-first
+ * (étape 8) — au démarrage sans réseau, les customs s'affichent quand même ;
+ * chargée en Map mémoire (`lib/emojisCustom.ts`) pour un rendu synchrone.
+ *
+ * La base étant par (serveur, compte), la table est déjà scopée serveur : pas
+ * d'`etag` à garder, on remplace tout au rattrapage. `nom` est le nom
+ * canonique ; `aliases` en JSON — chaque alias est un code court à part
+ * entière (`:parrot:` = `:party_parrot:`), l'index mémoire les déplie.
+ */
+export const emojisCustom = sqliteTable('emojis_custom', {
+  nom: text('nom').primaryKey(),
+  extension: text('extension').notNull(),
+  /** JSON `string[]`. Un alias sert la même image que son nom canonique. */
+  aliases: text('aliases').notNull().default('[]'),
+  misAJourLe: integer('mis_a_jour_le').notNull().default(0),
+});
+
+/**
  * Curseurs de rattrapage, par salon et par flux. `chat.syncMessages` traite un
  * salon à la fois et le REST est rate-limité : on ne re-synchronise que les
  * salons ouverts ou récemment actifs (étape 5.2).

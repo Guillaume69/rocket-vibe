@@ -7,6 +7,7 @@ import m0002 from './0002_red_captain_stacy.sql';
 import m0003 from './0003_dear_inhumans.sql';
 import m0004 from './0004_ancient_avengers.sql';
 import m0005 from './0005_young_firestar.sql';
+import m0006 from './0006_conscious_greymalkin.sql';
 
   export default {
     journal,
@@ -16,7 +17,8 @@ m0001,
 m0002,
 m0003,
 m0004,
-m0005
+m0005,
+m0006
     }
   }
   

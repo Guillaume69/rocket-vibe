@@ -43,6 +43,13 @@
       "when": 1783676475404,
       "tag": "0005_young_firestar",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1783702033407,
+      "tag": "0006_conscious_greymalkin",
+      "breakpoints": true
     }
   ]
 }

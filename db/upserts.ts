@@ -101,6 +101,32 @@ SELECT mis_a_jour_depuis FROM etat_synchro WHERE portee = ? AND flux = ?
 `;
 
 // ---------------------------------------------------------------------------
+// Emojis personnalisés. Table de référence, remplacée EN BLOC au rattrapage
+// (`emoji-custom.list` complet) : un `DELETE` puis des `INSERT`, dans une même
+// transaction, plutôt qu'un upsert qui laisserait traîner les emojis retirés
+// côté serveur en fantômes cliquables.
+// ---------------------------------------------------------------------------
+
+export const VIDER_EMOJIS_CUSTOM = `DELETE FROM emojis_custom`;
+
+export const INSERER_EMOJI_CUSTOM = `
+INSERT INTO emojis_custom (nom, extension, aliases, mis_a_jour_le) VALUES (?, ?, ?, ?)
+`;
+
+export const LISTER_EMOJIS_CUSTOM = `
+SELECT nom, extension, aliases FROM emojis_custom
+`;
+
+export function paramsEmojiCustom(e: {
+  nom: string;
+  extension: string;
+  aliases: string[];
+  misAJourLe: number;
+}): Parametre[] {
+  return [e.nom, e.extension, JSON.stringify(e.aliases), e.misAJourLe];
+}
+
+// ---------------------------------------------------------------------------
 // File d'envoi (outbox). L'`id` est le `_id` 24-hex généré CÔTÉ CLIENT : le
 // serveur déduplique dessus, c'est ce qui rend le rejeu après crash sûr.
 // ---------------------------------------------------------------------------

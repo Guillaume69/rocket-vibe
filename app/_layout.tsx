@@ -2,6 +2,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { GestionNotifications } from '../ui/notifications.tsx';
 import { SessionProvider } from '../ui/session.tsx';
 import { SynchroProvider } from '../ui/synchro.tsx';
 
@@ -24,6 +25,7 @@ export default function RootLayout() {
           {/* Titre par défaut : sans lui, les rendus précoces du portier
               (démarrage, redirection) affichent le nom brut de la route. */}
           <Stack screenOptions={{ title: 'rocket-vibe' }} />
+          <GestionNotifications />
         </SynchroProvider>
       </SessionProvider>
       <StatusBar style="auto" />

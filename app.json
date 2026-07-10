@@ -21,7 +21,8 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "expo-sqlite"
+      "expo-sqlite",
+      "./plugins/with-canal-notifications"
     ],
     "experiments": {
       "typedRoutes": true

@@ -74,6 +74,10 @@ export const messages = sqliteTable(
     filId: text('fil_id'),
     /** `tcount` : nombre de réponses, sur le message racine. */
     filReponses: integer('fil_reponses').notNull().default(0),
+    /** `tlm` : horodatage de la dernière réponse, porté par le message racine. */
+    filDernier: integer('fil_dernier'),
+    /** `tshow` : réponse de fil à montrer AUSSI dans le flux principal du salon. */
+    filAffiche: integer('fil_affiche', { mode: 'boolean' }).notNull().default(false),
     modifieLe: integer('modifie_le'),
     /** AST markdown pré-parsé par le serveur (`md`), sérialisé. Absent des vieux messages. */
     md: text('md'),

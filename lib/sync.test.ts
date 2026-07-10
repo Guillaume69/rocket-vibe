@@ -77,6 +77,22 @@ describe('versMessage', () => {
     assert.equal(m.md, '[{"type":"PARAGRAPH"}]');
     assert.equal(m.piecesJointes, null);
   });
+
+  test('fils : `tmid`, `tcount`, `tlm` et `tshow` sont capturés (8.3)', () => {
+    const racine = versMessage({
+      ...base,
+      tcount: 3,
+      tlm: { $date: 5000 },
+    }) as MessageLocal;
+    assert.equal(racine.filReponses, 3);
+    assert.equal(racine.filDernier, 5000);
+    assert.equal(racine.filId, null);
+    assert.equal(racine.filAffiche, false);
+
+    const reponse = versMessage({ ...base, _id: 'm2', tmid: 'm1', tshow: true }) as MessageLocal;
+    assert.equal(reponse.filId, 'm1');
+    assert.equal(reponse.filAffiche, true, 'tshow = aussi visible dans le flux principal');
+  });
 });
 
 describe('versSalon', () => {

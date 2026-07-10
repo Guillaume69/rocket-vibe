@@ -33,6 +33,8 @@ export type MessageLocal = {
   typeSysteme: string | null;
   filId: string | null;
   filReponses: number;
+  filDernier: number | null;
+  filAffiche: boolean;
   modifieLe: number | null;
   md: string | null;
   piecesJointes: string | null;
@@ -98,6 +100,8 @@ export function versMessage(brut: Record<string, unknown>): MessageLocal | null 
     typeSysteme,
     filId: chaine(brut.tmid),
     filReponses: entier(brut.tcount),
+    filDernier: versEpoch(brut.tlm),
+    filAffiche: booleen(brut.tshow),
     modifieLe: versEpoch(brut.editedAt),
     md: chiffre ? null : jsonOuNull(brut.md),
     piecesJointes: chiffre ? null : jsonOuNull(brut.attachments),

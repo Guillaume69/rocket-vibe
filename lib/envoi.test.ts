@@ -107,6 +107,24 @@ describe('MoteurEnvoi', () => {
     assert.equal(ingeres.length, 1, 'le document du serveur repasse par la synchro');
   });
 
+  test('réponse de fil : `tmid` part au serveur, `filId` persiste pour le rejeu (8.3)', async () => {
+    const { moteur, sortie, requetes } = moteurDeTest({
+      repondre: async (corps) => {
+        const m = (corps.message ?? {}) as Record<string, unknown>;
+        return ok({ success: true, message: { ...m, ts: { $date: 2000 }, u: { _id: 'u1' } } });
+      },
+    });
+    await moteur.envoyer('r1', 'réponse dans le fil', 'racine-du-fil-000000000');
+    const envoye = (requetes[0].message ?? {}) as Record<string, unknown>;
+    assert.equal(envoye.tmid, 'racine-du-fil-000000000');
+    assert.equal(sortie.size, 0);
+
+    // Un message ORDINAIRE n'a pas de clé `tmid` du tout — pas un null.
+    await moteur.envoyer('r1', 'hors fil');
+    const ordinaire = (requetes[1].message ?? {}) as Record<string, unknown>;
+    assert.ok(!('tmid' in ordinaire));
+  });
+
   test('réseau injoignable : la ligne RESTE en-attente, prête pour le rejeu', async () => {
     const { moteur, sortie } = moteurDeTest({
       repondre: async () => {

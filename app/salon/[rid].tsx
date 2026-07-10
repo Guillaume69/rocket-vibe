@@ -1,15 +1,13 @@
 import { FlashList } from '@shopify/flash-list';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNull, or } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { AudioModule, RecordingPresets, useAudioRecorder } from 'expo-audio';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
-  Linking,
   Pressable,
   StyleSheet,
   Text,
@@ -23,12 +21,9 @@ import { abonnements, messages, salons, sortie, televersements } from '../../db/
 import type { ClientDdp } from '../../lib/ddp.ts';
 import type { MoteurEnvoi } from '../../lib/envoi.ts';
 import type { MoteurTeleversement } from '../../lib/envoiFichiers.ts';
-import { urlFichierProtege } from '../../lib/upload.ts';
-import { arbreDuMessage } from '../../lib/markdown.ts';
-import { texteSysteme } from '../../lib/messagesSysteme.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
-import { CorpsMessage, GardeRendu } from '../../ui/markdown.tsx';
+import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
 import { useSession } from '../../ui/session.tsx';
 import { useSynchro } from '../../ui/synchro.tsx';
 import { useCouleurs, type Couleurs } from '../../ui/theme.ts';
@@ -133,7 +128,11 @@ function Salon({
     base
       .select()
       .from(messages)
-      .where(eq(messages.rid, rid))
+      // Une réponse de fil vit dans SON fil, pas dans le flux principal —
+      // sauf si l'expéditeur a coché « aussi dans le salon » (`tshow`).
+      .where(
+        and(eq(messages.rid, rid), or(isNull(messages.filId), eq(messages.filAffiche, true))),
+      )
       .orderBy(desc(messages.horodatage))
       .limit(limite),
     [rid, limite],
@@ -235,7 +234,12 @@ function Salon({
           // `inclusive` : deux messages peuvent partager la même milliseconde.
           // Sans lui, le jumeau du message-borne serait un trou permanent dans
           // l'historique. Les upserts idempotents absorbent le recouvrement.
-          params: { roomId: rid, count: PAGE, latest, inclusive: true },
+          // `showThreadMessages: false` — EXPLICITE bien que ce soit le défaut
+          // vérifié sur 8.5 : le filtre serveur (tmid absent OU tshow) doit
+          // rester identique au filtre local du flux, sinon une page entière
+          // de réponses masquées ferait boucler la pagination keyset sur
+          // place (le `latest` vient de la liste FILTRÉE).
+          params: { roomId: rid, count: PAGE, latest, inclusive: true, showThreadMessages: false },
         },
       );
       const lot = reponse.messages ?? [];
@@ -310,6 +314,12 @@ function Salon({
     },
     [routeur],
   );
+  const ouvrirFil = useCallback(
+    (id: string) => {
+      routeur.push({ pathname: '/fil/[id]', params: { id } });
+    },
+    [routeur],
+  );
 
   const reessayer = useCallback(() => {
     envoi.traiter().catch(() => {});
@@ -349,10 +359,11 @@ function Salon({
           // été accepté par le serveur — `chat.delete`/`chat.update` dessus ne
           // peuvent qu'échouer. Ses vraies actions sont réessayer/abandonner.
           surAppuiLong={etatEnvoi === undefined ? ouvrirActions : null}
+          surOuvrirFil={ouvrirFil}
         />
       );
     },
-    [c, client, sortieParId, reessayer, abandonner, ouvrirActions],
+    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, ouvrirFil],
   );
 
   const titre = salon
@@ -406,6 +417,29 @@ function Salon({
           </Pressable>
         </View>
       ))}
+      {/* Une réponse de FIL refusée n'a aucune ligne dans ce flux (filtrée par
+          fil_id) : sans ce bandeau, son échec ne serait visible qu'en
+          rouvrant le fil exact — silencieusement jamais, en pratique. */}
+      {(lignesSortie ?? [])
+        .filter((s) => s.statut === 'echec' && s.filId !== null)
+        .map((s) => (
+          <View key={s.id} style={styles.bandeEchecFichier}>
+            <Pressable
+              style={styles.plein}
+              onPress={() => routeur.push({ pathname: '/fil/[id]', params: { id: s.filId ?? '' } })}
+            >
+              <Text style={[styles.heure, { color: c.texteErreur }]} numberOfLines={1}>
+                ⚠️ Réponse de fil non envoyée — ouvrir
+              </Text>
+            </Pressable>
+            <Pressable onPress={reessayer}>
+              <Text style={[styles.heure, { color: c.accent }]}>réessayer</Text>
+            </Pressable>
+            <Pressable onPress={() => abandonner(s.id)}>
+              <Text style={[styles.heure, { color: c.attenue }]}>abandonner</Text>
+            </Pressable>
+          </View>
+        ))}
       {/* Tant que la ligne du salon n'est pas là (lien profond vers un salon
           pas encore synchronisé), on ne promet pas un envoi : `chiffre` et
           `lectureSeule` sont peut-être vrais. */}
@@ -611,206 +645,6 @@ function Composer({
   );
 }
 
-type LigneDeMessage = typeof messages.$inferSelect;
-
-const LigneMessage = memo(function LigneMessage({
-  c,
-  message,
-  client,
-  statutEnvoi,
-  surReessayer,
-  surAbandonner,
-  surAppuiLong,
-}: {
-  c: Couleurs;
-  message: LigneDeMessage;
-  client: ClientRest;
-  statutEnvoi: 'en-attente' | 'echec' | null;
-  surReessayer: (() => void) | null;
-  surAbandonner: ((id: string) => void) | null;
-  surAppuiLong: ((id: string) => void) | null;
-}) {
-  const heure = new Date(message.horodatage).toLocaleTimeString('fr-FR', {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-
-  const appuiLong = surAppuiLong === null ? undefined : () => surAppuiLong(message.id);
-
-  return (
-    <Pressable
-      onLongPress={appuiLong}
-      delayLongPress={350}
-      // Sans quoi le Pressable fusionne la ligne en UN nœud d'accessibilité :
-      // TalkBack ne peut plus atteindre « réessayer », « abandonner » ni les
-      // pièces jointes individuellement.
-      accessible={false}
-      style={[styles.message, statutEnvoi === 'en-attente' && styles.enAttente]}
-    >
-      <View style={styles.enTete}>
-        <Text style={[styles.auteur, { color: c.texte }]}>{message.auteurNom ?? '?'}</Text>
-        <Text style={[styles.heure, { color: c.attenue }]}>{heure}</Text>
-        {message.modifieLe !== null && (
-          <Text style={[styles.heure, { color: c.attenue }]}>(modifié)</Text>
-        )}
-        {statutEnvoi === 'en-attente' && (
-          <Text style={[styles.heure, { color: c.attenue }]}>⏳ envoi…</Text>
-        )}
-      </View>
-      <ContenuMessage c={c} message={message} />
-      {message.piecesJointes !== null && (
-        <PiecesJointes c={c} brut={message.piecesJointes} client={client} surAppuiLong={appuiLong} />
-      )}
-      {statutEnvoi === 'echec' && (
-        <View style={styles.actionsEchec}>
-          <Pressable onPress={surReessayer ?? undefined}>
-            <Text style={[styles.heure, { color: c.texteErreur }]}>⚠️ Échec — réessayer</Text>
-          </Pressable>
-          <Pressable onPress={() => surAbandonner?.(message.id)}>
-            <Text style={[styles.heure, { color: c.attenue }]}>abandonner</Text>
-          </Pressable>
-        </View>
-      )}
-    </Pressable>
-  );
-});
-
-/**
- * Corps d'un message : markdown pour les messages ordinaires (`md` du serveur,
- * ou `parse()` local pour les VIEUX messages qui n'en ont pas — repli imposé
- * par le contrat 4.3), substitut sobre pour le chiffré et les messages
- * système (leur traduction arrive en 4.4).
- */
-function ContenuMessage({ c, message }: { c: Couleurs; message: LigneDeMessage }) {
-  // Clés = les CHAÎNES, stables à travers le barattage d'objets de
-  // `useLiveQuery` (qui défait le memo de LigneMessage) : sans cela, chaque
-  // écriture en base re-parserait le markdown de toutes les lignes visibles.
-  const arbre = useMemo(
-    () => (message.typeSysteme === null ? arbreDuMessage(message.md, message.texte) : null),
-    [message.typeSysteme, message.md, message.texte],
-  );
-
-  if (message.typeSysteme === 'e2e') {
-    return <Substitut c={c} texte="🔒 Message chiffré, non pris en charge" />;
-  }
-  if (message.typeSysteme !== null) {
-    // La phrase suit le nom de l'auteur affiché juste au-dessus : « bob a
-    // rejoint le salon ». `texte` porte le PARAMÈTRE de l'action, pas une
-    // phrase — voir lib/messagesSysteme.ts.
-    return <Substitut c={c} texte={texteSysteme(message.typeSysteme, message.texte)} />;
-  }
-  if (arbre === null) {
-    // Un message d'upload n'a souvent NI texte NI md : ses pièces jointes,
-    // rendues à côté, sont tout son contenu — rien à substituer.
-    if (message.piecesJointes !== null) return null;
-    return <Substitut c={c} texte="(message vide)" />;
-  }
-  return (
-    // Le `md` est en dernier ressort une donnée d'autrui : une forme qui
-    // échappe aux validations ne doit coûter que ce message, pas l'écran.
-    <GardeRendu repli={<Text style={[styles.texte, { color: c.texte }]}>{message.texte}</Text>}>
-      <CorpsMessage arbre={arbre} c={c} />
-    </GardeRendu>
-  );
-}
-
-function Substitut({ c, texte }: { c: Couleurs; texte: string }) {
-  return <Text style={[styles.texte, styles.italique, { color: c.attenue }]}>{texte}</Text>;
-}
-
-type PieceJointe = {
-  title?: string;
-  title_link?: string;
-  image_url?: string;
-  audio_url?: string;
-  image_dimensions?: { width?: number; height?: number };
-};
-
-/**
- * Pièces jointes (7.4) : `FileUpload_ProtectFiles = true` sur le serveur
- * cible — chaque URL de fichier reçoit `rc_uid`/`rc_token` en query, sinon
- * le serveur répond 403 et l'image reste blanche.
- *
- * `surAppuiLong` est transmis à chaque élément tapable : un toucher qui
- * démarre sur un enfant Pressable ne remonte jamais au Pressable de la ligne,
- * et un message d'upload (sans texte) n'offrirait AUCUNE surface pour la
- * feuille d'actions.
- */
-function PiecesJointes({
-  c,
-  brut,
-  client,
-  surAppuiLong,
-}: {
-  c: Couleurs;
-  brut: string;
-  client: ClientRest;
-  surAppuiLong: (() => void) | undefined;
-}) {
-  const jointes = useMemo<PieceJointe[]>(() => {
-    try {
-      const liste = JSON.parse(brut) as unknown;
-      return Array.isArray(liste) ? (liste as PieceJointe[]) : [];
-    } catch {
-      return [];
-    }
-  }, [brut]);
-
-  return (
-    <View style={styles.jointes}>
-      {jointes.map((jointe, i) => {
-        if (typeof jointe?.image_url === 'string') {
-          // Bornée des deux côtés : une vignette 4×4 reste tapable, une photo
-          // 4000 px ne déborde pas.
-          const largeur = Math.max(Math.min(jointe.image_dimensions?.width ?? 240, 240), 120);
-          const ratio =
-            (jointe.image_dimensions?.height ?? largeur) /
-            Math.max(jointe.image_dimensions?.width ?? largeur, 1);
-          return (
-            <Image
-              key={i}
-              source={{ uri: urlFichierProtege(client, jointe.image_url) }}
-              style={[styles.imageJointe, { width: largeur, height: Math.round(largeur * ratio) }]}
-              resizeMode="cover"
-            />
-          );
-        }
-        if (typeof jointe?.audio_url === 'string') {
-          const url = urlFichierProtege(client, jointe.audio_url);
-          return (
-            <Pressable
-              key={i}
-              onPress={() => void Linking.openURL(url).catch(() => {})}
-              onLongPress={surAppuiLong}
-              delayLongPress={350}
-            >
-              <Text style={[styles.texte, { color: c.accent }]}>
-                🎵 {jointe.title ?? 'Message vocal'}
-              </Text>
-            </Pressable>
-          );
-        }
-        if (typeof jointe?.title_link === 'string') {
-          const url = urlFichierProtege(client, jointe.title_link);
-          return (
-            <Pressable
-              key={i}
-              onPress={() => void Linking.openURL(url).catch(() => {})}
-              onLongPress={surAppuiLong}
-              delayLongPress={350}
-            >
-              <Text style={[styles.texte, { color: c.accent }]}>
-                📄 {jointe.title ?? 'Fichier'}
-              </Text>
-            </Pressable>
-          );
-        }
-        return null;
-      })}
-    </View>
-  );
-}
-
 function cheminHistorique(type: string): string {
   // Trois endpoints pour la même chose, selon le type du salon — héritage de
   // l'API Rocket.Chat. `l` (livechat) est hors périmètre.
@@ -845,16 +679,9 @@ const styles = StyleSheet.create({
   plein: { flex: 1 },
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   contenu: { paddingHorizontal: 16, paddingVertical: 8 },
-  message: { paddingVertical: 6, gap: 2 },
-  enTete: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
-  auteur: { fontSize: 14, fontWeight: '700' },
   heure: { fontSize: 11 },
-  texte: { fontSize: 15, lineHeight: 21 },
-  italique: { fontStyle: 'italic' },
   vide: { textAlign: 'center', padding: 24, fontSize: 14 },
   erreur: { fontSize: 14, fontWeight: '600', textAlign: 'center' },
-  enAttente: { opacity: 0.55 },
-  actionsEchec: { flexDirection: 'row', gap: 16 },
   composer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -884,8 +711,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 6,
   },
-  jointes: { gap: 6, marginTop: 4 },
-  imageJointe: { borderRadius: 10, backgroundColor: '#00000010' },
   texteEnvoyer: { fontSize: 15, fontWeight: '700' },
   noteComposer: { flex: 1, textAlign: 'center', fontSize: 13, paddingVertical: 8 },
 });

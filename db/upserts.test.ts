@@ -58,6 +58,8 @@ function msg(o: Partial<MessageLocal> & { id: string; misAJourLe: number }) {
     typeSysteme: null,
     filId: null,
     filReponses: 0,
+    filDernier: null,
+    filAffiche: false,
     modifieLe: null,
     md: null,
     piecesJointes: null,
@@ -122,6 +124,37 @@ describe('upserts idempotents', () => {
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', texte: 'ancien', misAJourLe: 100 }));
     const m = ligne(db.prepare('SELECT texte, mis_a_jour_le FROM messages WHERE id = ?').get('m1'));
     assert.deepEqual(m, { texte: 'récent', mis_a_jour_le: 200 }, 'le passé ne doit pas gagner');
+  });
+
+  test('fils (8.3) : fil_dernier et fil_affiche font l’aller-retour, valeurs NON par défaut', () => {
+    // Garde contre l'interversion silencieuse de deux paramètres voisins de
+    // même type dans paramsMessage : seules des valeurs distinctes et non
+    // par défaut la détectent.
+    db.prepare(UPSERT_MESSAGE).run(
+      ...msg({
+        id: 'm1',
+        filId: 'racine',
+        filReponses: 7,
+        filDernier: 4242,
+        filAffiche: true,
+        modifieLe: 9999,
+        misAJourLe: 100,
+      }),
+    );
+    const m = ligne(
+      db
+        .prepare(
+          'SELECT fil_id, fil_reponses, fil_dernier, fil_affiche, modifie_le FROM messages WHERE id = ?',
+        )
+        .get('m1'),
+    );
+    assert.deepEqual(m, {
+      fil_id: 'racine',
+      fil_reponses: 7,
+      fil_dernier: 4242,
+      fil_affiche: 1,
+      modifie_le: 9999,
+    });
   });
 
   test('un événement de même horodatage est appliqué (rejeu idempotent)', () => {

@@ -72,9 +72,10 @@ export class MoteurEnvoi {
 
   /**
    * Affichage immédiat + persistance de l'intention, PUIS tentative d'envoi.
-   * Rend l'`_id` généré.
+   * Rend l'`_id` généré. `filId` (le `tmid` Rocket.Chat) fait de ce message
+   * une réponse de fil.
    */
-  async envoyer(rid: string, texte: string): Promise<string> {
+  async envoyer(rid: string, texte: string, filId: string | null = null): Promise<string> {
     const id = this.genererId();
     const quand = this.maintenant();
     await this.depot.upsertMessage({
@@ -85,8 +86,10 @@ export class MoteurEnvoi {
       auteurId: this.moi.id,
       auteurNom: this.moi.username,
       typeSysteme: null,
-      filId: null,
+      filId,
       filReponses: 0,
+      filDernier: null,
+      filAffiche: false,
       modifieLe: null,
       md: null,
       piecesJointes: null,
@@ -95,7 +98,7 @@ export class MoteurEnvoi {
       // et l'optimiste n'écrase jamais un état réel.
       misAJourLe: 0,
     });
-    await this.depot.insererSortie(id, rid, texte, null);
+    await this.depot.insererSortie(id, rid, texte, filId);
     await this.traiter();
     return id;
   }
@@ -129,7 +132,14 @@ export class MoteurEnvoi {
     for (const ligne of await this.depot.listerAEnvoyer()) {
       try {
         const reponse = await this.client.post<ReponseEnvoi>('chat.sendMessage', {
-          corps: { message: { _id: ligne.id, rid: ligne.rid, msg: ligne.texte } },
+          corps: {
+            message: {
+              _id: ligne.id,
+              rid: ligne.rid,
+              msg: ligne.texte,
+              ...(ligne.filId === null ? {} : { tmid: ligne.filId }),
+            },
+          },
         });
         await this.depot.supprimerSortie(ligne.id);
         if (reponse.message !== undefined) await this.ingerer(reponse.message);

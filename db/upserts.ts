@@ -19,8 +19,9 @@ import type { AbonnementLocal, MessageLocal, SalonLocal } from '../lib/normalise
 export const UPSERT_MESSAGE = `
 INSERT INTO messages (
   id, rid, texte, horodatage, auteur_id, auteur_nom, type_systeme,
-  fil_id, fil_reponses, modifie_le, md, pieces_jointes, reactions, mis_a_jour_le
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  fil_id, fil_reponses, fil_dernier, fil_affiche, modifie_le, md,
+  pieces_jointes, reactions, mis_a_jour_le
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
   texte = excluded.texte,
   horodatage = excluded.horodatage,
@@ -28,6 +29,8 @@ ON CONFLICT(id) DO UPDATE SET
   type_systeme = excluded.type_systeme,
   fil_id = excluded.fil_id,
   fil_reponses = excluded.fil_reponses,
+  fil_dernier = excluded.fil_dernier,
+  fil_affiche = excluded.fil_affiche,
   modifie_le = excluded.modifie_le,
   md = excluded.md,
   pieces_jointes = excluded.pieces_jointes,
@@ -170,6 +173,8 @@ export function paramsMessage(m: MessageLocal): Parametre[] {
     m.typeSysteme,
     m.filId,
     m.filReponses,
+    m.filDernier,
+    b(m.filAffiche),
     m.modifieLe,
     m.md,
     m.piecesJointes,

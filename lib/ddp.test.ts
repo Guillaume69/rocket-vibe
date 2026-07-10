@@ -77,13 +77,29 @@ describe('ClientDdp', () => {
     assert.deepEqual(login?.params, [{ resume: 'jeton-rest' }]);
   });
 
-  test('un `failed` rejette la connexion', async () => {
+  test('un `failed` rejette la connexion ET laisse le client réutilisable', async () => {
     const ws = new FauxWebSocket();
     const ddp = new ClientDdp('ws://x', { creerWebSocket: () => ws, delaiMs: 200 });
     const p = ddp.connecter('j');
     ws.ouvrir();
     ws.recevoir({ msg: 'failed', version: '2' });
     await assert.rejects(p, /Version DDP refusée/);
+    assert.equal(ddp.etat, 'ferme', 'sinon toute retentative échoue sur « déjà connecté »');
+    assert.equal(ws.ferme, true);
+  });
+
+  test('le TIMEOUT de négociation nettoie : le client reste réutilisable', async () => {
+    // Un proxy qui accepte le WebSocket mais dont le backend est mort n'enverra
+    // jamais « connected » NI ne fermera la socket : sans nettoyage, l'état
+    // resterait « connexion » pour toujours et le pilote de reconnexion
+    // tournerait à vide sur « déjà connecté ».
+    const ws = new FauxWebSocket();
+    const ddp = new ClientDdp('ws://x', { creerWebSocket: () => ws, delaiMs: 50 });
+    const p = ddp.connecter('j');
+    ws.ouvrir();
+    await assert.rejects(p, /Pas de « connected »/);
+    assert.equal(ddp.etat, 'ferme');
+    assert.equal(ws.ferme, true, 'la socket zombie est coupée');
   });
 
   test('fermer() pendant la négociation rejette IMMÉDIATEMENT', async () => {
@@ -253,6 +269,22 @@ describe('ClientDdp', () => {
     assert.equal(ddp.etat, 'ferme');
     assert.equal(ddp.nombreSouscriptions, 0);
     assert.equal(ddp.nombreSouscriptionsDesirees, 1);
+  });
+
+  test('surPerte prévient sur une coupure — jamais sur fermer()', async () => {
+    // C'est le signal du pilote de reconnexion : le notifier sur `fermer()`
+    // déclencherait une reconnexion juste après la déconnexion volontaire.
+    const premiere = await clientAuthentifie();
+    let pertes = 0;
+    premiere.ddp.surPerte(() => pertes++);
+    premiere.ws.onclose?.(null);
+    assert.equal(pertes, 1);
+
+    const seconde = await clientAuthentifie();
+    let pertesVolontaires = 0;
+    seconde.ddp.surPerte(() => pertesVolontaires++);
+    seconde.ddp.fermer();
+    assert.equal(pertesVolontaires, 0);
   });
 
   test('à la reconnexion, les souscriptions désirées sont rejouées', async () => {

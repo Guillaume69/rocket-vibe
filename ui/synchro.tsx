@@ -25,8 +25,8 @@ import { creerDepot, creerDepotEnvoi } from '../db/depot.ts';
 import { migrerBase } from '../db/migrer.ts';
 import { ClientDdp } from '../lib/ddp.ts';
 import { MoteurEnvoi, idDepuisOctets } from '../lib/envoi.ts';
+import { Reconnecteur } from '../lib/reconnexion.ts';
 import type { ClientRest } from '../lib/rest.ts';
-import type { Session } from '../lib/auth.ts';
 import { MoteurSynchro, STREAM_NOTIFY_USER } from '../lib/sync.ts';
 import { useSession } from './session.tsx';
 
@@ -53,28 +53,11 @@ function urlWebSocket(baseUrl: string): string {
  * atterrit après la déconnexion ne doit pas remplir la base d'une session
  * terminée — l'utilisateur suivant la verrait.
  */
-async function raccorder(
-  ddp: ClientDdp,
+async function chargementInitial(
   moteur: MoteurSynchro,
-  session: Session,
   client: ClientRest,
   estAbandonne: () => boolean,
 ): Promise<void> {
-  ddp.surEvenement((evenement) => {
-    if (estAbandonne()) return;
-    moteur.appliquer(evenement).catch(() => {
-      // Une écriture qui échoue ne doit pas tuer l'écouteur ; le rattrapage
-      // REST de l'étape 5.2 refera passer le document.
-    });
-  });
-
-  // Déclarées AVANT la connexion : `souscrire` mémorise l'intention, et
-  // `connecter` établit tout à l'authentification. Aucune fenêtre où un
-  // événement se perd entre les deux.
-  ddp.souscrire(STREAM_NOTIFY_USER, `${session.userId}/subscriptions-changed`);
-  ddp.souscrire(STREAM_NOTIFY_USER, `${session.userId}/rooms-changed`);
-  await ddp.connecter(session.authToken);
-
   const [salonsBruts, abonnementsBruts] = await Promise.all([
     client.get<{ update?: Record<string, unknown>[] }>('rooms.get'),
     client.get<{ update?: Record<string, unknown>[] }>('subscriptions.get'),
@@ -97,6 +80,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
     let abandonne = false;
     const estAbandonne = () => abandonne;
     const ddp = new ClientDdp(urlWebSocket(session.baseUrl));
+    let reconnecteur: Reconnecteur | null = null;
 
     (async () => {
       setSynchro({ phase: 'preparation' });
@@ -116,15 +100,38 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       // attendre le réseau.
       setSynchro({ phase: 'pret', base, moteur, envoi, ddp });
 
-      // Vider la file d'envoi laissée par une session tuée : le serveur
-      // déduplique sur `_id`, rejouer est toujours sûr.
-      envoi.traiter().catch(() => {});
-
-      // Tir-et-oublie : hors ligne, jeton WebSocket refusé, REST en panne —
-      // le cache reste affiché, la reconnexion (5.1) fera le reste.
-      raccorder(ddp, moteur, session, client, estAbandonne).catch((e: unknown) => {
-        console.warn('synchro: raccordement échoué', e);
+      ddp.surEvenement((evenement) => {
+        if (abandonne) return;
+        moteur.appliquer(evenement).catch(() => {
+          // Une écriture qui échoue ne doit pas tuer l'écouteur ; le
+          // rattrapage REST de l'étape 5.2 refera passer le document.
+        });
       });
+      // Déclarées AVANT toute connexion : `souscrire` mémorise l'intention,
+      // et chaque `connecter` (première fois comme reconnexion) rejoue tout.
+      ddp.souscrire(STREAM_NOTIFY_USER, `${session.userId}/subscriptions-changed`);
+      ddp.souscrire(STREAM_NOTIFY_USER, `${session.userId}/rooms-changed`);
+
+      // Le PREMIER raccordement passe par le même pilote que les reconnexions
+      // (backoff 1 s → 30 s avec gigue) : hors ligne au lancement, ça
+      // retentera tout seul. À chaque nouvelle socket : login, re-souscription
+      // de tous les streams, rechargement, et flush de la file d'envoi.
+      reconnecteur = new Reconnecteur({
+        connecter: async () => {
+          if (abandonne) return;
+          // Ne reconnecter QUE si la socket est tombée : après un échec du
+          // seul rechargement REST, le DDP est encore authentifié et
+          // `connecter` lèverait « déjà connecté » — la retentative ne
+          // rejouerait alors jamais le chargement.
+          if (ddp.etat === 'ferme') await ddp.connecter(session.authToken);
+          await chargementInitial(moteur, client, estAbandonne);
+          // Ce qui attendait le réseau part maintenant. Pas d'await : un
+          // échec d'envoi ne doit pas compter comme un échec de connexion.
+          envoi.traiter().catch(() => {});
+        },
+      });
+      ddp.surPerte(() => reconnecteur?.declencher());
+      reconnecteur.declencher();
     })().catch((e: unknown) => {
       // Ici, même la base locale n'est pas utilisable : écran d'erreur.
       if (!abandonne) {
@@ -137,6 +144,9 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       abandonne = true;
+      // L'ordre compte : arrêter le pilote AVANT de fermer, sinon la
+      // fermeture pourrait encore programmer une tentative.
+      reconnecteur?.arreter();
       ddp.fermer();
       ddp.reinitialiser();
     };

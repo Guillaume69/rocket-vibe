@@ -260,7 +260,8 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
 
 > Réf. `ROADMAP.md` §5 phase 3, §6.2.
 
-- [ ] **5.1 — Reconnexion** · `@claude` · `[code]` — backoff exponentiel avec gigue (1 s → 30 s). À **chaque nouvelle socket** : reconnexion, re-login, **re-souscription de tous les streams**. Une souscription ne survit jamais à une reconnexion. Fait le : `____`
+- [x] **5.1 — Reconnexion** · `@claude` · `[code]` — backoff exponentiel avec gigue (1 s → 30 s). À **chaque nouvelle socket** : reconnexion, re-login, **re-souscription de tous les streams**. Une souscription ne survit jamais à une reconnexion.
+  Le premier raccordement passe par le même pilote que les reconnexions ; `connecter()` rejoue toutes les souscriptions désirées ; le rechargement REST et le flush de la file d'envoi suivent chaque nouvelle socket. Vérifié sur l'AVD : socket coupée 12 s (`adb reverse --remove`), rétablie → un message posté ensuite arrive **en direct**, sans toucher l'app. Backoff, gigue, relance-pendant-vol et nettoyage du timeout de négociation testés sous Node (138 tests). Fait le : `2026-07-10`
 - [ ] **5.2 — Rattrapage** · `@claude` · `[code]` — piloté par `SyncState`, sur `AppState 'active'` et à la reconnexion. **`chat.syncMessages` traite un salon à la fois et le REST est rate-limité** : ne pas boucler sur tous les salons. Un `subscriptions.get?updatedSince=` + `rooms.get?updatedSince=` pour le gros, `syncMessages` **seulement** sur les salons ouverts ou récemment actifs. Fait le : `____`
 - [ ] **5.3 — Multi-serveurs** · `@claude` · `[code]` — registre `Server`, tokens **et** base SQLite isolés par host. Fait le : `____`
 - [ ] **5.4 — Démarrer une conversation** · `@claude` · `[code]` — `GET /api/v1/spotlight?query=`, puis `POST /api/v1/im.create` ou `POST /api/v1/channels.join`. Sans cela l'app ne fait que lister l'existant. Fait le : `____`

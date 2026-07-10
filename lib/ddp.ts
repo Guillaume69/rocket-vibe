@@ -87,8 +87,10 @@ export class ClientDdp {
 
   private ws: WebSocketLike | null = null;
   private compteur = 0;
+  private fermetureVolontaire = false;
   private readonly attentes = new Map<string, Attente>();
   private readonly ecouteurs = new Set<(e: Evenement) => void>();
+  private readonly ecouteursPerte = new Set<() => void>();
   /**
    * Souscriptions **désirées**, indexées par `nom|clé`. Survivent à une
    * fermeture de socket, pour que l'étape 5.1 puisse les rejouer : c'est le
@@ -134,6 +136,16 @@ export class ClientDdp {
   }
 
   /**
+   * Prévenu quand la connexion se perd SANS qu'on l'ait demandé — jamais sur
+   * `fermer()`. C'est le signal du pilote de reconnexion (5.1) : notifier une
+   * fermeture volontaire déclencherait une reconnexion après la déconnexion.
+   */
+  surPerte(ecouteur: () => void): () => void {
+    this.ecouteursPerte.add(ecouteur);
+    return () => this.ecouteursPerte.delete(ecouteur);
+  }
+
+  /**
    * Ouvre la socket, négocie DDP, puis s'authentifie avec le jeton REST.
    * `authToken` est celui de `POST /api/v1/login` : un seul secret pour les
    * deux transports.
@@ -141,12 +153,18 @@ export class ClientDdp {
   async connecter(authToken: string): Promise<void> {
     if (this.etat !== 'ferme') throw new ErreurDdp('Client déjà connecté.');
     this.etat = 'connexion';
+    this.fermetureVolontaire = false;
 
     await new Promise<void>((resoudre, rejeter) => {
-      const minuterie = setTimeout(
-        () => rejeter(new ErreurDdp(`Pas de « connected » en ${this.delaiMs} ms.`)),
-        this.delaiMs,
-      );
+      // Le timeout NETTOIE, il ne fait pas que rejeter : sinon l'état reste
+      // « connexion » avec une socket ouverte, et toute retentative du pilote
+      // de reconnexion échouerait à jamais sur « déjà connecté ».
+      const minuterie = setTimeout(() => {
+        const erreur = new ErreurDdp(`Pas de « connected » en ${this.delaiMs} ms.`);
+        this.ws?.close();
+        this.nettoyer(erreur);
+        rejeter(erreur);
+      }, this.delaiMs);
       this.annulerNegociation = (raison) => {
         clearTimeout(minuterie);
         rejeter(raison instanceof Error ? raison : new ErreurDdp('Connexion interrompue.'));
@@ -190,7 +208,11 @@ export class ClientDdp {
         if (m.msg === 'failed') {
           clearTimeout(minuterie);
           this.annulerNegociation = null;
-          rejeter(new ErreurDdp('Version DDP refusée par le serveur.'));
+          // Même exigence que le timeout : laisser le client réutilisable.
+          const erreur = new ErreurDdp('Version DDP refusée par le serveur.');
+          ws.close();
+          this.nettoyer(erreur);
+          rejeter(erreur);
           return;
         }
         this.recevoir(m);
@@ -302,6 +324,7 @@ export class ClientDdp {
   }
 
   fermer(): void {
+    this.fermetureVolontaire = true;
     this.ws?.close();
     this.nettoyer(new ErreurDdp('Client fermé.'));
   }
@@ -418,6 +441,16 @@ export class ClientDdp {
     this.etat = 'ferme';
     this.session = null;
     this.ws = null;
+
+    if (!this.fermetureVolontaire) {
+      for (const ecouteur of [...this.ecouteursPerte]) {
+        try {
+          ecouteur();
+        } catch {
+          /* un écouteur qui lève ne bloque pas les autres */
+        }
+      }
+    }
   }
 
   /** Oublie tout, y compris les souscriptions désirées. À la déconnexion. */

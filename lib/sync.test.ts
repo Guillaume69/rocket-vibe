@@ -153,7 +153,7 @@ function faireDepot() {
     supprimerParSubId: async () => {},
     lireCurseur: async (p, f) => curseurs.get(`${p}|${f}`) ?? null,
     ecrireCurseur: async (p, f, v) => void curseurs.set(`${p}|${f}`, v),
-    transaction: async (fn) => fn(),
+    transaction: async (fn) => fn(depot),
   };
   return { depot, messages, salons, abonnements, supprimes };
 }

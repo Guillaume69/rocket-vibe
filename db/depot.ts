@@ -15,7 +15,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import type { DepotEnvoi, LigneSortie } from '../lib/envoi.ts';
 import type { DepotTeleversements, LigneTeleversement } from '../lib/envoiFichiers.ts';
-import type { Depot } from '../lib/sync.ts';
+import type { Depot, EcrituresDepot } from '../lib/sync.ts';
 import {
   INSERER_SORTIE,
   INSERER_TELEVERSEMENT,
@@ -40,8 +40,41 @@ import {
   paramsSalon,
 } from './upserts.ts';
 
-export function creerDepot(brute: SQLiteDatabase): Depot {
-  return {
+/**
+ * File d'écritures d'UNE connexion SQLite. Les transactions de
+ * `withTransactionAsync` sont par CONNEXION et non réentrantes : toute
+ * écriture hors file émise pendant un `BEGIN` ouvert serait absorbée dedans —
+ * et silencieusement annulée si le lot échoue. La file appartient donc à la
+ * connexion, pas à un dépôt : les trois dépôts (`creerDepot`,
+ * `creerDepotEnvoi`, `creerDepotTeleversements`) bâtis sur la même connexion
+ * doivent recevoir la MÊME instance.
+ *
+ * Deux lots concurrents entrelacés mouraient sur « cannot rollback - no
+ * transaction is active » — constaté sur l'AVD (historique d'écran +
+ * rattrapage du raccordement).
+ */
+export type FileEcritures = <T>(job: () => Promise<T>) => Promise<T>;
+
+export function creerFileEcritures(): FileEcritures {
+  let queue: Promise<unknown> = Promise.resolve();
+  return (job) => {
+    // `tour` porte le rejet au demandeur ; la file, elle, l'avale pour ne
+    // jamais se bloquer sur un échec passé.
+    const tour = queue.then(job);
+    queue = tour.then(
+      () => {},
+      () => {},
+    );
+    return tour;
+  };
+}
+
+export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot {
+  // Les écritures DIRECTES, sans file : c'est ce que reçoit le `fn` d'une
+  // transaction (la file attend la fin de la transaction ouverte — passer
+  // par elle depuis `fn` s'interbloquerait, la signature de
+  // `Depot.transaction` l'interdit).
+  const direct: EcrituresDepot = {
     async upsertMessage(m) {
       await brute.runAsync(UPSERT_MESSAGE, paramsMessage(m));
       // Réconciliation de la file d'envoi : ce dépôt ne reçoit QUE des
@@ -73,20 +106,33 @@ export function creerDepot(brute: SQLiteDatabase): Depot {
       // existe toujours côté serveur, mais plus pour ce compte.
       await brute.runAsync(SUPPRIMER_SALON, [ligne.rid]);
     },
+    async ecrireCurseur(portee, flux, misAJourDepuis) {
+      await brute.runAsync(UPSERT_CURSEUR, [portee, flux, misAJourDepuis]);
+    },
+  };
+
+  return {
+    upsertMessage: (m) => enSerie(() => direct.upsertMessage(m)),
+    upsertSalon: (s) => enSerie(() => direct.upsertSalon(s)),
+    upsertAbonnement: (a) => enSerie(() => direct.upsertAbonnement(a)),
+    supprimerMessage: (id) => enSerie(() => direct.supprimerMessage(id)),
+    supprimerSalon: (rid) => enSerie(() => direct.supprimerSalon(rid)),
+    supprimerAbonnement: (rid) => enSerie(() => direct.supprimerAbonnement(rid)),
+    supprimerParSubId: (subId) => enSerie(() => direct.supprimerParSubId(subId)),
     async lireCurseur(portee, flux) {
+      // Lecture : pas de file. Elle peut voir un lot non commis — sans
+      // conséquence, les curseurs ne s'écrivent qu'après le retour du lot.
       const ligne = await brute.getFirstAsync<{ mis_a_jour_depuis: number }>(LIRE_CURSEUR, [
         portee,
         flux,
       ]);
       return ligne?.mis_a_jour_depuis ?? null;
     },
-    async ecrireCurseur(portee, flux, misAJourDepuis) {
-      await brute.runAsync(UPSERT_CURSEUR, [portee, flux, misAJourDepuis]);
-    },
-    async transaction(fn) {
+    ecrireCurseur: (portee, flux, v) => enSerie(() => direct.ecrireCurseur(portee, flux, v)),
+    transaction(fn) {
       // Un lot = un commit = UN événement de changement pour `useLiveQuery`,
       // au lieu d'une ré-exécution de chaque requête vive par ligne insérée.
-      await brute.withTransactionAsync(fn);
+      return enSerie(() => brute.withTransactionAsync(() => fn(direct)));
     },
   };
 }
@@ -100,10 +146,15 @@ type BruteSortie = {
   tentatives: number;
 };
 
-export function creerDepotEnvoi(brute: SQLiteDatabase): DepotEnvoi {
+export function creerDepotEnvoi(brute: SQLiteDatabase, enSerie: FileEcritures): DepotEnvoi {
+  // Écritures dans la MÊME file que les lots de synchro : émises hors file
+  // pendant un lot ouvert, elles rejoindraient sa transaction — un rollback
+  // du lot emporterait alors le message que l'utilisateur vient d'envoyer.
   return {
-    async insererSortie(id, rid, texte, filId) {
-      await brute.runAsync(INSERER_SORTIE, [id, rid, texte, filId, Date.now()]);
+    insererSortie(id, rid, texte, filId) {
+      return enSerie(() =>
+        brute.runAsync(INSERER_SORTIE, [id, rid, texte, filId, Date.now()]).then(() => {}),
+      );
     },
     async listerAEnvoyer(): Promise<LigneSortie[]> {
       const lignes = await brute.getAllAsync<BruteSortie>(LISTER_SORTIE_A_ENVOYER);
@@ -116,17 +167,17 @@ export function creerDepotEnvoi(brute: SQLiteDatabase): DepotEnvoi {
         tentatives: l.tentatives,
       }));
     },
-    async marquerEchec(id, erreur) {
-      await brute.runAsync(MARQUER_SORTIE_ECHEC, [erreur, id]);
+    marquerEchec(id, erreur) {
+      return enSerie(() => brute.runAsync(MARQUER_SORTIE_ECHEC, [erreur, id]).then(() => {}));
     },
-    async supprimerSortie(id) {
-      await brute.runAsync(SUPPRIMER_SORTIE, [id]);
+    supprimerSortie(id) {
+      return enSerie(() => brute.runAsync(SUPPRIMER_SORTIE, [id]).then(() => {}));
     },
-    async upsertMessage(m) {
-      await brute.runAsync(UPSERT_MESSAGE, paramsMessage(m));
+    upsertMessage(m) {
+      return enSerie(() => brute.runAsync(UPSERT_MESSAGE, paramsMessage(m)).then(() => {}));
     },
-    async supprimerMessageOptimiste(id) {
-      await brute.runAsync(SUPPRIMER_MESSAGE_OPTIMISTE, [id]);
+    supprimerMessageOptimiste(id) {
+      return enSerie(() => brute.runAsync(SUPPRIMER_MESSAGE_OPTIMISTE, [id]).then(() => {}));
     },
   };
 }
@@ -141,27 +192,36 @@ type BruteTeleversement = {
   statut: 'en-attente' | 'echec';
 };
 
-export function creerDepotTeleversements(brute: SQLiteDatabase): DepotTeleversements {
+export function creerDepotTeleversements(
+  brute: SQLiteDatabase,
+  enSerie: FileEcritures,
+): DepotTeleversements {
   return {
-    async inserer(ligne) {
-      await brute.runAsync(INSERER_TELEVERSEMENT, [
-        ligne.id,
-        ligne.rid,
-        ligne.uri,
-        ligne.nom,
-        ligne.type,
-        ligne.legende,
-        Date.now(),
-      ]);
+    inserer(ligne) {
+      return enSerie(() =>
+        brute
+          .runAsync(INSERER_TELEVERSEMENT, [
+            ligne.id,
+            ligne.rid,
+            ligne.uri,
+            ligne.nom,
+            ligne.type,
+            ligne.legende,
+            Date.now(),
+          ])
+          .then(() => {}),
+      );
     },
     async listerAEnvoyer(): Promise<LigneTeleversement[]> {
       return brute.getAllAsync<BruteTeleversement>(LISTER_TELEVERSEMENTS_A_ENVOYER);
     },
-    async marquerEchec(id, erreur) {
-      await brute.runAsync(MARQUER_TELEVERSEMENT_ECHEC, [erreur, id]);
+    marquerEchec(id, erreur) {
+      return enSerie(() =>
+        brute.runAsync(MARQUER_TELEVERSEMENT_ECHEC, [erreur, id]).then(() => {}),
+      );
     },
-    async supprimer(id) {
-      await brute.runAsync(SUPPRIMER_TELEVERSEMENT, [id]);
+    supprimer(id) {
+      return enSerie(() => brute.runAsync(SUPPRIMER_TELEVERSEMENT, [id]).then(() => {}));
     },
   };
 }

@@ -1,7 +1,7 @@
 import { FlashList } from '@shopify/flash-list';
 import { desc, eq } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
-import { Redirect, Stack, useLocalSearchParams } from 'expo-router';
+import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { AudioModule, RecordingPresets, useAudioRecorder } from 'expo-audio';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -303,6 +303,14 @@ function Salon({
       });
   }, [fraiches, limite, type, chargerHistorique]);
 
+  const routeur = useRouter();
+  const ouvrirActions = useCallback(
+    (id: string) => {
+      routeur.push({ pathname: '/actions-message', params: { id } });
+    },
+    [routeur],
+  );
+
   const reessayer = useCallback(() => {
     envoi.traiter().catch(() => {});
   }, [envoi]);
@@ -337,10 +345,14 @@ function Salon({
           statutEnvoi={etatEnvoi?.statut ?? null}
           surReessayer={etatEnvoi?.statut === 'echec' ? reessayer : null}
           surAbandonner={etatEnvoi?.statut === 'echec' ? abandonner : null}
+          // Pas d'actions sur une ligne d'outbox : son `_id` client n'a pas
+          // été accepté par le serveur — `chat.delete`/`chat.update` dessus ne
+          // peuvent qu'échouer. Ses vraies actions sont réessayer/abandonner.
+          surAppuiLong={etatEnvoi === undefined ? ouvrirActions : null}
         />
       );
     },
-    [c, client, sortieParId, reessayer, abandonner],
+    [c, client, sortieParId, reessayer, abandonner, ouvrirActions],
   );
 
   const titre = salon
@@ -350,27 +362,37 @@ function Salon({
   return (
     <SafeAreaView style={[styles.plein, { backgroundColor: c.fond }]} edges={['bottom']}>
       <Stack.Screen options={{ title: titre }} />
-      <FlashList
-        data={donneesAvecBarre}
-        maintainVisibleContentPosition={{
-          startRenderingFromBottom: true,
-          autoscrollToBottomThreshold: 0.2,
-        }}
-        keyExtractor={(m) => m.id}
-        renderItem={rendreLigne}
-        onStartReached={chargerPlus}
-        onStartReachedThreshold={0.4}
-        contentContainerStyle={styles.contenu}
-        ListEmptyComponent={
-          premierPassageFini ? (
+      {donneesAvecBarre.length === 0 ? (
+        // La liste ne monte JAMAIS vide : montée avant l'arrivée du premier
+        // lot (requête vive encore muette au cold start), FlashList traitait
+        // les 100 messages comme des insertions au-dessus de l'ancre
+        // `maintainVisibleContentPosition` et laissait le viewport SOUS tout
+        // le contenu — écran blanc, constaté sur l'AVD. Monter la liste
+        // peuplée fait calculer `startRenderingFromBottom` avec le contenu là.
+        <View style={styles.centre}>
+          {premierPassageFini ? (
             <Text style={[styles.vide, { color: c.attenue }]}>Aucun message.</Text>
           ) : (
-            <View style={styles.centre}>
-              <ActivityIndicator />
-            </View>
-          )
-        }
-      />
+            <ActivityIndicator />
+          )}
+        </View>
+      ) : (
+        <FlashList
+          data={donneesAvecBarre}
+          maintainVisibleContentPosition={{
+            startRenderingFromBottom: true,
+            autoscrollToBottomThreshold: 0.2,
+          }}
+          keyExtractor={(m) => m.id}
+          // Contenu HÉTÉROGÈNE (messages + barre de non-lus) : sans type
+          // d'item, le recyclage de FlashList mélange les gabarits.
+          getItemType={(item) => ('barre' in item ? 'barre' : 'message')}
+          renderItem={rendreLigne}
+          onStartReached={chargerPlus}
+          onStartReachedThreshold={0.4}
+          contentContainerStyle={styles.contenu}
+        />
+      )}
       {televersementsEnEchec.map((t) => (
         <View key={t.id} style={styles.bandeEchecFichier}>
           <Text style={[styles.heure, { color: c.texteErreur }]} numberOfLines={1}>
@@ -598,6 +620,7 @@ const LigneMessage = memo(function LigneMessage({
   statutEnvoi,
   surReessayer,
   surAbandonner,
+  surAppuiLong,
 }: {
   c: Couleurs;
   message: LigneDeMessage;
@@ -605,14 +628,25 @@ const LigneMessage = memo(function LigneMessage({
   statutEnvoi: 'en-attente' | 'echec' | null;
   surReessayer: (() => void) | null;
   surAbandonner: ((id: string) => void) | null;
+  surAppuiLong: ((id: string) => void) | null;
 }) {
   const heure = new Date(message.horodatage).toLocaleTimeString('fr-FR', {
     hour: '2-digit',
     minute: '2-digit',
   });
 
+  const appuiLong = surAppuiLong === null ? undefined : () => surAppuiLong(message.id);
+
   return (
-    <View style={[styles.message, statutEnvoi === 'en-attente' && styles.enAttente]}>
+    <Pressable
+      onLongPress={appuiLong}
+      delayLongPress={350}
+      // Sans quoi le Pressable fusionne la ligne en UN nœud d'accessibilité :
+      // TalkBack ne peut plus atteindre « réessayer », « abandonner » ni les
+      // pièces jointes individuellement.
+      accessible={false}
+      style={[styles.message, statutEnvoi === 'en-attente' && styles.enAttente]}
+    >
       <View style={styles.enTete}>
         <Text style={[styles.auteur, { color: c.texte }]}>{message.auteurNom ?? '?'}</Text>
         <Text style={[styles.heure, { color: c.attenue }]}>{heure}</Text>
@@ -625,7 +659,7 @@ const LigneMessage = memo(function LigneMessage({
       </View>
       <ContenuMessage c={c} message={message} />
       {message.piecesJointes !== null && (
-        <PiecesJointes c={c} brut={message.piecesJointes} client={client} />
+        <PiecesJointes c={c} brut={message.piecesJointes} client={client} surAppuiLong={appuiLong} />
       )}
       {statutEnvoi === 'echec' && (
         <View style={styles.actionsEchec}>
@@ -637,7 +671,7 @@ const LigneMessage = memo(function LigneMessage({
           </Pressable>
         </View>
       )}
-    </View>
+    </Pressable>
   );
 });
 
@@ -696,8 +730,23 @@ type PieceJointe = {
  * Pièces jointes (7.4) : `FileUpload_ProtectFiles = true` sur le serveur
  * cible — chaque URL de fichier reçoit `rc_uid`/`rc_token` en query, sinon
  * le serveur répond 403 et l'image reste blanche.
+ *
+ * `surAppuiLong` est transmis à chaque élément tapable : un toucher qui
+ * démarre sur un enfant Pressable ne remonte jamais au Pressable de la ligne,
+ * et un message d'upload (sans texte) n'offrirait AUCUNE surface pour la
+ * feuille d'actions.
  */
-function PiecesJointes({ c, brut, client }: { c: Couleurs; brut: string; client: ClientRest }) {
+function PiecesJointes({
+  c,
+  brut,
+  client,
+  surAppuiLong,
+}: {
+  c: Couleurs;
+  brut: string;
+  client: ClientRest;
+  surAppuiLong: (() => void) | undefined;
+}) {
   const jointes = useMemo<PieceJointe[]>(() => {
     try {
       const liste = JSON.parse(brut) as unknown;
@@ -729,7 +778,12 @@ function PiecesJointes({ c, brut, client }: { c: Couleurs; brut: string; client:
         if (typeof jointe?.audio_url === 'string') {
           const url = urlFichierProtege(client, jointe.audio_url);
           return (
-            <Pressable key={i} onPress={() => void Linking.openURL(url).catch(() => {})}>
+            <Pressable
+              key={i}
+              onPress={() => void Linking.openURL(url).catch(() => {})}
+              onLongPress={surAppuiLong}
+              delayLongPress={350}
+            >
               <Text style={[styles.texte, { color: c.accent }]}>
                 🎵 {jointe.title ?? 'Message vocal'}
               </Text>
@@ -739,7 +793,12 @@ function PiecesJointes({ c, brut, client }: { c: Couleurs; brut: string; client:
         if (typeof jointe?.title_link === 'string') {
           const url = urlFichierProtege(client, jointe.title_link);
           return (
-            <Pressable key={i} onPress={() => void Linking.openURL(url).catch(() => {})}>
+            <Pressable
+              key={i}
+              onPress={() => void Linking.openURL(url).catch(() => {})}
+              onLongPress={surAppuiLong}
+              delayLongPress={350}
+            >
               <Text style={[styles.texte, { color: c.accent }]}>
                 📄 {jointe.title ?? 'Fichier'}
               </Text>

@@ -22,7 +22,12 @@ import { AppState } from 'react-native';
 
 import type { BaseLocale } from '../db/client.ts';
 import { ouvrirBase } from '../db/client.ts';
-import { creerDepot, creerDepotEnvoi, creerDepotTeleversements } from '../db/depot.ts';
+import {
+  creerDepot,
+  creerDepotEnvoi,
+  creerDepotTeleversements,
+  creerFileEcritures,
+} from '../db/depot.ts';
 import { migrerBase } from '../db/migrer.ts';
 import { ClientDdp } from '../lib/ddp.ts';
 import { MoteurEnvoi, idDepuisOctets } from '../lib/envoi.ts';
@@ -88,9 +93,13 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       await migrerBase(session.baseUrl, session.userId);
       if (abandonne) return;
 
-      const moteur = new MoteurSynchro(creerDepot(brute), session.username);
+      // UNE file d'écritures pour la connexion : les trois dépôts partagent
+      // le même SQLite, leurs écritures ne doivent jamais s'intercaler dans
+      // une transaction ouverte par un autre (voir db/depot.ts).
+      const fileEcritures = creerFileEcritures();
+      const moteur = new MoteurSynchro(creerDepot(brute, fileEcritures), session.username);
       const fichiers = new MoteurTeleversement({
-        depot: creerDepotTeleversements(brute),
+        depot: creerDepotTeleversements(brute, fileEcritures),
         client,
         transport: transportExpo,
         genererId: () => idDepuisOctets(Crypto.getRandomBytes(12)),
@@ -99,7 +108,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         },
       });
       const envoi = new MoteurEnvoi({
-        depot: creerDepotEnvoi(brute),
+        depot: creerDepotEnvoi(brute, fileEcritures),
         client,
         moi: { id: session.userId, username: session.username },
         genererId: () => idDepuisOctets(Crypto.getRandomBytes(12)),

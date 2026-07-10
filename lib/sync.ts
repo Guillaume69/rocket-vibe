@@ -36,9 +36,27 @@ export interface Depot {
    * Regroupe des écritures en une transaction. Une page d'historique de 50
    * messages doit produire UN commit et UN événement de changement — pas 50
    * ré-exécutions de chaque requête vive de l'UI.
+   *
+   * `fn` reçoit l'écrivain À UTILISER pour ses écritures : sur SQLite, les
+   * méthodes du dépôt lui-même passent par une file qui attend la fin de la
+   * transaction ouverte — les appeler depuis `fn` s'interbloquerait. La
+   * signature rend l'erreur impossible à écrire.
    */
-  transaction(fn: () => Promise<void>): Promise<void>;
+  transaction(fn: (tx: EcrituresDepot) => Promise<void>): Promise<void>;
 }
+
+/** Le sous-ensemble d'écritures utilisable à l'intérieur d'une transaction. */
+export type EcrituresDepot = Pick<
+  Depot,
+  | 'upsertMessage'
+  | 'upsertSalon'
+  | 'upsertAbonnement'
+  | 'supprimerMessage'
+  | 'supprimerSalon'
+  | 'supprimerAbonnement'
+  | 'supprimerParSubId'
+  | 'ecrireCurseur'
+>;
 
 export const STREAM_MESSAGES = 'stream-room-messages';
 export const STREAM_NOTIFY_USER = 'stream-notify-user';
@@ -172,14 +190,14 @@ export class MoteurSynchro {
    */
   async ingererMessages(bruts: Record<string, unknown>[]): Promise<number | null> {
     let plusRecent: number | null = null;
-    await this.depot.transaction(async () => {
+    await this.depot.transaction(async (tx) => {
       for (const brut of bruts) {
         const message = versMessage(brut);
         if (message === null) {
           this.stats.ignores++;
           continue;
         }
-        await this.depot.upsertMessage(message);
+        await tx.upsertMessage(message);
         this.stats.messages++;
         if (plusRecent === null || message.misAJourLe > plusRecent) {
           plusRecent = message.misAJourLe;
@@ -191,14 +209,14 @@ export class MoteurSynchro {
 
   async ingererSalons(bruts: Record<string, unknown>[]): Promise<number | null> {
     let plusRecent: number | null = null;
-    await this.depot.transaction(async () => {
+    await this.depot.transaction(async (tx) => {
       for (const brut of bruts) {
         const salon = versSalon(brut, this.moi);
         if (salon === null) {
           this.stats.ignores++;
           continue;
         }
-        await this.depot.upsertSalon(salon);
+        await tx.upsertSalon(salon);
         this.stats.salons++;
         if (plusRecent === null || salon.misAJourLe > plusRecent) {
           plusRecent = salon.misAJourLe;
@@ -210,14 +228,14 @@ export class MoteurSynchro {
 
   async ingererAbonnements(bruts: Record<string, unknown>[]): Promise<number | null> {
     let plusRecent: number | null = null;
-    await this.depot.transaction(async () => {
+    await this.depot.transaction(async (tx) => {
       for (const brut of bruts) {
         const abonnement = versAbonnement(brut);
         if (abonnement === null) {
           this.stats.ignores++;
           continue;
         }
-        await this.depot.upsertAbonnement(abonnement);
+        await tx.upsertAbonnement(abonnement);
         this.stats.abonnements++;
         if (plusRecent === null || abonnement.misAJourLe > plusRecent) {
           plusRecent = abonnement.misAJourLe;

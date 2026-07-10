@@ -24,7 +24,15 @@ export default function RootLayout() {
         <SynchroProvider>
           {/* Titre par défaut : sans lui, les rendus précoces du portier
               (démarrage, redirection) affichent le nom brut de la route. */}
-          <Stack screenOptions={{ title: 'rocket-vibe' }} />
+          <Stack screenOptions={{ title: 'rocket-vibe' }}>
+            {/* `presentation` doit être connue à la CRÉATION de l'écran
+                natif : posée par `<Stack.Screen>` depuis l'écran lui-même,
+                elle arrive après coup (setOptions) et peut être ignorée. */}
+            <Stack.Screen
+              name="actions-message"
+              options={{ presentation: 'formSheet', title: 'Message' }}
+            />
+          </Stack>
           <GestionNotifications />
         </SynchroProvider>
       </SessionProvider>

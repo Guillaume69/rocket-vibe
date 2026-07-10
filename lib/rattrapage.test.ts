@@ -28,7 +28,7 @@ function fauxDepotComplet() {
       const courant = curseurs.get(cle);
       if (courant === undefined || valeur > courant) curseurs.set(cle, valeur);
     },
-    transaction: async (fn) => fn(),
+    transaction: async (fn) => fn(depot),
   };
   return {
     depot,

@@ -37,6 +37,7 @@
     "@types/react": "~19.2.2",
     "babel-plugin-inline-import": "^3.0.0",
     "drizzle-kit": "^0.31.10",
+    "emoji-toolkit": "10.0.0",
     "eslint": "^9.0.0",
     "eslint-config-expo": "~57.0.0",
     "typescript": "~6.0.3"
@@ -51,6 +52,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
     "seed": "node scripts/seed.mjs",
+    "emojis:generer": "node scripts/generer-emojis.mjs",
     "test": "node --test \"lib/**/*.test.ts\" \"db/**/*.test.ts\"",
     "db:generate": "drizzle-kit generate"
   }

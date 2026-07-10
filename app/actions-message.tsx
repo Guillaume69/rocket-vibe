@@ -10,6 +10,7 @@ import {
   type ActionMessage,
   type ReglesMessages,
 } from '../lib/actionsMessage.ts';
+import { unicodeDeCodeCourt } from '../lib/emojis.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
@@ -24,15 +25,9 @@ import { useCouleurs } from '../ui/theme.ts';
  */
 
 // `chat.react` refuse l'unicode brut (« Invalid emoji provided ») : il veut le
-// SHORTNAME Rocket.Chat. On affiche le glyphe, on envoie le code.
-const EMOJIS = [
-  { affiche: '👍', code: ':+1:' },
-  { affiche: '❤️', code: ':heart:' },
-  { affiche: '😂', code: ':joy:' },
-  { affiche: '🎉', code: ':tada:' },
-  { affiche: '😮', code: ':open_mouth:' },
-  { affiche: '🙏', code: ':pray:' },
-];
+// SHORTNAME Rocket.Chat. On envoie le code, on affiche le glyphe que la table
+// en tire — une seule source de vérité, la même qui rend les messages.
+const CODES_REACTION = ['+1', 'heart', 'joy', 'tada', 'open_mouth', 'pray'];
 
 /**
  * Réglages messages : une lecture par SERVEUR (clef `baseUrl` — un cache
@@ -165,17 +160,19 @@ export default function EcranActionsMessage() {
 
       {actions.includes('reagir') && (
         <View style={styles.rangeeEmojis}>
-          {EMOJIS.map(({ affiche, code }) => (
+          {CODES_REACTION.map((code) => (
             <Pressable
               key={code}
               disabled={occupe}
               onPress={() =>
                 void agir(() =>
-                  client.post('chat.react', { corps: { messageId: message.id, emoji: code } }),
+                  client.post('chat.react', {
+                    corps: { messageId: message.id, emoji: `:${code}:` },
+                  }),
                 )
               }
             >
-              <Text style={styles.emoji}>{affiche}</Text>
+              <Text style={styles.emoji}>{unicodeDeCodeCourt(code) ?? `:${code}:`}</Text>
             </Pressable>
           ))}
         </View>

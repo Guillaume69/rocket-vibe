@@ -7,13 +7,17 @@
  * serveur, KaTeX, couleurs…) s'aplatit en texte via `texteDe` au lieu de
  * disparaître ou de planter. Les liens n'ouvrent que http(s) — un `md` forgé
  * ne doit pas pouvoir déclencher un intent arbitraire.
+ *
+ * Les emojis sont des CARACTÈRES, rendus par la police du système : le serveur
+ * ne livre que le code court (`:smile:`), que `lib/emojis.ts` résout. Aucune
+ * image, donc rien à charger ni à cacher.
  */
 
-import type { BigEmoji, Blocks, Emoji, Inlines, Paragraph } from '@rocket.chat/message-parser';
+import type { BigEmoji, Blocks, Inlines, Paragraph } from '@rocket.chat/message-parser';
 import { Component } from 'react';
 import { Linking, Platform, StyleSheet, Text, View } from 'react-native';
 
-import { texteDe, type Root } from '../lib/markdown.ts';
+import { texteDe, unicodeDEmoji, type Root } from '../lib/markdown.ts';
 import type { Couleurs } from './theme.ts';
 
 const POLICE_MONO = Platform.select({ android: 'monospace', default: 'Menlo' });
@@ -104,8 +108,25 @@ function Bloc({ bloc, c }: { bloc: Paragraph | Blocks | BigEmoji; c: Couleurs })
     case 'TASKS':
       return <Liste c={c} items={bloc.value} puce={(t) => (t.status === true ? '☑' : '☐')} />;
 
-    case 'BIG_EMOJI':
-      return <Text style={styles.grosEmoji}>{bloc.value.map((e) => texteEmoji(e)).join(' ')}</Text>;
+    case 'BIG_EMOJI': {
+      // Le parseur ne VALIDE aucun code court : `:pas_un_emoji:` seul sur sa
+      // ligne sort du serveur en `BIG_EMOJI`, exactement comme `:smile:`. On
+      // ne grossit donc que si CHAQUE nœud se résout ; sinon, paragraphe.
+      //
+      // Conséquence assumée : un emoji PERSONNALISÉ du serveur, qu'on ne sait
+      // pas afficher, se lit en texte normal au lieu de s'étaler en 36 px de
+      // `:nom:` littéral. C'est le moins mauvais des deux rendus faux.
+      const noeuds = Array.isArray(bloc.value) ? bloc.value : [];
+      const glyphes = noeuds.map((e) => unicodeDEmoji(e));
+      if (glyphes.length > 0 && glyphes.every((g) => g !== null)) {
+        return <Text style={styles.grosEmoji}>{glyphes.join(' ')}</Text>;
+      }
+      return (
+        <Text style={[styles.paragraphe, { color: c.texte }]}>
+          {noeuds.map((e) => texteDe(e)).join(' ')}
+        </Text>
+      );
+    }
 
     case 'LINE_BREAK':
       return <View style={styles.sautDeLigne} />;
@@ -209,18 +230,11 @@ function rendreInline(noeud: Inlines, cle: number, c: Couleurs): React.ReactNode
       );
 
     case 'EMOJI':
-      return texteEmoji(noeud);
-
     default:
+      // EMOJI : `texteDe` résout le code court, ou rend `:nom:` littéral.
       // TIMESTAMP, COLOR, IMAGE, KaTeX inline… : le texte, plutôt que rien.
       return texteDe(noeud);
   }
-}
-
-/** Un emoji unicode s'affiche tel quel ; un code court reste `:smile:`. */
-function texteEmoji(noeud: Emoji): string {
-  if ('unicode' in noeud && typeof noeud.unicode === 'string') return noeud.unicode;
-  return texteDe(noeud);
 }
 
 const styles = StyleSheet.create({

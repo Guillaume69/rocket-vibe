@@ -13,7 +13,26 @@
 
 import { parse, type Root } from '@rocket.chat/message-parser';
 
+import { unicodeDeCodeCourt } from './emojis.ts';
+
 export type { Root };
+
+/**
+ * Le caractère d'un nœud `EMOJI`, ou `null` si ce n'en est pas un.
+ *
+ * Le serveur livre soit `unicode` (l'auteur a tapé le glyphe), soit un
+ * `shortCode` NON VALIDÉ — le parseur accepte `:n_importe_quoi:`. C'est donc
+ * ici, et nulle part ailleurs, qu'on tranche « emoji ou pas » : le rendu s'en
+ * sert pour refuser de grossir un `BIG_EMOJI` qui n'en est pas un.
+ */
+export function unicodeDEmoji(noeud: unknown): string | null {
+  if (typeof noeud !== 'object' || noeud === null) return null;
+  const n = noeud as { type?: unknown; unicode?: unknown; shortCode?: unknown };
+  if (n.type !== 'EMOJI') return null;
+  if (typeof n.unicode === 'string') return n.unicode;
+  if (typeof n.shortCode === 'string') return unicodeDeCodeCourt(n.shortCode);
+  return null;
+}
 
 /** Un nœud plausible : un objet avec un `type` chaîne. Le reste est du poison. */
 function noeudPlausible(n: unknown): boolean {
@@ -60,10 +79,14 @@ export function texteDe(noeud: unknown): string {
       unicode?: unknown;
       fallback?: unknown;
     };
-    if (typeof objet.unicode === 'string') return objet.unicode;
-    if (objet.type === 'EMOJI' && typeof objet.shortCode === 'string') {
-      return `:${objet.shortCode}:`;
+    if (objet.type === 'EMOJI') {
+      const glyphe = unicodeDEmoji(objet);
+      // Code court inconnu (emoji personnalisé du serveur, coquille) : le
+      // littéral se lit, un carré blanc non.
+      if (glyphe !== null) return glyphe;
+      if (typeof objet.shortCode === 'string') return `:${objet.shortCode}:`;
     }
+    if (typeof objet.unicode === 'string') return objet.unicode;
     const parValue = 'value' in objet ? texteDe(objet.value) : '';
     if (parValue !== '') return parValue;
     // TIMESTAMP (et consorts) : `value` est un objet opaque, mais le parseur

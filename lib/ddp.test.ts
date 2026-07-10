@@ -271,6 +271,22 @@ describe('ClientDdp', () => {
     assert.equal(ddp.nombreSouscriptionsDesirees, 1);
   });
 
+  test('la sonde de vie : pong = vivant ; silence = socket nettoyée et perte notifiée', async () => {
+    const vivant = await clientAuthentifie();
+    const p1 = vivant.ddp.verifierVie();
+    vivant.ws.recevoir({ msg: 'pong', id: vivant.ws.dernier().id });
+    assert.equal(await p1, true);
+    assert.equal(vivant.ddp.etat, 'authentifie');
+
+    // Socket à moitié morte : jamais de pong, jamais de close.
+    const zombie = await clientAuthentifie(); // délai 200 ms
+    let pertes = 0;
+    zombie.ddp.surPerte(() => pertes++);
+    assert.equal(await zombie.ddp.verifierVie(), false);
+    assert.equal(zombie.ddp.etat, 'ferme', 'la socket morte est nettoyée');
+    assert.equal(pertes, 1, 'le pilote de reconnexion est prévenu');
+  });
+
   test('surPerte prévient sur une coupure — jamais sur fermer()', async () => {
     // C'est le signal du pilote de reconnexion : le notifier sur `fermer()`
     // déclencherait une reconnexion juste après la déconnexion volontaire.

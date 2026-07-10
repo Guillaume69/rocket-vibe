@@ -62,9 +62,10 @@ WHERE excluded.mis_a_jour_le >= salons.mis_a_jour_le
 
 export const UPSERT_ABONNEMENT = `
 INSERT INTO abonnements (
-  rid, non_lus, mentions, mentions_groupe, alerte, ouvert, favori, lu_jusqu_a, mis_a_jour_le
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  rid, sub_id, non_lus, mentions, mentions_groupe, alerte, ouvert, favori, lu_jusqu_a, mis_a_jour_le
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(rid) DO UPDATE SET
+  sub_id = COALESCE(excluded.sub_id, abonnements.sub_id),
   non_lus = excluded.non_lus,
   mentions = excluded.mentions,
   mentions_groupe = excluded.mentions_groupe,
@@ -84,6 +85,16 @@ WHERE excluded.mis_a_jour_depuis > etat_synchro.mis_a_jour_depuis
 `;
 
 export const SUPPRIMER_MESSAGE = `DELETE FROM messages WHERE id = ?`;
+
+/** Départ d'un salon : le rattrapage (`remove[]` d'updatedSince) fait le ménage. */
+export const SUPPRIMER_SALON = `DELETE FROM salons WHERE rid = ?`;
+export const SUPPRIMER_ABONNEMENT = `DELETE FROM abonnements WHERE rid = ?`;
+/** Les `remove[]` d'abonnements ne portent QUE le `_id` de l'abonnement. */
+export const RID_PAR_SUB_ID = `SELECT rid FROM abonnements WHERE sub_id = ?`;
+
+export const LIRE_CURSEUR = `
+SELECT mis_a_jour_depuis FROM etat_synchro WHERE portee = ? AND flux = ?
+`;
 
 // ---------------------------------------------------------------------------
 // File d'envoi (outbox). L'`id` est le `_id` 24-hex généré CÔTÉ CLIENT : le
@@ -164,6 +175,7 @@ export function paramsSalon(s: SalonLocal): Parametre[] {
 export function paramsAbonnement(a: AbonnementLocal): Parametre[] {
   return [
     a.rid,
+    a.subId,
     a.nonLus,
     a.mentions,
     a.mentionsGroupe,

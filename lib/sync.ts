@@ -21,6 +21,17 @@ export interface Depot {
   upsertSalon(s: SalonLocal): Promise<void>;
   upsertAbonnement(a: AbonnementLocal): Promise<void>;
   supprimerMessage(id: string): Promise<void>;
+  supprimerSalon(rid: string): Promise<void>;
+  supprimerAbonnement(rid: string): Promise<void>;
+  /**
+   * Départ d'un salon signalé par le rattrapage : les `remove[]` d'abonnements
+   * ne portent que le `_id` de l'abonnement. Efface l'abonnement ET le salon.
+   */
+  supprimerParSubId(subId: string): Promise<void>;
+  /** Curseurs de rattrapage. `lireCurseur` rend null si jamais écrit. */
+  lireCurseur(portee: string, flux: string): Promise<number | null>;
+  /** N'avance jamais à rebours (garanti par le SQL). */
+  ecrireCurseur(portee: string, flux: string, misAJourDepuis: number): Promise<void>;
   /**
    * Regroupe des écritures en une transaction. Une page d'historique de 50
    * messages doit produire UN commit et UN événement de changement — pas 50
@@ -155,14 +166,31 @@ export class MoteurSynchro {
   /**
    * Ingestion d'un lot REST : mêmes upserts, mêmes garanties d'idempotence,
    * mais en une seule transaction — voir `Depot.transaction`.
+   *
+   * Rend le plus grand `_updatedAt` ingéré (ou null) : c'est la matière des
+   * curseurs de rattrapage — un curseur bâti sur l'horloge locale mentirait.
    */
-  async ingererMessages(bruts: Record<string, unknown>[]): Promise<void> {
+  async ingererMessages(bruts: Record<string, unknown>[]): Promise<number | null> {
+    let plusRecent: number | null = null;
     await this.depot.transaction(async () => {
-      for (const brut of bruts) await this.appliquerMessage(brut);
+      for (const brut of bruts) {
+        const message = versMessage(brut);
+        if (message === null) {
+          this.stats.ignores++;
+          continue;
+        }
+        await this.depot.upsertMessage(message);
+        this.stats.messages++;
+        if (plusRecent === null || message.misAJourLe > plusRecent) {
+          plusRecent = message.misAJourLe;
+        }
+      }
     });
+    return plusRecent;
   }
 
-  async ingererSalons(bruts: Record<string, unknown>[]): Promise<void> {
+  async ingererSalons(bruts: Record<string, unknown>[]): Promise<number | null> {
+    let plusRecent: number | null = null;
     await this.depot.transaction(async () => {
       for (const brut of bruts) {
         const salon = versSalon(brut, this.moi);
@@ -172,11 +200,16 @@ export class MoteurSynchro {
         }
         await this.depot.upsertSalon(salon);
         this.stats.salons++;
+        if (plusRecent === null || salon.misAJourLe > plusRecent) {
+          plusRecent = salon.misAJourLe;
+        }
       }
     });
+    return plusRecent;
   }
 
-  async ingererAbonnements(bruts: Record<string, unknown>[]): Promise<void> {
+  async ingererAbonnements(bruts: Record<string, unknown>[]): Promise<number | null> {
+    let plusRecent: number | null = null;
     await this.depot.transaction(async () => {
       for (const brut of bruts) {
         const abonnement = versAbonnement(brut);
@@ -186,8 +219,17 @@ export class MoteurSynchro {
         }
         await this.depot.upsertAbonnement(abonnement);
         this.stats.abonnements++;
+        if (plusRecent === null || abonnement.misAJourLe > plusRecent) {
+          plusRecent = abonnement.misAJourLe;
+        }
       }
     });
+    return plusRecent;
+  }
+
+  /** Accès au dépôt pour le rattrapage (curseurs, suppressions). */
+  get depotSynchro(): Depot {
+    return this.depot;
   }
 }
 

@@ -74,6 +74,8 @@ export default function EcranSalon() {
       envoi={synchro.envoi}
       ddp={synchro.ddp}
       client={etat.client}
+      signalerSalonActif={synchro.signalerSalonActif}
+      generation={synchro.generation}
     />
   );
 }
@@ -86,6 +88,8 @@ function Salon({
   envoi,
   ddp,
   client,
+  signalerSalonActif,
+  generation,
 }: {
   c: Couleurs;
   rid: string;
@@ -94,6 +98,8 @@ function Salon({
   envoi: MoteurEnvoi;
   ddp: ClientDdp;
   client: ClientRest;
+  signalerSalonActif: (rid: string | null) => void;
+  generation: number;
 }) {
   const [limite, setLimite] = useState(PAGE);
   // Tant que le premier passage d'historique n'est pas retombé, une base
@@ -138,10 +144,14 @@ function Salon({
       ddp.souscrire(STREAM_MESSAGES, rid),
       ddp.souscrire(STREAM_NOTIFY_ROOM, `${rid}/deleteMessage`),
     ];
+    // Le rattrapage (`chat.syncMessages`, un salon à la fois) vise le salon
+    // que l'utilisateur regarde : on se déclare.
+    signalerSalonActif(rid);
     return () => {
+      signalerSalonActif(null);
       for (const relacher of relachers) relacher();
     };
-  }, [ddp, rid]);
+  }, [ddp, rid, signalerSalonActif]);
 
   const chargerHistorique = useCallback(
     async (type: string, latest?: string): Promise<number> => {
@@ -155,7 +165,18 @@ function Salon({
         },
       );
       const lot = reponse.messages ?? [];
-      await moteur.ingererMessages(lot);
+      const recent = await moteur.ingererMessages(lot);
+      // Le curseur de rattrapage du salon NAÎT ici — et seulement s'il
+      // n'existe pas : une page d'historique est une fenêtre de `ts`,
+      // aveugle aux éditions et suppressions hors page. Avancer un curseur
+      // existant dessus les sauterait à jamais ; seul `rattraperSalon`
+      // (chat.syncMessages, indexé sur `_updatedAt`) a le droit d'avancer.
+      if (recent !== null) {
+        const existant = await moteur.depotSynchro.lireCurseur(rid, 'messages');
+        if (existant === null) {
+          await moteur.depotSynchro.ecrireCurseur(rid, 'messages', recent);
+        }
+      }
       return lot.length;
     },
     [client, moteur, rid],
@@ -163,6 +184,8 @@ function Salon({
 
   // Historique initial : les 50 derniers, dès que le type du salon est connu.
   // Rejouer à chaque ouverture est inoffensif — mêmes upserts idempotents.
+  // `generation` dans les deps : un salon ouvert HORS LIGNE rate ce
+  // chargement ; chaque raccordement réussi l'incrémente et le refait partir.
   const type = salon?.type;
   useEffect(() => {
     if (type === undefined) return;
@@ -179,7 +202,7 @@ function Salon({
     return () => {
       annule = true;
     };
-  }, [type, chargerHistorique]);
+  }, [type, chargerHistorique, generation]);
 
   // Remonter vers le passé : élargir la fenêtre locale, et si elle est déjà
   // épuisée, demander la page plus ancienne au serveur (pagination keyset sur

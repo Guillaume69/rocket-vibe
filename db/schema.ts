@@ -40,6 +40,12 @@ export const salons = sqliteTable(
  */
 export const abonnements = sqliteTable('abonnements', {
   rid: text('rid').primaryKey(),
+  /**
+   * `_id` de l'abonnement côté serveur. Les `remove[]` du rattrapage ne
+   * portent QUE lui (projection `{_id, _deletedAt}`, vérifié sur 8.5) : sans
+   * cette colonne, un salon quitté ailleurs resterait listé pour toujours.
+   */
+  subId: text('sub_id'),
   nonLus: integer('non_lus').notNull().default(0),
   mentions: integer('mentions').notNull().default(0),
   mentionsGroupe: integer('mentions_groupe').notNull().default(0),

@@ -329,6 +329,31 @@ export class ClientDdp {
     this.nettoyer(new ErreurDdp('Client fermé.'));
   }
 
+  /**
+   * Sonde de vie : un ping DDP dont on attend le pong. Une socket à moitié
+   * morte (NAT tombé pendant la veille, sans FIN ni RST) ne répondra jamais
+   * ET ne fermera jamais — on la nettoie nous-mêmes, ce qui notifie
+   * `surPerte` et laisse le pilote de reconnexion reprendre la main.
+   */
+  async verifierVie(): Promise<boolean> {
+    if (this.etat === 'ferme') return false;
+    const id = `v${++this.compteur}`;
+    try {
+      const promesse = this.attendre(id, 'sonde de vie');
+      this.envoyer({ msg: 'ping', id });
+      await promesse;
+      return true;
+    } catch {
+      // Le cast : TypeScript ne voit pas que `etat` a pu changer pendant
+      // l'await (une coupure concurrente a pu déjà nettoyer).
+      if ((this.etat as EtatDdp) !== 'ferme') {
+        this.ws?.close();
+        this.nettoyer(new ErreurDdp('Sonde de vie sans réponse : socket morte.'));
+      }
+      return false;
+    }
+  }
+
   /** Seule méthode DDP encore appelée : `login`. Voir l'en-tête du fichier. */
   private appeler(methode: string, ...params: unknown[]): Promise<unknown> {
     const id = `m${++this.compteur}`;
@@ -361,6 +386,11 @@ export class ClientDdp {
         // Le serveur coupe la socket sans pong. L'`id` n'est présent que si le
         // ping en portait un.
         this.envoyer(m.id === undefined ? { msg: 'pong' } : { msg: 'pong', id: m.id });
+        break;
+
+      case 'pong':
+        // Réponse à NOTRE ping (sonde de vie).
+        if (m.id !== undefined) this.terminer(m.id, 'pong');
         break;
 
       case 'result':

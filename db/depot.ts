@@ -17,12 +17,17 @@ import type { DepotEnvoi, LigneSortie } from '../lib/envoi.ts';
 import type { Depot } from '../lib/sync.ts';
 import {
   INSERER_SORTIE,
+  LIRE_CURSEUR,
   LISTER_SORTIE_A_ENVOYER,
   MARQUER_SORTIE_ECHEC,
+  RID_PAR_SUB_ID,
+  SUPPRIMER_ABONNEMENT,
   SUPPRIMER_MESSAGE,
   SUPPRIMER_MESSAGE_OPTIMISTE,
+  SUPPRIMER_SALON,
   SUPPRIMER_SORTIE,
   UPSERT_ABONNEMENT,
+  UPSERT_CURSEUR,
   UPSERT_MESSAGE,
   UPSERT_SALON,
   paramsAbonnement,
@@ -48,6 +53,30 @@ export function creerDepot(brute: SQLiteDatabase): Depot {
     },
     async supprimerMessage(id) {
       await brute.runAsync(SUPPRIMER_MESSAGE, [id]);
+    },
+    async supprimerSalon(rid) {
+      await brute.runAsync(SUPPRIMER_SALON, [rid]);
+    },
+    async supprimerAbonnement(rid) {
+      await brute.runAsync(SUPPRIMER_ABONNEMENT, [rid]);
+    },
+    async supprimerParSubId(subId) {
+      const ligne = await brute.getFirstAsync<{ rid: string }>(RID_PAR_SUB_ID, [subId]);
+      if (ligne === null) return;
+      await brute.runAsync(SUPPRIMER_ABONNEMENT, [ligne.rid]);
+      // Quitter un salon le fait disparaître de la liste — le document Rooms
+      // existe toujours côté serveur, mais plus pour ce compte.
+      await brute.runAsync(SUPPRIMER_SALON, [ligne.rid]);
+    },
+    async lireCurseur(portee, flux) {
+      const ligne = await brute.getFirstAsync<{ mis_a_jour_depuis: number }>(LIRE_CURSEUR, [
+        portee,
+        flux,
+      ]);
+      return ligne?.mis_a_jour_depuis ?? null;
+    },
+    async ecrireCurseur(portee, flux, misAJourDepuis) {
+      await brute.runAsync(UPSERT_CURSEUR, [portee, flux, misAJourDepuis]);
     },
     async transaction(fn) {
       // Un lot = un commit = UN événement de changement pour `useLiveQuery`,

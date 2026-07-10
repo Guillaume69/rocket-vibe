@@ -142,11 +142,17 @@ function faireDepot() {
   const salons: SalonLocal[] = [];
   const abonnements: AbonnementLocal[] = [];
   const supprimes: string[] = [];
+  const curseurs = new Map<string, number>();
   const depot: Depot = {
     upsertMessage: async (m) => void messages.push(m),
     upsertSalon: async (s) => void salons.push(s),
     upsertAbonnement: async (a) => void abonnements.push(a),
     supprimerMessage: async (id) => void supprimes.push(id),
+    supprimerSalon: async () => {},
+    supprimerAbonnement: async () => {},
+    supprimerParSubId: async () => {},
+    lireCurseur: async (p, f) => curseurs.get(`${p}|${f}`) ?? null,
+    ecrireCurseur: async (p, f, v) => void curseurs.set(`${p}|${f}`, v),
     transaction: async (fn) => fn(),
   };
   return { depot, messages, salons, abonnements, supprimes };

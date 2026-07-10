@@ -1,0 +1,1 @@
+ALTER TABLE `abonnements` ADD `sub_id` text;

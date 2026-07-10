@@ -54,6 +54,8 @@ export type SalonLocal = {
 
 export type AbonnementLocal = {
   rid: string;
+  /** `_id` de l'abonnement — la seule clé que portent les `remove[]` du rattrapage. */
+  subId: string | null;
   nonLus: number;
   mentions: number;
   mentionsGroupe: number;
@@ -147,6 +149,7 @@ export function versAbonnement(brut: Record<string, unknown>): AbonnementLocal |
   if (rid === null) return null;
   return {
     rid,
+    subId: chaine(brut._id),
     nonLus: entier(brut.unread),
     mentions: entier(brut.userMentions),
     mentionsGroupe: entier(brut.groupMentions),

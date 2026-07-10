@@ -18,6 +18,7 @@
 
 import * as Crypto from 'expo-crypto';
 import { createContext, useContext, useEffect, useState } from 'react';
+import { AppState } from 'react-native';
 
 import type { BaseLocale } from '../db/client.ts';
 import { ouvrirBase } from '../db/client.ts';
@@ -25,8 +26,8 @@ import { creerDepot, creerDepotEnvoi } from '../db/depot.ts';
 import { migrerBase } from '../db/migrer.ts';
 import { ClientDdp } from '../lib/ddp.ts';
 import { MoteurEnvoi, idDepuisOctets } from '../lib/envoi.ts';
+import { rattraperGlobal, rattraperSalon } from '../lib/rattrapage.ts';
 import { Reconnecteur } from '../lib/reconnexion.ts';
-import type { ClientRest } from '../lib/rest.ts';
 import { MoteurSynchro, STREAM_NOTIFY_USER } from '../lib/sync.ts';
 import { useSession } from './session.tsx';
 
@@ -39,6 +40,18 @@ export type EtatSynchro =
       moteur: MoteurSynchro;
       envoi: MoteurEnvoi;
       ddp: ClientDdp;
+      /**
+       * L'écran salon se déclare à l'ouverture (null à la fermeture) : le
+       * rattrapage `chat.syncMessages` — un salon à la fois, rate-limité —
+       * ne vise QUE lui.
+       */
+      signalerSalonActif: (rid: string | null) => void;
+      /**
+       * Incrémentée à chaque raccordement réussi. Un écran qui a raté son
+       * chargement initial (ouvert hors ligne) la met dans les deps de son
+       * effet : le retour du réseau le refait partir.
+       */
+      generation: number;
     }
   | { phase: 'erreur'; message: string };
 
@@ -46,25 +59,6 @@ const Contexte = createContext<EtatSynchro | null>(null);
 
 function urlWebSocket(baseUrl: string): string {
   return `${baseUrl.replace(/^http/i, 'ws')}/websocket`;
-}
-
-/**
- * `estAbandonne` est consulté avant chaque écriture : une réponse REST qui
- * atterrit après la déconnexion ne doit pas remplir la base d'une session
- * terminée — l'utilisateur suivant la verrait.
- */
-async function chargementInitial(
-  moteur: MoteurSynchro,
-  client: ClientRest,
-  estAbandonne: () => boolean,
-): Promise<void> {
-  const [salonsBruts, abonnementsBruts] = await Promise.all([
-    client.get<{ update?: Record<string, unknown>[] }>('rooms.get'),
-    client.get<{ update?: Record<string, unknown>[] }>('subscriptions.get'),
-  ]);
-  if (estAbandonne()) return;
-  await moteur.ingererSalons(salonsBruts.update ?? []);
-  await moteur.ingererAbonnements(abonnementsBruts.update ?? []);
 }
 
 export function SynchroProvider({ children }: { children: React.ReactNode }) {
@@ -81,6 +75,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
     const estAbandonne = () => abandonne;
     const ddp = new ClientDdp(urlWebSocket(session.baseUrl));
     let reconnecteur: Reconnecteur | null = null;
+    let surAbandon: (() => void) | null = null;
 
     (async () => {
       setSynchro({ phase: 'preparation' });
@@ -94,11 +89,24 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         client,
         moi: { id: session.userId, username: session.username },
         genererId: () => idDepuisOctets(Crypto.getRandomBytes(12)),
-        ingerer: (doc) => moteur.ingererMessages([doc]),
+        ingerer: async (doc) => {
+          await moteur.ingererMessages([doc]);
+        },
       });
+      let salonActif: string | null = null;
       // « pret » dès la base disponible : l'UI montre le cache local sans
       // attendre le réseau.
-      setSynchro({ phase: 'pret', base, moteur, envoi, ddp });
+      setSynchro({
+        phase: 'pret',
+        base,
+        moteur,
+        envoi,
+        ddp,
+        signalerSalonActif: (rid) => {
+          salonActif = rid;
+        },
+        generation: 0,
+      });
 
       ddp.surEvenement((evenement) => {
         if (abandonne) return;
@@ -120,18 +128,37 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         connecter: async () => {
           if (abandonne) return;
           // Ne reconnecter QUE si la socket est tombée : après un échec du
-          // seul rechargement REST, le DDP est encore authentifié et
+          // seul rattrapage REST, le DDP est encore authentifié et
           // `connecter` lèverait « déjà connecté » — la retentative ne
-          // rejouerait alors jamais le chargement.
+          // rejouerait alors jamais le rattrapage.
           if (ddp.etat === 'ferme') await ddp.connecter(session.authToken);
-          await chargementInitial(moteur, client, estAbandonne);
+          // Le gros en deux requêtes delta (`updatedSince`), puis le salon
+          // que l'utilisateur regarde — un seul `chat.syncMessages`.
+          await rattraperGlobal(client, moteur, estAbandonne);
+          if (salonActif !== null) {
+            await rattraperSalon(client, moteur, salonActif, estAbandonne);
+          }
           // Ce qui attendait le réseau part maintenant. Pas d'await : un
           // échec d'envoi ne doit pas compter comme un échec de connexion.
           envoi.traiter().catch(() => {});
+          // Réveille les écrans dont le chargement initial a raté hors ligne.
+          setSynchro((s) => (s.phase === 'pret' ? { ...s, generation: s.generation + 1 } : s));
         },
       });
       ddp.surPerte(() => reconnecteur?.declencher());
       reconnecteur.declencher();
+
+      // Retour au premier plan : Android a pu geler le JS et couper la
+      // socket SANS `onclose` (NAT tombé pendant la veille). La sonde de vie
+      // tranche : son échec nettoie la socket morte, ce qui notifie
+      // `surPerte` et relance tout. `declencher` reste idempotent — connecté,
+      // il ne refait que le rattrapage REST.
+      const aboAppState = AppState.addEventListener('change', (etatApp) => {
+        if (etatApp !== 'active' || abandonne) return;
+        if (ddp.etat !== 'ferme') ddp.verifierVie().catch(() => {});
+        reconnecteur?.declencher();
+      });
+      surAbandon = () => aboAppState.remove();
     })().catch((e: unknown) => {
       // Ici, même la base locale n'est pas utilisable : écran d'erreur.
       if (!abandonne) {
@@ -147,6 +174,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       // L'ordre compte : arrêter le pilote AVANT de fermer, sinon la
       // fermeture pourrait encore programmer une tentative.
       reconnecteur?.arreter();
+      surAbandon?.();
       ddp.fermer();
       ddp.reinitialiser();
     };

@@ -81,6 +81,7 @@ function salon(o: Partial<SalonLocal> & { rid: string; misAJourLe: number }) {
 
 function abo(o: Partial<AbonnementLocal> & { rid: string; misAJourLe: number }) {
   return paramsAbonnement({
+    subId: null,
     nonLus: 0,
     mentions: 0,
     mentionsGroupe: 0,

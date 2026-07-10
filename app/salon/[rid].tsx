@@ -264,7 +264,18 @@ function Salon({
           )
         }
       />
-      <Composer c={c} rid={rid} envoi={envoi} lectureSeule={salon?.lectureSeule === true} />
+      {/* Tant que la ligne du salon n'est pas là (lien profond vers un salon
+          pas encore synchronisé), on ne promet pas un envoi : `chiffre` et
+          `lectureSeule` sont peut-être vrais. */}
+      {salon !== undefined && (
+        <Composer
+          c={c}
+          rid={rid}
+          envoi={envoi}
+          lectureSeule={salon.lectureSeule}
+          chiffre={salon.chiffre}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -274,11 +285,13 @@ function Composer({
   rid,
   envoi,
   lectureSeule,
+  chiffre,
 }: {
   c: Couleurs;
   rid: string;
   envoi: MoteurEnvoi;
   lectureSeule: boolean;
+  chiffre: boolean;
 }) {
   const [brouillon, setBrouillon] = useState('');
 
@@ -292,6 +305,19 @@ function Composer({
     envoi.envoyer(rid, texte).catch((e: unknown) => console.warn('envoi: échec local', e));
   }, [brouillon, envoi, rid]);
 
+  // Dégradation E2EE (ROADMAP §6.6) : on n'implémente pas le chiffrement, et
+  // le serveur cible REJETTE un message en clair dans un salon chiffré
+  // (`error-not-allowed`, E2E_Allow_Unencrypted_Messages = false). Proposer
+  // le champ serait promettre un envoi qui échouera toujours.
+  if (chiffre) {
+    return (
+      <View style={[styles.composer, { borderTopColor: c.bordure }]}>
+        <Text style={[styles.noteComposer, { color: c.attenue }]}>
+          🔒 Salon chiffré de bout en bout — écriture non prise en charge par cette application.
+        </Text>
+      </View>
+    );
+  }
   if (lectureSeule) {
     return (
       <View style={[styles.composer, { borderTopColor: c.bordure }]}>

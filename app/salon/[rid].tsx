@@ -9,8 +9,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { BaseLocale } from '../../db/client.ts';
 import { messages, salons } from '../../db/schema.ts';
 import type { ClientDdp } from '../../lib/ddp.ts';
+import { arbreDuMessage } from '../../lib/markdown.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
+import { CorpsMessage, GardeRendu } from '../../ui/markdown.tsx';
 import { useSession } from '../../ui/session.tsx';
 import { useSynchro } from '../../ui/synchro.tsx';
 import { useCouleurs, type Couleurs } from '../../ui/theme.ts';
@@ -154,8 +156,10 @@ function Salon({
     if (type === undefined) return;
     let annule = false;
     chargerHistorique(type)
-      .catch(() => {
-        // Hors ligne : le cache local suffit.
+      .catch((e: unknown) => {
+        // Hors ligne : le cache local suffit. Mais pas en silence — un échec
+        // systématique ici a déjà masqué un vrai bug.
+        console.warn('salon: historique initial échoué', e);
       })
       .finally(() => {
         if (!annule) setPremierPassageFini(true);
@@ -184,7 +188,7 @@ function Salon({
         // (renvoyé par `inclusive: true`). Sinon, le passé est épuisé.
         if (n > 1) setLimite((l) => l + PAGE);
       })
-      .catch(() => {})
+      .catch((e: unknown) => console.warn('salon: page d’historique échouée', e))
       .finally(() => {
         enVol.current = false;
       });
@@ -241,14 +245,6 @@ const LigneMessage = memo(function LigneMessage({
     minute: '2-digit',
   });
 
-  // 4.4 apportera la table de traduction des messages système, 4.3 le rendu
-  // markdown de `md`. Ici : le texte brut, et un substitut sobre pour le reste.
-  const texte =
-    message.typeSysteme === 'e2e'
-      ? '🔒 Message chiffré, non pris en charge'
-      : (message.texte ?? `(${message.typeSysteme ?? 'message vide'})`);
-  const enItalique = message.typeSysteme !== null || message.texte === null;
-
   return (
     <View style={styles.message}>
       <View style={styles.enTete}>
@@ -258,18 +254,47 @@ const LigneMessage = memo(function LigneMessage({
           <Text style={[styles.heure, { color: c.attenue }]}>(modifié)</Text>
         )}
       </View>
-      <Text
-        style={[
-          styles.texte,
-          { color: enItalique ? c.attenue : c.texte },
-          enItalique && styles.italique,
-        ]}
-      >
-        {texte}
-      </Text>
+      <ContenuMessage c={c} message={message} />
     </View>
   );
 });
+
+/**
+ * Corps d'un message : markdown pour les messages ordinaires (`md` du serveur,
+ * ou `parse()` local pour les VIEUX messages qui n'en ont pas — repli imposé
+ * par le contrat 4.3), substitut sobre pour le chiffré et les messages
+ * système (leur traduction arrive en 4.4).
+ */
+function ContenuMessage({ c, message }: { c: Couleurs; message: LigneDeMessage }) {
+  // Clés = les CHAÎNES, stables à travers le barattage d'objets de
+  // `useLiveQuery` (qui défait le memo de LigneMessage) : sans cela, chaque
+  // écriture en base re-parserait le markdown de toutes les lignes visibles.
+  const arbre = useMemo(
+    () => (message.typeSysteme === null ? arbreDuMessage(message.md, message.texte) : null),
+    [message.typeSysteme, message.md, message.texte],
+  );
+
+  if (message.typeSysteme === 'e2e') {
+    return <Substitut c={c} texte="🔒 Message chiffré, non pris en charge" />;
+  }
+  if (message.typeSysteme !== null) {
+    return <Substitut c={c} texte={`(${message.typeSysteme})`} />;
+  }
+  if (arbre === null) {
+    return <Substitut c={c} texte="(message vide)" />;
+  }
+  return (
+    // Le `md` est en dernier ressort une donnée d'autrui : une forme qui
+    // échappe aux validations ne doit coûter que ce message, pas l'écran.
+    <GardeRendu repli={<Text style={[styles.texte, { color: c.texte }]}>{message.texte}</Text>}>
+      <CorpsMessage arbre={arbre} c={c} />
+    </GardeRendu>
+  );
+}
+
+function Substitut({ c, texte }: { c: Couleurs; texte: string }) {
+  return <Text style={[styles.texte, styles.italique, { color: c.attenue }]}>{texte}</Text>;
+}
 
 function cheminHistorique(type: string): string {
   // Trois endpoints pour la même chose, selon le type du salon — héritage de

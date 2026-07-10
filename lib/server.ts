@@ -20,6 +20,10 @@ export type DeuxFacteurs = {
 };
 
 export type ProfilServeur = {
+  /** L'URL normalisée par `normaliserUrl` : celle que le sondage a réellement
+   * interrogée. L'appelant construit son client dessus, plutôt que de
+   * re-normaliser la saisie de son côté et risquer de viser un autre hôte. */
+  baseUrl: string;
   version: string;
   siteUrl: string | null;
   formulaireDeConnexion: boolean;
@@ -138,6 +142,7 @@ export async function sonderServeur(entree: string, signal?: AbortSignal): Promi
     const siteUrl = reglages.get('Site_Url');
 
     return {
+      baseUrl: base,
       version,
       siteUrl: typeof siteUrl === 'string' ? siteUrl : null,
       formulaireDeConnexion: vraiSi(reglages.get('Accounts_ShowFormLogin')),

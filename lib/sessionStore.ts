@@ -15,13 +15,20 @@ import * as SecureStore from 'expo-secure-store';
 import type { Session } from './auth.ts';
 
 /**
+ * La clé de stockage, le pointeur « dernier serveur » et la comparaison de
+ * `lireSession` doivent réduire l'URL EXACTEMENT pareil, sinon une session
+ * enregistrée devient introuvable au démarrage. Un seul point de vérité.
+ */
+const sansSlashFinal = (baseUrl: string): string => baseUrl.replace(/\/+$/, '');
+
+/**
  * `expo-secure-store` n'accepte que `[A-Za-z0-9._-]` dans ses clés : l'URL du
  * serveur, elle, contient `:` et `/`. On la réduit à un condensé stable.
  */
 async function cle(baseUrl: string): Promise<string> {
   const empreinte = await Crypto.digestStringAsync(
     Crypto.CryptoDigestAlgorithm.SHA256,
-    baseUrl.replace(/\/+$/, ''),
+    sansSlashFinal(baseUrl),
   );
   return `session-${empreinte.slice(0, 32)}`;
 }
@@ -45,7 +52,7 @@ export async function lireSession(baseUrl: string): Promise<Session | null> {
     if (typeof session?.authToken !== 'string' || typeof session?.userId !== 'string') return null;
     // La clé dérive d'un condensé tronqué : on ne se fie pas à elle seule pour
     // affirmer que cette session appartient bien au serveur demandé.
-    if (session.baseUrl.replace(/\/+$/, '') !== baseUrl.replace(/\/+$/, '')) return null;
+    if (sansSlashFinal(session.baseUrl) !== sansSlashFinal(baseUrl)) return null;
     return session;
   } catch {
     return null;
@@ -54,4 +61,19 @@ export async function lireSession(baseUrl: string): Promise<Session | null> {
 
 export async function effacerSession(baseUrl: string): Promise<void> {
   await SecureStore.deleteItemAsync(await cle(baseUrl));
+}
+
+/**
+ * Le serveur de la dernière session ouverte. Les sessions sont rangées par
+ * condensé d'URL : sans ce pointeur, le démarrage ne saurait pas laquelle
+ * reprendre. L'étape 5.3 (multi-serveurs) en fera le « serveur actif ».
+ */
+const CLE_DERNIER_SERVEUR = 'dernier-serveur';
+
+export async function enregistrerDernierServeur(baseUrl: string): Promise<void> {
+  await SecureStore.setItemAsync(CLE_DERNIER_SERVEUR, sansSlashFinal(baseUrl));
+}
+
+export async function lireDernierServeur(): Promise<string | null> {
+  return SecureStore.getItemAsync(CLE_DERNIER_SERVEUR);
 }

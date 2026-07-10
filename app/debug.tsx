@@ -2,12 +2,13 @@ import { count } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { Stack } from 'expo-router';
 import { useCallback } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View, useColorScheme } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ouvrirBase } from '../db/client.ts';
 import { SERVEUR_PAR_DEFAUT } from '../db/migrer.ts';
 import { messages, salons } from '../db/schema.ts';
+import { useCouleurs, type Couleurs } from '../ui/theme.ts';
 
 /**
  * Écran de diagnostic. Il ne sera pas jeté : c'est l'instrument de mesure du
@@ -19,8 +20,7 @@ import { messages, salons } from '../db/schema.ts';
  */
 export default function EcranDebug() {
   const { base } = ouvrirBase(SERVEUR_PAR_DEFAUT);
-  const sombre = useColorScheme() === 'dark';
-  const c = sombre ? sombreC : claireC;
+  const c = useCouleurs();
 
   // `count(*)` et non `select *` : cet écran doit rester utilisable pendant le
   // test de torture de 5.5, où la base contiendra des dizaines de milliers de
@@ -99,24 +99,6 @@ function Bouton({ c, onPress, titre }: { c: Couleurs; onPress: () => void; titre
     </Pressable>
   );
 }
-
-type Couleurs = typeof claireC;
-const claireC = {
-  fond: '#ffffff',
-  carte: '#f4f4f5',
-  texte: '#18181b',
-  attenue: '#71717a',
-  accent: '#2563eb',
-  ondulation: '#1d4ed8',
-};
-const sombreC: Couleurs = {
-  fond: '#09090b',
-  carte: '#18181b',
-  texte: '#fafafa',
-  attenue: '#a1a1aa',
-  accent: '#3b82f6',
-  ondulation: '#1d4ed8',
-};
 
 const styles = StyleSheet.create({
   plein: { flex: 1 },

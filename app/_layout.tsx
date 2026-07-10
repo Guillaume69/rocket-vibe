@@ -4,6 +4,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { useMigrationsLocales } from '../db/migrer.ts';
+import { SessionProvider } from '../ui/session.tsx';
 
 /**
  * Racine de navigation. `Stack` d'expo-router s'appuie sur le stack natif de
@@ -24,7 +25,11 @@ export default function RootLayout() {
           <Text style={styles.detail}>{erreur.message}</Text>
         </Ecran>
       ) : pret ? (
-        <Stack />
+        <SessionProvider>
+          {/* Titre par défaut : sans lui, les rendus précoces du portier
+              (démarrage, redirection) affichent le nom brut de la route. */}
+          <Stack screenOptions={{ title: 'rocket-vibe' }} />
+        </SessionProvider>
       ) : (
         <Ecran>
           <ActivityIndicator />

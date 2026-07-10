@@ -21,8 +21,13 @@ import { nomFichier } from './nomFichier.ts';
  * Le serveur proposé par défaut sur l'écran de connexion, et celui dont la
  * base sert à l'écran debug hors session. L'étape 5.3 (multi-serveurs) fera
  * du « serveur actif » la seule référence.
+ *
+ * En release, le serveur CIBLE du projet ; le Docker local n'a de sens qu'en
+ * dev. Le garde `typeof` : ce module est aussi chargé sous Node (tests), où
+ * `__DEV__` n'existe pas.
  */
-export const SERVEUR_PAR_DEFAUT = 'http://localhost:3000';
+export const SERVEUR_PAR_DEFAUT =
+  typeof __DEV__ !== 'undefined' && __DEV__ ? 'http://localhost:3000' : 'https://chat.barrut.me';
 
 const enCours = new Map<string, Promise<void>>();
 

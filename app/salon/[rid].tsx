@@ -2,6 +2,7 @@ import { FlashList } from '@shopify/flash-list';
 import { desc, eq } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { Redirect, Stack, useLocalSearchParams } from 'expo-router';
+import { AudioModule, RecordingPresets, useAudioRecorder } from 'expo-audio';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -359,6 +360,9 @@ function Composer({
   const [brouillon, setBrouillon] = useState('');
   const [envoiFichier, setEnvoiFichier] = useState(false);
   const [erreurFichier, setErreurFichier] = useState<string | null>(null);
+  const [enregistrement, setEnregistrement] = useState(false);
+  // `.m4a` AAC (préréglage HIGH_QUALITY) — le MIME attendu est `audio/mp4`.
+  const enregistreur = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
 
   const envoyerMessage = useCallback(() => {
     const texte = brouillon.trim();
@@ -369,6 +373,45 @@ function Composer({
     // « échec » actionnable sur la ligne elle-même.
     envoi.envoyer(rid, texte).catch((e: unknown) => console.warn('envoi: échec local', e));
   }, [brouillon, envoi, rid]);
+
+  const basculerVocal = useCallback(async () => {
+    setErreurFichier(null);
+    try {
+      if (!enregistrement) {
+        const permission = await AudioModule.requestRecordingPermissionsAsync();
+        if (!permission.granted) {
+          setErreurFichier('Accès au micro refusé.');
+          return;
+        }
+        await enregistreur.prepareToRecordAsync();
+        enregistreur.record();
+        setEnregistrement(true);
+        return;
+      }
+      setEnregistrement(false);
+      await enregistreur.stop();
+      const uri = enregistreur.uri;
+      if (uri === null) {
+        setErreurFichier('Enregistrement vide.');
+        return;
+      }
+      setEnvoiFichier(true);
+      try {
+        // Même pipeline que les fichiers : persisté, validé, rejoué.
+        await fichiers.envoyer(rid, {
+          uri,
+          nom: `vocal-${Date.now()}.m4a`,
+          type: 'audio/mp4',
+          taille: null,
+        });
+      } finally {
+        setEnvoiFichier(false);
+      }
+    } catch (e) {
+      setEnregistrement(false);
+      setErreurFichier(e instanceof Error ? e.message : 'Enregistrement impossible.');
+    }
+  }, [enregistrement, enregistreur, fichiers, rid]);
 
   const joindre = useCallback(async () => {
     setErreurFichier(null);
@@ -462,17 +505,26 @@ function Composer({
           multiline
           style={[styles.champComposer, { color: c.texte, backgroundColor: c.carte }]}
         />
-        <Pressable
-          onPress={envoyerMessage}
-          disabled={brouillon.trim() === ''}
-          android_ripple={{ color: c.ondulation, borderless: true }}
-          style={({ pressed }) => [
-            styles.boutonEnvoyer,
-            { opacity: pressed || brouillon.trim() === '' ? 0.4 : 1 },
-          ]}
-        >
-          <Text style={[styles.texteEnvoyer, { color: c.accent }]}>Envoyer</Text>
-        </Pressable>
+        {brouillon.trim() === '' ? (
+          <Pressable
+            onPress={() => void basculerVocal()}
+            disabled={envoiFichier}
+            android_ripple={{ color: c.ondulation, borderless: true }}
+            style={styles.boutonJoindre}
+          >
+            <Text style={[styles.texteEnvoyer, { color: enregistrement ? c.texteErreur : c.accent }]}>
+              {enregistrement ? '⏺ stop' : '🎤'}
+            </Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={envoyerMessage}
+            android_ripple={{ color: c.ondulation, borderless: true }}
+            style={({ pressed }) => [styles.boutonEnvoyer, { opacity: pressed ? 0.4 : 1 }]}
+          >
+            <Text style={[styles.texteEnvoyer, { color: c.accent }]}>Envoyer</Text>
+          </Pressable>
+        )}
       </View>
     </View>
   );
@@ -577,6 +629,7 @@ type PieceJointe = {
   title?: string;
   title_link?: string;
   image_url?: string;
+  audio_url?: string;
   image_dimensions?: { width?: number; height?: number };
 };
 
@@ -612,6 +665,16 @@ function PiecesJointes({ c, brut, client }: { c: Couleurs; brut: string; client:
               style={[styles.imageJointe, { width: largeur, height: Math.round(largeur * ratio) }]}
               resizeMode="cover"
             />
+          );
+        }
+        if (typeof jointe?.audio_url === 'string') {
+          const url = urlFichierProtege(client, jointe.audio_url);
+          return (
+            <Pressable key={i} onPress={() => void Linking.openURL(url).catch(() => {})}>
+              <Text style={[styles.texte, { color: c.accent }]}>
+                🎵 {jointe.title ?? 'Message vocal'}
+              </Text>
+            </Pressable>
           );
         }
         if (typeof jointe?.title_link === 'string') {

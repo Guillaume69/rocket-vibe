@@ -81,10 +81,10 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
 | 1 | Socle vérifiable | ✅ 2026-07-10 |
 | 2 | Spike push — **kill gate** | ✅ PASS sur émulateur — 2.5b (Pixel) en attente |
 | 3 | Transport et données | ✅ 2026-07-10 (3.6 partiel) |
-| 4 | Première tranche verticale | ☐ |
-| 5 | Résilience et rattrapage | ☐ |
-| 6 | Push intégré | ☐ |
-| 7 | Upload | ☐ |
+| 4 | Première tranche verticale | ✅ 2026-07-10 (gate téléphone physique en attente) |
+| 5 | Résilience et rattrapage | ✅ 2026-07-10 |
+| 6 | Push intégré | ✅ 2026-07-10 |
+| 7 | Upload | ✅ 2026-07-10 |
 | 8 | Offline-first et finitions | ☐ |
 | 9 | iOS | ☐ |
 
@@ -299,7 +299,8 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
   Bouton 📎 → document-picker (couvre les images ; image-picker installé pour la suite) ; photos > 500 Ko recompressées en JPEG 1920 px (GIF épargnés). **Découverte de revue vérifiée serveur : le paramètre `query` de `settings.public` a été SUPPRIMÉ en 7.0** — la lecture passe par `count=0` + filtre client, sinon la validation est un no-op silencieux. Le repli permissif hors-ligne n'est jamais mémoïsé. Fait le : `2026-07-10`
 - [x] **7.4 — Lecture protégée** · `@claude` · `[code]` — si `FileUpload_ProtectFiles`, ajouter `rc_uid` / `rc_token` en query sur `/file-upload/:id/:name`.
   `urlFichierProtege` (testée) appliquée au rendu des pièces jointes : images affichées avec dimensions bornées, autres fichiers en lien. Vérifié sur l'AVD : l'image téléversée s'affiche dans le salon. Fait le : `2026-07-10`
-- [ ] **7.5 — Messages vocaux** · `@claude` · `[code]` — `expo-audio`, `.m4a` AAC, `mimeType: audio/mp4`. Fait le : `____`
+- [x] **7.5 — Messages vocaux** · `@claude` · `[code]` — `expo-audio`, `.m4a` AAC, `mimeType: audio/mp4`.
+  🎤 dans le composer (quand le brouillon est vide) → permission → enregistrement (préréglage HIGH_QUALITY, `.m4a`) → ⏺ stop → envoi par le MÊME pipeline fichiers (persisté, validé, rejoué). Vérifié sur l'AVD : `recording-….m4a | audio/mp4` reçu côté serveur. Les vocaux reçus s'affichent en lien 🎵 (lecture in-app plus tard). Fait le : `2026-07-10`
 
 ---
 

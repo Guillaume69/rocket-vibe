@@ -268,8 +268,9 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
   Registre « serveurs connus » (SecureStore ne sait pas énumérer ses clés), bascule sans déconnexion depuis l'accueil, validation en arrière-plan après bascule (seul un 401 déconnecte). Vérifié sur l'AVD avec deux hôtes (`localhost:3000` = alice, `127.0.0.1:3000` = bob) : sessions préservées à travers les bascules dans les deux sens, bases isolées (bob ne voit que ses salons), bascule instantanée par le registre. Fait le : `2026-07-10`
 - [x] **5.4 — Démarrer une conversation** · `@claude` · `[code]` — `GET /api/v1/spotlight?query=`, puis `POST /api/v1/im.create` ou `POST /api/v1/channels.join`. Sans cela l'app ne fait que lister l'existant.
   Vérifié sur l'AVD : alice a rejoint `#general` (dont elle n'était pas membre — le « a rejoint le salon » est arrivé en direct), puis créé le DM alice↔bob et envoyé le premier message, confirmé côté bob (`im.list`). Salons ingérés depuis la réponse du serveur : la navigation n'attend pas le stream. Fait le : `2026-07-10`
-- [ ] **5.5 — Test de torture** · `@claude` · `[code]` — couper le Wi-Fi 30 s dix fois, basculer arrière-plan/premier-plan vingt fois, envoyer cinquante messages rapides.
-  **Critère de sortie** : état local == état serveur. **Zéro doublon, zéro message manquant, zéro souscription fantôme**, mesuré sur l'écran debug de 3.6. Fait le : `____`
+- [x] **5.5 — Test de torture** · `@claude` · `[code]` — couper le Wi-Fi 30 s dix fois, basculer arrière-plan/premier-plan vingt fois, envoyer cinquante messages rapides.
+  **Critère de sortie** : état local == état serveur. **Zéro doublon, zéro message manquant, zéro souscription fantôme**, mesuré sur l'écran debug de 3.6.
+  Exécuté sur l'AVD : 10 coupures de 30 s (`adb reverse --remove`), 20 cycles HOME/retour, 50 messages à 100 ms d'écart. Résultat : 50/50 en local, 50 textes distincts, zéro doublon d'`_id` sur toute la table, file d'envoi vide, `ignorés: 0`, souscriptions établies == désirées == 2 (les streams utilisateur — l'écran salon fermé a relâché les siens). Note : le rate limiter REST du serveur de test a dû être suspendu pendant la rafale (10/50 passaient sinon — c'est le serveur qui limitait, le client était cohérent : local == serveur == 10). L'écran debug affiche désormais les compteurs du moteur et l'état DDP. Fait le : `2026-07-10`
 
 ---
 

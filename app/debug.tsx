@@ -25,9 +25,42 @@ export default function EcranDebug() {
   const c = useCouleurs();
 
   if (synchro.phase === 'pret') {
-    return <Corps c={c} base={synchro.base} note="Base observée : celle de la session." />;
+    return (
+      <Corps c={c} base={synchro.base} note="Base observée : celle de la session.">
+        <CarteSynchro c={c} synchro={synchro} />
+      </Corps>
+    );
   }
   return <DebugHorsSession c={c} />;
+}
+
+/**
+ * L'instrument du test de torture (5.5) : les compteurs du moteur et l'état
+ * réel des souscriptions DDP. « Zéro souscription fantôme » se lit ici :
+ * établies == désirées == attendues, après chaque cycle de coupure.
+ */
+function CarteSynchro({
+  c,
+  synchro,
+}: {
+  c: Couleurs;
+  synchro: Extract<ReturnType<typeof useSynchro>, { phase: 'pret' }>;
+}) {
+  const [, setTic] = useState(0);
+  const { stats } = synchro.moteur;
+
+  return (
+    <View style={[styles.carte, { backgroundColor: c.carte }]}>
+      <Text style={[styles.etiquette, { color: c.attenue }]}>Synchro (instantané)</Text>
+      <Text style={[styles.aide, { color: c.texte }]}>
+        messages: {stats.messages} · salons: {stats.salons} · abonnements: {stats.abonnements}
+        {'\n'}suppressions: {stats.suppressions} · ignorés: {stats.ignores}
+        {'\n'}souscriptions établies: {synchro.ddp.nombreSouscriptions} · désirées:{' '}
+        {synchro.ddp.nombreSouscriptionsDesirees} · état: {synchro.ddp.etat}
+      </Text>
+      <Bouton c={c} onPress={() => setTic((t) => t + 1)} titre="Rafraîchir" />
+    </View>
+  );
 }
 
 /** Sans session : la base du serveur par défaut, migrée à la demande. */
@@ -76,7 +109,17 @@ function DebugHorsSession({ c }: { c: Couleurs }) {
   );
 }
 
-function Corps({ c, base, note }: { c: Couleurs; base: BaseLocale; note: string }) {
+function Corps({
+  c,
+  base,
+  note,
+  children,
+}: {
+  c: Couleurs;
+  base: BaseLocale;
+  note: string;
+  children?: React.ReactNode;
+}) {
   // `count(*)` et non `select *` : cet écran doit rester utilisable pendant le
   // test de torture de 5.5, où la base contiendra des dizaines de milliers de
   // messages. Les matérialiser pour n'en afficher que le nombre fausserait la
@@ -122,6 +165,7 @@ function Corps({ c, base, note }: { c: Couleurs; base: BaseLocale; note: string 
 
         <Compteur c={c} etiquette="Salons en base" valeur={nbSalons.data?.[0]?.n ?? 0} />
         <Compteur c={c} etiquette="Messages en base" valeur={nbMessages.data?.[0]?.n ?? 0} />
+        {children}
 
         <Bouton c={c} onPress={ajouterSalon} titre="Insérer un salon" />
         <Bouton c={c} onPress={ajouterMessage} titre="Insérer un message" />

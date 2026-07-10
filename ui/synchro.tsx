@@ -22,16 +22,18 @@ import { AppState } from 'react-native';
 
 import type { BaseLocale } from '../db/client.ts';
 import { ouvrirBase } from '../db/client.ts';
-import { creerDepot, creerDepotEnvoi } from '../db/depot.ts';
+import { creerDepot, creerDepotEnvoi, creerDepotTeleversements } from '../db/depot.ts';
 import { migrerBase } from '../db/migrer.ts';
 import { ClientDdp } from '../lib/ddp.ts';
 import { MoteurEnvoi, idDepuisOctets } from '../lib/envoi.ts';
+import { MoteurTeleversement } from '../lib/envoiFichiers.ts';
 import { obtenirJetonFcm } from '../lib/push.ts';
 import { enregistrerJeton } from '../lib/pushToken.ts';
 import { rattraperGlobal, rattraperSalon } from '../lib/rattrapage.ts';
 import { Reconnecteur } from '../lib/reconnexion.ts';
 import { MoteurSynchro, STREAM_NOTIFY_USER } from '../lib/sync.ts';
 import { useSession } from './session.tsx';
+import { transportExpo } from './transportUpload.ts';
 
 export type EtatSynchro =
   | { phase: 'inactif' }
@@ -41,6 +43,7 @@ export type EtatSynchro =
       base: BaseLocale;
       moteur: MoteurSynchro;
       envoi: MoteurEnvoi;
+      fichiers: MoteurTeleversement;
       ddp: ClientDdp;
       /**
        * L'écran salon se déclare à l'ouverture (null à la fermeture) : le
@@ -86,6 +89,15 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       if (abandonne) return;
 
       const moteur = new MoteurSynchro(creerDepot(brute), session.username);
+      const fichiers = new MoteurTeleversement({
+        depot: creerDepotTeleversements(brute),
+        client,
+        transport: transportExpo,
+        genererId: () => idDepuisOctets(Crypto.getRandomBytes(12)),
+        ingerer: async (doc) => {
+          await moteur.ingererMessages([doc]);
+        },
+      });
       const envoi = new MoteurEnvoi({
         depot: creerDepotEnvoi(brute),
         client,
@@ -104,6 +116,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         base,
         moteur,
         envoi,
+        fichiers,
         ddp,
         signalerSalonActif: (rid) => {
           salonActif = rid;
@@ -144,6 +157,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           // Ce qui attendait le réseau part maintenant. Pas d'await : un
           // échec d'envoi ne doit pas compter comme un échec de connexion.
           envoi.traiter().catch(() => {});
+          fichiers.traiter().catch(() => {});
           // Cycle de vie du jeton push (6.1) : enregistré au premier
           // raccordement de la session. Idempotent côté serveur ; un échec
           // sera retenté au prochain raccordement.

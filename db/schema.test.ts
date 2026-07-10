@@ -40,7 +40,14 @@ function tables(db: DatabaseSync): string[] {
 describe('migrations', () => {
   test('le SQL généré s’applique sur une base vierge', () => {
     const db = baseMigree();
-    assert.deepEqual(tables(db), ['abonnements', 'etat_synchro', 'messages', 'salons', 'sortie']);
+    assert.deepEqual(tables(db), [
+      'abonnements',
+      'etat_synchro',
+      'messages',
+      'salons',
+      'sortie',
+      'televersements',
+    ]);
     db.close();
   });
 
@@ -56,6 +63,7 @@ describe('migrations', () => {
       'idx_messages_salon_date',
       'idx_salons_activite',
       'idx_sortie_statut',
+      'idx_televersements_statut',
     ]);
     db.close();
   });

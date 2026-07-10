@@ -129,6 +129,26 @@ DELETE FROM messages WHERE id = ? AND mis_a_jour_le = 0
 `;
 
 // ---------------------------------------------------------------------------
+// File de téléversements (7.2) — mêmes règles que la sortie texte.
+// ---------------------------------------------------------------------------
+
+export const INSERER_TELEVERSEMENT = `
+INSERT INTO televersements (id, rid, uri, nom, type, legende, statut, derniere_erreur, cree_le)
+VALUES (?, ?, ?, ?, ?, ?, 'en-attente', NULL, ?)
+`;
+
+export const LISTER_TELEVERSEMENTS_A_ENVOYER = `
+SELECT id, rid, uri, nom, type, legende, statut FROM televersements
+WHERE statut IN ('en-attente', 'echec') ORDER BY cree_le
+`;
+
+export const MARQUER_TELEVERSEMENT_ECHEC = `
+UPDATE televersements SET statut = 'echec', derniere_erreur = ? WHERE id = ?
+`;
+
+export const SUPPRIMER_TELEVERSEMENT = `DELETE FROM televersements WHERE id = ?`;
+
+// ---------------------------------------------------------------------------
 // Constructeurs de paramètres. Ils vivent ici, collés au SQL : un ordre de
 // colonnes ne peut pas diverger de l'ordre des valeurs sans que les tests le
 // voient, puisque l'application et les tests appellent les mêmes fonctions.

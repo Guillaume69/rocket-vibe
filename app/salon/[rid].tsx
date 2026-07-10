@@ -2,14 +2,27 @@ import { FlashList } from '@shopify/flash-list';
 import { desc, eq } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { Redirect, Stack, useLocalSearchParams } from 'expo-router';
+import * as DocumentPicker from 'expo-document-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Image,
+  Linking,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { BaseLocale } from '../../db/client.ts';
-import { messages, salons, sortie } from '../../db/schema.ts';
+import { messages, salons, sortie, televersements } from '../../db/schema.ts';
 import type { ClientDdp } from '../../lib/ddp.ts';
 import type { MoteurEnvoi } from '../../lib/envoi.ts';
+import type { MoteurTeleversement } from '../../lib/envoiFichiers.ts';
+import { urlFichierProtege } from '../../lib/upload.ts';
 import { arbreDuMessage } from '../../lib/markdown.ts';
 import { texteSysteme } from '../../lib/messagesSysteme.ts';
 import type { ClientRest } from '../../lib/rest.ts';
@@ -72,6 +85,7 @@ export default function EcranSalon() {
       base={synchro.base}
       moteur={synchro.moteur}
       envoi={synchro.envoi}
+      fichiers={synchro.fichiers}
       ddp={synchro.ddp}
       client={etat.client}
       signalerSalonActif={synchro.signalerSalonActif}
@@ -86,6 +100,7 @@ function Salon({
   base,
   moteur,
   envoi,
+  fichiers,
   ddp,
   client,
   signalerSalonActif,
@@ -96,6 +111,7 @@ function Salon({
   base: BaseLocale;
   moteur: MoteurSynchro;
   envoi: MoteurEnvoi;
+  fichiers: MoteurTeleversement;
   ddp: ClientDdp;
   client: ClientRest;
   signalerSalonActif: (rid: string | null) => void;
@@ -128,6 +144,13 @@ function Salon({
     base.select().from(sortie).where(eq(sortie.rid, rid)),
     [rid],
   );
+  // Téléversements en échec : sans surface UI, une ligne morte (fichier de
+  // cache purgé, refus serveur) serait rejouée à vie, invisiblement.
+  const { data: lignesTeleversements } = useLiveQuery(
+    base.select().from(televersements).where(eq(televersements.rid, rid)),
+    [rid],
+  );
+  const televersementsEnEchec = (lignesTeleversements ?? []).filter((t) => t.statut === 'echec');
   // Les décisions (pagination) se prennent sur la valeur FRAÎCHE ; seul
   // l'affichage est lissé.
   const fraiches = useMemo(() => brutes ?? [], [brutes]);
@@ -250,13 +273,14 @@ function Salon({
         <LigneMessage
           c={c}
           message={item}
+          client={client}
           statutEnvoi={etatEnvoi?.statut ?? null}
           surReessayer={etatEnvoi?.statut === 'echec' ? reessayer : null}
           surAbandonner={etatEnvoi?.statut === 'echec' ? abandonner : null}
         />
       );
     },
-    [c, sortieParId, reessayer, abandonner],
+    [c, client, sortieParId, reessayer, abandonner],
   );
 
   const titre = salon
@@ -287,6 +311,19 @@ function Salon({
           )
         }
       />
+      {televersementsEnEchec.map((t) => (
+        <View key={t.id} style={styles.bandeEchecFichier}>
+          <Text style={[styles.heure, { color: c.texteErreur }]} numberOfLines={1}>
+            ⚠️ {t.nom} non envoyé
+          </Text>
+          <Pressable onPress={() => void fichiers.traiter()}>
+            <Text style={[styles.heure, { color: c.accent }]}>réessayer</Text>
+          </Pressable>
+          <Pressable onPress={() => void fichiers.abandonner(t.id)}>
+            <Text style={[styles.heure, { color: c.attenue }]}>abandonner</Text>
+          </Pressable>
+        </View>
+      ))}
       {/* Tant que la ligne du salon n'est pas là (lien profond vers un salon
           pas encore synchronisé), on ne promet pas un envoi : `chiffre` et
           `lectureSeule` sont peut-être vrais. */}
@@ -295,6 +332,7 @@ function Salon({
           c={c}
           rid={rid}
           envoi={envoi}
+          fichiers={fichiers}
           lectureSeule={salon.lectureSeule}
           chiffre={salon.chiffre}
         />
@@ -307,16 +345,20 @@ function Composer({
   c,
   rid,
   envoi,
+  fichiers,
   lectureSeule,
   chiffre,
 }: {
   c: Couleurs;
   rid: string;
   envoi: MoteurEnvoi;
+  fichiers: MoteurTeleversement;
   lectureSeule: boolean;
   chiffre: boolean;
 }) {
   const [brouillon, setBrouillon] = useState('');
+  const [envoiFichier, setEnvoiFichier] = useState(false);
+  const [erreurFichier, setErreurFichier] = useState<string | null>(null);
 
   const envoyerMessage = useCallback(() => {
     const texte = brouillon.trim();
@@ -327,6 +369,49 @@ function Composer({
     // « échec » actionnable sur la ligne elle-même.
     envoi.envoyer(rid, texte).catch((e: unknown) => console.warn('envoi: échec local', e));
   }, [brouillon, envoi, rid]);
+
+  const joindre = useCallback(async () => {
+    setErreurFichier(null);
+    const choix = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
+    if (choix.canceled || choix.assets.length === 0) return;
+    const brut = choix.assets[0];
+    let fichier = {
+      uri: brut.uri,
+      nom: brut.name,
+      type: brut.mimeType ?? 'application/octet-stream',
+      taille: brut.size ?? null,
+    };
+    setEnvoiFichier(true);
+    try {
+      // Compression (7.3) : une photo repart en JPEG raisonnable — inutile de
+      // pousser 12 Mpx pour un aperçu de chat. Les GIF gardent leur animation.
+      if (
+        fichier.type.startsWith('image/') &&
+        fichier.type !== 'image/gif' &&
+        (fichier.taille ?? 0) > 500_000
+      ) {
+        const reduite = await ImageManipulator.manipulateAsync(
+          brut.uri,
+          [{ resize: { width: 1920 } }],
+          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
+        );
+        fichier = {
+          uri: reduite.uri,
+          nom: `${fichier.nom.replace(/\.\w+$/, '')}.jpg`,
+          type: 'image/jpeg',
+          taille: null,
+        };
+      }
+      // Validation contre FileUpload_MaxFileSize / MediaTypeWhiteList AVANT
+      // le moindre octet, puis persistance et envoi (rejoué après un kill).
+      await fichiers.envoyer(rid, fichier, brouillon.trim() || undefined);
+      setBrouillon('');
+    } catch (e) {
+      setErreurFichier(e instanceof Error ? e.message : 'Téléversement impossible.');
+    } finally {
+      setEnvoiFichier(false);
+    }
+  }, [fichiers, rid, brouillon]);
 
   // Dégradation E2EE (ROADMAP §6.6) : on n'implémente pas le chiffrement, et
   // le serveur cible REJETTE un message en clair dans un salon chiffré
@@ -352,26 +437,43 @@ function Composer({
   }
 
   return (
-    <View style={[styles.composer, { borderTopColor: c.bordure }]}>
-      <TextInput
-        value={brouillon}
-        onChangeText={setBrouillon}
-        placeholder="Message"
-        placeholderTextColor={c.attenue}
-        multiline
-        style={[styles.champComposer, { color: c.texte, backgroundColor: c.carte }]}
-      />
-      <Pressable
-        onPress={envoyerMessage}
-        disabled={brouillon.trim() === ''}
-        android_ripple={{ color: c.ondulation, borderless: true }}
-        style={({ pressed }) => [
-          styles.boutonEnvoyer,
-          { opacity: pressed || brouillon.trim() === '' ? 0.4 : 1 },
-        ]}
-      >
-        <Text style={[styles.texteEnvoyer, { color: c.accent }]}>Envoyer</Text>
-      </Pressable>
+    <View>
+      {erreurFichier !== null && (
+        <Text style={[styles.erreurComposer, { color: c.texteErreur }]}>{erreurFichier}</Text>
+      )}
+      <View style={[styles.composer, { borderTopColor: c.bordure }]}>
+        <Pressable
+          onPress={() => void joindre()}
+          disabled={envoiFichier}
+          android_ripple={{ color: c.ondulation, borderless: true }}
+          style={styles.boutonJoindre}
+        >
+          {envoiFichier ? (
+            <ActivityIndicator size="small" />
+          ) : (
+            <Text style={[styles.texteEnvoyer, { color: c.accent }]}>📎</Text>
+          )}
+        </Pressable>
+        <TextInput
+          value={brouillon}
+          onChangeText={setBrouillon}
+          placeholder="Message"
+          placeholderTextColor={c.attenue}
+          multiline
+          style={[styles.champComposer, { color: c.texte, backgroundColor: c.carte }]}
+        />
+        <Pressable
+          onPress={envoyerMessage}
+          disabled={brouillon.trim() === ''}
+          android_ripple={{ color: c.ondulation, borderless: true }}
+          style={({ pressed }) => [
+            styles.boutonEnvoyer,
+            { opacity: pressed || brouillon.trim() === '' ? 0.4 : 1 },
+          ]}
+        >
+          <Text style={[styles.texteEnvoyer, { color: c.accent }]}>Envoyer</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -381,12 +483,14 @@ type LigneDeMessage = typeof messages.$inferSelect;
 const LigneMessage = memo(function LigneMessage({
   c,
   message,
+  client,
   statutEnvoi,
   surReessayer,
   surAbandonner,
 }: {
   c: Couleurs;
   message: LigneDeMessage;
+  client: ClientRest;
   statutEnvoi: 'en-attente' | 'echec' | null;
   surReessayer: (() => void) | null;
   surAbandonner: ((id: string) => void) | null;
@@ -409,6 +513,9 @@ const LigneMessage = memo(function LigneMessage({
         )}
       </View>
       <ContenuMessage c={c} message={message} />
+      {message.piecesJointes !== null && (
+        <PiecesJointes c={c} brut={message.piecesJointes} client={client} />
+      )}
       {statutEnvoi === 'echec' && (
         <View style={styles.actionsEchec}>
           <Pressable onPress={surReessayer ?? undefined}>
@@ -448,6 +555,9 @@ function ContenuMessage({ c, message }: { c: Couleurs; message: LigneDeMessage }
     return <Substitut c={c} texte={texteSysteme(message.typeSysteme, message.texte)} />;
   }
   if (arbre === null) {
+    // Un message d'upload n'a souvent NI texte NI md : ses pièces jointes,
+    // rendues à côté, sont tout son contenu — rien à substituer.
+    if (message.piecesJointes !== null) return null;
     return <Substitut c={c} texte="(message vide)" />;
   }
   return (
@@ -461,6 +571,63 @@ function ContenuMessage({ c, message }: { c: Couleurs; message: LigneDeMessage }
 
 function Substitut({ c, texte }: { c: Couleurs; texte: string }) {
   return <Text style={[styles.texte, styles.italique, { color: c.attenue }]}>{texte}</Text>;
+}
+
+type PieceJointe = {
+  title?: string;
+  title_link?: string;
+  image_url?: string;
+  image_dimensions?: { width?: number; height?: number };
+};
+
+/**
+ * Pièces jointes (7.4) : `FileUpload_ProtectFiles = true` sur le serveur
+ * cible — chaque URL de fichier reçoit `rc_uid`/`rc_token` en query, sinon
+ * le serveur répond 403 et l'image reste blanche.
+ */
+function PiecesJointes({ c, brut, client }: { c: Couleurs; brut: string; client: ClientRest }) {
+  const jointes = useMemo<PieceJointe[]>(() => {
+    try {
+      const liste = JSON.parse(brut) as unknown;
+      return Array.isArray(liste) ? (liste as PieceJointe[]) : [];
+    } catch {
+      return [];
+    }
+  }, [brut]);
+
+  return (
+    <View style={styles.jointes}>
+      {jointes.map((jointe, i) => {
+        if (typeof jointe?.image_url === 'string') {
+          // Bornée des deux côtés : une vignette 4×4 reste tapable, une photo
+          // 4000 px ne déborde pas.
+          const largeur = Math.max(Math.min(jointe.image_dimensions?.width ?? 240, 240), 120);
+          const ratio =
+            (jointe.image_dimensions?.height ?? largeur) /
+            Math.max(jointe.image_dimensions?.width ?? largeur, 1);
+          return (
+            <Image
+              key={i}
+              source={{ uri: urlFichierProtege(client, jointe.image_url) }}
+              style={[styles.imageJointe, { width: largeur, height: Math.round(largeur * ratio) }]}
+              resizeMode="cover"
+            />
+          );
+        }
+        if (typeof jointe?.title_link === 'string') {
+          const url = urlFichierProtege(client, jointe.title_link);
+          return (
+            <Pressable key={i} onPress={() => void Linking.openURL(url).catch(() => {})}>
+              <Text style={[styles.texte, { color: c.accent }]}>
+                📄 {jointe.title ?? 'Fichier'}
+              </Text>
+            </Pressable>
+          );
+        }
+        return null;
+      })}
+    </View>
+  );
 }
 
 function cheminHistorique(type: string): string {
@@ -524,6 +691,17 @@ const styles = StyleSheet.create({
     maxHeight: 120,
   },
   boutonEnvoyer: { paddingVertical: 10, paddingHorizontal: 4 },
+  boutonJoindre: { paddingVertical: 10, paddingHorizontal: 2 },
+  erreurComposer: { fontSize: 12, textAlign: 'center', paddingTop: 6, paddingHorizontal: 12 },
+  bandeEchecFichier: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+  },
+  jointes: { gap: 6, marginTop: 4 },
+  imageJointe: { borderRadius: 10, backgroundColor: '#00000010' },
   texteEnvoyer: { fontSize: 15, fontWeight: '700' },
   noteComposer: { flex: 1, textAlign: 'center', fontSize: 13, paddingVertical: 8 },
 });

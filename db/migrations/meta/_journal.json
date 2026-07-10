@@ -15,6 +15,13 @@
       "when": 1783660316699,
       "tag": "0001_milky_talos",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1783664724498,
+      "tag": "0002_red_captain_stacy",
+      "breakpoints": true
     }
   ]
 }

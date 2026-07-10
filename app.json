@@ -22,7 +22,8 @@
       "expo-router",
       "expo-secure-store",
       "expo-sqlite",
-      "./plugins/with-canal-notifications"
+      "./plugins/with-canal-notifications",
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true

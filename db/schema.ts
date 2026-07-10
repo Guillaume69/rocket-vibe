@@ -114,6 +114,29 @@ export const sortie = sqliteTable(
 );
 
 /**
+ * File de téléversements (7.2) — le pendant de `sortie` pour les fichiers.
+ * L'`uri` pointe un fichier LOCAL (cache du picker) : il survit au kill de
+ * l'app, donc le rejeu au démarrage peut reprendre un envoi interrompu.
+ * Pas de `_id` client ici : la déduplication viendra du serveur au confirm ;
+ * le statut `envoi` évite de relancer un upload déjà parti dans cette vie.
+ */
+export const televersements = sqliteTable(
+  'televersements',
+  {
+    id: text('id').primaryKey(),
+    rid: text('rid').notNull(),
+    uri: text('uri').notNull(),
+    nom: text('nom').notNull(),
+    type: text('type').notNull(),
+    legende: text('legende'),
+    statut: text('statut').$type<'en-attente' | 'echec'>().notNull().default('en-attente'),
+    derniereErreur: text('derniere_erreur'),
+    creeLe: integer('cree_le').notNull(),
+  },
+  (t) => [index('idx_televersements_statut').on(t.statut)],
+);
+
+/**
  * Curseurs de rattrapage, par salon et par flux. `chat.syncMessages` traite un
  * salon à la fois et le REST est rate-limité : on ne re-synchronise que les
  * salons ouverts ou récemment actifs (étape 5.2).

@@ -14,9 +14,14 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import type { DepotEnvoi, LigneSortie } from '../lib/envoi.ts';
+import type { DepotTeleversements, LigneTeleversement } from '../lib/envoiFichiers.ts';
 import type { Depot } from '../lib/sync.ts';
 import {
   INSERER_SORTIE,
+  INSERER_TELEVERSEMENT,
+  LISTER_TELEVERSEMENTS_A_ENVOYER,
+  MARQUER_TELEVERSEMENT_ECHEC,
+  SUPPRIMER_TELEVERSEMENT,
   LIRE_CURSEUR,
   LISTER_SORTIE_A_ENVOYER,
   MARQUER_SORTIE_ECHEC,
@@ -122,6 +127,41 @@ export function creerDepotEnvoi(brute: SQLiteDatabase): DepotEnvoi {
     },
     async supprimerMessageOptimiste(id) {
       await brute.runAsync(SUPPRIMER_MESSAGE_OPTIMISTE, [id]);
+    },
+  };
+}
+
+type BruteTeleversement = {
+  id: string;
+  rid: string;
+  uri: string;
+  nom: string;
+  type: string;
+  legende: string | null;
+  statut: 'en-attente' | 'echec';
+};
+
+export function creerDepotTeleversements(brute: SQLiteDatabase): DepotTeleversements {
+  return {
+    async inserer(ligne) {
+      await brute.runAsync(INSERER_TELEVERSEMENT, [
+        ligne.id,
+        ligne.rid,
+        ligne.uri,
+        ligne.nom,
+        ligne.type,
+        ligne.legende,
+        Date.now(),
+      ]);
+    },
+    async listerAEnvoyer(): Promise<LigneTeleversement[]> {
+      return brute.getAllAsync<BruteTeleversement>(LISTER_TELEVERSEMENTS_A_ENVOYER);
+    },
+    async marquerEchec(id, erreur) {
+      await brute.runAsync(MARQUER_TELEVERSEMENT_ECHEC, [erreur, id]);
+    },
+    async supprimer(id) {
+      await brute.runAsync(SUPPRIMER_TELEVERSEMENT, [id]);
     },
   };
 }

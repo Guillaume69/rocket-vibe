@@ -1,4 +1,4 @@
-import { FlashList } from '@shopify/flash-list';
+import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { and, desc, eq, isNull, or } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
@@ -20,6 +20,8 @@ import {
   Text,
   TextInput,
   View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
 
 import type { BaseLocale } from '../../db/client.ts';
@@ -44,18 +46,29 @@ import { useCouleurs, type Couleurs } from '../../ui/theme.ts';
  * l'historique REST initial et le stream DDP convergent dans les mêmes
  * upserts idempotents.
  *
- * **Pas de prop `inverted`** — choix mesuré contre FlashList 2.3.2 : sa
- * détection « proche du bas » (`useBoundDetection`) travaille en coordonnées
- * brutes, donc avec `inverted` l'autoscroll visait le haut visuel et
- * `startRenderingFromBottom` ouvrait l'écran sur le plus VIEUX message.
- * L'idiome v2 pour un chat : données croissantes + `startRenderingFromBottom`
- * (on s'ouvre en bas) + `autoscrollToBottomThreshold` (on suit les entrants
- * quand on est en bas) + `onStartReached` (le haut = le passé à charger).
- * La requête reste `DESC LIMIT n` — la seule façon de prendre « les n plus
- * récents » — et l'affichage la retourne.
+ * **Liste INVERSÉE, mVCP coupé** (idiome duogo, adopté en 8.10) : le plus
+ * récent est en `data[0]`, à l'offset natif 0 = le bas visuel. Le bas reste
+ * collé au composer PAR CONSTRUCTION, même quand le clavier anime la hauteur
+ * du conteneur frame par frame — aucune compensation JS. L'ancien montage
+ * (données croissantes + `startRenderingFromBottom` +
+ * `autoscrollToBottomThreshold`) recalait le défilement en JS après coup :
+ * liste visiblement décorrélée du composer pendant l'animation du clavier,
+ * constaté sur le Pixel. `maintainVisibleContentPosition` est DÉSACTIVÉ :
+ * à l'offset 0, un prepend s'affiche de lui-même, et le recalage natif du
+ * mVCP partait avant nos effets et écrasait le snap manuel (cicatrice
+ * duogo). Suivi des entrants : `scrollToOffset(0)` si le message est de moi
+ * ou si on est près du bas. COMPROMIS assumé, le même que duogo : remonté
+ * dans l'historique, pas de snap, mais un prepend décale quand même le
+ * contenu de sa hauteur — c'est ce que le mVCP corrigerait — et le lissage
+ * de 200 ms groupe les rafales en un seul décalage.
+ * La requête `DESC LIMIT n` alimente la liste TELLE QUELLE — l'inversion
+ * visuelle est native, plus de `reverse()` ; le passé se charge par
+ * `onEndReached` (la fin des DONNÉES est le haut visuel).
  */
 
 const PAGE = 50;
+/** Sous ce défilement (px depuis le bas), un entrant nous ramène au bas. */
+const PRES_DU_BAS_PX = 120;
 
 export default function EcranSalon() {
   const { rid } = useLocalSearchParams<{ rid: string }>();
@@ -167,10 +180,12 @@ function Salon({
   // Les décisions (pagination) se prennent sur la valeur FRAÎCHE ; seul
   // l'affichage est lissé.
   const fraiches = useMemo(() => brutes ?? [], [brutes]);
-  // Débounce des entrants : une rafale d'insertions en tête (< ~200 ms) ferait
-  // sauter le défilement à chaque écriture. On lisse la projection, pas la base.
+  // Lissage des entrants (200 ms) : à l'offset 0, l'inversion absorbe les
+  // prepends nativement, mais une rafale re-rendrait l'écran à chaque
+  // écriture — et REMONTÉ dans l'historique, chaque prepend décale le
+  // contenu de sa hauteur (mVCP coupé, voir l'en-tête) : autant grouper la
+  // rafale en un seul décalage. On lisse la projection, pas la base.
   const donnees = useDonneesLissees(fraiches, 200);
-  const affichees = useMemo(() => [...donnees].reverse(), [donnees]);
 
   // Non-lus (8.1). La barre « nouveaux messages » se place sur un INSTANTANÉ
   // de `ls` pris au montage : si elle suivait la valeur vive, le
@@ -205,22 +220,53 @@ function Salon({
     return () => clearTimeout(minuterie);
   }, [client, rid, dernierIdRecu]);
 
-  // Les données de la liste, avec la barre insérée avant le premier message
-  // d'AUTRUI postérieur à `ls`.
+  // Les données de la liste, avec la barre insérée au-dessus (visuellement)
+  // du premier message d'AUTRUI postérieur à `ls`. Données DESC : ce message
+  // est la DERNIÈRE occurrence qui satisfait le prédicat, et « au-dessus »
+  // est l'index SUIVANT — la liste inversée rend l'index i+1 au-dessus de i.
   type LigneListe = LigneDeMessage | { barre: true; id: string };
   const donneesAvecBarre = useMemo<LigneListe[]>(() => {
-    if (typeof luJusquA !== 'number') return affichees;
-    const moi = client.identifiants?.userId;
-    const index = affichees.findIndex(
-      (m) => m.horodatage > luJusquA && m.auteurId !== moi,
-    );
-    if (index === -1) return affichees;
+    if (typeof luJusquA !== 'number') return donnees;
+    const moiUid = client.identifiants?.userId;
+    let premierNonLu = -1;
+    for (let i = 0; i < donnees.length; i++) {
+      const m = donnees[i];
+      if (m.horodatage > luJusquA && m.auteurId !== moiUid) premierNonLu = i;
+    }
+    if (premierNonLu === -1) return donnees;
     return [
-      ...affichees.slice(0, index),
+      ...donnees.slice(0, premierNonLu + 1),
       { barre: true, id: 'barre-nouveaux' },
-      ...affichees.slice(index),
+      ...donnees.slice(premierNonLu + 1),
     ];
-  }, [affichees, luJusquA, client]);
+  }, [donnees, luJusquA, client]);
+
+  // Suivi des entrants (idiome duogo) : à l'offset 0, un nouveau `data[0]`
+  // s'affiche tout seul — natif. Légèrement remonté, on snappe au bas si le
+  // message est de moi ou qu'on était près du bas ; en pleine lecture
+  // d'historique, on ne bouge pas. Refs : le défilement ne re-rend rien.
+  const liste = useRef<FlashListRef<LigneListe>>(null);
+  const presDuBas = useRef(true);
+  const dernierSuivi = useRef<{ id: string; horodatage: number } | null>(null);
+  const surDefilement = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    presDuBas.current = e.nativeEvent.contentOffset.y <= PRES_DU_BAS_PX;
+  }, []);
+  const plusRecent = donnees[0];
+  useEffect(() => {
+    if (plusRecent === undefined || dernierSuivi.current?.id === plusRecent.id) return;
+    const precedent = dernierSuivi.current;
+    dernierSuivi.current = { id: plusRecent.id, horodatage: plusRecent.horodatage };
+    // Premier remplissage : la liste inversée naît déjà calée en bas.
+    if (precedent === null) return;
+    // Un head PLUS ANCIEN que le précédent n'est pas un entrant : c'est la
+    // SUPPRESSION du plus récent (stream deleteMessage, abandon d'un envoi).
+    // Snapper là-dessus arracherait le lecteur à l'historique.
+    if (plusRecent.horodatage < precedent.horodatage) return;
+    const deMoi = plusRecent.auteurId === client.identifiants?.userId;
+    if (deMoi || presDuBas.current) {
+      liste.current?.scrollToOffset({ offset: 0, animated: true });
+    }
+  }, [plusRecent, client]);
 
   // `sub` à l'ouverture, relâchement à la fermeture. `souscrire` est
   // synchrone et indépendant de l'état du transport : demandé trop tôt (lien
@@ -320,13 +366,21 @@ function Salon({
   // épuisée, demander la page plus ancienne au serveur (pagination keyset sur
   // `latest`, jamais d'offset).
   const enVol = useRef(false);
+  // `onEndReached` (FlashList v2) se réarme à CHAQUE changement de data, pas
+  // seulement au défilement : passé épuisé et utilisateur garé au haut
+  // visuel, chaque entrant redemanderait la même page vide au REST
+  // rate-limité. Ce verrou s'arme à la première page vide et ne se relâche
+  // plus — le passé d'un salon ne repousse pas.
+  const passeEpuise = useRef(false);
   const chargerPlus = useCallback(() => {
     const epuise = fraiches.length < limite;
     if (!epuise) {
       setLimite((l) => l + PAGE);
       return;
     }
-    if (enVol.current || type === undefined || fraiches.length === 0) return;
+    if (passeEpuise.current || enVol.current || type === undefined || fraiches.length === 0) {
+      return;
+    }
     enVol.current = true;
     const plusVieux = fraiches[fraiches.length - 1];
     chargerHistorique(type, new Date(plusVieux.horodatage).toISOString())
@@ -334,6 +388,7 @@ function Salon({
         // > 1 : la page contient au moins autre chose que le message-borne
         // (renvoyé par `inclusive: true`). Sinon, le passé est épuisé.
         if (n > 1) setLimite((l) => l + PAGE);
+        else passeEpuise.current = true;
       })
       .catch((e: unknown) => console.warn('salon: page d’historique échouée', e))
       .finally(() => {
@@ -423,12 +478,9 @@ function Salon({
         }}
       />
       {donneesAvecBarre.length === 0 ? (
-        // La liste ne monte JAMAIS vide : montée avant l'arrivée du premier
-        // lot (requête vive encore muette au cold start), FlashList traitait
-        // les 100 messages comme des insertions au-dessus de l'ancre
-        // `maintainVisibleContentPosition` et laissait le viewport SOUS tout
-        // le contenu — écran blanc, constaté sur l'AVD. Monter la liste
-        // peuplée fait calculer `startRenderingFromBottom` avec le contenu là.
+        // Vide : indicateur, puis mention explicite. (L'ancien piège mVCP
+        // « viewport sous le contenu » a disparu avec l'inversion ; attendre
+        // le premier lot reste la bonne UX — une liste qui clignote non.)
         <View style={styles.centre}>
           {premierPassageFini ? (
             <Text style={[styles.vide, { color: c.attenue }]}>Aucun message.</Text>
@@ -438,18 +490,22 @@ function Salon({
         </View>
       ) : (
         <FlashList
+          ref={liste}
+          inverted
           data={donneesAvecBarre}
-          maintainVisibleContentPosition={{
-            startRenderingFromBottom: true,
-            autoscrollToBottomThreshold: 0.2,
-          }}
+          // Coupé : à l'offset 0, un prepend s'affiche de lui-même, et le
+          // recalage natif partait avant le snap JS et l'écrasait.
+          maintainVisibleContentPosition={{ disabled: true }}
           keyExtractor={(m) => m.id}
           // Contenu HÉTÉROGÈNE (messages + barre de non-lus) : sans type
           // d'item, le recyclage de FlashList mélange les gabarits.
           getItemType={(item) => ('barre' in item ? 'barre' : 'message')}
           renderItem={rendreLigne}
-          onStartReached={chargerPlus}
-          onStartReachedThreshold={0.4}
+          onScroll={surDefilement}
+          scrollEventThrottle={16}
+          // Inversé : la fin des DONNÉES est le haut visuel — le passé.
+          onEndReached={chargerPlus}
+          onEndReachedThreshold={0.4}
           contentContainerStyle={styles.contenu}
         />
       )}

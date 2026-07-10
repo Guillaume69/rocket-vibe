@@ -25,6 +25,20 @@ MAESTRO_ARGS=(--device "$ANDROID_SERIAL")
 HORODATAGE="$(date +%s)"
 FICHIER_SECRET="/tmp/rocket-vibe-e2e-2fa-secret"
 
+# Le dev-client crashe parfois en natif (SIGSEGV Fabric,
+# `MountingCoordinator::pullTransaction`, mesuré ~2 démarrages sur 8) au
+# premier chargement du bundle après `clearState` — jamais en release (0/8),
+# jamais une fois l'app lancée. Apparu avec reanimated 4.5 (8.9) ; en
+# attendant un correctif amont, les flows qui partent d'un état VIERGE ont
+# droit à un second essai. Pas les autres : rejouer 02/04 reposterait le
+# même message.
+maestro_retry_froid() {
+  if ! "$MAESTRO" "${MAESTRO_ARGS[@]}" test "$@"; then
+    echo "   (second essai : crash connu du dev-client au démarrage à froid)"
+    "$MAESTRO" "${MAESTRO_ARGS[@]}" test "$@"
+  fi
+}
+
 # Un run précédent interrompu a pu laisser la 2FA de bob active — les flows
 # 03 et 05 en dépendent : on nettoie d'ENTRÉE avec le secret persisté.
 if [ -s "$FICHIER_SECRET" ]; then
@@ -33,7 +47,7 @@ if [ -s "$FICHIER_SECRET" ]; then
 fi
 
 echo "== 01 connexion (alice)"
-"$MAESTRO" "${MAESTRO_ARGS[@]}" test "$ICI/flows/01-connexion.yaml" \
+maestro_retry_froid "$ICI/flows/01-connexion.yaml" \
   -e SERVEUR="$SERVEUR" -e UTILISATEUR=alice -e MOT_DE_PASSE=alice-dev-2026
 
 echo "== 02 envoi"
@@ -81,9 +95,16 @@ SECRET="$(node "$ICI/harnais/deux-facteurs.mjs" enable)"
 printf '%s' "$SECRET" > "$FICHIER_SECRET"
 nettoyer_2fa() { node "$ICI/harnais/deux-facteurs.mjs" disable "$SECRET" || true; }
 trap nettoyer_2fa EXIT
-"$MAESTRO" "${MAESTRO_ARGS[@]}" test "$ICI/flows/05-deux-facteurs.yaml" \
+# Le retry recalcule son TOTP : celui du premier essai serait périmé (et
+# Rocket.Chat refuse la RÉUTILISATION d'un code déjà consommé).
+if ! "$MAESTRO" "${MAESTRO_ARGS[@]}" test "$ICI/flows/05-deux-facteurs.yaml" \
   -e SERVEUR="$SERVEUR" -e MOT_DE_PASSE=bob-dev-2026 \
-  -e TOTP="$(node "$ICI/harnais/totp.mjs" "$SECRET" +30)"
+  -e TOTP="$(node "$ICI/harnais/totp.mjs" "$SECRET" +30)"; then
+  echo "   (second essai : crash connu du dev-client au démarrage à froid)"
+  "$MAESTRO" "${MAESTRO_ARGS[@]}" test "$ICI/flows/05-deux-facteurs.yaml" \
+    -e SERVEUR="$SERVEUR" -e MOT_DE_PASSE=bob-dev-2026 \
+    -e TOTP="$(node "$ICI/harnais/totp.mjs" "$SECRET" +30)"
+fi
 trap - EXIT
 # Le nettoyage FINAL n'est pas optionnel : un disable raté avec un secret
 # perdu bloque tous les runs suivants (le || true du trap ne couvre que le
@@ -92,7 +113,7 @@ node "$ICI/harnais/deux-facteurs.mjs" disable "$SECRET"
 rm -f "$FICHIER_SECRET"
 
 echo "== remise en état : session alice"
-"$MAESTRO" "${MAESTRO_ARGS[@]}" test "$ICI/flows/01-connexion.yaml" \
+maestro_retry_froid "$ICI/flows/01-connexion.yaml" \
   -e SERVEUR="$SERVEUR" -e UTILISATEUR=alice -e MOT_DE_PASSE=alice-dev-2026
 
 echo "SUITE E2E VERTE ($RACINE)"

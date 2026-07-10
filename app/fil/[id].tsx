@@ -262,9 +262,11 @@ function Fil({
           keyExtractor={(m) => m.id}
           renderItem={rendreLigne}
           contentContainerStyle={styles.contenu}
-          // Un fil se LIT depuis sa racine : ouverture en haut (pas de
-          // startRenderingFromBottom) — mais près du bas, les réponses
-          // entrantes doivent suivre, comme dans le salon.
+          // Un fil se LIT depuis sa racine : ouverture en haut — l'idiome
+          // INVERSÉ du salon (8.10) n'aurait pas de sens ici. On garde donc
+          // le mVCP pour suivre les réponses entrantes près du bas, avec son
+          // recalage JS pendant l'animation du clavier — liste courte, à
+          // porter si le ressenti l'exige.
           maintainVisibleContentPosition={{ autoscrollToBottomThreshold: 0.2 }}
         />
       )}

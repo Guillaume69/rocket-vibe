@@ -690,6 +690,7 @@ function Composer({
           disabled={envoiFichier}
           android_ripple={{ color: c.ondulation, borderless: true }}
           style={styles.boutonJoindre}
+          accessibilityLabel="Joindre un fichier"
         >
           {envoiFichier ? (
             <ActivityIndicator size="small" />
@@ -711,6 +712,7 @@ function Composer({
             disabled={envoiFichier}
             android_ripple={{ color: c.ondulation, borderless: true }}
             style={styles.boutonJoindre}
+            accessibilityLabel={enregistrement ? "Arrêter l'enregistrement" : 'Message vocal'}
           >
             <Text style={[styles.texteEnvoyer, { color: enregistrement ? c.texteErreur : c.accent }]}>
               {enregistrement ? '⏺ stop' : '🎤'}

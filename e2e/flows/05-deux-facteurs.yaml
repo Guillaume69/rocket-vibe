@@ -1,0 +1,53 @@
+# 2FA TOTP : bob (2FA activée par le harnais), le mot de passe seul est
+# refusé, l'écran TOTP apparaît, le code ${TOTP} (calculé par le harnais au
+# lancement) débloque la session.
+appId: com.rocketvibe.app
+---
+- launchApp:
+    clearState: true
+# Build de DÉVELOPPEMENT : clearState renvoie sur le launcher expo-dev-client ;
+# on tape l'entrée du serveur Metro (reconnue par son URL). En build release,
+# ces lignes deviendraient inutiles.
+- extendedWaitUntil:
+    visible: 'Development Servers'
+    timeout: 20000
+- tapOn: 'http://.*:8081'
+# Feuilles du dev-client au premier lancement : « Continue », puis le menu
+# dev complet — chacune fermée si présente.
+- tapOn:
+    text: 'Continue'
+    optional: true
+- runFlow:
+    when:
+      visible: 'Fast Refresh'
+    commands:
+      - back
+- extendedWaitUntil:
+    visible: 'Adresse du serveur'
+    timeout: 60000
+# Le champ est PRÉ-REMPLI (SERVEUR_PAR_DEFAUT en dev) : effacer d'abord.
+- tapOn:
+    below: 'Adresse du serveur'
+- eraseText
+- inputText: '${SERVEUR}'
+- tapOn: 'Continuer'
+- extendedWaitUntil:
+    visible: 'Identifiant ou email'
+    timeout: 15000
+- tapOn: 'jean.dupont'
+- inputText: 'bob'
+- tapOn: '••••••••'
+- inputText: '${MOT_DE_PASSE}'
+- hideKeyboard
+- tapOn: 'Se connecter'
+- extendedWaitUntil:
+    visible: "Code de l'application d'authentification"
+    timeout: 15000
+- tapOn: '123456'
+- inputText: '${TOTP}'
+# Pas de hideKeyboard : sur l'écran racine, il se traduit parfois par un
+# BACK qui quitte l'app. « Valider » est en haut, visible clavier ouvert.
+- tapOn: 'Valider'
+- extendedWaitUntil:
+    visible: 'Nouvelle conversation'
+    timeout: 30000

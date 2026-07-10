@@ -127,6 +127,10 @@ export class MoteurSynchro {
 
       case STREAM_NOTIFY_ROOM: {
         const sujet = sujetDe(evenement.cleEvenement);
+        // `user-activity` est ATTENDU (l'écran salon s'y abonne pour la
+        // saisie, 8.6) mais traité ailleurs : le compter en « ignoré »
+        // noierait le compteur d'anomalies sous des battements de frappe.
+        if (sujet === 'user-activity') return;
         if (sujet !== 'deleteMessage') {
           this.stats.ignores++;
           return;

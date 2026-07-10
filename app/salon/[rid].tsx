@@ -5,7 +5,14 @@ import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { AudioModule, RecordingPresets, useAudioRecorder } from 'expo-audio';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -22,6 +29,7 @@ import type { ClientDdp } from '../../lib/ddp.ts';
 import type { MoteurEnvoi } from '../../lib/envoi.ts';
 import type { MoteurTeleversement } from '../../lib/envoiFichiers.ts';
 import type { ClientRest } from '../../lib/rest.ts';
+import { MoteurSaisie, phraseSaisie } from '../../lib/saisie.ts';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
 import { useSession } from '../../ui/session.tsx';
@@ -84,6 +92,7 @@ export default function EcranSalon() {
       fichiers={synchro.fichiers}
       ddp={synchro.ddp}
       client={etat.client}
+      moi={etat.session.username}
       signalerSalonActif={synchro.signalerSalonActif}
       generation={synchro.generation}
     />
@@ -99,6 +108,7 @@ function Salon({
   fichiers,
   ddp,
   client,
+  moi,
   signalerSalonActif,
   generation,
 }: {
@@ -110,6 +120,8 @@ function Salon({
   fichiers: MoteurTeleversement;
   ddp: ClientDdp;
   client: ClientRest;
+  /** Mon username — ma propre saisie ne s'affiche pas chez moi. */
+  moi: string;
   signalerSalonActif: (rid: string | null) => void;
   generation: number;
 }) {
@@ -216,6 +228,7 @@ function Salon({
     const relachers = [
       ddp.souscrire(STREAM_MESSAGES, rid),
       ddp.souscrire(STREAM_NOTIFY_ROOM, `${rid}/deleteMessage`),
+      ddp.souscrire(STREAM_NOTIFY_ROOM, `${rid}/user-activity`),
     ];
     // Le rattrapage (`chat.syncMessages`, un salon à la fois) vise le salon
     // que l'utilisateur regarde : on se déclare.
@@ -225,6 +238,22 @@ function Salon({
       for (const relacher of relachers) relacher();
     };
   }, [ddp, rid, signalerSalonActif]);
+
+  // Indicateur de saisie (8.6) : volatil, propre à l'écran — écoute seule,
+  // voir lib/saisie.ts pour l'écart consigné sur l'émission.
+  const saisie = useMemo(() => new MoteurSaisie({ rid, moi }), [rid, moi]);
+  useEffect(() => {
+    const detacher = ddp.surEvenement((evenement) => saisie.appliquer(evenement));
+    return () => {
+      detacher();
+      saisie.arreter();
+    };
+  }, [ddp, saisie]);
+  const quiTape = useSyncExternalStore(
+    useCallback((relire) => saisie.surChangement(relire), [saisie]),
+    useCallback(() => saisie.quiTape(), [saisie]),
+  );
+  const phraseQuiTape = phraseSaisie(quiTape);
 
   const chargerHistorique = useCallback(
     async (type: string, latest?: string): Promise<number> => {
@@ -455,6 +484,12 @@ function Salon({
             </Pressable>
           </View>
         ))}
+      {/* Hauteur RÉSERVÉE (jamais démonté) : l'apparition de la phrase ne
+          doit pas redimensionner la liste — elle sauterait à chaque frappe
+          du correspondant, pile quand on lit. */}
+      <Text style={[styles.saisie, { color: c.attenue }]} numberOfLines={1}>
+        {phraseQuiTape ?? ' '}
+      </Text>
       {/* Tant que la ligne du salon n'est pas là (lien profond vers un salon
           pas encore synchronisé), on ne promet pas un envoi : `chiffre` et
           `lectureSeule` sont peut-être vrais. */}
@@ -696,6 +731,13 @@ const styles = StyleSheet.create({
   contenu: { paddingHorizontal: 16, paddingVertical: 8 },
   heure: { fontSize: 11 },
   iconeEntete: { fontSize: 18, paddingHorizontal: 6 },
+  saisie: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontStyle: 'italic',
+    paddingHorizontal: 16,
+    paddingBottom: 2,
+  },
   vide: { textAlign: 'center', padding: 24, fontSize: 14 },
   erreur: { fontSize: 14, fontWeight: '600', textAlign: 'center' },
   composer: {

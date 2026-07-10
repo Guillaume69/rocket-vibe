@@ -32,6 +32,7 @@ import { migrerBase } from '../db/migrer.ts';
 import { ClientDdp } from '../lib/ddp.ts';
 import { MoteurEnvoi, idDepuisOctets } from '../lib/envoi.ts';
 import { MoteurTeleversement } from '../lib/envoiFichiers.ts';
+import { MoteurPresence, EVENEMENT_PRESENCE, STREAM_NOTIFY_LOGGED } from '../lib/presence.ts';
 import { obtenirJetonFcm } from '../lib/push.ts';
 import { enregistrerJeton } from '../lib/pushToken.ts';
 import { rattraperGlobal, rattraperSalon } from '../lib/rattrapage.ts';
@@ -56,6 +57,8 @@ export type EtatSynchro =
        * ne vise QUE lui.
        */
       signalerSalonActif: (rid: string | null) => void;
+      /** Présence volatile (8.4) — à lire via le hook `usePresence`. */
+      presence: MoteurPresence;
       /**
        * Incrémentée à chaque raccordement réussi. Un écran qui a raté son
        * chargement initial (ouvert hors ligne) la met dans les deps de son
@@ -97,7 +100,11 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       // le même SQLite, leurs écritures ne doivent jamais s'intercaler dans
       // une transaction ouverte par un autre (voir db/depot.ts).
       const fileEcritures = creerFileEcritures();
-      const moteur = new MoteurSynchro(creerDepot(brute, fileEcritures), session.username);
+      const moteur = new MoteurSynchro(
+        creerDepot(brute, fileEcritures),
+        session.username,
+        session.userId,
+      );
       const fichiers = new MoteurTeleversement({
         depot: creerDepotTeleversements(brute, fileEcritures),
         client,
@@ -118,6 +125,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       });
       let salonActif: string | null = null;
       let jetonPushEnregistre = false;
+      const presence = new MoteurPresence();
       // « pret » dès la base disponible : l'UI montre le cache local sans
       // attendre le réseau.
       setSynchro({
@@ -130,11 +138,13 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         signalerSalonActif: (rid) => {
           salonActif = rid;
         },
+        presence,
         generation: 0,
       });
 
       ddp.surEvenement((evenement) => {
         if (abandonne) return;
+        presence.appliquer(evenement);
         moteur.appliquer(evenement).catch(() => {
           // Une écriture qui échoue ne doit pas tuer l'écouteur ; le
           // rattrapage REST de l'étape 5.2 refera passer le document.
@@ -144,6 +154,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       // et chaque `connecter` (première fois comme reconnexion) rejoue tout.
       ddp.souscrire(STREAM_NOTIFY_USER, `${session.userId}/subscriptions-changed`);
       ddp.souscrire(STREAM_NOTIFY_USER, `${session.userId}/rooms-changed`);
+      ddp.souscrire(STREAM_NOTIFY_LOGGED, EVENEMENT_PRESENCE);
 
       // Le PREMIER raccordement passe par le même pilote que les reconnexions
       // (backoff 1 s → 30 s avec gigue) : hors ligne au lancement, ça
@@ -167,6 +178,9 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           // échec d'envoi ne doit pas compter comme un échec de connexion.
           envoi.traiter().catch(() => {});
           fichiers.traiter().catch(() => {});
+          // Présence : photo initiale, puis deltas (`from`). Ornement — un
+          // échec ne compte jamais comme un échec de raccordement.
+          void presence.charger(client);
           // Cycle de vie du jeton push (6.1) : enregistré au premier
           // raccordement de la session. Idempotent côté serveur ; un échec
           // sera retenté au prochain raccordement.

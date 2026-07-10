@@ -49,6 +49,8 @@ export type SalonLocal = {
   nomAffiche: string | null;
   chiffre: boolean;
   lectureSeule: boolean;
+  /** L'autre participant d'un DM à deux — voir `versSalon`. */
+  dmAutreUid: string | null;
   dernierMessage: string | null;
   horodatageDernierMessage: number | null;
   misAJourLe: number;
@@ -116,8 +118,15 @@ export function versMessage(brut: Record<string, unknown>): MessageLocal | null 
  * @param moi — nom d'utilisateur du compte courant. Un message direct n'a ni
  * `name` ni `fname` dans `rooms.get` : son nom d'affichage se dérive de
  * `usernames`, en s'excluant soi-même. Sans `moi`, le DM resterait sans nom.
+ * @param moiUid — uid du compte courant, pour extraire l'AUTRE participant
+ * d'un DM depuis `uids` (présence, 8.4). `uids` et `usernames` ne sont PAS
+ * alignés entre eux (vérifié sur 8.5) : seul le filtrage par uid est sûr.
  */
-export function versSalon(brut: Record<string, unknown>, moi?: string | null): SalonLocal | null {
+export function versSalon(
+  brut: Record<string, unknown>,
+  moi?: string | null,
+  moiUid?: string | null,
+): SalonLocal | null {
   const rid = chaine(brut._id);
   const type = chaine(brut.t);
   if (rid === null || type === null) return null;
@@ -134,6 +143,15 @@ export function versSalon(brut: Record<string, unknown>, moi?: string | null): S
     nomAffiche = autres.length > 0 ? autres.join(', ') : (moi ?? null);
   }
 
+  let dmAutreUid: string | null = null;
+  if (type === 'd' && typeof moiUid === 'string' && Array.isArray(brut.uids)) {
+    const uids = brut.uids.filter((u): u is string => typeof u === 'string' && u !== '');
+    // À deux seulement : un DM de groupe n'a pas UNE présence à montrer.
+    if (uids.length <= 2 && uids.includes(moiUid)) {
+      dmAutreUid = uids.find((u) => u !== moiUid) ?? moiUid;
+    }
+  }
+
   return {
     rid,
     type,
@@ -141,6 +159,7 @@ export function versSalon(brut: Record<string, unknown>, moi?: string | null): S
     nomAffiche,
     chiffre,
     lectureSeule: booleen(brut.ro),
+    dmAutreUid,
     // L'aperçu d'un salon chiffré est du ciphertext : jamais affiché.
     dernierMessage: chiffre ? null : chaine(dernier?.msg),
     horodatageDernierMessage: versEpoch(dernier?.ts) ?? versEpoch(brut.lm),

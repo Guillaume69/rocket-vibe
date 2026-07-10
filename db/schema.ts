@@ -26,6 +26,12 @@ export const salons = sqliteTable(
     /** Salon chiffré de bout en bout : on n'y écrit pas, on n'affiche pas l'aperçu. */
     chiffre: integer('chiffre', { mode: 'boolean' }).notNull().default(false),
     lectureSeule: integer('lecture_seule', { mode: 'boolean' }).notNull().default(false),
+    /**
+     * L'AUTRE participant d'un DM à deux (depuis `uids` du document Rooms),
+     * pour la présence (8.4). Le rid d'un DM 8.5 est un ObjectId ALÉATOIRE —
+     * plus la concaténation des deux uids, il ne se dérive pas.
+     */
+    dmAutreUid: text('dm_autre_uid'),
     /** Aperçu du dernier message. `null` si le salon est chiffré. */
     dernierMessage: text('dernier_message'),
     horodatageDernierMessage: integer('horodatage_dernier_message'),

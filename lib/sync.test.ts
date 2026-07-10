@@ -142,6 +142,28 @@ describe('versSalon', () => {
   });
 });
 
+describe('versSalon — dmAutreUid (8.4)', () => {
+  test('extrait l’autre uid d’un DM à deux ; jamais pour un groupe ou sans moiUid', () => {
+    const brut = { _id: 'r1', t: 'd', uids: ['moi-uid', 'lui-uid'], usernames: ['alice', 'bob'] };
+    assert.equal(versSalon(brut, 'alice', 'moi-uid')?.dmAutreUid, 'lui-uid');
+    // DM avec soi-même : l'autre, c'est moi.
+    assert.equal(
+      versSalon({ ...brut, uids: ['moi-uid'] }, 'alice', 'moi-uid')?.dmAutreUid,
+      'moi-uid',
+    );
+    // DM de GROUPE (3+) : pas UNE présence à montrer.
+    assert.equal(
+      versSalon({ ...brut, uids: ['moi-uid', 'lui-uid', 'eux-uid'] }, 'alice', 'moi-uid')
+        ?.dmAutreUid,
+      null,
+    );
+    // Sans moiUid (vieux appelants) : null, pas de devinette.
+    assert.equal(versSalon(brut, 'alice')?.dmAutreUid, null);
+    // Un canal n'en a jamais.
+    assert.equal(versSalon({ ...brut, t: 'c' }, 'alice', 'moi-uid')?.dmAutreUid, null);
+  });
+});
+
 describe('versAbonnement', () => {
   test('les compteurs absents valent 0, pas NaN', () => {
     const a = versAbonnement({ rid: 'r1' }) as AbonnementLocal;

@@ -48,15 +48,16 @@ WHERE excluded.mis_a_jour_le >= messages.mis_a_jour_le
  */
 export const UPSERT_SALON = `
 INSERT INTO salons (
-  rid, type, nom, nom_affiche, chiffre, lecture_seule,
+  rid, type, nom, nom_affiche, chiffre, lecture_seule, dm_autre_uid,
   dernier_message, horodatage_dernier_message, mis_a_jour_le
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(rid) DO UPDATE SET
   type = excluded.type,
   nom = COALESCE(excluded.nom, salons.nom),
   nom_affiche = COALESCE(excluded.nom_affiche, salons.nom_affiche),
   chiffre = excluded.chiffre,
   lecture_seule = excluded.lecture_seule,
+  dm_autre_uid = COALESCE(excluded.dm_autre_uid, salons.dm_autre_uid),
   dernier_message = COALESCE(excluded.dernier_message, salons.dernier_message),
   horodatage_dernier_message = COALESCE(excluded.horodatage_dernier_message, salons.horodatage_dernier_message),
   mis_a_jour_le = excluded.mis_a_jour_le
@@ -191,6 +192,7 @@ export function paramsSalon(s: SalonLocal): Parametre[] {
     s.nomAffiche,
     b(s.chiffre),
     b(s.lectureSeule),
+    s.dmAutreUid,
     s.dernierMessage,
     s.horodatageDernierMessage,
     s.misAJourLe,

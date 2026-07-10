@@ -86,10 +86,13 @@ export class MoteurSynchro {
   private readonly depot: Depot;
   /** Nom d'utilisateur du compte courant — sert à nommer les messages directs. */
   private readonly moi: string | null;
+  /** Uid du compte courant — extrait l'autre participant d'un DM (présence). */
+  private readonly moiUid: string | null;
 
-  constructor(depot: Depot, moi: string | null = null) {
+  constructor(depot: Depot, moi: string | null = null, moiUid: string | null = null) {
     this.depot = depot;
     this.moi = moi;
+    this.moiUid = moiUid;
   }
 
   /**
@@ -172,7 +175,7 @@ export class MoteurSynchro {
 
   private async appliquerSalon(evenement: Evenement): Promise<void> {
     const document = documentDeNotification(evenement);
-    const salon = document === null ? null : versSalon(document, this.moi);
+    const salon = document === null ? null : versSalon(document, this.moi, this.moiUid);
     if (salon === null) {
       this.stats.ignores++;
       return;
@@ -211,7 +214,7 @@ export class MoteurSynchro {
     let plusRecent: number | null = null;
     await this.depot.transaction(async (tx) => {
       for (const brut of bruts) {
-        const salon = versSalon(brut, this.moi);
+        const salon = versSalon(brut, this.moi, this.moiUid);
         if (salon === null) {
           this.stats.ignores++;
           continue;

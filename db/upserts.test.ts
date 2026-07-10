@@ -75,6 +75,7 @@ function salon(o: Partial<SalonLocal> & { rid: string; misAJourLe: number }) {
     nomAffiche: 'nom',
     chiffre: false,
     lectureSeule: false,
+    dmAutreUid: null,
     dernierMessage: null,
     horodatageDernierMessage: null,
     ...o,

@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { BaseLocale } from '../db/client.ts';
 import { abonnements, salons } from '../db/schema.ts';
 import { obtenirJetonFcm } from '../lib/push.ts';
+import { COULEURS_PRESENCE, usePresence } from '../ui/presence.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { useCouleurs, type Couleurs } from '../ui/theme.ts';
@@ -109,6 +110,10 @@ function LigneSalon({
   abonnement: LigneDAbonnement | null;
 }) {
   const routeur = useRouter();
+  // Pastille de présence (8.4), DM à deux seulement (`dm_autre_uid` est null
+  // ailleurs). Statut inconnu, ou diffusion coupée côté serveur
+  // (Presence_broadcast_disabled) : rien — l'UI n'en dépend jamais.
+  const statut = usePresence(salon.dmAutreUid);
   const nom = salon.nomAffiche ?? salon.nom ?? salon.rid;
   const nonLus = abonnement?.nonLus ?? 0;
   const enAlerte = abonnement?.alerte === true || nonLus > 0;
@@ -130,6 +135,9 @@ function LigneSalon({
           style={[styles.nomSalon, { color: c.texte }, enAlerte && styles.nomEnAlerte]}
           numberOfLines={1}
         >
+          {statut !== null && (
+            <Text style={{ color: COULEURS_PRESENCE[statut] }}>{'● '}</Text>
+          )}
           {nom}
           {salon.chiffre ? ' 🔒' : ''}
         </Text>

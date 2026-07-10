@@ -372,7 +372,22 @@ function Salon({
 
   return (
     <SafeAreaView style={[styles.plein, { backgroundColor: c.fond }]} edges={['bottom']}>
-      <Stack.Screen options={{ title: titre }} />
+      <Stack.Screen
+        options={{
+          title: titre,
+          headerRight: () => (
+            <Pressable
+              onPress={() =>
+                routeur.push({ pathname: '/recherche-messages', params: { rid } })
+              }
+              android_ripple={{ color: c.ondulation, borderless: true }}
+              hitSlop={8}
+            >
+              <Text style={styles.iconeEntete}>🔍</Text>
+            </Pressable>
+          ),
+        }}
+      />
       {donneesAvecBarre.length === 0 ? (
         // La liste ne monte JAMAIS vide : montée avant l'arrivée du premier
         // lot (requête vive encore muette au cold start), FlashList traitait
@@ -680,6 +695,7 @@ const styles = StyleSheet.create({
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   contenu: { paddingHorizontal: 16, paddingVertical: 8 },
   heure: { fontSize: 11 },
+  iconeEntete: { fontSize: 18, paddingHorizontal: 6 },
   vide: { textAlign: 'center', padding: 24, fontSize: 14 },
   erreur: { fontSize: 14, fontWeight: '600', textAlign: 'center' },
   composer: {

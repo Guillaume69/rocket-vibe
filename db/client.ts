@@ -1,5 +1,6 @@
 /**
- * Ouverture de la base locale. **Une base par serveur.**
+ * Ouverture de la base locale. **Une base par serveur et par compte** — voir
+ * `nomFichier.ts` pour le pourquoi.
  *
  * `enableChangeListener: true` est obligatoire : sans lui, `useLiveQuery` ne
  * recevrait jamais les notifications d'écriture et l'UI resterait figée alors
@@ -22,8 +23,11 @@ export { nomFichier };
 const ouvertes = new Map<string, { brute: SQLiteDatabase; base: BaseLocale }>();
 
 /** Idempotent : deux écrans qui demandent la même base partagent la connexion. */
-export function ouvrirBase(baseUrl: string): { brute: SQLiteDatabase; base: BaseLocale } {
-  const nom = nomFichier(baseUrl);
+export function ouvrirBase(
+  baseUrl: string,
+  utilisateurId?: string,
+): { brute: SQLiteDatabase; base: BaseLocale } {
+  const nom = nomFichier(baseUrl, utilisateurId);
   const existante = ouvertes.get(nom);
   if (existante) return existante;
 
@@ -38,8 +42,8 @@ export function ouvrirBase(baseUrl: string): { brute: SQLiteDatabase; base: Base
   return paire;
 }
 
-export function fermerBase(baseUrl: string): void {
-  const nom = nomFichier(baseUrl);
+export function fermerBase(baseUrl: string, utilisateurId?: string): void {
+  const nom = nomFichier(baseUrl, utilisateurId);
   const paire = ouvertes.get(nom);
   if (!paire) return;
   paire.brute.closeSync();

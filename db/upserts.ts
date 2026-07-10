@@ -35,6 +35,13 @@ ON CONFLICT(id) DO UPDATE SET
 WHERE excluded.mis_a_jour_le >= messages.mis_a_jour_le
 `;
 
+/**
+ * `COALESCE` sur les champs que le serveur OMET parfois : un événement
+ * `rooms-changed` peut porter un document partiel (sans `usernames`, sans
+ * `lastMessage`). `null` y signifie « absent de la charge », jamais « efface » —
+ * sans le COALESCE, un tel événement plus récent effacerait le nom dérivé d'un
+ * DM ou l'aperçu, et la liste retomberait sur le `rid` brut.
+ */
 export const UPSERT_SALON = `
 INSERT INTO salons (
   rid, type, nom, nom_affiche, chiffre, lecture_seule,
@@ -42,12 +49,12 @@ INSERT INTO salons (
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(rid) DO UPDATE SET
   type = excluded.type,
-  nom = excluded.nom,
-  nom_affiche = excluded.nom_affiche,
+  nom = COALESCE(excluded.nom, salons.nom),
+  nom_affiche = COALESCE(excluded.nom_affiche, salons.nom_affiche),
   chiffre = excluded.chiffre,
   lecture_seule = excluded.lecture_seule,
-  dernier_message = excluded.dernier_message,
-  horodatage_dernier_message = excluded.horodatage_dernier_message,
+  dernier_message = COALESCE(excluded.dernier_message, salons.dernier_message),
+  horodatage_dernier_message = COALESCE(excluded.horodatage_dernier_message, salons.horodatage_dernier_message),
   mis_a_jour_le = excluded.mis_a_jour_le
 WHERE excluded.mis_a_jour_le >= salons.mis_a_jour_le
 `;

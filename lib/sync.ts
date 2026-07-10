@@ -45,13 +45,16 @@ export class MoteurSynchro {
     ignores: 0,
   };
 
-  // Champ ordinaire, pas une « parameter property » : cette dernière n'est pas
-  // une syntaxe effaçable, et empêcherait de charger le module sous Node —
-  // donc de le tester.
+  // Champs ordinaires, pas des « parameter properties » : ces dernières ne
+  // sont pas une syntaxe effaçable, et empêcheraient de charger le module sous
+  // Node — donc de le tester.
   private readonly depot: Depot;
+  /** Nom d'utilisateur du compte courant — sert à nommer les messages directs. */
+  private readonly moi: string | null;
 
-  constructor(depot: Depot) {
+  constructor(depot: Depot, moi: string | null = null) {
     this.depot = depot;
+    this.moi = moi;
   }
 
   /**
@@ -134,7 +137,7 @@ export class MoteurSynchro {
 
   private async appliquerSalon(evenement: Evenement): Promise<void> {
     const document = documentDeNotification(evenement);
-    const salon = document === null ? null : versSalon(document);
+    const salon = document === null ? null : versSalon(document, this.moi);
     if (salon === null) {
       this.stats.ignores++;
       return;
@@ -150,7 +153,7 @@ export class MoteurSynchro {
 
   async ingererSalons(bruts: Record<string, unknown>[]): Promise<void> {
     for (const brut of bruts) {
-      const salon = versSalon(brut);
+      const salon = versSalon(brut, this.moi);
       if (salon === null) {
         this.stats.ignores++;
         continue;

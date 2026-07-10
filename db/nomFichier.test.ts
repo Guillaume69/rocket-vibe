@@ -18,5 +18,17 @@ describe('nomFichier', () => {
 
   test('le nom ne contient que des caractères sûrs pour un fichier', () => {
     assert.match(nomFichier('https://héberge.me:3000/chat'), /^[a-z0-9_.-]+$/i);
+    assert.match(nomFichier('https://héberge.me:3000/chat', 'u/../x'), /^[a-z0-9_.-]+$/i);
+  });
+
+  test('deux comptes du même serveur donnent deux bases distinctes', () => {
+    // Salons, aperçus et non-lus sont des données du compte : les partager
+    // ferait voir à un compte les messages directs du précédent.
+    assert.notEqual(nomFichier('http://x:3000', 'uid-alice'), nomFichier('http://x:3000', 'uid-bob'));
+    assert.notEqual(nomFichier('http://x:3000', 'uid-alice'), nomFichier('http://x:3000'));
+  });
+
+  test('le même compte retrouve la même base', () => {
+    assert.equal(nomFichier('http://x:3000/', 'u1'), nomFichier('https://x:3000', 'u1'));
   });
 });

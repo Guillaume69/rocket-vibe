@@ -101,6 +101,13 @@ export class ClientDdp {
   private readonly desirees = new Map<string, SouscriptionDesiree>();
   private readonly creerWebSocket: (url: string) => WebSocketLike;
   private readonly delaiMs: number;
+  /**
+   * Rejette la négociation en cours. Elle vit hors de `attentes` (elle n'a pas
+   * d'`id` DDP) : sans ce crochet, un `fermer()` pendant `connecter()`
+   * laisserait la promesse pendre jusqu'à son délai — dix secondes de zombie
+   * à chaque démontage un peu rapide.
+   */
+  private annulerNegociation: ((raison: unknown) => void) | null = null;
 
   constructor(url: string, options: OptionsDdp = {}) {
     this.url = url;
@@ -140,6 +147,10 @@ export class ClientDdp {
         () => rejeter(new ErreurDdp(`Pas de « connected » en ${this.delaiMs} ms.`)),
         this.delaiMs,
       );
+      this.annulerNegociation = (raison) => {
+        clearTimeout(minuterie);
+        rejeter(raison instanceof Error ? raison : new ErreurDdp('Connexion interrompue.'));
+      };
       const ws = this.creerWebSocket(this.url);
       this.ws = ws;
 
@@ -170,6 +181,7 @@ export class ClientDdp {
         }
         if (m.msg === 'connected') {
           clearTimeout(minuterie);
+          this.annulerNegociation = null;
           this.session = m.session ?? null;
           this.etat = 'connecte';
           resoudre();
@@ -177,6 +189,7 @@ export class ClientDdp {
         }
         if (m.msg === 'failed') {
           clearTimeout(minuterie);
+          this.annulerNegociation = null;
           rejeter(new ErreurDdp('Version DDP refusée par le serveur.'));
           return;
         }
@@ -373,6 +386,9 @@ export class ClientDdp {
       this.ws.onclose = null;
       this.ws.onerror = null;
     }
+    // Une négociation en vol est rejetée tout de suite — pas au bout du délai.
+    this.annulerNegociation?.(raison);
+    this.annulerNegociation = null;
     for (const [id] of this.attentes) this.terminer(id, undefined, raison);
     this.attentes.clear();
     for (const s of this.desirees.values()) {

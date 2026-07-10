@@ -2,8 +2,8 @@
  * Schéma local. **SQLite est la source de vérité**, l'UI n'en est qu'une
  * projection : le WebSocket et le REST y font des upserts, jamais l'inverse.
  *
- * Une base par serveur (`ROADMAP.md` §4) : le nom de fichier dérive du host,
- * donc rien de multi-serveur ici.
+ * Une base par serveur **et par compte** (`db/nomFichier.ts`) : le nom de
+ * fichier dérive du host et de l'utilisateur, donc rien de multi-serveur ici.
  *
  * Les dates Rocket.Chat arrivent en EJSON (`{"$date": epochMs}`) ou en ISO.
  * On les stocke en **millisecondes entières** : comparables, indexables, sans

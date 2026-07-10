@@ -104,6 +104,26 @@ describe('versSalon', () => {
     const s = versSalon({ _id: 'r1', t: 'c', name: 'slug' }) as SalonLocal;
     assert.equal(s.nomAffiche, 'slug');
   });
+
+  test('un DM sans nom se nomme depuis `usernames`, en s’excluant soi-même', () => {
+    // `rooms.get` renvoie les DM sans `name` ni `fname` : seul `usernames`
+    // permet de les nommer, et il contient AUSSI l'utilisateur courant.
+    const s = versSalon({ _id: 'r1', t: 'd', usernames: ['alice', 'bob'] }, 'alice') as SalonLocal;
+    assert.equal(s.nomAffiche, 'bob');
+  });
+
+  test('un DM avec soi-même garde son propre nom', () => {
+    const s = versSalon({ _id: 'r1', t: 'd', usernames: ['alice'] }, 'alice') as SalonLocal;
+    assert.equal(s.nomAffiche, 'alice');
+  });
+
+  test('un DM de groupe joint les autres participants', () => {
+    const s = versSalon(
+      { _id: 'r1', t: 'd', usernames: ['alice', 'bob', 'carol'] },
+      'alice',
+    ) as SalonLocal;
+    assert.equal(s.nomAffiche, 'bob, carol');
+  });
 });
 
 describe('versAbonnement', () => {

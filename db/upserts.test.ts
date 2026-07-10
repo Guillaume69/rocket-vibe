@@ -132,6 +132,50 @@ describe('upserts idempotents', () => {
     assert.deepEqual(s, { nom: 'récent' });
   });
 
+  test('un document partiel PLUS RÉCENT n’efface ni le nom ni l’aperçu', () => {
+    // `rooms-changed` livre parfois un document sans `usernames` ni
+    // `lastMessage` : versSalon rend alors des null. Ils signifient « absent »,
+    // pas « efface » — le nom dérivé d'un DM doit survivre.
+    db.prepare(UPSERT_SALON).run(
+      ...salon({
+        rid: 'r1',
+        nomAffiche: 'bob',
+        dernierMessage: 'salut',
+        horodatageDernierMessage: 50,
+        misAJourLe: 100,
+      }),
+    );
+    db.prepare(UPSERT_SALON).run(
+      ...salon({
+        rid: 'r1',
+        nomAffiche: null,
+        dernierMessage: null,
+        horodatageDernierMessage: null,
+        misAJourLe: 200,
+      }),
+    );
+    const s = ligne(
+      db
+        .prepare(
+          'SELECT nom_affiche, dernier_message, horodatage_dernier_message, mis_a_jour_le FROM salons WHERE rid = ?',
+        )
+        .get('r1'),
+    );
+    assert.deepEqual(s, {
+      nom_affiche: 'bob',
+      dernier_message: 'salut',
+      horodatage_dernier_message: 50,
+      mis_a_jour_le: 200,
+    });
+  });
+
+  test('un nom non-null plus récent remplace bien l’ancien', () => {
+    db.prepare(UPSERT_SALON).run(...salon({ rid: 'r1', nomAffiche: 'avant', misAJourLe: 100 }));
+    db.prepare(UPSERT_SALON).run(...salon({ rid: 'r1', nomAffiche: 'après', misAJourLe: 200 }));
+    const s = ligne(db.prepare('SELECT nom_affiche FROM salons WHERE rid = ?').get('r1'));
+    assert.deepEqual(s, { nom_affiche: 'après' });
+  });
+
   test('les abonnements aussi : des non-lus remis à zéro ne réapparaissent pas', () => {
     db.prepare(UPSERT_ABONNEMENT).run(...abo({ rid: 'r1', nonLus: 0, misAJourLe: 200 })); // je viens de lire
     db.prepare(UPSERT_ABONNEMENT).run(...abo({ rid: 'r1', nonLus: 7, misAJourLe: 100 })); // rattrapage

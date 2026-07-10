@@ -106,7 +106,12 @@ export function versMessage(brut: Record<string, unknown>): MessageLocal | null 
   };
 }
 
-export function versSalon(brut: Record<string, unknown>): SalonLocal | null {
+/**
+ * @param moi — nom d'utilisateur du compte courant. Un message direct n'a ni
+ * `name` ni `fname` dans `rooms.get` : son nom d'affichage se dérive de
+ * `usernames`, en s'excluant soi-même. Sans `moi`, le DM resterait sans nom.
+ */
+export function versSalon(brut: Record<string, unknown>, moi?: string | null): SalonLocal | null {
   const rid = chaine(brut._id);
   const type = chaine(brut.t);
   if (rid === null || type === null) return null;
@@ -114,11 +119,20 @@ export function versSalon(brut: Record<string, unknown>): SalonLocal | null {
   const chiffre = booleen(brut.encrypted);
   const dernier = brut.lastMessage as Record<string, unknown> | undefined;
 
+  let nomAffiche = chaine(brut.fname) ?? chaine(brut.name);
+  if (nomAffiche === null && type === 'd' && Array.isArray(brut.usernames)) {
+    const autres = brut.usernames
+      .filter((u): u is string => typeof u === 'string')
+      .filter((u) => u !== moi);
+    // Un DM avec soi-même a `usernames: [moi]` : `autres` est vide, on garde moi.
+    nomAffiche = autres.length > 0 ? autres.join(', ') : (moi ?? null);
+  }
+
   return {
     rid,
     type,
     nom: chaine(brut.name),
-    nomAffiche: chaine(brut.fname) ?? chaine(brut.name),
+    nomAffiche,
     chiffre,
     lectureSeule: booleen(brut.ro),
     // L'aperçu d'un salon chiffré est du ciphertext : jamais affiché.

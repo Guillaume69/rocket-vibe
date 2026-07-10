@@ -1,31 +1,41 @@
 /**
- * Application des migrations au démarrage.
+ * Application des migrations, **par base** — chaque couple (serveur, compte) a
+ * la sienne.
  *
- * Tant que la base du serveur courant n'est pas choisie (écran de connexion),
- * on migre celle du serveur par défaut. Le multi-serveur de l'étape 5.3
- * remplacera cette constante par le serveur sélectionné.
+ * `migrerBase` mémoïse par nom de fichier et par promesse : deux appelants du
+ * même tick partagent la même exécution au lieu de faire courir deux
+ * `migrate()` sur la même base. Le corps vit dans une fonction async : même
+ * une levée **synchrone** (`openDatabaseSync` sur un fichier corrompu) devient
+ * un rejet, que l'appelant attrape au lieu de s'écrouler.
  */
 
-import { useMigrations } from 'drizzle-orm/expo-sqlite/migrator';
+import { migrate } from 'drizzle-orm/expo-sqlite/migrator';
 
 import { ouvrirBase } from './client.ts';
 // Généré par `npm run db:generate`. Résolu grâce à `babel-plugin-inline-import`
 // et à l'extension `sql` ajoutée aux `sourceExts` de Metro.
 import migrations from './migrations/migrations.js';
+import { nomFichier } from './nomFichier.ts';
 
 /**
- * **Provisoire.** Tant que l'écran de connexion n'existe pas, on migre la base
- * d'un serveur unique. C'est la MÊME constante que l'écran serveur propose par
- * défaut : les deux doivent rester d'accord, sinon on migre une base qui ne
- * correspond à aucun serveur — invisible en dev, fatal sur un téléphone où
- * `localhost` ne désigne rien.
- *
- * L'étape 5.3 la remplace par le serveur sélectionné, et ce commentaire meurt.
+ * Le serveur proposé par défaut sur l'écran de connexion, et celui dont la
+ * base sert à l'écran debug hors session. L'étape 5.3 (multi-serveurs) fera
+ * du « serveur actif » la seule référence.
  */
 export const SERVEUR_PAR_DEFAUT = 'http://localhost:3000';
 
-export function useMigrationsLocales(): { pret: boolean; erreur: Error | null } {
-  const { base } = ouvrirBase(SERVEUR_PAR_DEFAUT);
-  const { success, error } = useMigrations(base, migrations);
-  return { pret: success, erreur: error ?? null };
+const enCours = new Map<string, Promise<void>>();
+
+export function migrerBase(baseUrl: string, utilisateurId?: string): Promise<void> {
+  const nom = nomFichier(baseUrl, utilisateurId);
+  const existante = enCours.get(nom);
+  if (existante !== undefined) return existante;
+
+  const promesse = (async () => {
+    await migrate(ouvrirBase(baseUrl, utilisateurId).base, migrations);
+  })();
+  enCours.set(nom, promesse);
+  // Un échec ne doit pas rester mémoïsé : le prochain appel retente.
+  promesse.catch(() => enCours.delete(nom));
+  return promesse;
 }

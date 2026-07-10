@@ -86,6 +86,19 @@ describe('ClientDdp', () => {
     await assert.rejects(p, /Version DDP refusée/);
   });
 
+  test('fermer() pendant la négociation rejette IMMÉDIATEMENT', async () => {
+    // La négociation vit hors de `attentes` : sans crochet dédié, ce scénario
+    // (démontage rapide d'un écran, StrictMode) pendait jusqu'au délai. Le
+    // délai d'une minute ici prouve qu'on ne passe PAS par lui.
+    const ws = new FauxWebSocket();
+    const ddp = new ClientDdp('ws://x', { creerWebSocket: () => ws, delaiMs: 60_000 });
+    const p = ddp.connecter('j');
+    ws.ouvrir();
+    ddp.fermer();
+    await assert.rejects(p, ErreurDdp);
+    assert.equal(ddp.etat, 'ferme');
+  });
+
   test('souscrire avant authentification est refusé côté client', async () => {
     const ws = new FauxWebSocket();
     const ddp = new ClientDdp('ws://x', { creerWebSocket: () => ws });

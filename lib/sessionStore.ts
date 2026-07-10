@@ -77,3 +77,28 @@ export async function enregistrerDernierServeur(baseUrl: string): Promise<void> 
 export async function lireDernierServeur(): Promise<string | null> {
   return SecureStore.getItemAsync(CLE_DERNIER_SERVEUR);
 }
+
+/**
+ * Registre des serveurs où une session a existé. Nécessaire parce que
+ * `expo-secure-store` ne sait PAS énumérer ses clés : sans cette liste,
+ * impossible de proposer « repasser sur tel serveur ».
+ */
+const CLE_SERVEURS_CONNUS = 'serveurs-connus';
+
+export async function listerServeursConnus(): Promise<string[]> {
+  const brut = await SecureStore.getItemAsync(CLE_SERVEURS_CONNUS);
+  if (brut === null) return [];
+  try {
+    const liste = JSON.parse(brut) as unknown;
+    return Array.isArray(liste) ? liste.filter((s): s is string => typeof s === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function enregistrerServeurConnu(baseUrl: string): Promise<void> {
+  const propre = sansSlashFinal(baseUrl);
+  const liste = await listerServeursConnus();
+  if (liste.includes(propre)) return;
+  await SecureStore.setItemAsync(CLE_SERVEURS_CONNUS, JSON.stringify([...liste, propre]));
+}

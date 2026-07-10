@@ -1,4 +1,4 @@
-import { Link, Redirect, Stack } from 'expo-router';
+import { Link, Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -16,7 +16,7 @@ import { SERVEUR_PAR_DEFAUT } from '../db/migrer.ts';
 import { demanderCodeParEmail, preparerCodeDeuxFacteurs, seConnecter } from '../lib/auth.ts';
 import { ClientRest, ErreurDeuxFacteurs, ErreurRest, type CodeDeuxFacteurs } from '../lib/rest.ts';
 import { sonderServeur, type ProfilServeur } from '../lib/server.ts';
-import { hacher, lireDernierServeur } from '../lib/sessionStore.ts';
+import { hacher, lireDernierServeur, listerServeursConnus } from '../lib/sessionStore.ts';
 import { useSession } from '../ui/session.tsx';
 import { useCouleurs, type Couleurs } from '../ui/theme.ts';
 
@@ -44,7 +44,9 @@ type Phase =
     };
 
 export default function EcranConnexion() {
-  const { etat, connecter } = useSession();
+  const { etat, connecter, changerDeServeur } = useSession();
+  const { changer } = useLocalSearchParams<{ changer?: string }>();
+  const routeur = useRouter();
   const c = useCouleurs();
 
   const [phase, setPhase] = useState<Phase>({ nom: 'serveur' });
@@ -64,7 +66,8 @@ export default function EcranConnexion() {
   useEffect(() => () => requete.current?.abort(), []);
 
   // Pré-remplir avec le dernier serveur utilisé, sans écraser une saisie déjà
-  // commencée.
+  // commencée — et charger le registre des serveurs connus (5.3).
+  const [serveursConnus, setServeursConnus] = useState<string[]>([]);
   useEffect(() => {
     let abandonne = false;
     lireDernierServeur()
@@ -74,10 +77,43 @@ export default function EcranConnexion() {
         }
       })
       .catch(() => {});
+    listerServeursConnus()
+      .then((liste) => {
+        if (!abandonne) setServeursConnus(liste);
+      })
+      .catch(() => {});
     return () => {
       abandonne = true;
     };
   }, []);
+
+  // Bascule multi-serveurs : chaque session vit sous sa propre clé, changer
+  // de serveur ne déconnecte personne. Réentrance gardée : deux taps rapides
+  // sur deux serveurs feraient courir deux bascules dont les écritures
+  // s'entrelacent.
+  const basculer = useCallback(
+    async (url: string) => {
+      if (enVol.current) return;
+      enVol.current = true;
+      setOccupe(true);
+      try {
+        const sessionExistante = await changerDeServeur(url);
+        if (sessionExistante) {
+          routeur.replace('/');
+        } else {
+          // Pas de session là-bas : on reste connecté ici, le formulaire se
+          // pré-remplit simplement.
+          setAdresse(url);
+          setMessage(null);
+          setPhase({ nom: 'serveur' });
+        }
+      } finally {
+        enVol.current = false;
+        setOccupe(false);
+      }
+    },
+    [changerDeServeur, routeur],
+  );
 
   const validerServeur = useCallback(async () => {
     if (enVol.current) return;
@@ -120,8 +156,11 @@ export default function EcranConnexion() {
           deuxFacteurs,
         );
         await connecter(session);
-        // Pas de navigation impérative : `etat` passe à « connecte » et le
-        // <Redirect> en tête de rendu fait la transition.
+        // Navigation explicite : le <Redirect> en tête de rendu couvre la
+        // reprise de session, mais il est neutralisé quand on est venu par
+        // « changer de serveur » (`?changer=1`) — sans ceci, un login réussi
+        // depuis ce chemin laisserait l'utilisateur planté ici.
+        routeur.replace('/');
       } catch (e) {
         if (e instanceof ErreurDeuxFacteurs) {
           // Le serveur veut un second facteur — ou refuse celui qu'on vient
@@ -154,7 +193,7 @@ export default function EcranConnexion() {
         setOccupe(false);
       }
     },
-    [phase, utilisateur, motDePasse, connecter],
+    [phase, utilisateur, motDePasse, connecter, routeur],
   );
 
   const validerCode = useCallback(async () => {
@@ -192,8 +231,8 @@ export default function EcranConnexion() {
   }, []);
 
   // Déjà connecté (reprise au démarrage, ou login qui vient d'aboutir) : cet
-  // écran n'a rien à montrer.
-  if (etat.phase === 'connecte') return <Redirect href="/" />;
+  // écran n'a rien à montrer — SAUF si on vient exprès changer de serveur.
+  if (etat.phase === 'connecte' && changer !== '1') return <Redirect href="/" />;
 
   return (
     <SafeAreaView style={[styles.plein, { backgroundColor: c.fond }]} edges={['bottom']}>
@@ -213,6 +252,17 @@ export default function EcranConnexion() {
               autoComplete="url"
             />
             <Bouton c={c} occupe={occupe} onPress={() => void validerServeur()} titre="Continuer" />
+
+            {serveursConnus.length > 0 && (
+              <View style={[styles.carte, { backgroundColor: c.carte }]}>
+                <Text style={[styles.etiquette, { color: c.attenue }]}>Serveurs connus</Text>
+                {serveursConnus.map((url) => (
+                  <Pressable key={url} onPress={() => void basculer(url)} disabled={occupe}>
+                    <Text style={[styles.lien, { color: c.accent, textAlign: 'left' }]}>{url}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
           </>
         )}
 

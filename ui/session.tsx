@@ -15,6 +15,7 @@ import { ClientRest, ErreurRest } from '../lib/rest.ts';
 import {
   effacerSession,
   enregistrerDernierServeur,
+  enregistrerServeurConnu,
   enregistrerSession,
   lireDernierServeur,
   lireSession,
@@ -31,6 +32,12 @@ type ContexteSession = {
   connecter: (session: Session) => Promise<void>;
   /** Efface la session locale ; le logout serveur est best-effort. */
   deconnecter: () => Promise<void>;
+  /**
+   * Bascule vers un autre serveur connu SANS toucher aux sessions : chacune
+   * vit sous sa propre clé. Rend true si une session y existait ; sinon,
+   * l'état retombe sur « deconnecte » et l'écran de connexion se pré-remplit.
+   */
+  changerDeServeur: (baseUrl: string) => Promise<boolean>;
 };
 
 const Contexte = createContext<ContexteSession | null>(null);
@@ -92,10 +99,42 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const connecter = useCallback(async (session: Session) => {
     // Persister AVANT de basculer l'UI : si l'écriture échoue, l'utilisateur
     // reste sur l'écran de connexion avec une erreur, plutôt que de découvrir
-    // au prochain démarrage que sa session n'a jamais existé. Les deux
+    // au prochain démarrage que sa session n'a jamais existé. Les trois
     // écritures sont indépendantes, donc en parallèle.
-    await Promise.all([enregistrerSession(session), enregistrerDernierServeur(session.baseUrl)]);
+    await Promise.all([
+      enregistrerSession(session),
+      enregistrerDernierServeur(session.baseUrl),
+      enregistrerServeurConnu(session.baseUrl),
+    ]);
     setEtat({ phase: 'connecte', session, client: clientPour(session) });
+  }, []);
+
+  const changerDeServeur = useCallback(async (baseUrl: string) => {
+    // Lire AVANT d'écrire quoi que ce soit : s'il n'y a pas de session
+    // là-bas, on ne bouge ni l'état ni le pointeur — déconnecter l'utilisateur
+    // et déplacer le pointeur de reprise vers un serveur sans session ferait
+    // démarrer l'app déconnectée alors qu'une session valide existe ailleurs.
+    const session = await lireSession(baseUrl);
+    if (session === null) return false;
+
+    await enregistrerDernierServeur(baseUrl);
+    const client = clientPour(session);
+    setEtat({ phase: 'connecte', session, client });
+
+    // Même règle qu'au démarrage : validation en arrière-plan, seul un 401
+    // (jeton révoqué) déconnecte — et seulement si cette session est encore
+    // celle affichée.
+    reprendreSession(client, session.authToken).catch(async (e: unknown) => {
+      if (
+        e instanceof ErreurRest &&
+        e.statut === 401 &&
+        jetonCourant.current === session.authToken
+      ) {
+        await effacerSession(session.baseUrl);
+        if (jetonCourant.current === session.authToken) setEtat({ phase: 'deconnecte' });
+      }
+    });
+    return true;
   }, []);
 
   const deconnecter = useCallback(async () => {
@@ -110,8 +149,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, [etat]);
 
   const valeur = useMemo(
-    () => ({ etat, connecter, deconnecter }),
-    [etat, connecter, deconnecter],
+    () => ({ etat, connecter, deconnecter, changerDeServeur }),
+    [etat, connecter, deconnecter, changerDeServeur],
   );
 
   return <Contexte.Provider value={valeur}>{children}</Contexte.Provider>;

@@ -158,6 +158,10 @@ function PiedDeListe({ c }: { c: Couleurs }) {
 
       <SectionJetonFcm c={c} />
 
+      <Link href="/connexion?changer=1" style={[styles.lien, { color: c.accent }]}>
+        Changer de serveur
+      </Link>
+
       <Link href="/debug" style={[styles.lien, { color: c.accent }]}>
         Écran debug
       </Link>

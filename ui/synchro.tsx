@@ -26,6 +26,8 @@ import { creerDepot, creerDepotEnvoi } from '../db/depot.ts';
 import { migrerBase } from '../db/migrer.ts';
 import { ClientDdp } from '../lib/ddp.ts';
 import { MoteurEnvoi, idDepuisOctets } from '../lib/envoi.ts';
+import { obtenirJetonFcm } from '../lib/push.ts';
+import { enregistrerJeton } from '../lib/pushToken.ts';
 import { rattraperGlobal, rattraperSalon } from '../lib/rattrapage.ts';
 import { Reconnecteur } from '../lib/reconnexion.ts';
 import { MoteurSynchro, STREAM_NOTIFY_USER } from '../lib/sync.ts';
@@ -94,6 +96,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         },
       });
       let salonActif: string | null = null;
+      let jetonPushEnregistre = false;
       // « pret » dès la base disponible : l'UI montre le cache local sans
       // attendre le réseau.
       setSynchro({
@@ -141,6 +144,17 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           // Ce qui attendait le réseau part maintenant. Pas d'await : un
           // échec d'envoi ne doit pas compter comme un échec de connexion.
           envoi.traiter().catch(() => {});
+          // Cycle de vie du jeton push (6.1) : enregistré au premier
+          // raccordement de la session. Idempotent côté serveur ; un échec
+          // sera retenté au prochain raccordement.
+          if (!jetonPushEnregistre) {
+            jetonPushEnregistre = true;
+            obtenirJetonFcm()
+              .then((r) => (r.ok ? enregistrerJeton(client, r.jeton, 'gcm') : undefined))
+              .catch(() => {
+                jetonPushEnregistre = false;
+              });
+          }
           // Réveille les écrans dont le chargement initial a raté hors ligne.
           setSynchro((s) => (s.phase === 'pret' ? { ...s, generation: s.generation + 1 } : s));
         },

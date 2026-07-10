@@ -11,6 +11,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { appliquerSession, reprendreSession, seDeconnecter, type Session } from '../lib/auth.ts';
+import { obtenirJetonFcm } from '../lib/push.ts';
+import { desenregistrerJeton } from '../lib/pushToken.ts';
 import { ClientRest, ErreurRest } from '../lib/rest.ts';
 import {
   effacerSession,
@@ -142,6 +144,15 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     const { client, session } = etat;
     setEtat({ phase: 'deconnecte' });
     try {
+      // Dé-enregistrer le jeton push AVANT le logout : l'appel exige encore
+      // l'authentification. Best-effort — un appareil sans Play Services ou
+      // hors ligne ne doit pas bloquer la déconnexion ; un 404 est un succès.
+      try {
+        const r = await obtenirJetonFcm();
+        if (r.ok) await desenregistrerJeton(client, r.jeton);
+      } catch {
+        // Volontairement ignoré.
+      }
       await Promise.all([seDeconnecter(client), effacerSession(session.baseUrl)]);
     } catch {
       // L'état local est déjà déconnecté ; rien d'utile à remonter.

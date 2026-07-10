@@ -278,7 +278,8 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
 
 > Dépend du verdict de l'étape 2. Réf. `ROADMAP.md` §5 phase 4.
 
-- [ ] **6.1 — Cycle de vie du token** · `@claude` · `[code]` — enregistrement à la connexion, dé-enregistrement au logout. Fait le : `____`
+- [x] **6.1 — Cycle de vie du token** · `@claude` · `[code]` — enregistrement à la connexion, dé-enregistrement au logout.
+  Vérifié dans MongoDB (`_raix_push_app_tokens`) : raccordement → 1 jeton `gcm` (appName `rocket-vibe`, userId d'alice) ; « Se déconnecter » → 0 jeton (dé-enregistré AVANT le logout, l'appel exige l'authentification ; best-effort, 404 = succès) ; re-login → 1 jeton. Fait le : `2026-07-10`
 - [ ] **6.2 — Cycle de vie du socket** · `@claude` · `[code]` — fermeture propre sur `AppState 'background'`, réouverture et resynchronisation sur `'active'`. Fait le : `____`
 - [ ] **6.3 — Deep link** · `@claude` · `[code]` — handler de notification → route `expo-router` vers le salon ; badge cohérent avec `subscription.unread` ; canaux de notification Android. **`Push_show_message = true` sur le serveur cible** : une notification venant du salon chiffré transporte du ciphertext → la remplacer par un texte générique. Fait le : `____`
 

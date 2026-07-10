@@ -158,6 +158,8 @@ function Corps({
   }, [base]);
 
   return (
+    // Pas de saisie sur cet écran ; s'il en gagne une, passer à
+    // `VueEvitantLeClavier` (ui/clavier.tsx) — SafeAreaView ignore le clavier.
     <SafeAreaView style={[styles.plein, { backgroundColor: c.fond }]} edges={['bottom']}>
       <Stack.Screen options={{ title: 'Debug' }} />
       <ScrollView contentContainerStyle={styles.contenu}>

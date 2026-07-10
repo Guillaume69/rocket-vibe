@@ -33,6 +33,8 @@ export default function EcranAccueil() {
   if (etat.phase === 'deconnecte') return <Redirect href="/connexion" />;
 
   return (
+    // Pas de saisie sur cet écran ; s'il en gagne une, passer à
+    // `VueEvitantLeClavier` (ui/clavier.tsx) — SafeAreaView ignore le clavier.
     <SafeAreaView style={[styles.plein, { backgroundColor: c.fond }]} edges={['bottom']}>
       <Stack.Screen options={{ title: 'rocket-vibe' }} />
       <ListeSalons c={c} />

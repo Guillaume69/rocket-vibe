@@ -8,10 +8,10 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { versMessage, type MessageLocal } from '../lib/normaliser.ts';
 import type { ClientRest } from '../lib/rest.ts';
+import { VueEvitantLeClavier } from '../ui/clavier.tsx';
 import { LigneMessage } from '../ui/ligneMessage.tsx';
 import { useSession } from '../ui/session.tsx';
 import { useCouleurs, type Couleurs } from '../ui/theme.ts';
@@ -103,7 +103,7 @@ function RechercheMessages({
   }, [propre, client, rid]);
 
   return (
-    <SafeAreaView style={[styles.plein, { backgroundColor: c.fond }]} edges={['bottom']}>
+    <VueEvitantLeClavier>
       <Stack.Screen options={{ title: 'Rechercher dans le salon' }} />
       <View style={styles.entete}>
         <TextInput
@@ -153,12 +153,11 @@ function RechercheMessages({
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.contenu}
       />
-    </SafeAreaView>
+    </VueEvitantLeClavier>
   );
 }
 
 const styles = StyleSheet.create({
-  plein: { flex: 1 },
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   entete: { padding: 16 },
   champ: {

@@ -11,7 +11,6 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { BaseLocale } from '../../db/client.ts';
 import { messages, salons, sortie } from '../../db/schema.ts';
@@ -20,6 +19,7 @@ import type { MoteurEnvoi } from '../../lib/envoi.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
 import { useBrouillon } from '../../ui/brouillons.ts';
+import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
 import { useSession } from '../../ui/session.tsx';
 import { useSynchro } from '../../ui/synchro.tsx';
@@ -245,7 +245,7 @@ function Fil({
   const persistance = useBrouillon(base, rid === undefined ? null : `${rid}:${filId}`);
 
   return (
-    <SafeAreaView style={[styles.plein, { backgroundColor: c.fond }]} edges={['bottom']}>
+    <VueEvitantLeClavier>
       <Stack.Screen options={{ title: 'Fil' }} />
       {donnees.length === 0 ? (
         <View style={styles.centre}>
@@ -299,7 +299,7 @@ function Fil({
             effacerBrouillon={persistance.effacer}
           />
         )}
-    </SafeAreaView>
+    </VueEvitantLeClavier>
   );
 }
 
@@ -365,7 +365,6 @@ function ComposerFil({
 }
 
 const styles = StyleSheet.create({
-  plein: { flex: 1 },
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   contenu: { paddingHorizontal: 16, paddingVertical: 8 },
   vide: { textAlign: 'center', padding: 24, fontSize: 14 },

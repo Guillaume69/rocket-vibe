@@ -9,10 +9,10 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { MoteurSynchro } from '../lib/sync.ts';
 import type { ClientRest } from '../lib/rest.ts';
+import { VueEvitantLeClavier } from '../ui/clavier.tsx';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { useCouleurs, type Couleurs } from '../ui/theme.ts';
@@ -158,7 +158,7 @@ function Recherche({
   ];
 
   return (
-    <SafeAreaView style={[styles.plein, { backgroundColor: c.fond }]} edges={['bottom']}>
+    <VueEvitantLeClavier>
       <Stack.Screen options={{ title: 'Nouvelle conversation' }} />
       <View style={styles.entete}>
         <TextInput
@@ -213,12 +213,11 @@ function Recherche({
         }
         keyboardShouldPersistTaps="handled"
       />
-    </SafeAreaView>
+    </VueEvitantLeClavier>
   );
 }
 
 const styles = StyleSheet.create({
-  plein: { flex: 1 },
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   entete: { padding: 16 },
   champ: {

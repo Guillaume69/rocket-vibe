@@ -21,7 +21,6 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { BaseLocale } from '../../db/client.ts';
 import { abonnements, messages, salons, sortie, televersements } from '../../db/schema.ts';
@@ -31,6 +30,7 @@ import type { MoteurTeleversement } from '../../lib/envoiFichiers.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSaisie, phraseSaisie } from '../../lib/saisie.ts';
 import { useBrouillon } from '../../ui/brouillons.ts';
+import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
 import { useSession } from '../../ui/session.tsx';
@@ -405,7 +405,7 @@ function Salon({
     : '…';
 
   return (
-    <SafeAreaView style={[styles.plein, { backgroundColor: c.fond }]} edges={['bottom']}>
+    <VueEvitantLeClavier>
       <Stack.Screen
         options={{
           title: titre,
@@ -515,7 +515,7 @@ function Salon({
           effacerBrouillon={persistance.effacer}
         />
       )}
-    </SafeAreaView>
+    </VueEvitantLeClavier>
   );
 }
 

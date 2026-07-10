@@ -10,13 +10,13 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { SERVEUR_PAR_DEFAUT } from '../db/migrer.ts';
 import { demanderCodeParEmail, preparerCodeDeuxFacteurs, seConnecter } from '../lib/auth.ts';
 import { ClientRest, ErreurDeuxFacteurs, ErreurRest, type CodeDeuxFacteurs } from '../lib/rest.ts';
 import { sonderServeur, type ProfilServeur } from '../lib/server.ts';
 import { hacher, lireDernierServeur, listerServeursConnus } from '../lib/sessionStore.ts';
+import { VueEvitantLeClavier } from '../ui/clavier.tsx';
 import { useSession } from '../ui/session.tsx';
 import { useCouleurs, type Couleurs } from '../ui/theme.ts';
 
@@ -235,7 +235,7 @@ export default function EcranConnexion() {
   if (etat.phase === 'connecte' && changer !== '1') return <Redirect href="/" />;
 
   return (
-    <SafeAreaView style={[styles.plein, { backgroundColor: c.fond }]} edges={['bottom']}>
+    <VueEvitantLeClavier>
       <Stack.Screen options={{ title: 'Connexion' }} />
       <ScrollView contentContainerStyle={styles.contenu} keyboardShouldPersistTaps="handled">
         {phase.nom === 'serveur' && (
@@ -341,7 +341,7 @@ export default function EcranConnexion() {
           Écran debug
         </Link>
       </ScrollView>
-    </SafeAreaView>
+    </VueEvitantLeClavier>
   );
 }
 
@@ -458,7 +458,6 @@ function Bouton({
 }
 
 const styles = StyleSheet.create({
-  plein: { flex: 1 },
   contenu: { padding: 20, gap: 12 },
   groupe: { gap: 6 },
   etiquette: { fontSize: 13, fontWeight: '500' },

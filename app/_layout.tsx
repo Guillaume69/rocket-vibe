@@ -1,5 +1,6 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { GestionNotifications } from '../ui/notifications.tsx';
@@ -20,22 +21,26 @@ import { SynchroProvider } from '../ui/synchro.tsx';
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
-      <SessionProvider>
-        <SynchroProvider>
-          {/* Titre par défaut : sans lui, les rendus précoces du portier
-              (démarrage, redirection) affichent le nom brut de la route. */}
-          <Stack screenOptions={{ title: 'rocket-vibe' }}>
-            {/* `presentation` doit être connue à la CRÉATION de l'écran
-                natif : posée par `<Stack.Screen>` depuis l'écran lui-même,
-                elle arrive après coup (setOptions) et peut être ignorée. */}
-            <Stack.Screen
-              name="actions-message"
-              options={{ presentation: 'formSheet', title: 'Message' }}
-            />
-          </Stack>
-          <GestionNotifications />
-        </SynchroProvider>
-      </SessionProvider>
+      {/* Alimente la SharedValue clavier de `ui/clavier.tsx` (suivi
+          frame-par-frame via WindowInsetsAnimation, edge-to-edge natif). */}
+      <KeyboardProvider>
+        <SessionProvider>
+          <SynchroProvider>
+            {/* Titre par défaut : sans lui, les rendus précoces du portier
+                (démarrage, redirection) affichent le nom brut de la route. */}
+            <Stack screenOptions={{ title: 'rocket-vibe' }}>
+              {/* `presentation` doit être connue à la CRÉATION de l'écran
+                  natif : posée par `<Stack.Screen>` depuis l'écran lui-même,
+                  elle arrive après coup (setOptions) et peut être ignorée. */}
+              <Stack.Screen
+                name="actions-message"
+                options={{ presentation: 'formSheet', title: 'Message' }}
+              />
+            </Stack>
+            <GestionNotifications />
+          </SynchroProvider>
+        </SessionProvider>
+      </KeyboardProvider>
       <StatusBar style="auto" />
     </SafeAreaProvider>
   );

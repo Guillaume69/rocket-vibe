@@ -308,7 +308,8 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
 
 > Réf. `ROADMAP.md` §5 phase 6.
 
-- [ ] **8.1 — Non-lus** · `@claude` · `[code]` — `subscriptions.read`, barre « nouveaux messages » via `ls`. Fait le : `____`
+- [x] **8.1 — Non-lus** · `@claude` · `[code]` — `subscriptions.read`, barre « nouveaux messages » via `ls`.
+  Marquage lu à l'ouverture et à chaque entrant écran ouvert (débouncé 1,5 s — REST rate-limité) ; la barre se place sur un INSTANTANÉ de `ls` pris au montage (sinon le `read` l'efface avant qu'on la voie), avant le premier message d'AUTRUI postérieur. Vérifié sur l'AVD : 2 messages posés écran fermé → à la réouverture, barre exactement au bon endroit ; `ls` n'existait pas avant le premier `read` de notre app (barre absente à la première ouverture — attendu). Fait le : `2026-07-10`
 - [ ] **8.2 — Actions message** · `@claude` · `[code]` — `chat.update`, `chat.delete`, `chat.react`, `chat.pinMessage`. Décision d'affichage **centralisée dans une fonction pure** `(message, currentUser, subscription.roles, permissions, settings)` : le délai d'édition vient des **settings** (`Message_AllowEditing_BlockEditInMinutes`), pas des permissions. Feuille d'actions via `presentation: 'formSheet'` (natif). Fait le : `____`
 - [ ] **8.3 — Threads et discussions** · `@claude` · `[code]` — `tmid`, `tcount`, `tlm`. Fait le : `____`
 - [ ] **8.4 — Présence** · `@claude` · `[code]` — `users.presence?from=` et `stream-user-presence`, avec **dégradation gracieuse** : `Presence_broadcast_disabled` s'active seul au-delà d'environ 200 connexions. L'UI ne doit jamais en dépendre. Fait le : `____`

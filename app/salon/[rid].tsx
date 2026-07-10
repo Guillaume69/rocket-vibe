@@ -19,7 +19,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { BaseLocale } from '../../db/client.ts';
-import { messages, salons, sortie, televersements } from '../../db/schema.ts';
+import { abonnements, messages, salons, sortie, televersements } from '../../db/schema.ts';
 import type { ClientDdp } from '../../lib/ddp.ts';
 import type { MoteurEnvoi } from '../../lib/envoi.ts';
 import type { MoteurTeleversement } from '../../lib/envoiFichiers.ts';
@@ -160,6 +160,56 @@ function Salon({
   const donnees = useDonneesLissees(fraiches, 200);
   const affichees = useMemo(() => [...donnees].reverse(), [donnees]);
 
+  // Non-lus (8.1). La barre « nouveaux messages » se place sur un INSTANTANÉ
+  // de `ls` pris au montage : si elle suivait la valeur vive, le
+  // `subscriptions.read` qui suit l'effacerait avant qu'on l'ait vue.
+  const [luJusquA, setLuJusquA] = useState<number | null | undefined>(undefined);
+  useEffect(() => {
+    let annule = false;
+    base
+      .select()
+      .from(abonnements)
+      .where(eq(abonnements.rid, rid))
+      .limit(1)
+      .then((lignes) => {
+        if (!annule) setLuJusquA(lignes[0]?.luJusquA ?? null);
+      })
+      .catch(() => {
+        if (!annule) setLuJusquA(null);
+      });
+    return () => {
+      annule = true;
+    };
+  }, [base, rid]);
+
+  // Marquer lu : à l'ouverture, puis à chaque nouvel entrant écran ouvert —
+  // débouncé, le REST est rate-limité.
+  const dernierIdRecu = fraiches[0]?.id;
+  useEffect(() => {
+    if (dernierIdRecu === undefined) return;
+    const minuterie = setTimeout(() => {
+      client.post('subscriptions.read', { corps: { rid } }).catch(() => {});
+    }, 1500);
+    return () => clearTimeout(minuterie);
+  }, [client, rid, dernierIdRecu]);
+
+  // Les données de la liste, avec la barre insérée avant le premier message
+  // d'AUTRUI postérieur à `ls`.
+  type LigneListe = LigneDeMessage | { barre: true; id: string };
+  const donneesAvecBarre = useMemo<LigneListe[]>(() => {
+    if (typeof luJusquA !== 'number') return affichees;
+    const moi = client.identifiants?.userId;
+    const index = affichees.findIndex(
+      (m) => m.horodatage > luJusquA && m.auteurId !== moi,
+    );
+    if (index === -1) return affichees;
+    return [
+      ...affichees.slice(0, index),
+      { barre: true, id: 'barre-nouveaux' },
+      ...affichees.slice(index),
+    ];
+  }, [affichees, luJusquA, client]);
+
   // `sub` à l'ouverture, relâchement à la fermeture. `souscrire` est
   // synchrone et indépendant de l'état du transport : demandé trop tôt (lien
   // profond au démarrage), le stream s'établit tout seul à l'authentification.
@@ -268,7 +318,16 @@ function Salon({
     [lignesSortie],
   );
   const rendreLigne = useCallback(
-    ({ item }: { item: LigneDeMessage }) => {
+    ({ item }: { item: LigneListe }) => {
+      if ('barre' in item) {
+        return (
+          <View style={styles.barreNouveaux}>
+            <View style={[styles.traitNouveaux, { backgroundColor: c.texteErreur }]} />
+            <Text style={[styles.texteNouveaux, { color: c.texteErreur }]}>nouveaux messages</Text>
+            <View style={[styles.traitNouveaux, { backgroundColor: c.texteErreur }]} />
+          </View>
+        );
+      }
       const etatEnvoi = sortieParId.get(item.id);
       return (
         <LigneMessage
@@ -292,7 +351,7 @@ function Salon({
     <SafeAreaView style={[styles.plein, { backgroundColor: c.fond }]} edges={['bottom']}>
       <Stack.Screen options={{ title: titre }} />
       <FlashList
-        data={affichees}
+        data={donneesAvecBarre}
         maintainVisibleContentPosition={{
           startRenderingFromBottom: true,
           autoscrollToBottomThreshold: 0.2,
@@ -756,6 +815,9 @@ const styles = StyleSheet.create({
   boutonEnvoyer: { paddingVertical: 10, paddingHorizontal: 4 },
   boutonJoindre: { paddingVertical: 10, paddingHorizontal: 2 },
   erreurComposer: { fontSize: 12, textAlign: 'center', paddingTop: 6, paddingHorizontal: 12 },
+  barreNouveaux: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8 },
+  traitNouveaux: { flex: 1, height: StyleSheet.hairlineWidth * 2, opacity: 0.5 },
+  texteNouveaux: { fontSize: 11, fontWeight: '600' },
   bandeEchecFichier: {
     flexDirection: 'row',
     alignItems: 'center',

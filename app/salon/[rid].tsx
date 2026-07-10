@@ -10,6 +10,7 @@ import type { BaseLocale } from '../../db/client.ts';
 import { messages, salons } from '../../db/schema.ts';
 import type { ClientDdp } from '../../lib/ddp.ts';
 import { arbreDuMessage } from '../../lib/markdown.ts';
+import { texteSysteme } from '../../lib/messagesSysteme.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
 import { CorpsMessage, GardeRendu } from '../../ui/markdown.tsx';
@@ -278,7 +279,10 @@ function ContenuMessage({ c, message }: { c: Couleurs; message: LigneDeMessage }
     return <Substitut c={c} texte="🔒 Message chiffré, non pris en charge" />;
   }
   if (message.typeSysteme !== null) {
-    return <Substitut c={c} texte={`(${message.typeSysteme})`} />;
+    // La phrase suit le nom de l'auteur affiché juste au-dessus : « bob a
+    // rejoint le salon ». `texte` porte le PARAMÈTRE de l'action, pas une
+    // phrase — voir lib/messagesSysteme.ts.
+    return <Substitut c={c} texte={texteSysteme(message.typeSysteme, message.texte)} />;
   }
   if (arbre === null) {
     return <Substitut c={c} texte="(message vide)" />;

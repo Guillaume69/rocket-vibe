@@ -162,13 +162,20 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       ddp.surPerte(() => reconnecteur?.declencher());
       reconnecteur.declencher();
 
-      // Retour au premier plan : Android a pu geler le JS et couper la
-      // socket SANS `onclose` (NAT tombé pendant la veille). La sonde de vie
-      // tranche : son échec nettoie la socket morte, ce qui notifie
-      // `surPerte` et relance tout. `declencher` reste idempotent — connecté,
-      // il ne refait que le rattrapage REST.
+      // Cycle de vie de la socket (6.2). En ARRIÈRE-PLAN : fermeture propre
+      // et volontaire — l'OS la tuerait de toute façon (Doze), le push prend
+      // le relais, et « volontaire » évite que le pilote reconnecte dans le
+      // vide pendant le fond. Les souscriptions désirées survivent. Au
+      // RETOUR : la sonde de vie couvre le cas d'une socket restée « ouverte »
+      // mais morte (gel sans passage par background), et `declencher` refait
+      // tout — reconnexion, re-login, re-souscriptions, rattrapage.
       const aboAppState = AppState.addEventListener('change', (etatApp) => {
-        if (etatApp !== 'active' || abandonne) return;
+        if (abandonne) return;
+        if (etatApp === 'background') {
+          ddp.fermer();
+          return;
+        }
+        if (etatApp !== 'active') return;
         if (ddp.etat !== 'ferme') ddp.verifierVie().catch(() => {});
         reconnecteur?.declencher();
       });

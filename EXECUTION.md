@@ -280,7 +280,8 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
 
 - [x] **6.1 — Cycle de vie du token** · `@claude` · `[code]` — enregistrement à la connexion, dé-enregistrement au logout.
   Vérifié dans MongoDB (`_raix_push_app_tokens`) : raccordement → 1 jeton `gcm` (appName `rocket-vibe`, userId d'alice) ; « Se déconnecter » → 0 jeton (dé-enregistré AVANT le logout, l'appel exige l'authentification ; best-effort, 404 = succès) ; re-login → 1 jeton. Fait le : `2026-07-10`
-- [ ] **6.2 — Cycle de vie du socket** · `@claude` · `[code]` — fermeture propre sur `AppState 'background'`, réouverture et resynchronisation sur `'active'`. Fait le : `____`
+- [x] **6.2 — Cycle de vie du socket** · `@claude` · `[code]` — fermeture propre sur `AppState 'background'`, réouverture et resynchronisation sur `'active'`.
+  Vérifié par la présence serveur : alice `online` au premier plan → `offline` 5 s après le passage en fond (socket fermée volontairement — donc le push partira : RC ne notifie que les hors-ligne) → `online` au retour (reconnexion + re-souscriptions + rattrapage via le pilote de 5.1/5.2). Fait le : `2026-07-10`
 - [ ] **6.3 — Deep link** · `@claude` · `[code]` — handler de notification → route `expo-router` vers le salon ; badge cohérent avec `subscription.unread` ; canaux de notification Android. **`Push_show_message = true` sur le serveur cible** : une notification venant du salon chiffré transporte du ciphertext → la remplacer par un texte générique. Fait le : `____`
 
 ---

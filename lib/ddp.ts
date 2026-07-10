@@ -63,10 +63,10 @@ type SouscriptionDesiree = {
   cleEvenement: string;
   /** Nombre d'appelants. La `sub` ne part qu'une fois, l'`unsub` qu'au dernier départ. */
   refs: number;
-  /** Identifiant sur le fil, ou `null` si la socket est tombée. */
+  /** Identifiant sur le fil, ou `null` si rien n'est établi (socket tombée, pas encore authentifié). */
   id: string | null;
-  /** `sub` en cours de négociation : deux appelants du même tick l'attendent. */
-  enVol: Promise<string> | null;
+  /** `sub` en cours de négociation sur le fil. */
+  enVol: boolean;
 };
 
 type MessageDdp = {
@@ -210,75 +210,95 @@ export class ClientDdp {
       throw e;
     }
     this.etat = 'authentifie';
+
+    // Rejouer les souscriptions désirées : celles demandées avant
+    // l'authentification, et celles d'une socket précédente. C'est ce qui
+    // permet à un écran de souscrire sans se soucier de l'état du transport —
+    // et c'est le mécanisme que la reconnexion (5.1) réutilisera tel quel.
+    for (const entree of this.desirees.values()) this.etablir(entree);
   }
 
   /**
+   * Déclare l'intérêt pour un stream et rend la fonction qui le relâche.
+   *
+   * **Synchrone et indépendant de l'état du transport** : appelée avant
+   * l'authentification ou après une coupure, la souscription est simplement
+   * mémorisée et établie dès que possible — `connecter()` rejoue toutes les
+   * désirées à l'authentification. L'ancienne API rendait l'identifiant du
+   * fil : il meurt avec la socket, et un écran qui s'en servait pour se
+   * désabonner après une coupure laissait fuir sa référence pour toujours.
+   */
+  souscrire(nom: string, cleEvenement: string): () => void {
+    const cle = `${nom}|${cleEvenement}`;
+    const entree: SouscriptionDesiree = this.desirees.get(cle) ?? {
+      nom,
+      cleEvenement,
+      refs: 0,
+      id: null,
+      enVol: false,
+    };
+    entree.refs++;
+    this.desirees.set(cle, entree);
+    this.etablir(entree);
+
+    // Idempotente par appelant : un double appel ne doit pas voler la
+    // référence d'un autre écran.
+    let rendue = false;
+    return () => {
+      if (rendue) return;
+      rendue = true;
+      this.relacher(cle);
+    };
+  }
+
+  /**
+   * Envoie la `sub` sur le fil si l'état le permet. Une seule par entrée :
+   * deux appelants du même tick partagent la négociation (`enVol`), sinon le
+   * serveur reçoit deux `sub` et duplique chaque événement.
+   *
    * `params` reçoit toujours l'objet `{ useCollection: false, args: [] }` en
    * dernier argument : c'est la convention des « streamers » de Rocket.Chat.
    */
-  async souscrire(nom: string, cleEvenement: string): Promise<string> {
-    if (this.etat !== 'authentifie') {
-      throw new ErreurDdp('Souscription avant authentification : le serveur répondrait not-allowed.');
-    }
-    const cle = `${nom}|${cleEvenement}`;
-    const existante = this.desirees.get(cle);
-
-    if (existante) {
-      existante.refs++;
-      // Déjà établie sur le fil.
-      if (existante.id !== null) return existante.id;
-      // `sub` déjà en vol : deux appelants du même tick doivent la partager,
-      // sinon le serveur en reçoit deux et duplique chaque événement.
-      if (existante.enVol !== null) {
-        try {
-          return await existante.enVol;
-        } catch (e) {
-          existante.refs--;
-          throw e;
-        }
-      }
-    }
-
+  private etablir(entree: SouscriptionDesiree): void {
+    if (this.etat !== 'authentifie' || entree.id !== null || entree.enVol) return;
+    const cle = `${entree.nom}|${entree.cleEvenement}`;
     const id = `s${++this.compteur}`;
-    // Une souscription redemandée après une coupure conserve ses références.
-    const entree: SouscriptionDesiree = existante ?? {
-      nom,
-      cleEvenement,
-      refs: 1,
-      id: null,
-      enVol: null,
-    };
-    entree.enVol = this.attendre(id, `sub ${nom}`).then(() => {
-      entree.id = id;
-      entree.enVol = null;
-      return id;
-    });
-    this.desirees.set(cle, entree);
+    entree.enVol = true;
+
+    this.attendre(id, `sub ${entree.nom}`)
+      .then(() => {
+        entree.enVol = false;
+        if (this.desirees.get(cle) !== entree) {
+          // Relâchée pendant la négociation : le serveur vient de l'établir,
+          // on la coupe aussitôt plutôt que de la laisser fuir.
+          this.envoyer({ msg: 'unsub', id });
+          return;
+        }
+        entree.id = id;
+      })
+      .catch(() => {
+        // `nosub` ou socket morte : `id` reste null. L'entrée reste désirée
+        // et sera retentée à la prochaine authentification.
+        entree.enVol = false;
+      });
 
     this.envoyer({
       msg: 'sub',
       id,
-      name: nom,
-      params: [cleEvenement, { useCollection: false, args: [] }],
+      name: entree.nom,
+      params: [entree.cleEvenement, { useCollection: false, args: [] }],
     });
-
-    try {
-      return await entree.enVol;
-    } catch (e) {
-      this.desirees.delete(cle);
-      throw e;
-    }
   }
 
-  /** Ne coupe la souscription que lorsque le dernier appelant s'en va. */
-  async desouscrire(id: string): Promise<void> {
-    for (const [cle, s] of this.desirees) {
-      if (s.id !== id) continue;
-      if (--s.refs > 0) return;
-      this.desirees.delete(cle);
-      this.envoyer({ msg: 'unsub', id });
-      return;
-    }
+  /** Ne coupe la souscription sur le fil que lorsque le dernier appelant s'en va. */
+  private relacher(cle: string): void {
+    const entree = this.desirees.get(cle);
+    if (entree === undefined) return;
+    if (--entree.refs > 0) return;
+    this.desirees.delete(cle);
+    // Si une négociation est en vol, son `.then` verra l'entrée disparue et
+    // enverra l'`unsub` lui-même.
+    if (entree.id !== null) this.envoyer({ msg: 'unsub', id: entree.id });
   }
 
   fermer(): void {
@@ -393,7 +413,7 @@ export class ClientDdp {
     this.attentes.clear();
     for (const s of this.desirees.values()) {
       s.id = null;
-      s.enVol = null;
+      s.enVol = false;
     }
     this.etat = 'ferme';
     this.session = null;

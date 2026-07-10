@@ -21,6 +21,12 @@ export interface Depot {
   upsertSalon(s: SalonLocal): Promise<void>;
   upsertAbonnement(a: AbonnementLocal): Promise<void>;
   supprimerMessage(id: string): Promise<void>;
+  /**
+   * Regroupe des écritures en une transaction. Une page d'historique de 50
+   * messages doit produire UN commit et UN événement de changement — pas 50
+   * ré-exécutions de chaque requête vive de l'UI.
+   */
+  transaction(fn: () => Promise<void>): Promise<void>;
 }
 
 export const STREAM_MESSAGES = 'stream-room-messages';
@@ -146,33 +152,42 @@ export class MoteurSynchro {
     this.stats.salons++;
   }
 
-  /** Ingestion d'un lot REST : mêmes upserts, mêmes garanties d'idempotence. */
+  /**
+   * Ingestion d'un lot REST : mêmes upserts, mêmes garanties d'idempotence,
+   * mais en une seule transaction — voir `Depot.transaction`.
+   */
   async ingererMessages(bruts: Record<string, unknown>[]): Promise<void> {
-    for (const brut of bruts) await this.appliquerMessage(brut);
+    await this.depot.transaction(async () => {
+      for (const brut of bruts) await this.appliquerMessage(brut);
+    });
   }
 
   async ingererSalons(bruts: Record<string, unknown>[]): Promise<void> {
-    for (const brut of bruts) {
-      const salon = versSalon(brut, this.moi);
-      if (salon === null) {
-        this.stats.ignores++;
-        continue;
+    await this.depot.transaction(async () => {
+      for (const brut of bruts) {
+        const salon = versSalon(brut, this.moi);
+        if (salon === null) {
+          this.stats.ignores++;
+          continue;
+        }
+        await this.depot.upsertSalon(salon);
+        this.stats.salons++;
       }
-      await this.depot.upsertSalon(salon);
-      this.stats.salons++;
-    }
+    });
   }
 
   async ingererAbonnements(bruts: Record<string, unknown>[]): Promise<void> {
-    for (const brut of bruts) {
-      const abonnement = versAbonnement(brut);
-      if (abonnement === null) {
-        this.stats.ignores++;
-        continue;
+    await this.depot.transaction(async () => {
+      for (const brut of bruts) {
+        const abonnement = versAbonnement(brut);
+        if (abonnement === null) {
+          this.stats.ignores++;
+          continue;
+        }
+        await this.depot.upsertAbonnement(abonnement);
+        this.stats.abonnements++;
       }
-      await this.depot.upsertAbonnement(abonnement);
-      this.stats.abonnements++;
-    }
+    });
   }
 }
 

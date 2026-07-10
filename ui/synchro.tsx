@@ -60,11 +60,12 @@ async function raccorder(
     });
   });
 
+  // Déclarées AVANT la connexion : `souscrire` mémorise l'intention, et
+  // `connecter` établit tout à l'authentification. Aucune fenêtre où un
+  // événement se perd entre les deux.
+  ddp.souscrire(STREAM_NOTIFY_USER, `${session.userId}/subscriptions-changed`);
+  ddp.souscrire(STREAM_NOTIFY_USER, `${session.userId}/rooms-changed`);
   await ddp.connecter(session.authToken);
-  await Promise.all([
-    ddp.souscrire(STREAM_NOTIFY_USER, `${session.userId}/subscriptions-changed`),
-    ddp.souscrire(STREAM_NOTIFY_USER, `${session.userId}/rooms-changed`),
-  ]);
 
   const [salonsBruts, abonnementsBruts] = await Promise.all([
     client.get<{ update?: Record<string, unknown>[] }>('rooms.get'),

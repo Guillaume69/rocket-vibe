@@ -147,6 +147,7 @@ function faireDepot() {
     upsertSalon: async (s) => void salons.push(s),
     upsertAbonnement: async (a) => void abonnements.push(a),
     supprimerMessage: async (id) => void supprimes.push(id),
+    transaction: async (fn) => fn(),
   };
   return { depot, messages, salons, abonnements, supprimes };
 }

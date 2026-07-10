@@ -1,6 +1,6 @@
 import { desc } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
-import { Link, Redirect, Stack } from 'expo-router';
+import { Link, Redirect, Stack, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -107,6 +107,7 @@ function LigneSalon({
   salon: LigneDeSalon;
   abonnement: LigneDAbonnement | null;
 }) {
+  const routeur = useRouter();
   const nom = salon.nomAffiche ?? salon.nom ?? salon.rid;
   const nonLus = abonnement?.nonLus ?? 0;
   const enAlerte = abonnement?.alerte === true || nonLus > 0;
@@ -116,6 +117,7 @@ function LigneSalon({
 
   return (
     <Pressable
+      onPress={() => routeur.push({ pathname: '/salon/[rid]', params: { rid: salon.rid } })}
       android_ripple={{ color: c.ondulation }}
       style={({ pressed }) => [styles.ligne, { opacity: pressed ? 0.6 : 1 }]}
     >

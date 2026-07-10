@@ -38,5 +38,10 @@ export function creerDepot(brute: SQLiteDatabase): Depot {
     async supprimerMessage(id) {
       await brute.runAsync(SUPPRIMER_MESSAGE, [id]);
     },
+    async transaction(fn) {
+      // Un lot = un commit = UN événement de changement pour `useLiveQuery`,
+      // au lieu d'une ré-exécution de chaque requête vive par ligne insérée.
+      await brute.withTransactionAsync(fn);
+    },
   };
 }

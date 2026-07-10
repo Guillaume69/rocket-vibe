@@ -16,13 +16,15 @@
  * upserts sont idempotents et arbitrés par `_updatedAt`.
  */
 
+import * as Crypto from 'expo-crypto';
 import { createContext, useContext, useEffect, useState } from 'react';
 
 import type { BaseLocale } from '../db/client.ts';
 import { ouvrirBase } from '../db/client.ts';
-import { creerDepot } from '../db/depot.ts';
+import { creerDepot, creerDepotEnvoi } from '../db/depot.ts';
 import { migrerBase } from '../db/migrer.ts';
 import { ClientDdp } from '../lib/ddp.ts';
+import { MoteurEnvoi, idDepuisOctets } from '../lib/envoi.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import type { Session } from '../lib/auth.ts';
 import { MoteurSynchro, STREAM_NOTIFY_USER } from '../lib/sync.ts';
@@ -31,7 +33,13 @@ import { useSession } from './session.tsx';
 export type EtatSynchro =
   | { phase: 'inactif' }
   | { phase: 'preparation' }
-  | { phase: 'pret'; base: BaseLocale; moteur: MoteurSynchro; ddp: ClientDdp }
+  | {
+      phase: 'pret';
+      base: BaseLocale;
+      moteur: MoteurSynchro;
+      envoi: MoteurEnvoi;
+      ddp: ClientDdp;
+    }
   | { phase: 'erreur'; message: string };
 
 const Contexte = createContext<EtatSynchro | null>(null);
@@ -97,9 +105,20 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       if (abandonne) return;
 
       const moteur = new MoteurSynchro(creerDepot(brute), session.username);
+      const envoi = new MoteurEnvoi({
+        depot: creerDepotEnvoi(brute),
+        client,
+        moi: { id: session.userId, username: session.username },
+        genererId: () => idDepuisOctets(Crypto.getRandomBytes(12)),
+        ingerer: (doc) => moteur.ingererMessages([doc]),
+      });
       // « pret » dès la base disponible : l'UI montre le cache local sans
       // attendre le réseau.
-      setSynchro({ phase: 'pret', base, moteur, ddp });
+      setSynchro({ phase: 'pret', base, moteur, envoi, ddp });
+
+      // Vider la file d'envoi laissée par une session tuée : le serveur
+      // déduplique sur `_id`, rejouer est toujours sûr.
+      envoi.traiter().catch(() => {});
 
       // Tir-et-oublie : hors ligne, jeton WebSocket refusé, REST en panne —
       // le cache reste affiché, la reconnexion (5.1) fera le reste.

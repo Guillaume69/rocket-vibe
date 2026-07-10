@@ -23,6 +23,7 @@ INSERT INTO messages (
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
   texte = excluded.texte,
+  horodatage = excluded.horodatage,
   auteur_nom = excluded.auteur_nom,
   type_systeme = excluded.type_systeme,
   fil_id = excluded.fil_id,
@@ -83,6 +84,38 @@ WHERE excluded.mis_a_jour_depuis > etat_synchro.mis_a_jour_depuis
 `;
 
 export const SUPPRIMER_MESSAGE = `DELETE FROM messages WHERE id = ?`;
+
+// ---------------------------------------------------------------------------
+// File d'envoi (outbox). L'`id` est le `_id` 24-hex généré CÔTÉ CLIENT : le
+// serveur déduplique dessus, c'est ce qui rend le rejeu après crash sûr.
+// ---------------------------------------------------------------------------
+
+export const INSERER_SORTIE = `
+INSERT INTO sortie (id, rid, texte, fil_id, statut, tentatives, derniere_erreur, cree_le)
+VALUES (?, ?, ?, ?, 'en-attente', 0, NULL, ?)
+`;
+
+/** Les échecs aussi : le rejeu au retour du réseau retente tout ce qui reste. */
+export const LISTER_SORTIE_A_ENVOYER = `
+SELECT id, rid, texte, fil_id, statut, tentatives FROM sortie
+WHERE statut IN ('en-attente', 'echec') ORDER BY cree_le
+`;
+
+export const MARQUER_SORTIE_ECHEC = `
+UPDATE sortie SET statut = 'echec', tentatives = tentatives + 1, derniere_erreur = ?
+WHERE id = ?
+`;
+
+export const SUPPRIMER_SORTIE = `DELETE FROM sortie WHERE id = ?`;
+
+/**
+ * Abandon d'un envoi : seul un message ENCORE optimiste (`mis_a_jour_le = 0`)
+ * s'efface — si une version serveur existe, le message a été livré et n'a
+ * plus rien d'abandonnable.
+ */
+export const SUPPRIMER_MESSAGE_OPTIMISTE = `
+DELETE FROM messages WHERE id = ? AND mis_a_jour_le = 0
+`;
 
 // ---------------------------------------------------------------------------
 // Constructeurs de paramètres. Ils vivent ici, collés au SQL : un ordre de

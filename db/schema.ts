@@ -79,14 +79,18 @@ export const messages = sqliteTable(
   (t) => [index('idx_messages_salon_date').on(t.rid, t.horodatage), index('idx_messages_fil').on(t.filId)],
 );
 
-/** Statut d'un envoi optimiste. `envoye` disparaît dès la réconciliation. */
-export type StatutSortie = 'en-attente' | 'envoye' | 'echec';
+/**
+ * Statut d'un envoi optimiste. Il n'y a pas d'état « envoyé » : au succès (ou
+ * dès qu'une copie d'origine serveur arrive), la ligne est SUPPRIMÉE.
+ */
+export type StatutSortie = 'en-attente' | 'echec';
 
 /**
  * File d'envoi persistante. Le message est affiché immédiatement, puis
- * réconcilié quand le serveur le renvoie par `stream-room-messages` — le
- * serveur déduplique sur le `_id` généré côté client, donc une réémission
- * après un crash ne crée pas de doublon.
+ * réconcilié quand le serveur le renvoie — le `_id` est généré côté client,
+ * et le serveur n'en accepte jamais deux : une réémission après un crash ne
+ * crée pas de doublon. ATTENTION : le rejeu répond 400, pas un succès
+ * idempotent (voir lib/envoi.ts).
  */
 export const sortie = sqliteTable(
   'sortie',

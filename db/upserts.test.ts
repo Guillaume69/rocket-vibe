@@ -7,7 +7,12 @@ import { fileURLToPath } from 'node:url';
 
 import type { AbonnementLocal, MessageLocal, SalonLocal } from '../lib/normaliser.ts';
 import {
+  INSERER_SORTIE,
+  LISTER_SORTIE_A_ENVOYER,
+  MARQUER_SORTIE_ECHEC,
   SUPPRIMER_MESSAGE,
+  SUPPRIMER_MESSAGE_OPTIMISTE,
+  SUPPRIMER_SORTIE,
   UPSERT_ABONNEMENT,
   UPSERT_CURSEUR,
   UPSERT_MESSAGE,
@@ -215,5 +220,65 @@ describe('upserts idempotents', () => {
     db.prepare(SUPPRIMER_MESSAGE).run('m1'); // ne doit pas lever
     const n = db.prepare('SELECT count(*) c FROM messages').get() as { c: number };
     assert.equal(n.c, 0);
+  });
+
+  test('un message optimiste (mis_a_jour_le = 0) est TOUJOURS écrasé par le serveur', () => {
+    // L'UI optimiste insère avec 0 : n'importe quelle version serveur (>= 0)
+    // doit gagner, et l'optimiste ne doit jamais écraser une version réelle.
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', texte: 'optimiste', misAJourLe: 0 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', texte: 'serveur', misAJourLe: 5 }));
+    let m = ligne(db.prepare('SELECT texte FROM messages WHERE id = ?').get('m1'));
+    assert.deepEqual(m, { texte: 'serveur' });
+
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', texte: 'optimiste-rejoué', misAJourLe: 0 }));
+    m = ligne(db.prepare('SELECT texte FROM messages WHERE id = ?').get('m1'));
+    assert.deepEqual(m, { texte: 'serveur' }, "l'optimiste ne régresse jamais le réel");
+  });
+
+  test('le `ts` du serveur corrige l’horodatage optimiste (horloge locale suspecte)', () => {
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', horodatage: 9999, misAJourLe: 0 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', horodatage: 5000, misAJourLe: 7 }));
+    const m = ligne(db.prepare('SELECT horodatage FROM messages WHERE id = ?').get('m1'));
+    assert.deepEqual(m, { horodatage: 5000 }, 'sans cela, le tri resterait faux pour toujours');
+  });
+
+  test('l’abandon n’efface qu’un message encore optimiste', () => {
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', misAJourLe: 0 }));
+    db.prepare(SUPPRIMER_MESSAGE_OPTIMISTE).run('m1');
+    assert.equal(db.prepare('SELECT count(*) c FROM messages').get()!.c, 0);
+
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm2', misAJourLe: 42 })); // livré
+    db.prepare(SUPPRIMER_MESSAGE_OPTIMISTE).run('m2');
+    assert.equal(
+      db.prepare('SELECT count(*) c FROM messages').get()!.c,
+      1,
+      'un message livré n’est pas abandonnable',
+    );
+  });
+});
+
+describe('file d’envoi (outbox)', () => {
+  test('le cycle en-attente → échec → renvoi → supprimé', () => {
+    db.prepare(INSERER_SORTIE).run('a'.repeat(24), 'r1', 'bonjour', null, 1000);
+
+    let attente = db.prepare(LISTER_SORTIE_A_ENVOYER).all().map(ligne);
+    assert.equal(attente.length, 1);
+    assert.equal(attente[0].statut, 'en-attente');
+
+    db.prepare(MARQUER_SORTIE_ECHEC).run('500 oups', 'a'.repeat(24));
+    attente = db.prepare(LISTER_SORTIE_A_ENVOYER).all().map(ligne);
+    assert.equal(attente.length, 1, 'un échec reste candidat au rejeu');
+    assert.equal(attente[0].statut, 'echec');
+    assert.equal(attente[0].tentatives, 1);
+
+    db.prepare(SUPPRIMER_SORTIE).run('a'.repeat(24));
+    assert.equal(db.prepare(LISTER_SORTIE_A_ENVOYER).all().length, 0);
+  });
+
+  test('le rejeu liste dans l’ordre de création', () => {
+    db.prepare(INSERER_SORTIE).run('b'.repeat(24), 'r1', 'deuxième', null, 2000);
+    db.prepare(INSERER_SORTIE).run('c'.repeat(24), 'r1', 'premier', null, 1000);
+    const ordres = db.prepare(LISTER_SORTIE_A_ENVOYER).all().map((l) => ligne(l).texte);
+    assert.deepEqual(ordres, ['premier', 'deuxième']);
   });
 });

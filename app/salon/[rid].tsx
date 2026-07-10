@@ -3,12 +3,13 @@ import { desc, eq } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { Redirect, Stack, useLocalSearchParams } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { BaseLocale } from '../../db/client.ts';
-import { messages, salons } from '../../db/schema.ts';
+import { messages, salons, sortie } from '../../db/schema.ts';
 import type { ClientDdp } from '../../lib/ddp.ts';
+import type { MoteurEnvoi } from '../../lib/envoi.ts';
 import { arbreDuMessage } from '../../lib/markdown.ts';
 import { texteSysteme } from '../../lib/messagesSysteme.ts';
 import type { ClientRest } from '../../lib/rest.ts';
@@ -70,6 +71,7 @@ export default function EcranSalon() {
       rid={rid}
       base={synchro.base}
       moteur={synchro.moteur}
+      envoi={synchro.envoi}
       ddp={synchro.ddp}
       client={etat.client}
     />
@@ -81,6 +83,7 @@ function Salon({
   rid,
   base,
   moteur,
+  envoi,
   ddp,
   client,
 }: {
@@ -88,6 +91,7 @@ function Salon({
   rid: string;
   base: BaseLocale;
   moteur: MoteurSynchro;
+  envoi: MoteurEnvoi;
   ddp: ClientDdp;
   client: ClientRest;
 }) {
@@ -110,6 +114,13 @@ function Salon({
       .orderBy(desc(messages.horodatage))
       .limit(limite),
     [rid, limite],
+  );
+  // Statuts d'envoi (en-attente / échec) : table séparée, requête vive
+  // séparée — même raison que la liste des salons, `useLiveQuery` n'écoute
+  // que la table du FROM.
+  const { data: lignesSortie } = useLiveQuery(
+    base.select().from(sortie).where(eq(sortie.rid, rid)),
+    [rid],
   );
   // Les décisions (pagination) se prennent sur la valeur FRAÎCHE ; seul
   // l'affichage est lissé.
@@ -195,9 +206,34 @@ function Salon({
       });
   }, [fraiches, limite, type, chargerHistorique]);
 
+  const reessayer = useCallback(() => {
+    envoi.traiter().catch(() => {});
+  }, [envoi]);
+  const abandonner = useCallback(
+    (id: string) => {
+      envoi.abandonner(id).catch(() => {});
+    },
+    [envoi],
+  );
+
+  const sortieParId = useMemo(
+    () => new Map((lignesSortie ?? []).map((s) => [s.id, s])),
+    [lignesSortie],
+  );
   const rendreLigne = useCallback(
-    ({ item }: { item: LigneDeMessage }) => <LigneMessage c={c} message={item} />,
-    [c],
+    ({ item }: { item: LigneDeMessage }) => {
+      const etatEnvoi = sortieParId.get(item.id);
+      return (
+        <LigneMessage
+          c={c}
+          message={item}
+          statutEnvoi={etatEnvoi?.statut ?? null}
+          surReessayer={etatEnvoi?.statut === 'echec' ? reessayer : null}
+          surAbandonner={etatEnvoi?.statut === 'echec' ? abandonner : null}
+        />
+      );
+    },
+    [c, sortieParId, reessayer, abandonner],
   );
 
   const titre = salon
@@ -228,7 +264,66 @@ function Salon({
           )
         }
       />
+      <Composer c={c} rid={rid} envoi={envoi} lectureSeule={salon?.lectureSeule === true} />
     </SafeAreaView>
+  );
+}
+
+function Composer({
+  c,
+  rid,
+  envoi,
+  lectureSeule,
+}: {
+  c: Couleurs;
+  rid: string;
+  envoi: MoteurEnvoi;
+  lectureSeule: boolean;
+}) {
+  const [brouillon, setBrouillon] = useState('');
+
+  const envoyerMessage = useCallback(() => {
+    const texte = brouillon.trim();
+    if (texte === '') return;
+    setBrouillon('');
+    // L'affichage optimiste et la persistance de l'intention sont dans
+    // `envoyer` : d'ici, rien à attendre. Un refus deviendra un statut
+    // « échec » actionnable sur la ligne elle-même.
+    envoi.envoyer(rid, texte).catch((e: unknown) => console.warn('envoi: échec local', e));
+  }, [brouillon, envoi, rid]);
+
+  if (lectureSeule) {
+    return (
+      <View style={[styles.composer, { borderTopColor: c.bordure }]}>
+        <Text style={[styles.noteComposer, { color: c.attenue }]}>
+          Ce salon est en lecture seule.
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.composer, { borderTopColor: c.bordure }]}>
+      <TextInput
+        value={brouillon}
+        onChangeText={setBrouillon}
+        placeholder="Message"
+        placeholderTextColor={c.attenue}
+        multiline
+        style={[styles.champComposer, { color: c.texte, backgroundColor: c.carte }]}
+      />
+      <Pressable
+        onPress={envoyerMessage}
+        disabled={brouillon.trim() === ''}
+        android_ripple={{ color: c.ondulation, borderless: true }}
+        style={({ pressed }) => [
+          styles.boutonEnvoyer,
+          { opacity: pressed || brouillon.trim() === '' ? 0.4 : 1 },
+        ]}
+      >
+        <Text style={[styles.texteEnvoyer, { color: c.accent }]}>Envoyer</Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -237,9 +332,15 @@ type LigneDeMessage = typeof messages.$inferSelect;
 const LigneMessage = memo(function LigneMessage({
   c,
   message,
+  statutEnvoi,
+  surReessayer,
+  surAbandonner,
 }: {
   c: Couleurs;
   message: LigneDeMessage;
+  statutEnvoi: 'en-attente' | 'echec' | null;
+  surReessayer: (() => void) | null;
+  surAbandonner: ((id: string) => void) | null;
 }) {
   const heure = new Date(message.horodatage).toLocaleTimeString('fr-FR', {
     hour: '2-digit',
@@ -247,15 +348,28 @@ const LigneMessage = memo(function LigneMessage({
   });
 
   return (
-    <View style={styles.message}>
+    <View style={[styles.message, statutEnvoi === 'en-attente' && styles.enAttente]}>
       <View style={styles.enTete}>
         <Text style={[styles.auteur, { color: c.texte }]}>{message.auteurNom ?? '?'}</Text>
         <Text style={[styles.heure, { color: c.attenue }]}>{heure}</Text>
         {message.modifieLe !== null && (
           <Text style={[styles.heure, { color: c.attenue }]}>(modifié)</Text>
         )}
+        {statutEnvoi === 'en-attente' && (
+          <Text style={[styles.heure, { color: c.attenue }]}>⏳ envoi…</Text>
+        )}
       </View>
       <ContenuMessage c={c} message={message} />
+      {statutEnvoi === 'echec' && (
+        <View style={styles.actionsEchec}>
+          <Pressable onPress={surReessayer ?? undefined}>
+            <Text style={[styles.heure, { color: c.texteErreur }]}>⚠️ Échec — réessayer</Text>
+          </Pressable>
+          <Pressable onPress={() => surAbandonner?.(message.id)}>
+            <Text style={[styles.heure, { color: c.attenue }]}>abandonner</Text>
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 });
@@ -342,4 +456,25 @@ const styles = StyleSheet.create({
   italique: { fontStyle: 'italic' },
   vide: { textAlign: 'center', padding: 24, fontSize: 14 },
   erreur: { fontSize: 14, fontWeight: '600', textAlign: 'center' },
+  enAttente: { opacity: 0.55 },
+  actionsEchec: { flexDirection: 'row', gap: 16 },
+  composer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  champComposer: {
+    flex: 1,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    fontSize: 15,
+    maxHeight: 120,
+  },
+  boutonEnvoyer: { paddingVertical: 10, paddingHorizontal: 4 },
+  texteEnvoyer: { fontSize: 15, fontWeight: '700' },
+  noteComposer: { flex: 1, textAlign: 'center', fontSize: 13, paddingVertical: 8 },
 });

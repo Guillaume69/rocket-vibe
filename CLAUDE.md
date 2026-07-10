@@ -64,6 +64,7 @@ Serveur cible : `https://chat.barrut.me`, **version 8.5** (LTS). Le Docker local
 - **Piège du spike push** : Rocket.Chat ne notifie **que les utilisateurs hors ligne**, et par défaut **uniquement sur DM ou mention**. Un message de canal ordinaire ne déclenche rien, quelle que soit la configuration.
 - **Indicateur de saisie** : `stream-notify-room/<rid>/user-activity`. Pas `/typing`, qui est déprécié.
 - `chat.syncMessages` traite **un salon à la fois** et le REST est rate-limité : ne pas boucler sur tous les salons à la reconnexion.
+- **Rejouer un `_id` client déjà accepté sur `chat.sendMessage` répond 400** (`Cannot read properties of undefined (reading 'starred')`), pas un succès idempotent — vérifié sur 8.5. Aucun doublon n'est créé, mais la réponse ne distingue pas « déjà livré » de « refusé » : confirmer par `chat.getMessage` avant de déclarer l'échec (voir `lib/envoi.ts`).
 
 ### Le serveur cible, relevé sans authentification
 

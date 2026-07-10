@@ -19,6 +19,7 @@ import type { ClientDdp } from '../../lib/ddp.ts';
 import type { MoteurEnvoi } from '../../lib/envoi.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
+import { useBrouillon } from '../../ui/brouillons.ts';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
 import { useSession } from '../../ui/session.tsx';
 import { useSynchro } from '../../ui/synchro.tsx';
@@ -233,16 +234,15 @@ function Fil({
   );
 
   const liste = useRef<FlashListRef<LigneDeMessage>>(null);
-  const [brouillon, setBrouillon] = useState('');
-  const envoyer = useCallback(() => {
-    const texte = brouillon.trim();
-    if (texte === '' || rid === undefined) return;
-    setBrouillon('');
-    envoi.envoyer(rid, texte, filId).catch(() => {});
+  const apresEnvoi = useCallback(() => {
     // La liste s'ouvre sur la RACINE : sans ce défilement, la réponse
     // optimiste naît sous le pli et l'envoi semble n'avoir rien fait.
     setTimeout(() => liste.current?.scrollToEnd({ animated: true }), 250);
-  }, [brouillon, envoi, rid, filId]);
+  }, []);
+
+  // Brouillon du fil (8.7), clé `rid:tmid` : isolé du brouillon du salon.
+  // `null` tant que le rid n'est pas connu — le composer attend.
+  const persistance = useBrouillon(base, rid === undefined ? null : `${rid}:${filId}`);
 
   return (
     <SafeAreaView style={[styles.plein, { backgroundColor: c.fond }]} edges={['bottom']}>
@@ -282,28 +282,85 @@ function Fil({
           </Text>
         </View>
       )}
-      {rid !== undefined && salon !== undefined && !salon.chiffre && !salon.lectureSeule && (
-        <View style={[styles.composer, { borderTopColor: c.bordure }]}>
-          <TextInput
-            value={brouillon}
-            onChangeText={setBrouillon}
-            placeholder="Répondre dans le fil"
-            placeholderTextColor={c.attenue}
-            multiline
-            style={[styles.champComposer, { color: c.texte, backgroundColor: c.carte }]}
+      {rid !== undefined &&
+        salon !== undefined &&
+        !salon.chiffre &&
+        !salon.lectureSeule &&
+        persistance.initial !== null && (
+          <ComposerFil
+            key={`${rid}:${filId}`}
+            c={c}
+            rid={rid}
+            filId={filId}
+            envoi={envoi}
+            apresEnvoi={apresEnvoi}
+            brouillonInitial={persistance.initial}
+            sauverBrouillon={persistance.sauver}
+            effacerBrouillon={persistance.effacer}
           />
-          {brouillon.trim() !== '' && (
-            <Pressable
-              onPress={envoyer}
-              android_ripple={{ color: c.ondulation, borderless: true }}
-              style={({ pressed }) => [styles.boutonEnvoyer, { opacity: pressed ? 0.4 : 1 }]}
-            >
-              <Text style={[styles.texteEnvoyer, { color: c.accent }]}>Envoyer</Text>
-            </Pressable>
-          )}
-        </View>
-      )}
+        )}
     </SafeAreaView>
+  );
+}
+
+function ComposerFil({
+  c,
+  rid,
+  filId,
+  envoi,
+  apresEnvoi,
+  brouillonInitial,
+  sauverBrouillon,
+  effacerBrouillon,
+}: {
+  c: Couleurs;
+  rid: string;
+  filId: string;
+  envoi: MoteurEnvoi;
+  apresEnvoi: () => void;
+  /** Brouillon restauré (8.7) — le parent attend sa lecture avant de monter. */
+  brouillonInitial: string;
+  sauverBrouillon: (texte: string) => void;
+  effacerBrouillon: () => void;
+}) {
+  const [brouillon, setBrouillon] = useState(brouillonInitial);
+  const changer = useCallback(
+    (texte: string) => {
+      setBrouillon(texte);
+      sauverBrouillon(texte);
+    },
+    [sauverBrouillon],
+  );
+
+  const envoyer = useCallback(() => {
+    const texte = brouillon.trim();
+    if (texte === '') return;
+    setBrouillon('');
+    effacerBrouillon();
+    envoi.envoyer(rid, texte, filId).catch(() => {});
+    apresEnvoi();
+  }, [brouillon, envoi, rid, filId, effacerBrouillon, apresEnvoi]);
+
+  return (
+    <View style={[styles.composer, { borderTopColor: c.bordure }]}>
+      <TextInput
+        value={brouillon}
+        onChangeText={changer}
+        placeholder="Répondre dans le fil"
+        placeholderTextColor={c.attenue}
+        multiline
+        style={[styles.champComposer, { color: c.texte, backgroundColor: c.carte }]}
+      />
+      {brouillon.trim() !== '' && (
+        <Pressable
+          onPress={envoyer}
+          android_ripple={{ color: c.ondulation, borderless: true }}
+          style={({ pressed }) => [styles.boutonEnvoyer, { opacity: pressed ? 0.4 : 1 }]}
+        >
+          <Text style={[styles.texteEnvoyer, { color: c.accent }]}>Envoyer</Text>
+        </Pressable>
+      )}
+    </View>
   );
 }
 

@@ -30,6 +30,7 @@ import type { MoteurEnvoi } from '../../lib/envoi.ts';
 import type { MoteurTeleversement } from '../../lib/envoiFichiers.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSaisie, phraseSaisie } from '../../lib/saisie.ts';
+import { useBrouillon } from '../../ui/brouillons.ts';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
 import { useSession } from '../../ui/session.tsx';
@@ -254,6 +255,10 @@ function Salon({
     useCallback(() => saisie.quiTape(), [saisie]),
   );
   const phraseQuiTape = phraseSaisie(quiTape);
+
+  // Brouillon persistant (8.7) — le hook vit ICI : le composer ne monte
+  // qu'une fois la valeur initiale lue.
+  const persistance = useBrouillon(base, rid);
 
   const chargerHistorique = useCallback(
     async (type: string, latest?: string): Promise<number> => {
@@ -493,14 +498,21 @@ function Salon({
       {/* Tant que la ligne du salon n'est pas là (lien profond vers un salon
           pas encore synchronisé), on ne promet pas un envoi : `chiffre` et
           `lectureSeule` sont peut-être vrais. */}
-      {salon !== undefined && (
+      {/* `key={rid}` + attente du brouillon chargé : le composer naît avec
+          son état initial déjà juste — ni restauration après coup, ni fuite
+          du texte d'un salon vers un autre. */}
+      {salon !== undefined && persistance.initial !== null && (
         <Composer
+          key={rid}
           c={c}
           rid={rid}
           envoi={envoi}
           fichiers={fichiers}
           lectureSeule={salon.lectureSeule}
           chiffre={salon.chiffre}
+          brouillonInitial={persistance.initial}
+          sauverBrouillon={persistance.sauver}
+          effacerBrouillon={persistance.effacer}
         />
       )}
     </SafeAreaView>
@@ -514,6 +526,9 @@ function Composer({
   fichiers,
   lectureSeule,
   chiffre,
+  brouillonInitial,
+  sauverBrouillon,
+  effacerBrouillon,
 }: {
   c: Couleurs;
   rid: string;
@@ -521,23 +536,36 @@ function Composer({
   fichiers: MoteurTeleversement;
   lectureSeule: boolean;
   chiffre: boolean;
+  /** Brouillon restauré (8.7) — le parent attend sa lecture avant de monter. */
+  brouillonInitial: string;
+  sauverBrouillon: (texte: string) => void;
+  effacerBrouillon: () => void;
 }) {
-  const [brouillon, setBrouillon] = useState('');
+  const [brouillon, setBrouillon] = useState(brouillonInitial);
   const [envoiFichier, setEnvoiFichier] = useState(false);
   const [erreurFichier, setErreurFichier] = useState<string | null>(null);
   const [enregistrement, setEnregistrement] = useState(false);
   // `.m4a` AAC (préréglage HIGH_QUALITY) — le MIME attendu est `audio/mp4`.
   const enregistreur = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
 
+  const changerBrouillon = useCallback(
+    (texte: string) => {
+      setBrouillon(texte);
+      sauverBrouillon(texte);
+    },
+    [sauverBrouillon],
+  );
+
   const envoyerMessage = useCallback(() => {
     const texte = brouillon.trim();
     if (texte === '') return;
     setBrouillon('');
+    effacerBrouillon();
     // L'affichage optimiste et la persistance de l'intention sont dans
     // `envoyer` : d'ici, rien à attendre. Un refus deviendra un statut
     // « échec » actionnable sur la ligne elle-même.
     envoi.envoyer(rid, texte).catch((e: unknown) => console.warn('envoi: échec local', e));
-  }, [brouillon, envoi, rid]);
+  }, [brouillon, envoi, rid, effacerBrouillon]);
 
   const basculerVocal = useCallback(async () => {
     setErreurFichier(null);
@@ -613,13 +641,20 @@ function Composer({
       // Validation contre FileUpload_MaxFileSize / MediaTypeWhiteList AVANT
       // le moindre octet, puis persistance et envoi (rejoué après un kill).
       await fichiers.envoyer(rid, fichier, brouillon.trim() || undefined);
-      setBrouillon('');
+      // L'upload prend des secondes et le champ reste actif : n'effacer que
+      // si le texte n'a PAS bougé — ce qui a été tapé pendant l'envoi n'est
+      // ni la légende partie, ni à jeter.
+      setBrouillon((courant) => {
+        if (courant !== brouillon) return courant;
+        effacerBrouillon();
+        return '';
+      });
     } catch (e) {
       setErreurFichier(e instanceof Error ? e.message : 'Téléversement impossible.');
     } finally {
       setEnvoiFichier(false);
     }
-  }, [fichiers, rid, brouillon]);
+  }, [fichiers, rid, brouillon, effacerBrouillon]);
 
   // Dégradation E2EE (ROADMAP §6.6) : on n'implémente pas le chiffrement, et
   // le serveur cible REJETTE un message en clair dans un salon chiffré
@@ -664,7 +699,7 @@ function Composer({
         </Pressable>
         <TextInput
           value={brouillon}
-          onChangeText={setBrouillon}
+          onChangeText={changerBrouillon}
           placeholder="Message"
           placeholderTextColor={c.attenue}
           multiline

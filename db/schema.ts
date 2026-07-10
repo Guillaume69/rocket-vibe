@@ -147,6 +147,20 @@ export const televersements = sqliteTable(
 );
 
 /**
+ * Brouillons de composer (8.7), par salon (`rid`) ou par fil (`rid:tmid`).
+ * En SQLite plutôt qu'en MMKV (écart au plan consigné) : le brouillon est
+ * débouncé, la latence asynchrone est sans objet, et une dépendance NATIVE
+ * de plus — donc un rebuild — ne se justifie pas contre ROADMAP §4.2 quand
+ * la base couvre déjà tout l'état local.
+ */
+export const brouillons = sqliteTable('brouillons', {
+  /** `rid`, ou `rid:tmid` pour la réponse dans un fil. */
+  cle: text('cle').primaryKey(),
+  texte: text('texte').notNull(),
+  misAJourLe: integer('mis_a_jour_le').notNull(),
+});
+
+/**
  * Curseurs de rattrapage, par salon et par flux. `chat.syncMessages` traite un
  * salon à la fois et le REST est rate-limité : on ne re-synchronise que les
  * salons ouverts ou récemment actifs (étape 5.2).

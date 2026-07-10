@@ -55,23 +55,26 @@ function RechercheMessages({
 }) {
   const [requete, setRequete] = useState('');
   const [resultats, setResultats] = useState<MessageLocal[]>([]);
-  const [cherche, setCherche] = useState(false);
+  // La requête dont les résultats affichés sont issus : « on cherche » se
+  // DÉRIVE (requête courante ≠ requête répondue) au lieu de vivre dans un
+  // état posé par l'effet — sans quoi, pendant les 300 ms de débounce d'une
+  // nouvelle frappe, l'écran afficherait un faux « Aucun message trouvé ».
+  const [repondue, setRepondue] = useState('');
   const [message, setMessage] = useState<string | null>(null);
+  const propre = requete.trim();
+  const cherche = propre !== '' && repondue !== propre;
 
   // Même idiome que le spotlight : débounce (REST rate-limité) + garde de
   // séquence (la réponse lente de « a » n'écrase pas celle de « ab »).
   const sequence = useRef(0);
   useEffect(() => {
-    const propre = requete.trim();
     const n = ++sequence.current;
-    // Dès la frappe, PAS au tir du débounce : sinon, pendant les 300 ms,
-    // l'écran afficherait un faux « Aucun message trouvé ».
-    setCherche(propre !== '');
     const minuterie = setTimeout(
       () => {
         if (propre === '') {
           setResultats([]);
           setMessage(null);
+          setRepondue('');
           return;
         }
         client
@@ -86,18 +89,18 @@ function RechercheMessages({
                 .filter((m): m is MessageLocal => m !== null),
             );
             setMessage(null);
-            setCherche(false);
+            setRepondue(propre);
           })
           .catch(() => {
             if (sequence.current !== n) return;
             setMessage('Recherche impossible.');
-            setCherche(false);
+            setRepondue(propre);
           });
       },
       propre === '' ? 0 : 300,
     );
     return () => clearTimeout(minuterie);
-  }, [requete, client, rid]);
+  }, [propre, client, rid]);
 
   return (
     <SafeAreaView style={[styles.plein, { backgroundColor: c.fond }]} edges={['bottom']}>

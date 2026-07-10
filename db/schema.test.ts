@@ -42,6 +42,7 @@ describe('migrations', () => {
     const db = baseMigree();
     assert.deepEqual(tables(db), [
       'abonnements',
+      'brouillons',
       'etat_synchro',
       'messages',
       'salons',

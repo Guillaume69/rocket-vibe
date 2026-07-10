@@ -33,6 +33,7 @@ import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSaisie, phraseSaisie } from '../../lib/saisie.ts';
 import { useBrouillon } from '../../ui/brouillons.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
+import { BandeauCompletionEmoji, useCompletionEmoji } from '../../ui/completionEmoji.tsx';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
 import { useSession } from '../../ui/session.tsx';
@@ -604,6 +605,11 @@ function Composer({
   // `.m4a` AAC (préréglage HIGH_QUALITY) — le MIME attendu est `audio/mp4`.
   const enregistreur = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
 
+  // Autocomplétion des emojis : curseur + insertion, mécanique partagée avec le
+  // composer du fil (`useCompletionEmoji`).
+  const { curseur, selection, surSelection, choisirEmoji, reinitialiser } =
+    useCompletionEmoji(brouillon, setBrouillon, sauverBrouillon);
+
   const changerBrouillon = useCallback(
     (texte: string) => {
       setBrouillon(texte);
@@ -616,12 +622,13 @@ function Composer({
     const texte = brouillon.trim();
     if (texte === '') return;
     setBrouillon('');
+    reinitialiser();
     effacerBrouillon();
     // L'affichage optimiste et la persistance de l'intention sont dans
     // `envoyer` : d'ici, rien à attendre. Un refus deviendra un statut
     // « échec » actionnable sur la ligne elle-même.
     envoi.envoyer(rid, texte).catch((e: unknown) => console.warn('envoi: échec local', e));
-  }, [brouillon, envoi, rid, effacerBrouillon]);
+  }, [brouillon, envoi, rid, effacerBrouillon, reinitialiser]);
 
   const basculerVocal = useCallback(async () => {
     setErreurFichier(null);
@@ -740,6 +747,12 @@ function Composer({
       {erreurFichier !== null && (
         <Text style={[styles.erreurComposer, { color: c.texteErreur }]}>{erreurFichier}</Text>
       )}
+      <BandeauCompletionEmoji
+        texte={brouillon}
+        curseur={curseur}
+        c={c}
+        surChoisir={choisirEmoji}
+      />
       <View style={[styles.composer, { borderTopColor: c.bordure }]}>
         <Pressable
           onPress={() => void joindre()}
@@ -756,7 +769,9 @@ function Composer({
         </Pressable>
         <TextInput
           value={brouillon}
+          selection={selection}
           onChangeText={changerBrouillon}
+          onSelectionChange={surSelection}
           placeholder="Message"
           placeholderTextColor={c.attenue}
           multiline

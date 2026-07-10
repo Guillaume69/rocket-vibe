@@ -20,6 +20,7 @@ import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
 import { useBrouillon } from '../../ui/brouillons.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
+import { BandeauCompletionEmoji, useCompletionEmoji } from '../../ui/completionEmoji.tsx';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
 import { useSession } from '../../ui/session.tsx';
 import { useSynchro } from '../../ui/synchro.tsx';
@@ -326,6 +327,9 @@ function ComposerFil({
   effacerBrouillon: () => void;
 }) {
   const [brouillon, setBrouillon] = useState(brouillonInitial);
+  // Autocomplétion des emojis — mécanique partagée avec le composer du salon.
+  const { curseur, selection, surSelection, choisirEmoji, reinitialiser } =
+    useCompletionEmoji(brouillon, setBrouillon, sauverBrouillon);
   const changer = useCallback(
     (texte: string) => {
       setBrouillon(texte);
@@ -338,30 +342,41 @@ function ComposerFil({
     const texte = brouillon.trim();
     if (texte === '') return;
     setBrouillon('');
+    reinitialiser();
     effacerBrouillon();
     envoi.envoyer(rid, texte, filId).catch(() => {});
     apresEnvoi();
-  }, [brouillon, envoi, rid, filId, effacerBrouillon, apresEnvoi]);
+  }, [brouillon, envoi, rid, filId, effacerBrouillon, apresEnvoi, reinitialiser]);
 
   return (
-    <View style={[styles.composer, { borderTopColor: c.bordure }]}>
-      <TextInput
-        value={brouillon}
-        onChangeText={changer}
-        placeholder="Répondre dans le fil"
-        placeholderTextColor={c.attenue}
-        multiline
-        style={[styles.champComposer, { color: c.texte, backgroundColor: c.carte }]}
+    <View>
+      <BandeauCompletionEmoji
+        texte={brouillon}
+        curseur={curseur}
+        c={c}
+        surChoisir={choisirEmoji}
       />
-      {brouillon.trim() !== '' && (
-        <Pressable
-          onPress={envoyer}
-          android_ripple={{ color: c.ondulation, borderless: true }}
-          style={({ pressed }) => [styles.boutonEnvoyer, { opacity: pressed ? 0.4 : 1 }]}
-        >
-          <Text style={[styles.texteEnvoyer, { color: c.accent }]}>Envoyer</Text>
-        </Pressable>
-      )}
+      <View style={[styles.composer, { borderTopColor: c.bordure }]}>
+        <TextInput
+          value={brouillon}
+          selection={selection}
+          onChangeText={changer}
+          onSelectionChange={surSelection}
+          placeholder="Répondre dans le fil"
+          placeholderTextColor={c.attenue}
+          multiline
+          style={[styles.champComposer, { color: c.texte, backgroundColor: c.carte }]}
+        />
+        {brouillon.trim() !== '' && (
+          <Pressable
+            onPress={envoyer}
+            android_ripple={{ color: c.ondulation, borderless: true }}
+            style={({ pressed }) => [styles.boutonEnvoyer, { opacity: pressed ? 0.4 : 1 }]}
+          >
+            <Text style={[styles.texteEnvoyer, { color: c.accent }]}>Envoyer</Text>
+          </Pressable>
+        )}
+      </View>
     </View>
   );
 }

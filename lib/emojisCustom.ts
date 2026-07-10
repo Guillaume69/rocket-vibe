@@ -61,17 +61,22 @@ export function indexer(entrees: EmojiCustom[]): Map<string, Cible> {
 
 let index = new Map<string, Cible>();
 let baseActive: string | null = null;
+// Cache de `codesEmojiCustom()` : rebâti seulement quand l'index change, pas à
+// chaque frappe du composer. Invalidé partout où `index` est réassigné.
+let codesCache: readonly string[] | null = null;
 
 /** Pose l'index du serveur actif. Appelé au démarrage puis après un fetch. */
 export function definirEmojisCustom(baseUrl: string, entrees: EmojiCustom[]): void {
   baseActive = baseUrl.replace(/\/+$/, '');
   index = indexer(entrees);
+  codesCache = null;
 }
 
 /** À la déconnexion : un index survivant servirait les emojis de l'ancien serveur. */
 export function viderEmojisCustom(): void {
   index = new Map();
   baseActive = null;
+  codesCache = null;
 }
 
 /**
@@ -82,6 +87,16 @@ export function urlEmojiCustom(shortCode: string): string | null {
   const cible = index.get(shortCode);
   if (cible === undefined || baseActive === null) return null;
   return `${baseActive}/emoji-custom/${encodeURIComponent(cible.nom)}.${encodeURIComponent(cible.extension)}`;
+}
+
+/**
+ * Tous les codes courts custom connus (noms canoniques ET alias), pour
+ * l'autocomplétion. GELÉ et mis en cache : le même tableau est rendu tant que
+ * l'index ne change pas (invalidé par `definir`/`viderEmojisCustom`), donc pas
+ * de recopie ni de risque de mutation à chaque frappe.
+ */
+export function codesEmojiCustom(): readonly string[] {
+  return (codesCache ??= Object.freeze([...index.keys()]));
 }
 
 /** Un `unknown` du réseau vers une entrée propre, ou `null` si inexploitable. */

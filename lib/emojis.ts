@@ -37,3 +37,20 @@ export function unicodeDeCodeCourt(code: string): string | null {
   // Le générateur garantit la forme ; `lib/emojis.test.ts` la vérifie en bloc.
   return String.fromCodePoint(...points.split('-').map((p) => parseInt(p, 16)));
 }
+
+let codes: readonly string[] | null = null;
+
+/**
+ * Tous les codes courts standard connus, pour l'autocomplétion du composer
+ * (`lib/completionEmoji.ts`). Dérivés des clés de la table déjà parsée — un seul
+ * `JSON.parse`, partagé avec `unicodeDeCodeCourt`. La liste est figée (table
+ * générée) : on la met en cache, jamais recopiée à la frappe.
+ *
+ * `readonly` et GELÉE : le même tableau est rendu à chaque appel. Un futur
+ * appelant qui le trierait ou le tronquerait en place corromprait toutes les
+ * complétions suivantes — `Object.freeze` fait échouer la mutation d'emblée.
+ */
+export function codesEmojiStandard(): readonly string[] {
+  table ??= JSON.parse(CODES_EMOJI) as Record<string, string>;
+  return (codes ??= Object.freeze(Object.keys(table)));
+}

@@ -85,7 +85,7 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
 | 5 | Résilience et rattrapage | ✅ 2026-07-10 |
 | 6 | Push intégré | ✅ 2026-07-10 |
 | 7 | Upload | ✅ 2026-07-10 |
-| 8 | Offline-first et finitions | ☐ |
+| 8 | Offline-first et finitions | ✅ 2026-07-10 |
 | 9 | iOS | ☐ |
 
 ---

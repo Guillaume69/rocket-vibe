@@ -83,6 +83,7 @@ function Salons({ c, base }: { c: Couleurs; base: BaseLocale }) {
       renderItem={({ item }) => (
         <LigneSalon c={c} salon={item.salon} abonnement={item.abonnement} />
       )}
+      ListHeaderComponent={<EnTeteDeListe c={c} />}
       ListEmptyComponent={
         <Text style={[styles.vide, { color: c.attenue }]}>
           Aucun salon pour l&apos;instant — la première synchronisation peut prendre quelques
@@ -141,6 +142,20 @@ function LigneSalon({
           <Text style={styles.texteBadge}>{nonLus}</Text>
         </View>
       )}
+    </Pressable>
+  );
+}
+
+function EnTeteDeListe({ c }: { c: Couleurs }) {
+  const routeur = useRouter();
+  return (
+    <Pressable
+      onPress={() => routeur.push('/recherche')}
+      android_ripple={{ color: c.ondulation }}
+      style={styles.ligne}
+    >
+      <Text style={[styles.prefixe, { color: c.accent }]}>＋</Text>
+      <Text style={[styles.nomSalon, { color: c.accent }]}>Nouvelle conversation</Text>
     </Pressable>
   );
 }

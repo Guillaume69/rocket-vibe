@@ -480,6 +480,7 @@ function Salon({
       <EnTeteSalon
         c={c}
         salon={salon}
+        client={client}
         statutDM={statutDM}
         insetTop={insets.top}
         // Repli si le salon est la RACINE (deep-link à froid) : `back()` n'a
@@ -822,6 +823,7 @@ function Composer({
 function EnTeteSalon({
   c,
   salon,
+  client,
   statutDM,
   insetTop,
   onRetour,
@@ -829,6 +831,7 @@ function EnTeteSalon({
 }: {
   c: Couleurs;
   salon: LigneDeSalon | undefined;
+  client: ClientRest;
   statutDM: StatutPresence | null;
   insetTop: number;
   onRetour: () => void;
@@ -846,6 +849,9 @@ function EnTeteSalon({
         nom={nom}
         type={salon?.type}
         chiffre={salon?.chiffre ?? false}
+        rid={salon?.rid}
+        dmAutreUid={salon?.dmAutreUid}
+        client={client}
         taille={34}
         rayon={12}
       />

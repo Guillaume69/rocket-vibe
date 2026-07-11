@@ -2,7 +2,13 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import { ClientRest } from './rest.ts';
-import { ErreurUpload, televerser, urlFichierProtege, type TransportUpload } from './upload.ts';
+import {
+  ErreurUpload,
+  televerser,
+  urlAvatar,
+  urlFichierProtege,
+  type TransportUpload,
+} from './upload.ts';
 
 function clientAuthentifie(reponsesPost: Record<string, unknown>) {
   const posts: { chemin: string; corps: unknown }[] = [];
@@ -87,5 +93,30 @@ describe('urlFichierProtege', () => {
   test('respecte une query déjà présente', () => {
     const { client } = clientAuthentifie({});
     assert.match(urlFichierProtege(client, '/file-upload/f1/x.png?a=1'), /\?a=1&rc_uid=/);
+  });
+});
+
+describe('urlAvatar', () => {
+  test('vise par uid, authentifié — Accounts_AvatarBlockUnauthenticatedAccess l\'exige', () => {
+    const { client } = clientAuthentifie({});
+    assert.equal(
+      urlAvatar(client, { uid: 'u123' }),
+      'http://x/avatar/uid/u123?rc_uid=uid-alice&rc_token=jeton-alice',
+    );
+  });
+
+  test('un pseudo prime sur l\'uid, et est encodé', () => {
+    const { client } = clientAuthentifie({});
+    assert.match(urlAvatar(client, { username: 'a b', uid: 'u1' }) ?? '', /\/avatar\/a%20b\?/);
+  });
+
+  test('un canal vise /avatar/room/<rid>', () => {
+    const { client } = clientAuthentifie({});
+    assert.match(urlAvatar(client, { rid: 'GENERAL' }) ?? '', /\/avatar\/room\/GENERAL\?/);
+  });
+
+  test('rend null si rien ne désigne de cible — l\'appelant garde sa tuile', () => {
+    const { client } = clientAuthentifie({});
+    assert.equal(urlAvatar(client, { uid: null, username: '', rid: undefined }), null);
   });
 });

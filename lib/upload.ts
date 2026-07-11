@@ -102,3 +102,37 @@ export function urlFichierProtege(client: ClientRest, chemin: string): string {
   const separateur = absolu.includes('?') ? '&' : '?';
   return `${absolu}${separateur}rc_uid=${encodeURIComponent(client.identifiants.userId)}&rc_token=${encodeURIComponent(client.identifiants.authToken)}`;
 }
+
+/**
+ * URL d'avatar authentifiée. Le serveur cible a
+ * `Accounts_AvatarBlockUnauthenticatedAccess = true` : sans `rc_uid`/`rc_token`
+ * l'avatar répond 404/403 (vérifié sur 8.5). Rend `null` quand rien ne désigne
+ * de cible — l'appelant garde alors sa tuile dégradée.
+ *
+ * Astuce clef : Rocket.Chat sert une VRAIE image (`image/png`, `image/jpeg`)
+ * quand une photo existe, mais un SVG généré à initiales (`image/svg+xml`)
+ * sinon. `<Image>` d'Android (Fresco) ne décode pas le SVG et déclenche son
+ * `onError` : ce seul signal distingue « pas de photo » de « photo », sans
+ * qu'on ait à synchroniser le moindre `avatarETag`.
+ *
+ * On vise par `uid` (message : `auteurId` ; DM : `dmAutreUid`) plutôt que par
+ * pseudo — robuste aux renommages et aux points/espaces des noms — et par
+ * `rid` pour l'avatar d'un canal.
+ */
+export function urlAvatar(
+  client: ClientRest,
+  cible: { uid?: string | null; username?: string | null; rid?: string | null },
+): string | null {
+  const { uid, username, rid } = cible;
+  let chemin: string;
+  if (typeof username === 'string' && username !== '') {
+    chemin = `/avatar/${encodeURIComponent(username)}`;
+  } else if (typeof uid === 'string' && uid !== '') {
+    chemin = `/avatar/uid/${encodeURIComponent(uid)}`;
+  } else if (typeof rid === 'string' && rid !== '') {
+    chemin = `/avatar/room/${encodeURIComponent(rid)}`;
+  } else {
+    return null;
+  }
+  return urlFichierProtege(client, chemin);
+}

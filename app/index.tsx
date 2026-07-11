@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { BaseLocale } from '../db/client.ts';
 import { abonnements, salons } from '../db/schema.ts';
 import { obtenirJetonFcm } from '../lib/push.ts';
+import type { ClientRest } from '../lib/rest.ts';
 import { AvatarSalon, BadgeEtoile, Marque, TuileAvatar } from '../ui/kit.tsx';
 import { COULEURS_PRESENCE, usePresence } from '../ui/presence.ts';
 import { useSession } from '../ui/session.tsx';
@@ -41,7 +42,7 @@ export default function EcranAccueil() {
           rendre le wordmark dégradé. */}
       <Stack.Screen options={{ headerShown: false }} />
       <EnTeteListe c={c} />
-      <ListeSalons c={c} />
+      <ListeSalons c={c} client={etat.client} />
     </SafeAreaView>
   );
 }
@@ -63,7 +64,7 @@ function EnTeteListe({ c }: { c: Couleurs }) {
   );
 }
 
-function ListeSalons({ c }: { c: Couleurs }) {
+function ListeSalons({ c, client }: { c: Couleurs; client: ClientRest }) {
   const synchro = useSynchro();
 
   if (synchro.phase === 'erreur') {
@@ -80,10 +81,10 @@ function ListeSalons({ c }: { c: Couleurs }) {
       </View>
     );
   }
-  return <Salons c={c} base={synchro.base} />;
+  return <Salons c={c} base={synchro.base} client={client} />;
 }
 
-function Salons({ c, base }: { c: Couleurs; base: BaseLocale }) {
+function Salons({ c, base, client }: { c: Couleurs; base: BaseLocale; client: ClientRest }) {
   // Deux requêtes vives, une PAR TABLE : le `useLiveQuery` de drizzle n'écoute
   // que la table du FROM. Avec une jointure, une écriture qui ne touche que
   // `abonnements` (lecture sur un autre appareil, salon masqué) ne
@@ -105,7 +106,7 @@ function Salons({ c, base }: { c: Couleurs; base: BaseLocale }) {
       data={visibles}
       keyExtractor={(l) => l.salon.rid}
       renderItem={({ item }) => (
-        <LigneSalon c={c} salon={item.salon} abonnement={item.abonnement} />
+        <LigneSalon c={c} salon={item.salon} abonnement={item.abonnement} client={client} />
       )}
       ListHeaderComponent={<LigneNouvelleConversation c={c} />}
       ListEmptyComponent={
@@ -127,10 +128,12 @@ function LigneSalon({
   c,
   salon,
   abonnement,
+  client,
 }: {
   c: Couleurs;
   salon: LigneDeSalon;
   abonnement: LigneDAbonnement | null;
+  client: ClientRest;
 }) {
   const routeur = useRouter();
   // Pastille de présence (8.4), DM à deux seulement (`dm_autre_uid` est null
@@ -151,7 +154,15 @@ function LigneSalon({
       style={({ pressed }) => [styles.ligne, { opacity: pressed ? 0.6 : 1 }]}
     >
       <View>
-        <AvatarSalon c={c} nom={nom} type={salon.type} chiffre={salon.chiffre} />
+        <AvatarSalon
+          c={c}
+          nom={nom}
+          type={salon.type}
+          chiffre={salon.chiffre}
+          rid={salon.rid}
+          dmAutreUid={salon.dmAutreUid}
+          client={client}
+        />
         {statut !== null && (
           <View
             style={[

@@ -13,7 +13,7 @@ import type { messages } from '../db/schema.ts';
 import { arbreDuMessage } from '../lib/markdown.ts';
 import { texteSysteme } from '../lib/messagesSysteme.ts';
 import type { ClientRest } from '../lib/rest.ts';
-import { urlFichierProtege } from '../lib/upload.ts';
+import { urlAvatar, urlFichierProtege } from '../lib/upload.ts';
 import { TuileAvatar } from './kit.tsx';
 import { CorpsMessage, GardeRendu } from './markdown.tsx';
 import { type Couleurs, degradeAvatar, POLICES } from './theme.ts';
@@ -65,7 +65,14 @@ export const LigneMessage = memo(function LigneMessage({
           réessayer/abandonner/pièces jointes ; l'initiale décorative ne doit
           pas devenir un nœud de plus, elle double la navigation au balayage. */}
       <View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
-        <TuileAvatar c={c} cle={auteur} initiale={auteur.charAt(0) || '?'} taille={34} rayon={12} />
+        <TuileAvatar
+          c={c}
+          cle={auteur}
+          initiale={auteur.charAt(0) || '?'}
+          uri={urlAvatar(client, { uid: message.auteurId })}
+          taille={34}
+          rayon={12}
+        />
       </View>
       <View style={styles.corps}>
         <View style={styles.enTete}>

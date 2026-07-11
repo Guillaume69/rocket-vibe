@@ -7,9 +7,10 @@
 
 import MaskedView from '@react-native-masked-view/masked-view';
 import { LinearGradient } from 'expo-linear-gradient';
-import type { ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   type StyleProp,
   StyleSheet,
@@ -19,6 +20,8 @@ import {
   type ViewStyle,
 } from 'react-native';
 
+import type { ClientRest } from '../lib/rest.ts';
+import { urlAvatar } from '../lib/upload.ts';
 import { type Couleurs, degradeAvatar, type Degrade, POLICES } from './theme.ts';
 
 const DEBUT = { x: 0, y: 0 } as const;
@@ -86,6 +89,11 @@ export function Marque({
  * Tuile d'avatar : carré arrondi en dégradé, avec une initiale ou un enfant
  * (emoji cadenas d'un salon chiffré, « + » d'une nouvelle conversation). La
  * couleur est STABLE par `cle` — la même personne garde sa teinte partout.
+ *
+ * Si `uri` est fourni, la VRAIE photo se pose par-dessus la tuile : elle sert
+ * de fond pendant le chargement, et de repli si la photo n'existe pas — le
+ * serveur renvoie alors un SVG que `<Image>` ne décode pas, donc `onError`
+ * démasque à nouveau le dégradé (voir `urlAvatar`).
  */
 export function TuileAvatar({
   c,
@@ -97,6 +105,7 @@ export function TuileAvatar({
   deg,
   couleurTexte = '#FFFFFF',
   enfant,
+  uri,
   style,
 }: {
   c: Couleurs;
@@ -110,10 +119,24 @@ export function TuileAvatar({
   deg?: Degrade;
   couleurTexte?: string;
   enfant?: ReactNode;
+  /** Photo à superposer. `null`/absente → tuile seule. */
+  uri?: string | null;
   style?: StyleProp<ViewStyle>;
 }) {
   const gradient: Degrade =
     deg ?? (neutre ? c.degradeNeutre : degradeAvatar(cle ?? '', c.avatarsDegrades));
+
+  // Une photo échouée (SVG placeholder, réseau) fait retomber sur la tuile. On
+  // réarme à chaque changement d'`uri` — lignes de liste recyclées — via le
+  // motif « ajuster l'état pendant le rendu » (React docs), pas un effet.
+  const [photoKO, setPhotoKO] = useState(false);
+  const [uriSuivie, setUriSuivie] = useState(uri);
+  if (uri !== uriSuivie) {
+    setUriSuivie(uri);
+    setPhotoKO(false);
+  }
+  const photo = typeof uri === 'string' && uri !== '' && !photoKO ? uri : null;
+
   return (
     <LinearGradient
       colors={gradient}
@@ -129,6 +152,14 @@ export function TuileAvatar({
           {(initiale ?? '?').toUpperCase()}
         </Text>
       )}
+      {photo !== null && (
+        <Image
+          source={{ uri: photo }}
+          onError={() => setPhotoKO(true)}
+          resizeMode="cover"
+          style={[StyleSheet.absoluteFill, { borderRadius: rayon }]}
+        />
+      )}
     </LinearGradient>
   );
 }
@@ -143,6 +174,9 @@ export function AvatarSalon({
   nom,
   type,
   chiffre,
+  rid,
+  dmAutreUid,
+  client,
   taille = 44,
   rayon = 15,
 }: {
@@ -150,6 +184,10 @@ export function AvatarSalon({
   nom: string;
   type: string | undefined;
   chiffre: boolean;
+  rid: string | undefined;
+  /** L'autre participant d'un DM à deux, pour viser sa photo par uid. */
+  dmAutreUid: string | null | undefined;
+  client: ClientRest;
   taille?: number;
   rayon?: number;
 }) {
@@ -165,11 +203,15 @@ export function AvatarSalon({
     );
   }
   const estDM = type === 'd';
+  // DM : la photo de l'autre par uid (on n'a pas son pseudo) ; canal/groupe :
+  // l'avatar de salon. Absent → SVG côté serveur → repli sur la tuile.
+  const uri = urlAvatar(client, estDM ? { uid: dmAutreUid } : { rid });
   return (
     <TuileAvatar
       c={c}
       cle={nom}
       initiale={estDM ? nom.charAt(0) || '?' : '#'}
+      uri={uri}
       taille={taille}
       rayon={rayon}
     />

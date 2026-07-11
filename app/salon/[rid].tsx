@@ -34,6 +34,7 @@ import type { MoteurTeleversement } from '../../lib/envoiFichiers.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSaisie, phraseSaisie } from '../../lib/saisie.ts';
 import { useActivite } from '../../ui/activite.ts';
+import { ApercuPieceJointe, type FichierEnAttente } from '../../ui/apercuPieceJointe.tsx';
 import { useBrouillon } from '../../ui/brouillons.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
 import { BandeauCompletionEmoji, useCompletionEmoji } from '../../ui/completionEmoji.tsx';
@@ -623,6 +624,10 @@ function Composer({
   const [envoiFichier, setEnvoiFichier] = useState(false);
   const [erreurFichier, setErreurFichier] = useState<string | null>(null);
   const [enregistrement, setEnregistrement] = useState(false);
+  // Pièce jointe en attente d'envoi (image, audio, ou tout fichier) : elle se
+  // pose au-dessus du composer, on lui ajoute une légende, puis on l'envoie —
+  // au lieu de partir dès le choix (7.x). Une seule à la fois.
+  const [enAttente, setEnAttente] = useState<FichierEnAttente | null>(null);
   // `.m4a` AAC (préréglage HIGH_QUALITY) — le MIME attendu est `audio/mp4`.
   const enregistreur = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
 
@@ -639,17 +644,39 @@ function Composer({
     [sauverBrouillon],
   );
 
-  const envoyerMessage = useCallback(() => {
-    const texte = brouillon.trim();
-    if (texte === '') return;
+  const envoyer = useCallback(() => {
+    const legende = brouillon.trim();
+    // Une pièce jointe en attente part AVEC la légende, en un seul message.
+    if (enAttente !== null) {
+      setErreurFichier(null);
+      setEnvoiFichier(true);
+      // `fichiers.envoyer` valide (taille/type), persiste l'intention puis
+      // téléverse ; il ne REJETTE que sur un refus de validation — un échec
+      // réseau devient une ligne d'échec actionnable (bandeau du salon). On ne
+      // vide donc l'aperçu qu'au succès, sinon le fichier serait perdu sans trace.
+      fichiers
+        .envoyer(rid, enAttente, legende || undefined)
+        .then(() => {
+          setEnAttente(null);
+          setBrouillon('');
+          reinitialiser();
+          effacerBrouillon();
+        })
+        .catch((e: unknown) =>
+          setErreurFichier(e instanceof Error ? e.message : 'Téléversement impossible.'),
+        )
+        .finally(() => setEnvoiFichier(false));
+      return;
+    }
+    if (legende === '') return;
     setBrouillon('');
     reinitialiser();
     effacerBrouillon();
     // L'affichage optimiste et la persistance de l'intention sont dans
     // `envoyer` : d'ici, rien à attendre. Un refus deviendra un statut
     // « échec » actionnable sur la ligne elle-même.
-    envoi.envoyer(rid, texte).catch((e: unknown) => console.warn('envoi: échec local', e));
-  }, [brouillon, envoi, rid, effacerBrouillon, reinitialiser]);
+    envoi.envoyer(rid, legende).catch((e: unknown) => console.warn('envoi: échec local', e));
+  }, [brouillon, enAttente, envoi, fichiers, rid, effacerBrouillon, reinitialiser]);
 
   const basculerVocal = useCallback(async () => {
     setErreurFichier(null);
@@ -672,30 +699,26 @@ function Composer({
         setErreurFichier('Enregistrement vide.');
         return;
       }
-      setEnvoiFichier(true);
-      try {
-        // Même pipeline que les fichiers : persisté, validé, rejoué.
-        await fichiers.envoyer(rid, {
-          uri,
-          nom: `vocal-${Date.now()}.m4a`,
-          type: 'audio/mp4',
-          taille: null,
-        });
-      } finally {
-        setEnvoiFichier(false);
-      }
+      // On ne l'envoie plus tout de suite : le vocal se pose au-dessus du
+      // composer (réécoutable), en attente d'une éventuelle légende et de l'envoi.
+      setEnAttente({
+        uri,
+        nom: `vocal-${Date.now()}.m4a`,
+        type: 'audio/mp4',
+        taille: null,
+      });
     } catch (e) {
       setEnregistrement(false);
       setErreurFichier(e instanceof Error ? e.message : 'Enregistrement impossible.');
     }
-  }, [enregistrement, enregistreur, fichiers, rid]);
+  }, [enregistrement, enregistreur]);
 
   const joindre = useCallback(async () => {
     setErreurFichier(null);
     const choix = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
     if (choix.canceled || choix.assets.length === 0) return;
     const brut = choix.assets[0];
-    let fichier = {
+    let fichier: FichierEnAttente = {
       uri: brut.uri,
       nom: brut.name,
       type: brut.mimeType ?? 'application/octet-stream',
@@ -703,42 +726,38 @@ function Composer({
     };
     setEnvoiFichier(true);
     try {
-      // Compression (7.3) : une photo repart en JPEG raisonnable — inutile de
-      // pousser 12 Mpx pour un aperçu de chat. Les GIF gardent leur animation.
+      // Compression (7.3) DÈS le choix : l'aperçu montre déjà ce qui partira.
+      // Une photo repart en JPEG raisonnable — inutile de pousser 12 Mpx pour
+      // un aperçu de chat. Les GIF gardent leur animation.
       if (
         fichier.type.startsWith('image/') &&
         fichier.type !== 'image/gif' &&
         (fichier.taille ?? 0) > 500_000
       ) {
-        const reduite = await ImageManipulator.manipulateAsync(
-          brut.uri,
-          [{ resize: { width: 1920 } }],
-          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
-        );
-        fichier = {
-          uri: reduite.uri,
-          nom: `${fichier.nom.replace(/\.\w+$/, '')}.jpg`,
-          type: 'image/jpeg',
-          taille: null,
-        };
+        try {
+          const reduite = await ImageManipulator.manipulateAsync(
+            brut.uri,
+            [{ resize: { width: 1920 } }],
+            { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
+          );
+          fichier = {
+            uri: reduite.uri,
+            nom: `${fichier.nom.replace(/\.\w+$/, '')}.jpg`,
+            type: 'image/jpeg',
+            taille: null,
+          };
+        } catch {
+          // Compression impossible : on met l'original en attente tel quel.
+        }
       }
-      // Validation contre FileUpload_MaxFileSize / MediaTypeWhiteList AVANT
-      // le moindre octet, puis persistance et envoi (rejoué après un kill).
-      await fichiers.envoyer(rid, fichier, brouillon.trim() || undefined);
-      // L'upload prend des secondes et le champ reste actif : n'effacer que
-      // si le texte n'a PAS bougé — ce qui a été tapé pendant l'envoi n'est
-      // ni la légende partie, ni à jeter.
-      setBrouillon((courant) => {
-        if (courant !== brouillon) return courant;
-        effacerBrouillon();
-        return '';
-      });
-    } catch (e) {
-      setErreurFichier(e instanceof Error ? e.message : 'Téléversement impossible.');
+      // On ne l'envoie plus tout de suite : il se pose au-dessus du composer,
+      // en attente d'une légende. La validation (taille/type) et l'envoi
+      // arrivent au clic sur « envoyer » (voir `envoyer`).
+      setEnAttente(fichier);
     } finally {
       setEnvoiFichier(false);
     }
-  }, [fichiers, rid, brouillon, effacerBrouillon]);
+  }, []);
 
   // Dégradation E2EE (ROADMAP §6.6) : on n'implémente pas le chiffrement, et
   // le serveur cible REJETTE un message en clair dans un salon chiffré
@@ -764,17 +783,32 @@ function Composer({
   }
 
   const brouillonVide = brouillon.trim() === '';
+  // Le bouton d'envoi remplace le micro dès qu'il y a un texte OU une pièce
+  // jointe en attente — mais JAMAIS pendant l'enregistrement, où le bouton doit
+  // rester « arrêter » (⏹), même si du texte a été tapé entre-temps.
+  const montrerEnvoi = (!brouillonVide || enAttente !== null) && !enregistrement;
 
   return (
     <View>
       {erreurFichier !== null && (
         <Text style={[styles.erreurComposer, { color: c.texteErreur }]}>{erreurFichier}</Text>
       )}
+      {/* Le buffer d'aperçu : la pièce jointe attend ici qu'on l'envoie. Son
+          apparition pousse nativement le dernier message vers le haut. */}
+      {enAttente !== null && (
+        <ApercuPieceJointe
+          c={c}
+          fichier={enAttente}
+          occupe={envoiFichier}
+          onRetirer={() => setEnAttente(null)}
+        />
+      )}
       <BandeauCompletionEmoji texte={brouillon} curseur={curseur} c={c} surChoisir={choisirEmoji} />
       <View style={[styles.composer, { borderTopColor: c.bordureDouce }]}>
         <Pressable
           onPress={() => void joindre()}
-          disabled={envoiFichier}
+          // Une seule pièce jointe à la fois : pour en changer, on retire d'abord.
+          disabled={envoiFichier || enregistrement || enAttente !== null}
           android_ripple={{ color: c.ondulation, borderless: true }}
           style={styles.boutonJoindre}
           accessibilityLabel="Joindre un fichier"
@@ -782,7 +816,11 @@ function Composer({
           {envoiFichier ? (
             <ActivityIndicator size="small" color={c.accent} />
           ) : (
-            <Text style={styles.attache}>📎</Text>
+            <Text
+              style={[styles.attache, (enregistrement || enAttente !== null) && styles.attacheInactif]}
+            >
+              📎
+            </Text>
           )}
         </Pressable>
         <TextInput
@@ -790,12 +828,27 @@ function Composer({
           selection={selection}
           onChangeText={changerBrouillon}
           onSelectionChange={surSelection}
-          placeholder="Message"
+          placeholder={enAttente !== null ? 'Ajouter une légende…' : 'Message'}
           placeholderTextColor={c.texteTertiaire}
           multiline
           style={[styles.champComposer, { color: c.texte, backgroundColor: c.carte }]}
         />
-        {brouillonVide ? (
+        {montrerEnvoi ? (
+          <Pressable
+            onPress={envoyer}
+            disabled={envoiFichier}
+            style={({ pressed }) => ({ opacity: pressed || envoiFichier ? 0.7 : 1 })}
+            accessibilityLabel="Envoyer"
+          >
+            <TuileAvatar
+              c={c}
+              deg={[c.accent, c.violet] as const}
+              taille={40}
+              rayon={20}
+              enfant={<Text style={[styles.rondGlyphe, { color: c.surAccent }]}>➤</Text>}
+            />
+          </Pressable>
+        ) : (
           <Pressable
             onPress={() => void basculerVocal()}
             disabled={envoiFichier}
@@ -808,20 +861,6 @@ function Composer({
               taille={40}
               rayon={20}
               enfant={<Text style={styles.rondGlyphe}>{enregistrement ? '⏹' : '🎤'}</Text>}
-            />
-          </Pressable>
-        ) : (
-          <Pressable
-            onPress={envoyerMessage}
-            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
-            accessibilityLabel="Envoyer"
-          >
-            <TuileAvatar
-              c={c}
-              deg={[c.accent, c.violet] as const}
-              taille={40}
-              rayon={20}
-              enfant={<Text style={[styles.rondGlyphe, { color: c.surAccent }]}>➤</Text>}
             />
           </Pressable>
         )}
@@ -965,6 +1004,7 @@ const styles = StyleSheet.create({
     maxHeight: 120,
   },
   attache: { fontSize: 20 },
+  attacheInactif: { opacity: 0.35 },
   rondGlyphe: { fontSize: 18 },
   boutonJoindre: { paddingVertical: 8, paddingHorizontal: 2 },
   erreurComposer: { fontSize: 12, textAlign: 'center', paddingTop: 6, paddingHorizontal: 12 },

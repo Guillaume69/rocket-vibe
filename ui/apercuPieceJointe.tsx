@@ -135,7 +135,7 @@ function BoutonRetirer({
 }
 
 const styles = StyleSheet.create({
-  hote: { paddingHorizontal: 12, paddingTop: 8 },
+  hote: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10 },
   plein: { flex: 1 },
   rangee: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   carte: {

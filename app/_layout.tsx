@@ -14,10 +14,10 @@ import { couleursSombres, POLICES } from '../ui/theme.ts';
  * système, pas une réimplémentation JS.
  *
  * Aucune migration ici : chaque base est migrée par qui l'ouvre —
- * `SynchroProvider` pour la base de la session, l'écran debug pour la base
- * par défaut. Bloquer toute l'app sur la migration d'une base que la session
- * n'utilise peut-être pas retarderait le démarrage pour rien, et un fichier
- * corrompu sans rapport la briquerait entière.
+ * `SynchroProvider` pour la base de la session. Bloquer toute l'app sur la
+ * migration d'une base que la session n'utilise peut-être pas retarderait le
+ * démarrage pour rien, et un fichier corrompu sans rapport la briquerait
+ * entière.
  */
 export default function RootLayout() {
   return (

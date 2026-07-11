@@ -1,4 +1,4 @@
-import { Link, Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -351,12 +351,6 @@ export default function EcranConnexion() {
             <Text style={[styles.lien, { color: c.cyan }]}>Changer de serveur</Text>
           </Pressable>
         )}
-
-        {/* L'instrument de diagnostic doit rester joignable même quand la
-            connexion est précisément ce qui est cassé. */}
-        <Link href="/debug" style={[styles.lien, { color: c.texteTertiaire }]}>
-          Écran debug
-        </Link>
       </ScrollView>
     </VueEvitantLeClavier>
   );

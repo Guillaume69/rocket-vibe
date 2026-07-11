@@ -59,11 +59,6 @@ function EnTeteListe({ c }: { c: Couleurs }) {
         <Text style={styles.enteteLicorne}>🦄</Text>
         <Marque c={c} taille={23} />
       </View>
-      <Link href="/debug" asChild>
-        <Pressable hitSlop={10}>
-          <Text style={styles.roue}>⚙️</Text>
-        </Pressable>
-      </Link>
       <BarreSynchro c={c} actif={enSynchro} />
     </View>
   );
@@ -238,10 +233,6 @@ function PiedDeListe({ c }: { c: Couleurs }) {
         Changer de serveur
       </Link>
 
-      <Link href="/debug" style={[styles.lien, { color: c.cyan }]}>
-        Écran debug
-      </Link>
-
       <Pressable
         onPress={() => void deconnecter()}
         android_ripple={{ color: c.ondulation }}
@@ -314,7 +305,6 @@ const styles = StyleSheet.create({
   },
   enteteMarque: { flexDirection: 'row', alignItems: 'center', gap: 9 },
   enteteLicorne: { fontSize: 22 },
-  roue: { fontSize: 19 },
   contenu: { paddingBottom: 8 },
   ligne: {
     flexDirection: 'row',

@@ -566,11 +566,10 @@ function Salon({
             </Pressable>
           </View>
         ))}
-      {/* Indicateur de saisie FLOTTANT : pastille animée posée en absolu au
-          dessus du composer (via le wrapper `basComposer` qui l'ancre). Elle
-          n'occupe pas de place dans le flux — fini la bande morte au-dessus de
-          l'input quand personne n'écrit — et son apparition ne décale donc pas
-          la liste (ce que la hauteur réservée évitait). */}
+      {/* Indicateur de saisie EN FLUX, juste au-dessus du composer : sa hauteur
+          s'ouvre par un ressort (voir `IndicateurSaisie`) et, la liste étant
+          `flex: 1`, ce gain comprime la liste et fait remonter nativement le
+          dernier message au lieu de le masquer. Replié à 0, aucune bande morte. */}
       <View style={styles.basComposer}>
         <IndicateurSaisie c={c} phrase={phraseQuiTape} />
         {/* Tant que la ligne du salon n'est pas là (lien profond vers un salon

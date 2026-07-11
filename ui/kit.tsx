@@ -11,6 +11,7 @@ import { type ReactNode, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
+  type LayoutChangeEvent,
   Pressable,
   type StyleProp,
   StyleSheet,
@@ -22,12 +23,11 @@ import {
 import Animated, {
   cancelAnimation,
   Easing,
-  FadeInDown,
-  FadeOutDown,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
   withRepeat,
+  withSpring,
   withTiming,
 } from 'react-native-reanimated';
 
@@ -296,31 +296,69 @@ export function BarreSynchro({ c, actif }: { c: Couleurs; actif: boolean }) {
 }
 
 /**
- * Indicateur de saisie : une pastille qui *pop* en douceur au-dessus du
- * composer quand quelqu'un écrit — « bob écrit » + trois points qui pulsent.
- * `phrase` null → rien (et l'animation de SORTIE se joue au démontage de
- * l'`Animated.View`). Posée en absolu par l'appelant (`bottom: '100%'`), elle
- * n'occupe pas de place dans le flux : pas de bande morte quand personne
- * n'écrit, et son apparition ne décale pas la liste.
+ * Indicateur de saisie : une pastille « bob écrit » + trois points qui pulsent,
+ * qui ÉMERGE du composer quand quelqu'un écrit.
+ *
+ * Avant, elle flottait en absolu au-dessus de la liste et masquait le dernier
+ * message. Ici elle prend une VRAIE place en flux, juste au-dessus du composer :
+ * sa hauteur s'ouvre de 0 à sa hauteur naturelle par un ressort. La liste
+ * au-dessus étant `flex: 1`, ce gain de hauteur la comprime d'autant et — liste
+ * inversée, contenu collé au bas — décale nativement le dernier message vers le
+ * haut, frame par frame, le temps de l'animation. Débordement masqué + contenu
+ * ancré en bas : la pastille paraît sortir du composer, pas apparaître par-dessus.
+ *
+ * TOUJOURS montée (jamais `null`) pour deux raisons : mesurer sa hauteur une fois
+ * au montage — l'animation de la PREMIÈRE apparition est alors déjà juste — et
+ * pouvoir jouer le repli quand `phrase` repasse à `null`.
  */
 export function IndicateurSaisie({ c, phrase }: { c: Couleurs; phrase: string | null }) {
-  if (phrase === null) return null;
+  const actif = phrase !== null;
+  // Retenir la dernière phrase le temps du repli : le texte ne doit pas
+  // s'effacer d'un coup avant que la pastille se soit résorbée.
+  const [derniere, setDerniere] = useState(phrase);
+  useEffect(() => {
+    if (phrase !== null) setDerniere(phrase);
+  }, [phrase]);
+
+  // Hauteur naturelle mesurée du contenu (robuste au grossissement des polices,
+  // plus sûr qu'une constante en dur). Tant qu'elle vaut 0, l'enveloppe n'impose
+  // pas de hauteur : le contenu absolu se mesure quand même, puis on la fige.
+  const [hauteur, setHauteur] = useState(0);
+  const ouverture = useSharedValue(0);
+  useEffect(() => {
+    // Ressort tendu mais amorti : l'ouverture « liquide », sans rebond mou.
+    ouverture.value = withSpring(actif ? 1 : 0, { damping: 20, mass: 0.7, stiffness: 220 });
+  }, [actif, ouverture]);
+
+  const styleEnveloppe = useAnimatedStyle(() => ({
+    height: ouverture.value * hauteur,
+    opacity: ouverture.value,
+  }));
+
   // Les points animés REMPLACENT les points de suspension de `phraseSaisie`.
-  const texte = phrase.replace(/…$/u, '');
+  const texte = (phrase ?? derniere ?? '').replace(/…$/u, '');
+
   return (
     <Animated.View
-      entering={FadeInDown.springify().damping(16).mass(0.5)}
-      exiting={FadeOutDown.duration(140)}
-      style={styles.saisieAncre}
+      style={[styles.saisieEnveloppe, hauteur > 0 && styleEnveloppe]}
+      pointerEvents="none"
     >
-      <View style={[styles.saisiePastille, { backgroundColor: c.carte, borderColor: c.bordure }]}>
-        <Text style={[styles.saisieTexte, { color: c.texteSecondaire }]} numberOfLines={1}>
-          {texte}
-        </Text>
-        <View style={styles.saisiePoints}>
-          <PointSaisie c={c} rang={0} />
-          <PointSaisie c={c} rang={1} />
-          <PointSaisie c={c} rang={2} />
+      <View
+        onLayout={(e: LayoutChangeEvent) => {
+          const h = e.nativeEvent.layout.height;
+          if (h > 0 && h !== hauteur) setHauteur(h);
+        }}
+        style={styles.saisieContenu}
+      >
+        <View style={[styles.saisiePastille, { backgroundColor: c.carte, borderColor: c.bordure }]}>
+          <Text style={[styles.saisieTexte, { color: c.texteSecondaire }]} numberOfLines={1}>
+            {texte}
+          </Text>
+          <View style={styles.saisiePoints}>
+            <PointSaisie c={c} rang={0} />
+            <PointSaisie c={c} rang={1} />
+            <PointSaisie c={c} rang={2} />
+          </View>
         </View>
       </View>
     </Animated.View>
@@ -373,15 +411,19 @@ const styles = StyleSheet.create({
     pointerEvents: 'none',
   },
   comete: { position: 'absolute', top: 0, bottom: 0, width: COMETE_LARGEUR },
-  saisieAncre: {
+  // Enveloppe en FLUX (pas en absolu) : sa hauteur animée pousse la liste.
+  // `overflow: hidden` clippe le contenu ancré en bas → effet d'émergence.
+  saisieEnveloppe: { width: '100%', overflow: 'hidden' },
+  // Ancré au bas de l'enveloppe : quand elle s'ouvre de 0 à sa hauteur, la
+  // pastille se dévoile du bas vers le haut, comme sortant du composer.
+  saisieContenu: {
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: '100%',
+    bottom: 0,
     paddingHorizontal: 12,
     paddingBottom: 6,
     alignItems: 'flex-start',
-    pointerEvents: 'none',
   },
   saisiePastille: {
     flexDirection: 'row',

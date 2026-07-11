@@ -23,6 +23,7 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { BaseLocale } from '../../db/client.ts';
 import { abonnements, messages, salons, sortie, televersements } from '../../db/schema.ts';
@@ -34,11 +35,14 @@ import { MoteurSaisie, phraseSaisie } from '../../lib/saisie.ts';
 import { useBrouillon } from '../../ui/brouillons.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
 import { BandeauCompletionEmoji, useCompletionEmoji } from '../../ui/completionEmoji.tsx';
+import { AvatarSalon, TuileAvatar } from '../../ui/kit.tsx';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
+import type { StatutPresence } from '../../lib/presence.ts';
+import { COULEURS_PRESENCE, usePresence } from '../../ui/presence.ts';
 import { useSession } from '../../ui/session.tsx';
 import { useSynchro } from '../../ui/synchro.tsx';
-import { useCouleurs, type Couleurs } from '../../ui/theme.ts';
+import { type Couleurs, POLICES, useCouleurs } from '../../ui/theme.ts';
 
 /**
  * Écran d'un salon — **lecture seule** à cette étape ; l'envoi arrive en 4.5.
@@ -70,6 +74,16 @@ import { useCouleurs, type Couleurs } from '../../ui/theme.ts';
 const PAGE = 50;
 /** Sous ce défilement (px depuis le bas), un entrant nous ramène au bas. */
 const PRES_DU_BAS_PX = 120;
+
+type LigneDeSalon = typeof salons.$inferSelect;
+
+/** Sous-titre d'en-tête d'un DM, selon la présence du correspondant. */
+const PHRASE_PRESENCE: Record<StatutPresence, string> = {
+  online: 'en ligne',
+  away: 'absent',
+  busy: 'occupé',
+  offline: 'hors ligne',
+};
 
 export default function EcranSalon() {
   const { rid } = useLocalSearchParams<{ rid: string }>();
@@ -150,6 +164,10 @@ function Salon({
     [rid],
   );
   const salon = lignesSalon?.[0];
+  const insets = useSafeAreaInsets();
+  // Sous-titre d'en-tête HONNÊTE : le nombre de membres en ligne n'est pas dans
+  // le schéma, mais la présence du correspondant d'un DM, si — sinon, rien.
+  const statutDM = usePresence(salon?.dmAutreUid ?? null);
 
   const { data: brutes } = useLiveQuery(
     base
@@ -430,9 +448,9 @@ function Salon({
       if ('barre' in item) {
         return (
           <View style={styles.barreNouveaux}>
-            <View style={[styles.traitNouveaux, { backgroundColor: c.texteErreur }]} />
-            <Text style={[styles.texteNouveaux, { color: c.texteErreur }]}>nouveaux messages</Text>
-            <View style={[styles.traitNouveaux, { backgroundColor: c.texteErreur }]} />
+            <View style={[styles.traitNouveaux, { backgroundColor: c.accent }]} />
+            <Text style={[styles.texteNouveaux, { color: c.accent }]}>✦ nouveaux messages</Text>
+            <View style={[styles.traitNouveaux, { backgroundColor: c.accent }]} />
           </View>
         );
       }
@@ -456,27 +474,18 @@ function Salon({
     [c, client, sortieParId, reessayer, abandonner, ouvrirActions, ouvrirFil],
   );
 
-  const titre = salon
-    ? `${salon.nomAffiche ?? salon.nom ?? salon.rid}${salon.chiffre ? ' 🔒' : ''}`
-    : '…';
-
   return (
     <VueEvitantLeClavier>
-      <Stack.Screen
-        options={{
-          title: titre,
-          headerRight: () => (
-            <Pressable
-              onPress={() =>
-                routeur.push({ pathname: '/recherche-messages', params: { rid } })
-              }
-              android_ripple={{ color: c.ondulation, borderless: true }}
-              hitSlop={8}
-            >
-              <Text style={styles.iconeEntete}>🔍</Text>
-            </Pressable>
-          ),
-        }}
+      <Stack.Screen options={{ headerShown: false }} />
+      <EnTeteSalon
+        c={c}
+        salon={salon}
+        statutDM={statutDM}
+        insetTop={insets.top}
+        // Repli si le salon est la RACINE (deep-link à froid) : `back()` n'a
+        // alors aucune cible et laisserait l'utilisateur coincé.
+        onRetour={() => (routeur.canGoBack() ? routeur.back() : routeur.replace('/'))}
+        onRecherche={() => routeur.push({ pathname: '/recherche-messages', params: { rid } })}
       />
       {donneesAvecBarre.length === 0 ? (
         // Vide : indicateur, puis mention explicite. (L'ancien piège mVCP
@@ -725,7 +734,7 @@ function Composer({
   // le champ serait promettre un envoi qui échouera toujours.
   if (chiffre) {
     return (
-      <View style={[styles.composer, { borderTopColor: c.bordure }]}>
+      <View style={[styles.composer, { borderTopColor: c.bordureDouce }]}>
         <Text style={[styles.noteComposer, { color: c.attenue }]}>
           🔒 Salon chiffré de bout en bout — écriture non prise en charge par cette application.
         </Text>
@@ -734,7 +743,7 @@ function Composer({
   }
   if (lectureSeule) {
     return (
-      <View style={[styles.composer, { borderTopColor: c.bordure }]}>
+      <View style={[styles.composer, { borderTopColor: c.bordureDouce }]}>
         <Text style={[styles.noteComposer, { color: c.attenue }]}>
           Ce salon est en lecture seule.
         </Text>
@@ -742,18 +751,15 @@ function Composer({
     );
   }
 
+  const brouillonVide = brouillon.trim() === '';
+
   return (
     <View>
       {erreurFichier !== null && (
         <Text style={[styles.erreurComposer, { color: c.texteErreur }]}>{erreurFichier}</Text>
       )}
-      <BandeauCompletionEmoji
-        texte={brouillon}
-        curseur={curseur}
-        c={c}
-        surChoisir={choisirEmoji}
-      />
-      <View style={[styles.composer, { borderTopColor: c.bordure }]}>
+      <BandeauCompletionEmoji texte={brouillon} curseur={curseur} c={c} surChoisir={choisirEmoji} />
+      <View style={[styles.composer, { borderTopColor: c.bordureDouce }]}>
         <Pressable
           onPress={() => void joindre()}
           disabled={envoiFichier}
@@ -762,9 +768,9 @@ function Composer({
           accessibilityLabel="Joindre un fichier"
         >
           {envoiFichier ? (
-            <ActivityIndicator size="small" />
+            <ActivityIndicator size="small" color={c.accent} />
           ) : (
-            <Text style={[styles.texteEnvoyer, { color: c.accent }]}>📎</Text>
+            <Text style={styles.attache}>📎</Text>
           )}
         </Pressable>
         <TextInput
@@ -773,32 +779,96 @@ function Composer({
           onChangeText={changerBrouillon}
           onSelectionChange={surSelection}
           placeholder="Message"
-          placeholderTextColor={c.attenue}
+          placeholderTextColor={c.texteTertiaire}
           multiline
           style={[styles.champComposer, { color: c.texte, backgroundColor: c.carte }]}
         />
-        {brouillon.trim() === '' ? (
+        {brouillonVide ? (
           <Pressable
             onPress={() => void basculerVocal()}
             disabled={envoiFichier}
-            android_ripple={{ color: c.ondulation, borderless: true }}
-            style={styles.boutonJoindre}
+            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
             accessibilityLabel={enregistrement ? "Arrêter l'enregistrement" : 'Message vocal'}
           >
-            <Text style={[styles.texteEnvoyer, { color: enregistrement ? c.texteErreur : c.accent }]}>
-              {enregistrement ? '⏺ stop' : '🎤'}
-            </Text>
+            <TuileAvatar
+              c={c}
+              deg={enregistrement ? ([c.danger, c.danger] as const) : ([c.accent, c.violet] as const)}
+              taille={40}
+              rayon={20}
+              enfant={<Text style={styles.rondGlyphe}>{enregistrement ? '⏹' : '🎤'}</Text>}
+            />
           </Pressable>
         ) : (
           <Pressable
             onPress={envoyerMessage}
-            android_ripple={{ color: c.ondulation, borderless: true }}
-            style={({ pressed }) => [styles.boutonEnvoyer, { opacity: pressed ? 0.4 : 1 }]}
+            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+            accessibilityLabel="Envoyer"
           >
-            <Text style={[styles.texteEnvoyer, { color: c.accent }]}>Envoyer</Text>
+            <TuileAvatar
+              c={c}
+              deg={[c.accent, c.violet] as const}
+              taille={40}
+              rayon={20}
+              enfant={<Text style={[styles.rondGlyphe, { color: c.surAccent }]}>➤</Text>}
+            />
           </Pressable>
         )}
       </View>
+    </View>
+  );
+}
+
+/** En-tête du salon : retour, tuile, nom, présence du correspondant (DM), recherche. */
+function EnTeteSalon({
+  c,
+  salon,
+  statutDM,
+  insetTop,
+  onRetour,
+  onRecherche,
+}: {
+  c: Couleurs;
+  salon: LigneDeSalon | undefined;
+  statutDM: StatutPresence | null;
+  insetTop: number;
+  onRetour: () => void;
+  onRecherche: () => void;
+}) {
+  const nom = salon ? (salon.nomAffiche ?? salon.nom ?? salon.rid) : '…';
+  const estDM = salon?.type === 'd';
+  return (
+    <View style={[styles.entete, { paddingTop: insetTop + 6, borderBottomColor: c.bordureDouce }]}>
+      <Pressable onPress={onRetour} hitSlop={10} accessibilityRole="button" accessibilityLabel="Retour">
+        <Text style={[styles.retour, { color: c.violet }]}>‹</Text>
+      </Pressable>
+      <AvatarSalon
+        c={c}
+        nom={nom}
+        type={salon?.type}
+        chiffre={salon?.chiffre ?? false}
+        taille={34}
+        rayon={12}
+      />
+      <View style={styles.enteteBloc}>
+        <Text style={[styles.enteteNom, { color: c.texte }]} numberOfLines={1}>
+          {nom}
+        </Text>
+        {estDM && statutDM !== null && (
+          <Text
+            style={[styles.enteteSous, { color: COULEURS_PRESENCE[statutDM] }]}
+            numberOfLines={1}
+          >
+            {PHRASE_PRESENCE[statutDM]}
+          </Text>
+        )}
+      </View>
+      <Pressable
+        onPress={onRecherche}
+        hitSlop={8}
+        android_ripple={{ color: c.ondulation, borderless: true }}
+      >
+        <Text style={styles.iconeEntete}>🔍</Text>
+      </Pressable>
     </View>
   );
 }
@@ -838,38 +908,58 @@ const styles = StyleSheet.create({
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   contenu: { paddingHorizontal: 16, paddingVertical: 8 },
   heure: { fontSize: 11 },
+  entete: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
+    paddingHorizontal: 14,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+  },
+  retour: { fontFamily: POLICES.titre, fontSize: 26, paddingRight: 2 },
+  enteteBloc: { flex: 1, minWidth: 0 },
+  enteteNom: { fontFamily: POLICES.titre, fontSize: 16 },
+  enteteSous: { fontFamily: POLICES.corpsGras, fontSize: 11 },
   iconeEntete: { fontSize: 18, paddingHorizontal: 6 },
   saisie: {
+    fontFamily: POLICES.corps,
     fontSize: 12,
     lineHeight: 16,
     fontStyle: 'italic',
     paddingHorizontal: 16,
     paddingBottom: 2,
   },
-  vide: { textAlign: 'center', padding: 24, fontSize: 14 },
-  erreur: { fontSize: 14, fontWeight: '600', textAlign: 'center' },
+  vide: { textAlign: 'center', padding: 24, fontSize: 14, fontFamily: POLICES.corps },
+  erreur: { fontFamily: POLICES.corpsGras, fontSize: 14, textAlign: 'center' },
   composer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 10,
+    gap: 9,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopWidth: 1,
   },
   champComposer: {
     flex: 1,
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    fontFamily: POLICES.corps,
     fontSize: 15,
     maxHeight: 120,
   },
-  boutonEnvoyer: { paddingVertical: 10, paddingHorizontal: 4 },
-  boutonJoindre: { paddingVertical: 10, paddingHorizontal: 2 },
+  attache: { fontSize: 20 },
+  rondGlyphe: { fontSize: 18 },
+  boutonJoindre: { paddingVertical: 8, paddingHorizontal: 2 },
   erreurComposer: { fontSize: 12, textAlign: 'center', paddingTop: 6, paddingHorizontal: 12 },
   barreNouveaux: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8 },
-  traitNouveaux: { flex: 1, height: StyleSheet.hairlineWidth * 2, opacity: 0.5 },
-  texteNouveaux: { fontSize: 11, fontWeight: '600' },
+  traitNouveaux: { flex: 1, height: 2, borderRadius: 2, opacity: 0.5 },
+  texteNouveaux: {
+    fontFamily: POLICES.corpsFort,
+    fontSize: 10.5,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
   bandeEchecFichier: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -877,6 +967,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 6,
   },
-  texteEnvoyer: { fontSize: 15, fontWeight: '700' },
-  noteComposer: { flex: 1, textAlign: 'center', fontSize: 13, paddingVertical: 8 },
+  noteComposer: {
+    flex: 1,
+    textAlign: 'center',
+    fontFamily: POLICES.corps,
+    fontSize: 13,
+    paddingVertical: 8,
+  },
 });

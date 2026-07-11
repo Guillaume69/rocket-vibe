@@ -14,8 +14,9 @@ import { arbreDuMessage } from '../lib/markdown.ts';
 import { texteSysteme } from '../lib/messagesSysteme.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { urlFichierProtege } from '../lib/upload.ts';
+import { TuileAvatar } from './kit.tsx';
 import { CorpsMessage, GardeRendu } from './markdown.tsx';
-import type { Couleurs } from './theme.ts';
+import { type Couleurs, degradeAvatar, POLICES } from './theme.ts';
 
 export type LigneDeMessage = typeof messages.$inferSelect;
 
@@ -45,6 +46,10 @@ export const LigneMessage = memo(function LigneMessage({
   });
 
   const appuiLong = surAppuiLong === null ? undefined : () => surAppuiLong(message.id);
+  const auteur = message.auteurNom ?? '?';
+  // Le pseudo prend la première teinte de sa propre tuile-avatar : nom et
+  // avatar s'accordent, la même personne garde sa couleur d'un message à l'autre.
+  const teinteAuteur = degradeAvatar(auteur, c.avatarsDegrades)[0];
 
   return (
     <Pressable
@@ -56,42 +61,60 @@ export const LigneMessage = memo(function LigneMessage({
       accessible={false}
       style={[styles.message, statutEnvoi === 'en-attente' && styles.enAttente]}
     >
-      <View style={styles.enTete}>
-        <Text style={[styles.auteur, { color: c.texte }]}>{message.auteurNom ?? '?'}</Text>
-        <Text style={[styles.heure, { color: c.attenue }]}>{heure}</Text>
-        {message.modifieLe !== null && (
-          <Text style={[styles.heure, { color: c.attenue }]}>(modifié)</Text>
+      {/* La ligne est `accessible={false}` pour que TalkBack atteigne
+          réessayer/abandonner/pièces jointes ; l'initiale décorative ne doit
+          pas devenir un nœud de plus, elle double la navigation au balayage. */}
+      <View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
+        <TuileAvatar c={c} cle={auteur} initiale={auteur.charAt(0) || '?'} taille={34} rayon={12} />
+      </View>
+      <View style={styles.corps}>
+        <View style={styles.enTete}>
+          <Text style={[styles.auteur, { color: teinteAuteur }]} numberOfLines={1}>
+            {auteur}
+          </Text>
+          <Text style={[styles.heure, { color: c.texteTertiaire }]}>{heure}</Text>
+          {message.modifieLe !== null && (
+            <Text style={[styles.heure, { color: c.texteTertiaire }]}>(modifié)</Text>
+          )}
+          {statutEnvoi === 'en-attente' && (
+            <Text style={[styles.heure, { color: c.texteTertiaire }]}>⏳ envoi…</Text>
+          )}
+        </View>
+        <ContenuMessage c={c} message={message} />
+        {message.piecesJointes !== null && (
+          <PiecesJointes
+            c={c}
+            brut={message.piecesJointes}
+            client={client}
+            surAppuiLong={appuiLong}
+          />
         )}
-        {statutEnvoi === 'en-attente' && (
-          <Text style={[styles.heure, { color: c.attenue }]}>⏳ envoi…</Text>
+        {surOuvrirFil !== null && message.filReponses > 0 && (
+          <Pressable
+            onPress={() => surOuvrirFil(message.id)}
+            style={[styles.puceFil, { backgroundColor: c.carte, borderColor: c.bordure }]}
+          >
+            <Text style={[styles.puceFilTexte, { color: c.cyan }]}>
+              💬 {message.filReponses} {message.filReponses === 1 ? 'réponse' : 'réponses'}
+              {message.filDernier !== null &&
+                ` · ${new Date(message.filDernier).toLocaleTimeString('fr-FR', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}`}
+            </Text>
+          </Pressable>
+        )}
+        {statutEnvoi === 'echec' && (
+          <View style={styles.actionsEchec}>
+            <Pressable onPress={surReessayer ?? undefined}>
+              <Text style={[styles.heure, { color: c.texteErreur }]}>⚠️ Échec — réessayer</Text>
+            </Pressable>
+            <Pressable onPress={() => surAbandonner?.(message.id)}>
+              <Text style={[styles.heure, { color: c.attenue }]}>abandonner</Text>
+            </Pressable>
+          </View>
         )}
       </View>
-      <ContenuMessage c={c} message={message} />
-      {message.piecesJointes !== null && (
-        <PiecesJointes c={c} brut={message.piecesJointes} client={client} surAppuiLong={appuiLong} />
-      )}
-      {surOuvrirFil !== null && message.filReponses > 0 && (
-        <Pressable onPress={() => surOuvrirFil(message.id)}>
-          <Text style={[styles.indicateurFil, { color: c.accent }]}>
-            💬 {message.filReponses} {message.filReponses === 1 ? 'réponse' : 'réponses'}
-            {message.filDernier !== null &&
-              ` · ${new Date(message.filDernier).toLocaleTimeString('fr-FR', {
-                hour: '2-digit',
-                minute: '2-digit',
-              })}`}
-          </Text>
-        </Pressable>
-      )}
-      {statutEnvoi === 'echec' && (
-        <View style={styles.actionsEchec}>
-          <Pressable onPress={surReessayer ?? undefined}>
-            <Text style={[styles.heure, { color: c.texteErreur }]}>⚠️ Échec — réessayer</Text>
-          </Pressable>
-          <Pressable onPress={() => surAbandonner?.(message.id)}>
-            <Text style={[styles.heure, { color: c.attenue }]}>abandonner</Text>
-          </Pressable>
-        </View>
-      )}
     </Pressable>
   );
 });
@@ -233,15 +256,24 @@ function PiecesJointes({
 }
 
 const styles = StyleSheet.create({
-  message: { paddingVertical: 6, gap: 2 },
+  message: { flexDirection: 'row', gap: 10, paddingVertical: 6 },
+  corps: { flex: 1, gap: 2 },
   enAttente: { opacity: 0.55 },
-  enTete: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
-  auteur: { fontSize: 14, fontWeight: '700' },
-  heure: { fontSize: 11 },
-  texte: { fontSize: 15, lineHeight: 21 },
+  enTete: { flexDirection: 'row', alignItems: 'baseline', gap: 7 },
+  auteur: { fontFamily: POLICES.corpsFort, fontSize: 13.5, flexShrink: 1 },
+  heure: { fontFamily: POLICES.corps, fontSize: 10.5 },
+  texte: { fontFamily: POLICES.corps, fontSize: 14, lineHeight: 20 },
   italique: { fontStyle: 'italic' },
   actionsEchec: { flexDirection: 'row', gap: 16 },
   jointes: { gap: 6, marginTop: 4 },
   imageJointe: { borderRadius: 10, backgroundColor: '#00000010' },
-  indicateurFil: { fontSize: 13, fontWeight: '600', paddingVertical: 4 },
+  puceFil: {
+    alignSelf: 'flex-start',
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    marginTop: 5,
+  },
+  puceFilTexte: { fontFamily: POLICES.corpsGras, fontSize: 12 },
 });

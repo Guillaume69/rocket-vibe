@@ -22,6 +22,7 @@ import { arbreDuMessage } from '../lib/markdown.ts';
 import { texteSysteme } from '../lib/messagesSysteme.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar, urlFichierProtege } from '../lib/upload.ts';
+import { LiensEmbed } from './carteEmbed.tsx';
 import { TuileAvatar } from './kit.tsx';
 import { LecteurAudio } from './lecteurAudio.tsx';
 import { LecteurVideo } from './lecteurVideo.tsx';
@@ -99,6 +100,9 @@ export const LigneMessage = memo(function LigneMessage({
           )}
         </View>
         <ContenuMessage c={c} message={message} />
+        {message.typeSysteme === null && (
+          <LiensEmbed c={c} texte={message.texte} surAppuiLong={appuiLong} />
+        )}
         {message.piecesJointes !== null && (
           <PiecesJointes
             c={c}

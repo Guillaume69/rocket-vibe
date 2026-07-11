@@ -183,7 +183,7 @@ function Barre({
   // Chaque barre GLISSE vers sa cible : fluide malgré le pas d'échantillonnage.
   const style = useAnimatedStyle(() => ({
     height: withTiming(H_MIN + (niveaux.value[index] ?? 0) * (H_MAX - H_MIN), {
-      duration: 90,
+      duration: 55,
       easing: Easing.out(Easing.quad),
     }),
   }));
@@ -207,6 +207,7 @@ export function LecteurAudio({
   const largeur = useRef(0);
   const dernierEch = useRef(0);
   const plafond = useRef(1e-4); // contrôle de gain automatique, par lecteur
+  const lissees = useRef(new Float64Array(NB_BARRES)); // état de lissage temporel
   const moi = useRef<{ pause: () => void }>({ pause: () => {} });
   moi.current.pause = () => {
     try {
@@ -258,10 +259,21 @@ export function LecteurAudio({
     // pic ≈ pleine hauteur, les passages calmes restent bas — plus de clipping.
     plafond.current = Math.max(maxi, plafond.current * 0.93, 1e-4);
 
+    // Lissage TEMPOREL par bande : attaque instantanée sur un pic, chute douce
+    // (~0,2 s). C'est le mouvement d'analyseur de spectre — lisible, au lieu
+    // d'un fourmillement. Racine : étale les faibles amplitudes.
+    const liss = lissees.current;
+    for (let b = 0; b < NB_BARRES; b++) {
+      const cible = Math.sqrt(Math.min(1, brut[b]! / plafond.current));
+      liss[b] = cible > liss[b]! ? cible : liss[b]! * 0.8 + cible * 0.2;
+    }
+    // Lissage SPATIAL : chaque barre se mêle à ses voisines → une forme
+    // cohérente qui ondule, pas 28 bâtons indépendants.
     const arr = niveaux.value.slice();
     for (let b = 0; b < NB_BARRES; b++) {
-      // Racine : étale les faibles amplitudes, rend le visualiseur plus vivant.
-      arr[b] = Math.sqrt(Math.min(1, brut[b]! / plafond.current));
+      const g = b > 0 ? liss[b - 1]! : liss[b]!;
+      const d = b < NB_BARRES - 1 ? liss[b + 1]! : liss[b]!;
+      arr[b] = 0.2 * g + 0.6 * liss[b]! + 0.2 * d;
     }
     niveaux.value = arr;
   });
@@ -271,6 +283,7 @@ export function LecteurAudio({
     if (!status.playing) {
       niveaux.value = new Array(NB_BARRES).fill(0);
       plafond.current = 1e-4;
+      lissees.current.fill(0);
     }
   }, [status.playing, niveaux]);
 

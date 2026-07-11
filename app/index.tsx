@@ -8,10 +8,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { BaseLocale } from '../db/client.ts';
 import { abonnements, salons } from '../db/schema.ts';
 import { obtenirJetonFcm } from '../lib/push.ts';
+import { AvatarSalon, BadgeEtoile, Marque, TuileAvatar } from '../ui/kit.tsx';
 import { COULEURS_PRESENCE, usePresence } from '../ui/presence.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
-import { useCouleurs, type Couleurs } from '../ui/theme.ts';
+import { type Couleurs, POLICES, useCouleurs } from '../ui/theme.ts';
 
 /**
  * Portier et liste des salons. Sans session on va se connecter ; avec session,
@@ -25,7 +26,7 @@ export default function EcranAccueil() {
   if (etat.phase === 'demarrage') {
     return (
       <View style={[styles.centre, { backgroundColor: c.fond }]}>
-        <ActivityIndicator />
+        <ActivityIndicator color={c.accent} />
       </View>
     );
   }
@@ -35,10 +36,30 @@ export default function EcranAccueil() {
   return (
     // Pas de saisie sur cet écran ; s'il en gagne une, passer à
     // `VueEvitantLeClavier` (ui/clavier.tsx) — SafeAreaView ignore le clavier.
-    <SafeAreaView style={[styles.plein, { backgroundColor: c.fond }]} edges={['bottom']}>
-      <Stack.Screen options={{ title: 'rocket-vibe' }} />
+    <SafeAreaView style={[styles.plein, { backgroundColor: c.fond }]} edges={['top', 'bottom']}>
+      {/* En-tête à logo dessiné par l'écran : l'en-tête natif ne sait pas
+          rendre le wordmark dégradé. */}
+      <Stack.Screen options={{ headerShown: false }} />
+      <EnTeteListe c={c} />
       <ListeSalons c={c} />
     </SafeAreaView>
+  );
+}
+
+/** Bandeau supérieur : licorne + logotype dégradé, roue des réglages. */
+function EnTeteListe({ c }: { c: Couleurs }) {
+  return (
+    <View style={[styles.entete, { borderBottomColor: c.bordureDouce }]}>
+      <View style={styles.enteteMarque}>
+        <Text style={styles.enteteLicorne}>🦄</Text>
+        <Marque c={c} taille={23} />
+      </View>
+      <Link href="/debug" asChild>
+        <Pressable hitSlop={10}>
+          <Text style={styles.roue}>⚙️</Text>
+        </Pressable>
+      </Link>
+    </View>
   );
 }
 
@@ -55,7 +76,7 @@ function ListeSalons({ c }: { c: Couleurs }) {
   if (synchro.phase !== 'pret') {
     return (
       <View style={styles.centre}>
-        <ActivityIndicator />
+        <ActivityIndicator color={c.accent} />
       </View>
     );
   }
@@ -86,7 +107,7 @@ function Salons({ c, base }: { c: Couleurs; base: BaseLocale }) {
       renderItem={({ item }) => (
         <LigneSalon c={c} salon={item.salon} abonnement={item.abonnement} />
       )}
-      ListHeaderComponent={<EnTeteDeListe c={c} />}
+      ListHeaderComponent={<LigneNouvelleConversation c={c} />}
       ListEmptyComponent={
         <Text style={[styles.vide, { color: c.attenue }]}>
           Aucun salon pour l&apos;instant — la première synchronisation peut prendre quelques
@@ -129,43 +150,57 @@ function LigneSalon({
       android_ripple={{ color: c.ondulation }}
       style={({ pressed }) => [styles.ligne, { opacity: pressed ? 0.6 : 1 }]}
     >
-      <Text style={[styles.prefixe, { color: c.attenue }]}>
-        {salon.type === 'd' ? '@' : '#'}
-      </Text>
+      <View>
+        <AvatarSalon c={c} nom={nom} type={salon.type} chiffre={salon.chiffre} />
+        {statut !== null && (
+          <View
+            style={[
+              styles.pastille,
+              { backgroundColor: COULEURS_PRESENCE[statut], borderColor: c.fond },
+            ]}
+          />
+        )}
+      </View>
+
       <View style={styles.corpsLigne}>
         <Text
-          style={[styles.nomSalon, { color: c.texte }, enAlerte && styles.nomEnAlerte]}
+          style={[
+            styles.nomSalon,
+            { color: enAlerte ? c.texte : c.texteSecondaire },
+            enAlerte && styles.nomEnAlerte,
+          ]}
           numberOfLines={1}
         >
-          {statut !== null && (
-            <Text style={{ color: COULEURS_PRESENCE[statut] }}>{'● '}</Text>
-          )}
           {nom}
-          {salon.chiffre ? ' 🔒' : ''}
         </Text>
-        <Text style={[styles.apercu, { color: c.attenue }]} numberOfLines={1}>
+        <Text
+          style={[styles.apercu, { color: c.attenue }, salon.chiffre && styles.apercuChiffre]}
+          numberOfLines={1}
+        >
           {apercu}
         </Text>
       </View>
-      {nonLus > 0 && (
-        <View style={[styles.badge, { backgroundColor: c.accent }]}>
-          <Text style={styles.texteBadge}>{nonLus}</Text>
-        </View>
-      )}
+
+      <BadgeEtoile c={c} n={nonLus} />
     </Pressable>
   );
 }
 
-function EnTeteDeListe({ c }: { c: Couleurs }) {
+/** Première ligne, fixe en tête de liste : démarrer une conversation. */
+function LigneNouvelleConversation({ c }: { c: Couleurs }) {
   const routeur = useRouter();
   return (
     <Pressable
       onPress={() => routeur.push('/recherche')}
       android_ripple={{ color: c.ondulation }}
-      style={styles.ligne}
+      style={[styles.ligne, { borderBottomColor: c.bordureDouce, borderBottomWidth: 1 }]}
     >
-      <Text style={[styles.prefixe, { color: c.accent }]}>＋</Text>
-      <Text style={[styles.nomSalon, { color: c.accent }]}>Nouvelle conversation</Text>
+      <TuileAvatar
+        c={c}
+        deg={[c.accent, c.jaune] as const}
+        enfant={<Text style={[styles.plus, { color: c.surAccent }]}>＋</Text>}
+      />
+      <Text style={[styles.nouvelle, { color: c.accent }]}>Nouvelle conversation</Text>
     </Pressable>
   );
 }
@@ -176,18 +211,18 @@ function PiedDeListe({ c }: { c: Couleurs }) {
 
   return (
     <View style={styles.pied}>
-      <View style={[styles.carte, { backgroundColor: c.carte }]}>
+      <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
         <Ligne c={c} cle="Connecté" valeur={`@${etat.session.username}`} />
         <Ligne c={c} cle="Serveur" valeur={etat.session.baseUrl} />
       </View>
 
       <SectionJetonFcm c={c} />
 
-      <Link href="/connexion?changer=1" style={[styles.lien, { color: c.accent }]}>
+      <Link href="/connexion?changer=1" style={[styles.lien, { color: c.cyan }]}>
         Changer de serveur
       </Link>
 
-      <Link href="/debug" style={[styles.lien, { color: c.accent }]}>
+      <Link href="/debug" style={[styles.lien, { color: c.cyan }]}>
         Écran debug
       </Link>
 
@@ -225,9 +260,9 @@ function SectionJetonFcm({ c }: { c: Couleurs }) {
   }, []);
 
   return (
-    <View style={[styles.carte, { backgroundColor: c.carte }]}>
+    <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
       <Pressable onPress={demander} android_ripple={{ color: c.ondulation }}>
-        <Text style={[styles.action, { color: c.accent }]}>Obtenir le jeton FCM</Text>
+        <Text style={[styles.action, { color: c.cyan }]}>Obtenir le jeton FCM</Text>
       </Pressable>
       {jeton !== null && (
         <Text style={[styles.aide, { color: c.texte }]} selectable numberOfLines={3}>
@@ -253,44 +288,57 @@ function Ligne({ c, cle, valeur }: { c: Couleurs; cle: string; valeur: string })
 const styles = StyleSheet.create({
   plein: { flex: 1 },
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  contenu: { paddingVertical: 8 },
+  entete: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  enteteMarque: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  enteteLicorne: { fontSize: 22 },
+  roue: { fontSize: 19 },
+  contenu: { paddingBottom: 8 },
   ligne: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 11,
     gap: 12,
   },
-  prefixe: { fontSize: 20, fontWeight: '600', width: 24, textAlign: 'center' },
-  corpsLigne: { flex: 1, gap: 2 },
-  nomSalon: { fontSize: 16 },
-  nomEnAlerte: { fontWeight: '700' },
-  apercu: { fontSize: 13 },
-  badge: {
-    minWidth: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 7,
+  plus: { fontFamily: POLICES.titreFort, fontSize: 24 },
+  pastille: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 13,
+    height: 13,
+    borderRadius: 7,
+    borderWidth: 2.5,
   },
-  texteBadge: { color: '#ffffff', fontSize: 12, fontWeight: '700' },
-  vide: { textAlign: 'center', padding: 24, fontSize: 14 },
+  corpsLigne: { flex: 1, gap: 2 },
+  nomSalon: { fontFamily: POLICES.corpsGras, fontSize: 15 },
+  nomEnAlerte: { fontFamily: POLICES.corpsFort },
+  apercu: { fontFamily: POLICES.corps, fontSize: 12.5 },
+  apercuChiffre: { fontStyle: 'italic' },
+  nouvelle: { fontFamily: POLICES.titre, fontSize: 15.5 },
+  vide: { textAlign: 'center', padding: 24, fontSize: 14, fontFamily: POLICES.corps },
   pied: { padding: 20, gap: 12 },
-  carte: { borderRadius: 12, padding: 16, gap: 10 },
+  carte: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 10 },
   paire: { flexDirection: 'row', justifyContent: 'space-between', gap: 16 },
-  cle: { fontSize: 13 },
-  valeur: { fontSize: 13, fontWeight: '600', flexShrink: 1, textAlign: 'right' },
-  action: { fontSize: 13, fontWeight: '600' },
-  aide: { fontSize: 12, opacity: 0.9 },
-  lien: { fontSize: 15, fontWeight: '600', paddingVertical: 12, textAlign: 'center' },
-  messageErreur: { fontSize: 14, fontWeight: '600', textAlign: 'center' },
+  cle: { fontFamily: POLICES.corps, fontSize: 13 },
+  valeur: { fontFamily: POLICES.corpsGras, fontSize: 13, flexShrink: 1, textAlign: 'right' },
+  action: { fontFamily: POLICES.corpsGras, fontSize: 13 },
+  aide: { fontFamily: POLICES.corps, fontSize: 12, opacity: 0.9 },
+  lien: { fontFamily: POLICES.corpsGras, fontSize: 15, paddingVertical: 12, textAlign: 'center' },
+  messageErreur: { fontFamily: POLICES.corpsGras, fontSize: 14, textAlign: 'center' },
   bouton: {
-    borderRadius: 10,
+    borderRadius: 14,
     paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 50,
   },
-  texteBoutonSecondaire: { fontSize: 16, fontWeight: '600' },
+  texteBoutonSecondaire: { fontFamily: POLICES.corpsGras, fontSize: 16 },
 });

@@ -133,6 +133,49 @@ export function TuileAvatar({
   );
 }
 
+/**
+ * Avatar d'un SALON, selon son type : cadenas neutre si chiffré, première
+ * lettre pour un DM, `#` pour un canal. Règle unique, partagée par la liste et
+ * l'en-tête du salon (sinon les deux dérivent).
+ */
+export function AvatarSalon({
+  c,
+  nom,
+  type,
+  chiffre,
+  taille = 44,
+  rayon = 15,
+}: {
+  c: Couleurs;
+  nom: string;
+  type: string | undefined;
+  chiffre: boolean;
+  taille?: number;
+  rayon?: number;
+}) {
+  if (chiffre) {
+    return (
+      <TuileAvatar
+        c={c}
+        neutre
+        taille={taille}
+        rayon={rayon}
+        enfant={<Text style={{ fontSize: Math.round(taille * 0.42) }}>🔒</Text>}
+      />
+    );
+  }
+  const estDM = type === 'd';
+  return (
+    <TuileAvatar
+      c={c}
+      cle={nom}
+      initiale={estDM ? nom.charAt(0) || '?' : '#'}
+      taille={taille}
+      rayon={rayon}
+    />
+  );
+}
+
 /** Badge de non-lus : étoile jaune, compteur centré. Rien si le compte est nul. */
 export function BadgeEtoile({ c, n }: { c: Couleurs; n: number }) {
   if (n < 1) return null;

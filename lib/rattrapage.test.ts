@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { rattraperGlobal, rattraperSalon } from './rattrapage.ts';
+import { rattraperGlobal, rattraperSalon, reconcilierSalons } from './rattrapage.ts';
 import { ClientRest } from './rest.ts';
 import { MoteurSynchro, type Depot } from './sync.ts';
 
@@ -14,6 +14,7 @@ function fauxDepotComplet() {
   const abonnements: string[] = [];
   const messages: string[] = [];
   const supprimesParSubId: string[] = [];
+  const purges: string[][] = [];
   const depot: Depot = {
     upsertMessage: async (m) => void messages.push(m.id),
     upsertSalon: async (s) => void salons.push(s.rid),
@@ -22,6 +23,7 @@ function fauxDepotComplet() {
     supprimerSalon: async (rid) => void supprimesSalons.push(rid),
     supprimerAbonnement: async (rid) => void supprimesAbonnements.push(rid),
     supprimerParSubId: async (subId) => void supprimesParSubId.push(subId),
+    purgerSalonsAbsents: async (rids) => void purges.push(rids),
     lireCurseur: async (portee, flux) => curseurs.get(`${portee}|${flux}`) ?? null,
     ecrireCurseur: async (portee, flux, valeur) => {
       const cle = `${portee}|${flux}`;
@@ -40,6 +42,7 @@ function fauxDepotComplet() {
     supprimesAbonnements,
     supprimesMessages,
     supprimesParSubId,
+    purges,
   };
 }
 
@@ -162,5 +165,36 @@ describe('rattraperSalon', () => {
     });
     await rattraperSalon(client, moteur, 'r1', () => true);
     assert.equal(d.messages.length, 0);
+  });
+});
+
+describe('reconcilierSalons', () => {
+  test('purge les rids absents de la liste vivante des abonnements', async () => {
+    const d = fauxDepotComplet();
+    const moteur = new MoteurSynchro(d.depot);
+    const { client, urls } = fauxClient({
+      'subscriptions.get': { update: [{ rid: 'r1' }, { rid: 'r2' }] },
+    });
+    await reconcilierSalons(client, moteur);
+    // Full : pas d'updatedSince — on veut l'état courant, pas un delta.
+    assert.match(urls[0], /\/subscriptions\.get(\?|$)/);
+    assert.doesNotMatch(urls[0], /updatedSince/);
+    assert.deepEqual(d.purges, [['r1', 'r2']]);
+  });
+
+  test('une liste vide ne purge RIEN — garde-fou anti-purge-totale', async () => {
+    const d = fauxDepotComplet();
+    const moteur = new MoteurSynchro(d.depot);
+    const { client } = fauxClient({ 'subscriptions.get': { update: [] } });
+    await reconcilierSalons(client, moteur);
+    assert.equal(d.purges.length, 0);
+  });
+
+  test('abandonné en vol : aucune purge', async () => {
+    const d = fauxDepotComplet();
+    const moteur = new MoteurSynchro(d.depot);
+    const { client } = fauxClient({ 'subscriptions.get': { update: [{ rid: 'r1' }] } });
+    await reconcilierSalons(client, moteur, () => true);
+    assert.equal(d.purges.length, 0);
   });
 });

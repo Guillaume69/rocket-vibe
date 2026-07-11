@@ -96,6 +96,18 @@ export const SUPPRIMER_ABONNEMENT = `DELETE FROM abonnements WHERE rid = ?`;
 /** Les `remove[]` d'abonnements ne portent QUE le `_id` de l'abonnement. */
 export const RID_PAR_SUB_ID = `SELECT rid FROM abonnements WHERE sub_id = ?`;
 
+/**
+ * Réconciliation anti-fantômes : efface tout ce dont le `rid` n'est PLUS dans
+ * la liste vivante du serveur. `json_each` déballe un tableau JSON de N rids
+ * passé en UN seul paramètre — le SQL reste statique (testé tel quel) quel que
+ * soit N. L'appelant GARANTIT une liste non vide : `NOT IN (rien)` viderait
+ * tout. On purge les trois tables liées au salon pour ne pas laisser de
+ * messages orphelins invisibles.
+ */
+export const PURGER_SALONS_ABSENTS = `DELETE FROM salons WHERE rid NOT IN (SELECT value FROM json_each(?))`;
+export const PURGER_ABONNEMENTS_ABSENTS = `DELETE FROM abonnements WHERE rid NOT IN (SELECT value FROM json_each(?))`;
+export const PURGER_MESSAGES_ABSENTS = `DELETE FROM messages WHERE rid NOT IN (SELECT value FROM json_each(?))`;
+
 export const LIRE_CURSEUR = `
 SELECT mis_a_jour_depuis FROM etat_synchro WHERE portee = ? AND flux = ?
 `;

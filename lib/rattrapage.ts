@@ -66,6 +66,41 @@ export async function rattraperGlobal(
   }
 }
 
+type ReponseAbonnements = {
+  update?: { rid?: unknown }[];
+};
+
+/**
+ * Réconciliation anti-fantômes. La synchro par curseur ne repasse jamais sur
+ * un salon déjà connu : un salon supprimé côté serveur dont l'événement
+ * 'removed' a été raté (hors ligne, ou avant le correctif temps réel) resterait
+ * en FANTÔME à vie. Ici on récupère la liste COMPLÈTE des abonnements — sans
+ * `updatedSince`, donc l'état COURANT, la source de vérité de « ce que je dois
+ * voir » — et on purge tout salon local absent.
+ *
+ * `subscriptions.get` renvoie l'ensemble en une réponse (pas de pagination :
+ * c'est la même donnée que la charge d'abonnements du login). Garde-fou : une
+ * réponse VIDE ne purge rien — un compte actif a toujours des abonnements, une
+ * liste vide trahit une réponse anormale (proxy, erreur muette), pas « plus
+ * aucun salon ».
+ */
+export async function reconcilierSalons(
+  client: ClientRest,
+  moteur: MoteurSynchro,
+  estAbandonne: () => boolean = () => false,
+): Promise<void> {
+  const reponse = await client.get<ReponseAbonnements>('subscriptions.get');
+  if (estAbandonne()) return;
+
+  const vivants: string[] = [];
+  for (const abonnement of reponse.update ?? []) {
+    if (typeof abonnement.rid === 'string') vivants.push(abonnement.rid);
+  }
+  if (vivants.length === 0) return;
+
+  await moteur.depotSynchro.purgerSalonsAbsents(vivants);
+}
+
 type ReponseSyncMessages = {
   result?: {
     updated?: Record<string, unknown>[];

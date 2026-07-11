@@ -12,6 +12,9 @@ import {
   LISTER_EMOJIS_CUSTOM,
   LISTER_SORTIE_A_ENVOYER,
   MARQUER_SORTIE_ECHEC,
+  PURGER_ABONNEMENTS_ABSENTS,
+  PURGER_MESSAGES_ABSENTS,
+  PURGER_SALONS_ABSENTS,
   SUPPRIMER_MESSAGE,
   SUPPRIMER_MESSAGE_OPTIMISTE,
   SUPPRIMER_SORTIE,
@@ -343,5 +346,38 @@ describe('emojis custom', () => {
     );
     db.prepare(VIDER_EMOJIS_CUSTOM).run();
     assert.equal(db.prepare(LISTER_EMOJIS_CUSTOM).all().length, 0);
+  });
+});
+
+describe('purge des salons fantômes (réconciliation)', () => {
+  const rids = (table: string): string[] =>
+    (db.prepare(`SELECT rid FROM ${table} ORDER BY rid`).all() as { rid: string }[]).map(
+      (l) => l.rid,
+    );
+
+  test('efface salon, abonnement ET messages dont le rid n’est plus vivant', () => {
+    for (const rid of ['r1', 'r2', 'r3']) {
+      db.prepare(UPSERT_SALON).run(...salon({ rid, misAJourLe: 100 }));
+      db.prepare(UPSERT_ABONNEMENT).run(...abo({ rid, misAJourLe: 100 }));
+      db.prepare(UPSERT_MESSAGE).run(...msg({ id: `m-${rid}`, rid, misAJourLe: 100 }));
+    }
+    const vivants = JSON.stringify(['r1']);
+    db.prepare(PURGER_SALONS_ABSENTS).run(vivants);
+    db.prepare(PURGER_ABONNEMENTS_ABSENTS).run(vivants);
+    db.prepare(PURGER_MESSAGES_ABSENTS).run(vivants);
+
+    assert.deepEqual(rids('salons'), ['r1'], 'seul le salon vivant reste');
+    assert.deepEqual(rids('abonnements'), ['r1']);
+    const idsMessages = (db.prepare('SELECT id FROM messages ORDER BY id').all() as { id: string }[])
+      .map((l) => l.id);
+    assert.deepEqual(idsMessages, ['m-r1'], 'les messages orphelins partent aussi');
+  });
+
+  test('garde plusieurs rids vivants, purge le reste', () => {
+    for (const rid of ['r1', 'r2', 'r3', 'r4']) {
+      db.prepare(UPSERT_SALON).run(...salon({ rid, misAJourLe: 100 }));
+    }
+    db.prepare(PURGER_SALONS_ABSENTS).run(JSON.stringify(['r1', 'r3']));
+    assert.deepEqual(rids('salons'), ['r1', 'r3']);
   });
 });

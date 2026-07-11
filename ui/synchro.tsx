@@ -42,7 +42,7 @@ import { MoteurTeleversement } from '../lib/envoiFichiers.ts';
 import { MoteurPresence, EVENEMENT_PRESENCE, STREAM_NOTIFY_LOGGED } from '../lib/presence.ts';
 import { obtenirJetonFcm } from '../lib/push.ts';
 import { enregistrerJeton } from '../lib/pushToken.ts';
-import { rattraperGlobal, rattraperSalon } from '../lib/rattrapage.ts';
+import { rattraperGlobal, rattraperSalon, reconcilierSalons } from '../lib/rattrapage.ts';
 import { Reconnecteur } from '../lib/reconnexion.ts';
 import { MoteurSynchro, STREAM_NOTIFY_USER } from '../lib/sync.ts';
 import { useSession } from './session.tsx';
@@ -141,6 +141,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       let salonActif: string | null = null;
       let jetonPushEnregistre = false;
       let emojisSynchronises = false;
+      let salonsReconcilies = false;
       const presence = new MoteurPresence();
       const activite = new MoteurActivite();
       // Emojis custom : l'index mémoire depuis SQLite AVANT « pret », pour que
@@ -233,6 +234,16 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
               .catch(() => {
                 jetonPushEnregistre = false;
               });
+          }
+          // Réconciliation anti-fantômes (une fois par session, comme les
+          // emojis) : purge les salons supprimés côté serveur dont l'événement
+          // 'removed' a été raté. Full `subscriptions.get` — on ne le refait
+          // pas à chaque flap réseau. Échec → non armé, retenté au prochain.
+          if (!salonsReconcilies) {
+            salonsReconcilies = true;
+            reconcilierSalons(client, moteur, estAbandonne).catch(() => {
+              salonsReconcilies = false;
+            });
           }
           // Réveille les écrans dont le chargement initial a raté hors ligne.
           setSynchro((s) => (s.phase === 'pret' ? { ...s, generation: s.generation + 1 } : s));

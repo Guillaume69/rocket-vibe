@@ -30,6 +30,9 @@ import {
   LIRE_CURSEUR,
   LISTER_SORTIE_A_ENVOYER,
   MARQUER_SORTIE_ECHEC,
+  PURGER_ABONNEMENTS_ABSENTS,
+  PURGER_MESSAGES_ABSENTS,
+  PURGER_SALONS_ABSENTS,
   RID_PAR_SUB_ID,
   SUPPRIMER_ABONNEMENT,
   SUPPRIMER_MESSAGE,
@@ -124,6 +127,22 @@ export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot
     supprimerSalon: (rid) => enSerie(() => direct.supprimerSalon(rid)),
     supprimerAbonnement: (rid) => enSerie(() => direct.supprimerAbonnement(rid)),
     supprimerParSubId: (subId) => enSerie(() => direct.supprimerParSubId(subId)),
+    purgerSalonsAbsents(ridsVivants) {
+      // Garde-fou : jamais de purge totale sur une liste vide (réponse serveur
+      // muette ou tronquée). L'appelant garde aussi ce test — ceinture et
+      // bretelles, car `NOT IN (rien)` effacerait TOUT.
+      if (ridsVivants.length === 0) return Promise.resolve();
+      const json = JSON.stringify(ridsVivants);
+      // Les trois DELETE en UNE transaction : un seul événement de changement
+      // pour `useLiveQuery`, et pas de fenêtre où les tables sont incohérentes.
+      return enSerie(() =>
+        brute.withTransactionAsync(async () => {
+          await brute.runAsync(PURGER_SALONS_ABSENTS, [json]);
+          await brute.runAsync(PURGER_ABONNEMENTS_ABSENTS, [json]);
+          await brute.runAsync(PURGER_MESSAGES_ABSENTS, [json]);
+        }),
+      );
+    },
     async lireCurseur(portee, flux) {
       // Lecture : pas de file. Elle peut voir un lot non commis — sans
       // conséquence, les curseurs ne s'écrivent qu'après le retour du lot.

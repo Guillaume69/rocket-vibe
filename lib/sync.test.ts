@@ -180,20 +180,23 @@ function faireDepot() {
   const salons: SalonLocal[] = [];
   const abonnements: AbonnementLocal[] = [];
   const supprimes: string[] = [];
+  const supprimesSalons: string[] = [];
+  const supprimesParSubId: string[] = [];
   const curseurs = new Map<string, number>();
   const depot: Depot = {
     upsertMessage: async (m) => void messages.push(m),
     upsertSalon: async (s) => void salons.push(s),
     upsertAbonnement: async (a) => void abonnements.push(a),
     supprimerMessage: async (id) => void supprimes.push(id),
-    supprimerSalon: async () => {},
+    supprimerSalon: async (rid) => void supprimesSalons.push(rid),
     supprimerAbonnement: async () => {},
-    supprimerParSubId: async () => {},
+    supprimerParSubId: async (subId) => void supprimesParSubId.push(subId),
+    purgerSalonsAbsents: async () => {},
     lireCurseur: async (p, f) => curseurs.get(`${p}|${f}`) ?? null,
     ecrireCurseur: async (p, f, v) => void curseurs.set(`${p}|${f}`, v),
     transaction: async (fn) => fn(depot),
   };
-  return { depot, messages, salons, abonnements, supprimes };
+  return { depot, messages, salons, abonnements, supprimes, supprimesSalons, supprimesParSubId };
 }
 
 const evenement = (collection: string, cleEvenement: string, args: unknown[]): Evenement => ({
@@ -246,6 +249,31 @@ describe('MoteurSynchro', () => {
       evenement('stream-notify-user', 'u1/rooms-changed', ['updated', { _id: 'r1', t: 'c' }]),
     );
     assert.equal(salons.length, 1);
+  });
+
+  test('`subscriptions-changed` action "removed" supprime par subId — fin du fantôme', async () => {
+    // Le bug historique : l'action 'removed' était consommée puis IGNORÉE, et
+    // le document (juste { _id }) tentait un upsert. Un salon supprimé côté
+    // serveur restait donc en cache à vie. Ici on vérifie la suppression.
+    const { depot, supprimesParSubId, abonnements } = faireDepot();
+    const moteur = new MoteurSynchro(depot);
+    await moteur.appliquer(
+      evenement('stream-notify-user', 'u1/subscriptions-changed', ['removed', { _id: 'sub1' }]),
+    );
+    assert.deepEqual(supprimesParSubId, ['sub1']);
+    assert.equal(abonnements.length, 0, 'aucun upsert : le salon ne ressuscite pas');
+    assert.equal(moteur.stats.suppressions, 1);
+  });
+
+  test('`rooms-changed` action "removed" supprime le salon', async () => {
+    const { depot, supprimesSalons, salons } = faireDepot();
+    const moteur = new MoteurSynchro(depot);
+    await moteur.appliquer(
+      evenement('stream-notify-user', 'u1/rooms-changed', ['removed', { _id: 'r1' }]),
+    );
+    assert.deepEqual(supprimesSalons, ['r1']);
+    assert.equal(salons.length, 0);
+    assert.equal(moteur.stats.suppressions, 1);
   });
 
   test('`deleteMessage` supprime', async () => {

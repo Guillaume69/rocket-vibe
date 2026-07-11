@@ -182,9 +182,11 @@ function Barre({
 }) {
   // Chaque barre GLISSE vers sa cible : fluide malgré le pas d'échantillonnage.
   const style = useAnimatedStyle(() => ({
+    // Tween court et LINÉAIRE : entre deux échantillons (~16 ms), un pont
+    // continu et net — pas de mollesse d'ease-out en fin de course.
     height: withTiming(H_MIN + (niveaux.value[index] ?? 0) * (H_MAX - H_MIN), {
-      duration: 55,
-      easing: Easing.out(Easing.quad),
+      duration: 45,
+      easing: Easing.linear,
     }),
   }));
   return <Animated.View style={[styles.barre, { backgroundColor: couleur }, style]} />;
@@ -231,7 +233,7 @@ export function LecteurAudio({
     const frames = echantillon.channels?.[0]?.frames;
     if (!frames || frames.length === 0) return;
     const maintenant = Date.now();
-    if (maintenant - dernierEch.current < 32) return; // ~30 Hz
+    if (maintenant - dernierEch.current < 16) return; // jusqu'à ~60 Hz : fluidité
     dernierEch.current = maintenant;
 
     // Derniers TAILLE_FFT frames, fenêtrés (zéro-pad si le buffer est court).
@@ -265,15 +267,16 @@ export function LecteurAudio({
     const liss = lissees.current;
     for (let b = 0; b < NB_BARRES; b++) {
       const cible = Math.sqrt(Math.min(1, brut[b]! / plafond.current));
-      liss[b] = cible > liss[b]! ? cible : liss[b]! * 0.8 + cible * 0.2;
+      // Attaque instantanée, chute assez vive (~90 ms) : nerveux, pas mou.
+      liss[b] = cible > liss[b]! ? cible : liss[b]! * 0.68 + cible * 0.32;
     }
-    // Lissage SPATIAL : chaque barre se mêle à ses voisines → une forme
-    // cohérente qui ondule, pas 28 bâtons indépendants.
+    // Lissage SPATIAL léger : lie juste assez les voisines pour une forme
+    // cohérente, sans écraser les pics (sinon ça retombe dans le mou).
     const arr = niveaux.value.slice();
     for (let b = 0; b < NB_BARRES; b++) {
       const g = b > 0 ? liss[b - 1]! : liss[b]!;
       const d = b < NB_BARRES - 1 ? liss[b + 1]! : liss[b]!;
-      arr[b] = 0.2 * g + 0.6 * liss[b]! + 0.2 * d;
+      arr[b] = 0.13 * g + 0.74 * liss[b]! + 0.13 * d;
     }
     niveaux.value = arr;
   });

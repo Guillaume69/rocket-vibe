@@ -37,7 +37,7 @@ import { useActivite } from '../../ui/activite.ts';
 import { useBrouillon } from '../../ui/brouillons.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
 import { BandeauCompletionEmoji, useCompletionEmoji } from '../../ui/completionEmoji.tsx';
-import { AvatarSalon, BarreSynchro, TuileAvatar } from '../../ui/kit.tsx';
+import { AvatarSalon, BarreSynchro, IndicateurSaisie, TuileAvatar } from '../../ui/kit.tsx';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
 import type { StatutPresence } from '../../lib/presence.ts';
@@ -566,32 +566,34 @@ function Salon({
             </Pressable>
           </View>
         ))}
-      {/* Hauteur RÉSERVÉE (jamais démonté) : l'apparition de la phrase ne
-          doit pas redimensionner la liste — elle sauterait à chaque frappe
-          du correspondant, pile quand on lit. */}
-      <Text style={[styles.saisie, { color: c.attenue }]} numberOfLines={1}>
-        {phraseQuiTape ?? ' '}
-      </Text>
-      {/* Tant que la ligne du salon n'est pas là (lien profond vers un salon
-          pas encore synchronisé), on ne promet pas un envoi : `chiffre` et
-          `lectureSeule` sont peut-être vrais. */}
-      {/* `key={rid}` + attente du brouillon chargé : le composer naît avec
-          son état initial déjà juste — ni restauration après coup, ni fuite
-          du texte d'un salon vers un autre. */}
-      {salon !== undefined && persistance.initial !== null && (
-        <Composer
-          key={rid}
-          c={c}
-          rid={rid}
-          envoi={envoi}
-          fichiers={fichiers}
-          lectureSeule={salon.lectureSeule}
-          chiffre={salon.chiffre}
-          brouillonInitial={persistance.initial}
-          sauverBrouillon={persistance.sauver}
-          effacerBrouillon={persistance.effacer}
-        />
-      )}
+      {/* Indicateur de saisie FLOTTANT : pastille animée posée en absolu au
+          dessus du composer (via le wrapper `basComposer` qui l'ancre). Elle
+          n'occupe pas de place dans le flux — fini la bande morte au-dessus de
+          l'input quand personne n'écrit — et son apparition ne décale donc pas
+          la liste (ce que la hauteur réservée évitait). */}
+      <View style={styles.basComposer}>
+        <IndicateurSaisie c={c} phrase={phraseQuiTape} />
+        {/* Tant que la ligne du salon n'est pas là (lien profond vers un salon
+            pas encore synchronisé), on ne promet pas un envoi : `chiffre` et
+            `lectureSeule` sont peut-être vrais. */}
+        {/* `key={rid}` + attente du brouillon chargé : le composer naît avec
+            son état initial déjà juste — ni restauration après coup, ni fuite
+            du texte d'un salon vers un autre. */}
+        {salon !== undefined && persistance.initial !== null && (
+          <Composer
+            key={rid}
+            c={c}
+            rid={rid}
+            envoi={envoi}
+            fichiers={fichiers}
+            lectureSeule={salon.lectureSeule}
+            chiffre={salon.chiffre}
+            brouillonInitial={persistance.initial}
+            sauverBrouillon={persistance.sauver}
+            effacerBrouillon={persistance.effacer}
+          />
+        )}
+      </View>
     </VueEvitantLeClavier>
   );
 }
@@ -943,14 +945,7 @@ const styles = StyleSheet.create({
   enteteNom: { fontFamily: POLICES.titre, fontSize: 16 },
   enteteSous: { fontFamily: POLICES.corpsGras, fontSize: 11 },
   iconeEntete: { fontSize: 18, paddingHorizontal: 6 },
-  saisie: {
-    fontFamily: POLICES.corps,
-    fontSize: 12,
-    lineHeight: 16,
-    fontStyle: 'italic',
-    paddingHorizontal: 16,
-    paddingBottom: 2,
-  },
+  basComposer: { position: 'relative' },
   vide: { textAlign: 'center', padding: 24, fontSize: 14, fontFamily: POLICES.corps },
   erreur: { fontFamily: POLICES.corpsGras, fontSize: 14, textAlign: 'center' },
   composer: {

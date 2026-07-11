@@ -22,8 +22,11 @@ import {
 import Animated, {
   cancelAnimation,
   Easing,
+  FadeInDown,
+  FadeOutDown,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
@@ -292,6 +295,57 @@ export function BarreSynchro({ c, actif }: { c: Couleurs; actif: boolean }) {
   );
 }
 
+/**
+ * Indicateur de saisie : une pastille qui *pop* en douceur au-dessus du
+ * composer quand quelqu'un écrit — « bob écrit » + trois points qui pulsent.
+ * `phrase` null → rien (et l'animation de SORTIE se joue au démontage de
+ * l'`Animated.View`). Posée en absolu par l'appelant (`bottom: '100%'`), elle
+ * n'occupe pas de place dans le flux : pas de bande morte quand personne
+ * n'écrit, et son apparition ne décale pas la liste.
+ */
+export function IndicateurSaisie({ c, phrase }: { c: Couleurs; phrase: string | null }) {
+  if (phrase === null) return null;
+  // Les points animés REMPLACENT les points de suspension de `phraseSaisie`.
+  const texte = phrase.replace(/…$/u, '');
+  return (
+    <Animated.View
+      entering={FadeInDown.springify().damping(16).mass(0.5)}
+      exiting={FadeOutDown.duration(140)}
+      style={styles.saisieAncre}
+    >
+      <View style={[styles.saisiePastille, { backgroundColor: c.carte, borderColor: c.bordure }]}>
+        <Text style={[styles.saisieTexte, { color: c.texteSecondaire }]} numberOfLines={1}>
+          {texte}
+        </Text>
+        <View style={styles.saisiePoints}>
+          <PointSaisie c={c} rang={0} />
+          <PointSaisie c={c} rang={1} />
+          <PointSaisie c={c} rang={2} />
+        </View>
+      </View>
+    </Animated.View>
+  );
+}
+
+/** Un point de l'indicateur : pulse opacité + petit saut, en boucle. */
+function PointSaisie({ c, rang }: { c: Couleurs; rang: number }) {
+  const v = useSharedValue(0);
+  useEffect(() => {
+    // Décalage initial UNE fois, HORS de la boucle : les trois points gardent
+    // leur phase — l'onde reste régulière au lieu de dériver à chaque cycle.
+    v.value = withDelay(
+      rang * 150,
+      withRepeat(withTiming(1, { duration: 480, easing: Easing.inOut(Easing.quad) }), -1, true),
+    );
+    return () => cancelAnimation(v);
+  }, [v, rang]);
+  const style = useAnimatedStyle(() => ({
+    opacity: 0.3 + v.value * 0.7,
+    transform: [{ translateY: -v.value * 2.5 }],
+  }));
+  return <Animated.View style={[styles.saisiePoint, { backgroundColor: c.accent }, style]} />;
+}
+
 /** Badge de non-lus : étoile jaune, compteur centré. Rien si le compte est nul. */
 export function BadgeEtoile({ c, n }: { c: Couleurs; n: number }) {
   if (n < 1) return null;
@@ -319,6 +373,30 @@ const styles = StyleSheet.create({
     pointerEvents: 'none',
   },
   comete: { position: 'absolute', top: 0, bottom: 0, width: COMETE_LARGEUR },
+  saisieAncre: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: '100%',
+    paddingHorizontal: 12,
+    paddingBottom: 6,
+    alignItems: 'flex-start',
+    pointerEvents: 'none',
+  },
+  saisiePastille: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    maxWidth: '100%',
+    boxShadow: '0px 6px 16px -6px rgba(0,0,0,0.55)',
+  },
+  saisieTexte: { fontFamily: POLICES.corps, fontSize: 12, fontStyle: 'italic' },
+  saisiePoints: { flexDirection: 'row', alignItems: 'flex-end', gap: 3, paddingBottom: 2 },
+  saisiePoint: { width: 5, height: 5, borderRadius: 3 },
   etoile: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
   etoileGlyphe: { position: 'absolute', fontSize: 28, lineHeight: 28 },
   etoileTexte: { fontFamily: POLICES.corpsFort, fontSize: 11 },

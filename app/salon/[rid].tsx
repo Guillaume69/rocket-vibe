@@ -27,15 +27,17 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { BaseLocale } from '../../db/client.ts';
 import { abonnements, messages, salons, sortie, televersements } from '../../db/schema.ts';
+import type { MoteurActivite } from '../../lib/activite.ts';
 import type { ClientDdp } from '../../lib/ddp.ts';
 import type { MoteurEnvoi } from '../../lib/envoi.ts';
 import type { MoteurTeleversement } from '../../lib/envoiFichiers.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSaisie, phraseSaisie } from '../../lib/saisie.ts';
+import { useActivite } from '../../ui/activite.ts';
 import { useBrouillon } from '../../ui/brouillons.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
 import { BandeauCompletionEmoji, useCompletionEmoji } from '../../ui/completionEmoji.tsx';
-import { AvatarSalon, TuileAvatar } from '../../ui/kit.tsx';
+import { AvatarSalon, BarreSynchro, TuileAvatar } from '../../ui/kit.tsx';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
 import type { StatutPresence } from '../../lib/presence.ts';
@@ -123,6 +125,7 @@ export default function EcranSalon() {
       client={etat.client}
       moi={etat.session.username}
       signalerSalonActif={synchro.signalerSalonActif}
+      activite={synchro.activite}
       generation={synchro.generation}
     />
   );
@@ -139,6 +142,7 @@ function Salon({
   client,
   moi,
   signalerSalonActif,
+  activite,
   generation,
 }: {
   c: Couleurs;
@@ -152,6 +156,7 @@ function Salon({
   /** Mon username — ma propre saisie ne s'affiche pas chez moi. */
   moi: string;
   signalerSalonActif: (rid: string | null) => void;
+  activite: MoteurActivite;
   generation: number;
 }) {
   const [limite, setLimite] = useState(PAGE);
@@ -367,7 +372,11 @@ function Salon({
   useEffect(() => {
     if (type === undefined) return;
     let annule = false;
-    chargerHistorique(type)
+    // Enveloppé dans `activite` : l'en-tête allume sa barre de synchro le temps
+    // du fetch, même quand le cache local remplit déjà la liste (rien ne
+    // signalait sinon qu'on la rafraîchit).
+    activite
+      .suivre(rid, chargerHistorique(type))
       .catch((e: unknown) => {
         // Hors ligne : le cache local suffit. Mais pas en silence — un échec
         // systématique ici a déjà masqué un vrai bug.
@@ -379,7 +388,7 @@ function Salon({
     return () => {
       annule = true;
     };
-  }, [type, chargerHistorique, generation]);
+  }, [type, chargerHistorique, generation, activite, rid]);
 
   // Remonter vers le passé : élargir la fenêtre locale, et si elle est déjà
   // épuisée, demander la page plus ancienne au serveur (pagination keyset sur
@@ -479,6 +488,7 @@ function Salon({
       <Stack.Screen options={{ headerShown: false }} />
       <EnTeteSalon
         c={c}
+        rid={rid}
         salon={salon}
         client={client}
         statutDM={statutDM}
@@ -822,6 +832,7 @@ function Composer({
 /** En-tête du salon : retour, tuile, nom, présence du correspondant (DM), recherche. */
 function EnTeteSalon({
   c,
+  rid,
   salon,
   client,
   statutDM,
@@ -830,6 +841,7 @@ function EnTeteSalon({
   onRecherche,
 }: {
   c: Couleurs;
+  rid: string;
   salon: LigneDeSalon | undefined;
   client: ClientRest;
   statutDM: StatutPresence | null;
@@ -839,6 +851,9 @@ function EnTeteSalon({
 }) {
   const nom = salon ? (salon.nomAffiche ?? salon.nom ?? salon.rid) : '…';
   const estDM = salon?.type === 'd';
+  // Chargement de l'historique (ouverture) et rattrapage du salon (reconnexion)
+  // allument la barre — même portée `rid` que le fetch enveloppé plus haut.
+  const enSynchro = useActivite(rid);
   return (
     <View style={[styles.entete, { paddingTop: insetTop + 6, borderBottomColor: c.bordureDouce }]}>
       <Pressable onPress={onRetour} hitSlop={10} accessibilityRole="button" accessibilityLabel="Retour">
@@ -875,6 +890,7 @@ function EnTeteSalon({
       >
         <Text style={styles.iconeEntete}>🔍</Text>
       </Pressable>
+      <BarreSynchro c={c} actif={enSynchro} />
     </View>
   );
 }

@@ -9,7 +9,8 @@ import type { BaseLocale } from '../db/client.ts';
 import { abonnements, salons } from '../db/schema.ts';
 import { obtenirJetonFcm } from '../lib/push.ts';
 import type { ClientRest } from '../lib/rest.ts';
-import { AvatarSalon, BadgeEtoile, Marque, TuileAvatar } from '../ui/kit.tsx';
+import { useActivite } from '../ui/activite.ts';
+import { AvatarSalon, BadgeEtoile, BarreSynchro, Marque, TuileAvatar } from '../ui/kit.tsx';
 import { COULEURS_PRESENCE, usePresence } from '../ui/presence.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
@@ -49,6 +50,9 @@ export default function EcranAccueil() {
 
 /** Bandeau supérieur : licorne + logotype dégradé, roue des réglages. */
 function EnTeteListe({ c }: { c: Couleurs }) {
+  // Le rattrapage global (ouverture de l'app, retour au premier plan) allume
+  // la barre — le cache est déjà là, ceci dit qu'on le rafraîchit.
+  const enSynchro = useActivite('global');
   return (
     <View style={[styles.entete, { borderBottomColor: c.bordureDouce }]}>
       <View style={styles.enteteMarque}>
@@ -60,6 +64,7 @@ function EnTeteListe({ c }: { c: Couleurs }) {
           <Text style={styles.roue}>⚙️</Text>
         </Pressable>
       </Link>
+      <BarreSynchro c={c} actif={enSynchro} />
     </View>
   );
 }

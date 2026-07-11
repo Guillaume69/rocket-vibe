@@ -22,6 +22,7 @@ import { AppState } from 'react-native';
 
 import type { BaseLocale } from '../db/client.ts';
 import { ouvrirBase } from '../db/client.ts';
+import { MoteurActivite } from '../lib/activite.ts';
 import {
   creerDepot,
   creerDepotEmojis,
@@ -65,6 +66,11 @@ export type EtatSynchro =
       signalerSalonActif: (rid: string | null) => void;
       /** Présence volatile (8.4) — à lire via le hook `usePresence`. */
       presence: MoteurPresence;
+      /**
+       * Activité réseau de fond — à lire via `useActivite`. Compte les fetches
+       * en vol par portée (`'global'`, un `rid`) pour l'indicateur d'en-tête.
+       */
+      activite: MoteurActivite;
       /**
        * Incrémentée à chaque raccordement réussi. Un écran qui a raté son
        * chargement initial (ouvert hors ligne) la met dans les deps de son
@@ -136,6 +142,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       let jetonPushEnregistre = false;
       let emojisSynchronises = false;
       const presence = new MoteurPresence();
+      const activite = new MoteurActivite();
       // Emojis custom : l'index mémoire depuis SQLite AVANT « pret », pour que
       // le premier rendu résolve déjà `:party_parrot:` (offline compris). Le
       // rafraîchissement réseau vient au raccordement. Un échec de lecture ne
@@ -155,6 +162,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           salonActif = rid;
         },
         presence,
+        activite,
         generation: 0,
       });
 
@@ -185,10 +193,16 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           // rejouerait alors jamais le rattrapage.
           if (ddp.etat === 'ferme') await ddp.connecter(session.authToken);
           // Le gros en deux requêtes delta (`updatedSince`), puis le salon
-          // que l'utilisateur regarde — un seul `chat.syncMessages`.
-          await rattraperGlobal(client, moteur, estAbandonne);
+          // que l'utilisateur regarde — un seul `chat.syncMessages`. Enveloppés
+          // dans `activite` : l'en-tête (liste / salon) allume sa barre de
+          // synchro le temps du fetch (`suivre` rejette comme l'original, le
+          // backoff du pilote garde sa main).
+          await activite.suivre('global', rattraperGlobal(client, moteur, estAbandonne));
           if (salonActif !== null) {
-            await rattraperSalon(client, moteur, salonActif, estAbandonne);
+            await activite.suivre(
+              salonActif,
+              rattraperSalon(client, moteur, salonActif, estAbandonne),
+            );
           }
           // Ce qui attendait le réseau part maintenant. Pas d'await : un
           // échec d'envoi ne doit pas compter comme un échec de connexion.

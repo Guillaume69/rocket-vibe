@@ -7,7 +7,7 @@
 
 import MaskedView from '@react-native-masked-view/masked-view';
 import { LinearGradient } from 'expo-linear-gradient';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -19,6 +19,14 @@ import {
   View,
   type ViewStyle,
 } from 'react-native';
+import Animated, {
+  cancelAnimation,
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 
 import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar } from '../lib/upload.ts';
@@ -218,6 +226,72 @@ export function AvatarSalon({
   );
 }
 
+const COMETE_LARGEUR = 120;
+
+/**
+ * Barre de synchro : une fine comète au dégradé de marque balaie le bord bas
+ * d'un en-tête pendant qu'un fetch de fond rafraîchit le cache (rattrapage
+ * global à l'ouverture, historique d'un salon). Idiome universel du
+ * « rafraîchissement en cours » — le cache s'affiche déjà, ceci dit juste
+ * qu'on le met à jour.
+ *
+ * Animée sur le thread UI (reanimated), SANS décaler la mise en page : la
+ * piste occupe 3 px en absolu au bord bas, invisible au repos. L'appelant
+ * fournit `actif` (via `useActivite`) : allumage → balayage en boucle + fondu
+ * d'entrée ; extinction → fondu de sortie, puis la boucle est coupée.
+ */
+export function BarreSynchro({ c, actif }: { c: Couleurs; actif: boolean }) {
+  // Largeur réelle mesurée (onLayout) : le balayage va de tout-à-gauche
+  // (hors piste) à tout-à-droite, indépendant de la taille d'écran.
+  const largeur = useSharedValue(0);
+  const progression = useSharedValue(0);
+  const opacite = useSharedValue(0);
+
+  useEffect(() => {
+    if (actif) {
+      opacite.value = withTiming(1, { duration: 220 });
+      progression.value = 0;
+      progression.value = withRepeat(
+        withTiming(1, { duration: 1100, easing: Easing.inOut(Easing.quad) }),
+        -1,
+        false,
+      );
+    } else {
+      // Fondu de sortie d'abord ; la boucle est coupée une fois invisible —
+      // la figer en pleine course ne se voit pas derrière l'opacité nulle.
+      opacite.value = withTiming(0, { duration: 320 });
+      cancelAnimation(progression);
+    }
+  }, [actif, opacite, progression]);
+
+  const styleComete = useAnimatedStyle(() => ({
+    opacity: opacite.value,
+    transform: [
+      { translateX: -COMETE_LARGEUR + progression.value * (largeur.value + COMETE_LARGEUR) },
+    ],
+  }));
+
+  const degradeComete: Degrade = [c.accent + '00', c.accent, c.violet, c.cyan, c.cyan + '00'];
+
+  return (
+    <View
+      style={styles.pisteSynchro}
+      onLayout={(e) => {
+        largeur.value = e.nativeEvent.layout.width;
+      }}
+    >
+      <Animated.View style={[styles.comete, styleComete]}>
+        <LinearGradient
+          colors={degradeComete}
+          start={DEBUT}
+          end={FIN}
+          style={StyleSheet.absoluteFill}
+        />
+      </Animated.View>
+    </View>
+  );
+}
+
 /** Badge de non-lus : étoile jaune, compteur centré. Rien si le compte est nul. */
 export function BadgeEtoile({ c, n }: { c: Couleurs; n: number }) {
   if (n < 1) return null;
@@ -235,6 +309,16 @@ const styles = StyleSheet.create({
   ctaTexte: { fontFamily: POLICES.titre, fontSize: 16 },
   invisible: { opacity: 0 },
   centre: { alignItems: 'center', justifyContent: 'center' },
+  pisteSynchro: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 3,
+    overflow: 'hidden',
+    pointerEvents: 'none',
+  },
+  comete: { position: 'absolute', top: 0, bottom: 0, width: COMETE_LARGEUR },
   etoile: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
   etoileGlyphe: { position: 'absolute', fontSize: 28, lineHeight: 28 },
   etoileTexte: { fontFamily: POLICES.corpsFort, fontSize: 11 },

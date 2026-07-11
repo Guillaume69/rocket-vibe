@@ -2,7 +2,7 @@ import { desc } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { Link, Redirect, Stack, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { BaseLocale } from '../db/client.ts';
@@ -89,6 +89,10 @@ function Salons({ c, base, client }: { c: Couleurs; base: BaseLocale; client: Cl
   // que la table du FROM. Avec une jointure, une écriture qui ne touche que
   // `abonnements` (lecture sur un autre appareil, salon masqué) ne
   // rafraîchirait JAMAIS la liste. La fusion se fait donc ici, en JS.
+  //
+  // La requête ordonne déjà par récence décroissante (les `null` en dernier).
+  // Les `filter` de regroupement ci-dessous PRÉSERVENT cet ordre : chaque
+  // section reste du plus récent au plus ancien sans re-tri explicite.
   const { data: lignesSalons } = useLiveQuery(
     base.select().from(salons).orderBy(desc(salons.horodatageDernierMessage)),
   );
@@ -97,17 +101,39 @@ function Salons({ c, base, client }: { c: Couleurs; base: BaseLocale; client: Cl
   const abonnementParRid = new Map((lignesAbonnements ?? []).map((a) => [a.rid, a]));
   // `ouvert === false` : salon masqué par l'utilisateur. Pas encore
   // d'abonnement reçu : visible, plutôt que de faire clignoter la liste.
-  const visibles = (lignesSalons ?? [])
+  const visibles: EntreeSalon[] = (lignesSalons ?? [])
     .filter((s) => abonnementParRid.get(s.rid)?.ouvert !== false)
     .map((s) => ({ salon: s, abonnement: abonnementParRid.get(s.rid) ?? null }));
 
+  // « J'ai un message » = des non-lus, OU le drapeau d'alerte du serveur (une
+  // mention peut le lever sans que le compteur bouge). Ces salons remontent en
+  // tête, TOUS TYPES CONFONDUS ; le reste se répartit ensuite Salons (# canaux
+  // et groupes privés) / Messages privés (DM).
+  const aUnMessage = (e: EntreeSalon) =>
+    (e.abonnement?.nonLus ?? 0) > 0 || e.abonnement?.alerte === true;
+  const nonLus = visibles.filter(aUnMessage);
+  const lus = visibles.filter((e) => !aUnMessage(e));
+
+  // Une section vide est retirée : pas d'en-tête « Messages privés » sans DM,
+  // ni « Non lus » quand tout est lu.
+  const sections: SectionSalons[] = [
+    { titre: 'Non lus', data: nonLus },
+    { titre: 'Salons', data: lus.filter((e) => e.salon.type !== 'd') },
+    { titre: 'Messages privés', data: lus.filter((e) => e.salon.type === 'd') },
+  ].filter((s) => s.data.length > 0);
+
   return (
-    <FlatList
-      data={visibles}
-      keyExtractor={(l) => l.salon.rid}
+    <SectionList<EntreeSalon, SectionSalons>
+      sections={sections}
+      keyExtractor={(item) => item.salon.rid}
       renderItem={({ item }) => (
         <LigneSalon c={c} salon={item.salon} abonnement={item.abonnement} client={client} />
       )}
+      // Un en-tête isolé (une seule section peuplée) n'apprend rien : on le tait.
+      renderSectionHeader={({ section }) =>
+        sections.length > 1 ? <EnTeteSection c={c} titre={section.titre} /> : null
+      }
+      stickySectionHeadersEnabled={false}
       ListHeaderComponent={<LigneNouvelleConversation c={c} />}
       ListEmptyComponent={
         <Text style={[styles.vide, { color: c.attenue }]}>
@@ -123,6 +149,17 @@ function Salons({ c, base, client }: { c: Couleurs; base: BaseLocale; client: Cl
 
 type LigneDeSalon = typeof salons.$inferSelect;
 type LigneDAbonnement = typeof abonnements.$inferSelect;
+type EntreeSalon = { salon: LigneDeSalon; abonnement: LigneDAbonnement | null };
+type SectionSalons = { titre: string; data: EntreeSalon[] };
+
+/** Titre de section de la liste : « Non lus », « Salons », « Messages privés ». */
+function EnTeteSection({ c, titre }: { c: Couleurs; titre: string }) {
+  return (
+    <View style={[styles.enteteSection, { backgroundColor: c.fond }]}>
+      <Text style={[styles.enteteSectionTexte, { color: c.attenue }]}>{titre}</Text>
+    </View>
+  );
+}
 
 function LigneSalon({
   c,
@@ -329,6 +366,13 @@ const styles = StyleSheet.create({
   apercu: { fontFamily: POLICES.corps, fontSize: 12.5 },
   apercuChiffre: { fontStyle: 'italic' },
   nouvelle: { fontFamily: POLICES.titre, fontSize: 15.5 },
+  enteteSection: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 6 },
+  enteteSectionTexte: {
+    fontFamily: POLICES.corpsFort,
+    fontSize: 11,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
   vide: { textAlign: 'center', padding: 24, fontSize: 14, fontFamily: POLICES.corps },
   pied: { padding: 20, gap: 12 },
   carte: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 10 },

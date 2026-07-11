@@ -23,6 +23,7 @@ import { texteSysteme } from '../lib/messagesSysteme.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar, urlFichierProtege } from '../lib/upload.ts';
 import { TuileAvatar } from './kit.tsx';
+import { LecteurAudio } from './lecteurAudio.tsx';
 import { CorpsMessage, GardeRendu } from './markdown.tsx';
 import { type Couleurs, degradeAvatar, POLICES } from './theme.ts';
 import { useVisionneuse } from './visionneuse.tsx';
@@ -272,16 +273,13 @@ function PiecesJointes({
         if (typeof jointe?.audio_url === 'string') {
           const url = urlFichierProtege(client, jointe.audio_url);
           return (
-            <Pressable
+            <LecteurAudio
               key={i}
-              onPress={() => void Linking.openURL(url).catch(() => {})}
-              onLongPress={surAppuiLong}
-              delayLongPress={350}
-            >
-              <Text style={[styles.texte, { color: c.accent }]}>
-                🎵 {jointe.title ?? 'Message vocal'}
-              </Text>
-            </Pressable>
+              c={c}
+              url={url}
+              titre={jointe.title ?? null}
+              surAppuiLong={surAppuiLong}
+            />
           );
         }
         if (typeof jointe?.title_link === 'string') {

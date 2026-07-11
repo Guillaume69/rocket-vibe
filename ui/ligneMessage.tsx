@@ -24,6 +24,7 @@ import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar, urlFichierProtege } from '../lib/upload.ts';
 import { TuileAvatar } from './kit.tsx';
 import { LecteurAudio } from './lecteurAudio.tsx';
+import { LecteurVideo } from './lecteurVideo.tsx';
 import { CorpsMessage, GardeRendu } from './markdown.tsx';
 import { type Couleurs, degradeAvatar, POLICES } from './theme.ts';
 import { useVisionneuse } from './visionneuse.tsx';
@@ -184,6 +185,8 @@ type PieceJointe = {
   title_link?: string;
   image_url?: string;
   audio_url?: string;
+  video_url?: string;
+  video_type?: string;
   image_dimensions?: { width?: number; height?: number };
 };
 
@@ -274,6 +277,21 @@ function PiecesJointes({
           const url = urlFichierProtege(client, jointe.audio_url);
           return (
             <LecteurAudio
+              key={i}
+              c={c}
+              url={url}
+              titre={jointe.title ?? null}
+              surAppuiLong={surAppuiLong}
+            />
+          );
+        }
+        if (typeof jointe?.video_url === 'string') {
+          // Une vidéo porte AUSSI `title_link` (l'original) : cette branche doit
+          // passer AVANT la branche « fichier » générique, sinon la vidéo n'y
+          // serait qu'un lien ouvert dans le navigateur.
+          const url = urlFichierProtege(client, jointe.video_url);
+          return (
+            <LecteurVideo
               key={i}
               c={c}
               url={url}

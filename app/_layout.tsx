@@ -1,5 +1,7 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { StyleSheet } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -22,44 +24,52 @@ import { VisionneuseImageProvider } from '../ui/visionneuse.tsx';
  */
 export default function RootLayout() {
   return (
-    <SafeAreaProvider>
-      {/* Alimente la SharedValue clavier de `ui/clavier.tsx` (suivi
-          frame-par-frame via WindowInsetsAnimation, edge-to-edge natif). */}
-      <KeyboardProvider>
-        <SessionProvider>
-          <SynchroProvider>
-            {/* La visionneuse d'image monte UNE Modal partagée au-dessus de
-                toute la pile : une pièce jointe s'ouvre en grand depuis
-                n'importe quel écran (salon, fil). */}
-            <VisionneuseImageProvider>
-              {/* Titre par défaut : sans lui, les rendus précoces du portier
-                  (démarrage, redirection) affichent le nom brut de la route. */}
-              <Stack
-                screenOptions={{
-                  title: 'rocket-vibe',
-                  headerStyle: { backgroundColor: couleursSombres.fond },
-                  headerTintColor: couleursSombres.texte,
-                  headerTitleStyle: { fontFamily: POLICES.titre },
-                  // Fond sombre PENDANT les transitions natives : sans lui, un
-                  // écran pas encore re-skiné flashe en blanc au push/pop.
-                  contentStyle: { backgroundColor: couleursSombres.fond },
-                }}
-              >
-                {/* `presentation` doit être connue à la CRÉATION de l'écran
-                    natif : posée par `<Stack.Screen>` depuis l'écran lui-même,
-                    elle arrive après coup (setOptions) et peut être ignorée. */}
-                <Stack.Screen
-                  name="actions-message"
-                  options={{ presentation: 'formSheet', title: 'Message' }}
-                />
-              </Stack>
-              <GestionNotifications />
-            </VisionneuseImageProvider>
-          </SynchroProvider>
-        </SessionProvider>
-      </KeyboardProvider>
-      {/* Thème forcé sombre : icônes claires sur le fond indigo. */}
-      <StatusBar style="light" />
-    </SafeAreaProvider>
+    // Racine des gestes (pincer/déplacer de la visionneuse). La Modal, fenêtre
+    // native séparée, a le sien en propre — celui-ci couvre la pile.
+    <GestureHandlerRootView style={styles.racine}>
+      <SafeAreaProvider>
+        {/* Alimente la SharedValue clavier de `ui/clavier.tsx` (suivi
+            frame-par-frame via WindowInsetsAnimation, edge-to-edge natif). */}
+        <KeyboardProvider>
+          <SessionProvider>
+            <SynchroProvider>
+              {/* La visionneuse d'image monte UNE Modal partagée au-dessus de
+                  toute la pile : une pièce jointe s'ouvre en grand depuis
+                  n'importe quel écran (salon, fil). */}
+              <VisionneuseImageProvider>
+                {/* Titre par défaut : sans lui, les rendus précoces du portier
+                    (démarrage, redirection) affichent le nom brut de la route. */}
+                <Stack
+                  screenOptions={{
+                    title: 'rocket-vibe',
+                    headerStyle: { backgroundColor: couleursSombres.fond },
+                    headerTintColor: couleursSombres.texte,
+                    headerTitleStyle: { fontFamily: POLICES.titre },
+                    // Fond sombre PENDANT les transitions natives : sans lui, un
+                    // écran pas encore re-skiné flashe en blanc au push/pop.
+                    contentStyle: { backgroundColor: couleursSombres.fond },
+                  }}
+                >
+                  {/* `presentation` doit être connue à la CRÉATION de l'écran
+                      natif : posée par `<Stack.Screen>` depuis l'écran lui-même,
+                      elle arrive après coup (setOptions) et peut être ignorée. */}
+                  <Stack.Screen
+                    name="actions-message"
+                    options={{ presentation: 'formSheet', title: 'Message' }}
+                  />
+                </Stack>
+                <GestionNotifications />
+              </VisionneuseImageProvider>
+            </SynchroProvider>
+          </SessionProvider>
+        </KeyboardProvider>
+        {/* Thème forcé sombre : icônes claires sur le fond indigo. */}
+        <StatusBar style="light" />
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
+
+const styles = StyleSheet.create({
+  racine: { flex: 1 },
+});

@@ -1,29 +1,31 @@
 /**
- * Visionneuse d'image plein écran (« lightbox »).
+ * Visionneuse d'image plein écran (« lightbox ») avec zoom.
  *
- * Un toucher sur une pièce jointe image ouvre l'original en grand. Contrainte
- * clef : l'URL protégée porte `rc_uid`/`rc_token` en query (voir
- * `urlFichierProtege`). Elle ne doit JAMAIS transiter par un paramètre de route
- * expo-router — ce serait un secret dans une URL sérialisable. On la garde donc
- * en mémoire, dans l'état d'un contexte, et on l'affiche via une `Modal` native
- * de react-native : la Modal se rend dans une fenêtre au-dessus de toute la pile
- * de navigation, où qu'on monte le fournisseur.
+ * Un toucher sur une pièce jointe image ouvre l'ORIGINAL pleine résolution
+ * (voir `ligneMessage.tsx` : on affiche `title_link`, pas la vignette 480 px de
+ * Rocket.Chat). Interactions : pincer pour zoomer, déplacer une fois zoomé,
+ * double-tap pour (dé)zoomer, glisser vers le bas pour fermer.
  *
- * Une seule Modal partagée pour toute l'app : une par ligne de message
- * gaspillerait de la mémoire dans une liste qui recycle.
+ * Contrainte clef : l'URL protégée porte `rc_uid`/`rc_token` en query. Elle ne
+ * doit JAMAIS transiter par un paramètre de route expo-router — ce serait un
+ * secret dans une URL sérialisable. On la garde donc en mémoire, dans l'état
+ * d'un contexte, et on l'affiche via une `Modal` native de react-native : la
+ * Modal se rend dans une fenêtre au-dessus de toute la pile de navigation.
+ *
+ * Une `Modal` est une fenêtre native SÉPARÉE : le `GestureHandlerRootView` de
+ * la racine ne la couvre pas. Il en faut un DÉDIÉ à l'intérieur, sinon aucun
+ * geste n'y est capté.
  */
 
-import { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  Image,
-  Modal,
-  Pressable,
-  StyleSheet,
-  Text,
-  useWindowDimensions,
-  View,
-} from 'react-native';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { POLICES, useCouleurs } from './theme.ts';
@@ -42,6 +44,11 @@ type ContexteVisionneuse = {
 };
 
 const Contexte = createContext<ContexteVisionneuse | null>(null);
+
+const ZOOM_MAX = 5;
+const ZOOM_DOUBLE_TAP = 2.5;
+/** Glisser au-delà de ce seuil (non zoomé) ferme la visionneuse. */
+const SEUIL_FERMETURE = 120;
 
 export function VisionneuseImageProvider({ children }: { children: React.ReactNode }) {
   const [cible, setCible] = useState<CibleImage | null>(null);
@@ -65,80 +72,164 @@ export function useVisionneuse(): ContexteVisionneuse {
   return contexte;
 }
 
+function serrer(valeur: number, min: number, max: number): number {
+  'worklet';
+  return Math.min(Math.max(valeur, min), max);
+}
+
 function ModaleImage({ cible, onFermer }: { cible: CibleImage | null; onFermer: () => void }) {
   const c = useCouleurs();
   const insets = useSafeAreaInsets();
-  const { width: largeurEcran, height: hauteurEcran } = useWindowDimensions();
   const [charge, setCharge] = useState(false);
 
-  // `contain` laisse l'Image se letterboxer elle-même dans le cadre plein
-  // écran : pas besoin de calculer les dimensions finales, seulement de
-  // remplir l'espace disponible.
+  const echelle = useSharedValue(1);
+  const echelleMem = useSharedValue(1);
+  const x = useSharedValue(0);
+  const y = useSharedValue(0);
+  const xMem = useSharedValue(0);
+  const yMem = useSharedValue(0);
+
+  // La Modal est réutilisée d'une image à l'autre : on remet le zoom à plat à
+  // chaque ouverture, sinon la suivante s'afficherait déjà zoomée/décalée.
+  useEffect(() => {
+    if (cible !== null) {
+      echelle.value = 1;
+      echelleMem.value = 1;
+      x.value = 0;
+      y.value = 0;
+      xMem.value = 0;
+      yMem.value = 0;
+      setCharge(false);
+    }
+  }, [cible, echelle, echelleMem, x, y, xMem, yMem]);
+
+  const remettreAPlat = useCallback(() => {
+    'worklet';
+    echelle.value = withTiming(1);
+    echelleMem.value = 1;
+    x.value = withTiming(0);
+    y.value = withTiming(0);
+    xMem.value = 0;
+    yMem.value = 0;
+  }, [echelle, echelleMem, x, y, xMem, yMem]);
+
+  const pincer = Gesture.Pinch()
+    .onUpdate((e) => {
+      echelle.value = serrer(echelleMem.value * e.scale, 0.9, ZOOM_MAX);
+    })
+    .onEnd(() => {
+      if (echelle.value <= 1) remettreAPlat();
+      else echelleMem.value = echelle.value;
+    });
+
+  const deplacer = Gesture.Pan()
+    .onUpdate((e) => {
+      x.value = xMem.value + e.translationX;
+      y.value = yMem.value + e.translationY;
+    })
+    .onEnd((e) => {
+      // Non zoomé : un franc glissé vers le bas ferme ; sinon on revient au
+      // centre. Zoomé : le déplacement est conservé.
+      if (echelle.value <= 1) {
+        if (e.translationY > SEUIL_FERMETURE) {
+          runOnJS(onFermer)();
+        } else {
+          x.value = withTiming(0);
+          y.value = withTiming(0);
+        }
+      } else {
+        xMem.value = x.value;
+        yMem.value = y.value;
+      }
+    });
+
+  const doubleTap = Gesture.Tap()
+    .numberOfTaps(2)
+    .onEnd(() => {
+      if (echelle.value > 1) {
+        remettreAPlat();
+      } else {
+        echelle.value = withTiming(ZOOM_DOUBLE_TAP);
+        echelleMem.value = ZOOM_DOUBLE_TAP;
+      }
+    });
+
+  const simpleTap = Gesture.Tap()
+    .numberOfTaps(1)
+    .onEnd(() => {
+      // Zoomé, un simple tap dézoome ; sinon il ferme.
+      if (echelle.value > 1) remettreAPlat();
+      else runOnJS(onFermer)();
+    });
+
+  const gestes = Gesture.Race(
+    Gesture.Simultaneous(pincer, deplacer),
+    Gesture.Exclusive(doubleTap, simpleTap),
+  );
+
+  const styleImage = useAnimatedStyle(() => ({
+    transform: [{ translateX: x.value }, { translateY: y.value }, { scale: echelle.value }],
+  }));
+
   return (
     <Modal
       visible={cible !== null}
       transparent
       animationType="fade"
       statusBarTranslucent
-      // Le bouton retour Android ET le geste de retour ferment la visionneuse.
       onRequestClose={onFermer}
-      onShow={() => setCharge(false)}
     >
-      <Pressable
-        style={styles.fond}
-        onPress={onFermer}
-        accessibilityRole="button"
-        accessibilityLabel="Fermer l'image"
-      >
-        {cible !== null && (
-          <>
-            {!charge && (
-              <ActivityIndicator
-                color={c.accent}
-                size="large"
-                style={StyleSheet.absoluteFill}
-              />
-            )}
-            <Image
-              source={{ uri: cible.uri }}
-              style={{ width: largeurEcran, height: hauteurEcran }}
-              resizeMode="contain"
-              // Décodage pleine résolution puis mise à l'échelle GPU : sur
-              // Android, `scale` reste net là où le `resize` par défaut de
-              // Fresco pouvait adoucir. Sans risque ici — une seule image à la
-              // fois, pas une liste qui défile.
-              resizeMethod="scale"
-              onLoadEnd={() => setCharge(true)}
-              accessibilityLabel={cible.titre ?? 'Image'}
-            />
-          </>
-        )}
-      </Pressable>
-
-      {/* Croix de fermeture, posée dans la zone sûre — au-dessus du fond
-          tapable, mais avec sa propre cible de toucher. */}
-      <Pressable
-        onPress={onFermer}
-        hitSlop={12}
-        style={[styles.fermer, { top: insets.top + 8, backgroundColor: c.carte + 'D9' }]}
-        accessibilityRole="button"
-        accessibilityLabel="Fermer"
-      >
-        <Text style={[styles.croix, { color: c.texte }]}>✕</Text>
-      </Pressable>
-
-      {cible?.titre != null && cible.titre !== '' && (
-        <View style={[styles.legende, { bottom: insets.bottom + 12 }]} pointerEvents="none">
-          <Text style={[styles.legendeTexte, { color: c.texte }]} numberOfLines={2}>
-            {cible.titre}
-          </Text>
+      {/* La Modal est une fenêtre native séparée : son propre root de gestes. */}
+      <GestureHandlerRootView style={styles.racine}>
+        <View style={styles.fond}>
+          {cible !== null && (
+            <>
+              {!charge && (
+                <ActivityIndicator color={c.accent} size="large" style={StyleSheet.absoluteFill} />
+              )}
+              <GestureDetector gesture={gestes}>
+                <Animated.View style={[styles.cadre, styleImage]}>
+                  <Image
+                    source={{ uri: cible.uri }}
+                    style={styles.image}
+                    resizeMode="contain"
+                    // Décodage pleine résolution puis mise à l'échelle GPU : le
+                    // zoom révèle le vrai détail. Sans risque — une seule image.
+                    resizeMethod="scale"
+                    onLoadEnd={() => setCharge(true)}
+                    accessibilityLabel={cible.titre ?? 'Image'}
+                  />
+                </Animated.View>
+              </GestureDetector>
+            </>
+          )}
         </View>
-      )}
+
+        {/* Croix de fermeture, au-dessus des gestes, avec sa propre cible. */}
+        <Pressable
+          onPress={onFermer}
+          hitSlop={12}
+          style={[styles.fermer, { top: insets.top + 8, backgroundColor: c.carte + 'D9' }]}
+          accessibilityRole="button"
+          accessibilityLabel="Fermer"
+        >
+          <Text style={[styles.croix, { color: c.texte }]}>✕</Text>
+        </Pressable>
+
+        {cible?.titre != null && cible.titre !== '' && (
+          <View style={[styles.legende, { bottom: insets.bottom + 12 }]} pointerEvents="none">
+            <Text style={[styles.legendeTexte, { color: c.texte }]} numberOfLines={2}>
+              {cible.titre}
+            </Text>
+          </View>
+        )}
+      </GestureHandlerRootView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  racine: { flex: 1 },
   fond: {
     flex: 1,
     alignItems: 'center',
@@ -146,6 +237,8 @@ const styles = StyleSheet.create({
     // Presque opaque : une photo se regarde sur du noir, pas sur le salon.
     backgroundColor: 'rgba(4,3,10,0.94)',
   },
+  cadre: { width: '100%', height: '100%' },
+  image: { width: '100%', height: '100%' },
   fermer: {
     position: 'absolute',
     right: 12,

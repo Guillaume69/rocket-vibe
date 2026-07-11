@@ -9,19 +9,18 @@ Ce fichier est rechargé à chaque session. Il porte ce qui coûte cher à redé
 
 ## La boucle de travail
 
-Une sous-étape d'`EXECUTION.md` = un commit. Dans cet ordre, sans sauter de marche :
+**Version de base acceptable atteinte (juillet 2026) : la cérémonie par sous-étape est levée.** On travaille désormais léger :
 
 1. Implémenter.
-2. **Prouver en exécutant.** Le critère de sortie est une commande dont le résultat tranche, pas une intention. Coller la sortie réelle.
-3. `/code-review` sur le diff non commité — pour les sous-étapes `[code]`.
-4. Corriger les *findings* ; consigner ceux qu'on écarte, avec la raison.
-5. Cocher la case et la dater dans `EXECUTION.md`.
-6. **Un seul commit** : le code *et* la case cochée. Message conventionnel, trailer `Étape: N.M`.
-7. `git push origin master`.
+2. Garder le réflexe de vérifier que ça tient — `npx tsc --noEmit` et un lancement réel quand le changement touche au code — mais ce n'est plus un critère de sortie formel qui bloque.
+3. Commiter (message conventionnel) et `git push origin master`.
+
+- **Plus de `/code-review` systématique.** La revue ne se lance plus que sur demande explicite.
+- Plus d'obligation de case cochée/datée dans `EXECUTION.md` ni de trailer `Étape: N.M`. On peut toujours mettre `EXECUTION.md` à jour quand ça éclaire l'état, mais ce n'est plus un passage obligé.
 
 Branche principale : **`master`**. Commits directs, pas de PR.
 
-> Cette boucle n'est pas décorative. L'étape 2 a attrapé un `env.sh` cassé que je croyais testé ; l'étape 3 a trouvé un `docker compose` qui créait un compte admin **sans mot de passe** sur un serveur exposé au LAN.
+> Pourquoi « prouver en exécutant » reste un bon réflexe même sans l'imposer : ça a déjà attrapé un `env.sh` cassé que je croyais testé, et un `docker compose` qui créait un compte admin **sans mot de passe** sur un serveur exposé au LAN. Relire du code jamais exécuté, c'est relire une intention.
 
 ## Le shell est zsh — deux pièges à échec silencieux
 

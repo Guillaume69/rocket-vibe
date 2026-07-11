@@ -350,13 +350,29 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
 
 ---
 
-## Étape 9 — iOS
+## Étape 9 — Thème visuel « Nuit Étoilée » (import du design)
+
+> Import du design `claude.ai/design` « Dark Little Poney », direction retenue **1a « Nuit Étoilée »** : indigo étoilé, arc-en-ciel saturé, titres Baloo 2, corps Nunito, dégradés, avatars-tuiles, badges étoile, wordmark. **Dark d'abord** (choix @guillaume) ; le thème clair « jour » (2b, déjà saisi comme donnée) viendra après. Un écran = une sous-étape.
+
+- [x] **9.1 — Fondation du thème + écran Connexion** · `@claude` · `[code]` — @guillaume : « intégrer le design, dans un 1er temps uniquement le mode dark ». Fichier `Dark Little Poney.dc.html` importé via le MCP `claude_design`.
+  **Fondation** : `ui/theme.ts` troque la palette (9 tokens) contre l'interface `Couleurs` (≈30 tokens) déclinée en `couleursSombres` (Nuit Étoilée) ET `couleursClaires` (« jour », saisie comme donnée pour garder le type honnête, mêmes clés) ; dégradés en tuples (`degradeCta`, `degradeMarque`, `avatarsDegrades`, `degradeNeutre`), `degradeAvatar` déterministe, `POLICES` = une famille par graisse. `useCouleurs()` **forcé en sombre**. Primitives partagées `ui/kit.tsx` : `BoutonPrincipal` (dégradé + halo `boxShadow`), `Marque` (wordmark rempli d'un dégradé via `MaskedView`), `TuileAvatar` (tuile dégradée), `BadgeEtoile`.
+  **Dépendances (ROADMAP §4.2)** : `expo-linear-gradient` (binding natif Expo) et les polices `@expo-google-fonts/baloo-2`+`nunito` **embarquées nativement** via le config plugin `expo-font` (7 graisses `.ttf`) — des assets/bindings de plateforme rendus par le moteur de texte natif, pas un kit UI. `@react-native-masked-view` était **déjà là** (transitif d'`expo-router`, autolinké : zéro module natif ajouté pour le wordmark). `userInterfaceStyle:"dark"` + `StatusBar` claire + en-têtes natifs sombres (titre Baloo 2), pour ne pas flasher blanc pendant le déploiement écran par écran.
+  **Écran Connexion** re-skiné, **logique intacte** (phases serveur→identifiants→2FA, garde de réentrance `enVol`, méthodes TOTP/email/password, `<Redirect>`) : licorne + barres arc-en-ciel + wordmark, champ-pilule à anneau cyan, blason bouclier 2FA, ciel étoilé décoratif.
+  **Revue (xhigh, 6 finders + verify indépendant, 9 findings, tous corrigés)** : (0, CONFIRMED) `headerShown:false` **piégeait** la route `?changer=1` (aucun retour vers l'app en phase serveur) → en-tête natif **gardé sur cette seule route** (retour + titre accessible) ; (1, CONFIRMED) padding déplacé sur le `View` englobant → zone de focus rétrécie → `Pressable` qui `focus()` l'input ; (2, CONFIRMED) le commentaire « bascule claire en un aiguillage » mentait (app.json + _layout aussi à toucher) → corrigé ; (3) `BadgeEtoile` sans garde du zéro → `null` si `n<1` ; (4, CONFIRMED) `degradeAvatar` sommait les codes (anagrammes en collision) → hash polynomial ×31 ; (5) deux dégradés d'avatar exactement inversés → paires distinctes (dark + clair) ; (6, CONFIRMED) blason 2FA ré-implémentait la tuile → `TuileAvatar` gagne un override `deg` réutilisé ; (7, CONFIRMED) `CielEtoile` re-rendu à chaque frappe → `memo` ; (8) anneau de focus codé en dur → dérivé de `c.cyan`. **Réfutés** : halo `boxShadow` sous `overflow:hidden` (le fond n'est pas rogné — halo visible sur la capture) ; constantes `start/end` inlinées dans le blason (style pur, caduc après #6).
+  Prouvé sur l'AVD (dev-client, captures) : Connexion **fidèle** au mockup (wordmark dégradé masqué, halo rose, anneau cyan au focus, étoiles, Baloo 2/Nunito) ; le retour natif apparaît bien sur « changer de serveur » ; les écrans pas encore re-skinés (liste…) restent lisibles en sombre, sans crash. `tsc` propre, `lint` propre. Build release installé sur le Pixel. Suite des écrans en 9.2–9.4. Fait le : `2026-07-11`
+- [ ] **9.2 — Liste des salons** · `@claude` · `[code]` — en-tête à logo + ⚙️, ligne « Nouvelle conversation » à tuile dégradée, lignes de salon avec `TuileAvatar` + pastille de présence + badge étoile de non-lus.
+- [ ] **9.3 — Salon (et fil)** · `@claude` · `[code]` — en-tête custom, petits avatars + pseudos colorés, séparateur « nouveaux messages », puce de fil, composer en pilule + rond dégradé (mic/envoi).
+- [ ] **9.4 — Recherche & feuille d'actions** · `@claude` · `[code]` — champ de recherche à anneau, sections à avatars ; barre de réactions et actions (modifier/épingler/supprimer) au design.
+
+---
+
+## Étape 10 — iOS
 
 > Hors chemin critique. Réf. `ROADMAP.md` §5 phase 7. Prérequis `@guillaume` : un Mac, un compte Apple Developer (99 $/an).
 
-- [ ] **9.1 — `prebuild` iOS** depuis les mêmes config plugins · `@duo` · `[infra]`
-- [ ] **9.2 — Push APNs** avec Notification Service Extension · `@claude` · `[code]`
-- [ ] **9.3 — Keychain access groups** · `@claude` · `[code]`
+- [ ] **10.1 — `prebuild` iOS** depuis les mêmes config plugins · `@duo` · `[infra]`
+- [ ] **10.2 — Push APNs** avec Notification Service Extension · `@claude` · `[code]`
+- [ ] **10.3 — Keychain access groups** · `@claude` · `[code]`
 
 ---
 

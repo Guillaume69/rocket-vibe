@@ -6,6 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestionNotifications } from '../ui/notifications.tsx';
 import { SessionProvider } from '../ui/session.tsx';
 import { SynchroProvider } from '../ui/synchro.tsx';
+import { couleursSombres, POLICES } from '../ui/theme.ts';
 
 /**
  * Racine de navigation. `Stack` d'expo-router s'appuie sur le stack natif de
@@ -28,7 +29,17 @@ export default function RootLayout() {
           <SynchroProvider>
             {/* Titre par défaut : sans lui, les rendus précoces du portier
                 (démarrage, redirection) affichent le nom brut de la route. */}
-            <Stack screenOptions={{ title: 'rocket-vibe' }}>
+            <Stack
+              screenOptions={{
+                title: 'rocket-vibe',
+                headerStyle: { backgroundColor: couleursSombres.fond },
+                headerTintColor: couleursSombres.texte,
+                headerTitleStyle: { fontFamily: POLICES.titre },
+                // Fond sombre PENDANT les transitions natives : sans lui, un
+                // écran pas encore re-skiné flashe en blanc au push/pop.
+                contentStyle: { backgroundColor: couleursSombres.fond },
+              }}
+            >
               {/* `presentation` doit être connue à la CRÉATION de l'écran
                   natif : posée par `<Stack.Screen>` depuis l'écran lui-même,
                   elle arrive après coup (setOptions) et peut être ignorée. */}
@@ -41,7 +52,8 @@ export default function RootLayout() {
           </SynchroProvider>
         </SessionProvider>
       </KeyboardProvider>
-      <StatusBar style="auto" />
+      {/* Thème forcé sombre : icônes claires sur le fond indigo. */}
+      <StatusBar style="light" />
     </SafeAreaProvider>
   );
 }

@@ -5,7 +5,7 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "scheme": "rocketvibe",
     "android": {
       "package": "com.rocketvibe.app",
@@ -23,7 +23,21 @@
       "expo-secure-store",
       "expo-sqlite",
       "./plugins/with-canal-notifications",
-      "expo-audio"
+      "expo-audio",
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "node_modules/@expo-google-fonts/baloo-2/600SemiBold/Baloo2_600SemiBold.ttf",
+            "node_modules/@expo-google-fonts/baloo-2/700Bold/Baloo2_700Bold.ttf",
+            "node_modules/@expo-google-fonts/baloo-2/800ExtraBold/Baloo2_800ExtraBold.ttf",
+            "node_modules/@expo-google-fonts/nunito/400Regular/Nunito_400Regular.ttf",
+            "node_modules/@expo-google-fonts/nunito/600SemiBold/Nunito_600SemiBold.ttf",
+            "node_modules/@expo-google-fonts/nunito/700Bold/Nunito_700Bold.ttf",
+            "node_modules/@expo-google-fonts/nunito/800ExtraBold/Nunito_800ExtraBold.ttf"
+          ]
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

@@ -226,12 +226,20 @@ function PiecesJointes({
     <View style={styles.jointes}>
       {jointes.map((jointe, i) => {
         if (typeof jointe?.image_url === 'string') {
-          const url = urlFichierProtege(client, jointe.image_url);
+          // Rocket.Chat génère une VIGNETTE ~480 px (`image_url`) et conserve
+          // l'ORIGINAL pleine résolution dans `title_link`. Afficher la
+          // vignette la rendait pixelisée dès qu'on l'agrandissait : on prend
+          // donc l'original, en le laissant se sous-échantillonner à la taille
+          // d'affichage. Repli sur `image_url` si le serveur ne génère pas de
+          // vignette (l'original EST alors `image_url`).
+          const source =
+            typeof jointe.title_link === 'string' ? jointe.title_link : jointe.image_url;
+          const url = urlFichierProtege(client, source);
+          // `image_dimensions` décrit la vignette, mais son RATIO est celui de
+          // l'original — parfait pour le gabarit. La borne « pas d'upscale »
+          // reste juste : min(480, dispo) = dispo, on remplit donc la largeur.
           const reelLargeur = jointe.image_dimensions?.width ?? null;
           const reelHauteur = jointe.image_dimensions?.height ?? null;
-          // On remplit la largeur du chat (net et lisible), sans JAMAIS
-          // agrandir une image plus petite que sa taille réelle — l'upscale la
-          // rendrait floue. Une vignette minuscule garde une cible tapable.
           const largeur = Math.max(Math.min(reelLargeur ?? dispoLargeur, dispoLargeur), 120);
           const ratio = (reelHauteur ?? largeur) / Math.max(reelLargeur ?? largeur, 1);
           // Un portrait très haut est plafonné (et recadré par `cover`) : la

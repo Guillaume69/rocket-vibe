@@ -78,16 +78,27 @@ for (let i = 0; i < DEMI_FFT; i++) {
   SIN[i] = Math.sin(a);
 }
 
-/** Bandes log-espacées : chaque barre couvre une plage de bins [lo, hi[. */
+/**
+ * Bandes log-espacées, bornées à l'aigu UTILE : au-delà de ~bin 100 (~8-9 kHz
+ * selon la fréquence d'échantillonnage), voix et musique n'ont presque rien —
+ * étaler les barres jusqu'au Nyquist (~22 kHz) laissait le tiers droit vide.
+ */
+const BIN_MIN = 2; // on saute le DC (bin 0-1)
+const BIN_MAX = 100;
 const BANDES: [number, number][] = [];
-{
-  const binMin = 2; // on saute le DC (bin 0-1)
-  for (let b = 0; b < NB_BARRES; b++) {
-    const lo = Math.floor(binMin * Math.pow(DEMI_FFT / binMin, b / NB_BARRES));
-    const hi = Math.max(lo + 1, Math.floor(binMin * Math.pow(DEMI_FFT / binMin, (b + 1) / NB_BARRES)));
-    BANDES.push([lo, Math.min(hi, DEMI_FFT)]);
-  }
+for (let b = 0; b < NB_BARRES; b++) {
+  const lo = Math.floor(BIN_MIN * Math.pow(BIN_MAX / BIN_MIN, b / NB_BARRES));
+  const hi = Math.max(lo + 1, Math.floor(BIN_MIN * Math.pow(BIN_MAX / BIN_MIN, (b + 1) / NB_BARRES)));
+  BANDES.push([lo, Math.min(hi, DEMI_FFT)]);
 }
+
+/**
+ * L'énergie audio décroît fortement vers l'aigu (spectre « basse-lourd ») :
+ * sans compensation, seules les barres de gauche bougent. On relève donc
+ * progressivement les hautes bandes — pente douce, le rendu reste fidèle.
+ */
+const POIDS = new Float64Array(NB_BARRES);
+for (let b = 0; b < NB_BARRES; b++) POIDS[b] = 1 + 2.2 * (b / (NB_BARRES - 1));
 
 // Buffers de travail réutilisés : un seul lecteur échantillonne à la fois
 // (coordinateur), et chaque appel est synchrone — pas de réentrance.
@@ -238,7 +249,8 @@ export function LecteurAudio({
       const [lo, hi] = BANDES[b]!;
       let somme = 0;
       for (let k = lo; k < hi; k++) somme += Math.sqrt(RE[k]! * RE[k]! + IM[k]! * IM[k]!);
-      const moy = somme / Math.max(hi - lo, 1);
+      // Pondération d'aigu : compense la pente naturelle basse-lourde.
+      const moy = (somme / Math.max(hi - lo, 1)) * POIDS[b]!;
       brut[b] = moy;
       if (moy > maxi) maxi = moy;
     }

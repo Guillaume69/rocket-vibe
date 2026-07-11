@@ -7,7 +7,15 @@
  */
 
 import { memo, useMemo } from 'react';
-import { Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  Image,
+  Linking,
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 
 import type { messages } from '../db/schema.ts';
 import { arbreDuMessage } from '../lib/markdown.ts';
@@ -17,6 +25,7 @@ import { urlAvatar, urlFichierProtege } from '../lib/upload.ts';
 import { TuileAvatar } from './kit.tsx';
 import { CorpsMessage, GardeRendu } from './markdown.tsx';
 import { type Couleurs, degradeAvatar, POLICES } from './theme.ts';
+import { useVisionneuse } from './visionneuse.tsx';
 
 export type LigneDeMessage = typeof messages.$inferSelect;
 
@@ -198,6 +207,8 @@ function PiecesJointes({
   client: ClientRest;
   surAppuiLong: (() => void) | undefined;
 }) {
+  const { width: largeurEcran } = useWindowDimensions();
+  const visionneuse = useVisionneuse();
   const jointes = useMemo<PieceJointe[]>(() => {
     try {
       const liste = JSON.parse(brut) as unknown;
@@ -207,23 +218,47 @@ function PiecesJointes({
     }
   }, [brut]);
 
+  // Largeur disponible pour le corps : écran − marges de liste (16×2) −
+  // colonne avatar (34) − gouttière (10), plafonnée pour les grands écrans.
+  const dispoLargeur = Math.min(largeurEcran - 92, 380);
+
   return (
     <View style={styles.jointes}>
       {jointes.map((jointe, i) => {
         if (typeof jointe?.image_url === 'string') {
-          // Bornée des deux côtés : une vignette 4×4 reste tapable, une photo
-          // 4000 px ne déborde pas.
-          const largeur = Math.max(Math.min(jointe.image_dimensions?.width ?? 240, 240), 120);
-          const ratio =
-            (jointe.image_dimensions?.height ?? largeur) /
-            Math.max(jointe.image_dimensions?.width ?? largeur, 1);
+          const url = urlFichierProtege(client, jointe.image_url);
+          const reelLargeur = jointe.image_dimensions?.width ?? null;
+          const reelHauteur = jointe.image_dimensions?.height ?? null;
+          // On remplit la largeur du chat (net et lisible), sans JAMAIS
+          // agrandir une image plus petite que sa taille réelle — l'upscale la
+          // rendrait floue. Une vignette minuscule garde une cible tapable.
+          const largeur = Math.max(Math.min(reelLargeur ?? dispoLargeur, dispoLargeur), 120);
+          const ratio = (reelHauteur ?? largeur) / Math.max(reelLargeur ?? largeur, 1);
+          // Un portrait très haut est plafonné (et recadré par `cover`) : la
+          // vue en grand, au toucher, montre l'image entière.
+          const hauteur = Math.min(Math.round(largeur * ratio), 400);
           return (
-            <Image
+            <Pressable
               key={i}
-              source={{ uri: urlFichierProtege(client, jointe.image_url) }}
-              style={[styles.imageJointe, { width: largeur, height: Math.round(largeur * ratio) }]}
-              resizeMode="cover"
-            />
+              onPress={() =>
+                visionneuse.ouvrir({
+                  uri: url,
+                  largeur: reelLargeur,
+                  hauteur: reelHauteur,
+                  titre: jointe.title ?? null,
+                })
+              }
+              onLongPress={surAppuiLong}
+              delayLongPress={350}
+              accessibilityRole="imagebutton"
+              accessibilityLabel={jointe.title ?? 'Image, toucher pour agrandir'}
+            >
+              <Image
+                source={{ uri: url }}
+                style={[styles.imageJointe, { width: largeur, height: hauteur }]}
+                resizeMode="cover"
+              />
+            </Pressable>
           );
         }
         if (typeof jointe?.audio_url === 'string') {

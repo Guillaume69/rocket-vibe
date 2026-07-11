@@ -1,19 +1,25 @@
 /**
- * Lecteur de message audio, avec visualiseur réactif « comète arc-en-ciel ».
+ * Lecteur de message audio, avec visualiseur de fréquence « comète arc-en-ciel ».
  *
  * Avant : une pièce jointe audio n'était qu'un lien `🎵` ouvert dans le
  * navigateur. Ici on lit EN PLACE (expo-audio, déjà lié pour l'enregistrement),
- * avec play/pause, barre de progression tapable pour se déplacer, et un
- * visualiseur dont les barres DANSENT avec le son réel.
+ * avec play/pause, barre de progression tapable, et un visualiseur dont les
+ * barres DANSENT par bande de fréquence avec le son réel.
  *
  * Le direct vient de `useAudioSampleListener` : expo-audio livre les frames PCM
- * de la sortie en temps réel. Sur Android, l'échantillonnage de sortie passe
- * par un Visualizer qui exige `RECORD_AUDIO` — déjà au manifeste et déjà accordé
- * puisque l'app enregistre des vocaux. Si l'échantillonnage échoue (permission
- * refusée), la lecture marche quand même, barres au repos : dégradation propre.
+ * de la sortie en temps réel. On en fait une **FFT** (analyse fréquentielle) →
+ * une magnitude par bande log-espacée (grave à gauche, aigu à droite). Sur
+ * Android l'échantillonnage de sortie passe par un Visualizer qui exige
+ * `RECORD_AUDIO` — déjà au manifeste et accordé pour l'enregistrement. S'il
+ * échoue, la lecture marche quand même, barres au repos : dégradation propre.
  *
- * Un seul lecteur à la fois (coordinateur au niveau module) : démarrer un
- * message met l'autre en pause — sinon deux vocaux se superposeraient.
+ * Deux réglages qui font la fluidité et évitent la saturation :
+ *  - **Contrôle de gain auto** : le plafond monte vite, redescend lentement ;
+ *    on normalise par lui, donc le pic ≈ pleine hauteur sans jamais clipper.
+ *  - **Lissage** : chaque barre glisse (`withTiming`) vers sa cible, au lieu de
+ *    sauter à chaque échantillon.
+ *
+ * Un seul lecteur à la fois (coordinateur au niveau module).
  */
 
 import { useAudioPlayer, useAudioPlayerStatus, useAudioSampleListener } from 'expo-audio';
@@ -27,25 +33,111 @@ import {
   Text,
   View,
 } from 'react-native';
-import Animated, { type SharedValue, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import Animated, {
+  Easing,
+  type SharedValue,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { type Couleurs, POLICES } from './theme.ts';
 
 const NB_BARRES = 28;
 const H_MAX = 30;
-const H_MIN = 4;
-/** Amplifie le RMS (faible pour de la parole) vers une hauteur de barre. */
-const GAIN = 4.2;
+const H_MIN = 3;
 
-/** Coordinateur : un seul message audio joue à la fois. */
+// --- FFT (Cooley-Tukey itérative, radix-2) -----------------------------------
+
+const TAILLE_FFT = 512;
+const DEMI_FFT = TAILLE_FFT / 2;
+
+/** Fenêtre de Hann : atténue les fuites spectrales des bords du buffer. */
+const FENETRE = new Float64Array(TAILLE_FFT);
+for (let n = 0; n < TAILLE_FFT; n++) {
+  FENETRE[n] = 0.5 - 0.5 * Math.cos((2 * Math.PI * n) / (TAILLE_FFT - 1));
+}
+
+/** Permutation par inversion de bits (préalable au papillon en place). */
+const RENVERSE = new Uint16Array(TAILLE_FFT);
+{
+  let j = 0;
+  for (let i = 0; i < TAILLE_FFT; i++) {
+    RENVERSE[i] = j;
+    let bit = TAILLE_FFT >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+  }
+}
+
+const COS = new Float64Array(DEMI_FFT);
+const SIN = new Float64Array(DEMI_FFT);
+for (let i = 0; i < DEMI_FFT; i++) {
+  const a = (-2 * Math.PI * i) / TAILLE_FFT;
+  COS[i] = Math.cos(a);
+  SIN[i] = Math.sin(a);
+}
+
+/** Bandes log-espacées : chaque barre couvre une plage de bins [lo, hi[. */
+const BANDES: [number, number][] = [];
+{
+  const binMin = 2; // on saute le DC (bin 0-1)
+  for (let b = 0; b < NB_BARRES; b++) {
+    const lo = Math.floor(binMin * Math.pow(DEMI_FFT / binMin, b / NB_BARRES));
+    const hi = Math.max(lo + 1, Math.floor(binMin * Math.pow(DEMI_FFT / binMin, (b + 1) / NB_BARRES)));
+    BANDES.push([lo, Math.min(hi, DEMI_FFT)]);
+  }
+}
+
+// Buffers de travail réutilisés : un seul lecteur échantillonne à la fois
+// (coordinateur), et chaque appel est synchrone — pas de réentrance.
+const RE = new Float64Array(TAILLE_FFT);
+const IM = new Float64Array(TAILLE_FFT);
+
+/** FFT en place : RE contient l'entrée (déjà fenêtrée), IM vaut 0. */
+function fft(): void {
+  for (let i = 0; i < TAILLE_FFT; i++) {
+    const j = RENVERSE[i]!;
+    if (j > i) {
+      const tr = RE[i]!;
+      RE[i] = RE[j]!;
+      RE[j] = tr;
+      const ti = IM[i]!;
+      IM[i] = IM[j]!;
+      IM[j] = ti;
+    }
+  }
+  for (let taille = 2; taille <= TAILLE_FFT; taille <<= 1) {
+    const demi = taille >> 1;
+    const pas = TAILLE_FFT / taille;
+    for (let debut = 0; debut < TAILLE_FFT; debut += taille) {
+      for (let k = 0; k < demi; k++) {
+        const idx = k * pas;
+        const wr = COS[idx]!;
+        const wi = SIN[idx]!;
+        const a = debut + k;
+        const b = a + demi;
+        const xr = RE[b]!;
+        const xi = IM[b]!;
+        const tr = wr * xr - wi * xi;
+        const ti = wr * xi + wi * xr;
+        RE[b] = RE[a]! - tr;
+        IM[b] = IM[a]! - ti;
+        RE[a] = RE[a]! + tr;
+        IM[a] = IM[a]! + ti;
+      }
+    }
+  }
+}
+
+// --- Divers ------------------------------------------------------------------
+
 let lecteurActif: { pause: () => void } | null = null;
 
 function mmss(secondes: number): string {
   const s = Number.isFinite(secondes) && secondes > 0 ? Math.floor(secondes) : 0;
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
-
-// --- Dégradé arc-en-ciel réparti sur les barres ------------------------------
 
 function canaux(hex: string): [number, number, number] {
   const n = parseInt(hex.slice(1), 16);
@@ -77,8 +169,12 @@ function Barre({
   index: number;
   couleur: string;
 }) {
+  // Chaque barre GLISSE vers sa cible : fluide malgré le pas d'échantillonnage.
   const style = useAnimatedStyle(() => ({
-    height: H_MIN + (niveaux.value[index] ?? 0) * (H_MAX - H_MIN),
+    height: withTiming(H_MIN + (niveaux.value[index] ?? 0) * (H_MAX - H_MIN), {
+      duration: 90,
+      easing: Easing.out(Easing.quad),
+    }),
   }));
   return <Animated.View style={[styles.barre, { backgroundColor: couleur }, style]} />;
 }
@@ -99,6 +195,7 @@ export function LecteurAudio({
   const niveaux = useSharedValue<number[]>(new Array(NB_BARRES).fill(0));
   const largeur = useRef(0);
   const dernierEch = useRef(0);
+  const plafond = useRef(1e-4); // contrôle de gain automatique, par lecteur
   const moi = useRef<{ pause: () => void }>({ pause: () => {} });
   moi.current.pause = () => {
     try {
@@ -110,8 +207,6 @@ export function LecteurAudio({
 
   const couleurs = useMemo(() => repartirArcEnCiel(c.degradeMarque, NB_BARRES), [c.degradeMarque]);
 
-  // Échantillonnage de sortie : peut exiger RECORD_AUDIO (déjà accordé pour
-  // l'enregistrement). Échec toléré — la lecture reste possible.
   useEffect(() => {
     try {
       player.setAudioSamplingEnabled(true);
@@ -124,34 +219,49 @@ export function LecteurAudio({
     const frames = echantillon.channels?.[0]?.frames;
     if (!frames || frames.length === 0) return;
     const maintenant = Date.now();
-    if (maintenant - dernierEch.current < 28) return; // ~35 Hz suffit à l'œil
+    if (maintenant - dernierEch.current < 32) return; // ~30 Hz
     dernierEch.current = maintenant;
+
+    // Derniers TAILLE_FFT frames, fenêtrés (zéro-pad si le buffer est court).
+    const dispo = Math.min(frames.length, TAILLE_FFT);
+    const depart = frames.length - dispo;
+    for (let n = 0; n < TAILLE_FFT; n++) {
+      RE[n] = n < dispo ? frames[depart + n]! * FENETRE[n]! : 0;
+      IM[n] = 0;
+    }
+    fft();
+
+    // Magnitude moyenne par bande, et pic de la trame pour le gain auto.
+    const brut = new Array<number>(NB_BARRES);
+    let maxi = 0;
+    for (let b = 0; b < NB_BARRES; b++) {
+      const [lo, hi] = BANDES[b]!;
+      let somme = 0;
+      for (let k = lo; k < hi; k++) somme += Math.sqrt(RE[k]! * RE[k]! + IM[k]! * IM[k]!);
+      const moy = somme / Math.max(hi - lo, 1);
+      brut[b] = moy;
+      if (moy > maxi) maxi = moy;
+    }
+    // Plafond adaptatif : bondit sur un pic, redescend doucement (~0,5 s). Le
+    // pic ≈ pleine hauteur, les passages calmes restent bas — plus de clipping.
+    plafond.current = Math.max(maxi, plafond.current * 0.93, 1e-4);
 
     const arr = niveaux.value.slice();
     for (let b = 0; b < NB_BARRES; b++) {
-      let somme = 0;
-      let n = 0;
-      // Décimation à phase décalée : chaque barre parcourt tout le buffer à un
-      // déphasage propre — les barres dansent distinctement, effet spectre.
-      for (let k = b; k < frames.length; k += NB_BARRES) {
-        const v = frames[k]!;
-        somme += v * v;
-        n += 1;
-      }
-      const rms = n > 0 ? Math.sqrt(somme / n) : 0;
-      const cible = Math.min(1, rms * GAIN);
-      // Attaque rapide, chute douce : nerveux sans clignoter.
-      arr[b] = cible > arr[b]! ? cible : arr[b]! * 0.72 + cible * 0.28;
+      // Racine : étale les faibles amplitudes, rend le visualiseur plus vivant.
+      arr[b] = Math.sqrt(Math.min(1, brut[b]! / plafond.current));
     }
     niveaux.value = arr;
   });
 
-  // À l'arrêt, les barres retombent au repos.
+  // À l'arrêt, les barres retombent (le lissage anime la descente).
   useEffect(() => {
-    if (!status.playing) niveaux.value = new Array(NB_BARRES).fill(0);
+    if (!status.playing) {
+      niveaux.value = new Array(NB_BARRES).fill(0);
+      plafond.current = 1e-4;
+    }
   }, [status.playing, niveaux]);
 
-  // Libère le verrou du coordinateur si CE lecteur disparaît (recyclage).
   useEffect(() => {
     const self = moi.current;
     return () => {
@@ -165,7 +275,6 @@ export function LecteurAudio({
       if (lecteurActif === moi.current) lecteurActif = null;
       return;
     }
-    // Rejouer depuis le début si on était à la fin.
     if (status.didJustFinish || (status.duration > 0 && status.currentTime >= status.duration - 0.05)) {
       void player.seekTo(0);
     }

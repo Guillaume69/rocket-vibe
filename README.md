@@ -20,8 +20,9 @@ générique : l'URL du serveur se saisit à l'écran de connexion.
 Ce qu'il sait faire aujourd'hui : connexion mot de passe + **2FA** (TOTP ou repli mot
 de passe), liste des salons, fil de messages (liste inversée performante), **rendu
 markdown** natif, envoi / édition / actions sur message, **fils de discussion**,
-**upload de fichiers** (photo, document), **lecture audio et vidéo intégrée**, cartes
-d'aperçu pour les liens **YouTube / Dailymotion**, **emojis** (dont personnalisés),
+**upload de fichiers** (photo, document), **lecture audio et vidéo intégrée**,
+**aperçus de lien** (images en ligne, cartes OpenGraph pour articles et tweets,
+cartes vidéo **YouTube / Dailymotion**), **emojis** (dont personnalisés),
 **présence** et **indicateur de saisie**, **recherche**, **notifications push FCM**,
 reconnexion et rattrapage automatiques, le tout **hors-ligne d'abord**.
 
@@ -181,9 +182,9 @@ puis `adb install -r app/build/outputs/apk/release/app-release.apk`.
 ```
 app/            Routes expo-router (index, connexion, salon/[rid], fil/[id], recherche…)
 ui/             Composants et thème « Nuit Étoilée » (theme.ts, kit.tsx, ligneMessage.tsx,
-                lecteurAudio/Video, carteEmbed, visionneuse, markdown, session, notifications…)
+                lecteurAudio/Video, carteEmbed, carteLien, visionneuse, markdown, session…)
 lib/            Cœur non-UI : ddp.ts (client DDP), rest.ts, auth.ts, envoi.ts, upload.ts,
-                sync.ts, rattrapage.ts, reconnexion.ts, presence.ts, push.ts, emojis.ts…
+                sync.ts, rattrapage.ts, reconnexion.ts, presence.ts, push.ts, apercuLien.ts…
 db/             SQLite + Drizzle : schema.ts, upserts.ts, depot.ts, migrations/
 scripts/        env.sh, seed.mjs, spike-ddp.mjs, génération d'emojis
 plugins/        Config plugins CNG (with-fcm-deeplink : deep-link au tap d'un push)

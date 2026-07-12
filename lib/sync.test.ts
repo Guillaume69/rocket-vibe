@@ -78,6 +78,14 @@ describe('versMessage', () => {
     assert.equal(m.piecesJointes, null);
   });
 
+  test('`urls` (métadonnées de lien serveur) est sérialisé ; absent → null', () => {
+    const avec = versMessage({ ...base, urls: [{ url: 'https://x', meta: { ogTitle: 'T' } }] }) as MessageLocal;
+    assert.equal(avec.urls, '[{"url":"https://x","meta":{"ogTitle":"T"}}]');
+    assert.equal((versMessage(base) as MessageLocal).urls, null);
+    // Un salon chiffré ne stocke jamais d'aperçu.
+    assert.equal((versMessage({ ...base, t: 'e2e', urls: [{ url: 'https://x' }] }) as MessageLocal).urls, null);
+  });
+
   test('fils : `tmid`, `tcount`, `tlm` et `tshow` sont capturés (8.3)', () => {
     const racine = versMessage({
       ...base,

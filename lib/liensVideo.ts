@@ -106,3 +106,15 @@ export function detecterLiensVideo(texte: string | null | undefined, max = 3): L
   trouves.sort((a, b) => a.pos - b.pos);
   return trouves.slice(0, max).map((t) => t.lien);
 }
+
+/**
+ * Vrai si `url` est un lien vidéo déjà rendu par la carte embed (YouTube,
+ * Dailymotion, Vimeo). Sert à la déduplication : les aperçus génériques
+ * (`lib/apercuLien.ts`) sautent ces liens pour ne pas doubler la carte vidéo.
+ */
+export function estLienVideo(url: string): boolean {
+  return MOTIFS.some((m) => {
+    m.re.lastIndex = 0; // regex partagée + drapeau `g` : réarmer avant chaque test
+    return m.re.test(url);
+  });
+}

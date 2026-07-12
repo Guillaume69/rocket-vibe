@@ -39,6 +39,8 @@ export type MessageLocal = {
   md: string | null;
   piecesJointes: string | null;
   reactions: string | null;
+  /** Métadonnées de lien parsées par le serveur (`urls`), sérialisées. */
+  urls: string | null;
   misAJourLe: number;
 };
 
@@ -108,6 +110,9 @@ export function versMessage(brut: Record<string, unknown>): MessageLocal | null 
     md: chiffre ? null : jsonOuNull(brut.md),
     piecesJointes: chiffre ? null : jsonOuNull(brut.attachments),
     reactions: jsonOuNull(brut.reactions),
+    // Rien à prévisualiser pour un salon chiffré ; sinon on garde `urls` brut,
+    // parsé au rendu (`lib/apercuLien.ts`).
+    urls: chiffre ? null : jsonOuNull(brut.urls),
     // `_updatedAt` est l'horloge du serveur : c'est elle qui arbitre les
     // conflits entre le WebSocket et un rattrapage REST plus lent.
     misAJourLe: versEpoch(brut._updatedAt) ?? horodatage,

@@ -20,8 +20,8 @@ export const UPSERT_MESSAGE = `
 INSERT INTO messages (
   id, rid, texte, horodatage, auteur_id, auteur_nom, type_systeme,
   fil_id, fil_reponses, fil_dernier, fil_affiche, modifie_le, md,
-  pieces_jointes, reactions, mis_a_jour_le
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  pieces_jointes, reactions, urls, mis_a_jour_le
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
   texte = excluded.texte,
   horodatage = excluded.horodatage,
@@ -35,6 +35,7 @@ ON CONFLICT(id) DO UPDATE SET
   md = excluded.md,
   pieces_jointes = excluded.pieces_jointes,
   reactions = excluded.reactions,
+  urls = excluded.urls,
   mis_a_jour_le = excluded.mis_a_jour_le
 WHERE excluded.mis_a_jour_le >= messages.mis_a_jour_le
 `;
@@ -218,6 +219,7 @@ export function paramsMessage(m: MessageLocal): Parametre[] {
     m.md,
     m.piecesJointes,
     m.reactions,
+    m.urls,
     m.misAJourLe,
   ];
 }

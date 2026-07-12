@@ -71,6 +71,7 @@ function msg(o: Partial<MessageLocal> & { id: string; misAJourLe: number }) {
     md: null,
     piecesJointes: null,
     reactions: null,
+    urls: null,
     ...o,
   });
 }

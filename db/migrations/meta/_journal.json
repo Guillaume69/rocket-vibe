@@ -50,6 +50,13 @@
       "when": 1783702033407,
       "tag": "0006_conscious_greymalkin",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1783850363683,
+      "tag": "0007_bright_sersi",
+      "breakpoints": true
     }
   ]
 }

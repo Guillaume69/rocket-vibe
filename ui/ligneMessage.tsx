@@ -23,6 +23,7 @@ import { texteSysteme } from '../lib/messagesSysteme.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar, urlFichierProtege } from '../lib/upload.ts';
 import { LiensEmbed } from './carteEmbed.tsx';
+import { ApercusLien } from './carteLien.tsx';
 import { TuileAvatar } from './kit.tsx';
 import { LecteurAudio } from './lecteurAudio.tsx';
 import { LecteurVideo } from './lecteurVideo.tsx';
@@ -102,6 +103,9 @@ export const LigneMessage = memo(function LigneMessage({
         <ContenuMessage c={c} message={message} />
         {message.typeSysteme === null && (
           <LiensEmbed c={c} texte={message.texte} surAppuiLong={appuiLong} />
+        )}
+        {message.typeSysteme === null && (
+          <ApercusLien c={c} urls={message.urls} surAppuiLong={appuiLong} />
         )}
         {message.piecesJointes !== null && (
           <PiecesJointes

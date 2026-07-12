@@ -89,6 +89,13 @@ export const messages = sqliteTable(
     md: text('md'),
     piecesJointes: text('pieces_jointes'),
     reactions: text('reactions'),
+    /**
+     * `urls` : métadonnées de lien parsées par le SERVEUR (OpenGraph/oEmbed),
+     * sérialisées. Source des cartes d'aperçu (`lib/apercuLien.ts`). Arrive
+     * souvent APRÈS le message : le serveur parse en asynchrone puis re-pousse
+     * la version enrichie avec un `_updatedAt` plus récent, que l'upsert accepte.
+     */
+    urls: text('urls'),
     misAJourLe: integer('mis_a_jour_le').notNull().default(0),
   },
   // L'index couvre la requête de l'écran salon : `WHERE rid = ? ORDER BY horodatage DESC`.

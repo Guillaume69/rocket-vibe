@@ -5,7 +5,6 @@ import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { AudioModule, RecordingPresets, useAudioRecorder } from 'expo-audio';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
-import * as ImageManipulator from 'expo-image-manipulator';
 import {
   useCallback,
   useEffect,
@@ -37,6 +36,7 @@ import { MoteurSaisie, phraseSaisie } from '../../lib/saisie.ts';
 import { useActivite } from '../../ui/activite.ts';
 import { ApercuPieceJointe, type FichierEnAttente } from '../../ui/apercuPieceJointe.tsx';
 import { useBrouillon } from '../../ui/brouillons.ts';
+import { compresserImageSiUtile } from '../../ui/preparerPieceJointe.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
 import { BandeauCompletionEmoji, useCompletionEmoji } from '../../ui/completionEmoji.tsx';
 import { AvatarSalon, BarreSynchro, IndicateurSaisie, TuileAvatar } from '../../ui/kit.tsx';
@@ -729,38 +729,17 @@ function Composer({
     const choix = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
     if (choix.canceled || choix.assets.length === 0) return;
     const brut = choix.assets[0];
-    let fichier: FichierEnAttente = {
-      uri: brut.uri,
-      nom: brut.name,
-      type: brut.mimeType ?? 'application/octet-stream',
-      taille: brut.size ?? null,
-    };
     setEnvoiFichier(true);
     try {
       // Compression (7.3) DÈS le choix : l'aperçu montre déjà ce qui partira.
       // Une photo repart en JPEG raisonnable — inutile de pousser 12 Mpx pour
-      // un aperçu de chat. Les GIF gardent leur animation.
-      if (
-        fichier.type.startsWith('image/') &&
-        fichier.type !== 'image/gif' &&
-        (fichier.taille ?? 0) > 500_000
-      ) {
-        try {
-          const reduite = await ImageManipulator.manipulateAsync(
-            brut.uri,
-            [{ resize: { width: 1920 } }],
-            { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
-          );
-          fichier = {
-            uri: reduite.uri,
-            nom: `${fichier.nom.replace(/\.\w+$/, '')}.jpg`,
-            type: 'image/jpeg',
-            taille: null,
-          };
-        } catch {
-          // Compression impossible : on met l'original en attente tel quel.
-        }
-      }
+      // un aperçu de chat (logique partagée avec l'écran de partage).
+      const fichier = await compresserImageSiUtile({
+        uri: brut.uri,
+        nom: brut.name,
+        type: brut.mimeType ?? 'application/octet-stream',
+        taille: brut.size ?? null,
+      });
       // On ne l'envoie plus tout de suite : il se pose au-dessus du composer,
       // en attente d'une légende. La validation (taille/type) et l'envoi
       // arrivent au clic sur « envoyer » (voir `envoyer`).

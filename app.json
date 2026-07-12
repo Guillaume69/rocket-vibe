@@ -38,7 +38,15 @@
           ]
         }
       ],
-      "expo-video"
+      "expo-video",
+      [
+        "expo-share-intent",
+        {
+          "disableIOS": true,
+          "androidIntentFilters": ["text/*", "*/*"],
+          "androidMultiIntentFilters": ["*/*"]
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

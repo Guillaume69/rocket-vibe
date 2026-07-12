@@ -1,0 +1,1 @@
+ALTER TABLE `messages` ADD `appel_id` text;

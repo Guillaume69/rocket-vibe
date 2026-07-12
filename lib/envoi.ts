@@ -95,6 +95,7 @@ export class MoteurEnvoi {
       piecesJointes: null,
       reactions: null,
       urls: null,
+      appelId: null,
       // 0 : la version du serveur, quelle qu'elle soit, écrase l'optimiste —
       // et l'optimiste n'écrase jamais un état réel.
       misAJourLe: 0,

@@ -6,6 +6,7 @@
  * statuts d'envoi) — la dupliquer aurait fait diverger les deux rendus.
  */
 
+import { useRouter } from 'expo-router';
 import { memo, useMemo } from 'react';
 import {
   Image,
@@ -28,7 +29,7 @@ import { TuileAvatar } from './kit.tsx';
 import { LecteurAudio } from './lecteurAudio.tsx';
 import { LecteurVideo } from './lecteurVideo.tsx';
 import { CorpsMessage, GardeRendu } from './markdown.tsx';
-import { type Couleurs, degradeAvatar, POLICES } from './theme.ts';
+import { type Couleurs, DELAI_PRESSION_LISTE, degradeAvatar, POLICES } from './theme.ts';
 import { useVisionneuse } from './visionneuse.tsx';
 
 export type LigneDeMessage = typeof messages.$inferSelect;
@@ -163,6 +164,9 @@ function ContenuMessage({ c, message }: { c: Couleurs; message: LigneDeMessage }
   if (message.typeSysteme === 'e2e') {
     return <Substitut c={c} texte="🔒 Message chiffré, non pris en charge" />;
   }
+  if (message.typeSysteme === 'videoconf') {
+    return <CarteAppel c={c} callId={message.appelId} />;
+  }
   if (message.typeSysteme !== null) {
     // La phrase suit le nom de l'auteur affiché juste au-dessus : « bob a
     // rejoint le salon ». `texte` porte le PARAMÈTRE de l'action, pas une
@@ -186,6 +190,36 @@ function ContenuMessage({ c, message }: { c: Couleurs; message: LigneDeMessage }
 
 function Substitut({ c, texte }: { c: Couleurs; texte: string }) {
   return <Text style={[styles.texte, styles.italique, { color: c.attenue }]}>{texte}</Text>;
+}
+
+/**
+ * Carte d'un message d'appel (`t: 'videoconf'`) : « Appel vidéo » et un bouton
+ * Rejoindre qui ouvre l'écran d'appel (WebView Jitsi). Sans `callId` — vieux
+ * message d'avant la persistance du bloc, ou bloc illisible — on n'offre pas de
+ * jonction, juste l'étiquette : mieux qu'un bouton qui ne saurait où aller.
+ */
+function CarteAppel({ c, callId }: { c: Couleurs; callId: string | null }) {
+  const routeur = useRouter();
+  return (
+    <View style={[styles.carteAppel, { backgroundColor: c.carte, borderColor: c.bordure }]}>
+      <Text style={[styles.carteAppelTitre, { color: c.texte }]}>📞 Appel vidéo</Text>
+      {callId !== null && (
+        <Pressable
+          onPress={() => routeur.push({ pathname: '/appel/[callId]', params: { callId } })}
+          android_ripple={{ color: c.ondulation }}
+          unstable_pressDelay={DELAI_PRESSION_LISTE}
+          accessibilityRole="button"
+          accessibilityLabel="Rejoindre l'appel"
+          style={({ pressed }) => [
+            styles.rejoindre,
+            { backgroundColor: c.accent, opacity: pressed ? 0.7 : 1 },
+          ]}
+        >
+          <Text style={[styles.rejoindreTexte, { color: c.surAccent }]}>Rejoindre</Text>
+        </Pressable>
+      )}
+    </View>
+  );
 }
 
 type PieceJointe = {
@@ -350,4 +384,21 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
   puceFilTexte: { fontFamily: POLICES.corpsGras, fontSize: 12 },
+  carteAppel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingLeft: 12,
+    paddingRight: 6,
+    paddingVertical: 6,
+    marginTop: 4,
+  },
+  carteAppelTitre: { fontFamily: POLICES.corpsGras, fontSize: 14, flexShrink: 1 },
+  rejoindre: { borderRadius: 999, paddingHorizontal: 16, paddingVertical: 7 },
+  rejoindreTexte: { fontFamily: POLICES.corpsFort, fontSize: 13 },
 });

@@ -96,6 +96,13 @@ export const messages = sqliteTable(
      * la version enrichie avec un `_updatedAt` plus récent, que l'upsert accepte.
      */
     urls: text('urls'),
+    /**
+     * `callId` d'un message de visioconférence (`t: 'videoconf'`), lu dans le
+     * bloc `video_conf`. On ne garde QUE lui parmi les `blocks` : c'est le seul
+     * champ qu'on rejoue (bouton « Rejoindre »), et il n'est PAS le `_id` du
+     * message. `null` partout ailleurs.
+     */
+    appelId: text('appel_id'),
     misAJourLe: integer('mis_a_jour_le').notNull().default(0),
   },
   // L'index couvre la requête de l'écran salon : `WHERE rid = ? ORDER BY horodatage DESC`.

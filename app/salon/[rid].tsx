@@ -16,6 +16,7 @@ import {
 } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   StyleSheet,
   Text,
@@ -29,6 +30,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { BaseLocale } from '../../db/client.ts';
 import { abonnements, messages, salons, sortie, televersements } from '../../db/schema.ts';
 import type { MoteurActivite } from '../../lib/activite.ts';
+import { demarrerConference, sonderAppelDisponible } from '../../lib/appel.ts';
 import type { ClientDdp } from '../../lib/ddp.ts';
 import type { MoteurEnvoi } from '../../lib/envoi.ts';
 import type { MoteurTeleversement } from '../../lib/envoiFichiers.ts';
@@ -945,6 +947,39 @@ function EnTeteSalon({
   // Chargement de l'historique (ouverture) et rattrapage du salon (reconnexion)
   // allument la barre — même portée `rid` que le fetch enveloppé plus haut.
   const enSynchro = useActivite(rid);
+  const routeur = useRouter();
+
+  // Disponibilité de la visioconférence : masque le bouton là où aucun
+  // fournisseur n'est configuré (Docker local), l'affiche sur la cible (Jitsi).
+  const [appelDispo, setAppelDispo] = useState(false);
+  const [demarrage, setDemarrage] = useState(false);
+  useEffect(() => {
+    let vivant = true;
+    void sonderAppelDisponible(client).then((ok) => {
+      if (vivant) setAppelDispo(ok);
+    });
+    return () => {
+      vivant = false;
+    };
+  }, [client]);
+
+  const demarrerAppel = useCallback(() => {
+    if (demarrage) return;
+    setDemarrage(true);
+    void (async () => {
+      try {
+        // `start` crée la conférence, poste le message d'appel dans le salon,
+        // et renvoie le callId — l'écran d'appel s'occupe de `join` + WebView.
+        const callId = await demarrerConference(client, rid);
+        routeur.push({ pathname: '/appel/[callId]', params: { callId, titre: nom } });
+      } catch {
+        Alert.alert('Appel', "Impossible de démarrer l'appel pour ce salon.");
+      } finally {
+        setDemarrage(false);
+      }
+    })();
+  }, [demarrage, client, rid, routeur, nom]);
+
   return (
     <View style={[styles.entete, { paddingTop: insetTop + 6, borderBottomColor: c.bordureDouce }]}>
       <Pressable onPress={onRetour} hitSlop={10} accessibilityRole="button" accessibilityLabel="Retour">
@@ -974,6 +1009,19 @@ function EnTeteSalon({
           </Text>
         )}
       </View>
+      {appelDispo && (
+        <Pressable
+          onPress={demarrerAppel}
+          disabled={demarrage}
+          hitSlop={8}
+          android_ripple={{ color: c.ondulation, borderless: true }}
+          accessibilityRole="button"
+          accessibilityLabel="Démarrer un appel vidéo"
+          style={({ pressed }) => ({ opacity: pressed || demarrage ? 0.5 : 1 })}
+        >
+          <Text style={styles.iconeEntete}>📞</Text>
+        </Pressable>
+      )}
       <Pressable
         onPress={onRecherche}
         hitSlop={8}

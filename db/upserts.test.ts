@@ -72,6 +72,7 @@ function msg(o: Partial<MessageLocal> & { id: string; misAJourLe: number }) {
     piecesJointes: null,
     reactions: null,
     urls: null,
+    appelId: null,
     ...o,
   });
 }
@@ -164,6 +165,18 @@ describe('upserts idempotents', () => {
       fil_affiche: 1,
       modifie_le: 9999,
     });
+  });
+
+  test('message d’appel : le callId fait l’aller-retour en base', () => {
+    // Le `callId` n'est PAS le `_id` du message : il faut le persister à part
+    // pour que le bouton « Rejoindre » sache quel appel ouvrir.
+    db.prepare(UPSERT_MESSAGE).run(
+      ...msg({ id: 'm1', typeSysteme: 'videoconf', appelId: 'call-xyz', misAJourLe: 100 }),
+    );
+    const m = ligne(
+      db.prepare('SELECT type_systeme, appel_id FROM messages WHERE id = ?').get('m1'),
+    );
+    assert.deepEqual(m, { type_systeme: 'videoconf', appel_id: 'call-xyz' });
   });
 
   test('un événement de même horodatage est appliqué (rejeu idempotent)', () => {

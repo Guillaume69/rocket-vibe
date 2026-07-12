@@ -41,6 +41,8 @@ export type MessageLocal = {
   reactions: string | null;
   /** Métadonnées de lien parsées par le serveur (`urls`), sérialisées. */
   urls: string | null;
+  /** `callId` d'un message d'appel (`t: 'videoconf'`), extrait du bloc. */
+  appelId: string | null;
   misAJourLe: number;
 };
 
@@ -81,6 +83,26 @@ const jsonOuNull = (v: unknown): string | null =>
 /** Un message chiffré n'est pas déchiffrable ici : on n'expose jamais le blob. */
 export const TYPE_CHIFFRE = 'e2e';
 
+/** Type système d'un message de visioconférence Rocket.Chat. */
+export const TYPE_APPEL = 'videoconf';
+
+/**
+ * Le message d'appel porte son `callId` dans un bloc `video_conf` (`appId:
+ * 'videoconf-core'`), PAS dans son `_id` : les deux diffèrent (vérifié sur la
+ * source RC). On extrait le premier bloc de ce type ; le reste des `blocks`
+ * (UI-kit générique) ne nous sert pas et n'est pas conservé.
+ */
+function callIdDuBloc(blocks: unknown): string | null {
+  if (!Array.isArray(blocks)) return null;
+  for (const b of blocks) {
+    if (b !== null && typeof b === 'object') {
+      const bloc = b as { type?: unknown; callId?: unknown };
+      if (bloc.type === 'video_conf') return chaine(bloc.callId);
+    }
+  }
+  return null;
+}
+
 export function versMessage(brut: Record<string, unknown>): MessageLocal | null {
   const id = chaine(brut._id);
   const rid = chaine(brut.rid);
@@ -113,6 +135,7 @@ export function versMessage(brut: Record<string, unknown>): MessageLocal | null 
     // Rien à prévisualiser pour un salon chiffré ; sinon on garde `urls` brut,
     // parsé au rendu (`lib/apercuLien.ts`).
     urls: chiffre ? null : jsonOuNull(brut.urls),
+    appelId: typeSysteme === TYPE_APPEL ? callIdDuBloc(brut.blocks) : null,
     // `_updatedAt` est l'horloge du serveur : c'est elle qui arbitre les
     // conflits entre le WebSocket et un rattrapage REST plus lent.
     misAJourLe: versEpoch(brut._updatedAt) ?? horodatage,

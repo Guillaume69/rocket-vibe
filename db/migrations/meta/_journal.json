@@ -57,6 +57,13 @@
       "when": 1783850363683,
       "tag": "0007_bright_sersi",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1783858085872,
+      "tag": "0008_panoramic_molly_hayes",
+      "breakpoints": true
     }
   ]
 }

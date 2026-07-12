@@ -29,21 +29,23 @@ export default function EcranJoindre() {
   const routeur = useRouter();
   const insets = useSafeAreaInsets();
 
-  // Un choix a-t-il été fait ? Sinon, le démontage (geste ou back matériel)
-  // répond `null` pour ne pas laisser la promesse du composeur pendante.
-  const repondu = useRef(false);
+  // On répond au DÉMONTAGE, pas au tap : le composeur ne lance donc le sélecteur
+  // qu'une fois la sheet TOTALEMENT partie (fin de l'animation de fermeture),
+  // avec le salon redevenu l'activité résumée. Résoudre au tap lançait le
+  // sélecteur PENDANT la transition — `launchImageLibraryAsync` échouait alors
+  // en `dispatchCancelPendingInputEvents() on a null object reference` (decorView
+  // de l'hôte momentanément nulle). `choix` reste `null` sur un rejet (geste,
+  // back matériel), ce qui solde proprement la promesse du composeur.
+  const choix = useRef<SourcePieceJointe | null>(null);
   useEffect(
     () => () => {
-      if (!repondu.current) repondreSource(null);
+      repondreSource(choix.current);
     },
     [],
   );
 
   const choisir = (source: SourcePieceJointe) => {
-    repondu.current = true;
-    // Résoudre AVANT de fermer : le sélecteur natif peut démarrer pendant que
-    // la sheet s'anime vers le bas.
-    repondreSource(source);
+    choix.current = source;
     routeur.back();
   };
 

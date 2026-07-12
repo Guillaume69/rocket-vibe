@@ -817,6 +817,11 @@ function Composer({
   // choisie via `demanderSource` ; on lance alors le bon sélecteur.
   const joindre = useCallback(async () => {
     setErreurFichier(null);
+    // Part d'un état de saisie stable : panneau emoji fermé et clavier baissé.
+    // Un `TextInput` focalisé pendant le retour du sélecteur peut, lui aussi,
+    // laisser une vue nulle sur le chemin de `dispatchCancelPendingInputEvents`.
+    setPanneauEmoji(false);
+    Keyboard.dismiss();
     const choix = demanderSource();
     routeur.push('/joindre');
     const source = await choix;

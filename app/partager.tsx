@@ -152,6 +152,9 @@ function Partager({
   const [legende, setLegende] = useState(shareIntent.text ?? shareIntent.webUrl ?? '');
   const [filtre, setFiltre] = useState('');
   const [occupe, setOccupe] = useState(false);
+  // Salon vers lequel l'envoi est en cours : le spinner s'affiche SUR sa ligne
+  // (pas en voile flottant), pour qu'on voie quelle destination reçoit.
+  const [ridEnCours, setRidEnCours] = useState<string | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
   const enVol = useRef(false);
 
@@ -179,6 +182,7 @@ function Partager({
       if (!aFichiers && legendePropre === '') return;
       enVol.current = true;
       setOccupe(true);
+      setRidEnCours(rid);
       setErreur(null);
       try {
         if (aFichiers) {
@@ -202,6 +206,7 @@ function Partager({
         setErreur(e instanceof Error ? e.message : 'Partage impossible.');
         enVol.current = false;
         setOccupe(false);
+        setRidEnCours(null);
       }
     },
     [aFichiers, pieces, legende, fichiers, envoi, routeur],
@@ -211,18 +216,24 @@ function Partager({
     <VueEvitantLeClavier>
       <Stack.Screen options={{ title: 'Partager', headerShown: true }} />
       <View style={styles.haut}>
-        {pieces.map((p) => (
-          <ApercuPieceJointe
-            key={p.cle}
-            c={c}
-            fichier={p.fichier}
-            occupe={occupe}
-            // Le conteneur `haut` applique déjà le retrait : la carte s'aligne
-            // ainsi sur la largeur du champ légende et du filtre.
-            retraitHorizontal={0}
-            onRetirer={() => setPieces((prev) => prev.filter((x) => x.cle !== p.cle))}
-          />
-        ))}
+        {pieces.length > 0 && (
+          <View style={styles.apercus}>
+            {pieces.map((p) => (
+              <ApercuPieceJointe
+                key={p.cle}
+                c={c}
+                fichier={p.fichier}
+                occupe={occupe}
+                // Le conteneur applique déjà les retraits : la carte s'aligne sur
+                // la largeur des champs, et le conteneur gère l'écart vertical
+                // entre cartes (sinon elles sont trop espacées).
+                retraitHorizontal={0}
+                retraitVertical={0}
+                onRetirer={() => setPieces((prev) => prev.filter((x) => x.cle !== p.cle))}
+              />
+            ))}
+          </View>
+        )}
         <TextInput
           value={legende}
           onChangeText={setLegende}
@@ -251,6 +262,9 @@ function Partager({
         data={cibles}
         keyExtractor={(s) => s.rid}
         keyboardShouldPersistTaps="handled"
+        // Pendant l'envoi, on fige la liste : le spinner reste sur la ligne
+        // choisie plutôt que de flotter au-dessus d'un contenu qui défile.
+        scrollEnabled={!occupe}
         style={styles.liste}
         contentContainerStyle={styles.listeContenu}
         renderItem={({ item }) => (
@@ -259,6 +273,7 @@ function Partager({
             salon={item}
             client={client}
             occupe={occupe}
+            envoiEnCours={item.rid === ridEnCours}
             onChoisir={() => void partagerVers(item.rid)}
           />
         )}
@@ -266,11 +281,6 @@ function Partager({
           <Text style={[styles.vide, { color: c.attenue }]}>Aucune conversation.</Text>
         }
       />
-      {occupe && (
-        <View style={styles.voile}>
-          <ActivityIndicator color={c.accent} size="large" />
-        </View>
-      )}
     </VueEvitantLeClavier>
   );
 }
@@ -285,24 +295,30 @@ function LigneCible({
   salon,
   client,
   occupe,
+  envoiEnCours,
   onChoisir,
 }: {
   c: Couleurs;
   salon: LigneDeSalon;
   client: ClientRest;
   occupe: boolean;
+  /** Cette ligne est la destination de l'envoi en cours : elle porte le spinner. */
+  envoiEnCours: boolean;
   onChoisir: () => void;
 }) {
   const nom = salon.nomAffiche ?? salon.nom ?? salon.rid;
   const bloque = salon.chiffre || salon.lectureSeule;
   const raison = salon.chiffre ? '🔒 Chiffré' : salon.lectureSeule ? 'Lecture seule' : null;
+  // Bloqué, ou une autre destination pendant un envoi : la ligne s'estompe pour
+  // concentrer l'attention sur celle qui reçoit.
+  const attenue = bloque || (occupe && !envoiEnCours);
 
   return (
     <Pressable
       onPress={onChoisir}
       disabled={occupe || bloque}
       android_ripple={bloque ? undefined : { color: c.ondulation }}
-      style={({ pressed }) => [styles.ligne, { opacity: bloque ? 0.4 : pressed ? 0.6 : 1 }]}
+      style={({ pressed }) => [styles.ligne, { opacity: attenue ? 0.4 : pressed ? 0.6 : 1 }]}
     >
       <AvatarSalon
         c={c}
@@ -323,6 +339,7 @@ function LigneCible({
           </Text>
         )}
       </View>
+      {envoiEnCours && <ActivityIndicator color={c.accent} />}
     </Pressable>
   );
 }
@@ -331,6 +348,7 @@ const styles = StyleSheet.create({
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   message: { fontFamily: POLICES.corpsGras, fontSize: 15, textAlign: 'center' },
   haut: { paddingHorizontal: 12, paddingTop: 12, gap: 10 },
+  apercus: { gap: 8 },
   legende: {
     borderWidth: 1,
     borderRadius: 14,
@@ -370,13 +388,4 @@ const styles = StyleSheet.create({
   nomCible: { fontFamily: POLICES.corpsGras, fontSize: 15 },
   raison: { fontFamily: POLICES.corps, fontSize: 12 },
   vide: { textAlign: 'center', padding: 24, fontSize: 14, fontFamily: POLICES.corps },
-  voile: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
 });

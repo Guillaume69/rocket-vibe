@@ -50,6 +50,7 @@ export function ApercuPieceJointe({
   onRetirer,
   occupe = false,
   retraitHorizontal = 12,
+  retraitVertical,
 }: {
   c: Couleurs;
   fichier: FichierEnAttente;
@@ -63,6 +64,13 @@ export function ApercuPieceJointe({
    * pour aligner la carte sur les autres champs.
    */
   retraitHorizontal?: number;
+  /**
+   * Retrait vertical propre de la carte. Non défini : garde l'espacement du
+   * composeur (8/10). Quand plusieurs cartes s'empilent (écran de partage),
+   * passer 0 et laisser le conteneur gérer l'espacement, sinon les cartes sont
+   * trop écartées.
+   */
+  retraitVertical?: number;
 }) {
   const estImage = fichier.type.startsWith('image/');
   const estAudio = fichier.type.startsWith('audio/');
@@ -72,7 +80,11 @@ export function ApercuPieceJointe({
     <Animated.View
       entering={FadeInDown.duration(220)}
       exiting={FadeOutDown.duration(140)}
-      style={[styles.hote, { paddingHorizontal: retraitHorizontal }]}
+      style={[
+        styles.hote,
+        { paddingHorizontal: retraitHorizontal },
+        retraitVertical !== undefined && { paddingVertical: retraitVertical },
+      ]}
     >
       {estAudio ? (
         // Le vocal se réécoute AVANT d'envoyer : le vrai lecteur, pas une icône.

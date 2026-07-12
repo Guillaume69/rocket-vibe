@@ -49,12 +49,20 @@ export function ApercuPieceJointe({
   fichier,
   onRetirer,
   occupe = false,
+  retraitHorizontal = 12,
 }: {
   c: Couleurs;
   fichier: FichierEnAttente;
   onRetirer: () => void;
   /** Envoi en cours : le retrait est gelé (le fichier est déjà en vol). */
   occupe?: boolean;
+  /**
+   * Retrait horizontal de la carte. 12 par défaut : dans le composeur du salon,
+   * le parent n'a pas de padding, la carte s'inset donc elle-même. Quand
+   * l'appelant est déjà dans un conteneur padé (écran de partage), passer 0
+   * pour aligner la carte sur les autres champs.
+   */
+  retraitHorizontal?: number;
 }) {
   const estImage = fichier.type.startsWith('image/');
   const estAudio = fichier.type.startsWith('audio/');
@@ -64,7 +72,7 @@ export function ApercuPieceJointe({
     <Animated.View
       entering={FadeInDown.duration(220)}
       exiting={FadeOutDown.duration(140)}
-      style={styles.hote}
+      style={[styles.hote, { paddingHorizontal: retraitHorizontal }]}
     >
       {estAudio ? (
         // Le vocal se réécoute AVANT d'envoyer : le vrai lecteur, pas une icône.
@@ -135,7 +143,7 @@ function BoutonRetirer({
 }
 
 const styles = StyleSheet.create({
-  hote: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10 },
+  hote: { paddingTop: 8, paddingBottom: 10 },
   plein: { flex: 1 },
   rangee: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   carte: {

@@ -204,6 +204,9 @@ function Partager({
             c={c}
             fichier={f}
             occupe={occupe}
+            // Le conteneur `haut` applique déjà le retrait : la carte s'aligne
+            // ainsi sur la largeur du champ légende et du filtre.
+            retraitHorizontal={0}
             onRetirer={() => setPieces((prev) => prev.filter((_, j) => j !== i))}
           />
         ))}

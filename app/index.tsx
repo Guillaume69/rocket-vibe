@@ -1,13 +1,11 @@
 import { desc } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
-import { Link, Redirect, Stack, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { Redirect, Stack, useRouter } from 'expo-router';
 import { ActivityIndicator, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { BaseLocale } from '../db/client.ts';
 import { abonnements, salons } from '../db/schema.ts';
-import { obtenirJetonFcm } from '../lib/push.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { useActivite } from '../ui/activite.ts';
 import { AvatarSalon, BadgeEtoile, BarreSynchro, Marque, TuileAvatar } from '../ui/kit.tsx';
@@ -50,6 +48,7 @@ export default function EcranAccueil() {
 
 /** Bandeau supérieur : licorne + logotype dégradé, roue des réglages. */
 function EnTeteListe({ c }: { c: Couleurs }) {
+  const routeur = useRouter();
   // Le rattrapage global (ouverture de l'app, retour au premier plan) allume
   // la barre — le cache est déjà là, ceci dit qu'on le rafraîchit.
   const enSynchro = useActivite('global');
@@ -59,6 +58,16 @@ function EnTeteListe({ c }: { c: Couleurs }) {
         <Text style={styles.enteteLicorne}>🦄</Text>
         <Marque c={c} taille={23} />
       </View>
+      <Pressable
+        onPress={() => routeur.push('/parametres')}
+        android_ripple={{ color: c.ondulation, borderless: true, radius: 22 }}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel="Paramètres"
+        style={({ pressed }) => [styles.enteteRoue, { opacity: pressed ? 0.55 : 1 }]}
+      >
+        <Text style={styles.enteteRoueGlyphe}>⚙️</Text>
+      </Pressable>
       <BarreSynchro c={c} actif={enSynchro} />
     </View>
   );
@@ -141,7 +150,6 @@ function Salons({ c, base, client }: { c: Couleurs; base: BaseLocale; client: Cl
           secondes.
         </Text>
       }
-      ListFooterComponent={<PiedDeListe c={c} />}
       contentContainerStyle={styles.contenu}
     />
   );
@@ -255,87 +263,6 @@ function LigneNouvelleConversation({ c }: { c: Couleurs }) {
   );
 }
 
-function PiedDeListe({ c }: { c: Couleurs }) {
-  const { etat, deconnecter } = useSession();
-  if (etat.phase !== 'connecte') return null;
-
-  return (
-    <View style={styles.pied}>
-      <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
-        <Ligne c={c} cle="Connecté" valeur={`@${etat.session.username}`} />
-        <Ligne c={c} cle="Serveur" valeur={etat.session.baseUrl} />
-      </View>
-
-      <SectionJetonFcm c={c} />
-
-      <Link href="/connexion?changer=1" style={[styles.lien, { color: c.cyan }]}>
-        Changer de serveur
-      </Link>
-
-      <Pressable
-        onPress={() => void deconnecter()}
-        android_ripple={{ color: c.ondulation }}
-        unstable_pressDelay={DELAI_PRESSION_LISTE}
-        style={({ pressed }) => [
-          styles.bouton,
-          { backgroundColor: c.carteErreur, opacity: pressed ? 0.6 : 1 },
-        ]}
-      >
-        <Text style={[styles.texteBoutonSecondaire, { color: c.texteErreur }]}>
-          Se déconnecter
-        </Text>
-      </Pressable>
-    </View>
-  );
-}
-
-/** Spike 2.2 : prouve l'obtention du jeton FCM natif. Sera intégré au login en 6.1. */
-function SectionJetonFcm({ c }: { c: Couleurs }) {
-  const [jeton, setJeton] = useState<string | null>(null);
-  const [erreur, setErreur] = useState<string | null>(null);
-
-  const demander = useCallback(async () => {
-    setErreur(null);
-    const r = await obtenirJetonFcm();
-    if (r.ok) {
-      setJeton(r.jeton);
-      console.log('JETON_FCM', r.jeton);
-    } else {
-      setErreur(`${r.raison}${r.detail ? ` — ${r.detail}` : ''}`);
-      console.log('JETON_FCM_ECHEC', r.raison, r.detail ?? '');
-    }
-  }, []);
-
-  return (
-    <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
-      <Pressable
-        onPress={demander}
-        android_ripple={{ color: c.ondulation }}
-        unstable_pressDelay={DELAI_PRESSION_LISTE}
-      >
-        <Text style={[styles.action, { color: c.cyan }]}>Obtenir le jeton FCM</Text>
-      </Pressable>
-      {jeton !== null && (
-        <Text style={[styles.aide, { color: c.texte }]} selectable numberOfLines={3}>
-          {jeton}
-        </Text>
-      )}
-      {erreur !== null && <Text style={[styles.aide, { color: c.texteErreur }]}>{erreur}</Text>}
-    </View>
-  );
-}
-
-function Ligne({ c, cle, valeur }: { c: Couleurs; cle: string; valeur: string }) {
-  return (
-    <View style={styles.paire}>
-      <Text style={[styles.cle, { color: c.attenue }]}>{cle}</Text>
-      <Text style={[styles.valeur, { color: c.texte }]} selectable>
-        {valeur}
-      </Text>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   plein: { flex: 1 },
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
@@ -349,6 +276,8 @@ const styles = StyleSheet.create({
   },
   enteteMarque: { flexDirection: 'row', alignItems: 'center', gap: 9 },
   enteteLicorne: { fontSize: 22 },
+  enteteRoue: { padding: 4 },
+  enteteRoueGlyphe: { fontSize: 21 },
   contenu: { paddingBottom: 8 },
   ligne: {
     flexDirection: 'row',
@@ -381,21 +310,5 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
   },
   vide: { textAlign: 'center', padding: 24, fontSize: 14, fontFamily: POLICES.corps },
-  pied: { padding: 20, gap: 12 },
-  carte: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 10 },
-  paire: { flexDirection: 'row', justifyContent: 'space-between', gap: 16 },
-  cle: { fontFamily: POLICES.corps, fontSize: 13 },
-  valeur: { fontFamily: POLICES.corpsGras, fontSize: 13, flexShrink: 1, textAlign: 'right' },
-  action: { fontFamily: POLICES.corpsGras, fontSize: 13 },
-  aide: { fontFamily: POLICES.corps, fontSize: 12, opacity: 0.9 },
-  lien: { fontFamily: POLICES.corpsGras, fontSize: 15, paddingVertical: 12, textAlign: 'center' },
   messageErreur: { fontFamily: POLICES.corpsGras, fontSize: 14, textAlign: 'center' },
-  bouton: {
-    borderRadius: 14,
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 50,
-  },
-  texteBoutonSecondaire: { fontFamily: POLICES.corpsGras, fontSize: 16 },
 });

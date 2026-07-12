@@ -184,7 +184,15 @@ function Salon({
       .where(
         and(eq(messages.rid, rid), or(isNull(messages.filId), eq(messages.filAffiche, true))),
       )
-      .orderBy(desc(messages.horodatage))
+      // Clé secondaire `id` : deux messages à la MÊME milliseconde (rafale de
+      // bot, intégration) n'ont sinon aucun ordre défini — SQLite les rend dans
+      // l'ordre d'INSERTION (rowid), qui diffère selon le chemin de chargement.
+      // La pagination d'historique insère le plus récent d'abord : une telle
+      // paire s'affichait alors À L'ENVERS après un rechargement. Départager par
+      // `id` rend l'ordre DÉTERMINISTE, identique quel que soit le chargement.
+      // (Rocket.Chat n'expose aucun signal sous la milliseconde : l'ordre exact
+      // d'un vrai ex æquo reste indécidable, mais au moins il est stable.)
+      .orderBy(desc(messages.horodatage), desc(messages.id))
       .limit(limite),
     [rid, limite],
   );

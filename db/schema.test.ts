@@ -84,6 +84,35 @@ describe('migrations', () => {
     db.close();
   });
 
+  test('deux messages à la même milliseconde s’ordonnent de façon déterministe', () => {
+    // Sans clé secondaire, SQLite rend les ex æquo dans l'ordre d'INSERTION
+    // (rowid) — donc À L'ENVERS après une pagination d'historique (insérée du
+    // plus récent au plus ancien). On départage par `id` : l'ordre doit être le
+    // MÊME quel que soit l'ordre d'insertion. C'est la requête de l'écran salon.
+    const REQUETE =
+      'SELECT id FROM messages WHERE rid = ? ORDER BY horodatage DESC, id DESC LIMIT 50';
+    const inserer = (db: DatabaseSync, ids: string[]) => {
+      const stmt = db.prepare(
+        'INSERT INTO messages (id, rid, horodatage, auteur_id) VALUES (?, ?, ?, ?)',
+      );
+      for (const id of ids) stmt.run(id, 'rid-1', 1000, 'u1');
+    };
+    const lire = (db: DatabaseSync) =>
+      (db.prepare(REQUETE).all('rid-1') as { id: string }[]).map((r) => r.id);
+
+    const croissant = baseMigree();
+    inserer(croissant, ['a', 'b', 'c']);
+    const decroissant = baseMigree();
+    inserer(decroissant, ['c', 'b', 'a']); // ordre d'insertion inverse (pagination)
+
+    assert.deepEqual(lire(croissant), ['c', 'b', 'a']);
+    // L'invariant clé : insertion inverse → MÊME ordre affiché (avant le
+    // correctif, ceci rendait ['a', 'b', 'c']).
+    assert.deepEqual(lire(decroissant), lire(croissant));
+    croissant.close();
+    decroissant.close();
+  });
+
   test('`id` déduplique les messages : une seconde insertion est refusée', () => {
     const db = baseMigree();
     const inserer = db.prepare(

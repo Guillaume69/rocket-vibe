@@ -104,7 +104,11 @@ function Fil({
       .select()
       .from(messages)
       .where(eq(messages.filId, filId))
-      .orderBy(asc(messages.horodatage)),
+      // Clé secondaire `id` (même raison que l'écran salon) : un ex æquo à la
+      // milliseconde près est départagé de façon déterministe, pas par l'ordre
+      // d'insertion. Ordre ASC ici pour rester cohérent avec le tri DESC du
+      // salon — deux messages liés gardent la même relation dans les deux vues.
+      .orderBy(asc(messages.horodatage), asc(messages.id)),
     [filId],
   );
 

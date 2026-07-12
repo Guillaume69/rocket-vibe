@@ -33,6 +33,7 @@ import type { BaseLocale } from '../../db/client.ts';
 import { abonnements, messages, salons, sortie, televersements } from '../../db/schema.ts';
 import type { MoteurActivite } from '../../lib/activite.ts';
 import { demarrerConference, sonderAppelDisponible } from '../../lib/appel.ts';
+import type { CandidatMention } from '../../lib/completionMention.ts';
 import type { ClientDdp } from '../../lib/ddp.ts';
 import type { MoteurEnvoi } from '../../lib/envoi.ts';
 import type { MoteurTeleversement } from '../../lib/envoiFichiers.ts';
@@ -45,6 +46,7 @@ import { compresserImageSiUtile } from '../../ui/preparerPieceJointe.ts';
 import { demanderSource } from '../../ui/sourcePieceJointe.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
 import { BandeauCompletionEmoji, useCompletionEmoji } from '../../ui/completionEmoji.tsx';
+import { BandeauCompletionMention, useCandidatsMention } from '../../ui/completionMention.tsx';
 import { hauteurPanneauEmoji, NavigateurEmoji } from '../../ui/navigateurEmoji.tsx';
 import { AvatarSalon, BarreSynchro, IndicateurSaisie, TuileAvatar } from '../../ui/kit.tsx';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
@@ -347,6 +349,10 @@ function Salon({
   // qu'une fois la valeur initiale lue.
   const persistance = useBrouillon(base, rid);
 
+  // Candidats à la mention (@) : le hook vit ICI, où `base` est en scope — le
+  // composer reçoit la liste toute prête, comme le brouillon.
+  const candidatsMention = useCandidatsMention(base, rid);
+
   const chargerHistorique = useCallback(
     async (type: string, latest?: string): Promise<number> => {
       const reponse = await client.get<{ messages?: Record<string, unknown>[] }>(
@@ -604,6 +610,8 @@ function Salon({
             rid={rid}
             envoi={envoi}
             fichiers={fichiers}
+            client={client}
+            candidatsMention={candidatsMention}
             lectureSeule={salon.lectureSeule}
             chiffre={salon.chiffre}
             brouillonInitial={persistance.initial}
@@ -632,6 +640,8 @@ function Composer({
   rid,
   envoi,
   fichiers,
+  client,
+  candidatsMention,
   lectureSeule,
   chiffre,
   brouillonInitial,
@@ -642,6 +652,10 @@ function Composer({
   rid: string;
   envoi: MoteurEnvoi;
   fichiers: MoteurTeleversement;
+  /** Avatars des suggestions de mention. */
+  client: ClientRest;
+  /** Auteurs récents du salon (`useCandidatsMention`), calculés par le parent. */
+  candidatsMention: CandidatMention[];
   lectureSeule: boolean;
   chiffre: boolean;
   /** Brouillon restauré (8.7) — le parent attend sa lecture avant de monter. */
@@ -882,6 +896,17 @@ function Composer({
       )}
       {!panneauEmoji && (
         <BandeauCompletionEmoji texte={brouillon} curseur={curseur} c={c} surChoisir={choisirEmoji} />
+      )}
+      {/* Jetons `:` et `@` mutuellement exclusifs : un seul bandeau à la fois. */}
+      {!panneauEmoji && (
+        <BandeauCompletionMention
+          texte={brouillon}
+          curseur={curseur}
+          candidats={candidatsMention}
+          client={client}
+          c={c}
+          surChoisir={choisirEmoji}
+        />
       )}
       <View style={[styles.composer, { borderTopColor: c.bordureDouce }]}>
         <Pressable

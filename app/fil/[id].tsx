@@ -17,6 +17,7 @@ import {
 
 import type { BaseLocale } from '../../db/client.ts';
 import { messages, salons, sortie } from '../../db/schema.ts';
+import type { CandidatMention } from '../../lib/completionMention.ts';
 import type { ClientDdp } from '../../lib/ddp.ts';
 import type { MoteurEnvoi } from '../../lib/envoi.ts';
 import type { ClientRest } from '../../lib/rest.ts';
@@ -24,6 +25,7 @@ import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sy
 import { useBrouillon } from '../../ui/brouillons.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
 import { BandeauCompletionEmoji, useCompletionEmoji } from '../../ui/completionEmoji.tsx';
+import { BandeauCompletionMention, useCandidatsMention } from '../../ui/completionMention.tsx';
 import { hauteurPanneauEmoji, NavigateurEmoji } from '../../ui/navigateurEmoji.tsx';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
 import { useSession } from '../../ui/session.tsx';
@@ -255,6 +257,12 @@ function Fil({
   // `null` tant que le rid n'est pas connu — le composer attend.
   const persistance = useBrouillon(base, rid === undefined ? null : `${rid}:${filId}`);
 
+  // Candidats à la mention (@) : ceux du SALON, pas seulement du fil — on
+  // mentionne souvent dans un fil quelqu'un qui a parlé dans le flux principal.
+  // `rid` encore inconnu → requête sur '' : liste vide, le composer n'est de
+  // toute façon pas monté.
+  const candidatsMention = useCandidatsMention(base, rid ?? '');
+
   return (
     <VueEvitantLeClavier>
       <Stack.Screen options={{ title: 'Fil' }} />
@@ -306,6 +314,8 @@ function Fil({
             rid={rid}
             filId={filId}
             envoi={envoi}
+            client={client}
+            candidatsMention={candidatsMention}
             apresEnvoi={apresEnvoi}
             brouillonInitial={persistance.initial}
             sauverBrouillon={persistance.sauver}
@@ -321,6 +331,8 @@ function ComposerFil({
   rid,
   filId,
   envoi,
+  client,
+  candidatsMention,
   apresEnvoi,
   brouillonInitial,
   sauverBrouillon,
@@ -330,6 +342,10 @@ function ComposerFil({
   rid: string;
   filId: string;
   envoi: MoteurEnvoi;
+  /** Avatars des suggestions de mention. */
+  client: ClientRest;
+  /** Auteurs récents du salon (`useCandidatsMention`), calculés par le parent. */
+  candidatsMention: CandidatMention[];
   apresEnvoi: () => void;
   /** Brouillon restauré (8.7) — le parent attend sa lecture avant de monter. */
   brouillonInitial: string;
@@ -380,6 +396,17 @@ function ComposerFil({
         <BandeauCompletionEmoji
           texte={brouillon}
           curseur={curseur}
+          c={c}
+          surChoisir={choisirEmoji}
+        />
+      )}
+      {/* Jetons `:` et `@` mutuellement exclusifs : un seul bandeau à la fois. */}
+      {!panneauEmoji && (
+        <BandeauCompletionMention
+          texte={brouillon}
+          curseur={curseur}
+          candidats={candidatsMention}
+          client={client}
           c={c}
           surChoisir={choisirEmoji}
         />

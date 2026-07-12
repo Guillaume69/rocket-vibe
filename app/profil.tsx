@@ -79,7 +79,9 @@ function heureLocale(utcOffset: number): string {
 }
 
 export default function EcranProfil() {
-  const { username } = useLocalSearchParams<{ username: string }>();
+  // `username` (mentions, lignes de message) OU `uid` (en-tête d'un DM, où
+  // seul `dmAutreUid` est connu localement) — `users.info` accepte les deux.
+  const { username, uid } = useLocalSearchParams<{ username?: string; uid?: string }>();
   const { etat } = useSession();
   const synchro = useSynchro();
   const c = useCouleurs();
@@ -96,10 +98,16 @@ export default function EcranProfil() {
   const enVol = useRef(false);
 
   useEffect(() => {
-    if (client === null || typeof username !== 'string') return;
+    const params =
+      typeof username === 'string' && username !== ''
+        ? { username }
+        : typeof uid === 'string' && uid !== ''
+          ? { userId: uid }
+          : null;
+    if (client === null || params === null) return;
     let vivant = true;
     void client
-      .get<{ user?: Record<string, unknown> }>('users.info', { params: { username } })
+      .get<{ user?: Record<string, unknown> }>('users.info', { params })
       .then((r) => {
         if (!vivant) return;
         const p = profilDe(r.user);
@@ -115,7 +123,7 @@ export default function EcranProfil() {
     return () => {
       vivant = false;
     };
-  }, [client, username]);
+  }, [client, username, uid]);
 
   /** Ouvre (ou crée) le DM, puis y va — la sheet est REMPLACÉE par le salon. */
   const ouvrirDm = useCallback(

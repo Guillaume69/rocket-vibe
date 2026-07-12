@@ -45,8 +45,16 @@ import { type Couleurs, POLICES, useCouleurs } from '../ui/theme.ts';
 
 type LigneDeSalon = typeof salons.$inferSelect;
 
-/** Pièce partagée + clé stable : la compression change le `fichier`, pas la `cle`. */
-type PieceEnAttente = { cle: number; fichier: FichierEnAttente };
+/**
+ * Pièce partagée, à clé stable. On sépare CE QU'ON AFFICHE de CE QU'ON ENVOIE :
+ * `origine` (l'URI d'origine) alimente l'aperçu et n'est JAMAIS modifiée ;
+ * `aEnvoyer` porte la version compressée, calculée au montage. Sans cette
+ * séparation, remplacer l'URI affichée par celle du fichier compressé faisait
+ * RECHARGER l'`Image` de la vignette — le clignotement quand on partage
+ * plusieurs photos (toutes les images rechargent d'un coup en fin de
+ * compression).
+ */
+type PieceEnAttente = { cle: number; origine: FichierEnAttente; aEnvoyer: FichierEnAttente };
 
 export default function EcranPartager() {
   const c = useCouleurs();
@@ -120,34 +128,38 @@ function Partager({
   // le partage entrant est figé pour la vie de l'écran, et l'objet `shareIntent`
   // peut changer d'identité à chaque rendu du provider (s'en servir comme
   // dépendance relancerait la compression en boucle). `path` est déjà un chemin
-  // local accessible (le module natif a copié les content://). Chaque pièce
-  // porte une `cle` STABLE : la compression remplace le fichier mais garde la
-  // clé, donc la carte n'est pas démontée/ré-animée (source du clignotement
-  // quand on partage plusieurs photos).
+  // local accessible (le module natif a copié les content://). `origine` et
+  // `aEnvoyer` pointent d'abord sur le MÊME fichier : tant que la compression
+  // n'a pas fini, on enverrait l'original — acceptable (juste plus lourd).
   const [pieces, setPieces] = useState<PieceEnAttente[]>(() =>
-    (shareIntent.files ?? []).map((f, i) => ({
-      cle: i,
-      fichier: { uri: f.path, nom: f.fileName, type: f.mimeType, taille: f.size },
-    })),
+    (shareIntent.files ?? []).map((f, i) => {
+      const fichier: FichierEnAttente = {
+        uri: f.path,
+        nom: f.fileName,
+        type: f.mimeType,
+        taille: f.size,
+      };
+      return { cle: i, origine: fichier, aEnvoyer: fichier };
+    }),
   );
 
   // Compression des images au montage. SÉQUENTIELLE — plusieurs grosses photos
   // décodées en parallèle saturent le CPU et saccadent l'arrivée sur l'écran —
-  // puis UNE SEULE mise à jour groupée : l'aperçu montre d'abord les originaux,
-  // puis bascule d'un coup sur les versions réduites, sans re-rendu par photo.
-  // On remplace par `cle` (pas par référence d'objet) : une pièce retirée
-  // entre-temps n'est pas ressuscitée.
+  // puis UNE SEULE mise à jour groupée. On ne touche QUE `aEnvoyer` : `origine`
+  // (ce que la vignette affiche) reste identique, donc aucune `Image` ne
+  // recharge et rien ne clignote. On associe par `cle` (pas par référence) :
+  // une pièce retirée entre-temps n'est pas ressuscitée.
   useEffect(() => {
     let vivant = true;
     void (async () => {
       const originales = pieces;
       const prepares: FichierEnAttente[] = [];
-      for (const p of originales) prepares.push(await compresserImageSiUtile(p.fichier));
+      for (const p of originales) prepares.push(await compresserImageSiUtile(p.origine));
       if (!vivant) return;
       setPieces((actuelles) =>
         actuelles.map((p) => {
           const i = originales.findIndex((o) => o.cle === p.cle);
-          return i >= 0 ? { cle: p.cle, fichier: prepares[i] } : p;
+          return i >= 0 ? { ...p, aEnvoyer: prepares[i] } : p;
         }),
       );
     })();
@@ -202,7 +214,7 @@ function Partager({
           for (let i = 0; i < pieces.length; i++) {
             await fichiers.envoyer(
               rid,
-              pieces[i].fichier,
+              pieces[i].aEnvoyer,
               i === 0 && legendePropre !== '' ? legendePropre : undefined,
             );
           }
@@ -239,7 +251,7 @@ function Partager({
           <ApercuPieceJointe
             key={pieces[0].cle}
             c={c}
-            fichier={pieces[0].fichier}
+            fichier={pieces[0].origine}
             occupe={occupe}
             retraitHorizontal={0}
             retraitVertical={0}
@@ -401,7 +413,7 @@ function BandeauApercus({
         <VignettePiece
           key={p.cle}
           c={c}
-          fichier={p.fichier}
+          fichier={p.origine}
           occupe={occupe}
           onRetirer={() => onRetirer(p.cle)}
         />

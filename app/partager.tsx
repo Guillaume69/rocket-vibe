@@ -14,10 +14,21 @@
 
 import { desc } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, useRouter } from 'expo-router';
 import { type ShareIntent, useShareIntentContext } from 'expo-share-intent';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  FlatList,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
 import type { BaseLocale } from '../db/client.ts';
 import { abonnements, salons } from '../db/schema.ts';
@@ -216,23 +227,32 @@ function Partager({
     <VueEvitantLeClavier>
       <Stack.Screen options={{ title: 'Partager', headerShown: true }} />
       <View style={styles.haut}>
-        {pieces.length > 0 && (
-          <View style={styles.apercus}>
-            {pieces.map((p) => (
-              <ApercuPieceJointe
-                key={p.cle}
-                c={c}
-                fichier={p.fichier}
-                occupe={occupe}
-                // Le conteneur applique déjà les retraits : la carte s'aligne sur
-                // la largeur des champs, et le conteneur gère l'écart vertical
-                // entre cartes (sinon elles sont trop espacées).
-                retraitHorizontal={0}
-                retraitVertical={0}
-                onRetirer={() => setPieces((prev) => prev.filter((x) => x.cle !== p.cle))}
-              />
-            ))}
-          </View>
+        {/*
+          Un seul fichier : la carte pleine largeur (nom, type, taille) alignée
+          sur les champs. Plusieurs : une BANDE de vignettes carrées défilable
+          horizontalement — empilées verticalement, quelques photos suffisaient
+          à repousser la liste des salons hors de l'écran, et l'espacement entre
+          cartes paraissait trop grand. La bande a une hauteur fixe, quel que
+          soit le nombre de pièces.
+        */}
+        {pieces.length === 1 && (
+          <ApercuPieceJointe
+            key={pieces[0].cle}
+            c={c}
+            fichier={pieces[0].fichier}
+            occupe={occupe}
+            retraitHorizontal={0}
+            retraitVertical={0}
+            onRetirer={() => setPieces((prev) => prev.filter((x) => x.cle !== pieces[0].cle))}
+          />
+        )}
+        {pieces.length > 1 && (
+          <BandeauApercus
+            c={c}
+            pieces={pieces}
+            occupe={occupe}
+            onRetirer={(cle) => setPieces((prev) => prev.filter((x) => x.cle !== cle))}
+          />
         )}
         <TextInput
           value={legende}
@@ -344,11 +364,126 @@ function LigneCible({
   );
 }
 
+/** Émoji d'après la famille MIME, pour les vignettes non-image. */
+function emojiPiece(type: string): string {
+  if (type.startsWith('video/')) return '🎬';
+  if (type.startsWith('audio/')) return '🎵';
+  if (type === 'application/pdf') return '📄';
+  if (type.startsWith('text/')) return '📃';
+  if (type.includes('zip') || type.includes('compressed')) return '🗜️';
+  return '📎';
+}
+
+/**
+ * Bande d'aperçus compacte pour PLUSIEURS pièces : des vignettes carrées côte à
+ * côte, défilables horizontalement. La hauteur est fixe quel que soit le nombre
+ * de pièces, donc la liste des salons reste toujours visible dessous.
+ */
+function BandeauApercus({
+  c,
+  pieces,
+  occupe,
+  onRetirer,
+}: {
+  c: Couleurs;
+  pieces: PieceEnAttente[];
+  occupe: boolean;
+  onRetirer: (cle: number) => void;
+}) {
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+      contentContainerStyle={styles.bandeau}
+    >
+      {pieces.map((p) => (
+        <VignettePiece
+          key={p.cle}
+          c={c}
+          fichier={p.fichier}
+          occupe={occupe}
+          onRetirer={() => onRetirer(p.cle)}
+        />
+      ))}
+    </ScrollView>
+  );
+}
+
+function VignettePiece({
+  c,
+  fichier,
+  occupe,
+  onRetirer,
+}: {
+  c: Couleurs;
+  fichier: FichierEnAttente;
+  occupe: boolean;
+  onRetirer: () => void;
+}) {
+  const estImage = fichier.type.startsWith('image/');
+  return (
+    <View style={styles.vignetteHote}>
+      {estImage ? (
+        <Image source={{ uri: fichier.uri }} style={styles.vignetteImg} resizeMode="cover" />
+      ) : (
+        <LinearGradient
+          colors={c.degradeNeutre}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.vignetteImg}
+        >
+          <Text style={styles.vignetteEmoji}>{emojiPiece(fichier.type)}</Text>
+        </LinearGradient>
+      )}
+      <Pressable
+        onPress={onRetirer}
+        disabled={occupe}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel="Retirer la pièce jointe"
+        style={[
+          styles.vignetteRetirer,
+          {
+            backgroundColor: c.surfaceActive,
+            borderColor: c.bordure,
+            opacity: occupe ? 0.4 : 1,
+          },
+        ]}
+      >
+        <Text style={[styles.vignetteCroix, { color: c.texteSecondaire }]}>×</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   message: { fontFamily: POLICES.corpsGras, fontSize: 15, textAlign: 'center' },
   haut: { paddingHorizontal: 12, paddingTop: 12, gap: 10 },
-  apercus: { gap: 8 },
+  bandeau: { gap: 8, paddingVertical: 2 },
+  vignetteHote: { width: 76, height: 76 },
+  vignetteImg: {
+    width: 76,
+    height: 76,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#00000010',
+  },
+  vignetteEmoji: { fontSize: 30 },
+  vignetteRetirer: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vignetteCroix: { fontFamily: POLICES.corpsSemi, fontSize: 15, lineHeight: 16 },
   legende: {
     borderWidth: 1,
     borderRadius: 14,

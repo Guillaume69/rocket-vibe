@@ -14,6 +14,12 @@ services:
     image: mongodb/mongodb-community-server:${MONGODB_VERSION:-8.0-ubi8}
     # Le replica set est requis même à un seul nœud : Rocket.Chat s'appuie sur
     # les change streams MongoDB, qui n'existent pas sur un mongod autonome.
+    #
+    # Noyau >= 6.19 : mongod 8.0.5+ REFUSE de démarrer (SERVER-121912, tcmalloc
+    # violait l'ABI rseq réécrite en 6.19), sans dérogation possible — ni
+    # paramètre, ni GLIBC_TUNABLES (testés). 8.0.4 est la dernière 8.0.x qui
+    # démarre ; RC 8.5 exige juste ["8.0"]. D'où MONGODB_VERSION=8.0.4-ubi8
+    # dans .env sur les noyaux récents.
     command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
     volumes:
       - mongodb_data:/data/db

@@ -5,6 +5,7 @@ import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { AudioModule, RecordingPresets, useAudioRecorder } from 'expo-audio';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import {
   useCallback,
   useEffect,
@@ -37,6 +38,7 @@ import { useActivite } from '../../ui/activite.ts';
 import { ApercuPieceJointe, type FichierEnAttente } from '../../ui/apercuPieceJointe.tsx';
 import { useBrouillon } from '../../ui/brouillons.ts';
 import { compresserImageSiUtile } from '../../ui/preparerPieceJointe.ts';
+import { demanderSource } from '../../ui/sourcePieceJointe.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
 import { BandeauCompletionEmoji, useCompletionEmoji } from '../../ui/completionEmoji.tsx';
 import { AvatarSalon, BarreSynchro, IndicateurSaisie, TuileAvatar } from '../../ui/kit.tsx';
@@ -609,6 +611,17 @@ function Salon({
   );
 }
 
+/** Média d'`expo-image-picker` → pièce en attente normalisée. */
+function assetVersFichier(a: ImagePicker.ImagePickerAsset): FichierEnAttente {
+  const estVideo = a.type === 'video';
+  return {
+    uri: a.uri,
+    nom: a.fileName ?? a.uri.split('/').pop() ?? `piece-${Date.now()}.${estVideo ? 'mp4' : 'jpg'}`,
+    type: a.mimeType ?? (estVideo ? 'video/mp4' : 'image/jpeg'),
+    taille: a.fileSize ?? null,
+  };
+}
+
 function Composer({
   c,
   rid,
@@ -641,6 +654,7 @@ function Composer({
   const [enAttente, setEnAttente] = useState<FichierEnAttente | null>(null);
   // `.m4a` AAC (préréglage HIGH_QUALITY) — le MIME attendu est `audio/mp4`.
   const enregistreur = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const routeur = useRouter();
 
   // Autocomplétion des emojis : curseur + insertion, mécanique partagée avec le
   // composer du fil (`useCompletionEmoji`).
@@ -724,30 +738,77 @@ function Composer({
     }
   }, [enregistrement, enregistreur]);
 
-  const joindre = useCallback(async () => {
-    setErreurFichier(null);
-    const choix = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
-    if (choix.canceled || choix.assets.length === 0) return;
-    const brut = choix.assets[0];
+  // Normalise un média/fichier choisi en pièce en attente : compression (7.3)
+  // DÈS le choix — l'aperçu montre déjà ce qui partira (une photo repart en
+  // JPEG raisonnable, inutile de pousser 12 Mpx pour un chat ; logique partagée
+  // avec l'écran de partage) — puis on la pose au-dessus du composer, en
+  // attente d'une légende. Validation (taille/type) et envoi arrivent au clic
+  // sur « envoyer » (voir `envoyer`).
+  const poserPieceJointe = useCallback(async (brut: FichierEnAttente) => {
     setEnvoiFichier(true);
     try {
-      // Compression (7.3) DÈS le choix : l'aperçu montre déjà ce qui partira.
-      // Une photo repart en JPEG raisonnable — inutile de pousser 12 Mpx pour
-      // un aperçu de chat (logique partagée avec l'écran de partage).
-      const fichier = await compresserImageSiUtile({
-        uri: brut.uri,
-        nom: brut.name,
-        type: brut.mimeType ?? 'application/octet-stream',
-        taille: brut.size ?? null,
-      });
-      // On ne l'envoie plus tout de suite : il se pose au-dessus du composer,
-      // en attente d'une légende. La validation (taille/type) et l'envoi
-      // arrivent au clic sur « envoyer » (voir `envoyer`).
-      setEnAttente(fichier);
+      setEnAttente(await compresserImageSiUtile(brut));
     } finally {
       setEnvoiFichier(false);
     }
   }, []);
+
+  const depuisCamera = useCallback(
+    async (type: 'photo' | 'video') => {
+      // Seule la caméra exige une permission ; le photo picker système et le
+      // sélecteur de fichiers n'en demandent pas.
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        setErreurFichier('Accès à la caméra refusé.');
+        return;
+      }
+      const res = await ImagePicker.launchCameraAsync({
+        mediaTypes: type === 'photo' ? ['images'] : ['videos'],
+        quality: 1,
+      });
+      if (!res.canceled) await poserPieceJointe(assetVersFichier(res.assets[0]));
+    },
+    [poserPieceJointe],
+  );
+
+  const depuisBibliotheque = useCallback(async () => {
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images', 'videos'],
+      quality: 1,
+    });
+    if (!res.canceled) await poserPieceJointe(assetVersFichier(res.assets[0]));
+  }, [poserPieceJointe]);
+
+  const depuisFichier = useCallback(async () => {
+    const choix = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
+    if (choix.canceled || choix.assets.length === 0) return;
+    const brut = choix.assets[0];
+    await poserPieceJointe({
+      uri: brut.uri,
+      nom: brut.name,
+      type: brut.mimeType ?? 'application/octet-stream',
+      taille: brut.size ?? null,
+    });
+  }, [poserPieceJointe]);
+
+  // 📎 → menu de sources (feuille native), comme l'app officielle, au lieu
+  // d'ouvrir directement le sélecteur de fichiers. La feuille renvoie la source
+  // choisie via `demanderSource` ; on lance alors le bon sélecteur.
+  const joindre = useCallback(async () => {
+    setErreurFichier(null);
+    const choix = demanderSource();
+    routeur.push('/joindre');
+    const source = await choix;
+    if (source === null) return;
+    try {
+      if (source === 'photo') await depuisCamera('photo');
+      else if (source === 'video') await depuisCamera('video');
+      else if (source === 'bibliotheque') await depuisBibliotheque();
+      else await depuisFichier();
+    } catch (e) {
+      setErreurFichier(e instanceof Error ? e.message : 'Sélection impossible.');
+    }
+  }, [routeur, depuisCamera, depuisBibliotheque, depuisFichier]);
 
   // Dégradation E2EE (ROADMAP §6.6) : on n'implémente pas le chiffrement, et
   // le serveur cible REJETTE un message en clair dans un salon chiffré

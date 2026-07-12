@@ -40,6 +40,14 @@
       ],
       "expo-video",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Autoriser rocket-vibe à accéder à vos photos pour les partager dans une conversation.",
+          "cameraPermission": "Autoriser rocket-vibe à utiliser la caméra pour prendre une photo ou une vidéo à partager.",
+          "microphonePermission": "Autoriser rocket-vibe à utiliser le micro pour le son des vidéos."
+        }
+      ],
+      [
         "expo-share-intent",
         {
           "disableIOS": true,

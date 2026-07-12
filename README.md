@@ -185,11 +185,10 @@ ui/             Composants et thème « Nuit Étoilée » (theme.ts, kit.tsx, li
 lib/            Cœur non-UI : ddp.ts (client DDP), rest.ts, auth.ts, envoi.ts, upload.ts,
                 sync.ts, rattrapage.ts, reconnexion.ts, presence.ts, push.ts, emojis.ts…
 db/             SQLite + Drizzle : schema.ts, upserts.ts, depot.ts, migrations/
-plugins/        Config plugins natifs (with-canal-notifications.js : canal push HIGH)
 scripts/        env.sh, seed.mjs, spike-ddp.mjs, génération d'emojis
 docker/         Rocket.Chat 8.5.1 + MongoDB 8.0 (compose.yml, .env.example)
 docs/           DEV.md (environnement, réseau, relevé du serveur cible)
-assets/         Icônes de l'app
+assets/         Icônes de l'app (lanceur, adaptative, notif « fusée » monochrome)
 ```
 
 Les modules de `lib/` et `db/` sont accompagnés de tests (`*.test.ts`).

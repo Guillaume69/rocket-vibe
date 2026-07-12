@@ -22,7 +22,14 @@
       "expo-router",
       "expo-secure-store",
       "expo-sqlite",
-      "./plugins/with-canal-notifications",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#FF5FA2",
+          "defaultChannel": "default"
+        }
+      ],
       "expo-audio",
       [
         "expo-font",
@@ -51,8 +58,13 @@
         "expo-share-intent",
         {
           "disableIOS": true,
-          "androidIntentFilters": ["text/*", "*/*"],
-          "androidMultiIntentFilters": ["*/*"]
+          "androidIntentFilters": [
+            "text/*",
+            "*/*"
+          ],
+          "androidMultiIntentFilters": [
+            "*/*"
+          ]
         }
       ]
     ],

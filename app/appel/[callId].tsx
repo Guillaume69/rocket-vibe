@@ -44,6 +44,28 @@ async function demanderCameraMicro(): Promise<void> {
   }
 }
 
+/**
+ * `meet.jit.si` affiche sur mobile un interstitiel « ouvrir dans l'app » : y
+ * cliquer tente un lien `intent://` vers l'app Jitsi (non installée) et la
+ * WebView échoue en `ERR_UNKNOWN_URL_SCHEME`. Ce drapeau de config Jitsi, passé
+ * dans le hash de l'URL, supprime l'interstitiel — la conférence se charge
+ * directement dans la WebView. Un Jitsi auto-hébergé sans deep-link l'ignore.
+ */
+function sansInterstitielJitsi(url: string): string {
+  if (url.includes('disableDeepLinking')) return url;
+  const drapeau = 'config.disableDeepLinking=true';
+  return url.includes('#') ? `${url}&${drapeau}` : `${url}#${drapeau}`;
+}
+
+/**
+ * User-agent d'un Chrome mobile ORDINAIRE, sans le marqueur « ; wv » qu'ajoute
+ * une WebView : la détection de navigateur de Jitsi (et de bien des sites)
+ * restreint les WebView identifiées comme telles. On se présente donc comme un
+ * navigateur supporté.
+ */
+const UA_MOBILE =
+  'Mozilla/5.0 (Linux; Android 14; Pixel) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36';
+
 export default function EcranAppel() {
   const c = useCouleurs();
   const { etat } = useSession();
@@ -137,8 +159,9 @@ function Appel({
         </View>
       ) : (
         <WebView
-          source={{ uri: url }}
+          source={{ uri: sansInterstitielJitsi(url) }}
           style={styles.plein}
+          userAgent={UA_MOBILE}
           // Jitsi lance l'audio/vidéo sans geste explicite de l'utilisateur.
           mediaPlaybackRequiresUserAction={false}
           allowsInlineMediaPlayback
@@ -149,6 +172,17 @@ function Appel({
           // Un lien Jitsi en target=_blank reste dans la WebView au lieu d'ouvrir
           // une fenêtre fantôme qu'on ne verrait jamais.
           setSupportMultipleWindows={false}
+          // Fond noir + spinner pendant le chargement : pas d'éclair blanc.
+          startInLoadingState
+          renderLoading={() => (
+            <View style={styles.voile}>
+              <ActivityIndicator color={c.accent} size="large" />
+            </View>
+          )}
+          // Ne laisse naviguer que du web (+ schémas internes). Un lien d'app
+          // (intent://, org.jitsi.meet://) planterait en ERR_UNKNOWN_URL_SCHEME :
+          // on le bloque — filet de sécurité, l'interstitiel étant déjà désactivé.
+          onShouldStartLoadWithRequest={(req) => /^(https?|about|blob|data):/i.test(req.url)}
           onNavigationStateChange={(nav) => {
             // Raccrocher mène Jitsi vers une page « close » : on rend la main au
             // salon. Le bouton « Terminer » reste la sortie garantie.
@@ -163,6 +197,16 @@ function Appel({
 
 const styles = StyleSheet.create({
   plein: { flex: 1 },
+  voile: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#000',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14, padding: 24 },
   barre: {
     flexDirection: 'row',

@@ -1,7 +1,17 @@
 import { eq } from 'drizzle-orm';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import * as Haptics from 'expo-haptics';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { messages, salons } from '../db/schema.ts';
 import {
@@ -14,14 +24,16 @@ import { unicodeDeCodeCourt } from '../lib/emojis.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
-import { useCouleurs } from '../ui/theme.ts';
+import { POLICES, useCouleurs } from '../ui/theme.ts';
 
 /**
  * Feuille d'actions d'un message (8.2) — `presentation: 'formSheet'` déclarée
  * dans `app/_layout.tsx` : le bottom sheet NATIF de react-native-screens
- * (contrainte : pas de @gorhom/bottom-sheet). La décision d'affichage vient de
- * la fonction pure `actionsPossibles` ; le serveur reste l'autorité en cas de
- * refus.
+ * (contrainte : pas de @gorhom/bottom-sheet). La sheet épouse la hauteur de son
+ * contenu (`sheetAllowedDetents: 'fitToContents'`), PLAFONNÉE à 80 % de l'écran
+ * ici (`maxHeight`) — au-delà, le champ d'édition défile en interne. La décision
+ * d'affichage vient de la fonction pure `actionsPossibles` ; le serveur reste
+ * l'autorité en cas de refus.
  */
 
 // `chat.react` refuse l'unicode brut (« Invalid emoji provided ») : il veut le
@@ -63,6 +75,12 @@ export default function EcranActionsMessage() {
   const synchro = useSynchro();
   const routeur = useRouter();
   const c = useCouleurs();
+  const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
+  // Plafond de la sheet : au-delà, le contenu (le champ d'édition) défile.
+  const hauteurMax = Math.round(height * 0.8);
+  // Marge basse : sous la barre de gestes, plus une respiration.
+  const bas = insets.bottom + 12;
 
   // Message et actions calculées naissent du même chargement : UN état, pour
   // qu'ils ne puissent pas se désynchroniser.
@@ -127,6 +145,9 @@ export default function EcranActionsMessage() {
     async (action: () => Promise<unknown>) => {
       if (enVol.current) return;
       enVol.current = true;
+      // Tick de sélection à la confirmation de l'action (réaction, épingler,
+      // supprimer, enregistrer) — retour haptique léger.
+      void Haptics.selectionAsync();
       setOccupe(true);
       setErreur(null);
       try {
@@ -144,26 +165,31 @@ export default function EcranActionsMessage() {
 
   if (!pret || client === null || charge === null) {
     return (
-      <View style={[styles.feuille, { backgroundColor: c.fond }]}>
-        <Stack.Screen options={{ title: 'Message' }} />
-        {erreur !== null && (
+      <View style={[styles.feuille, styles.centre, { paddingBottom: bas }]}>
+        {erreur !== null ? (
           <Text style={[styles.erreur, { color: c.texteErreur }]}>{erreur}</Text>
+        ) : (
+          <ActivityIndicator color={c.accent} />
         )}
       </View>
     );
   }
   const { message, actions } = charge;
+  const enEdition = edition !== null;
 
   return (
-    <View style={[styles.feuille, { backgroundColor: c.fond }]}>
-      <Stack.Screen options={{ title: 'Message' }} />
-
-      {actions.includes('reagir') && (
+    <View style={[styles.feuille, { maxHeight: hauteurMax, paddingBottom: bas }]}>
+      {!enEdition && actions.includes('reagir') && (
         <View style={styles.rangeeEmojis}>
           {CODES_REACTION.map((code) => (
             <Pressable
               key={code}
               disabled={occupe}
+              android_ripple={{ color: c.ondulation, borderless: true }}
+              style={({ pressed }) => [
+                styles.pastilleEmoji,
+                { backgroundColor: c.surfaceActive, opacity: pressed ? 0.6 : 1 },
+              ]}
               onPress={() =>
                 void agir(() =>
                   client.post('chat.react', {
@@ -178,50 +204,76 @@ export default function EcranActionsMessage() {
         </View>
       )}
 
-      {edition !== null ? (
+      {enEdition ? (
         <View style={styles.blocEdition}>
           <TextInput
             value={edition}
             onChangeText={setEdition}
             multiline
             autoFocus
-            style={[styles.champ, { color: c.texte, backgroundColor: c.carte }]}
+            placeholderTextColor={c.texteTertiaire}
+            style={[styles.champ, { color: c.texte, backgroundColor: c.carte, borderColor: c.bordure }]}
           />
-          <Pressable
-            disabled={occupe}
-            onPress={() =>
-              void agir(() =>
-                client.post('chat.update', {
-                  corps: { roomId: message.rid, msgId: message.id, text: edition },
-                }),
-              )
-            }
-          >
-            <Text style={[styles.action, { color: c.accent }]}>Enregistrer</Text>
-          </Pressable>
-        </View>
-      ) : (
-        <>
-          {actions.includes('modifier') && (
-            <Pressable disabled={occupe} onPress={() => setEdition(message.texte ?? '')}>
-              <Text style={[styles.action, { color: c.texte }]}>✏️ Modifier</Text>
-            </Pressable>
-          )}
-          {actions.includes('epingler') && (
+          <View style={styles.rangeeEdition}>
             <Pressable
               disabled={occupe}
+              onPress={() => setEdition(null)}
+              style={({ pressed }) => [styles.boutonSecondaire, { opacity: pressed ? 0.6 : 1 }]}
+            >
+              <Text style={[styles.boutonSecondaireTexte, { color: c.attenue }]}>Annuler</Text>
+            </Pressable>
+            <Pressable
+              disabled={occupe}
+              onPress={() =>
+                void agir(() =>
+                  client.post('chat.update', {
+                    corps: { roomId: message.rid, msgId: message.id, text: edition },
+                  }),
+                )
+              }
+              style={({ pressed }) => [
+                styles.boutonPrincipal,
+                { backgroundColor: c.accent, opacity: pressed || occupe ? 0.7 : 1 },
+              ]}
+            >
+              <Text style={[styles.boutonPrincipalTexte, { color: c.surAccent }]}>Enregistrer</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : (
+        <View style={styles.listeActions}>
+          {actions.includes('modifier') && (
+            <ActionLigne
+              c={c}
+              disabled={occupe}
+              icone="✏️"
+              libelle="Modifier"
+              onPress={() => {
+                void Haptics.selectionAsync();
+                setEdition(message.texte ?? '');
+              }}
+            />
+          )}
+          {actions.includes('epingler') && (
+            <ActionLigne
+              c={c}
+              disabled={occupe}
+              icone="📌"
+              libelle="Épingler"
               onPress={() =>
                 void agir(() =>
                   client.post('chat.pinMessage', { corps: { messageId: message.id } }),
                 )
               }
-            >
-              <Text style={[styles.action, { color: c.texte }]}>📌 Épingler</Text>
-            </Pressable>
+            />
           )}
           {actions.includes('supprimer') && (
-            <Pressable
+            <ActionLigne
+              c={c}
               disabled={occupe}
+              icone="🗑"
+              libelle="Supprimer"
+              destructif
               onPress={() =>
                 void agir(() =>
                   client.post('chat.delete', {
@@ -229,11 +281,9 @@ export default function EcranActionsMessage() {
                   }),
                 )
               }
-            >
-              <Text style={[styles.action, { color: c.texteErreur }]}>🗑 Supprimer</Text>
-            </Pressable>
+            />
           )}
-        </>
+        </View>
       )}
 
       {erreur !== null && (
@@ -243,12 +293,81 @@ export default function EcranActionsMessage() {
   );
 }
 
+/** Une ligne d'action pleine largeur : icône + libellé, ondulation Android. */
+function ActionLigne({
+  c,
+  icone,
+  libelle,
+  onPress,
+  disabled,
+  destructif = false,
+}: {
+  c: ReturnType<typeof useCouleurs>;
+  icone: string;
+  libelle: string;
+  onPress: () => void;
+  disabled: boolean;
+  destructif?: boolean;
+}) {
+  return (
+    <Pressable
+      disabled={disabled}
+      onPress={onPress}
+      android_ripple={{ color: c.ondulation }}
+      style={({ pressed }) => [styles.ligne, { opacity: pressed ? 0.7 : 1 }]}
+    >
+      <Text style={styles.ligneIcone}>{icone}</Text>
+      <Text style={[styles.ligneTexte, { color: destructif ? c.texteErreur : c.texte }]}>
+        {libelle}
+      </Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
-  feuille: { flex: 1, padding: 20, gap: 4 },
-  rangeeEmojis: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 10 },
-  emoji: { fontSize: 28 },
-  action: { fontSize: 16, paddingVertical: 14 },
-  blocEdition: { gap: 8 },
-  champ: { borderRadius: 10, padding: 12, fontSize: 15, minHeight: 80 },
-  erreur: { fontSize: 13, paddingTop: 8 },
+  // Pas de flex:1 : `fitToContents` mesure la hauteur réelle du contenu.
+  feuille: { paddingHorizontal: 16, paddingTop: 10, gap: 6 },
+  centre: { minHeight: 96, alignItems: 'center', justifyContent: 'center' },
+  rangeeEmojis: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    paddingBottom: 10,
+  },
+  pastilleEmoji: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emoji: { fontSize: 26 },
+  listeActions: { gap: 2 },
+  ligne: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 15,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+  },
+  ligneIcone: { fontSize: 19, width: 24, textAlign: 'center' },
+  ligneTexte: { fontFamily: POLICES.corpsGras, fontSize: 15.5 },
+  blocEdition: { gap: 12 },
+  champ: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 14,
+    fontFamily: POLICES.corps,
+    fontSize: 15,
+    minHeight: 80,
+    // Plafond du champ : au-delà, il défile en interne (la sheet ne s'emballe pas).
+    maxHeight: 200,
+  },
+  rangeeEdition: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
+  boutonSecondaire: { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12 },
+  boutonSecondaireTexte: { fontFamily: POLICES.corpsGras, fontSize: 15 },
+  boutonPrincipal: { paddingVertical: 12, paddingHorizontal: 22, borderRadius: 12 },
+  boutonPrincipalTexte: { fontFamily: POLICES.titre, fontSize: 15 },
+  erreur: { fontFamily: POLICES.corps, fontSize: 13, paddingTop: 8 },
 });

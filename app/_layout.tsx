@@ -52,10 +52,21 @@ export default function RootLayout() {
                 >
                   {/* `presentation` doit être connue à la CRÉATION de l'écran
                       natif : posée par `<Stack.Screen>` depuis l'écran lui-même,
-                      elle arrive après coup (setOptions) et peut être ignorée. */}
+                      elle arrive après coup (setOptions) et peut être ignorée.
+                      `fitToContents` : la sheet épouse la hauteur de son contenu
+                      au lieu de remplir l'écran (défaut `[1.0]`). Grabber + coins
+                      arrondis natifs, pas d'en-tête — c'est un menu, pas une page. */}
                   <Stack.Screen
                     name="actions-message"
-                    options={{ presentation: 'formSheet', title: 'Message' }}
+                    options={{
+                      presentation: 'formSheet',
+                      headerShown: false,
+                      sheetAllowedDetents: 'fitToContents',
+                      sheetGrabberVisible: true,
+                      sheetCornerRadius: 24,
+                      sheetElevation: 24,
+                      contentStyle: { backgroundColor: couleursSombres.carteProfonde },
+                    }}
                   />
                 </Stack>
                 <GestionNotifications />

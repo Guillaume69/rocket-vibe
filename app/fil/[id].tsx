@@ -1,6 +1,7 @@
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { asc, eq } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
+import * as Haptics from 'expo-haptics';
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -204,6 +205,8 @@ function Fil({
   const routeur = useRouter();
   const ouvrirActions = useCallback(
     (idMessage: string) => {
+      // « Pop » à l'ouverture de la feuille — confirme que l'appui long a pris.
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       routeur.push({ pathname: '/actions-message', params: { id: idMessage } });
     },
     [routeur],

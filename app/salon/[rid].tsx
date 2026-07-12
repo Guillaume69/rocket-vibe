@@ -4,6 +4,7 @@ import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { AudioModule, RecordingPresets, useAudioRecorder } from 'expo-audio';
 import * as DocumentPicker from 'expo-document-picker';
+import * as Haptics from 'expo-haptics';
 import * as ImageManipulator from 'expo-image-manipulator';
 import {
   useCallback,
@@ -436,6 +437,8 @@ function Salon({
   const routeur = useRouter();
   const ouvrirActions = useCallback(
     (id: string) => {
+      // « Pop » à l'ouverture de la feuille — confirme que l'appui long a pris.
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       routeur.push({ pathname: '/actions-message', params: { id } });
     },
     [routeur],

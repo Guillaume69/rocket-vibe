@@ -17,7 +17,7 @@
  * par `scripts/generer-emojis.mjs` (voir sa doc pour la source et la licence).
  */
 
-import { CODES_EMOJI } from './emojis.genere.ts';
+import { CODES_EMOJI, EMOJIS_PAR_CATEGORIE } from './emojis.genere.ts';
 
 let table: Record<string, string> | null = null;
 
@@ -53,4 +53,30 @@ let codes: readonly string[] | null = null;
 export function codesEmojiStandard(): readonly string[] {
   table ??= JSON.parse(CODES_EMOJI) as Record<string, string>;
   return (codes ??= Object.freeze(Object.keys(table)));
+}
+
+/** Les huit catégories du navigateur, dans l'ordre canonique JoyPixels. */
+export type CategorieEmoji =
+  | 'people'
+  | 'nature'
+  | 'food'
+  | 'activity'
+  | 'travel'
+  | 'objects'
+  | 'symbols'
+  | 'flags';
+
+let categories: Record<CategorieEmoji, readonly string[]> | null = null;
+
+/**
+ * Les codes de base groupés par catégorie, pour le navigateur d'emojis. Chaque
+ * liste est déjà ordonnée (ordre JoyPixels) et ne contient que des codes
+ * résolubles par `unicodeDeCodeCourt`. Parse unique, mis en cache : le même
+ * objet est rendu à chaque appel — ne pas le muter.
+ */
+export function emojisParCategorie(): Record<CategorieEmoji, readonly string[]> {
+  return (categories ??= JSON.parse(EMOJIS_PAR_CATEGORIE) as Record<
+    CategorieEmoji,
+    readonly string[]
+  >);
 }

@@ -17,8 +17,13 @@
  * noms — la donnée que ces deux mondes partagent.
  */
 
-/** En deçà, on n'ouvre pas la liste : `:a` matcherait des centaines d'emojis. */
-export const MIN_REQUETE = 2;
+/**
+ * Dès la PREMIÈRE lettre après `:` on propose — comme Slack/Discord. `:a`
+ * matche des centaines d'emojis, mais le classement (exact, préfixe, sous-chaîne)
+ * remonte les bons en tête et `LIMITE_SUGGESTIONS` borne la bande. En deçà (le
+ * `:` seul), rien : ce serait tout le dictionnaire.
+ */
+export const MIN_REQUETE = 1;
 /** Plafond de suggestions montrées : la bande défile, inutile d'en classer 2000. */
 export const LIMITE_SUGGESTIONS = 30;
 

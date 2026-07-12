@@ -17,10 +17,12 @@ import {
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -43,6 +45,7 @@ import { compresserImageSiUtile } from '../../ui/preparerPieceJointe.ts';
 import { demanderSource } from '../../ui/sourcePieceJointe.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
 import { BandeauCompletionEmoji, useCompletionEmoji } from '../../ui/completionEmoji.tsx';
+import { hauteurPanneauEmoji, NavigateurEmoji } from '../../ui/navigateurEmoji.tsx';
 import { AvatarSalon, BarreSynchro, IndicateurSaisie, TuileAvatar } from '../../ui/kit.tsx';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
@@ -657,11 +660,27 @@ function Composer({
   // `.m4a` AAC (préréglage HIGH_QUALITY) — le MIME attendu est `audio/mp4`.
   const enregistreur = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const routeur = useRouter();
+  const { height: hauteurEcran } = useWindowDimensions();
 
   // Autocomplétion des emojis : curseur + insertion, mécanique partagée avec le
   // composer du fil (`useCompletionEmoji`).
-  const { curseur, selection, surSelection, choisirEmoji, reinitialiser } =
+  const { curseur, selection, surSelection, choisirEmoji, insererAuCurseur, reinitialiser } =
     useCompletionEmoji(brouillon, setBrouillon, sauverBrouillon);
+
+  // Navigateur d'emojis : un panneau qui prend la place du clavier. Le bouton
+  // 😀 bascule de l'un à l'autre ; toucher le champ rouvre le clavier (onFocus).
+  const champRef = useRef<TextInput>(null);
+  const [panneauEmoji, setPanneauEmoji] = useState(false);
+  const basculerEmoji = useCallback(() => {
+    setPanneauEmoji((ouvert) => {
+      if (ouvert) {
+        champRef.current?.focus();
+        return false;
+      }
+      Keyboard.dismiss();
+      return true;
+    });
+  }, []);
 
   const changerBrouillon = useCallback(
     (texte: string) => {
@@ -856,7 +875,9 @@ function Composer({
           onRetirer={() => setEnAttente(null)}
         />
       )}
-      <BandeauCompletionEmoji texte={brouillon} curseur={curseur} c={c} surChoisir={choisirEmoji} />
+      {!panneauEmoji && (
+        <BandeauCompletionEmoji texte={brouillon} curseur={curseur} c={c} surChoisir={choisirEmoji} />
+      )}
       <View style={[styles.composer, { borderTopColor: c.bordureDouce }]}>
         <Pressable
           onPress={() => void joindre()}
@@ -876,11 +897,22 @@ function Composer({
             </Text>
           )}
         </Pressable>
+        <Pressable
+          onPress={basculerEmoji}
+          android_ripple={{ color: c.ondulation, borderless: true }}
+          style={styles.boutonEmoji}
+          accessibilityLabel={panneauEmoji ? 'Revenir au clavier' : 'Choisir un emoji'}
+        >
+          <Text style={styles.attache}>{panneauEmoji ? '⌨️' : '😀'}</Text>
+        </Pressable>
         <TextInput
+          ref={champRef}
           value={brouillon}
           selection={selection}
           onChangeText={changerBrouillon}
           onSelectionChange={surSelection}
+          // Toucher le champ referme le panneau : le clavier reprend sa place.
+          onFocus={() => setPanneauEmoji(false)}
           placeholder={enAttente !== null ? 'Ajouter une légende…' : 'Message'}
           placeholderTextColor={c.texteTertiaire}
           multiline
@@ -918,6 +950,13 @@ function Composer({
           </Pressable>
         )}
       </View>
+      {panneauEmoji && (
+        <NavigateurEmoji
+          c={c}
+          hauteur={hauteurPanneauEmoji(hauteurEcran)}
+          onChoisir={insererAuCurseur}
+        />
+      )}
     </View>
   );
 }
@@ -1106,6 +1145,7 @@ const styles = StyleSheet.create({
   attacheInactif: { opacity: 0.35 },
   rondGlyphe: { fontSize: 18 },
   boutonJoindre: { paddingVertical: 8, paddingHorizontal: 2 },
+  boutonEmoji: { paddingVertical: 8, paddingHorizontal: 2 },
   erreurComposer: { fontSize: 12, textAlign: 'center', paddingTop: 6, paddingHorizontal: 12 },
   barreNouveaux: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8 },
   traitNouveaux: { flex: 1, height: 2, borderRadius: 2, opacity: 0.5 },

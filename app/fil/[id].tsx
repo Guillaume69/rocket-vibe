@@ -6,10 +6,12 @@ import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Keyboard,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
@@ -22,6 +24,7 @@ import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sy
 import { useBrouillon } from '../../ui/brouillons.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
 import { BandeauCompletionEmoji, useCompletionEmoji } from '../../ui/completionEmoji.tsx';
+import { hauteurPanneauEmoji, NavigateurEmoji } from '../../ui/navigateurEmoji.tsx';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
 import { useSession } from '../../ui/session.tsx';
 import { useSynchro } from '../../ui/synchro.tsx';
@@ -334,9 +337,25 @@ function ComposerFil({
   effacerBrouillon: () => void;
 }) {
   const [brouillon, setBrouillon] = useState(brouillonInitial);
+  const { height: hauteurEcran } = useWindowDimensions();
   // Autocomplétion des emojis — mécanique partagée avec le composer du salon.
-  const { curseur, selection, surSelection, choisirEmoji, reinitialiser } =
+  const { curseur, selection, surSelection, choisirEmoji, insererAuCurseur, reinitialiser } =
     useCompletionEmoji(brouillon, setBrouillon, sauverBrouillon);
+
+  // Navigateur d'emojis : mêmes gestes que le salon (bouton 😀 ↔ clavier).
+  const champRef = useRef<TextInput>(null);
+  const [panneauEmoji, setPanneauEmoji] = useState(false);
+  const basculerEmoji = useCallback(() => {
+    setPanneauEmoji((ouvert) => {
+      if (ouvert) {
+        champRef.current?.focus();
+        return false;
+      }
+      Keyboard.dismiss();
+      return true;
+    });
+  }, []);
+
   const changer = useCallback(
     (texte: string) => {
       setBrouillon(texte);
@@ -357,18 +376,30 @@ function ComposerFil({
 
   return (
     <View>
-      <BandeauCompletionEmoji
-        texte={brouillon}
-        curseur={curseur}
-        c={c}
-        surChoisir={choisirEmoji}
-      />
+      {!panneauEmoji && (
+        <BandeauCompletionEmoji
+          texte={brouillon}
+          curseur={curseur}
+          c={c}
+          surChoisir={choisirEmoji}
+        />
+      )}
       <View style={[styles.composer, { borderTopColor: c.bordure }]}>
+        <Pressable
+          onPress={basculerEmoji}
+          android_ripple={{ color: c.ondulation, borderless: true }}
+          style={styles.boutonEmoji}
+          accessibilityLabel={panneauEmoji ? 'Revenir au clavier' : 'Choisir un emoji'}
+        >
+          <Text style={styles.emojiGlyphe}>{panneauEmoji ? '⌨️' : '😀'}</Text>
+        </Pressable>
         <TextInput
+          ref={champRef}
           value={brouillon}
           selection={selection}
           onChangeText={changer}
           onSelectionChange={surSelection}
+          onFocus={() => setPanneauEmoji(false)}
           placeholder="Répondre dans le fil"
           placeholderTextColor={c.attenue}
           multiline
@@ -384,6 +415,13 @@ function ComposerFil({
           </Pressable>
         )}
       </View>
+      {panneauEmoji && (
+        <NavigateurEmoji
+          c={c}
+          hauteur={hauteurPanneauEmoji(hauteurEcran)}
+          onChoisir={insererAuCurseur}
+        />
+      )}
     </View>
   );
 }
@@ -411,5 +449,7 @@ const styles = StyleSheet.create({
   },
   boutonEnvoyer: { paddingVertical: 10, paddingHorizontal: 4 },
   texteEnvoyer: { fontSize: 15, fontWeight: '700' },
+  boutonEmoji: { paddingVertical: 8, paddingHorizontal: 2 },
+  emojiGlyphe: { fontSize: 20 },
   noteComposer: { flex: 1, textAlign: 'center', fontSize: 13, paddingVertical: 8 },
 });

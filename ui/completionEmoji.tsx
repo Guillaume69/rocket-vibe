@@ -64,6 +64,7 @@ export function useCompletionEmoji(
   selection: Selection | undefined;
   surSelection: (e: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => void;
   choisirEmoji: (insertion: string, debut: number) => void;
+  insererAuCurseur: (insertion: string) => void;
   reinitialiser: () => void;
 } {
   const [curseur, setCurseur] = useState(() => brouillon.length);
@@ -90,17 +91,37 @@ export function useCompletionEmoji(
     [brouillon, curseur, setBrouillon, sauverBrouillon],
   );
 
+  /**
+   * Insère un glyphe (ou `:code:`) à la position du curseur, SANS espace de
+   * fin — au contraire de `choisirEmoji`, qui clôt un mot. Le navigateur pose
+   * les emojis les uns contre les autres, comme le clavier emoji du système.
+   * Le champ peut être défocalisé (panneau ouvert) : `curseur` garde la dernière
+   * position connue, et `selection` replace le caret au retour au clavier.
+   */
+  const insererAuCurseur = useCallback(
+    (insertion: string) => {
+      const c = Math.max(0, Math.min(curseur, brouillon.length));
+      const texte = brouillon.slice(0, c) + insertion + brouillon.slice(c);
+      const suivant = c + insertion.length;
+      setBrouillon(texte);
+      sauverBrouillon(texte);
+      setCurseur(suivant);
+      setSelection({ start: suivant, end: suivant });
+    },
+    [brouillon, curseur, setBrouillon, sauverBrouillon],
+  );
+
   // À l'envoi (champ vidé) : caret au début, imposé une fois.
   const reinitialiser = useCallback(() => {
     setCurseur(0);
     setSelection({ start: 0, end: 0 });
   }, []);
 
-  return { curseur, selection, surSelection, choisirEmoji, reinitialiser };
+  return { curseur, selection, surSelection, choisirEmoji, insererAuCurseur, reinitialiser };
 }
 
 /** Ce qu'on affiche et ce qu'on insère pour une suggestion résolue. */
-type SuggestionRendue = {
+export type SuggestionRendue = {
   suggestion: SuggestionEmoji;
   /** Glyphe Unicode (standard) — `null` pour un custom. */
   glyphe: string | null;
@@ -110,7 +131,13 @@ type SuggestionRendue = {
   insertion: string;
 };
 
-function resoudre(s: SuggestionEmoji): SuggestionRendue {
+/**
+ * Résout un code court en ce qu'on AFFICHE (glyphe standard ou image custom) et
+ * ce qu'on INSÈRE (le glyphe, ou `:nom:` pour un custom sans glyphe). Partagé
+ * avec le navigateur d'emojis (`ui/navigateurEmoji.tsx`) : un seul endroit qui
+ * tranche standard vs custom.
+ */
+export function resoudre(s: SuggestionEmoji): SuggestionRendue {
   if (s.type === 'custom') {
     return { suggestion: s, glyphe: null, uri: urlEmojiCustom(s.code), insertion: `:${s.code}:` };
   }

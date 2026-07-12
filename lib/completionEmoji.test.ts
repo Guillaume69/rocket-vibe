@@ -20,8 +20,12 @@ describe('detecterJetonEmoji', () => {
     assert.deepEqual(detecterJetonEmoji(':te', 3), { debut: 0, requete: 'te' });
   });
 
-  test('sous le seuil (1 caractère), rien', () => {
-    assert.equal(detecterJetonEmoji(':t', 2), null);
+  test('déclenche dès la première lettre', () => {
+    assert.deepEqual(detecterJetonEmoji(':t', 2), { debut: 0, requete: 't' });
+  });
+
+  test('le `:` seul (aucune lettre) ne déclenche pas', () => {
+    assert.equal(detecterJetonEmoji(':', 1), null);
   });
 
   test('un jeton déjà fermé ne déclenche pas', () => {
@@ -106,8 +110,17 @@ describe('completerEmoji', () => {
     assert.equal(completerEmoji('test', beaucoup, [], 5).length, 5);
   });
 
-  test('sous le seuil, liste vide', () => {
-    assert.deepEqual(completerEmoji('s', STD, CUST), []);
+  test('une seule lettre suffit désormais à classer', () => {
+    // `s` : préfixe custom (smirk_cat), préfixes standard (sad<smile<smiley),
+    // puis sous-chaînes standard, la plus courte d'abord (test<unsmiley).
+    assert.deepEqual(
+      completerEmoji('s', STD, CUST).map((s) => s.code),
+      ['smirk_cat', 'sad', 'smile', 'smiley', 'test', 'unsmiley'],
+    );
+  });
+
+  test('requête vide, liste vide', () => {
+    assert.deepEqual(completerEmoji('', STD, CUST), []);
   });
 
   test('aucune correspondance, liste vide', () => {

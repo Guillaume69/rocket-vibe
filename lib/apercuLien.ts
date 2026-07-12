@@ -14,7 +14,14 @@
  *  - image joignable : `{ url, meta:{}, headers:{ contentType:"image/png" } }`
  *  - article        : `meta:{ ogTitle, ogDescription, ogImage, ogSiteName, … }`
  *  - YouTube (oEmbed): `meta:{ oembedTitle, oembedThumbnailUrl, oembedProviderName, oembedHtml }`
- *  - tweet X        : `meta:{}` — X bloque le scraping serveur, rien à montrer.
+ *  - tweet vivant (x.com ou twitter.com) : balises og normales →
+ *    `meta:{ ogTitle:"… (@…) on X", ogDescription:<texte>, ogImage:<média>, ogSiteName:"X (formerly Twitter)" }`
+ *    → carte avec l'image ET le texte, comme n'importe quel article.
+ *  - lien sans balises (tweet supprimé, page nue) : `meta:{}` → rien à montrer.
+ *
+ * Rien ici n'est spécifique à un fournisseur : on ne lit que des champs
+ * OpenGraph/oEmbed génériques. « Ça marche pour Twitter » n'est qu'un cas de
+ * « ça marche pour toute URL que le serveur sait décrire ».
  *
  * Les liens vidéo (YouTube/Dailymotion/Vimeo) sont EXCLUS : ils ont déjà leur
  * carte dédiée (`ui/carteEmbed.tsx`) — sans quoi le message porterait deux cartes.

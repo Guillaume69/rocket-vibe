@@ -31,7 +31,19 @@ const YOUTUBE = {
   },
   headers: { contentType: 'application/json' },
 };
-const TWEET = { url: 'https://twitter.com/RocketChat/status/1580688955896758272', meta: {} };
+// Tweet VIVANT : X sert des balises og normales (relevé réel sur x.com).
+const TWEET_VIVANT = {
+  url: 'https://x.com/BarackObama/status/266031293945503744',
+  meta: {
+    ogSiteName: 'X (formerly Twitter)',
+    ogTitle: 'Barack Obama (@BarackObama) on X',
+    ogDescription: 'Four more years.',
+    ogImage: 'https://pbs.twimg.com/media/A7EiDWcCYAAZT1D.jpg:large',
+  },
+  headers: { contentType: 'text/html; charset=utf-8' },
+};
+// Lien nu : tweet supprimé (404) ou page sans balises → métas vides.
+const LIEN_NU = { url: 'https://x.com/qui/status/000', meta: {} };
 
 const json = (arr: unknown[]) => JSON.stringify(arr);
 
@@ -96,15 +108,28 @@ describe('apercusDeLien', () => {
     assert.deepEqual(apercusDeLien(json([YOUTUBE])), []);
   });
 
-  test('un tweet aux métas vides (X bloque le scraping) est ignoré', () => {
-    assert.deepEqual(apercusDeLien(json([TWEET])), []);
+  test('un tweet VIVANT rend une carte avec image ET texte (og génériques)', () => {
+    const r = apercusDeLien(json([TWEET_VIVANT]));
+    assert.equal(r.length, 1);
+    assert.deepEqual(r[0], {
+      type: 'carte',
+      url: TWEET_VIVANT.url,
+      titre: 'Barack Obama (@BarackObama) on X',
+      description: 'Four more years.',
+      image: TWEET_VIVANT.meta.ogImage,
+      site: 'X (formerly Twitter)',
+    });
   });
 
-  test('mélange réaliste : image + article, la vidéo et le tweet sautés', () => {
-    const r = apercusDeLien(json([IMAGE, ARTICLE, YOUTUBE, TWEET]));
+  test('un lien nu (tweet supprimé, page sans balises) est ignoré', () => {
+    assert.deepEqual(apercusDeLien(json([LIEN_NU])), []);
+  });
+
+  test('mélange réaliste : image + article + tweet, la vidéo et le lien nu sautés', () => {
+    const r = apercusDeLien(json([IMAGE, ARTICLE, YOUTUBE, TWEET_VIVANT, LIEN_NU]));
     assert.deepEqual(
       r.map((a) => a.type),
-      ['image', 'carte'],
+      ['image', 'carte', 'carte'],
     );
   });
 

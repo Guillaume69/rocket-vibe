@@ -11,7 +11,9 @@ const path = require('path');
 const FIREBASE_MESSAGING = 'com.google.firebase:firebase-messaging:25.0.1';
 
 /**
- * Répare le deep-link au tap d'une notification push.
+ * Répare le deep-link au tap d'une notification push, et rend les pushes de
+ * message GROUPÉS par salon (une notification « conversation » par salon, à la
+ * WhatsApp, au lieu d'un empilement d'une notification par message).
  *
  * Rocket.Chat envoie un message FCM avec un bloc `notification` (title/body).
  * App tuée ou en arrière-plan, Firebase l'auto-affiche lui-même et câble le tap
@@ -19,16 +21,24 @@ const FIREBASE_MESSAGING = 'com.google.firebase:firebase-messaging:25.0.1';
  * `getLastNotificationResponseAsync()` renvoie null — le tap n'ouvre donc jamais
  * la conversation (voir mémoire « deep-link du tap push cassé »).
  *
- * Le correctif : un `FirebaseMessagingService` de priorité supérieure à celui
- * d'expo (qui est à -1). Il retire le bloc `notification` avant de laisser
- * Firebase traiter le message → celui-ci devient « data-only » →
- * `onMessageReceived` est appelé même app tuée → expo affiche la notif lui-même
- * (avec notre icône fusée) ET pose son PendingIntent vers
- * `NotificationForwarderActivity` → le tap repasse par expo → deep-link OK.
+ * Le socle du correctif reste : un `FirebaseMessagingService` de priorité
+ * supérieure à celui d'expo (qui est à -1), qui retire le bloc `notification`
+ * pour rendre le message « data-only » (→ `handleIntent` appelé même app tuée).
  *
- * On recopie d'abord title/body du bloc `notification` dans les clés `data` que
- * lit expo (`title`, `message`), pour ne pas dépendre de ce que RC met
- * exactement dans son `data`.
+ * Ensuite, deux chemins :
+ *   - Push de MESSAGE Rocket.Chat (un `ejson` avec `rid`) → on poste NOUS-MÊMES
+ *     une notification `MessagingStyle` dont l'id dérive du `rid` : les messages
+ *     successifs d'un même salon s'ACCUMULENT dans la même notification (le
+ *     style précédent est ré-extrait et complété). Le tap porte un deep-link
+ *     `rocketvibe://salon/<rid>` (géré par expo-router, à froid comme en
+ *     marche) — plus besoin du circuit expo-notifications pour ces pushes.
+ *   - Tout autre intent (autres pushes, messages sans `rid`) → route expo
+ *     inchangée : title/body recopiés dans les clés `data` que lit expo
+ *     (`title`, `message`), expo affiche et gère le tap comme avant.
+ *
+ * Salons CHIFFRÉS : `Push_show_message = true` fait transiter du ciphertext ;
+ * si l'ejson porte `messageType: 'e2e'`, on substitue un texte générique —
+ * même dégradation que côté JS (`ui/notifications.tsx`).
  */
 
 const SERVICE_CLASS = 'RocketVibeMessagingService';
@@ -36,9 +46,17 @@ const SERVICE_CLASS = 'RocketVibeMessagingService';
 function kotlinSource(pkg) {
   return `package ${pkg}
 
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Intent
+import android.net.Uri
+import android.os.Bundle
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.Person
 import expo.modules.notifications.service.ExpoFirebaseMessagingService
+import org.json.JSONObject
 
 /**
  * Généré par plugins/with-fcm-deeplink.js — ne pas éditer à la main.
@@ -70,10 +88,107 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
       }
       intent.replaceExtras(extras)
       if (BuildConfig.DEBUG) {
-        Log.d(TAG, "handleIntent: notif→data-only (title=" + title + ")")
+        val dump = extras.keySet().joinToString(", ") { k -> k + "=" + extras.get(k) }
+        Log.d(TAG, "handleIntent data: " + dump)
+      }
+      // Push de message RC : notification « conversation » groupée par salon,
+      // postée ICI. Le retour court-circuite expo, qui en posterait une seconde.
+      if (posterNotifSalon(extras)) {
+        return
       }
     }
     super.handleIntent(intent)
+  }
+
+  /**
+   * Poste (ou complète) la notification MessagingStyle du salon. \`false\` si ce
+   * push n'est pas un message de salon exploitable — l'appelant rend alors la
+   * main à expo, qui affichera la notification simple d'avant.
+   */
+  private fun posterNotifSalon(extras: Bundle): Boolean {
+    try {
+      val ejsonBrut = extras.getString("ejson") ?: return false
+      val ejson = JSONObject(ejsonBrut)
+      val rid = ejson.optString("rid")
+      if (rid.isEmpty()) return false
+      val titre = extras.getString("title") ?: return false
+      var texte = extras.getString("message") ?: return false
+
+      // Même dégradation E2EE que côté JS : jamais de ciphertext à l'écran.
+      if (ejson.optString("messageType") == "e2e") {
+        texte = "Message chiffré"
+      }
+
+      val sender = ejson.optJSONObject("sender")
+      val nomExpediteur = sender?.optString("name")?.takeIf { it.isNotEmpty() }
+        ?: sender?.optString("username")?.takeIf { it.isNotEmpty() }
+        ?: titre
+      // RC préfixe souvent le texte de « username: » quand le nom est déjà
+      // porté par la Person du style — on l'ôte pour ne pas l'afficher deux fois.
+      val username = sender?.optString("username")
+      if (username != null && username.isNotEmpty() && texte.startsWith(username + ": ")) {
+        texte = texte.substring(username.length + 2)
+      }
+
+      val notifId = rid.hashCode()
+      val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+
+      // Ré-extraire le style de la notification active du même salon : les
+      // messages précédents restent visibles, le nouveau s'ajoute à la suite.
+      val active = manager.activeNotifications.firstOrNull { it.id == notifId }
+      val style = active?.let {
+        NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(it.notification)
+      } ?: NotificationCompat.MessagingStyle(Person.Builder().setName("Vous").build())
+
+      // DM 1:1 : pas de titre de conversation, Android affiche le nom porté par
+      // chaque message. Canal/groupe : le titre du push (« #general », …).
+      if (ejson.optString("type") != "d") {
+        style.setConversationTitle(titre)
+      }
+      style.addMessage(
+        texte,
+        System.currentTimeMillis(),
+        Person.Builder().setName(nomExpediteur).build(),
+      )
+
+      // Le tap ouvre le salon par deep-link expo-router. CLEAR_TASK est
+      // NÉCESSAIRE : process tué par le système mais task encore dans les
+      // récents, la ramener délivre le VIEW en onNewIntent avant que le JS
+      // n'écoute — l'URL se perd et on atterrit sur l'index (vérifié). En
+      // recréant la task, le VIEW est l'intent INITIAL, chemin fiable à froid.
+      val tap = Intent(
+        Intent.ACTION_VIEW,
+        Uri.parse("rocketvibe://salon/" + Uri.encode(rid)),
+      ).setPackage(packageName)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+      val pending = PendingIntent.getActivity(
+        this,
+        notifId,
+        tap,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+      )
+
+      val icone = resources.getIdentifier("notification_icon", "drawable", packageName)
+      val notification = NotificationCompat.Builder(this, "default")
+        .setSmallIcon(if (icone != 0) icone else android.R.drawable.ic_dialog_email)
+        .setColor(COULEUR_ACCENT)
+        .setStyle(style)
+        .setContentIntent(pending)
+        .setAutoCancel(true)
+        .setPriority(NotificationCompat.PRIORITY_HIGH)
+        .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+        .build()
+      NotificationManagerCompat.from(this).notify(notifId, notification)
+      if (BuildConfig.DEBUG) {
+        Log.d(TAG, "notif salon postée (rid=" + rid + ", id=" + notifId + ")")
+      }
+      return true
+    } catch (e: Exception) {
+      // Un push mal formé ou un refus (POST_NOTIFICATIONS révoquée) ne doit pas
+      // perdre la notification : on laisse expo afficher sa version simple.
+      Log.w(TAG, "posterNotifSalon: repli expo", e)
+      return false
+    }
   }
 
   companion object {
@@ -82,6 +197,8 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
     private const val KEY_NOTIF_TITLE = "gcm.notification.title"
     private const val KEY_NOTIF_BODY = "gcm.notification.body"
     private const val KEY_NOTIF_CHANNEL = "gcm.notification.android_channel_id"
+    /** #FF5FA2 — la couleur d'accent déclarée pour expo-notifications (app.json). */
+    private const val COULEUR_ACCENT = 0xFFFF5FA2.toInt()
   }
 }
 `;

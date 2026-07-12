@@ -195,6 +195,19 @@ export const POLICES = {
 } as const;
 
 /**
+ * Délai (ms) avant qu'un `Pressable` d'une LISTE (ou d'une ligne de bottom
+ * sheet) n'affiche sa pression — via `unstable_pressDelay`. Le temps qu'il
+ * s'écoule, un début de scroll (ou le glisser-pour-fermer natif d'une feuille)
+ * s'empare du geste et ANNULE la pression : la couleur/ondulation n'apparaît
+ * jamais quand on ne fait que défiler. Un vrai tap reste instantané —
+ * Pressability vide le `onPressIn` retardé avant le relâchement.
+ *
+ * 120 ms : au-delà du seuil de détection du scroll, en-deçà du perceptible sur
+ * un tap franc. Ne PAS mettre sur les gros CTA hors liste, ça les rendrait mous.
+ */
+export const DELAI_PRESSION_LISTE = 120;
+
+/**
  * Choisit un dégradé d'avatar STABLE pour une clé (nom, id) : la même personne
  * garde sa cutie-mark d'un écran à l'autre. Somme des points de code modulo la
  * taille de la palette — déterministe, sans dépendance.

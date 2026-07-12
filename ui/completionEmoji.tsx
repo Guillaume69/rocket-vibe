@@ -39,7 +39,7 @@ import {
 } from '../lib/completionEmoji.ts';
 import { codesEmojiStandard, unicodeDeCodeCourt } from '../lib/emojis.ts';
 import { codesEmojiCustom, urlEmojiCustom } from '../lib/emojisCustom.ts';
-import type { Couleurs } from './theme.ts';
+import { type Couleurs, DELAI_PRESSION_LISTE } from './theme.ts';
 
 type Selection = { start: number; end: number };
 
@@ -163,6 +163,7 @@ export function BandeauCompletionEmoji({
           key={`${suggestion.type}:${suggestion.code}`}
           onPress={() => surChoisir(insertion, resultat.debut)}
           android_ripple={{ color: c.ondulation, borderless: false }}
+          unstable_pressDelay={DELAI_PRESSION_LISTE}
           style={styles.puce}
           accessibilityLabel={`:${suggestion.code}:`}
         >

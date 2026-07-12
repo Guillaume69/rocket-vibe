@@ -14,7 +14,7 @@ import { AvatarSalon, BadgeEtoile, BarreSynchro, Marque, TuileAvatar } from '../
 import { COULEURS_PRESENCE, usePresence } from '../ui/presence.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
-import { type Couleurs, POLICES, useCouleurs } from '../ui/theme.ts';
+import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
 
 /**
  * Portier et liste des salons. Sans session on va se connecter ; avec session,
@@ -188,6 +188,7 @@ function LigneSalon({
     <Pressable
       onPress={() => routeur.push({ pathname: '/salon/[rid]', params: { rid: salon.rid } })}
       android_ripple={{ color: c.ondulation }}
+      unstable_pressDelay={DELAI_PRESSION_LISTE}
       style={({ pressed }) => [styles.ligne, { opacity: pressed ? 0.6 : 1 }]}
     >
       <View>
@@ -241,6 +242,7 @@ function LigneNouvelleConversation({ c }: { c: Couleurs }) {
     <Pressable
       onPress={() => routeur.push('/recherche')}
       android_ripple={{ color: c.ondulation }}
+      unstable_pressDelay={DELAI_PRESSION_LISTE}
       style={[styles.ligne, { borderBottomColor: c.bordureDouce, borderBottomWidth: 1 }]}
     >
       <TuileAvatar
@@ -273,6 +275,7 @@ function PiedDeListe({ c }: { c: Couleurs }) {
       <Pressable
         onPress={() => void deconnecter()}
         android_ripple={{ color: c.ondulation }}
+        unstable_pressDelay={DELAI_PRESSION_LISTE}
         style={({ pressed }) => [
           styles.bouton,
           { backgroundColor: c.carteErreur, opacity: pressed ? 0.6 : 1 },
@@ -305,7 +308,11 @@ function SectionJetonFcm({ c }: { c: Couleurs }) {
 
   return (
     <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
-      <Pressable onPress={demander} android_ripple={{ color: c.ondulation }}>
+      <Pressable
+        onPress={demander}
+        android_ripple={{ color: c.ondulation }}
+        unstable_pressDelay={DELAI_PRESSION_LISTE}
+      >
         <Text style={[styles.action, { color: c.cyan }]}>Obtenir le jeton FCM</Text>
       </Pressable>
       {jeton !== null && (

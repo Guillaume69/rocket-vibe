@@ -24,7 +24,7 @@ import { unicodeDeCodeCourt } from '../lib/emojis.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
-import { POLICES, useCouleurs } from '../ui/theme.ts';
+import { DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
 
 /**
  * Feuille d'actions d'un message (8.2) — `presentation: 'formSheet'` déclarée
@@ -186,6 +186,7 @@ export default function EcranActionsMessage() {
               key={code}
               disabled={occupe}
               android_ripple={{ color: c.ondulation, borderless: true }}
+              unstable_pressDelay={DELAI_PRESSION_LISTE}
               style={({ pressed }) => [
                 styles.pastilleEmoji,
                 { backgroundColor: c.surfaceActive, opacity: pressed ? 0.6 : 1 },
@@ -314,6 +315,7 @@ function ActionLigne({
       disabled={disabled}
       onPress={onPress}
       android_ripple={{ color: c.ondulation }}
+      unstable_pressDelay={DELAI_PRESSION_LISTE}
       style={({ pressed }) => [styles.ligne, { opacity: pressed ? 0.7 : 1 }]}
     >
       <Text style={styles.ligneIcone}>{icone}</Text>

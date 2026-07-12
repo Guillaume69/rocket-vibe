@@ -15,7 +15,7 @@ import type { ClientRest } from '../lib/rest.ts';
 import { VueEvitantLeClavier } from '../ui/clavier.tsx';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
-import { useCouleurs, type Couleurs } from '../ui/theme.ts';
+import { type Couleurs, DELAI_PRESSION_LISTE, useCouleurs } from '../ui/theme.ts';
 
 /**
  * Démarrer une conversation (5.4) : sans cet écran, l'app ne fait que lister
@@ -184,6 +184,7 @@ function Recherche({
               onPress={() => void demarrerDm(item.utilisateur)}
               disabled={occupe}
               android_ripple={{ color: c.ondulation }}
+              unstable_pressDelay={DELAI_PRESSION_LISTE}
               style={styles.ligne}
             >
               <Text style={[styles.prefixe, { color: c.attenue }]}>@</Text>
@@ -199,6 +200,7 @@ function Recherche({
               onPress={() => void rejoindreCanal(item.salon)}
               disabled={occupe}
               android_ripple={{ color: c.ondulation }}
+              unstable_pressDelay={DELAI_PRESSION_LISTE}
               style={styles.ligne}
             >
               <Text style={[styles.prefixe, { color: c.attenue }]}>#</Text>

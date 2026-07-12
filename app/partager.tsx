@@ -41,7 +41,7 @@ import { AvatarSalon } from '../ui/kit.tsx';
 import { compresserImageSiUtile } from '../ui/preparerPieceJointe.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
-import { type Couleurs, POLICES, useCouleurs } from '../ui/theme.ts';
+import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
 
 type LigneDeSalon = typeof salons.$inferSelect;
 
@@ -350,6 +350,7 @@ function LigneCible({
       onPress={onChoisir}
       disabled={occupe || bloque}
       android_ripple={bloque ? undefined : { color: c.ondulation }}
+      unstable_pressDelay={DELAI_PRESSION_LISTE}
       style={({ pressed }) => [styles.ligne, { opacity: attenue ? 0.4 : pressed ? 0.6 : 1 }]}
     >
       <AvatarSalon

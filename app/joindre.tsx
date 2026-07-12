@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { repondreSource, type SourcePieceJointe } from '../ui/sourcePieceJointe.ts';
-import { POLICES, useCouleurs } from '../ui/theme.ts';
+import { DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
 
 /**
  * Feuille « joindre » : le menu de sources d'une pièce jointe, à la façon de
@@ -54,6 +54,7 @@ export default function EcranJoindre() {
           key={o.source}
           onPress={() => choisir(o.source)}
           android_ripple={{ color: c.ondulation }}
+          unstable_pressDelay={DELAI_PRESSION_LISTE}
           accessibilityRole="button"
           accessibilityLabel={o.libelle}
           style={({ pressed }) => [styles.ligne, { opacity: pressed ? 0.7 : 1 }]}

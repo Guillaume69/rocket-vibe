@@ -18,6 +18,7 @@
  */
 
 import type { BigEmoji, Blocks, Inlines, Paragraph } from '@rocket.chat/message-parser';
+import { router } from 'expo-router';
 import { Component, type ReactElement, type ReactNode } from 'react';
 import { Image, Linking, Platform, StyleSheet, Text, View } from 'react-native';
 
@@ -32,6 +33,16 @@ function ouvrirLien(brut: string): void {
   if (/^https?:\/\//i.test(brut)) {
     Linking.openURL(brut).catch(() => {});
   }
+}
+
+/**
+ * Fiche de l'utilisateur mentionné. `router` singleton et non un hook : les
+ * fonctions de rendu de ce fichier sont de simples fonctions, pas des
+ * composants. `@all` / `@here` ne désignent personne — pas de fiche.
+ */
+function ouvrirProfil(username: string): void {
+  if (username === '' || username === 'all' || username === 'here') return;
+  router.push({ pathname: '/profil', params: { username } });
 }
 
 /**
@@ -222,12 +233,18 @@ function rendreInline(noeud: Inlines, cle: number, c: Couleurs): React.ReactNode
       );
     }
 
-    case 'MENTION_USER':
+    case 'MENTION_USER': {
+      const username = texteDe(noeud.value);
       return (
-        <Text key={cle} style={[styles.mention, { color: c.accent }]}>
-          @{texteDe(noeud.value)}
+        <Text
+          key={cle}
+          style={[styles.mention, { color: c.accent }]}
+          onPress={() => ouvrirProfil(username)}
+        >
+          @{username}
         </Text>
       );
+    }
 
     case 'MENTION_CHANNEL':
       return (

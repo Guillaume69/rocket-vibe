@@ -58,12 +58,19 @@ export const LigneMessage = memo(function LigneMessage({
     hour: '2-digit',
     minute: '2-digit',
   });
+  const routeur = useRouter();
 
   const appuiLong = surAppuiLong === null ? undefined : () => surAppuiLong(message.id);
   const auteur = message.auteurNom ?? '?';
   // Le pseudo prend la première teinte de sa propre tuile-avatar : nom et
   // avatar s'accordent, la même personne garde sa couleur d'un message à l'autre.
   const teinteAuteur = degradeAvatar(auteur, c.avatarsDegrades)[0];
+  // Fiche de l'auteur au tap sur l'avatar ou le pseudo. Pas de fiche pour un
+  // auteur sans username (message chiffré indéchiffrable : `auteurNom` null).
+  const ouvrirProfil =
+    message.auteurNom === null
+      ? undefined
+      : () => routeur.push({ pathname: '/profil', params: { username: auteur } });
 
   return (
     <Pressable
@@ -77,20 +84,29 @@ export const LigneMessage = memo(function LigneMessage({
     >
       {/* La ligne est `accessible={false}` pour que TalkBack atteigne
           réessayer/abandonner/pièces jointes ; l'initiale décorative ne doit
-          pas devenir un nœud de plus, elle double la navigation au balayage. */}
+          pas devenir un nœud de plus, elle double la navigation au balayage.
+          (`importantForAccessibility` n'ôte que le nœud a11y — le tap marche.) */}
       <View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
-        <TuileAvatar
-          c={c}
-          cle={auteur}
-          initiale={auteur.charAt(0) || '?'}
-          uri={urlAvatar(client, { uid: message.auteurId })}
-          taille={34}
-          rayon={12}
-        />
+        <Pressable onPress={ouvrirProfil} unstable_pressDelay={DELAI_PRESSION_LISTE}>
+          <TuileAvatar
+            c={c}
+            cle={auteur}
+            initiale={auteur.charAt(0) || '?'}
+            uri={urlAvatar(client, { uid: message.auteurId })}
+            taille={34}
+            rayon={12}
+          />
+        </Pressable>
       </View>
       <View style={styles.corps}>
         <View style={styles.enTete}>
-          <Text style={[styles.auteur, { color: teinteAuteur }]} numberOfLines={1}>
+          <Text
+            style={[styles.auteur, { color: teinteAuteur }]}
+            numberOfLines={1}
+            onPress={ouvrirProfil}
+            accessibilityRole={ouvrirProfil === undefined ? undefined : 'button'}
+            accessibilityLabel={`Profil de ${auteur}`}
+          >
             {auteur}
           </Text>
           <Text style={[styles.heure, { color: c.texteTertiaire }]}>{heure}</Text>

@@ -90,6 +90,20 @@ export default function RootLayout() {
                         contentStyle: { backgroundColor: couleursSombres.carteProfonde },
                       }}
                     />
+                    {/* Fiche d'un utilisateur (avatar/nom d'auteur, mention).
+                        Même sheet native que les actions de message. */}
+                    <Stack.Screen
+                      name="profil"
+                      options={{
+                        presentation: 'formSheet',
+                        headerShown: false,
+                        sheetAllowedDetents: 'fitToContents',
+                        sheetGrabberVisible: true,
+                        sheetCornerRadius: 24,
+                        sheetElevation: 24,
+                        contentStyle: { backgroundColor: couleursSombres.carteProfonde },
+                      }}
+                    />
                     {/* Écran de partage : ouvert par la feuille système d'Android
                         (ACTION_SEND) via `GardePartage`. Modal glissant du bas —
                         c'est une action ponctuelle par-dessus l'app, pas une page. */}

@@ -30,6 +30,7 @@
           "defaultChannel": "default"
         }
       ],
+      "./plugins/with-fcm-deeplink",
       "expo-audio",
       [
         "expo-font",

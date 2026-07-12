@@ -186,6 +186,7 @@ lib/            Cœur non-UI : ddp.ts (client DDP), rest.ts, auth.ts, envoi.ts, 
                 sync.ts, rattrapage.ts, reconnexion.ts, presence.ts, push.ts, emojis.ts…
 db/             SQLite + Drizzle : schema.ts, upserts.ts, depot.ts, migrations/
 scripts/        env.sh, seed.mjs, spike-ddp.mjs, génération d'emojis
+plugins/        Config plugins CNG (with-fcm-deeplink : deep-link au tap d'un push)
 docker/         Rocket.Chat 8.5.1 + MongoDB 8.0 (compose.yml, .env.example)
 docs/           DEV.md (environnement, réseau, relevé du serveur cible)
 assets/         Icônes de l'app (lanceur, adaptative, notif « fusée » monochrome)

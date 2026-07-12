@@ -16,7 +16,7 @@ import { desc } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { Stack, useRouter } from 'expo-router';
 import { type ShareIntent, useShareIntentContext } from 'expo-share-intent';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import type { BaseLocale } from '../db/client.ts';
@@ -33,6 +33,9 @@ import { useSynchro } from '../ui/synchro.tsx';
 import { type Couleurs, POLICES, useCouleurs } from '../ui/theme.ts';
 
 type LigneDeSalon = typeof salons.$inferSelect;
+
+/** Pièce partagée + clé stable : la compression change le `fichier`, pas la `cle`. */
+type PieceEnAttente = { cle: number; fichier: FichierEnAttente };
 
 export default function EcranPartager() {
   const c = useCouleurs();
@@ -102,37 +105,47 @@ function Partager({
 }) {
   const routeur = useRouter();
 
-  // Fichiers partagés → pièces en attente. `path` est déjà un chemin local
-  // accessible (le module natif a copié les content://).
-  const initiales = useMemo<FichierEnAttente[]>(
-    () =>
-      (shareIntent.files ?? []).map((f) => ({
-        uri: f.path,
-        nom: f.fileName,
-        type: f.mimeType,
-        taille: f.size,
-      })),
-    [shareIntent],
+  // Fichiers partagés → pièces en attente. Construites UNE fois, au montage :
+  // le partage entrant est figé pour la vie de l'écran, et l'objet `shareIntent`
+  // peut changer d'identité à chaque rendu du provider (s'en servir comme
+  // dépendance relancerait la compression en boucle). `path` est déjà un chemin
+  // local accessible (le module natif a copié les content://). Chaque pièce
+  // porte une `cle` STABLE : la compression remplace le fichier mais garde la
+  // clé, donc la carte n'est pas démontée/ré-animée (source du clignotement
+  // quand on partage plusieurs photos).
+  const [pieces, setPieces] = useState<PieceEnAttente[]>(() =>
+    (shareIntent.files ?? []).map((f, i) => ({
+      cle: i,
+      fichier: { uri: f.path, nom: f.fileName, type: f.mimeType, taille: f.size },
+    })),
   );
-  const [pieces, setPieces] = useState<FichierEnAttente[]>(initiales);
 
-  // Compression des images en tâche de fond : l'aperçu s'affiche tout de suite
-  // avec l'original, puis chaque image lourde est remplacée par sa version
-  // réduite. Mise à jour ciblée par `uri` (map sur `prev`) : un fichier retiré
-  // entre-temps ne réapparaît pas.
+  // Compression des images au montage. SÉQUENTIELLE — plusieurs grosses photos
+  // décodées en parallèle saturent le CPU et saccadent l'arrivée sur l'écran —
+  // puis UNE SEULE mise à jour groupée : l'aperçu montre d'abord les originaux,
+  // puis bascule d'un coup sur les versions réduites, sans re-rendu par photo.
+  // On remplace par `cle` (pas par référence d'objet) : une pièce retirée
+  // entre-temps n'est pas ressuscitée.
   useEffect(() => {
     let vivant = true;
-    for (const f of initiales) {
-      void compresserImageSiUtile(f).then((prep) => {
-        if (vivant && prep !== f) {
-          setPieces((prev) => prev.map((p) => (p.uri === f.uri ? prep : p)));
-        }
-      });
-    }
+    void (async () => {
+      const originales = pieces;
+      const prepares: FichierEnAttente[] = [];
+      for (const p of originales) prepares.push(await compresserImageSiUtile(p.fichier));
+      if (!vivant) return;
+      setPieces((actuelles) =>
+        actuelles.map((p) => {
+          const i = originales.findIndex((o) => o.cle === p.cle);
+          return i >= 0 ? { cle: p.cle, fichier: prepares[i] } : p;
+        }),
+      );
+    })();
     return () => {
       vivant = false;
     };
-  }, [initiales]);
+    // Au montage uniquement : les pièces initiales ne changent qu'ici.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Texte partagé (ou lien) : légende quand un fichier l'accompagne, sinon
   // c'est le message lui-même.
@@ -174,7 +187,7 @@ function Partager({
           for (let i = 0; i < pieces.length; i++) {
             await fichiers.envoyer(
               rid,
-              pieces[i],
+              pieces[i].fichier,
               i === 0 && legendePropre !== '' ? legendePropre : undefined,
             );
           }
@@ -198,16 +211,16 @@ function Partager({
     <VueEvitantLeClavier>
       <Stack.Screen options={{ title: 'Partager', headerShown: true }} />
       <View style={styles.haut}>
-        {pieces.map((f, i) => (
+        {pieces.map((p) => (
           <ApercuPieceJointe
-            key={`${f.uri}-${i}`}
+            key={p.cle}
             c={c}
-            fichier={f}
+            fichier={p.fichier}
             occupe={occupe}
             // Le conteneur `haut` applique déjà le retrait : la carte s'aligne
             // ainsi sur la largeur du champ légende et du filtre.
             retraitHorizontal={0}
-            onRetirer={() => setPieces((prev) => prev.filter((_, j) => j !== i))}
+            onRetirer={() => setPieces((prev) => prev.filter((x) => x.cle !== p.cle))}
           />
         ))}
         <TextInput

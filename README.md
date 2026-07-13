@@ -182,7 +182,8 @@ puis `adb install -r app/build/outputs/apk/release/app-release.apk`.
 ```
 app/            Routes expo-router (index, connexion, salon/[rid], fil/[id], recherche…)
 ui/             Composants et thème « Nuit Étoilée » (theme.ts, kit.tsx, ligneMessage.tsx,
-                lecteurAudio/Video, carteEmbed, carteLien, visionneuse, markdown, session…)
+                lecteurAudio/Video, carteEmbed, carteLien, visionneuse, markdown, session…),
+                plus l'i18n : messages.ts (catalogue) et i18n.ts (store + hooks)
 lib/            Cœur non-UI : ddp.ts (client DDP), rest.ts, auth.ts, envoi.ts, upload.ts,
                 sync.ts, rattrapage.ts, reconnexion.ts, presence.ts, push.ts, apercuLien.ts…
 db/             SQLite + Drizzle : schema.ts, upserts.ts, depot.ts, migrations/
@@ -194,6 +195,29 @@ assets/         Icônes de l'app (lanceur, adaptative, notif « fusée » monoch
 ```
 
 Les modules de `lib/` et `db/` sont accompagnés de tests (`*.test.ts`).
+
+---
+
+## Internationalisation (i18n)
+
+Anglais et français, **sans dépendance** : la langue du téléphone est lue en pur
+JS via `Intl.DateTimeFormat().resolvedOptions().locale` (Hermes embarque ICU),
+donc aucun module natif ni rebuild. La préférence (Automatique / Français /
+English) se choisit dans **Paramètres → Langue** et vit dans SecureStore, lue de
+façon synchrone au démarrage (pas de flash de langue).
+
+- `ui/messages.ts` — catalogue **pur** (testable sous Node). `fr` est la
+  référence ; `en` est typé `Record<CleTraduction, string>`, donc toute clé
+  manquante ou en trop **casse la compilation**. Interpolation `{param}`,
+  pluriel `singulier | pluriel` arbitré par un `n` numérique.
+- `ui/i18n.ts` — store abonnable (patron de `identites.tsx`) : `useT()` pour le
+  rendu, `traduireCourant()` pour les messages figés hors composant (handlers
+  natifs, effets). Ajouter une langue = un catalogue de plus, zéro code.
+
+**Frontière assumée** : l'UI est bilingue, mais les messages d'erreur bruts de
+la couche `lib/` et du transport (`serveur injoignable`, `Téléversement
+annulé`…) restent en français — `lib/` reste pur, testable et sans plateforme.
+Ils ne surfacent que par `e.message`, en dernier recours.
 
 ---
 

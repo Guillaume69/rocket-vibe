@@ -237,16 +237,25 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
       Person.Builder().setName(nomExpediteur).build(),
     )
 
-    // Le tap ouvre le salon par deep-link expo-router. CLEAR_TASK est
-    // NÉCESSAIRE : process tué par le système mais task encore dans les
-    // récents, la ramener délivre le VIEW en onNewIntent avant que le JS
-    // n'écoute — l'URL se perd et on atterrit sur l'index (vérifié). En
-    // recréant la task, le VIEW est l'intent INITIAL, chemin fiable à froid.
+    // Le tap ouvre le salon par deep-link expo-router. MainActivity est
+    // \`singleTask\` : avec le SEUL flag NEW_TASK, un VIEW est délivré à l'Activity
+    // vivante par onNewIntent (app en marche/fond, PAS de recréation), et démarre
+    // une Activity FRAÎCHE si le process est mort — dans les deux cas l'URL est
+    // portée par l'intent.
+    //
+    // PAS de CLEAR_TASK : il RECRÉAIT la MainActivity même process vivant, ce qui
+    // DÉSENREGISTRE les ActivityResultLauncher d'expo-image-picker. Expo ne les
+    // réenregistre qu'en voyant \`hostWasDestroyed\` à l'onHostResume, or l'ordre
+    // des callbacks de CLEAR_TASK (nouvelle Activity resumée AVANT destruction de
+    // l'ancienne) contourne ce test : joindre une pièce échouait ensuite en
+    // « unregistered ActivityResultLauncher » jusqu'au redémarrage complet.
+    // PAS de SINGLE_TOP non plus : combiné à NEW_TASK sur une Activity déjà au
+    // premier plan, il empêchait la navigation vers le salon (constaté sur l'AVD).
     val tap = Intent(
       Intent.ACTION_VIEW,
       Uri.parse("rocketvibe://salon/" + Uri.encode(rid)),
     ).setPackage(packageName)
-      .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+      .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     val pending = PendingIntent.getActivity(
       this,
       notifId,

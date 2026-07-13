@@ -14,7 +14,7 @@
  * `useSyncExternalStore` — re-rendu uniquement à un VRAI changement d'identité.
  */
 
-import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
+import { useRequeteVive } from './requeteVive.ts';
 import { useEffect, useSyncExternalStore } from 'react';
 
 import { utilisateurs } from '../db/schema.ts';
@@ -60,7 +60,7 @@ function Alimente() {
   const moiUid = etat.phase === 'connecte' ? etat.session.userId : null;
   const moiUsername = etat.phase === 'connecte' ? etat.session.username : null;
 
-  const { data } = useLiveQuery(
+  const { data } = useRequeteVive(
     base!.select({ uid: utilisateurs.uid, username: utilisateurs.username }).from(utilisateurs),
   );
 

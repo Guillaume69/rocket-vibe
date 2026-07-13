@@ -40,6 +40,12 @@ export interface Depot {
   /** N'avance jamais à rebours (garanti par le SQL). */
   ecrireCurseur(portee: string, flux: string, misAJourDepuis: number): Promise<void>;
   /**
+   * Le plus grand `_updatedAt` déjà ingéré pour un salon (null si aucun message
+   * local). Sert à ré-ancrer le curseur quand `chat.syncMessages` échoue sur un
+   * backlog trop gros — voir `rattraperSalon`.
+   */
+  dernierMessageMisAJour(rid: string): Promise<number | null>;
+  /**
    * Regroupe des écritures en une transaction. Une page d'historique de 50
    * messages doit produire UN commit et UN événement de changement — pas 50
    * ré-exécutions de chaque requête vive de l'UI.

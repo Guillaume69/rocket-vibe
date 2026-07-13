@@ -15,7 +15,7 @@
  */
 
 import * as Notifications from 'expo-notifications';
-import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
+import { useRequeteVive } from './requeteVive.ts';
 import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
 
@@ -112,8 +112,8 @@ function SuiviBadgeEtChiffre() {
   const synchro = useSynchro();
   const base = synchro.phase === 'pret' ? synchro.base : null;
 
-  const { data: lignesAbonnements } = useLiveQuery(base!.select().from(abonnements));
-  const { data: lignesSalons } = useLiveQuery(base!.select().from(salons));
+  const { data: lignesAbonnements } = useRequeteVive(base!.select().from(abonnements));
+  const { data: lignesSalons } = useRequeteVive(base!.select().from(salons));
 
   useEffect(() => {
     const total = (lignesAbonnements ?? []).reduce((somme, a) => somme + a.nonLus, 0);

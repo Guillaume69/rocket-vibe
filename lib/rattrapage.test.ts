@@ -15,6 +15,7 @@ function fauxDepotComplet() {
   const messages: string[] = [];
   const supprimesParSubId: string[] = [];
   const purges: string[][] = [];
+  let dernierLocal: number | null = null;
   const depot: Depot = {
     upsertMessage: async (m) => void messages.push(m.id),
     upsertSalon: async (s) => void salons.push(s.rid),
@@ -30,6 +31,7 @@ function fauxDepotComplet() {
       const courant = curseurs.get(cle);
       if (courant === undefined || valeur > courant) curseurs.set(cle, valeur);
     },
+    dernierMessageMisAJour: async () => dernierLocal,
     transaction: async (fn) => fn(depot),
   };
   return {
@@ -43,6 +45,9 @@ function fauxDepotComplet() {
     supprimesMessages,
     supprimesParSubId,
     purges,
+    setDernierLocal: (v: number | null) => {
+      dernierLocal = v;
+    },
   };
 }
 
@@ -165,6 +170,41 @@ describe('rattraperSalon', () => {
     });
     await rattraperSalon(client, moteur, 'r1', () => true);
     assert.equal(d.messages.length, 0);
+  });
+
+  test('syncMessages échoue → curseur RÉ-ANCRÉ sur le dernier message local', async () => {
+    // Curseur très en retard (gros backlog) : `chat.syncMessages` n'est pas borné
+    // et timeoute. Sans ré-ancrage, le curseur resterait coincé → boucle sans fin.
+    const d = fauxDepotComplet();
+    d.curseurs.set('r1|messages', 1000);
+    d.setDernierLocal(9000);
+    const moteur = new MoteurSynchro(d.depot);
+    // Un fetch qui rejette → `client.get` lève (comme un timeout réseau).
+    const client = new ClientRest('http://x', {
+      fetch: async () => {
+        throw new Error('timeout');
+      },
+    });
+    // L'échec est RELAYÉ (l'appelant le loggue)…
+    await assert.rejects(() => rattraperSalon(client, moteur, 'r1'));
+    // …mais le curseur a avancé 1000 → 9000 : la prochaine tentative ne visera
+    // plus qu'une petite fenêtre. Plus de re-timeout à l'infini.
+    assert.equal(d.curseurs.get('r1|messages'), 9000);
+  });
+
+  test('syncMessages échoue mais AUCUN message local : curseur inchangé', async () => {
+    const d = fauxDepotComplet();
+    d.curseurs.set('r1|messages', 1000);
+    d.setDernierLocal(null);
+    const moteur = new MoteurSynchro(d.depot);
+    const client = new ClientRest('http://x', {
+      fetch: async () => {
+        throw new Error('timeout');
+      },
+    });
+    await assert.rejects(() => rattraperSalon(client, moteur, 'r1'));
+    // Rien à quoi se raccrocher : on ne touche pas le curseur (jamais à rebours).
+    assert.equal(d.curseurs.get('r1|messages'), 1000);
   });
 });
 

@@ -28,6 +28,7 @@ import {
   MARQUER_TELEVERSEMENT_ECHEC,
   SUPPRIMER_TELEVERSEMENT,
   LIRE_CURSEUR,
+  DERNIER_MESSAGE_MIS_A_JOUR,
   LISTER_SORTIE_A_ENVOYER,
   MARQUER_SORTIE_ECHEC,
   PURGER_ABONNEMENTS_ABSENTS,
@@ -162,6 +163,15 @@ export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot
         flux,
       ]);
       return ligne?.mis_a_jour_depuis ?? null;
+    },
+    async dernierMessageMisAJour(rid) {
+      // Lecture directe (pas de file), comme `lireCurseur`. `MAX(...)` d'un
+      // salon sans message local rend `NULL` → `null`.
+      const ligne = await brute.getFirstAsync<{ mis_a_jour_le: number | null }>(
+        DERNIER_MESSAGE_MIS_A_JOUR,
+        [rid],
+      );
+      return ligne?.mis_a_jour_le ?? null;
     },
     ecrireCurseur: (portee, flux, v) => enSerie(() => direct.ecrireCurseur(portee, flux, v)),
     transaction(fn) {

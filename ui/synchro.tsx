@@ -201,18 +201,20 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           // backoff du pilote garde sa main).
           await activite.suivre('global', rattraperGlobal(client, moteur, estAbandonne));
           if (salonActif !== null) {
-            // Le rattrapage d'UN salon ne doit JAMAIS faire échouer la connexion.
-            // Sur un gros salon (ex. #general) dont le curseur a pris du retard,
-            // `chat.syncMessages` doit renvoyer un backlog énorme et REJETTE au
-            // niveau réseau (« serveur injoignable »). Non isolé, cet échec faisait
-            // rejeter tout `connecter` → le pilote relançait la reconnexion
-            // COMPLÈTE en boucle (re-`rattraperGlobal`, `generation++`, tempête de
-            // re-rendus) → CPU saturé, comète bloquée « à l'infini ». Et comme le
-            // curseur ne s'avance qu'APRÈS l'ingestion, il restait coincé → la
-            // requête re-échouait à chaque tour : boucle sans fin. On isole donc :
-            // le stream DDP (live) et l'historique d'ouverture couvrent le salon,
-            // on loggue et on poursuit la connexion.
-            await activite
+            // Le rattrapage d'UN salon part en TIR-ET-OUBLIE : ni attendu, ni
+            // fatal. `chat.syncMessages` n'est PAS borné (le serveur 8.5 ignore
+            // `count`) : sur un gros salon dont le curseur a pris du retard, il
+            // doit renvoyer tout le backlog et TIMEOUTE à 15 s. Si on l'attendait,
+            // `connecter` resterait bloqué ces 15 s ; la socket meurt pendant ce
+            // temps → le pilote relance → nouveau `rattraperSalon` sur le MÊME
+            // curseur (qui ne s'avance qu'APRÈS ingestion) → re-timeout, à
+            // l'infini : la barre de synchro tourne « sans s'arrêter » (mesuré sur
+            // #general, backlog ~18 h). En ne l'attendant pas, `connecter` finit
+            // tout de suite et la socket ne meurt plus de ce blocage. Le curseur,
+            // lui, est ré-ancré à chaque ouverture par `chargerHistorique` (voir
+            // app/salon/[rid].tsx) pour que la fenêtre reste petite. Le stream DDP
+            // (live) et l'historique d'ouverture couvrent le salon visible.
+            void activite
               .suivre(salonActif, rattraperSalon(client, moteur, salonActif, estAbandonne))
               .catch((e: unknown) => console.warn('rattraperSalon: échec ignoré', e));
           }

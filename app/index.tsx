@@ -1,5 +1,5 @@
 import { desc } from 'drizzle-orm';
-import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
+import { useRequeteVive } from '../ui/requeteVive.ts';
 import { Redirect, Stack, useRouter } from 'expo-router';
 import { ActivityIndicator, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -105,10 +105,10 @@ function Salons({ c, base, client }: { c: Couleurs; base: BaseLocale; client: Cl
   // La requête ordonne déjà par récence décroissante (les `null` en dernier).
   // Les `filter` de regroupement ci-dessous PRÉSERVENT cet ordre : chaque
   // section reste du plus récent au plus ancien sans re-tri explicite.
-  const { data: lignesSalons } = useLiveQuery(
+  const { data: lignesSalons } = useRequeteVive(
     base.select().from(salons).orderBy(desc(salons.horodatageDernierMessage)),
   );
-  const { data: lignesAbonnements } = useLiveQuery(base.select().from(abonnements));
+  const { data: lignesAbonnements } = useRequeteVive(base.select().from(abonnements));
 
   const abonnementParRid = new Map((lignesAbonnements ?? []).map((a) => [a.rid, a]));
   // `ouvert === false` : salon masqué par l'utilisateur. Pas encore

@@ -1,6 +1,6 @@
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { and, desc, eq, isNull, or } from 'drizzle-orm';
-import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
+import { useRequeteVive } from '../../ui/requeteVive.ts';
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { AudioModule, RecordingPresets, useAudioRecorder } from 'expo-audio';
 import * as DocumentPicker from 'expo-document-picker';
@@ -180,7 +180,7 @@ function Salon({
   // vide signifie « chargement », pas « salon vide ».
   const [premierPassageFini, setPremierPassageFini] = useState(false);
 
-  const { data: lignesSalon } = useLiveQuery(
+  const { data: lignesSalon } = useRequeteVive(
     base.select().from(salons).where(eq(salons.rid, rid)).limit(1),
     [rid],
   );
@@ -190,7 +190,7 @@ function Salon({
   // le schéma, mais la présence du correspondant d'un DM, si — sinon, rien.
   const statutDM = usePresence(salon?.dmAutreUid ?? null);
 
-  const { data: brutes } = useLiveQuery(
+  const { data: brutes } = useRequeteVive(
     base
       .select()
       .from(messages)
@@ -214,13 +214,13 @@ function Salon({
   // Statuts d'envoi (en-attente / échec) : table séparée, requête vive
   // séparée — même raison que la liste des salons, `useLiveQuery` n'écoute
   // que la table du FROM.
-  const { data: lignesSortie } = useLiveQuery(
+  const { data: lignesSortie } = useRequeteVive(
     base.select().from(sortie).where(eq(sortie.rid, rid)),
     [rid],
   );
   // Téléversements en échec : sans surface UI, une ligne morte (fichier de
   // cache purgé, refus serveur) serait rejouée à vie, invisiblement.
-  const { data: lignesTeleversements } = useLiveQuery(
+  const { data: lignesTeleversements } = useRequeteVive(
     base.select().from(televersements).where(eq(televersements.rid, rid)),
     [rid],
   );
@@ -376,14 +376,28 @@ function Salon({
       );
       const lot = reponse.messages ?? [];
       const recent = await moteur.ingererMessages(lot);
-      // Le curseur de rattrapage du salon NAÎT ici — et seulement s'il
-      // n'existe pas : une page d'historique est une fenêtre de `ts`,
-      // aveugle aux éditions et suppressions hors page. Avancer un curseur
-      // existant dessus les sauterait à jamais ; seul `rattraperSalon`
-      // (chat.syncMessages, indexé sur `_updatedAt`) a le droit d'avancer.
+      // Le curseur de rattrapage du salon NAÎT ici, et se RÉ-ANCRE à chaque
+      // OUVERTURE (`latest` indéfini) sur le plus récent chargé — jamais à
+      // rebours (garanti par `ecrireCurseur`).
+      //
+      // Pourquoi ré-ancrer, et pas seulement naître : `chat.syncMessages` n'est
+      // PAS borné (le serveur 8.5 IGNORE `count`, vérifié). Un curseur qui a pris
+      // du retard le force à renvoyer tout le backlog — qui TIMEOUT à 15 s sur un
+      // gros salon. Le curseur n'avançant qu'APRÈS ingestion, il reste coincé, et
+      // `connecter` (la socket meurt pendant les 15 s de blocage → relance)
+      // rejoue `rattraperSalon` sur le MÊME curseur : re-timeout, à l'infini — la
+      // barre de synchro tourne « sans s'arrêter » (mesuré sur #general, backlog
+      // ~18 h). Ré-ancrer à l'ouverture garde la fenêtre de `syncMessages`
+      // minuscule.
+      //
+      // Compromis assumé : on saute les éditions/suppressions de messages
+      // ANCIENS survenues dans l'intervalle sauté. L'ouverture a rechargé l'état
+      // COURANT des récents, et la pagination re-télécharge celui des plus vieux
+      // quand on y remonte. On NE ré-ancre PAS depuis une PAGE de pagination
+      // (`latest` défini) : elle charge de l'ANCIEN, aveugle aux récents.
       if (recent !== null) {
         const existant = await moteur.depotSynchro.lireCurseur(rid, 'messages');
-        if (existant === null) {
+        if (existant === null || latest === undefined) {
           await moteur.depotSynchro.ecrireCurseur(rid, 'messages', recent);
         }
       }

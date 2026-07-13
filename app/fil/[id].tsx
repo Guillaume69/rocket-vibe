@@ -1,6 +1,6 @@
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { asc, eq } from 'drizzle-orm';
-import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
+import { useRequeteVive } from '../../ui/requeteVive.ts';
 import * as Haptics from 'expo-haptics';
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -101,13 +101,13 @@ function Fil({
 }) {
   const t = useT();
   // La racine du fil — elle porte le titre et le `rid`.
-  const { data: lignesRacine } = useLiveQuery(
+  const { data: lignesRacine } = useRequeteVive(
     base.select().from(messages).where(eq(messages.id, filId)).limit(1),
     [filId],
   );
   const racine = lignesRacine?.[0];
 
-  const { data: lignesReponses } = useLiveQuery(
+  const { data: lignesReponses } = useRequeteVive(
     base
       .select()
       .from(messages)
@@ -129,7 +129,7 @@ function Fil({
   // Les drapeaux du salon : mêmes interdits que le composer du salon —
   // promettre une réponse dans un salon chiffré ou en lecture seule, c'est
   // promettre un `error-not-allowed`.
-  const { data: lignesSalon } = useLiveQuery(
+  const { data: lignesSalon } = useRequeteVive(
     base
       .select()
       .from(salons)
@@ -138,7 +138,7 @@ function Fil({
     [rid],
   );
   const salon = lignesSalon?.[0];
-  const { data: lignesSortie } = useLiveQuery(
+  const { data: lignesSortie } = useRequeteVive(
     base.select().from(sortie).where(eq(sortie.filId, filId)),
     [filId],
   );

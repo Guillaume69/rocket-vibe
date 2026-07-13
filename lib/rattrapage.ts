@@ -123,9 +123,29 @@ export async function rattraperSalon(
   const depuis = await depot.lireCurseur(rid, 'messages');
   if (depuis === null) return;
 
-  const reponse = await client.get<ReponseSyncMessages>('chat.syncMessages', {
-    params: { roomId: rid, lastUpdate: iso(depuis) },
-  });
+  let reponse: ReponseSyncMessages;
+  try {
+    reponse = await client.get<ReponseSyncMessages>('chat.syncMessages', {
+      params: { roomId: rid, lastUpdate: iso(depuis) },
+    });
+  } catch (e) {
+    // `chat.syncMessages` n'est PAS borné (le serveur 8.5 ignore `count`,
+    // vérifié) : sur un curseur trop en retard, il doit renvoyer tout le backlog
+    // et TIMEOUTE. Le curseur ne s'avançant qu'APRÈS ingestion, il resterait
+    // coincé et la requête re-échouerait à CHAQUE raccordement → boucle sans fin
+    // (barre de synchro « à l'infini » sur un gros salon). On RÉ-ANCRE donc le
+    // curseur sur le message local le plus récent (jamais à rebours) : la
+    // prochaine tentative ne vise plus qu'une petite fenêtre. Ré-ancrer sur ce
+    // qu'on A DÉJÀ ne saute aucun message jamais vu ; seul le compromis assumé
+    // demeure — les éditions/suppressions de messages ANCIENS de l'intervalle,
+    // que l'ouverture et la pagination re-téléchargent à jour. On relaie ensuite
+    // l'échec (l'appelant le loggue).
+    if (!estAbandonne()) {
+      const recentLocal = await depot.dernierMessageMisAJour(rid);
+      if (recentLocal !== null) await depot.ecrireCurseur(rid, 'messages', recentLocal);
+    }
+    throw e;
+  }
   if (estAbandonne()) return;
 
   const recent = await moteur.ingererMessages(reponse.result?.updated ?? []);

@@ -133,6 +133,17 @@ export const LIRE_CURSEUR = `
 SELECT mis_a_jour_depuis FROM etat_synchro WHERE portee = ? AND flux = ?
 `;
 
+/**
+ * Le plus grand `_updatedAt` déjà ingéré pour un salon — sert à RÉ-ANCRER le
+ * curseur de rattrapage quand `chat.syncMessages` échoue sur un backlog trop
+ * gros (le serveur 8.5 ne borne pas la requête, elle timeoute), pour ne pas
+ * re-demander éternellement le même gouffre. `MAX(NULL)` d'une table vide rend
+ * `NULL` → `null` côté appelant.
+ */
+export const DERNIER_MESSAGE_MIS_A_JOUR = `
+SELECT MAX(mis_a_jour_le) AS mis_a_jour_le FROM messages WHERE rid = ?
+`;
+
 // ---------------------------------------------------------------------------
 // Emojis personnalisés. Table de référence, remplacée EN BLOC au rattrapage
 // (`emoji-custom.list` complet) : un `DELETE` puis des `INSERT`, dans une même

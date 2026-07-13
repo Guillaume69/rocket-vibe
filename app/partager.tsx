@@ -13,7 +13,7 @@
  */
 
 import { desc } from 'drizzle-orm';
-import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
+import { useRequeteVive } from '../ui/requeteVive.ts';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, useRouter } from 'expo-router';
 import { type ShareIntent, useShareIntentContext } from 'expo-share-intent';
@@ -189,10 +189,10 @@ function Partager({
 
   // Même source que l'accueil : deux requêtes vives (une par table), fusionnées
   // en JS, ordonnées par récence. On ne garde que les salons visibles.
-  const { data: lignesSalons } = useLiveQuery(
+  const { data: lignesSalons } = useRequeteVive(
     base.select().from(salons).orderBy(desc(salons.horodatageDernierMessage)),
   );
-  const { data: lignesAbonnements } = useLiveQuery(base.select().from(abonnements));
+  const { data: lignesAbonnements } = useRequeteVive(base.select().from(abonnements));
   const aboParRid = new Map((lignesAbonnements ?? []).map((a) => [a.rid, a]));
   const filtreNorm = filtre.trim().toLowerCase();
   const cibles = (lignesSalons ?? [])

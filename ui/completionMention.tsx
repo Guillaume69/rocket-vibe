@@ -16,7 +16,7 @@
  */
 
 import { desc, eq, isNotNull, and } from 'drizzle-orm';
-import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
+import { useRequeteVive } from './requeteVive.ts';
 import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text } from 'react-native';
 
@@ -48,7 +48,7 @@ const FENETRE_MESSAGES = 400;
  * clause SQL.
  */
 export function useCandidatsMention(base: BaseLocale, rid: string): CandidatMention[] {
-  const { data: lignes } = useLiveQuery(
+  const { data: lignes } = useRequeteVive(
     base
       .select({ username: messages.auteurNom, uid: messages.auteurId })
       .from(messages)

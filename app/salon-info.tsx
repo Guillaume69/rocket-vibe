@@ -11,7 +11,7 @@
  */
 
 import { eq } from 'drizzle-orm';
-import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
+import { useRequeteVive } from '../ui/requeteVive.ts';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
@@ -70,7 +70,7 @@ function ContenuSalonInfo({
   c: ReturnType<typeof useCouleurs>;
 }) {
   const t = useT();
-  const { data: lignes } = useLiveQuery(
+  const { data: lignes } = useRequeteVive(
     base.select().from(salons).where(eq(salons.rid, rid)),
     [rid],
   );

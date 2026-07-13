@@ -161,118 +161,131 @@ export default function EcranProfil() {
     [client, profil, moteur, routeur],
   );
 
-  const estMoi = profil !== null && profil.username === moi;
+  // Ce qu'on sait DÈS le tap (avatar + @username, ou uid pour un DM) : on rend
+  // l'en-tête RÉEL à la première frame, à sa hauteur définitive. La sheet
+  // `fitToContents` monte alors une seule fois, pile à la bonne taille — pas de
+  // plancher (donc pas de vide sous les boutons), pas de saut. Seuls les détails
+  // optionnels (rôles, heure locale, bio) se posent ensuite, vers le bas.
+  const usernameConnu = typeof username === 'string' && username !== '' ? username : null;
+  const usernameAff = profil?.username ?? usernameConnu;
+  const nomAff = profil?.nom ?? usernameAff ?? '';
+  const avatarUri =
+    client !== null ? urlAvatar(client, { username: usernameAff, uid: uid ?? profil?.uid }) : null;
+  const estMoi = usernameAff !== null && usernameAff === moi;
+  const erreurAvantProfil = profil === null && erreur !== null;
 
   return (
     <View style={[styles.feuille, { backgroundColor: c.carteProfonde }]}>
       <Stack.Screen options={{ headerShown: false }} />
-      {profil === null && (
-        <View style={styles.centre}>
-          {erreur === null ? (
-            <ActivityIndicator color={c.accent} />
-          ) : (
-            <Text style={[styles.erreur, { color: c.texteErreur }]}>{erreur}</Text>
+
+      <View style={styles.entete}>
+        <TuileAvatar
+          c={c}
+          cle={usernameAff ?? '?'}
+          initiale={(usernameAff ?? '?').charAt(0)}
+          taille={72}
+          rayon={22}
+          uri={avatarUri ?? undefined}
+        />
+        <View style={styles.identite}>
+          {/* `|| ' '` réserve la hauteur de ligne tant que le nom n'est pas là
+              (cas du DM ouvert par uid), pour que rien ne bouge à l'arrivée. */}
+          <Text style={[styles.nom, { color: c.texte }]} numberOfLines={1}>
+            {nomAff || ' '}
+          </Text>
+          {usernameAff !== null && (
+            <Text style={[styles.username, { color: c.attenue }]} numberOfLines={1}>
+              @{usernameAff}
+            </Text>
           )}
+          <View style={styles.presence}>
+            <View
+              style={[
+                styles.pastille,
+                { backgroundColor: profil !== null ? PRESENCE[profil.statut].teinte : c.attenue },
+              ]}
+            />
+            <Text style={[styles.phrasePresence, { color: c.attenue }]}>
+              {profil !== null ? PRESENCE[profil.statut].phrase : '…'}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {profil !== null && profil.roles.length > 0 && (
+        <View style={styles.roles}>
+          {profil.roles.map((role) => (
+            <View key={role} style={[styles.role, { backgroundColor: c.carte }]}>
+              <Text style={[styles.roleTexte, { color: c.attenue }]}>{role}</Text>
+            </View>
+          ))}
         </View>
       )}
-      {profil !== null && client !== null && (
-        <>
-          <View style={styles.entete}>
-            <TuileAvatar
-              c={c}
-              cle={profil.username}
-              initiale={profil.username.charAt(0)}
-              taille={72}
-              rayon={22}
-              uri={urlAvatar(client, { username: profil.username, uid: profil.uid })}
-            />
-            <View style={styles.identite}>
-              <Text style={[styles.nom, { color: c.texte }]} numberOfLines={1}>
-                {profil.nom ?? profil.username}
-              </Text>
-              <Text style={[styles.username, { color: c.attenue }]} numberOfLines={1}>
-                @{profil.username}
-              </Text>
-              <View style={styles.presence}>
-                <View style={[styles.pastille, { backgroundColor: PRESENCE[profil.statut].teinte }]} />
-                <Text style={[styles.phrasePresence, { color: c.attenue }]}>
-                  {PRESENCE[profil.statut].phrase}
-                </Text>
-              </View>
-            </View>
-          </View>
 
-          {profil.roles.length > 0 && (
-            <View style={styles.roles}>
-              {profil.roles.map((role) => (
-                <View key={role} style={[styles.role, { backgroundColor: c.carte }]}>
-                  <Text style={[styles.roleTexte, { color: c.attenue }]}>{role}</Text>
-                </View>
-              ))}
-            </View>
-          )}
+      {profil !== null && profil.utcOffset !== null && (
+        <Text style={[styles.detail, { color: c.attenue }]}>
+          Heure locale : {heureLocale(profil.utcOffset)}
+        </Text>
+      )}
+      {profil !== null && profil.bio !== null && (
+        <Text style={[styles.detail, { color: c.texte }]} numberOfLines={4}>
+          {profil.bio}
+        </Text>
+      )}
 
-          {profil.utcOffset !== null && (
-            <Text style={[styles.detail, { color: c.attenue }]}>
-              Heure locale : {heureLocale(profil.utcOffset)}
-            </Text>
-          )}
-          {profil.bio !== null && (
-            <Text style={[styles.detail, { color: c.texte }]} numberOfLines={4}>
-              {profil.bio}
-            </Text>
-          )}
+      {erreur !== null && (
+        <Text style={[styles.erreur, { color: c.texteErreur }]}>{erreur}</Text>
+      )}
 
-          {erreur !== null && (
-            <Text style={[styles.erreur, { color: c.texteErreur }]}>{erreur}</Text>
+      {/* Actions présentes dès le squelette (Message désactivé le temps du
+          chargement) : leur hauteur ne change pas à l'arrivée des données.
+          Masquées si c'est moi, ou si le chargement a échoué avant tout profil. */}
+      {!estMoi && !erreurAvantProfil && (
+        <View style={styles.actions}>
+          <Pressable
+            onPress={() => void ouvrirDm(false)}
+            disabled={occupe || profil === null}
+            android_ripple={{ color: c.ondulation }}
+            unstable_pressDelay={DELAI_PRESSION_LISTE}
+            style={[
+              styles.bouton,
+              { backgroundColor: c.accent },
+              (occupe || profil === null) && styles.inactif,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={`Envoyer un message à ${usernameAff ?? ''}`}
+          >
+            {occupe ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text style={styles.boutonTexte}>💬 Message</Text>
+            )}
+          </Pressable>
+          {appelDispo && (
+            <Pressable
+              onPress={() => void ouvrirDm(true)}
+              disabled={occupe || profil === null}
+              android_ripple={{ color: c.ondulation }}
+              unstable_pressDelay={DELAI_PRESSION_LISTE}
+              style={[
+                styles.bouton,
+                { backgroundColor: c.carte },
+                (occupe || profil === null) && styles.inactif,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={`Appeler ${usernameAff ?? ''}`}
+            >
+              <Text style={[styles.boutonTexte, { color: c.texte }]}>📞 Appeler</Text>
+            </Pressable>
           )}
-
-          {!estMoi && (
-            <View style={styles.actions}>
-              <Pressable
-                onPress={() => void ouvrirDm(false)}
-                disabled={occupe}
-                android_ripple={{ color: c.ondulation }}
-                unstable_pressDelay={DELAI_PRESSION_LISTE}
-                style={[styles.bouton, { backgroundColor: c.accent }, occupe && styles.inactif]}
-                accessibilityRole="button"
-                accessibilityLabel={`Envoyer un message à ${profil.username}`}
-              >
-                {occupe ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.boutonTexte}>💬 Message</Text>
-                )}
-              </Pressable>
-              {appelDispo && (
-                <Pressable
-                  onPress={() => void ouvrirDm(true)}
-                  disabled={occupe}
-                  android_ripple={{ color: c.ondulation }}
-                  unstable_pressDelay={DELAI_PRESSION_LISTE}
-                  style={[styles.bouton, { backgroundColor: c.carte }, occupe && styles.inactif]}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Appeler ${profil.username}`}
-                >
-                  <Text style={[styles.boutonTexte, { color: c.texte }]}>📞 Appeler</Text>
-                </Pressable>
-              )}
-            </View>
-          )}
-        </>
+        </View>
       )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  // `minHeight` : la sheet `fitToContents` se mesure au PREMIER rendu, quand le
-  // contenu n'est encore qu'un spinner (users.info n'est pas revenu). Sans
-  // plancher, elle monte à la hauteur du spinner puis SAUTE brutalement à sa
-  // hauteur pleine à l'arrivée des données. Le plancher (aligné sur salon-info)
-  // fait monter la sheet une seule fois, à une hauteur stable — comme joindre.
-  feuille: { padding: 20, paddingBottom: 28, gap: 14, minHeight: 300 },
-  centre: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  feuille: { padding: 20, paddingBottom: 28, gap: 14 },
   entete: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   identite: { flex: 1, gap: 2 },
   nom: { fontFamily: POLICES.titre, fontSize: 20 },

@@ -68,12 +68,16 @@ export const LigneMessage = memo(function LigneMessage({
   const teinteAuteur = degradeAvatar(auteur, c.avatarsDegrades)[0];
   // Fiche de l'auteur au tap sur l'avatar ou le pseudo. Pas de fiche pour un
   // auteur sans username (message chiffré indéchiffrable : `auteurNom` null).
+  // On ouvre par l'UID (`auteurId`), pas par le pseudo affiché : le pseudo est
+  // un instantané figé à l'ingestion et devient PÉRIMÉ si la personne se renomme
+  // (`users.info?username=ancien` → « user not found »). L'uid, lui, est
+  // immuable — la fiche résout donc toujours le profil courant.
   // `ouvrirFicheProfil` précharge la fiche AVANT d'ouvrir la sheet (hauteur
   // finale dès la première frame, pas de saut) — voir lib/profilPreload.
   const ouvrirProfil =
     message.auteurNom === null
       ? undefined
-      : () => void ouvrirFicheProfil({ username: auteur });
+      : () => void ouvrirFicheProfil({ uid: message.auteurId });
 
   return (
     <Pressable

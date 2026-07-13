@@ -41,6 +41,13 @@ type ContexteSession = {
    * l'état retombe sur « deconnecte » et l'écran de connexion se pré-remplit.
    */
   changerDeServeur: (baseUrl: string) => Promise<boolean>;
+  /**
+   * Met à jour les infos de profil PORTÉES par la session (le pseudo) après une
+   * édition réussie, et re-persiste. Le pseudo de la session alimente Paramètres
+   * (`@username`) et l'avatar de « Mon profil » : sans ce rafraîchissement, ils
+   * garderaient l'ancien pseudo jusqu'à une déconnexion/reconnexion.
+   */
+  majProfilSession: (maj: { username?: string }) => Promise<void>;
 };
 
 const Contexte = createContext<ContexteSession | null>(null);
@@ -84,7 +91,24 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       // Tout autre échec (réseau coupé, serveur en maintenance) laisse la
       // session en place — la resynchronisation s'en chargera.
       try {
-        await reprendreSession(client, session.authToken);
+        // La reprise renvoie le profil COURANT du serveur. Si le pseudo a changé
+        // (renommage depuis un autre appareil, ou pendant que l'app était
+        // fermée), on l'adopte — sinon l'ancienne valeur stockée resterait
+        // affichée dans Paramètres jusqu'à une reconnexion. Le jeton et l'uid ne
+        // bougent pas, donc le `client` reste valable tel quel.
+        const frais = await reprendreSession(client, session.authToken);
+        if (
+          !abandonne &&
+          jetonCourant.current === session.authToken &&
+          frais.username !== '' &&
+          frais.username !== session.username
+        ) {
+          const maj = { ...session, username: frais.username };
+          await enregistrerSession(maj);
+          if (!abandonne && jetonCourant.current === session.authToken) {
+            setEtat({ phase: 'connecte', session: maj, client });
+          }
+        }
       } catch (e) {
         const perime = jetonCourant.current !== session.authToken;
         if (abandonne || perime || !(e instanceof ErreurRest) || e.statut !== 401) return;
@@ -163,9 +187,21 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     }
   }, [etat]);
 
+  const majProfilSession = useCallback(
+    async (maj: { username?: string }) => {
+      if (etat.phase !== 'connecte') return;
+      const session = { ...etat.session, ...maj };
+      // Persister AVANT de basculer l'UI, comme `connecter` : le client garde
+      // ses identifiants (jeton + uid inchangés), seul le pseudo affiché change.
+      await enregistrerSession(session);
+      setEtat({ phase: 'connecte', session, client: etat.client });
+    },
+    [etat],
+  );
+
   const valeur = useMemo(
-    () => ({ etat, connecter, deconnecter, changerDeServeur }),
-    [etat, connecter, deconnecter, changerDeServeur],
+    () => ({ etat, connecter, deconnecter, changerDeServeur, majProfilSession }),
+    [etat, connecter, deconnecter, changerDeServeur, majProfilSession],
   );
 
   return <Contexte.Provider value={valeur}>{children}</Contexte.Provider>;

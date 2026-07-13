@@ -70,6 +70,7 @@ function FormMonProfil({
   username: string;
 }) {
   const routeur = useRouter();
+  const { majProfilSession } = useSession();
   // `initial` = référence lue au chargement ; `form` = valeurs en cours d'édition.
   // Le diff des deux décide quels endpoints appeler. Après un enregistrement
   // réussi, `form` DEVIENT la nouvelle référence (le diff repart à zéro).
@@ -161,6 +162,11 @@ function FormMonProfil({
           await definirAvatar({ client, transport: transportAvatarExpo, fichier: avatarLocal });
         }
 
+        // Le pseudo est porté par la session (Paramètres, avatar de cet écran) :
+        // le rafraîchir tout de suite, sinon il resterait à l'ancienne valeur
+        // jusqu'à une reconnexion.
+        if (infos.username !== undefined) await majProfilSession({ username: infos.username });
+
         setInitial(form);
         setAvatarLocal(null);
         setDemande2FA(null);
@@ -185,7 +191,7 @@ function FormMonProfil({
         setOccupe(false);
       }
     },
-    [form, initial, avatarLocal, motDePasse, client],
+    [form, initial, avatarLocal, motDePasse, client, majProfilSession],
   );
 
   const validerCode = useCallback(async () => {

@@ -66,15 +66,34 @@ export function GestionNotifications() {
   const synchro = useSynchro();
 
   // Tap sur une notification : en marche, et au démarrage à froid.
+  //
+  // Ce chemin ne dessert QUE les notifications postées par expo (pushes de
+  // repli sans bloc `notification`, ou sans `rid` groupable). Les notifications
+  // de message natives (`plugins/with-fcm-deeplink.js`) ouvrent le salon par
+  // leur propre deep-link `rocketvibe://salon/<rid>`, routé par expo-router,
+  // sans jamais passer par ici.
   useEffect(() => {
+    // Une même réponse peut arriver par LES DEUX voies (le listener ET
+    // `getLastNotificationResponse` au démarrage) : on ne route qu'une fois.
+    let dejaRoute: string | null = null;
     const ouvrir = (reponse: Notifications.NotificationResponse) => {
+      const id = reponse.notification.request.identifier;
+      if (id === dejaRoute) return;
+      dejaRoute = id;
       const rid = ridDeNotification(reponse.notification.request.content);
       if (rid !== null) routeur.push({ pathname: '/salon/[rid]', params: { rid } });
     };
     const abo = Notifications.addNotificationResponseReceivedListener(ouvrir);
     Notifications.getLastNotificationResponseAsync()
       .then((derniere) => {
-        if (derniere !== null) ouvrir(derniere);
+        if (derniere === null) return;
+        ouvrir(derniere);
+        // IMPÉRATIF (doc expo-notifications) : une fois la route choisie,
+        // EFFACER la réponse. Sinon elle persiste et, rejouée à un montage
+        // ultérieur — ou par la file `pendingNotificationResponses` de
+        // NotificationManager, jamais purgée côté natif — renaviguerait vers un
+        // salon PÉRIMÉ : un « mauvais salon » au lancement suivant.
+        Notifications.clearLastNotificationResponseAsync().catch(() => {});
       })
       .catch(() => {});
     return () => abo.remove();

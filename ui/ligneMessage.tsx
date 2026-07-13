@@ -201,18 +201,23 @@ function ContenuMessage({ c, message }: { c: Couleurs; message: LigneDeMessage }
   // Clés = les CHAÎNES, stables à travers le barattage d'objets de
   // `useLiveQuery` (qui défait le memo de LigneMessage) : sans cela, chaque
   // écriture en base re-parserait le markdown de toutes les lignes visibles.
+  // Un message chiffré DÉCHIFFRÉ (déverrouillé) porte encore `t: 'e2e'` mais a
+  // un `texte` : il se rend alors comme un message ordinaire (son `md` est null,
+  // `arbreDuMessage` parse le texte clair). Verrouillé, `texte` est null.
+  const chiffreDechiffre = message.typeSysteme === 'e2e' && message.texte !== null;
+  const estOrdinaire = message.typeSysteme === null || chiffreDechiffre;
   const arbre = useMemo(
-    () => (message.typeSysteme === null ? arbreDuMessage(message.md, message.texte) : null),
-    [message.typeSysteme, message.md, message.texte],
+    () => (estOrdinaire ? arbreDuMessage(message.md, message.texte) : null),
+    [estOrdinaire, message.md, message.texte],
   );
 
-  if (message.typeSysteme === 'e2e') {
+  if (message.typeSysteme === 'e2e' && message.texte === null) {
     return <Substitut c={c} texte={t('ligneMessage.chiffre')} />;
   }
   if (message.typeSysteme === 'videoconf') {
     return <CarteAppel c={c} callId={message.appelId} />;
   }
-  if (message.typeSysteme !== null) {
+  if (message.typeSysteme !== null && !chiffreDechiffre) {
     // La phrase suit le nom de l'auteur affiché juste au-dessus : « bob a
     // rejoint le salon ». `texte` porte le PARAMÈTRE de l'action, pas une
     // phrase — voir lib/messagesSysteme.ts.

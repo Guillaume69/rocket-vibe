@@ -92,6 +92,19 @@ export default function RootLayout() {
                         contentStyle: { backgroundColor: couleursSombres.carteProfonde },
                       }}
                     />
+                    {/* Déverrouillage E2EE : mot de passe de chiffrement. */}
+                    <Stack.Screen
+                      name="deverrouiller-e2e"
+                      options={{
+                        presentation: 'formSheet',
+                        headerShown: false,
+                        sheetAllowedDetents: 'fitToContents',
+                        sheetGrabberVisible: true,
+                        sheetCornerRadius: 24,
+                        sheetElevation: 24,
+                        contentStyle: { backgroundColor: couleursSombres.carteProfonde },
+                      }}
+                    />
                     {/* Fiche d'un salon (tap sur le nom dans l'en-tête). */}
                     <Stack.Screen
                       name="salon-info"

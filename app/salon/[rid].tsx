@@ -58,6 +58,7 @@ import { useT } from '../../ui/i18n.ts';
 import type { CleTraduction } from '../../ui/messages.ts';
 import { useSession } from '../../ui/session.tsx';
 import { useSynchro } from '../../ui/synchro.tsx';
+import { useE2EDeverrouille } from '../../ui/e2e.ts';
 import { type Couleurs, POLICES, useCouleurs } from '../../ui/theme.ts';
 
 /**
@@ -882,16 +883,11 @@ function Composer({
     }
   }, [routeur, depuisCamera, depuisBibliotheque, depuisFichier, t]);
 
-  // Dégradation E2EE (ROADMAP §6.6) : on n'implémente pas le chiffrement, et
-  // le serveur cible REJETTE un message en clair dans un salon chiffré
-  // (`error-not-allowed`, E2E_Allow_Unencrypted_Messages = false). Proposer
-  // le champ serait promettre un envoi qui échouera toujours.
+  // Salon chiffré : lecture désormais possible (E2EE, étape 10), mais PAS
+  // l'envoi (le serveur rejette un clair, `error-not-allowed`). Verrouillé, on
+  // propose de déverrouiller ; déverrouillé, on explique la lecture seule.
   if (chiffre) {
-    return (
-      <View style={[styles.composer, { borderTopColor: c.bordureDouce }]}>
-        <Text style={[styles.noteComposer, { color: c.attenue }]}>{t('salon.chiffre')}</Text>
-      </View>
-    );
+    return <ComposerChiffre c={c} />;
   }
   if (lectureSeule) {
     return (
@@ -1016,6 +1012,40 @@ function Composer({
         />
       )}
     </View>
+  );
+}
+
+/**
+ * Zone composer d'un salon chiffré. Verrouillé : un bouton qui ouvre la feuille
+ * de déverrouillage (les messages s'éclairent ensuite tout seuls). Déverrouillé :
+ * une note de lecture seule — l'envoi chiffré n'est pas encore pris en charge.
+ */
+function ComposerChiffre({ c }: { c: Couleurs }) {
+  const t = useT();
+  const routeur = useRouter();
+  const synchro = useSynchro();
+  // Composer monté seulement en phase 'pret' (garde de l'écran) ; le hook
+  // tolère null pour rester inconditionnel.
+  const e2e = synchro.phase === 'pret' ? synchro.e2e : null;
+  const deverrouille = useE2EDeverrouille(e2e);
+
+  if (deverrouille) {
+    return (
+      <View style={[styles.composer, { borderTopColor: c.bordureDouce }]}>
+        <Text style={[styles.noteComposer, { color: c.attenue }]}>{t('salon.chiffreLecture')}</Text>
+      </View>
+    );
+  }
+  return (
+    <Pressable
+      onPress={() => routeur.push('/deverrouiller-e2e')}
+      android_ripple={{ color: c.ondulation }}
+      style={[styles.composer, { borderTopColor: c.bordureDouce }]}
+      accessibilityRole="button"
+      accessibilityLabel={t('salon.chiffreVerrouille')}
+    >
+      <Text style={[styles.noteComposer, { color: c.accent }]}>{t('salon.chiffreVerrouille')}</Text>
+    </Pressable>
   );
 }
 

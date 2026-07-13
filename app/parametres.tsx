@@ -15,6 +15,8 @@ import {
   type Traducteur,
 } from '../ui/messages.ts';
 import { useSession } from '../ui/session.tsx';
+import { useSynchro } from '../ui/synchro.tsx';
+import { useE2EDeverrouille } from '../ui/e2e.ts';
 import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
 
 /**
@@ -174,6 +176,8 @@ function Parametres({
         <Text style={[styles.reglageAide, { color: c.attenue }]}>{t('parametres.langueAide')}</Text>
         <SelecteurLangue c={c} t={t} />
       </View>
+
+      <SectionE2E c={c} t={t} />
 
       <Text style={[styles.sectionTitre, { color: c.attenue }]}>{t('parametres.sectionCompte')}</Text>
       <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
@@ -346,6 +350,62 @@ function SectionJetonFcm({ c, t }: { c: Couleurs; t: Traducteur }) {
       )}
       {erreur !== null && <Text style={[styles.aide, { color: c.texteErreur }]}>{erreur}</Text>}
     </View>
+  );
+}
+
+/**
+ * Section chiffrement : état verrouillé/déverrouillé de l'appareil. Verrouillé,
+ * un lien ouvre la feuille de déverrouillage ; déverrouillé, un bouton oublie
+ * la clé (re-masque le clair local).
+ */
+function SectionE2E({ c, t }: { c: Couleurs; t: Traducteur }) {
+  const routeur = useRouter();
+  const synchro = useSynchro();
+  const e2e = synchro.phase === 'pret' ? synchro.e2e : null;
+  const deverrouille = useE2EDeverrouille(e2e);
+  const [occupe, setOccupe] = useState(false);
+
+  const verrouiller = (): void => {
+    if (synchro.phase !== 'pret' || occupe) return;
+    setOccupe(true);
+    void synchro.verrouillerE2E().finally(() => setOccupe(false));
+  };
+
+  return (
+    <>
+      <Text style={[styles.sectionTitre, { color: c.attenue }]}>{t('parametres.e2eTitre')}</Text>
+      <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
+        <Text style={[styles.reglageAide, { color: c.attenue }]}>
+          {t(deverrouille ? 'parametres.e2eDeverrouille' : 'parametres.e2eVerrouille')}
+        </Text>
+        {deverrouille ? (
+          <Pressable
+            onPress={verrouiller}
+            disabled={occupe}
+            android_ripple={{ color: c.ondulation }}
+            unstable_pressDelay={DELAI_PRESSION_LISTE}
+            accessibilityRole="button"
+            style={({ pressed }) => ({ opacity: pressed || occupe ? 0.6 : 1, paddingVertical: 6 })}
+          >
+            <Text style={[styles.profilLien, { color: c.texteErreur }]}>
+              {t('parametres.e2eVerrouiller')}
+            </Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={() => routeur.push('/deverrouiller-e2e')}
+            android_ripple={{ color: c.ondulation }}
+            unstable_pressDelay={DELAI_PRESSION_LISTE}
+            accessibilityRole="button"
+            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, paddingVertical: 6 })}
+          >
+            <Text style={[styles.profilLien, { color: c.cyan }]}>
+              {t('parametres.e2eDeverrouiller')}
+            </Text>
+          </Pressable>
+        )}
+      </View>
+    </>
   );
 }
 

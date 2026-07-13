@@ -59,6 +59,11 @@ export default function EcranDeverrouillerE2E() {
         autoFocus
         autoCapitalize="none"
         autoCorrect={false}
+        // Engage le cadre d'autofill (Bitwarden, etc.) : sans hint, un champ
+        // `secureTextEntry` seul ne propose pas de remplissage sur Android.
+        autoComplete="password"
+        textContentType="password"
+        importantForAutofill="yes"
         value={motDePasse}
         onChangeText={(v) => {
           setMotDePasse(v);

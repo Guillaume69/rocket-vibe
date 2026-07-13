@@ -136,6 +136,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       // SERVEUR (comme la session) — d'où l'adaptateur lié à `baseUrl`.
       const e2e = new MoteurE2E({
         client,
+        uid: session.userId, // sel PBKDF2 des clés privées héritées (v1)
         stockage: {
           lire: () => lireClePriveeE2E(session.baseUrl),
           enregistrer: (jwk) => enregistrerClePriveeE2E(session.baseUrl, jwk),

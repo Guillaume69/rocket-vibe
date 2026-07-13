@@ -56,8 +56,18 @@ export class ErreurE2E extends Error {
 }
 
 const TAILLE_TAG_GCM = 16;
-/** Le keyID d'une clé de salon est un UUID : 36 caractères en tête de `E2EKey`. */
-export const LONGUEUR_KEYID = 36;
+/** Taille d'un IV AES-CBC/GCM… non : CBC = 16, GCM = 12. Ici l'IV CBC de la v1. */
+const TAILLE_IV_CBC = 16;
+/**
+ * Un `E2EKey` = keyID + base64(clé de salon chiffrée RSA-OAEP). La sortie
+ * RSA-2048 fait 256 octets = 344 caractères base64. Le keyID est donc le
+ * PRÉFIXE restant : 36 (UUID, schéma v2) ou 12 (schéma v1). On le CALCULE au
+ * lieu de le coder en dur — un compte peut mêler les deux selon l'ancienneté.
+ */
+const LONGUEUR_RSA_B64 = 344;
+function longueurKeyId(e2eKey: string): number {
+  return Math.max(0, e2eKey.length - LONGUEUR_RSA_B64);
+}
 
 function base64VersOctets(b64: string): string {
   return forge.util.decode64(b64);
@@ -90,24 +100,65 @@ function dechiffrerGcm(cleOctets: string, ivOctets: string, ctAvecTag: string): 
 }
 
 /**
- * Enveloppe → JWK JSON (chaîne) de la clé privée RSA. Lève `ErreurE2E` si le
- * mot de passe ne déchiffre pas (échec d'authentification GCM).
+ * `private_key` (tel que renvoyé par `e2e.fetchMyKeys`) → JWK JSON de la clé
+ * privée RSA. Détecte le schéma :
+ *   - **v2** : enveloppe JSON `{iv, ciphertext, salt, iterations}`, PBKDF2 →
+ *     AES-GCM, salt dans l'enveloppe.
+ *   - **v1** (héritage) : `{"$binary":"<b64>"}` (ou base64 nu), dont les octets
+ *     sont `IV(16) || AES-CBC`. PBKDF2(mot de passe, salt = **userId**, **1000**
+ *     itérations, SHA-256) → AES-CBC. Le `uid` sert de sel — d'où le paramètre.
+ * Lève `ErreurE2E` si le mot de passe ne déchiffre pas.
  */
-export function dechiffrerClePrivee(enveloppe: EnveloppeClePrivee, motDePasse: string): string {
-  const cleMaitre = forge.pkcs5.pbkdf2(
-    forge.util.encodeUtf8(motDePasse),
-    enveloppe.salt,
-    enveloppe.iterations,
-    32,
-    forge.md.sha256.create(),
-  );
-  const clair = dechiffrerGcm(
-    cleMaitre,
-    base64VersOctets(enveloppe.iv),
-    base64VersOctets(enveloppe.ciphertext),
-  );
-  if (clair === null) throw new ErreurE2E('mot de passe E2E invalide');
-  return forge.util.decodeUtf8(clair);
+export function dechiffrerClePrivee(privateKey: string, motDePasse: string, uid: string): string {
+  const brut = privateKey.trim();
+  if (brut.startsWith('{')) {
+    let obj: Record<string, unknown> | null = null;
+    try {
+      obj = JSON.parse(brut) as Record<string, unknown>;
+    } catch {
+      obj = null;
+    }
+    // v2 : enveloppe complète.
+    if (obj !== null && typeof obj.iterations === 'number' && typeof obj.salt === 'string') {
+      const env = obj as unknown as EnveloppeClePrivee;
+      const cleMaitre = forge.pkcs5.pbkdf2(
+        forge.util.encodeUtf8(motDePasse),
+        env.salt,
+        env.iterations,
+        32,
+        forge.md.sha256.create(),
+      );
+      const clair = dechiffrerGcm(
+        cleMaitre,
+        base64VersOctets(env.iv),
+        base64VersOctets(env.ciphertext),
+      );
+      if (clair === null) throw new ErreurE2E('mot de passe E2E invalide');
+      return forge.util.decodeUtf8(clair);
+    }
+    // v1 emballé en binaire EJSON.
+    if (obj !== null && typeof obj.$binary === 'string') {
+      return dechiffrerClePriveeV1(base64VersOctets(obj.$binary), motDePasse, uid);
+    }
+  }
+  // v1 en base64 nu.
+  return dechiffrerClePriveeV1(base64VersOctets(brut), motDePasse, uid);
+}
+
+/**
+ * Clé privée v1 : octets = `IV(16) || AES-CBC(JWK)`, clé maître dérivée du
+ * userId (sel) et de 1000 itérations PBKDF2-SHA256. Un mauvais mot de passe
+ * casse le remplissage PKCS#7 → `ErreurE2E`.
+ */
+function dechiffrerClePriveeV1(octets: string, motDePasse: string, uid: string): string {
+  const iv = octets.substring(0, TAILLE_IV_CBC);
+  const chiffre = octets.substring(TAILLE_IV_CBC);
+  const cleMaitre = forge.pkcs5.pbkdf2(forge.util.encodeUtf8(motDePasse), uid, 1000, 32, forge.md.sha256.create());
+  const dechiffreur = forge.cipher.createDecipher('AES-CBC', cleMaitre);
+  dechiffreur.start({ iv });
+  dechiffreur.update(forge.util.createBuffer(chiffre));
+  if (!dechiffreur.finish()) throw new ErreurE2E('mot de passe E2E invalide');
+  return forge.util.decodeUtf8(dechiffreur.output.getBytes());
 }
 
 /** JWK JSON → objet clé privée RSA forge (reconstruit depuis n,e,d,p,q,dp,dq,qi). */
@@ -125,17 +176,18 @@ export function importerClePriveeRSA(jwkJson: string): ClePriveeRSA {
   );
 }
 
-/** Le keyID (UUID) en tête d'un `E2EKey` — sert à apparier la clé au `content.kid`. */
+/** Le keyID en tête d'un `E2EKey` (UUID v2 ou préfixe v1) — apparie au `content.kid`. */
 export function keyIdDeE2EKey(e2eKey: string): string {
-  return e2eKey.substring(0, LONGUEUR_KEYID);
+  return e2eKey.substring(0, longueurKeyId(e2eKey));
 }
 
 /**
  * `E2EKey` d'abonnement → clé AES de salon (octets bruts). Retire le keyID (36
- * car.), RSA-OAEP/SHA-256 avec la clé privée → JWK AES, dont on rend le `k` brut.
+ * car. en v2, 12 en v1 — calculé), RSA-OAEP/SHA-256 avec la clé privée → JWK
+ * AES, dont on rend le `k` brut.
  */
 export function dechiffrerCleSalon(e2eKey: string, clePrivee: ClePriveeRSA): string {
-  const chiffre = base64VersOctets(e2eKey.substring(LONGUEUR_KEYID));
+  const chiffre = base64VersOctets(e2eKey.substring(longueurKeyId(e2eKey)));
   let jwkJson: string;
   try {
     jwkJson = clePrivee.decrypt(chiffre, 'RSA-OAEP', { md: forge.md.sha256.create() });

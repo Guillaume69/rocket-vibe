@@ -100,11 +100,87 @@ async function fabriquer(): Promise<{
   return { enveloppe, e2eKey, contenu, keyId };
 }
 
+/**
+ * Jeu au format HÉRITÉ v1 (compte ancien, mesuré sur chat.barrut.me) :
+ *   - clé privée `{"$binary": base64(IV(16) || AES-CBC)}`, sel = userId, 1000 iters ;
+ *   - clé de salon avec keyID de 12 caractères (`E2EKey` de 356) ;
+ *   - message, lui, en v2 (`content` GCM) — un salon v1 dont les nouveaux
+ *     messages sont chiffrés par le client récent.
+ */
+async function fabriquerV1(): Promise<{
+  privateKey: string;
+  uid: string;
+  e2eKey: string;
+  contenu: ContenuChiffre;
+}> {
+  const uid = 'osR3JzQEiM2H77m46';
+  const paire = await subtle.generateKey(
+    { name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    true,
+    ['encrypt', 'decrypt'],
+  );
+  const jwkPrivee = JSON.stringify(await subtle.exportKey('jwk', paire.privateKey));
+
+  // clé maître v1 : PBKDF2(mot de passe, sel = uid, 1000, SHA-256) → AES-CBC.
+  const base = await subtle.importKey('raw', bytes(MOT_DE_PASSE), 'PBKDF2', false, ['deriveKey']);
+  const master = await subtle.deriveKey(
+    { name: 'PBKDF2', salt: bytes(uid), iterations: 1000, hash: 'SHA-256' },
+    base,
+    { name: 'AES-CBC', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  );
+  const iv = rand(16);
+  const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-CBC', iv }, master, bytes(jwkPrivee)));
+  const inner = new Uint8Array(iv.length + ct.length);
+  inner.set(iv);
+  inner.set(ct, iv.length);
+  const privateKey = JSON.stringify({ $binary: b64(inner) }); // emballage EJSON comme en prod
+
+  // clé de salon v1 : keyID de 12 caractères + base64(RSA(sessionJWK)) → E2EKey de 356.
+  const cleSalon = await subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+  const jwkSalon = JSON.stringify(await subtle.exportKey('jwk', cleSalon));
+  const rk = new Uint8Array(await subtle.encrypt({ name: 'RSA-OAEP' }, paire.publicKey, bytes(jwkSalon)));
+  const keyId = 'af587341640c'; // 12 caractères, comme le relevé prod
+  const e2eKey = keyId + b64(rk);
+
+  // message v2 (content GCM) avec la clé de salon.
+  const ivM = rand(12);
+  const ctM = new Uint8Array(
+    await subtle.encrypt({ name: 'AES-GCM', iv: ivM }, cleSalon, bytes(JSON.stringify({ msg: MESSAGE }))),
+  );
+  const contenu: ContenuChiffre = { algorithm: 'rc.v2.aes-sha2', kid: keyId, iv: b64(ivM), ciphertext: b64(ctM) };
+
+  return { privateKey, uid, e2eKey, contenu };
+}
+
+describe('crypto e2e — format hérité v1', () => {
+  test('clé privée $binary/CBC + clé de salon keyID 12 + message v2 → clair', async () => {
+    const { privateKey, uid, e2eKey, contenu } = await fabriquerV1();
+
+    const jwk = dechiffrerClePrivee(privateKey, MOT_DE_PASSE, uid);
+    assert.match(jwk, /"kty"\s*:\s*"RSA"/);
+
+    const priv = importerClePriveeRSA(jwk);
+    assert.equal(e2eKey.length, 356); // même longueur que le relevé prod
+    assert.equal(keyIdDeE2EKey(e2eKey), 'af587341640c'); // keyID de 12 calculé, pas 36
+
+    const cle = dechiffrerCleSalon(e2eKey, priv);
+    assert.equal(cle.length, 32);
+    assert.equal(dechiffrerMessage(contenu, cle), MESSAGE);
+  });
+
+  test('mauvais mot de passe sur une clé v1 → ErreurE2E', async () => {
+    const { privateKey, uid } = await fabriquerV1();
+    assert.throws(() => dechiffrerClePrivee(privateKey, 'mauvais', uid), ErreurE2E);
+  });
+});
+
 describe('crypto e2e — chaîne complète', () => {
   test('WebCrypto chiffre, forge déchiffre → message clair', async () => {
     const { enveloppe, e2eKey, contenu } = await fabriquer();
 
-    const jwkPrivee = dechiffrerClePrivee(enveloppe, MOT_DE_PASSE);
+    const jwkPrivee = dechiffrerClePrivee(JSON.stringify(enveloppe), MOT_DE_PASSE, 'uid-ignore');
     assert.match(jwkPrivee, /"kty"\s*:\s*"RSA"/);
 
     const clePrivee = importerClePriveeRSA(jwkPrivee);
@@ -123,12 +199,12 @@ describe('crypto e2e — chaîne complète', () => {
 
   test('mauvais mot de passe → ErreurE2E, pas un crash', async () => {
     const { enveloppe } = await fabriquer();
-    assert.throws(() => dechiffrerClePrivee(enveloppe, 'mauvais mot de passe'), ErreurE2E);
+    assert.throws(() => dechiffrerClePrivee(JSON.stringify(enveloppe), 'mauvais', 'uid'), ErreurE2E);
   });
 
   test('message falsifié (tag GCM invalide) → ErreurE2E', async () => {
     const { enveloppe, e2eKey, contenu } = await fabriquer();
-    const clePrivee = importerClePriveeRSA(dechiffrerClePrivee(enveloppe, MOT_DE_PASSE));
+    const clePrivee = importerClePriveeRSA(dechiffrerClePrivee(JSON.stringify(enveloppe), MOT_DE_PASSE, 'uid'));
     const cleSalon = dechiffrerCleSalon(e2eKey, clePrivee);
     // Corrompre un octet du ciphertext.
     const octets = Buffer.from(contenu.ciphertext, 'base64');

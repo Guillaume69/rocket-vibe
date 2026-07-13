@@ -83,7 +83,7 @@ describe('MoteurE2E', () => {
   test('déverrouille, cache la clé de salon, déchiffre un message', async () => {
     const { fetchMyKeys, e2eKey, contenu } = await fabriquer();
     const { client, stockage, lu } = faux(fetchMyKeys);
-    const m = new MoteurE2E({ client, stockage });
+    const m = new MoteurE2E({ client, stockage, uid: 'osR3JzQEiM2H77m46' });
 
     assert.equal(m.estDeverrouille, false);
     assert.equal(m.dechiffrerContenu(RID, contenu), null); // verrouillé → null
@@ -99,7 +99,7 @@ describe('MoteurE2E', () => {
   test('déchiffre même si enregistrerCleSalon a lieu avant le déverrouillage', async () => {
     const { fetchMyKeys, e2eKey, contenu } = await fabriquer();
     const { client, stockage } = faux(fetchMyKeys);
-    const m = new MoteurE2E({ client, stockage });
+    const m = new MoteurE2E({ client, stockage, uid: 'osR3JzQEiM2H77m46' });
     m.enregistrerCleSalon(RID, e2eKey); // E2EKey connu avant d'avoir la clé privée
     await m.deverrouiller(MOT_DE_PASSE);
     assert.equal(m.dechiffrerContenu(RID, contenu), MESSAGE);
@@ -108,9 +108,9 @@ describe('MoteurE2E', () => {
   test('reprendre() réimporte la clé du Keystore sans mot de passe', async () => {
     const { fetchMyKeys, e2eKey, contenu } = await fabriquer();
     const { client, stockage } = faux(fetchMyKeys);
-    await new MoteurE2E({ client, stockage }).deverrouiller(MOT_DE_PASSE); // remplit le Keystore
+    await new MoteurE2E({ client, stockage, uid: 'osR3JzQEiM2H77m46' }).deverrouiller(MOT_DE_PASSE); // remplit le Keystore
 
-    const m2 = new MoteurE2E({ client, stockage });
+    const m2 = new MoteurE2E({ client, stockage, uid: 'osR3JzQEiM2H77m46' });
     assert.equal(await m2.reprendre(), true);
     assert.equal(m2.estDeverrouille, true);
     m2.enregistrerCleSalon(RID, e2eKey);
@@ -120,7 +120,7 @@ describe('MoteurE2E', () => {
   test('verrouiller() oublie tout et vide le Keystore', async () => {
     const { fetchMyKeys, e2eKey, contenu } = await fabriquer();
     const { client, stockage, lu } = faux(fetchMyKeys);
-    const m = new MoteurE2E({ client, stockage });
+    const m = new MoteurE2E({ client, stockage, uid: 'osR3JzQEiM2H77m46' });
     await m.deverrouiller(MOT_DE_PASSE);
     m.enregistrerCleSalon(RID, e2eKey);
 
@@ -133,7 +133,7 @@ describe('MoteurE2E', () => {
   test('mauvais mot de passe → ErreurE2E, reste verrouillé', async () => {
     const { fetchMyKeys } = await fabriquer();
     const { client, stockage, lu } = faux(fetchMyKeys);
-    const m = new MoteurE2E({ client, stockage });
+    const m = new MoteurE2E({ client, stockage, uid: 'osR3JzQEiM2H77m46' });
     await assert.rejects(() => m.deverrouiller('mauvais'), ErreurE2E);
     assert.equal(m.estDeverrouille, false);
     assert.equal(lu(), null);
@@ -142,7 +142,7 @@ describe('MoteurE2E', () => {
   test('souscrire est notifié au déverrouillage et au verrouillage', async () => {
     const { fetchMyKeys } = await fabriquer();
     const { client, stockage } = faux(fetchMyKeys);
-    const m = new MoteurE2E({ client, stockage });
+    const m = new MoteurE2E({ client, stockage, uid: 'osR3JzQEiM2H77m46' });
     let n = 0;
     m.souscrire(() => { n += 1; });
     await m.deverrouiller(MOT_DE_PASSE);

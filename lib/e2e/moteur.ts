@@ -27,7 +27,6 @@ import {
   keyIdDeE2EKey,
   type ClePriveeRSA,
   type ContenuChiffre,
-  type EnveloppeClePrivee,
 } from './crypto.ts';
 
 /** Le strict nécessaire de `ClientRest` — pour tester le moteur sans réseau. */
@@ -47,6 +46,8 @@ type ReponseFetchMyKeys = { public_key?: string; private_key?: string };
 export class MoteurE2E {
   private readonly client: ClientE2E;
   private readonly stockage: StockageCleE2E;
+  /** userId du compte — sel PBKDF2 des clés privées v1 (héritage). */
+  private readonly uid: string;
 
   private clePrivee: ClePriveeRSA | null = null;
   /** rid → octets bruts de la clé AES du salon (déchiffrée une fois). */
@@ -55,9 +56,10 @@ export class MoteurE2E {
   private readonly e2eKeys = new Map<string, string>();
   private readonly ecouteurs = new Set<() => void>();
 
-  constructor(deps: { client: ClientE2E; stockage: StockageCleE2E }) {
+  constructor(deps: { client: ClientE2E; stockage: StockageCleE2E; uid: string }) {
     this.client = deps.client;
     this.stockage = deps.stockage;
+    this.uid = deps.uid;
   }
 
   get estDeverrouille(): boolean {
@@ -102,8 +104,8 @@ export class MoteurE2E {
     if (typeof rep.private_key !== 'string') {
       throw new ErreurE2E('aucune clé E2E sur ce compte');
     }
-    const enveloppe = JSON.parse(rep.private_key) as EnveloppeClePrivee;
-    const jwk = dechiffrerClePrivee(enveloppe, motDePasse); // lève ErreurE2E si faux
+    // `dechiffrerClePrivee` détecte le schéma (v1/v2) ; le uid sert de sel v1.
+    const jwk = dechiffrerClePrivee(rep.private_key, motDePasse, this.uid); // lève ErreurE2E si faux
     this.clePrivee = importerClePriveeRSA(jwk);
     await this.stockage.enregistrer(jwk);
     // Les clés de salon connues peuvent maintenant se recalculer à la demande.

@@ -38,11 +38,41 @@ export type ProfilBrut = { user: Record<string, unknown> | undefined; erreur: st
  */
 const PLAFOND_MS = 2000;
 
+/**
+ * Seuil avant d'AFFICHER l'indicateur de chargement. Sous ce délai, on ne
+ * montre rien : la sheet s'ouvre, l'utilisateur perçoit un tap instantané, et
+ * on évite un spinner qui n'apparaîtrait que pour clignoter aussitôt. Au-delà
+ * (réseau qui traîne), on prévient — c'est là que l'« effet de lenteur » guette.
+ */
+const SEUIL_INDICATEUR_MS = 250;
+
 let clientActif: ClientRest | null = null;
 
 /** Posé par `SessionProvider` à chaque changement de session. */
 export function definirClientProfil(client: ClientRest | null): void {
   clientActif = client;
+}
+
+// --- Indicateur d'ouverture (différé) --------------------------------------
+// Store minimal, hors React (ce module est du `lib/`) : l'UI s'y abonne via
+// `ui/indicateurOuverture`. `poserBusy` ne notifie que sur changement réel.
+type EcouteurBusy = (actif: boolean) => void;
+const ecouteurs = new Set<EcouteurBusy>();
+let busy = false;
+
+function poserBusy(v: boolean): void {
+  if (busy === v) return;
+  busy = v;
+  for (const e of ecouteurs) e(v);
+}
+
+/** Abonne un écouteur à l'état « ouverture en cours » ; renvoie le désabonnement. */
+export function sabonnerOuvertureProfil(cb: EcouteurBusy): () => void {
+  ecouteurs.add(cb);
+  cb(busy);
+  return () => {
+    ecouteurs.delete(cb);
+  };
 }
 
 const cache = new Map<string, ProfilBrut>();
@@ -91,12 +121,20 @@ export async function ouvrirFicheProfil(p: ParamsProfil): Promise<void> {
       erreur: e instanceof Error ? e.message : 'Profil introuvable.',
     }));
 
+  // Indicateur différé : ne s'affiche QUE si l'attente dépasse le seuil.
+  const minuteur = setTimeout(() => poserBusy(true), SEUIL_INDICATEUR_MS);
   // On attend AUSSI la sonde d'appel (mémoïsée par serveur) : c'est elle qui
   // décide de la présence du bouton « Appeler », donc de la hauteur finale.
-  const brut = await Promise.race<ProfilBrut | null>([
-    Promise.all([fetchBrut, sonderAppelDisponible(client)]).then(([b]) => b),
-    delai(PLAFOND_MS).then(() => null),
-  ]);
+  let brut: ProfilBrut | null;
+  try {
+    brut = await Promise.race<ProfilBrut | null>([
+      Promise.all([fetchBrut, sonderAppelDisponible(client)]).then(([b]) => b),
+      delai(PLAFOND_MS).then(() => null),
+    ]);
+  } finally {
+    clearTimeout(minuteur);
+    poserBusy(false);
+  }
 
   if (brut !== null) {
     cache.set(k, brut);

@@ -30,6 +30,7 @@ import { TuileAvatar } from './kit.tsx';
 import { LecteurAudio } from './lecteurAudio.tsx';
 import { LecteurVideo } from './lecteurVideo.tsx';
 import { CorpsMessage, GardeRendu } from './markdown.tsx';
+import { TexteTappable } from './texteTappable.tsx';
 import { type Couleurs, DELAI_PRESSION_LISTE, degradeAvatar, POLICES } from './theme.ts';
 import { useVisionneuse } from './visionneuse.tsx';
 
@@ -89,7 +90,11 @@ export const LigneMessage = memo(function LigneMessage({
           pas devenir un nœud de plus, elle double la navigation au balayage.
           (`importantForAccessibility` n'ôte que le nœud a11y — le tap marche.) */}
       <View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
-        <Pressable onPress={ouvrirProfil} unstable_pressDelay={DELAI_PRESSION_LISTE}>
+        <Pressable
+          onPress={ouvrirProfil}
+          unstable_pressDelay={DELAI_PRESSION_LISTE}
+          style={({ pressed }) => (pressed && ouvrirProfil !== undefined ? styles.presseAvatar : null)}
+        >
           <TuileAvatar
             c={c}
             cle={auteur}
@@ -102,15 +107,14 @@ export const LigneMessage = memo(function LigneMessage({
       </View>
       <View style={styles.corps}>
         <View style={styles.enTete}>
-          <Text
+          <TexteTappable
             style={[styles.auteur, { color: teinteAuteur }]}
             numberOfLines={1}
             onPress={ouvrirProfil}
-            accessibilityRole={ouvrirProfil === undefined ? undefined : 'button'}
             accessibilityLabel={`Profil de ${auteur}`}
           >
             {auteur}
-          </Text>
+          </TexteTappable>
           <Text style={[styles.heure, { color: c.texteTertiaire }]}>{heure}</Text>
           {message.modifieLe !== null && (
             <Text style={[styles.heure, { color: c.texteTertiaire }]}>(modifié)</Text>
@@ -386,6 +390,7 @@ const styles = StyleSheet.create({
   corps: { flex: 1, gap: 2 },
   enAttente: { opacity: 0.55 },
   enTete: { flexDirection: 'row', alignItems: 'baseline', gap: 7 },
+  presseAvatar: { opacity: 0.55 },
   auteur: { fontFamily: POLICES.corpsFort, fontSize: 13.5, flexShrink: 1 },
   heure: { fontFamily: POLICES.corps, fontSize: 10.5 },
   texte: { fontFamily: POLICES.corps, fontSize: 14, lineHeight: 20 },

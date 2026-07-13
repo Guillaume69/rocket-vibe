@@ -24,6 +24,7 @@ import { Image, Linking, Platform, StyleSheet, Text, View } from 'react-native';
 import { urlEmojiCustom } from '../lib/emojisCustom.ts';
 import { texteDe, unicodeDEmoji, type Root } from '../lib/markdown.ts';
 import { ouvrirFicheProfil } from '../lib/profilPreload.ts';
+import { TexteTappable } from './texteTappable.tsx';
 import type { Couleurs } from './theme.ts';
 
 const POLICE_MONO = Platform.select({ android: 'monospace', default: 'Menlo' });
@@ -237,13 +238,13 @@ function rendreInline(noeud: Inlines, cle: number, c: Couleurs): React.ReactNode
     case 'MENTION_USER': {
       const username = texteDe(noeud.value);
       return (
-        <Text
+        <TexteTappable
           key={cle}
           style={[styles.mention, { color: c.accent }]}
           onPress={() => ouvrirProfil(username)}
         >
           @{username}
-        </Text>
+        </TexteTappable>
       );
     }
 

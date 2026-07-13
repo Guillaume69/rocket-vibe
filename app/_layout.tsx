@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { IndicateurOuvertureProfil } from '../ui/indicateurOuverture.tsx';
 import { GestionNotifications } from '../ui/notifications.tsx';
 import { SessionProvider } from '../ui/session.tsx';
 import { SynchroProvider } from '../ui/synchro.tsx';
@@ -123,6 +124,9 @@ export default function RootLayout() {
                     <Stack.Screen name="partager" options={{ presentation: 'modal' }} />
                   </Stack>
                   <GestionNotifications />
+                  {/* Retour visuel du préchargement de fiche : au-dessus de la
+                      pile, ne s'affiche que si l'ouverture traîne (>seuil). */}
+                  <IndicateurOuvertureProfil />
                   {/* Redirige vers l'écran de partage dès qu'un intent arrive. */}
                   <GardePartage />
                 </VisionneuseImageProvider>

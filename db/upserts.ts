@@ -90,6 +90,25 @@ ON CONFLICT(portee, flux) DO UPDATE SET mis_a_jour_depuis = excluded.mis_a_jour_
 WHERE excluded.mis_a_jour_depuis > etat_synchro.mis_a_jour_depuis
 `;
 
+/**
+ * Identité d'un auteur (`uid → pseudo courant`), dérivée de CHAQUE message
+ * ingéré. Deux garde-fous dans le `WHERE` :
+ *  - `mis_a_jour_le >=` : un message plus ANCIEN ne rétrograde pas un pseudo
+ *    plus récemment observé (« le plus récent gagne »).
+ *  - `username IS NOT` : on n'écrit QUE si le pseudo change VRAIMENT. Sans ça,
+ *    chaque message au même pseudo toucherait la ligne et ferait rejouer la
+ *    `useLiveQuery` de la table — donc re-rendre toutes les lignes visibles. Là,
+ *    la table ne bouge qu'à un VRAI renommage.
+ */
+export const UPSERT_UTILISATEUR = `
+INSERT INTO utilisateurs (uid, username, mis_a_jour_le) VALUES (?, ?, ?)
+ON CONFLICT(uid) DO UPDATE SET
+  username = excluded.username,
+  mis_a_jour_le = excluded.mis_a_jour_le
+WHERE excluded.mis_a_jour_le >= utilisateurs.mis_a_jour_le
+  AND excluded.username IS NOT utilisateurs.username
+`;
+
 export const SUPPRIMER_MESSAGE = `DELETE FROM messages WHERE id = ?`;
 
 /** Départ d'un salon : le rattrapage (`remove[]` d'updatedSince) fait le ménage. */
@@ -202,6 +221,14 @@ export const SUPPRIMER_TELEVERSEMENT = `DELETE FROM televersements WHERE id = ?`
 const b = (v: boolean): number => (v ? 1 : 0);
 
 export type Parametre = string | number | null;
+
+export function paramsUtilisateur(u: {
+  uid: string;
+  username: string;
+  misAJourLe: number;
+}): Parametre[] {
+  return [u.uid, u.username, u.misAJourLe];
+}
 
 export function paramsMessage(m: MessageLocal): Parametre[] {
   return [

@@ -22,11 +22,13 @@ import {
   UPSERT_CURSEUR,
   UPSERT_MESSAGE,
   UPSERT_SALON,
+  UPSERT_UTILISATEUR,
   VIDER_EMOJIS_CUSTOM,
   paramsAbonnement,
   paramsEmojiCustom,
   paramsMessage,
   paramsSalon,
+  paramsUtilisateur,
 } from './upserts.ts';
 
 const DOSSIER = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
@@ -393,5 +395,56 @@ describe('purge des salons fantômes (réconciliation)', () => {
     }
     db.prepare(PURGER_SALONS_ABSENTS).run(JSON.stringify(['r1', 'r3']));
     assert.deepEqual(rids('salons'), ['r1', 'r3']);
+  });
+});
+
+describe('identités (uid → pseudo courant)', () => {
+  const q = 'SELECT username, mis_a_jour_le FROM utilisateurs WHERE uid = ?';
+
+  function util(uid: string, username: string, misAJourLe: number) {
+    return paramsUtilisateur({ uid, username, misAJourLe });
+  }
+
+  test('insère une identité inconnue', () => {
+    db.prepare(UPSERT_UTILISATEUR).run(...util('u1', 'alice', 100));
+    assert.deepEqual(ligne(db.prepare(q).get('u1')), { username: 'alice', mis_a_jour_le: 100 });
+  });
+
+  test('un renommage plus récent gagne', () => {
+    db.prepare(UPSERT_UTILISATEUR).run(...util('u1', 'alice', 100));
+    db.prepare(UPSERT_UTILISATEUR).run(...util('u1', 'alice2', 200));
+    assert.deepEqual(ligne(db.prepare(q).get('u1')), { username: 'alice2', mis_a_jour_le: 200 });
+  });
+
+  test('un message PLUS ANCIEN ne rétrograde pas le pseudo', () => {
+    // Un rattrapage REST peut livrer, après coup, une vieille copie d'un message
+    // qui porte encore l'ancien pseudo : elle ne doit pas écraser le nouveau.
+    db.prepare(UPSERT_UTILISATEUR).run(...util('u1', 'alice2', 200));
+    db.prepare(UPSERT_UTILISATEUR).run(...util('u1', 'alice', 100));
+    assert.deepEqual(
+      ligne(db.prepare(q).get('u1')),
+      { username: 'alice2', mis_a_jour_le: 200 },
+      'le passé ne doit pas gagner',
+    );
+  });
+
+  test('même pseudo, horodatage plus récent : la ligne ne bouge PAS', () => {
+    // Le garde `username IS NOT` : sans lui, chaque message au même pseudo
+    // toucherait la table et ferait rejouer la useLiveQuery des identités.
+    db.prepare(UPSERT_UTILISATEUR).run(...util('u1', 'alice', 100));
+    db.prepare(UPSERT_UTILISATEUR).run(...util('u1', 'alice', 500));
+    assert.deepEqual(
+      ligne(db.prepare(q).get('u1')),
+      { username: 'alice', mis_a_jour_le: 100 },
+      'horodatage figé : aucune écriture, donc aucun événement de changement',
+    );
+  });
+
+  test('un upsert de message enregistre AUSSI l’identité de l’auteur', () => {
+    // Le dépôt (db/depot.ts) dérive l'identité de chaque message ; ici on
+    // reproduit la double écriture pour prouver le contrat de bout en bout.
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', auteurId: 'u9', auteurNom: 'bob', misAJourLe: 300 }));
+    db.prepare(UPSERT_UTILISATEUR).run(...util('u9', 'bob', 300));
+    assert.deepEqual(ligne(db.prepare(q).get('u9')), { username: 'bob', mis_a_jour_le: 300 });
   });
 });

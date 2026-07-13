@@ -74,7 +74,6 @@ export default function EcranFil() {
       envoi={synchro.envoi}
       ddp={synchro.ddp}
       client={etat.client}
-      moiUsername={etat.session.username}
       generation={synchro.generation}
     />
   );
@@ -88,7 +87,6 @@ function Fil({
   envoi,
   ddp,
   client,
-  moiUsername,
   generation,
 }: {
   c: Couleurs;
@@ -98,8 +96,6 @@ function Fil({
   envoi: MoteurEnvoi;
   ddp: ClientDdp;
   client: ClientRest;
-  /** Mon pseudo courant (session), pour rafraîchir mes propres messages. */
-  moiUsername: string;
   generation: number;
 }) {
   // La racine du fil — elle porte le titre et le `rid`.
@@ -238,8 +234,6 @@ function Fil({
           c={c}
           message={item}
           client={client}
-          moiUid={client.identifiants?.userId ?? null}
-          moiUsername={moiUsername}
           statutEnvoi={etatEnvoi?.statut ?? null}
           surReessayer={etatEnvoi?.statut === 'echec' ? reessayer : null}
           surAbandonner={etatEnvoi?.statut === 'echec' ? abandonner : null}
@@ -249,7 +243,7 @@ function Fil({
         />
       );
     },
-    [c, client, moiUsername, sortieParId, reessayer, abandonner, ouvrirActions],
+    [c, client, sortieParId, reessayer, abandonner, ouvrirActions],
   );
 
   const liste = useRef<FlashListRef<LigneDeMessage>>(null);

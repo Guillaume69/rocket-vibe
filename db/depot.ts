@@ -43,9 +43,11 @@ import {
   UPSERT_CURSEUR,
   UPSERT_MESSAGE,
   UPSERT_SALON,
+  UPSERT_UTILISATEUR,
   paramsAbonnement,
   paramsMessage,
   paramsSalon,
+  paramsUtilisateur,
 } from './upserts.ts';
 
 /**
@@ -85,6 +87,15 @@ export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot
   const direct: EcrituresDepot = {
     async upsertMessage(m) {
       await brute.runAsync(UPSERT_MESSAGE, paramsMessage(m));
+      // L'identité de l'auteur (`uid → pseudo courant`) se dérive de chaque
+      // message : le plus récent par uid fait foi. Un message chiffré
+      // indéchiffrable n'a pas de pseudo (`auteurNom` null) — rien à noter.
+      if (m.auteurNom !== null) {
+        await brute.runAsync(
+          UPSERT_UTILISATEUR,
+          paramsUtilisateur({ uid: m.auteurId, username: m.auteurNom, misAJourLe: m.misAJourLe }),
+        );
+      }
       // Réconciliation de la file d'envoi : ce dépôt ne reçoit QUE des
       // documents d'origine serveur (stream, historique, réponse d'envoi).
       // L'un d'eux qui porte notre `_id` prouve la livraison — la ligne de

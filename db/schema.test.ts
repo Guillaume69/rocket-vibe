@@ -37,6 +37,61 @@ function tables(db: DatabaseSync): string[] {
     .sort();
 }
 
+/** Applique les migrations dont l'index numérique est < `avant`, dans l'ordre. */
+function baseMigreeAvant(avant: number): DatabaseSync {
+  const db = new DatabaseSync(':memory:');
+  const fichiers = readdirSync(DOSSIER)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  for (const fichier of fichiers) {
+    if (parseInt(fichier.slice(0, 4), 10) >= avant) continue;
+    for (const requete of readFileSync(join(DOSSIER, fichier), 'utf8').split(
+      '--> statement-breakpoint',
+    )) {
+      const sql = requete.trim();
+      if (sql !== '') db.exec(sql);
+    }
+  }
+  return db;
+}
+
+/** Applique les statements d'UN fichier de migration (par son index). */
+function appliquerMigration(db: DatabaseSync, index: number): void {
+  const fichier = readdirSync(DOSSIER).find((f) => parseInt(f.slice(0, 4), 10) === index);
+  assert.ok(fichier !== undefined, `migration ${index} absente`);
+  for (const requete of readFileSync(join(DOSSIER, fichier), 'utf8').split('--> statement-breakpoint')) {
+    const sql = requete.trim();
+    if (sql !== '') db.exec(sql);
+  }
+}
+
+describe('backfill des identités (0009)', () => {
+  test('sème utilisateurs depuis les messages EXISTANTS : pseudo le plus récent par uid', () => {
+    // Une base d'AVANT la table d'identités, avec un historique déjà là.
+    const db = baseMigreeAvant(9);
+    const ins =
+      'INSERT INTO messages (id, rid, horodatage, auteur_id, auteur_nom, mis_a_jour_le) VALUES (?, ?, ?, ?, ?, ?)';
+    // u1 : ancien pseudo (100) puis renommé (200). u2 : un seul message. u3 :
+    // message chiffré sans auteur_nom → ne doit PAS créer d'identité.
+    db.prepare(ins).run('m1', 'r1', 1, 'u1', 'alice', 100);
+    db.prepare(ins).run('m2', 'r1', 2, 'u1', 'alice-neuve', 200);
+    db.prepare(ins).run('m3', 'r1', 3, 'u2', 'bob', 150);
+    db.prepare(ins).run('m4', 'r1', 4, 'u3', null, 300);
+
+    appliquerMigration(db, 9);
+
+    const lignes = db
+      .prepare('SELECT uid, username, mis_a_jour_le FROM utilisateurs ORDER BY uid')
+      .all()
+      .map((l) => ({ ...(l as Record<string, unknown>) }));
+    assert.deepEqual(lignes, [
+      { uid: 'u1', username: 'alice-neuve', mis_a_jour_le: 200 },
+      { uid: 'u2', username: 'bob', mis_a_jour_le: 150 },
+    ]);
+    db.close();
+  });
+});
+
 describe('migrations', () => {
   test('le SQL généré s’applique sur une base vierge', () => {
     const db = baseMigree();
@@ -49,6 +104,7 @@ describe('migrations', () => {
       'salons',
       'sortie',
       'televersements',
+      'utilisateurs',
     ]);
     db.close();
   });

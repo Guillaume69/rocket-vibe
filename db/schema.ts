@@ -195,6 +195,21 @@ export const emojisCustom = sqliteTable('emojis_custom', {
 });
 
 /**
+ * Identités des auteurs : `uid → pseudo COURANT`. Le pseudo Rocket.Chat est
+ * MUABLE, l'uid non — c'est donc l'uid la vraie identité, `messages.auteur_nom`
+ * n'étant qu'un instantané figé à l'ingestion (repli hors-ligne / premier
+ * rendu). Cette table, alimentée par CHAQUE message ingéré (le pseudo du message
+ * le PLUS RÉCENT par uid fait foi), donne le pseudo à AFFICHER — à jour même
+ * pour les messages postés AVANT un renommage, qu'on ne re-télécharge pas.
+ */
+export const utilisateurs = sqliteTable('utilisateurs', {
+  uid: text('uid').primaryKey(),
+  username: text('username'),
+  /** `_updatedAt` du message qui a fixé ce pseudo : arbitre « le plus récent gagne ». */
+  misAJourLe: integer('mis_a_jour_le').notNull().default(0),
+});
+
+/**
  * Curseurs de rattrapage, par salon et par flux. `chat.syncMessages` traite un
  * salon à la fois et le REST est rate-limité : on ne re-synchronise que les
  * salons ouverts ou récemment actifs (étape 5.2).

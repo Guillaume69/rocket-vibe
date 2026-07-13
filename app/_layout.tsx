@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { SuiviIdentites } from '../ui/identites.tsx';
 import { IndicateurOuvertureProfil } from '../ui/indicateurOuverture.tsx';
 import { GestionNotifications } from '../ui/notifications.tsx';
 import { SessionProvider } from '../ui/session.tsx';
@@ -124,6 +125,10 @@ export default function RootLayout() {
                     <Stack.Screen name="partager" options={{ presentation: 'modal' }} />
                   </Stack>
                   <GestionNotifications />
+                  {/* Tient à jour la résolution `uid → pseudo courant` des
+                      auteurs de messages (renommages). Frère de la pile — ne rend
+                      rien, alimente un store abonnable. */}
+                  <SuiviIdentites />
                   {/* Retour visuel du préchargement de fiche : au-dessus de la
                       pile, ne s'affiche que si l'ouverture traîne (>seuil). */}
                   <IndicateurOuvertureProfil />

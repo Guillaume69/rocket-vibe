@@ -41,22 +41,17 @@ export default function EcranRechercheMessages() {
       </View>
     );
   }
-  return (
-    <RechercheMessages c={c} client={etat.client} rid={rid} moiUsername={etat.session.username} />
-  );
+  return <RechercheMessages c={c} client={etat.client} rid={rid} />;
 }
 
 function RechercheMessages({
   c,
   client,
   rid,
-  moiUsername,
 }: {
   c: Couleurs;
   client: ClientRest;
   rid: string;
-  /** Mon pseudo courant (session), pour rafraîchir mes propres messages. */
-  moiUsername: string;
 }) {
   const [requete, setRequete] = useState('');
   const [resultats, setResultats] = useState<MessageLocal[]>([]);
@@ -136,8 +131,6 @@ function RechercheMessages({
               // champs — c'est le même document serveur normalisé.
               message={item}
               client={client}
-              moiUid={client.identifiants?.userId ?? null}
-              moiUsername={moiUsername}
               statutEnvoi={null}
               surReessayer={null}
               surAbandonner={null}

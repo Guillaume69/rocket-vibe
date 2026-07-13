@@ -39,12 +39,19 @@ export type ProfilBrut = { user: Record<string, unknown> | undefined; erreur: st
 const PLAFOND_MS = 2000;
 
 /**
- * Seuil avant d'AFFICHER l'indicateur de chargement. Sous ce délai, on ne
- * montre rien : la sheet s'ouvre, l'utilisateur perçoit un tap instantané, et
- * on évite un spinner qui n'apparaîtrait que pour clignoter aussitôt. Au-delà
- * (réseau qui traîne), on prévient — c'est là que l'« effet de lenteur » guette.
+ * Anti-clignotement de l'indicateur, en deux temps :
+ *
+ * - `SEUIL_INDICATEUR_MS` : délai avant de l'AFFICHER. Sous ce délai — le cas
+ *   normal — rien ne s'affiche, la sheet s'ouvre, tap perçu instantané. Réglé
+ *   assez haut pour que la latence prod ordinaire passe DESSOUS et ne déclenche
+ *   rien.
+ * - `DUREE_MIN_VISIBLE_MS` : une fois affiché, il y RESTE au moins ce temps,
+ *   quitte à retarder un peu l'ouverture. Sans ça, un chargement qui finit juste
+ *   après le seuil ferait apparaître la pastille pour la masquer aussitôt — le
+ *   flash. Un loader qui clignote fait plus « cassé » que « lent ».
  */
-const SEUIL_INDICATEUR_MS = 250;
+const SEUIL_INDICATEUR_MS = 450;
+const DUREE_MIN_VISIBLE_MS = 400;
 
 let clientActif: ClientRest | null = null;
 
@@ -121,8 +128,13 @@ export async function ouvrirFicheProfil(p: ParamsProfil): Promise<void> {
       erreur: e instanceof Error ? e.message : 'Profil introuvable.',
     }));
 
-  // Indicateur différé : ne s'affiche QUE si l'attente dépasse le seuil.
-  const minuteur = setTimeout(() => poserBusy(true), SEUIL_INDICATEUR_MS);
+  // Indicateur différé : ne s'affiche QUE si l'attente dépasse le seuil, et
+  // reste alors visible un minimum (anti-flash — voir les constantes).
+  let afficheA: number | null = null;
+  const minuteur = setTimeout(() => {
+    poserBusy(true);
+    afficheA = Date.now();
+  }, SEUIL_INDICATEUR_MS);
   // On attend AUSSI la sonde d'appel (mémoïsée par serveur) : c'est elle qui
   // décide de la présence du bouton « Appeler », donc de la hauteur finale.
   let brut: ProfilBrut | null;
@@ -133,6 +145,12 @@ export async function ouvrirFicheProfil(p: ParamsProfil): Promise<void> {
     ]);
   } finally {
     clearTimeout(minuteur);
+    if (afficheA !== null) {
+      // Pastille affichée : la maintenir jusqu'à son minimum avant de masquer
+      // et d'ouvrir — sinon flash. On ouvre donc pile quand elle disparaît.
+      const reste = DUREE_MIN_VISIBLE_MS - (Date.now() - afficheA);
+      if (reste > 0) await delai(reste);
+    }
     poserBusy(false);
   }
 

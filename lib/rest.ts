@@ -69,6 +69,14 @@ export type OptionsAppel = {
   deuxFacteurs?: CodeDeuxFacteurs;
   /** Ignorer l'authentification (login, settings.public…). */
   anonyme?: boolean;
+  /**
+   * Rejouer UNE fois si le `fetch` échoue au niveau réseau (aucune réponse
+   * HTTP reçue). Réservé aux écritures idempotentes (profil, statut) : une
+   * requête rejetée sans réponse n'a rien délivré, donc la rejouer ne double
+   * aucun effet serveur. `chat.sendMessage` NE l'active PAS — sa déduplication
+   * vit dans lib/envoi, qui garde la ligne « en-attente » pour un rejeu propre.
+   */
+  rejeuReseau?: boolean;
 };
 
 /** Injectables pour les tests : aucun sommeil réel, aucune horloge réelle. */
@@ -80,6 +88,9 @@ export type Dependances = {
 
 const DELAI_MS = 15_000;
 const TENTATIVES_429 = 3;
+/** Un seul rejeu sur échec réseau : une connexion keep-alive morte repart neuve. */
+const TENTATIVES_RESEAU = 1;
+const DELAI_REJEU_RESEAU_MS = 400;
 
 type ReponseRocketChat = {
   success?: boolean;
@@ -172,6 +183,7 @@ export class ClientRest {
     chemin: string,
     options: OptionsAppel,
     tentative = 0,
+    tentativeReseau = 0,
   ): Promise<T> {
     // Un signal DÉJÀ avorté ne déclenchera jamais `addEventListener`, et la
     // requête partirait quand même : on le teste avant d'ouvrir la connexion.
@@ -201,6 +213,20 @@ export class ClientRest {
         if (!expire) throw e; // Annulation demandée par l'appelant.
         throw new ErreurRest(`${chemin} : pas de réponse en ${DELAI_MS / 1000} s.`, 0);
       }
+      // Échec réseau : le `fetch` a rejeté sans réponse HTTP. Sur Android/OkHttp,
+      // la PREMIÈRE requête après un temps d'inactivité (ici : le temps de
+      // remplir le formulaire) réutilise parfois une connexion keep-alive morte
+      // et échoue, là où l'envoi immédiat suivant repart sur une connexion neuve
+      // — le classique « ça passe à la 2e fois ». Rien n'ayant été reçu du
+      // serveur, la requête n'a (quasi) jamais été délivrée : la rejouer ne
+      // double aucun effet, mais on ne le fait que si l'appelant l'a demandé.
+      if (options.rejeuReseau && tentativeReseau < TENTATIVES_RESEAU) {
+        // Le `finally` ferme minuterie et listener à l'évaluation du `return` ;
+        // la récursion en réarme de neufs. Les 400 ms d'attente restent bien en
+        // deçà du timeout de 15 s, donc l'ancien timer ne fire pas entre-temps.
+        await this.dep.dormir(DELAI_REJEU_RESEAU_MS);
+        return this.appeler<T>(methode, chemin, options, tentative, tentativeReseau + 1);
+      }
       throw new ErreurRest(`${chemin} : serveur injoignable.`, 0);
     } finally {
       clearTimeout(minuterie);
@@ -211,7 +237,7 @@ export class ClientRest {
       const delai = this.delaiApres429(reponse, tentative);
       await reponse.body?.cancel();
       await this.dep.dormir(delai);
-      return this.appeler<T>(methode, chemin, options, tentative + 1);
+      return this.appeler<T>(methode, chemin, options, tentative + 1, tentativeReseau);
     }
 
     // Lire le texte avant de parser : un reverse proxy peut renvoyer du HTML

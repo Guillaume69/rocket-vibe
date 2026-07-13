@@ -92,7 +92,10 @@ export function enregistrerStatut(
   valeurs: { status: StatutDefaut; message: string },
 ): Promise<void> {
   return client
-    .post('users.setStatus', { corps: { status: valeurs.status, message: valeurs.message } })
+    .post('users.setStatus', {
+      corps: { status: valeurs.status, message: valeurs.message },
+      rejeuReseau: true,
+    })
     .then(() => undefined);
 }
 
@@ -111,7 +114,7 @@ export function enregistrerInfos(
   deuxFacteurs?: CodeDeuxFacteurs,
 ): Promise<void> {
   return client
-    .post('users.updateOwnBasicInfo', { corps: { data }, deuxFacteurs })
+    .post('users.updateOwnBasicInfo', { corps: { data }, deuxFacteurs, rejeuReseau: true })
     .then(() => undefined);
 }
 

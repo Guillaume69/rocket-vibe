@@ -244,6 +244,71 @@ describe('ClientRest', () => {
     assert.equal(recues.length, 0, 'aucune requête ne doit atteindre le serveur');
   });
 
+  test('rejeuReseau : un échec réseau ponctuel est rejoué une fois puis réussit', async () => {
+    // Reproduit la connexion keep-alive morte au 1er envoi : le `fetch` rejette
+    // une fois (aucune réponse HTTP), le rejeu repart sur le vrai serveur.
+    poignee = (_q, res) => repondre(res, 200, { success: true, ok: 1 });
+    let appels = 0;
+    const dormirs: number[] = [];
+    const c = new ClientRest(base, {
+      fetch: async (url, init) => {
+        appels += 1;
+        if (appels === 1) throw new TypeError('Network request failed');
+        return globalThis.fetch(url, init);
+      },
+      dormir: async (ms) => {
+        dormirs.push(ms);
+      },
+      maintenant: () => 1_000_000,
+    });
+    const r = await c.post<{ ok: number }>('users.updateOwnBasicInfo', {
+      corps: { data: {} },
+      rejeuReseau: true,
+    });
+    assert.equal(r.ok, 1);
+    assert.equal(appels, 2, 'un échec puis un rejeu');
+    assert.equal(dormirs.length, 1, 'une seule attente de rejeu');
+  });
+
+  test('rejeuReseau : deux échecs de suite remontent « serveur injoignable »', async () => {
+    let appels = 0;
+    const c = new ClientRest(base, {
+      fetch: async () => {
+        appels += 1;
+        throw new TypeError('Network request failed');
+      },
+      dormir: async () => {},
+      maintenant: () => 1_000_000,
+    });
+    await assert.rejects(c.post('users.setStatus', { corps: {}, rejeuReseau: true }), (e: unknown) => {
+      assert.ok(e instanceof ErreurRest);
+      assert.equal(e.statut, 0);
+      assert.match(e.message, /injoignable/);
+      return true;
+    });
+    assert.equal(appels, 2, "l'appel d'origine plus un seul rejeu");
+  });
+
+  test('sans rejeuReseau, un échec réseau lève tout de suite (aucun rejeu)', async () => {
+    // `chat.sendMessage` n'active pas le rejeu : la ligne reste « en-attente »
+    // dans lib/envoi, seul lieu où sa déduplication est sûre.
+    let appels = 0;
+    const c = new ClientRest(base, {
+      fetch: async () => {
+        appels += 1;
+        throw new TypeError('Network request failed');
+      },
+      dormir: async () => {},
+      maintenant: () => 1_000_000,
+    });
+    await assert.rejects(c.post('chat.sendMessage', { corps: {} }), (e: unknown) => {
+      assert.ok(e instanceof ErreurRest);
+      assert.equal(e.statut, 0);
+      return true;
+    });
+    assert.equal(appels, 1, 'aucun rejeu sans le drapeau');
+  });
+
   test('la barre finale de baseUrl est normalisée', () => {
     assert.equal(new ClientRest('http://x:3000///').baseUrl, 'http://x:3000');
   });

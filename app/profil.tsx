@@ -166,13 +166,14 @@ export default function EcranProfil() {
   return (
     <View style={[styles.feuille, { backgroundColor: c.carteProfonde }]}>
       <Stack.Screen options={{ headerShown: false }} />
-      {profil === null && erreur === null && (
+      {profil === null && (
         <View style={styles.centre}>
-          <ActivityIndicator color={c.accent} />
+          {erreur === null ? (
+            <ActivityIndicator color={c.accent} />
+          ) : (
+            <Text style={[styles.erreur, { color: c.texteErreur }]}>{erreur}</Text>
+          )}
         </View>
-      )}
-      {profil === null && erreur !== null && (
-        <Text style={[styles.erreur, { color: c.texteErreur }]}>{erreur}</Text>
       )}
       {profil !== null && client !== null && (
         <>
@@ -265,8 +266,13 @@ export default function EcranProfil() {
 }
 
 const styles = StyleSheet.create({
-  feuille: { padding: 20, paddingBottom: 28, gap: 14 },
-  centre: { alignItems: 'center', paddingVertical: 24 },
+  // `minHeight` : la sheet `fitToContents` se mesure au PREMIER rendu, quand le
+  // contenu n'est encore qu'un spinner (users.info n'est pas revenu). Sans
+  // plancher, elle monte à la hauteur du spinner puis SAUTE brutalement à sa
+  // hauteur pleine à l'arrivée des données. Le plancher (aligné sur salon-info)
+  // fait monter la sheet une seule fois, à une hauteur stable — comme joindre.
+  feuille: { padding: 20, paddingBottom: 28, gap: 14, minHeight: 300 },
+  centre: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   entete: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   identite: { flex: 1, gap: 2 },
   nom: { fontFamily: POLICES.titre, fontSize: 20 },

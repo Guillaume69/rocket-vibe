@@ -110,7 +110,16 @@ export const LigneMessage = memo(function LigneMessage({
             c={c}
             cle={auteur}
             initiale={auteur.charAt(0) || '?'}
-            uri={urlAvatar(client, { uid: message.auteurId })}
+            // Avatar visé par le username COURANT (`identites`), uid en repli.
+            // Par uid seul, l'URI `/avatar/uid/<uid>` ne change JAMAIS : le cache
+            // image RN garde l'ancien avatar après un renommage, alors que le
+            // reste de l'app (par `/avatar/<username>`) affiche le courant. Le
+            // username courant fait bouger l'URI au renommage → le cache se
+            // rafraîchit et reste cohérent avec l'écran profil.
+            uri={urlAvatar(client, {
+              username: identites.get(message.auteurId),
+              uid: message.auteurId,
+            })}
             taille={34}
             rayon={12}
           />

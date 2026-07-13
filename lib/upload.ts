@@ -152,9 +152,13 @@ export function urlFichierProtege(client: ClientRest, chemin: string): string {
  * `onError` : ce seul signal distingue « pas de photo » de « photo », sans
  * qu'on ait à synchroniser le moindre `avatarETag`.
  *
- * On vise par `uid` (message : `auteurId` ; DM : `dmAutreUid`) plutôt que par
- * pseudo — robuste aux renommages et aux points/espaces des noms — et par
- * `rid` pour l'avatar d'un canal.
+ * `username` prime sur `uid` quand les deux sont fournis. Viser par `uid` seul
+ * (DM : `dmAutreUid`) donne une URI STABLE, jamais 404 — mais que le cache image
+ * RN fige : elle ne bouge pas au renommage NI au changement de photo. Viser par
+ * le pseudo COURANT (messages : le username résolu par `ui/identites`) fait
+ * bouger l'URI au renommage, ce qui rafraîchit l'avatar affiché ; l'appelant
+ * garde l'uid en repli pour les instants où le pseudo courant n'est pas connu.
+ * `rid` sert l'avatar d'un canal.
  */
 export function urlAvatar(
   client: ClientRest,

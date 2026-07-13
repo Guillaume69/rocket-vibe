@@ -20,10 +20,15 @@ export const UPSERT_MESSAGE = `
 INSERT INTO messages (
   id, rid, texte, horodatage, auteur_id, auteur_nom, type_systeme,
   fil_id, fil_reponses, fil_dernier, fil_affiche, modifie_le, md,
-  pieces_jointes, reactions, urls, appel_id, mis_a_jour_le
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  pieces_jointes, reactions, urls, appel_id, chiffre_brut, mis_a_jour_le
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
-  texte = excluded.texte,
+  -- Message chiffré : garder le clair déjà déchiffré si la resynchro arrive
+  -- sans clé (excluded.texte null). Message ordinaire : comportement inchangé.
+  texte = CASE
+    WHEN excluded.type_systeme = 'e2e' THEN COALESCE(excluded.texte, messages.texte)
+    ELSE excluded.texte
+  END,
   horodatage = excluded.horodatage,
   auteur_nom = excluded.auteur_nom,
   type_systeme = excluded.type_systeme,
@@ -37,6 +42,9 @@ ON CONFLICT(id) DO UPDATE SET
   reactions = excluded.reactions,
   urls = excluded.urls,
   appel_id = excluded.appel_id,
+  -- texte déjà déchiffré localement (COALESCE ci-dessus) : une resynchro du
+  -- même message chiffré ne doit pas ré-effacer le clair (chiffre_brut gardé).
+  chiffre_brut = COALESCE(excluded.chiffre_brut, messages.chiffre_brut),
   mis_a_jour_le = excluded.mis_a_jour_le
 WHERE excluded.mis_a_jour_le >= messages.mis_a_jour_le
 `;
@@ -68,8 +76,9 @@ WHERE excluded.mis_a_jour_le >= salons.mis_a_jour_le
 
 export const UPSERT_ABONNEMENT = `
 INSERT INTO abonnements (
-  rid, sub_id, non_lus, mentions, mentions_groupe, alerte, ouvert, favori, lu_jusqu_a, mis_a_jour_le
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  rid, sub_id, non_lus, mentions, mentions_groupe, alerte, ouvert, favori,
+  lu_jusqu_a, e2e_key, e2e_key_id, mis_a_jour_le
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(rid) DO UPDATE SET
   sub_id = COALESCE(excluded.sub_id, abonnements.sub_id),
   non_lus = excluded.non_lus,
@@ -79,6 +88,10 @@ ON CONFLICT(rid) DO UPDATE SET
   ouvert = excluded.ouvert,
   favori = excluded.favori,
   lu_jusqu_a = excluded.lu_jusqu_a,
+  -- COALESCE : un événement d'abonnement partiel (sans E2EKey) ne doit pas
+  -- effacer la clé déjà connue.
+  e2e_key = COALESCE(excluded.e2e_key, abonnements.e2e_key),
+  e2e_key_id = COALESCE(excluded.e2e_key_id, abonnements.e2e_key_id),
   mis_a_jour_le = excluded.mis_a_jour_le
 WHERE excluded.mis_a_jour_le >= abonnements.mis_a_jour_le
 `;
@@ -108,6 +121,16 @@ ON CONFLICT(uid) DO UPDATE SET
 WHERE excluded.mis_a_jour_le >= utilisateurs.mis_a_jour_le
   AND excluded.username IS NOT utilisateurs.username
 `;
+
+/** Clés de salon connues, pour la passe de déchiffrement E2EE au déverrouillage. */
+export const LISTER_CLES_SALON = `SELECT rid, e2e_key FROM abonnements WHERE e2e_key IS NOT NULL`;
+/** Messages chiffrés encore illisibles : ciphertext gardé, clair pas encore posé. */
+export const MESSAGES_A_DECHIFFRER = `SELECT id, rid, chiffre_brut FROM messages WHERE chiffre_brut IS NOT NULL AND texte IS NULL`;
+/** Pose le clair d'un message une fois déchiffré. */
+export const MAJ_TEXTE_MESSAGE = `UPDATE messages SET texte = ? WHERE id = ?`;
+/** Re-masque tout message chiffré au verrouillage : le clair local disparaît,
+ *  le ciphertext (`chiffre_brut`) reste pour re-déchiffrer au prochain déverrou. */
+export const MASQUER_MESSAGES_CHIFFRES = `UPDATE messages SET texte = NULL WHERE chiffre_brut IS NOT NULL`;
 
 export const SUPPRIMER_MESSAGE = `DELETE FROM messages WHERE id = ?`;
 
@@ -260,6 +283,7 @@ export function paramsMessage(m: MessageLocal): Parametre[] {
     m.reactions,
     m.urls,
     m.appelId,
+    m.chiffreBrut,
     m.misAJourLe,
   ];
 }
@@ -290,6 +314,8 @@ export function paramsAbonnement(a: AbonnementLocal): Parametre[] {
     b(a.ouvert),
     b(a.favori),
     a.luJusquA,
+    a.e2eKey,
+    a.e2eKeyId,
     a.misAJourLe,
   ];
 }

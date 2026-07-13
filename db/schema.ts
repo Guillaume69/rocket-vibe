@@ -60,6 +60,10 @@ export const abonnements = sqliteTable('abonnements', {
   favori: integer('favori', { mode: 'boolean' }).notNull().default(false),
   /** `ls` : date de dernière lecture, pour la barre « nouveaux messages ». */
   luJusquA: integer('lu_jusqu_a'),
+  /** `E2EKey` : clé AES du salon chiffrée RSA pour ce membre (E2EE, étape 10). */
+  e2eKey: text('e2e_key'),
+  /** `e2eKeyId` : UUID de la clé de salon, si le serveur le fournit à part. */
+  e2eKeyId: text('e2e_key_id'),
   misAJourLe: integer('mis_a_jour_le').notNull().default(0),
 });
 
@@ -103,6 +107,12 @@ export const messages = sqliteTable(
      * message. `null` partout ailleurs.
      */
     appelId: text('appel_id'),
+    /**
+     * Objet `content` d'un message chiffré (`rc.v2.aes-sha2`), sérialisé, gardé
+     * pour un déchiffrement différé au déverrouillage E2EE. `texte` reste null
+     * tant que le salon n'est pas déverrouillé. Voir `lib/e2e`.
+     */
+    chiffreBrut: text('chiffre_brut'),
     misAJourLe: integer('mis_a_jour_le').notNull().default(0),
   },
   // L'index couvre la requête de l'écran salon : `WHERE rid = ? ORDER BY horodatage DESC`.

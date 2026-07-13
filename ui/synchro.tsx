@@ -32,6 +32,7 @@ import {
 } from '../db/depot.ts';
 import { migrerBase } from '../db/migrer.ts';
 import { ClientDdp } from '../lib/ddp.ts';
+import { MoteurE2E } from '../lib/e2e/moteur.ts';
 import {
   restaurerEmojisCustom,
   synchroniserEmojisCustom,
@@ -45,6 +46,11 @@ import { enregistrerJeton } from '../lib/pushToken.ts';
 import { rattraperGlobal, rattraperSalon, reconcilierSalons } from '../lib/rattrapage.ts';
 import { Reconnecteur } from '../lib/reconnexion.ts';
 import { MoteurSynchro, STREAM_NOTIFY_USER } from '../lib/sync.ts';
+import {
+  effacerClePriveeE2E,
+  enregistrerClePriveeE2E,
+  lireClePriveeE2E,
+} from '../lib/sessionStore.ts';
 import { traduireCourant } from './i18n.ts';
 import { useSession } from './session.tsx';
 import { transportExpo } from './transportUpload.ts';
@@ -72,6 +78,15 @@ export type EtatSynchro =
        * en vol par portée (`'global'`, un `rid`) pour l'indicateur d'en-tête.
        */
       activite: MoteurActivite;
+      /** Moteur E2EE — à observer via `souscrire`/`estDeverrouille` (lecture). */
+      e2e: MoteurE2E;
+      /**
+       * Déverrouille les salons chiffrés (mot de passe E2E), puis déchiffre les
+       * messages déjà en base. Lève `ErreurE2E` si le mot de passe est faux.
+       */
+      deverrouillerE2E: (motDePasse: string) => Promise<void>;
+      /** Reverrouille : oublie la clé et re-masque le clair local. */
+      verrouillerE2E: () => Promise<void>;
       /**
        * Incrémentée à chaque raccordement réussi. Un écran qui a raté son
        * chargement initial (ouvert hors ligne) la met dans les deps de son
@@ -115,10 +130,22 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       // le même SQLite, leurs écritures ne doivent jamais s'intercaler dans
       // une transaction ouverte par un autre (voir db/depot.ts).
       const fileEcritures = creerFileEcritures();
+      // Moteur E2EE (lecture) : déchiffre au fil de l'ingestion dès qu'une clé
+      // de salon est disponible. La clé privée est rangée au Keystore PAR
+      // SERVEUR (comme la session) — d'où l'adaptateur lié à `baseUrl`.
+      const e2e = new MoteurE2E({
+        client,
+        stockage: {
+          lire: () => lireClePriveeE2E(session.baseUrl),
+          enregistrer: (jwk) => enregistrerClePriveeE2E(session.baseUrl, jwk),
+          effacer: () => effacerClePriveeE2E(session.baseUrl),
+        },
+      });
       const moteur = new MoteurSynchro(
         creerDepot(brute, fileEcritures),
         session.username,
         session.userId,
+        e2e,
       );
       const fichiers = new MoteurTeleversement({
         depot: creerDepotTeleversements(brute, fileEcritures),
@@ -151,6 +178,19 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       // doit pas retenir l'écran — les customs dégraderaient en `:nom:`.
       await restaurerEmojisCustom(session.baseUrl, depotEmojis, estAbandonne).catch(() => {});
       if (abandonne) return;
+
+      // Reprise E2EE silencieuse : si la clé privée est déjà au Keystore
+      // (déverrouillé lors d'une session passée), on réimporte sans mot de
+      // passe. Un échec (clé absente/abîmée) laisse simplement verrouillé.
+      const deverrouillerE2E = async (motDePasse: string): Promise<void> => {
+        await e2e.deverrouiller(motDePasse); // lève ErreurE2E si faux
+        await moteur.deverrouillageE2E(); // éclaire les messages déjà en base
+      };
+      const verrouillerE2E = async (): Promise<void> => {
+        await e2e.verrouiller();
+        await moteur.reverrouillageE2E(); // re-masque le clair local
+      };
+
       // « pret » dès la base disponible : l'UI montre le cache local sans
       // attendre le réseau.
       setSynchro({
@@ -165,8 +205,19 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         },
         presence,
         activite,
+        e2e,
+        deverrouillerE2E,
+        verrouillerE2E,
         generation: 0,
       });
+
+      // Après « pret » : reprise E2EE hors du chemin critique. Si une clé était
+      // en Keystore, on déchiffre les messages déjà chargés — l'UI (requête
+      // vive) se rafraîchit d'elle-même.
+      e2e
+        .reprendre()
+        .then((ok) => (ok ? moteur.deverrouillageE2E() : 0))
+        .catch(() => {});
 
       ddp.surEvenement((evenement) => {
         if (abandonne) return;

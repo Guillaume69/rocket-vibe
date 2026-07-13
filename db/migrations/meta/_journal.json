@@ -71,6 +71,13 @@
       "when": 1783931480841,
       "tag": "0009_rainy_the_santerians",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1783975852097,
+      "tag": "0010_dry_korvac",
+      "breakpoints": true
     }
   ]
 }

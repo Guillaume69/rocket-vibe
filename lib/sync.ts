@@ -16,6 +16,19 @@ import {
   type SalonLocal,
 } from './normaliser.ts';
 
+/**
+ * Ce que la synchro attend du moteur E2EE, structurellement (pas d'import de
+ * `lib/e2e`, donc pas de cycle) : `MoteurE2E` s'y conforme. Déchiffrement
+ * SYNCHRONE — forge l'est — branchable au fil de l'ingestion.
+ */
+export interface DechiffreurE2E {
+  dechiffrerContenu(
+    rid: string,
+    content: { algorithm: string; kid: string; iv: string; ciphertext: string },
+  ): string | null;
+  enregistrerCleSalon(rid: string, e2eKey: string | null): void;
+}
+
 export interface Depot {
   upsertMessage(m: MessageLocal): Promise<void>;
   upsertSalon(s: SalonLocal): Promise<void>;
@@ -45,6 +58,14 @@ export interface Depot {
    * backlog trop gros — voir `rattraperSalon`.
    */
   dernierMessageMisAJour(rid: string): Promise<number | null>;
+  /** Clés de salon connues (E2EKey des abonnements) — pour la passe E2EE. */
+  listerClesSalon(): Promise<{ rid: string; e2eKey: string }[]>;
+  /** Messages chiffrés encore illisibles (`chiffre_brut` présent, `texte` null). */
+  messagesADechiffrer(): Promise<{ id: string; rid: string; chiffreBrut: string }[]>;
+  /** Pose le clair d'un message après déchiffrement au déverrouillage. */
+  majTexteMessage(id: string, texte: string): Promise<void>;
+  /** Re-masque le clair de tous les messages chiffrés (au verrouillage). */
+  masquerMessagesChiffres(): Promise<void>;
   /**
    * Regroupe des écritures en une transaction. Une page d'historique de 50
    * messages doit produire UN commit et UN événement de changement — pas 50
@@ -101,11 +122,69 @@ export class MoteurSynchro {
   private readonly moi: string | null;
   /** Uid du compte courant — extrait l'autre participant d'un DM (présence). */
   private readonly moiUid: string | null;
+  /** Déchiffreur E2EE, ou `null` : un message chiffré reste alors au placeholder. */
+  private dechiffreur: DechiffreurE2E | null;
 
-  constructor(depot: Depot, moi: string | null = null, moiUid: string | null = null) {
+  constructor(
+    depot: Depot,
+    moi: string | null = null,
+    moiUid: string | null = null,
+    dechiffreur: DechiffreurE2E | null = null,
+  ) {
     this.depot = depot;
     this.moi = moi;
     this.moiUid = moiUid;
+    this.dechiffreur = dechiffreur;
+  }
+
+  /**
+   * Passe de déchiffrement au déverrouillage E2EE : charge toutes les clés de
+   * salon connues dans le déchiffreur, puis déchiffre les messages restés
+   * illisibles (ingérés verrouillés). Rend le nombre de messages éclaircis.
+   * Idempotent : un message déjà en clair n'est plus dans `messagesADechiffrer`.
+   */
+  async deverrouillageE2E(): Promise<number> {
+    if (this.dechiffreur === null) return 0;
+    for (const { rid, e2eKey } of await this.depot.listerClesSalon()) {
+      this.dechiffreur.enregistrerCleSalon(rid, e2eKey);
+    }
+    let n = 0;
+    for (const m of await this.depot.messagesADechiffrer()) {
+      let content: { algorithm: string; kid: string; iv: string; ciphertext: string };
+      try {
+        content = JSON.parse(m.chiffreBrut);
+      } catch {
+        continue;
+      }
+      const clair = this.dechiffreur.dechiffrerContenu(m.rid, content);
+      if (clair !== null) {
+        await this.depot.majTexteMessage(m.id, clair);
+        n++;
+      }
+    }
+    return n;
+  }
+
+  /** Verrouillage : efface le clair local des messages chiffrés (placeholder à nouveau). */
+  async reverrouillageE2E(): Promise<void> {
+    await this.depot.masquerMessagesChiffres();
+  }
+
+  /**
+   * Déchiffre sur place le `texte` d'un message chiffré, si on a la clé. Sans
+   * clé (verrouillé, salon pas encore déverrouillé) : `texte` reste null, le
+   * `chiffreBrut` conservé permettra une passe au déverrouillage.
+   */
+  private dechiffrer(message: MessageLocal): void {
+    if (message.chiffreBrut === null || this.dechiffreur === null) return;
+    let content: { algorithm: string; kid: string; iv: string; ciphertext: string };
+    try {
+      content = JSON.parse(message.chiffreBrut);
+    } catch {
+      return;
+    }
+    const clair = this.dechiffreur.dechiffrerContenu(message.rid, content);
+    if (clair !== null) message.texte = clair;
   }
 
   /**
@@ -170,6 +249,7 @@ export class MoteurSynchro {
       this.stats.ignores++;
       return;
     }
+    this.dechiffrer(message);
     await this.depot.upsertMessage(message);
     this.stats.messages++;
   }
@@ -205,6 +285,7 @@ export class MoteurSynchro {
       this.stats.ignores++;
       return;
     }
+    this.dechiffreur?.enregistrerCleSalon(abonnement.rid, abonnement.e2eKey);
     await this.depot.upsertAbonnement(abonnement);
     this.stats.abonnements++;
   }
@@ -252,6 +333,7 @@ export class MoteurSynchro {
           this.stats.ignores++;
           continue;
         }
+        this.dechiffrer(message);
         await tx.upsertMessage(message);
         this.stats.messages++;
         if (plusRecent === null || message.misAJourLe > plusRecent) {
@@ -290,6 +372,7 @@ export class MoteurSynchro {
           this.stats.ignores++;
           continue;
         }
+        this.dechiffreur?.enregistrerCleSalon(abonnement.rid, abonnement.e2eKey);
         await tx.upsertAbonnement(abonnement);
         this.stats.abonnements++;
         if (plusRecent === null || abonnement.misAJourLe > plusRecent) {

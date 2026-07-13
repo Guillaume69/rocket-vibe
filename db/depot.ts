@@ -29,6 +29,10 @@ import {
   SUPPRIMER_TELEVERSEMENT,
   LIRE_CURSEUR,
   DERNIER_MESSAGE_MIS_A_JOUR,
+  LISTER_CLES_SALON,
+  MESSAGES_A_DECHIFFRER,
+  MAJ_TEXTE_MESSAGE,
+  MASQUER_MESSAGES_CHIFFRES,
   LISTER_SORTIE_A_ENVOYER,
   MARQUER_SORTIE_ECHEC,
   PURGER_ABONNEMENTS_ABSENTS,
@@ -174,6 +178,26 @@ export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot
       return ligne?.mis_a_jour_le ?? null;
     },
     ecrireCurseur: (portee, flux, v) => enSerie(() => direct.ecrireCurseur(portee, flux, v)),
+    async listerClesSalon() {
+      const lignes = await brute.getAllAsync<{ rid: string; e2e_key: string }>(LISTER_CLES_SALON);
+      return lignes.map((l) => ({ rid: l.rid, e2eKey: l.e2e_key }));
+    },
+    async messagesADechiffrer() {
+      const lignes = await brute.getAllAsync<{ id: string; rid: string; chiffre_brut: string }>(
+        MESSAGES_A_DECHIFFRER,
+      );
+      return lignes.map((l) => ({ id: l.id, rid: l.rid, chiffreBrut: l.chiffre_brut }));
+    },
+    // La passe de déverrouillage écrit le clair : elle passe par la file, comme
+    // toute écriture, pour ne pas s'intercaler dans une transaction ouverte.
+    majTexteMessage: (id, texte) =>
+      enSerie(async () => {
+        await brute.runAsync(MAJ_TEXTE_MESSAGE, [texte, id]);
+      }),
+    masquerMessagesChiffres: () =>
+      enSerie(async () => {
+        await brute.runAsync(MASQUER_MESSAGES_CHIFFRES);
+      }),
     transaction(fn) {
       // Un lot = un commit = UN événement de changement pour `useLiveQuery`,
       // au lieu d'une ré-exécution de chaque requête vive par ligne insérée.

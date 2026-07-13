@@ -43,6 +43,14 @@ export type MessageLocal = {
   urls: string | null;
   /** `callId` d'un message d'appel (`t: 'videoconf'`), extrait du bloc. */
   appelId: string | null;
+  /**
+   * Objet `content` d'un message chiffré (`rc.v2.aes-sha2`), sérialisé. On le
+   * GARDE — contrairement au reste, où le blob chiffré est jeté — pour pouvoir
+   * déchiffrer APRÈS coup, au déverrouillage (E2EE, étape 10). `null` hors
+   * message chiffré, ou pour un chiffrement hérité `rc.v1` (dans `msg`, non
+   * pris en charge). Ce n'est pas du clair : rien à afficher tel quel.
+   */
+  chiffreBrut: string | null;
   misAJourLe: number;
 };
 
@@ -71,6 +79,10 @@ export type AbonnementLocal = {
   ouvert: boolean;
   favori: boolean;
   luJusquA: number | null;
+  /** `E2EKey` : clé AES du salon chiffrée RSA pour ce membre (keyID + base64). */
+  e2eKey: string | null;
+  /** `e2eKeyId` : UUID de la clé de salon, quand le serveur le fournit à part. */
+  e2eKeyId: string | null;
   misAJourLe: number;
 };
 
@@ -136,6 +148,9 @@ export function versMessage(brut: Record<string, unknown>): MessageLocal | null 
     // parsé au rendu (`lib/apercuLien.ts`).
     urls: chiffre ? null : jsonOuNull(brut.urls),
     appelId: typeSysteme === TYPE_APPEL ? callIdDuBloc(brut.blocks) : null,
+    // Le `content` chiffré est conservé pour un déchiffrement différé ; le `msg`
+    // opaque, lui, ne l'est jamais (voir `texte`).
+    chiffreBrut: chiffre ? jsonOuNull(brut.content) : null,
     // `_updatedAt` est l'horloge du serveur : c'est elle qui arbitre les
     // conflits entre le WebSocket et un rattrapage REST plus lent.
     misAJourLe: versEpoch(brut._updatedAt) ?? horodatage,
@@ -208,6 +223,8 @@ export function versAbonnement(brut: Record<string, unknown>): AbonnementLocal |
     ouvert: booleen(brut.open),
     favori: booleen(brut.f),
     luJusquA: versEpoch(brut.ls),
+    e2eKey: chaine(brut.E2EKey),
+    e2eKeyId: chaine(brut.e2eKeyId),
     misAJourLe: versEpoch(brut._updatedAt) ?? 0,
   };
 }

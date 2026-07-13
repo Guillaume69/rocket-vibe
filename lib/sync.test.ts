@@ -11,7 +11,7 @@ import {
   type MessageLocal,
   type SalonLocal,
 } from './normaliser.ts';
-import { MoteurSynchro, type Depot } from './sync.ts';
+import { MoteurSynchro, type DechiffreurE2E, type Depot } from './sync.ts';
 
 describe('versEpoch', () => {
   test('accepte l’EJSON de Rocket.Chat', () => {
@@ -203,6 +203,21 @@ function faireDepot() {
     lireCurseur: async (p, f) => curseurs.get(`${p}|${f}`) ?? null,
     ecrireCurseur: async (p, f, v) => void curseurs.set(`${p}|${f}`, v),
     dernierMessageMisAJour: async () => null,
+    listerClesSalon: async () =>
+      abonnements
+        .filter((a): a is AbonnementLocal & { e2eKey: string } => a.e2eKey !== null)
+        .map((a) => ({ rid: a.rid, e2eKey: a.e2eKey })),
+    messagesADechiffrer: async () =>
+      messages
+        .filter((m): m is MessageLocal & { chiffreBrut: string } => m.chiffreBrut !== null && m.texte === null)
+        .map((m) => ({ id: m.id, rid: m.rid, chiffreBrut: m.chiffreBrut })),
+    majTexteMessage: async (id, texte) => {
+      const m = messages.find((x) => x.id === id);
+      if (m !== undefined) m.texte = texte;
+    },
+    masquerMessagesChiffres: async () => {
+      for (const m of messages) if (m.chiffreBrut !== null) m.texte = null;
+    },
     transaction: async (fn) => fn(depot),
   };
   return { depot, messages, salons, abonnements, supprimes, supprimesSalons, supprimesParSubId };
@@ -320,5 +335,58 @@ describe('MoteurSynchro', () => {
     ]);
     assert.equal(messages.length, 2);
     assert.equal(moteur.stats.ignores, 1);
+  });
+});
+
+/** Message chiffré `rc.v2.aes-sha2` : ciphertext dans `content`, `msg` vide. */
+const msgChiffre = (id: string, ct: string): Record<string, unknown> => ({
+  _id: id,
+  rid: 'r1',
+  t: 'e2e',
+  msg: '',
+  ts: { $date: 1 },
+  u: { _id: 'u1' },
+  content: { algorithm: 'rc.v2.aes-sha2', kid: 'k', iv: 'iv', ciphertext: ct },
+  _updatedAt: 1,
+});
+
+describe('MoteurSynchro — déchiffrement E2EE', () => {
+  test('déchiffre à l’ingestion quand la clé est disponible', async () => {
+    const { depot, messages } = faireDepot();
+    const dechiffreur: DechiffreurE2E = {
+      dechiffrerContenu: (_rid, content) => (content.ciphertext === 'CT' ? 'clair !' : null),
+      enregistrerCleSalon: () => {},
+    };
+    const moteur = new MoteurSynchro(depot, 'moi', 'uid', dechiffreur);
+    await moteur.ingererMessages([msgChiffre('m1', 'CT')]);
+    assert.equal(messages[0].texte, 'clair !');
+    assert.notEqual(messages[0].chiffreBrut, null); // ciphertext gardé
+  });
+
+  test('verrouillé : reste illisible, puis la passe de déverrouillage l’éclaire', async () => {
+    const { depot, messages } = faireDepot();
+    let deverrouille = false;
+    const dechiffreur: DechiffreurE2E = {
+      dechiffrerContenu: (_rid, content) =>
+        deverrouille && content.ciphertext === 'CT' ? 'clair !' : null,
+      enregistrerCleSalon: () => {},
+    };
+    const moteur = new MoteurSynchro(depot, 'moi', 'uid', dechiffreur);
+    await moteur.ingererMessages([msgChiffre('m1', 'CT')]);
+    assert.equal(messages[0].texte, null); // verrouillé → placeholder
+
+    deverrouille = true;
+    const n = await moteur.deverrouillageE2E();
+    assert.equal(n, 1);
+    assert.equal(messages[0].texte, 'clair !');
+  });
+
+  test('sans déchiffreur, un message chiffré garde son ciphertext et reste illisible', async () => {
+    const { depot, messages } = faireDepot();
+    const moteur = new MoteurSynchro(depot, 'moi', 'uid'); // pas de déchiffreur
+    await moteur.ingererMessages([msgChiffre('m1', 'CT')]);
+    assert.equal(messages[0].texte, null);
+    assert.notEqual(messages[0].chiffreBrut, null);
+    assert.equal(await moteur.deverrouillageE2E(), 0);
   });
 });

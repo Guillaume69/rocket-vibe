@@ -75,6 +75,7 @@ function msg(o: Partial<MessageLocal> & { id: string; misAJourLe: number }) {
     reactions: null,
     urls: null,
     appelId: null,
+    chiffreBrut: null,
     ...o,
   });
 }
@@ -103,6 +104,8 @@ function abo(o: Partial<AbonnementLocal> & { rid: string; misAJourLe: number }) 
     ouvert: true,
     favori: false,
     luJusquA: null,
+    e2eKey: null,
+    e2eKeyId: null,
     ...o,
   });
 }

@@ -32,6 +32,10 @@ function fauxDepotComplet() {
       if (courant === undefined || valeur > courant) curseurs.set(cle, valeur);
     },
     dernierMessageMisAJour: async () => dernierLocal,
+    listerClesSalon: async () => [],
+    messagesADechiffrer: async () => [],
+    majTexteMessage: async () => {},
+    masquerMessagesChiffres: async () => {},
     transaction: async (fn) => fn(depot),
   };
   return {

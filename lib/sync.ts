@@ -18,7 +18,7 @@ import type { AbonnementLocal, MessageLocal, SalonLocal } from './normaliser.ts'
 export interface DechiffreurE2E {
   dechiffrerContenu(
     rid: string,
-    content: { algorithm: string; kid: string; iv: string; ciphertext: string },
+    content: { algorithm: string; ciphertext: string; kid?: string; iv?: string },
   ): string | null;
   enregistrerCleSalon(rid: string, e2eKey: string | null): void;
 }
@@ -136,7 +136,7 @@ export class MoteurSynchro {
     }
     let n = 0;
     for (const m of await this.depot.messagesADechiffrer()) {
-      let content: { algorithm: string; kid: string; iv: string; ciphertext: string };
+      let content: { algorithm: string; ciphertext: string; kid?: string; iv?: string };
       try {
         content = JSON.parse(m.chiffreBrut);
       } catch {
@@ -163,7 +163,7 @@ export class MoteurSynchro {
    */
   private dechiffrer(message: MessageLocal): void {
     if (message.chiffreBrut === null || this.dechiffreur === null) return;
-    let content: { algorithm: string; kid: string; iv: string; ciphertext: string };
+    let content: { algorithm: string; ciphertext: string; kid?: string; iv?: string };
     try {
       content = JSON.parse(message.chiffreBrut);
     } catch {

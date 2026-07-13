@@ -176,6 +176,42 @@ describe('crypto e2e — format hérité v1', () => {
   });
 });
 
+/** Octets bruts d'une clé AES (chaîne d'octets forge) + clé WebCrypto AES-CBC. */
+async function cleAes() {
+  const raw = rand(32);
+  const wc = await subtle.importKey('raw', raw, { name: 'AES-CBC' }, false, ['encrypt']);
+  return { octets: Buffer.from(raw).toString('binary'), wc };
+}
+
+describe('crypto e2e — messages CBC (compte ancien)', () => {
+  test('rc.v1 : ciphertext = keyID(12) + base64(IV(16) || CBC) → clair', async () => {
+    const { octets, wc } = await cleAes();
+    const iv = rand(16);
+    const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-CBC', iv }, wc, bytes(JSON.stringify({ msg: MESSAGE }))));
+    const blob = new Uint8Array(16 + ct.length);
+    blob.set(iv);
+    blob.set(ct, 16);
+    const contenu: ContenuChiffre = { algorithm: 'rc.v1.aes-sha2', ciphertext: 'af587341640c' + b64(blob) };
+    assert.equal(dechiffrerMessage(contenu, octets), MESSAGE);
+  });
+
+  test('rc.v2 CBC : iv de 16 octets séparé → clair', async () => {
+    const { octets, wc } = await cleAes();
+    const iv = rand(16);
+    const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-CBC', iv }, wc, bytes(JSON.stringify({ msg: MESSAGE }))));
+    const contenu: ContenuChiffre = { algorithm: 'rc.v2.aes-sha2', kid: 'eyJhbGciOiJB', iv: b64(iv), ciphertext: b64(ct) };
+    assert.equal(dechiffrerMessage(contenu, octets), MESSAGE);
+  });
+
+  test('message hérité au texte brut (pas de JSON) → texte tel quel', async () => {
+    const { octets, wc } = await cleAes();
+    const iv = rand(16);
+    const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-CBC', iv }, wc, bytes('coucou sans json')));
+    const contenu: ContenuChiffre = { algorithm: 'rc.v1.aes-sha2', ciphertext: 'af587341640c' + b64(new Uint8Array([...iv, ...ct])) };
+    assert.equal(dechiffrerMessage(contenu, octets), 'coucou sans json');
+  });
+});
+
 describe('crypto e2e — chaîne complète', () => {
   test('WebCrypto chiffre, forge déchiffre → message clair', async () => {
     const { enveloppe, e2eKey, contenu } = await fabriquer();

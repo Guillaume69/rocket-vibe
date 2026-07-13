@@ -35,13 +35,19 @@ export type EnveloppeClePrivee = {
   iterations: number;
 };
 
-/** Objet `content` d'un message chiffré `rc.v2.aes-sha2`. */
+/**
+ * Objet `content` d'un message chiffré. Trois formes observées :
+ *   - `rc.v2` GCM (serveur récent) : `{kid, iv(12 o), ciphertext(+tag)}` ;
+ *   - `rc.v2` CBC (compte ancien) : `{kid, iv(16 o), ciphertext}` ;
+ *   - `rc.v1` (hérité) : `{ciphertext}` seul, où `ciphertext = keyID(12) +
+ *     base64(IV(16) || AES-CBC)` — pas de champ `iv`/`kid` séparé.
+ * D'où `iv`/`kid` OPTIONNELS.
+ */
 export type ContenuChiffre = {
   algorithm: string;
-  /** UUID de la clé de salon — doit correspondre au keyID de `E2EKey`. */
-  kid: string;
-  iv: string;
   ciphertext: string;
+  kid?: string;
+  iv?: string;
 };
 
 /** Clé privée RSA importée, opaque, à garder en mémoire le temps d'une session. */
@@ -99,6 +105,14 @@ function dechiffrerGcm(cleOctets: string, ivOctets: string, ctAvecTag: string): 
   return dechiffreur.finish() ? dechiffreur.output.getBytes() : null;
 }
 
+/** Déchiffre un bloc AES-CBC 256 (remplissage PKCS#7 vérifié par `finish`). */
+function dechiffrerCbc(cleOctets: string, ivOctets: string, ct: string): string | null {
+  const dechiffreur = forge.cipher.createDecipher('AES-CBC', cleOctets);
+  dechiffreur.start({ iv: ivOctets });
+  dechiffreur.update(forge.util.createBuffer(ct));
+  return dechiffreur.finish() ? dechiffreur.output.getBytes() : null;
+}
+
 /**
  * `private_key` (tel que renvoyé par `e2e.fetchMyKeys`) → JWK JSON de la clé
  * privée RSA. Détecte le schéma :
@@ -151,14 +165,17 @@ export function dechiffrerClePrivee(privateKey: string, motDePasse: string, uid:
  * casse le remplissage PKCS#7 → `ErreurE2E`.
  */
 function dechiffrerClePriveeV1(octets: string, motDePasse: string, uid: string): string {
-  const iv = octets.substring(0, TAILLE_IV_CBC);
-  const chiffre = octets.substring(TAILLE_IV_CBC);
   const cleMaitre = forge.pkcs5.pbkdf2(forge.util.encodeUtf8(motDePasse), uid, 1000, 32, forge.md.sha256.create());
-  const dechiffreur = forge.cipher.createDecipher('AES-CBC', cleMaitre);
-  dechiffreur.start({ iv });
-  dechiffreur.update(forge.util.createBuffer(chiffre));
-  if (!dechiffreur.finish()) throw new ErreurE2E('mot de passe E2E invalide');
-  return forge.util.decodeUtf8(dechiffreur.output.getBytes());
+  const clair = dechiffrerCbc(cleMaitre, octets.substring(0, TAILLE_IV_CBC), octets.substring(TAILLE_IV_CBC));
+  if (clair === null) throw new ErreurE2E('mot de passe E2E invalide');
+  try {
+    // Un mauvais mot de passe peut passer le remplissage PKCS#7 par hasard : le
+    // clair est alors du binaire non-UTF8 → `decodeUtf8` lève. On l'assimile à
+    // un mot de passe faux plutôt qu'à un crash.
+    return forge.util.decodeUtf8(clair);
+  } catch {
+    throw new ErreurE2E('mot de passe E2E invalide');
+  }
 }
 
 /** JWK JSON → objet clé privée RSA forge (reconstruit depuis n,e,d,p,q,dp,dq,qi). */
@@ -204,14 +221,36 @@ export function dechiffrerCleSalon(e2eKey: string, clePrivee: ClePriveeRSA): str
  * un JSON `{"msg": "..."}` (parfois `text`). Lève `ErreurE2E` si l'auth échoue.
  */
 export function dechiffrerMessage(contenu: ContenuChiffre, cleSalonOctets: string): string {
-  const clair = dechiffrerGcm(
-    cleSalonOctets,
-    base64VersOctets(contenu.iv),
-    base64VersOctets(contenu.ciphertext),
-  );
+  let clair: string | null;
+  if (typeof contenu.iv === 'string' && contenu.iv !== '') {
+    // Structure moderne : iv et ciphertext séparés. IV de 12 octets → GCM
+    // (tag collé en fin) ; de 16 → CBC (le schéma de ce compte ancien).
+    const iv = base64VersOctets(contenu.iv);
+    const ct = base64VersOctets(contenu.ciphertext);
+    clair =
+      iv.length === 12
+        ? dechiffrerGcm(cleSalonOctets, iv, ct)
+        : dechiffrerCbc(cleSalonOctets, iv, ct);
+  } else {
+    // Structure héritée rc.v1 : ciphertext = keyID(12) + base64(IV(16) || CBC).
+    const blob = base64VersOctets(contenu.ciphertext.substring(12));
+    clair = dechiffrerCbc(cleSalonOctets, blob.substring(0, TAILLE_IV_CBC), blob.substring(TAILLE_IV_CBC));
+  }
   if (clair === null) throw new ErreurE2E('déchiffrement du message échoué');
-  const obj = JSON.parse(forge.util.decodeUtf8(clair)) as { msg?: unknown; text?: unknown };
-  if (typeof obj.msg === 'string') return obj.msg;
-  if (typeof obj.text === 'string') return obj.text;
-  return '';
+  let texte: string;
+  try {
+    texte = forge.util.decodeUtf8(clair);
+  } catch {
+    throw new ErreurE2E('déchiffrement du message échoué');
+  }
+  // Le clair est en général un JSON `{"msg": "..."}` ; certains messages
+  // hérités portent le texte brut — on retombe dessus.
+  try {
+    const obj = JSON.parse(texte) as { msg?: unknown; text?: unknown };
+    if (typeof obj.msg === 'string') return obj.msg;
+    if (typeof obj.text === 'string') return obj.text;
+  } catch {
+    // pas du JSON : texte brut.
+  }
+  return texte;
 }

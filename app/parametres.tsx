@@ -4,6 +4,8 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 
 import { obtenirJetonFcm } from '../lib/push.ts';
 import type { ClientRest } from '../lib/rest.ts';
+import { urlAvatar } from '../lib/upload.ts';
+import { TuileAvatar } from '../ui/kit.tsx';
 import { useSession } from '../ui/session.tsx';
 import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
 
@@ -124,6 +126,27 @@ function Parametres({
       keyboardShouldPersistTaps="handled"
     >
       <Stack.Screen options={{ title: 'Paramètres' }} />
+
+      <Pressable
+        onPress={() => routeur.push('/mon-profil')}
+        android_ripple={{ color: c.ondulation }}
+        unstable_pressDelay={DELAI_PRESSION_LISTE}
+        accessibilityRole="button"
+        accessibilityLabel="Modifier mon profil"
+        style={({ pressed }) => [
+          styles.carteProfil,
+          { backgroundColor: c.carteProfonde, borderColor: c.bordure, opacity: pressed ? 0.7 : 1 },
+        ]}
+      >
+        <TuileAvatar c={c} cle={username} initiale={username.charAt(0)} uri={urlAvatar(client, { username })} />
+        <View style={styles.profilTextes}>
+          <Text style={[styles.profilNom, { color: c.texte }]} numberOfLines={1}>
+            @{username}
+          </Text>
+          <Text style={[styles.profilLien, { color: c.cyan }]}>Modifier mon profil</Text>
+        </View>
+        <Text style={[styles.chevron, { color: c.attenue }]}>›</Text>
+      </Pressable>
 
       <Text style={[styles.sectionTitre, { color: c.attenue }]}>Notifications</Text>
       <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
@@ -268,6 +291,18 @@ function Paire({ c, cle, valeur }: { c: Couleurs; cle: string; valeur: string })
 
 const styles = StyleSheet.create({
   contenu: { padding: 20, gap: 12, paddingBottom: 40 },
+  carteProfil: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
+  },
+  profilTextes: { flex: 1, gap: 2 },
+  profilNom: { fontFamily: POLICES.titre, fontSize: 17 },
+  profilLien: { fontFamily: POLICES.corpsGras, fontSize: 13 },
+  chevron: { fontFamily: POLICES.titre, fontSize: 24 },
   sectionTitre: {
     fontFamily: POLICES.corpsFort,
     fontSize: 11,

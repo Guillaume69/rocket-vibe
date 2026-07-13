@@ -93,6 +93,43 @@ export async function televerser(options: {
 }
 
 /**
+ * Change MA photo de profil : `users.setAvatar`, multipart champ **`image`**
+ * (et non `file`). Endpoint distinct du flux `rooms.media` — pas de
+ * confirmation en deux temps, un seul POST. Le transport (injecté) porte le nom
+ * de champ ; c'est le seul écart avec `televerser`. Pas de progression : un
+ * avatar réduit est minuscule.
+ */
+export async function definirAvatar(options: {
+  client: ClientRest;
+  transport: TransportUpload;
+  fichier: FichierAEnvoyer;
+}): Promise<void> {
+  const { client, transport, fichier } = options;
+
+  const entetes: Record<string, string> = {};
+  if (client.identifiants !== null) {
+    entetes['X-Auth-Token'] = client.identifiants.authToken;
+    entetes['X-User-Id'] = client.identifiants.userId;
+  }
+
+  const { statut, corps } = await transport(
+    `${client.baseUrl}/api/v1/users.setAvatar`,
+    entetes,
+    fichier,
+  );
+
+  let json: { success?: boolean; error?: string };
+  try {
+    json = JSON.parse(corps) as typeof json;
+  } catch {
+    throw new ErreurUpload(`users.setAvatar : réponse non JSON (${statut}).`);
+  }
+  if (statut >= 400 || json.success === false) {
+    throw new ErreurUpload(json.error ?? `users.setAvatar a échoué (${statut}).`);
+  }
+}
+
+/**
  * Lecture protégée (7.4) : `FileUpload_ProtectFiles = true` sur le serveur
  * cible — `/file-upload/:id/:nom` exige `rc_uid`/`rc_token` en query.
  */

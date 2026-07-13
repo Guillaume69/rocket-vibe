@@ -7,7 +7,7 @@
 
 import MaskedView from '@react-native-masked-view/masked-view';
 import { LinearGradient } from 'expo-linear-gradient';
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -16,6 +16,7 @@ import {
   type StyleProp,
   StyleSheet,
   Text,
+  TextInput,
   type TextStyle,
   View,
   type ViewStyle,
@@ -314,11 +315,11 @@ export function BarreSynchro({ c, actif }: { c: Couleurs; actif: boolean }) {
 export function IndicateurSaisie({ c, phrase }: { c: Couleurs; phrase: string | null }) {
   const actif = phrase !== null;
   // Retenir la dernière phrase le temps du repli : le texte ne doit pas
-  // s'effacer d'un coup avant que la pastille se soit résorbée.
+  // s'effacer d'un coup avant que la pastille se soit résorbée. Ajusté PENDANT
+  // le rendu (comme `TuileAvatar` ci-dessus), pas dans un effet — un
+  // `setState` synchrone en effet déclenche des rendus en cascade (react-hooks).
   const [derniere, setDerniere] = useState(phrase);
-  useEffect(() => {
-    if (phrase !== null) setDerniere(phrase);
-  }, [phrase]);
+  if (phrase !== null && phrase !== derniere) setDerniere(phrase);
 
   // Hauteur naturelle mesurée du contenu (robuste au grossissement des polices,
   // plus sûr qu'une constante en dur). Tant qu'elle vaut 0, l'enveloppe n'impose
@@ -395,6 +396,62 @@ export function BadgeEtoile({ c, n }: { c: Couleurs; n: number }) {
   );
 }
 
+export type PropsChampPilule = {
+  c: Couleurs;
+  etiquette: string;
+  valeur: string;
+  icone?: string;
+  /** Champ « code », gros et espacé (saisie d'un code 2FA). */
+  grand?: boolean;
+  /** Champ multiligne (bio) : la pilule grandit, le texte s'aligne en haut. */
+  multiligne?: boolean;
+} & Omit<React.ComponentProps<typeof TextInput>, 'value' | 'style'>;
+
+/**
+ * Champ en pilule : contour cyan et anneau au focus, comme le design. Partagé
+ * par la connexion et l'écran « Mon profil » — une seule source pour le style.
+ */
+export function ChampPilule({ c, etiquette, valeur, icone, grand, multiligne, ...props }: PropsChampPilule) {
+  const [focus, setFocus] = useState(false);
+  const champ = useRef<TextInput>(null);
+  return (
+    <View style={styles.groupeChamp}>
+      <Text style={[styles.champEtiquette, { color: c.attenue }]}>{etiquette}</Text>
+      {/* Pressable : taper N'IMPORTE OÙ dans la pilule (padding, icône) focalise
+          le champ — le padding vit sur l'enveloppe, pas sur l'input lui-même. */}
+      <Pressable
+        onPress={() => champ.current?.focus()}
+        style={[
+          styles.pilule,
+          multiligne === true && styles.piluleMultiligne,
+          { backgroundColor: c.carte, borderColor: focus ? c.cyan : c.bordure },
+          // Anneau diffus au focus, DÉRIVÉ du token (`24` hex ≈ 14 % d'opacité).
+          focus && { boxShadow: `0px 0px 0px 3px ${c.cyan}24` },
+        ]}
+      >
+        {icone !== undefined && <Text style={styles.champIcone}>{icone}</Text>}
+        <TextInput
+          ref={champ}
+          value={valeur}
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType={multiligne === true ? 'default' : 'go'}
+          placeholderTextColor={c.texteTertiaire}
+          multiline={multiligne}
+          {...props}
+          onFocus={() => setFocus(true)}
+          onBlur={() => setFocus(false)}
+          style={[
+            grand === true ? styles.saisieGrande : styles.saisie,
+            multiligne === true && styles.saisieMultiligne,
+            { color: c.texte },
+          ]}
+        />
+      </Pressable>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   ctaEnveloppe: { borderRadius: 16, overflow: 'hidden' },
   cta: { paddingVertical: 15, paddingHorizontal: 18, alignItems: 'center', justifyContent: 'center', minHeight: 52 },
@@ -442,4 +499,27 @@ const styles = StyleSheet.create({
   etoile: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
   etoileGlyphe: { position: 'absolute', fontSize: 28, lineHeight: 28 },
   etoileTexte: { fontFamily: POLICES.corpsFort, fontSize: 11 },
+  groupeChamp: { gap: 6 },
+  champEtiquette: { fontFamily: POLICES.corpsGras, fontSize: 12.5, paddingLeft: 4 },
+  pilule: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1.5,
+    borderRadius: 16,
+    paddingHorizontal: 15,
+    paddingVertical: 13,
+  },
+  piluleMultiligne: { alignItems: 'flex-start' },
+  champIcone: { fontSize: 14 },
+  saisie: { flex: 1, fontFamily: POLICES.corpsSemi, fontSize: 15, padding: 0 },
+  saisieMultiligne: { minHeight: 76, textAlignVertical: 'top', lineHeight: 21 },
+  saisieGrande: {
+    flex: 1,
+    fontFamily: POLICES.titre,
+    fontSize: 26,
+    letterSpacing: 8,
+    textAlign: 'center',
+    padding: 0,
+  },
 });

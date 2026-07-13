@@ -3,6 +3,7 @@ import { describe, test } from 'node:test';
 
 import { ClientRest } from './rest.ts';
 import {
+  definirAvatar,
   ErreurUpload,
   televerser,
   urlAvatar,
@@ -78,6 +79,38 @@ describe('televerser', () => {
     const transport: TransportUpload = async () => ({ statut: 502, corps: '<html>bad gateway' });
     const { client } = clientAuthentifie({});
     await assert.rejects(televerser({ client, transport, rid: 'r1', fichier }), ErreurUpload);
+  });
+});
+
+describe('definirAvatar', () => {
+  test('poste vers users.setAvatar, authentifié', async () => {
+    let urlVue = '';
+    const transport: TransportUpload = async (url, entetes) => {
+      urlVue = url;
+      assert.equal(entetes['X-Auth-Token'], 'jeton-alice', "l'upload d'avatar est authentifié");
+      return { statut: 200, corps: JSON.stringify({ success: true }) };
+    };
+    const { client } = clientAuthentifie({});
+    await definirAvatar({ client, transport, fichier });
+    assert.equal(urlVue, 'http://x/api/v1/users.setAvatar');
+  });
+
+  test('un refus serveur devient une ErreurUpload claire', async () => {
+    const transport: TransportUpload = async () => ({
+      statut: 400,
+      corps: JSON.stringify({ success: false, error: 'Avatar change disabled' }),
+    });
+    const { client } = clientAuthentifie({});
+    await assert.rejects(
+      definirAvatar({ client, transport, fichier }),
+      (e: unknown) => e instanceof ErreurUpload && e.message === 'Avatar change disabled',
+    );
+  });
+
+  test('une réponse non JSON ne plante pas en TypeError', async () => {
+    const transport: TransportUpload = async () => ({ statut: 502, corps: '<html>' });
+    const { client } = clientAuthentifie({});
+    await assert.rejects(definirAvatar({ client, transport, fichier }), ErreurUpload);
   });
 });
 

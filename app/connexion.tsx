@@ -1,6 +1,6 @@
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { SERVEUR_PAR_DEFAUT } from '../db/migrer.ts';
@@ -9,7 +9,7 @@ import { ClientRest, ErreurDeuxFacteurs, ErreurRest, type CodeDeuxFacteurs } fro
 import { sonderServeur, type ProfilServeur } from '../lib/server.ts';
 import { hacher, lireDernierServeur, listerServeursConnus } from '../lib/sessionStore.ts';
 import { VueEvitantLeClavier } from '../ui/clavier.tsx';
-import { BoutonPrincipal, Marque, TuileAvatar } from '../ui/kit.tsx';
+import { BoutonPrincipal, ChampPilule, Marque, TuileAvatar } from '../ui/kit.tsx';
 import { useSession } from '../ui/session.tsx';
 import { type Couleurs, POLICES, useCouleurs } from '../ui/theme.ts';
 
@@ -477,50 +477,6 @@ function BlasonDeuxFacteurs({ c, sousTitre }: { c: Couleurs; sousTitre: string }
   );
 }
 
-type PropsChamp = {
-  c: Couleurs;
-  etiquette: string;
-  valeur: string;
-  icone?: string;
-  grand?: boolean;
-} & Omit<React.ComponentProps<typeof TextInput>, 'value' | 'style'>;
-
-/** Champ en pilule : contour cyan et anneau au focus, comme le design. */
-function ChampPilule({ c, etiquette, valeur, icone, grand, ...props }: PropsChamp) {
-  const [focus, setFocus] = useState(false);
-  const champ = useRef<TextInput>(null);
-  return (
-    <View style={styles.groupe}>
-      <Text style={[styles.etiquette, { color: c.attenue }]}>{etiquette}</Text>
-      {/* Pressable : taper N'IMPORTE OÙ dans la pilule (padding, icône) focalise
-          le champ — le padding vit sur l'enveloppe, pas sur l'input lui-même. */}
-      <Pressable
-        onPress={() => champ.current?.focus()}
-        style={[
-          styles.pilule,
-          { backgroundColor: c.carte, borderColor: focus ? c.cyan : c.bordure },
-          // Anneau diffus au focus, DÉRIVÉ du token (`24` hex ≈ 14 % d'opacité).
-          focus && { boxShadow: `0px 0px 0px 3px ${c.cyan}24` },
-        ]}
-      >
-        {icone !== undefined && <Text style={styles.icone}>{icone}</Text>}
-        <TextInput
-          ref={champ}
-          value={valeur}
-          autoCapitalize="none"
-          autoCorrect={false}
-          returnKeyType="go"
-          placeholderTextColor={c.texteTertiaire}
-          {...props}
-          onFocus={() => setFocus(true)}
-          onBlur={() => setFocus(false)}
-          style={[grand ? styles.saisieGrande : styles.saisie, { color: c.texte }]}
-        />
-      </Pressable>
-    </View>
-  );
-}
-
 /**
  * Ciel étoilé décoratif, en fond d'écran. Purement ornemental. `memo` car `c`
  * est stable (palette forcée) : inutile de le re-rendre à chaque frappe.
@@ -568,27 +524,6 @@ const styles = StyleSheet.create({
   retourTitre: { fontFamily: POLICES.titre, fontSize: 17 },
   chipServeur: { borderRadius: 14, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12 },
   chipTexte: { fontFamily: POLICES.corpsSemi, fontSize: 12.5 },
-  groupe: { gap: 6 },
-  etiquette: { fontFamily: POLICES.corpsGras, fontSize: 12.5, paddingLeft: 4 },
-  pilule: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    borderWidth: 1.5,
-    borderRadius: 16,
-    paddingHorizontal: 15,
-    paddingVertical: 13,
-  },
-  icone: { fontSize: 14 },
-  saisie: { flex: 1, fontFamily: POLICES.corpsSemi, fontSize: 15, padding: 0 },
-  saisieGrande: {
-    flex: 1,
-    fontFamily: POLICES.titre,
-    fontSize: 26,
-    letterSpacing: 8,
-    textAlign: 'center',
-    padding: 0,
-  },
   blason: { alignItems: 'center', gap: 4, marginTop: 6, marginBottom: 4 },
   bouclierGlyphe: { fontSize: 34 },
   blasonTitre: { fontFamily: POLICES.titre, fontSize: 21, marginTop: 12 },

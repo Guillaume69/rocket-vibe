@@ -13,6 +13,8 @@ import { AvatarSalon, BadgeEtoile, BarreSynchro, Marque, TuileAvatar } from '../
 import { COULEURS_PRESENCE, usePresence } from '../ui/presence.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
+import { useE2EDeverrouille } from '../ui/e2e.ts';
+import type { MoteurE2E } from '../lib/e2e/moteur.ts';
 import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
 
 /**
@@ -92,11 +94,22 @@ function ListeSalons({ c, client }: { c: Couleurs; client: ClientRest }) {
       </View>
     );
   }
-  return <Salons c={c} base={synchro.base} client={client} />;
+  return <Salons c={c} base={synchro.base} client={client} e2e={synchro.e2e} />;
 }
 
-function Salons({ c, base, client }: { c: Couleurs; base: BaseLocale; client: ClientRest }) {
+function Salons({
+  c,
+  base,
+  client,
+  e2e,
+}: {
+  c: Couleurs;
+  base: BaseLocale;
+  client: ClientRest;
+  e2e: MoteurE2E;
+}) {
   const t = useT();
+  const deverrouille = useE2EDeverrouille(e2e);
   // Deux requêtes vives, une PAR TABLE : le `useLiveQuery` de drizzle n'écoute
   // que la table du FROM. Avec une jointure, une écriture qui ne touche que
   // `abonnements` (lecture sur un autre appareil, salon masqué) ne
@@ -139,7 +152,13 @@ function Salons({ c, base, client }: { c: Couleurs; base: BaseLocale; client: Cl
       sections={sections}
       keyExtractor={(item) => item.salon.rid}
       renderItem={({ item }) => (
-        <LigneSalon c={c} salon={item.salon} abonnement={item.abonnement} client={client} />
+        <LigneSalon
+          c={c}
+          salon={item.salon}
+          abonnement={item.abonnement}
+          client={client}
+          deverrouille={deverrouille}
+        />
       )}
       // Un en-tête isolé (une seule section peuplée) n'apprend rien : on le tait.
       renderSectionHeader={({ section }) =>
@@ -174,11 +193,14 @@ function LigneSalon({
   salon,
   abonnement,
   client,
+  deverrouille,
 }: {
   c: Couleurs;
   salon: LigneDeSalon;
   abonnement: LigneDAbonnement | null;
   client: ClientRest;
+  /** E2EE déverrouillé sur l'appareil — pilote l'aperçu et l'icône cadenas. */
+  deverrouille: boolean;
 }) {
   const routeur = useRouter();
   const t = useT();
@@ -189,9 +211,13 @@ function LigneSalon({
   const nom = salon.nomAffiche ?? salon.nom ?? salon.rid;
   const nonLus = abonnement?.nonLus ?? 0;
   const enAlerte = abonnement?.alerte === true || nonLus > 0;
-  // L'aperçu d'un salon chiffré est du ciphertext : on ne le stocke même pas
-  // (voir `versSalon`), le cadenas explique le vide.
-  const apercu = salon.chiffre ? t('accueil.messagesChiffres') : (salon.dernierMessage ?? ' ');
+  // Salon chiffré : tant qu'aucun message n'est déchiffré (`dernier_message`
+  // null — le ciphertext n'est jamais stocké), le placeholder cadenas. Une fois
+  // déverrouillé, `majApercuChiffre` y a posé le dernier message clair.
+  const apercu =
+    salon.chiffre && salon.dernierMessage === null
+      ? t('accueil.messagesChiffres')
+      : (salon.dernierMessage ?? ' ');
 
   return (
     <Pressable
@@ -206,6 +232,7 @@ function LigneSalon({
           nom={nom}
           type={salon.type}
           chiffre={salon.chiffre}
+          chiffreDeverrouille={deverrouille}
           rid={salon.rid}
           dmAutreUid={salon.dmAutreUid}
           client={client}

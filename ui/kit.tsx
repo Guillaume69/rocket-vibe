@@ -186,6 +186,7 @@ export function AvatarSalon({
   nom,
   type,
   chiffre,
+  chiffreDeverrouille = false,
   rid,
   dmAutreUid,
   client,
@@ -196,6 +197,8 @@ export function AvatarSalon({
   nom: string;
   type: string | undefined;
   chiffre: boolean;
+  /** E2EE déverrouillé sur l'appareil : cadenas OUVERT plutôt que fermé. */
+  chiffreDeverrouille?: boolean;
   rid: string | undefined;
   /** L'autre participant d'un DM à deux, pour viser sa photo par uid. */
   dmAutreUid: string | null | undefined;
@@ -210,7 +213,11 @@ export function AvatarSalon({
         neutre
         taille={taille}
         rayon={rayon}
-        enfant={<Text style={{ fontSize: Math.round(taille * 0.42) }}>🔒</Text>}
+        enfant={
+          <Text style={{ fontSize: Math.round(taille * 0.42) }}>
+            {chiffreDeverrouille ? '🔓' : '🔒'}
+          </Text>
+        }
       />
     );
   }

@@ -33,6 +33,8 @@ import {
   MESSAGES_A_DECHIFFRER,
   MAJ_TEXTE_MESSAGE,
   MASQUER_MESSAGES_CHIFFRES,
+  MAJ_APERCU_CHIFFRE,
+  MASQUER_APERCU_CHIFFRE,
   LISTER_SORTIE_A_ENVOYER,
   MARQUER_SORTIE_ECHEC,
   PURGER_ABONNEMENTS_ABSENTS,
@@ -197,6 +199,11 @@ export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot
     masquerMessagesChiffres: () =>
       enSerie(async () => {
         await brute.runAsync(MASQUER_MESSAGES_CHIFFRES);
+        await brute.runAsync(MASQUER_APERCU_CHIFFRE);
+      }),
+    majApercuChiffre: () =>
+      enSerie(async () => {
+        await brute.runAsync(MAJ_APERCU_CHIFFRE);
       }),
     transaction(fn) {
       // Un lot = un commit = UN événement de changement pour `useLiveQuery`,

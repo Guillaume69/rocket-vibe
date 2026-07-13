@@ -131,6 +131,19 @@ export const MAJ_TEXTE_MESSAGE = `UPDATE messages SET texte = ? WHERE id = ?`;
 /** Re-masque tout message chiffré au verrouillage : le clair local disparaît,
  *  le ciphertext (`chiffre_brut`) reste pour re-déchiffrer au prochain déverrou. */
 export const MASQUER_MESSAGES_CHIFFRES = `UPDATE messages SET texte = NULL WHERE chiffre_brut IS NOT NULL`;
+/**
+ * Aperçu de la liste pour les salons chiffrés DÉVERROUILLÉS : le dernier
+ * message déchiffré. Sans déchiffrement, `dernier_message` reste null (le
+ * ciphertext n'est jamais stocké) → la liste montre le placeholder.
+ */
+export const MAJ_APERCU_CHIFFRE = `
+UPDATE salons SET dernier_message = (
+  SELECT texte FROM messages
+  WHERE messages.rid = salons.rid AND messages.texte IS NOT NULL
+  ORDER BY messages.horodatage DESC LIMIT 1
+) WHERE chiffre = 1`;
+/** Au verrouillage : l'aperçu redevient le placeholder (dernier_message null). */
+export const MASQUER_APERCU_CHIFFRE = `UPDATE salons SET dernier_message = NULL WHERE chiffre = 1`;
 
 export const SUPPRIMER_MESSAGE = `DELETE FROM messages WHERE id = ?`;
 

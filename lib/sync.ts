@@ -60,6 +60,8 @@ export interface Depot {
   majTexteMessage(id: string, texte: string): Promise<void>;
   /** Re-masque le clair de tous les messages chiffrés (au verrouillage). */
   masquerMessagesChiffres(): Promise<void>;
+  /** Rafraîchit l'aperçu de liste des salons chiffrés (dernier message déchiffré). */
+  majApercuChiffre(): Promise<void>;
   /**
    * Regroupe des écritures en une transaction. Une page d'historique de 50
    * messages doit produire UN commit et UN événement de changement — pas 50
@@ -148,6 +150,8 @@ export class MoteurSynchro {
         n++;
       }
     }
+    // Rafraîchit l'aperçu de liste des salons chiffrés (dernier message clair).
+    if (n > 0) await this.depot.majApercuChiffre();
     return n;
   }
 
@@ -196,6 +200,10 @@ export class MoteurSynchro {
         this.dechiffrer(changement.doc);
         await this.depot.upsertMessage(changement.doc);
         this.stats.messages++;
+        // Un message chiffré déchiffré en direct rafraîchit l'aperçu de liste.
+        if (changement.doc.chiffreBrut !== null && changement.doc.texte !== null) {
+          await this.depot.majApercuChiffre();
+        }
         return;
       case 'salon':
         await this.depot.upsertSalon(changement.doc);

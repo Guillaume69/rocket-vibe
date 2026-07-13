@@ -219,6 +219,7 @@ function faireDepot() {
     masquerMessagesChiffres: async () => {
       for (const m of messages) if (m.chiffreBrut !== null) m.texte = null;
     },
+    majApercuChiffre: async () => {},
     transaction: async (fn) => fn(depot),
   };
   return { depot, messages, salons, abonnements, supprimes, supprimesSalons, supprimesParSubId };

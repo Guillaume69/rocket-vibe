@@ -37,6 +37,7 @@ function fauxDepotComplet() {
     messagesADechiffrer: async () => [],
     majTexteMessage: async () => {},
     masquerMessagesChiffres: async () => {},
+    majApercuChiffre: async () => {},
     transaction: async (fn) => fn(depot),
   };
   return {

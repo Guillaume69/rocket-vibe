@@ -393,21 +393,33 @@ function Salon({
   );
 
   // Historique initial : les 50 derniers, dès que le type du salon est connu.
-  // Rejouer à chaque ouverture est inoffensif — mêmes upserts idempotents.
-  // `generation` dans les deps : un salon ouvert HORS LIGNE rate ce
-  // chargement ; chaque raccordement réussi l'incrémente et le refait partir.
+  // UNE FOIS qu'il a abouti EN LIGNE pour ce salon, la reconnexion le rattrape
+  // par `rattraperSalon` (chat.syncMessages ciblé sur le salon actif) : refaire
+  // le fetch complet des 50 derniers à chaque `generation` serait redondant, et
+  // — enveloppé dans `activite` — rallumerait la barre de synchro EN BOUCLE sur
+  // une connexion qui bat de l'aile (le symptôme « ça load à l'infini »). On ne
+  // le rejoue donc que tant qu'il n'a pas abouti pour CE salon : c'est le cas
+  // d'un salon ouvert HORS LIGNE (le fetch échoue, aucun curseur n'existe,
+  // `rattraperSalon` no-ope) — le retour du réseau, via `generation`, doit alors
+  // le refaire partir.
   const type = salon?.type;
+  const ridCharge = useRef<string | null>(null);
   useEffect(() => {
-    if (type === undefined) return;
+    if (type === undefined || ridCharge.current === rid) return;
     let annule = false;
     // Enveloppé dans `activite` : l'en-tête allume sa barre de synchro le temps
     // du fetch, même quand le cache local remplit déjà la liste (rien ne
     // signalait sinon qu'on la rafraîchit).
     activite
       .suivre(rid, chargerHistorique(type))
+      .then(() => {
+        // Abouti en ligne : plus la peine de le rejouer aux reconnexions.
+        if (!annule) ridCharge.current = rid;
+      })
       .catch((e: unknown) => {
         // Hors ligne : le cache local suffit. Mais pas en silence — un échec
-        // systématique ici a déjà masqué un vrai bug.
+        // systématique ici a déjà masqué un vrai bug. `ridCharge` reste nul :
+        // la prochaine reconnexion (`generation`) refera partir le chargement.
         console.warn('salon: historique initial échoué', e);
       })
       .finally(() => {

@@ -201,10 +201,20 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           // backoff du pilote garde sa main).
           await activite.suivre('global', rattraperGlobal(client, moteur, estAbandonne));
           if (salonActif !== null) {
-            await activite.suivre(
-              salonActif,
-              rattraperSalon(client, moteur, salonActif, estAbandonne),
-            );
+            // Le rattrapage d'UN salon ne doit JAMAIS faire échouer la connexion.
+            // Sur un gros salon (ex. #general) dont le curseur a pris du retard,
+            // `chat.syncMessages` doit renvoyer un backlog énorme et REJETTE au
+            // niveau réseau (« serveur injoignable »). Non isolé, cet échec faisait
+            // rejeter tout `connecter` → le pilote relançait la reconnexion
+            // COMPLÈTE en boucle (re-`rattraperGlobal`, `generation++`, tempête de
+            // re-rendus) → CPU saturé, comète bloquée « à l'infini ». Et comme le
+            // curseur ne s'avance qu'APRÈS l'ingestion, il restait coincé → la
+            // requête re-échouait à chaque tour : boucle sans fin. On isole donc :
+            // le stream DDP (live) et l'historique d'ouverture couvrent le salon,
+            // on loggue et on poursuit la connexion.
+            await activite
+              .suivre(salonActif, rattraperSalon(client, moteur, salonActif, estAbandonne))
+              .catch((e: unknown) => console.warn('rattraperSalon: échec ignoré', e));
           }
           // Ce qui attendait le réseau part maintenant. Pas d'await : un
           // échec d'envoi ne doit pas compter comme un échec de connexion.

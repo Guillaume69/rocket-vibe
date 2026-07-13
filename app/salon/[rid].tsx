@@ -295,18 +295,9 @@ function Salon({
   // d'historique, on ne bouge pas. Refs : le défilement ne re-rend rien.
   const liste = useRef<FlashListRef<LigneListe>>(null);
   const presDuBas = useRef(true);
-  // Près du plus ANCIEN chargé = près du data-end = HAUT visuel (liste inversée) :
-  // offset proche du max. FAUX au montage (on naît en bas) → un onEndReached
-  // fantôme au bas de liste ne déclenche AUCUNE pagination. Voir `chargerPlus`.
-  const presDuHaut = useRef(false);
   const dernierSuivi = useRef<{ id: string; horodatage: number } | null>(null);
   const surDefilement = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-    presDuBas.current = contentOffset.y <= PRES_DU_BAS_PX;
-    // À moins d'un écran du plus ancien chargé (généreux : couvre le seuil 0.4
-    // d'`onEndReachedThreshold`, donc une pagination LÉGITIME au scroll passe).
-    presDuHaut.current =
-      contentOffset.y >= contentSize.height - layoutMeasurement.height * 2;
+    presDuBas.current = e.nativeEvent.contentOffset.y <= PRES_DU_BAS_PX;
   }, []);
   const plusRecent = donnees[0];
   useEffect(() => {
@@ -450,15 +441,6 @@ function Salon({
   // plus — le passé d'un salon ne repousse pas.
   const passeEpuise = useRef(false);
   const chargerPlus = useCallback(() => {
-    // `onEndReached` se réarme à CHAQUE changement de data (pas seulement au
-    // défilement, cf. plus bas), et sur le montage FlashList le déclenche parfois
-    // alors qu'on est TOUT EN BAS (au plus récent). Sans garde, `setLimite` change
-    // la data → re-tir → nouvelle expansion → … : sur un GROS salon (ex. #general),
-    // ça remonte tout l'historique en boucle (backfill emballé, 180 % CPU / ~1 Go
-    // de RAM constatés). On ne pagine donc que si l'utilisateur est RÉELLEMENT
-    // remonté près du plus ancien chargé (`presDuHaut`, tenu par `surDefilement`).
-    // Au bas de liste `presDuHaut` est faux → le onEndReached fantôme est ignoré.
-    if (!presDuHaut.current) return;
     const epuise = fraiches.length < limite;
     if (!epuise) {
       setLimite((l) => l + PAGE);

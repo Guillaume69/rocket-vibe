@@ -64,6 +64,35 @@ export async function effacerSession(baseUrl: string): Promise<void> {
 }
 
 /**
+ * Clé privée E2EE déchiffrée (JWK JSON), rangée par serveur dans le Keystore,
+ * comme la session. Sa présence = ce serveur est « déverrouillé » : au
+ * redémarrage on réimporte sans redemander le mot de passe E2E. Verrouiller =
+ * l'effacer. On stocke le JWK DÉCHIFFRÉ (le blob chiffré du serveur ne servirait
+ * à rien sans le mot de passe) : c'est le même compromis que la session en clair
+ * dans le Keystore — protégé par l'écran de verrouillage de l'appareil, hors
+ * périmètre du modèle de menace E2EE (qui vise le serveur).
+ */
+async function cleE2E(baseUrl: string): Promise<string> {
+  const empreinte = await Crypto.digestStringAsync(
+    Crypto.CryptoDigestAlgorithm.SHA256,
+    sansSlashFinal(baseUrl),
+  );
+  return `e2e-${empreinte.slice(0, 32)}`;
+}
+
+export async function enregistrerClePriveeE2E(baseUrl: string, jwkJson: string): Promise<void> {
+  await SecureStore.setItemAsync(await cleE2E(baseUrl), jwkJson);
+}
+
+export async function lireClePriveeE2E(baseUrl: string): Promise<string | null> {
+  return SecureStore.getItemAsync(await cleE2E(baseUrl));
+}
+
+export async function effacerClePriveeE2E(baseUrl: string): Promise<void> {
+  await SecureStore.deleteItemAsync(await cleE2E(baseUrl));
+}
+
+/**
  * Le serveur de la dernière session ouverte. Les sessions sont rangées par
  * condensé d'URL : sans ce pointeur, le démarrage ne saurait pas laquelle
  * reprendre. L'étape 5.3 (multi-serveurs) en fera le « serveur actif ».

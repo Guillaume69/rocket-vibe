@@ -18,12 +18,12 @@
  */
 
 import type { BigEmoji, Blocks, Inlines, Paragraph } from '@rocket.chat/message-parser';
-import { router } from 'expo-router';
 import { Component, type ReactElement, type ReactNode } from 'react';
 import { Image, Linking, Platform, StyleSheet, Text, View } from 'react-native';
 
 import { urlEmojiCustom } from '../lib/emojisCustom.ts';
 import { texteDe, unicodeDEmoji, type Root } from '../lib/markdown.ts';
+import { ouvrirFicheProfil } from '../lib/profilPreload.ts';
 import type { Couleurs } from './theme.ts';
 
 const POLICE_MONO = Platform.select({ android: 'monospace', default: 'Menlo' });
@@ -36,13 +36,14 @@ function ouvrirLien(brut: string): void {
 }
 
 /**
- * Fiche de l'utilisateur mentionné. `router` singleton et non un hook : les
- * fonctions de rendu de ce fichier sont de simples fonctions, pas des
- * composants. `@all` / `@here` ne désignent personne — pas de fiche.
+ * Fiche de l'utilisateur mentionné. `ouvrirFicheProfil` (précharge + navigation)
+ * et non un hook : les fonctions de rendu de ce fichier sont de simples
+ * fonctions, pas des composants — le client vient du singleton posé par la
+ * session. `@all` / `@here` ne désignent personne — pas de fiche.
  */
 function ouvrirProfil(username: string): void {
   if (username === '' || username === 'all' || username === 'here') return;
-  router.push({ pathname: '/profil', params: { username } });
+  void ouvrirFicheProfil({ username });
 }
 
 /**

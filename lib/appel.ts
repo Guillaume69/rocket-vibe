@@ -83,3 +83,12 @@ export async function sonderAppelDisponible(client: ClientRest): Promise<boolean
     return false;
   }
 }
+
+/**
+ * Lecture SYNCHRONE du memo, sans sonder : `false` tant qu'on ne sait pas (même
+ * défaut prudent que la sonde). Sert à figer la présence du bouton « Appeler »
+ * dès la première frame quand la sonde a déjà tourné (fiche préchargée).
+ */
+export function appelDisponibleMemo(client: ClientRest): boolean {
+  return dispoParServeur.get(client.baseUrl) ?? false;
+}

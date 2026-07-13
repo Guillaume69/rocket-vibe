@@ -21,6 +21,7 @@ import {
 import type { messages } from '../db/schema.ts';
 import { arbreDuMessage } from '../lib/markdown.ts';
 import { texteSysteme } from '../lib/messagesSysteme.ts';
+import { ouvrirFicheProfil } from '../lib/profilPreload.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar, urlFichierProtege } from '../lib/upload.ts';
 import { LiensEmbed } from './carteEmbed.tsx';
@@ -58,7 +59,6 @@ export const LigneMessage = memo(function LigneMessage({
     hour: '2-digit',
     minute: '2-digit',
   });
-  const routeur = useRouter();
 
   const appuiLong = surAppuiLong === null ? undefined : () => surAppuiLong(message.id);
   const auteur = message.auteurNom ?? '?';
@@ -67,10 +67,12 @@ export const LigneMessage = memo(function LigneMessage({
   const teinteAuteur = degradeAvatar(auteur, c.avatarsDegrades)[0];
   // Fiche de l'auteur au tap sur l'avatar ou le pseudo. Pas de fiche pour un
   // auteur sans username (message chiffré indéchiffrable : `auteurNom` null).
+  // `ouvrirFicheProfil` précharge la fiche AVANT d'ouvrir la sheet (hauteur
+  // finale dès la première frame, pas de saut) — voir lib/profilPreload.
   const ouvrirProfil =
     message.auteurNom === null
       ? undefined
-      : () => routeur.push({ pathname: '/profil', params: { username: auteur } });
+      : () => void ouvrirFicheProfil({ username: auteur });
 
   return (
     <Pressable

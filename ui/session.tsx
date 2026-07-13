@@ -11,6 +11,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { appliquerSession, reprendreSession, seDeconnecter, type Session } from '../lib/auth.ts';
+import { definirClientProfil } from '../lib/profilPreload.ts';
 import { obtenirJetonFcm } from '../lib/push.ts';
 import { desenregistrerJeton } from '../lib/pushToken.ts';
 import { ClientRest, ErreurRest } from '../lib/rest.ts';
@@ -60,6 +61,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const jetonCourant = useRef<string | null>(null);
   useEffect(() => {
     jetonCourant.current = etat.phase === 'connecte' ? etat.session.authToken : null;
+    // Le préchargement de fiche (`lib/profilPreload`) ouvre `/profil` depuis des
+    // fonctions de rendu sans client sous la main : on lui pose le client actif.
+    definirClientProfil(etat.phase === 'connecte' ? etat.client : null);
   }, [etat]);
 
   useEffect(() => {

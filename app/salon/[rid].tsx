@@ -37,6 +37,7 @@ import type { CandidatMention } from '../../lib/completionMention.ts';
 import type { ClientDdp } from '../../lib/ddp.ts';
 import type { MoteurEnvoi } from '../../lib/envoi.ts';
 import type { MoteurTeleversement } from '../../lib/envoiFichiers.ts';
+import { ouvrirFicheProfil } from '../../lib/profilPreload.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSaisie, phraseSaisie } from '../../lib/saisie.ts';
 import { useActivite } from '../../ui/activite.ts';
@@ -1060,7 +1061,7 @@ function EnTeteSalon({
       <Pressable
         onPress={() =>
           estDM && salon?.dmAutreUid != null
-            ? routeur.push({ pathname: '/profil', params: { uid: salon.dmAutreUid } })
+            ? void ouvrirFicheProfil({ uid: salon.dmAutreUid })
             : routeur.push({ pathname: '/salon-info', params: { rid } })
         }
         android_ripple={{ color: c.ondulation, borderless: false }}

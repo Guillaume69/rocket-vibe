@@ -16,8 +16,9 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { demarrerConference, sonderAppelDisponible } from '../lib/appel.ts';
+import { appelDisponibleMemo, demarrerConference, sonderAppelDisponible } from '../lib/appel.ts';
 import type { StatutPresence } from '../lib/presence.ts';
+import { lireProfilPrecharge } from '../lib/profilPreload.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar } from '../lib/upload.ts';
 import { TuileAvatar } from '../ui/kit.tsx';
@@ -91,13 +92,27 @@ export default function EcranProfil() {
   const moi = etat.phase === 'connecte' ? etat.session.username : null;
   const moteur = synchro.phase === 'pret' ? synchro.moteur : null;
 
-  const [profil, setProfil] = useState<Profil | null>(null);
-  const [erreur, setErreur] = useState<string | null>(null);
-  const [appelDispo, setAppelDispo] = useState(false);
+  // Fiche préchargée AVANT l'ouverture (`lib/profilPreload`) : présente, on
+  // démarre DÉJÀ avec le profil complet et la disponibilité d'appel connue → la
+  // sheet `fitToContents` se mesure à sa hauteur finale dès la première frame,
+  // sans saut. Absente (réseau lent qui a fait sauter le plafond, ou pas de
+  // client) : on retombe sur le chargement async ci-dessous, avec le squelette.
+  const [precharge] = useState(() => lireProfilPrecharge({ username, uid }));
+  const [profil, setProfil] = useState<Profil | null>(() =>
+    precharge !== undefined ? profilDe(precharge.user) : null,
+  );
+  const [erreur, setErreur] = useState<string | null>(() =>
+    precharge !== undefined && precharge.user === undefined ? precharge.erreur : null,
+  );
+  const [appelDispo, setAppelDispo] = useState(() =>
+    client !== null ? appelDisponibleMemo(client) : false,
+  );
   const [occupe, setOccupe] = useState(false);
   const enVol = useRef(false);
 
   useEffect(() => {
+    // Déjà préchargé : ne rien recharger — un second rendu rebougerait la hauteur.
+    if (precharge !== undefined) return;
     const params =
       typeof username === 'string' && username !== ''
         ? { username }
@@ -123,7 +138,7 @@ export default function EcranProfil() {
     return () => {
       vivant = false;
     };
-  }, [client, username, uid]);
+  }, [client, username, uid, precharge]);
 
   /** Ouvre (ou crée) le DM, puis y va — la sheet est REMPLACÉE par le salon. */
   const ouvrirDm = useCallback(

@@ -40,6 +40,8 @@ export const LigneMessage = memo(function LigneMessage({
   c,
   message,
   client,
+  moiUid,
+  moiUsername,
   statutEnvoi,
   surReessayer,
   surAbandonner,
@@ -49,6 +51,10 @@ export const LigneMessage = memo(function LigneMessage({
   c: Couleurs;
   message: LigneDeMessage;
   client: ClientRest;
+  /** Mon uid — pour reconnaître MES messages et en rafraîchir le pseudo. */
+  moiUid: string | null;
+  /** Mon pseudo COURANT (session), autoritaire pour mes propres messages. */
+  moiUsername: string | null;
   statutEnvoi: 'en-attente' | 'echec' | null;
   surReessayer: (() => void) | null;
   surAbandonner: ((id: string) => void) | null;
@@ -62,7 +68,16 @@ export const LigneMessage = memo(function LigneMessage({
   });
 
   const appuiLong = surAppuiLong === null ? undefined : () => surAppuiLong(message.id);
-  const auteur = message.auteurNom ?? '?';
+  // `auteurNom` est le pseudo figé à l'ingestion : il reste sur l'ANCIEN nom après
+  // un renommage (la base locale est source de vérité, on ne re-tire pas
+  // l'historique). Pour MES propres messages, la session porte le pseudo courant
+  // (rafraîchi à l'édition et à la reprise) : on l'affiche à la place. Les
+  // messages d'autrui gardent leur instantané — mais le tap ouvre la fiche par
+  // uid, donc résout toujours le profil à jour.
+  const auteur =
+    (message.auteurId === moiUid && moiUsername !== null && moiUsername !== ''
+      ? moiUsername
+      : message.auteurNom) ?? '?';
   // Le pseudo prend la première teinte de sa propre tuile-avatar : nom et
   // avatar s'accordent, la même personne garde sa couleur d'un message à l'autre.
   const teinteAuteur = degradeAvatar(auteur, c.avatarsDegrades)[0];

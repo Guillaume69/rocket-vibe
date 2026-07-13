@@ -495,6 +495,8 @@ function Salon({
           c={c}
           message={item}
           client={client}
+          moiUid={client.identifiants?.userId ?? null}
+          moiUsername={moi}
           statutEnvoi={etatEnvoi?.statut ?? null}
           surReessayer={etatEnvoi?.statut === 'echec' ? reessayer : null}
           surAbandonner={etatEnvoi?.statut === 'echec' ? abandonner : null}
@@ -506,7 +508,7 @@ function Salon({
         />
       );
     },
-    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, ouvrirFil],
+    [c, client, moi, sortieParId, reessayer, abandonner, ouvrirActions, ouvrirFil],
   );
 
   return (

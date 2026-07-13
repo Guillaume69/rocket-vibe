@@ -22,6 +22,7 @@ import {
 } from '../lib/actionsMessage.ts';
 import { unicodeDeCodeCourt } from '../lib/emojis.ts';
 import type { ClientRest } from '../lib/rest.ts';
+import { useT } from '../ui/i18n.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
@@ -75,6 +76,7 @@ export default function EcranActionsMessage() {
   const synchro = useSynchro();
   const routeur = useRouter();
   const c = useCouleurs();
+  const t = useT();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   // Plafond de la sheet : au-delà, le contenu (le champ d'édition) défile.
@@ -106,7 +108,7 @@ export default function EcranActionsMessage() {
       if (annule) return;
       if (brut === undefined) {
         // Supprimé entre l'appui long et l'ouverture (stream deleteMessage).
-        setErreur('Message introuvable.');
+        setErreur(t('actionsMessage.messageIntrouvable'));
         return;
       }
       const [lignesSalon, regles] = await Promise.all([
@@ -130,12 +132,12 @@ export default function EcranActionsMessage() {
         }),
       });
     })().catch(() => {
-      if (!annule) setErreur('Chargement impossible.');
+      if (!annule) setErreur(t('actionsMessage.chargementImpossible'));
     });
     return () => {
       annule = true;
     };
-  }, [pret, id, base, client, moi]);
+  }, [pret, id, base, client, moi, t]);
 
   // Garde de réentrance dans une ref : l'état React d'un rendu passé
   // laisserait un double-tap déclencher l'action deux fois — et deux
@@ -154,13 +156,13 @@ export default function EcranActionsMessage() {
         await action();
         routeur.back();
       } catch (e) {
-        setErreur(e instanceof Error ? e.message : 'Action refusée.');
+        setErreur(e instanceof Error ? e.message : t('actionsMessage.actionRefusee'));
       } finally {
         enVol.current = false;
         setOccupe(false);
       }
     },
-    [routeur],
+    [routeur, t],
   );
 
   if (!pret || client === null || charge === null) {
@@ -221,7 +223,7 @@ export default function EcranActionsMessage() {
               onPress={() => setEdition(null)}
               style={({ pressed }) => [styles.boutonSecondaire, { opacity: pressed ? 0.6 : 1 }]}
             >
-              <Text style={[styles.boutonSecondaireTexte, { color: c.attenue }]}>Annuler</Text>
+              <Text style={[styles.boutonSecondaireTexte, { color: c.attenue }]}>{t('commun.annuler')}</Text>
             </Pressable>
             <Pressable
               disabled={occupe}
@@ -237,7 +239,7 @@ export default function EcranActionsMessage() {
                 { backgroundColor: c.accent, opacity: pressed || occupe ? 0.7 : 1 },
               ]}
             >
-              <Text style={[styles.boutonPrincipalTexte, { color: c.surAccent }]}>Enregistrer</Text>
+              <Text style={[styles.boutonPrincipalTexte, { color: c.surAccent }]}>{t('commun.enregistrer')}</Text>
             </Pressable>
           </View>
         </View>
@@ -248,7 +250,7 @@ export default function EcranActionsMessage() {
               c={c}
               disabled={occupe}
               icone="✏️"
-              libelle="Modifier"
+              libelle={t('actionsMessage.modifier')}
               onPress={() => {
                 void Haptics.selectionAsync();
                 setEdition(message.texte ?? '');
@@ -260,7 +262,7 @@ export default function EcranActionsMessage() {
               c={c}
               disabled={occupe}
               icone="📌"
-              libelle="Épingler"
+              libelle={t('actionsMessage.epingler')}
               onPress={() =>
                 void agir(() =>
                   client.post('chat.pinMessage', { corps: { messageId: message.id } }),
@@ -273,7 +275,7 @@ export default function EcranActionsMessage() {
               c={c}
               disabled={occupe}
               icone="🗑"
-              libelle="Supprimer"
+              libelle={t('commun.supprimer')}
               destructif
               onPress={() =>
                 void agir(() =>

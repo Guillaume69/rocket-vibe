@@ -54,6 +54,8 @@ import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sy
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
 import type { StatutPresence } from '../../lib/presence.ts';
 import { COULEURS_PRESENCE, usePresence } from '../../ui/presence.ts';
+import { useT } from '../../ui/i18n.ts';
+import type { CleTraduction } from '../../ui/messages.ts';
 import { useSession } from '../../ui/session.tsx';
 import { useSynchro } from '../../ui/synchro.tsx';
 import { type Couleurs, POLICES, useCouleurs } from '../../ui/theme.ts';
@@ -91,12 +93,13 @@ const PRES_DU_BAS_PX = 120;
 
 type LigneDeSalon = typeof salons.$inferSelect;
 
-/** Sous-titre d'en-tête d'un DM, selon la présence du correspondant. */
-const PHRASE_PRESENCE: Record<StatutPresence, string> = {
-  online: 'en ligne',
-  away: 'absent',
-  busy: 'occupé',
-  offline: 'hors ligne',
+/** Sous-titre d'en-tête d'un DM, selon la présence du correspondant. Clés de
+ *  traduction (constante module → pas de hook) résolues au rendu. */
+const PHRASE_PRESENCE: Record<StatutPresence, CleTraduction> = {
+  online: 'salon.presenceOnline',
+  away: 'salon.presenceAway',
+  busy: 'salon.presenceBusy',
+  offline: 'salon.presenceOffline',
 };
 
 export default function EcranSalon() {
@@ -171,6 +174,7 @@ function Salon({
   activite: MoteurActivite;
   generation: number;
 }) {
+  const t = useT();
   const [limite, setLimite] = useState(PAGE);
   // Tant que le premier passage d'historique n'est pas retombé, une base
   // vide signifie « chargement », pas « salon vide ».
@@ -484,7 +488,7 @@ function Salon({
         return (
           <View style={styles.barreNouveaux}>
             <View style={[styles.traitNouveaux, { backgroundColor: c.accent }]} />
-            <Text style={[styles.texteNouveaux, { color: c.accent }]}>✦ nouveaux messages</Text>
+            <Text style={[styles.texteNouveaux, { color: c.accent }]}>{t('salon.nouveauxMessages')}</Text>
             <View style={[styles.traitNouveaux, { backgroundColor: c.accent }]} />
           </View>
         );
@@ -506,7 +510,7 @@ function Salon({
         />
       );
     },
-    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, ouvrirFil],
+    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, ouvrirFil, t],
   );
 
   return (
@@ -530,7 +534,7 @@ function Salon({
         // le premier lot reste la bonne UX — une liste qui clignote non.)
         <View style={styles.centre}>
           {premierPassageFini ? (
-            <Text style={[styles.vide, { color: c.attenue }]}>Aucun message.</Text>
+            <Text style={[styles.vide, { color: c.attenue }]}>{t('salon.aucunMessage')}</Text>
           ) : (
             <ActivityIndicator />
           )}
@@ -556,16 +560,16 @@ function Salon({
           contentContainerStyle={styles.contenu}
         />
       )}
-      {televersementsEnEchec.map((t) => (
-        <View key={t.id} style={styles.bandeEchecFichier}>
+      {televersementsEnEchec.map((tele) => (
+        <View key={tele.id} style={styles.bandeEchecFichier}>
           <Text style={[styles.heure, { color: c.texteErreur }]} numberOfLines={1}>
-            ⚠️ {t.nom} non envoyé
+            {t('salon.fichierNonEnvoye', { nom: tele.nom })}
           </Text>
           <Pressable onPress={() => void fichiers.traiter()}>
-            <Text style={[styles.heure, { color: c.accent }]}>réessayer</Text>
+            <Text style={[styles.heure, { color: c.accent }]}>{t('salon.reessayer')}</Text>
           </Pressable>
-          <Pressable onPress={() => void fichiers.abandonner(t.id)}>
-            <Text style={[styles.heure, { color: c.attenue }]}>abandonner</Text>
+          <Pressable onPress={() => void fichiers.abandonner(tele.id)}>
+            <Text style={[styles.heure, { color: c.attenue }]}>{t('salon.abandonner')}</Text>
           </Pressable>
         </View>
       ))}
@@ -581,14 +585,14 @@ function Salon({
               onPress={() => routeur.push({ pathname: '/fil/[id]', params: { id: s.filId ?? '' } })}
             >
               <Text style={[styles.heure, { color: c.texteErreur }]} numberOfLines={1}>
-                ⚠️ Réponse de fil non envoyée — ouvrir
+                {t('salon.reponseFilNonEnvoyee')}
               </Text>
             </Pressable>
             <Pressable onPress={reessayer}>
-              <Text style={[styles.heure, { color: c.accent }]}>réessayer</Text>
+              <Text style={[styles.heure, { color: c.accent }]}>{t('salon.reessayer')}</Text>
             </Pressable>
             <Pressable onPress={() => abandonner(s.id)}>
-              <Text style={[styles.heure, { color: c.attenue }]}>abandonner</Text>
+              <Text style={[styles.heure, { color: c.attenue }]}>{t('salon.abandonner')}</Text>
             </Pressable>
           </View>
         ))}
@@ -675,6 +679,7 @@ function Composer({
   // `.m4a` AAC (préréglage HIGH_QUALITY) — le MIME attendu est `audio/mp4`.
   const enregistreur = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const routeur = useRouter();
+  const t = useT();
   const { height: hauteurEcran } = useWindowDimensions();
 
   // Autocomplétion des emojis : curseur + insertion, mécanique partagée avec le
@@ -724,7 +729,7 @@ function Composer({
           effacerBrouillon();
         })
         .catch((e: unknown) =>
-          setErreurFichier(e instanceof Error ? e.message : 'Téléversement impossible.'),
+          setErreurFichier(e instanceof Error ? e.message : t('salon.televersementImpossible')),
         )
         .finally(() => setEnvoiFichier(false));
       return;
@@ -737,7 +742,7 @@ function Composer({
     // `envoyer` : d'ici, rien à attendre. Un refus deviendra un statut
     // « échec » actionnable sur la ligne elle-même.
     envoi.envoyer(rid, legende).catch((e: unknown) => console.warn('envoi: échec local', e));
-  }, [brouillon, enAttente, envoi, fichiers, rid, effacerBrouillon, reinitialiser]);
+  }, [brouillon, enAttente, envoi, fichiers, rid, effacerBrouillon, reinitialiser, t]);
 
   const basculerVocal = useCallback(async () => {
     setErreurFichier(null);
@@ -745,7 +750,7 @@ function Composer({
       if (!enregistrement) {
         const permission = await AudioModule.requestRecordingPermissionsAsync();
         if (!permission.granted) {
-          setErreurFichier('Accès au micro refusé.');
+          setErreurFichier(t('salon.microRefuse'));
           return;
         }
         await enregistreur.prepareToRecordAsync();
@@ -757,7 +762,7 @@ function Composer({
       await enregistreur.stop();
       const uri = enregistreur.uri;
       if (uri === null) {
-        setErreurFichier('Enregistrement vide.');
+        setErreurFichier(t('salon.enregistrementVide'));
         return;
       }
       // On ne l'envoie plus tout de suite : le vocal se pose au-dessus du
@@ -770,9 +775,9 @@ function Composer({
       });
     } catch (e) {
       setEnregistrement(false);
-      setErreurFichier(e instanceof Error ? e.message : 'Enregistrement impossible.');
+      setErreurFichier(e instanceof Error ? e.message : t('salon.enregistrementImpossible'));
     }
-  }, [enregistrement, enregistreur]);
+  }, [enregistrement, enregistreur, t]);
 
   // Normalise un média/fichier choisi en pièce en attente : compression (7.3)
   // DÈS le choix — l'aperçu montre déjà ce qui partira (une photo repart en
@@ -795,7 +800,7 @@ function Composer({
       // sélecteur de fichiers n'en demandent pas.
       const permission = await ImagePicker.requestCameraPermissionsAsync();
       if (!permission.granted) {
-        setErreurFichier('Accès à la caméra refusé.');
+        setErreurFichier(t('salon.cameraRefuse'));
         return;
       }
       const res = await ImagePicker.launchCameraAsync({
@@ -804,7 +809,7 @@ function Composer({
       });
       if (!res.canceled) await poserPieceJointe(assetVersFichier(res.assets[0]));
     },
-    [poserPieceJointe],
+    [poserPieceJointe, t],
   );
 
   const depuisBibliotheque = useCallback(async () => {
@@ -847,9 +852,9 @@ function Composer({
       else if (source === 'bibliotheque') await depuisBibliotheque();
       else await depuisFichier();
     } catch (e) {
-      setErreurFichier(e instanceof Error ? e.message : 'Sélection impossible.');
+      setErreurFichier(e instanceof Error ? e.message : t('salon.selectionImpossible'));
     }
-  }, [routeur, depuisCamera, depuisBibliotheque, depuisFichier]);
+  }, [routeur, depuisCamera, depuisBibliotheque, depuisFichier, t]);
 
   // Dégradation E2EE (ROADMAP §6.6) : on n'implémente pas le chiffrement, et
   // le serveur cible REJETTE un message en clair dans un salon chiffré
@@ -858,18 +863,14 @@ function Composer({
   if (chiffre) {
     return (
       <View style={[styles.composer, { borderTopColor: c.bordureDouce }]}>
-        <Text style={[styles.noteComposer, { color: c.attenue }]}>
-          🔒 Salon chiffré de bout en bout — écriture non prise en charge par cette application.
-        </Text>
+        <Text style={[styles.noteComposer, { color: c.attenue }]}>{t('salon.chiffre')}</Text>
       </View>
     );
   }
   if (lectureSeule) {
     return (
       <View style={[styles.composer, { borderTopColor: c.bordureDouce }]}>
-        <Text style={[styles.noteComposer, { color: c.attenue }]}>
-          Ce salon est en lecture seule.
-        </Text>
+        <Text style={[styles.noteComposer, { color: c.attenue }]}>{t('salon.lectureSeule')}</Text>
       </View>
     );
   }
@@ -916,7 +917,7 @@ function Composer({
           disabled={envoiFichier || enregistrement || enAttente !== null}
           android_ripple={{ color: c.ondulation, borderless: true }}
           style={styles.boutonJoindre}
-          accessibilityLabel="Joindre un fichier"
+          accessibilityLabel={t('salon.joindreFichier')}
         >
           {envoiFichier ? (
             <ActivityIndicator size="small" color={c.accent} />
@@ -932,7 +933,7 @@ function Composer({
           onPress={basculerEmoji}
           android_ripple={{ color: c.ondulation, borderless: true }}
           style={styles.boutonEmoji}
-          accessibilityLabel={panneauEmoji ? 'Revenir au clavier' : 'Choisir un emoji'}
+          accessibilityLabel={panneauEmoji ? t('salon.revenirClavier') : t('salon.choisirEmoji')}
         >
           <Text style={styles.attache}>{panneauEmoji ? '⌨️' : '😀'}</Text>
         </Pressable>
@@ -944,7 +945,7 @@ function Composer({
           onSelectionChange={surSelection}
           // Toucher le champ referme le panneau : le clavier reprend sa place.
           onFocus={() => setPanneauEmoji(false)}
-          placeholder={enAttente !== null ? 'Ajouter une légende…' : 'Message'}
+          placeholder={enAttente !== null ? t('salon.ajouterLegende') : t('salon.messagePlaceholder')}
           placeholderTextColor={c.texteTertiaire}
           multiline
           style={[styles.champComposer, { color: c.texte, backgroundColor: c.carte }]}
@@ -954,7 +955,7 @@ function Composer({
             onPress={envoyer}
             disabled={envoiFichier}
             style={({ pressed }) => ({ opacity: pressed || envoiFichier ? 0.7 : 1 })}
-            accessibilityLabel="Envoyer"
+            accessibilityLabel={t('commun.envoyer')}
           >
             <TuileAvatar
               c={c}
@@ -969,7 +970,7 @@ function Composer({
             onPress={() => void basculerVocal()}
             disabled={envoiFichier}
             style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
-            accessibilityLabel={enregistrement ? "Arrêter l'enregistrement" : 'Message vocal'}
+            accessibilityLabel={enregistrement ? t('salon.arreterEnregistrement') : t('salon.messageVocal')}
           >
             <TuileAvatar
               c={c}
@@ -1018,6 +1019,7 @@ function EnTeteSalon({
   // allument la barre — même portée `rid` que le fetch enveloppé plus haut.
   const enSynchro = useActivite(rid);
   const routeur = useRouter();
+  const t = useT();
 
   // Disponibilité de la visioconférence : masque le bouton là où aucun
   // fournisseur n'est configuré (Docker local), l'affiche sur la cible (Jitsi).
@@ -1043,16 +1045,16 @@ function EnTeteSalon({
         const callId = await demarrerConference(client, rid);
         routeur.push({ pathname: '/appel/[callId]', params: { callId, titre: nom } });
       } catch {
-        Alert.alert('Appel', "Impossible de démarrer l'appel pour ce salon.");
+        Alert.alert(t('salon.appelTitre'), t('salon.appelImpossibleDemarrer'));
       } finally {
         setDemarrage(false);
       }
     })();
-  }, [demarrage, client, rid, routeur, nom]);
+  }, [demarrage, client, rid, routeur, nom, t]);
 
   return (
     <View style={[styles.entete, { paddingTop: insetTop + 6, borderBottomColor: c.bordureDouce }]}>
-      <Pressable onPress={onRetour} hitSlop={10} accessibilityRole="button" accessibilityLabel="Retour">
+      <Pressable onPress={onRetour} hitSlop={10} accessibilityRole="button" accessibilityLabel={t('salon.retour')}>
         <Text style={[styles.retour, { color: c.violet }]}>‹</Text>
       </Pressable>
       {/* Le nom (et l'avatar) ouvrent la fiche : celle de l'INTERLOCUTEUR pour
@@ -1067,7 +1069,7 @@ function EnTeteSalon({
         android_ripple={{ color: c.ondulation, borderless: false }}
         style={styles.enteteFiche}
         accessibilityRole="button"
-        accessibilityLabel="Informations de la conversation"
+        accessibilityLabel={t('salon.infosConversation')}
       >
         <AvatarSalon
           c={c}
@@ -1089,7 +1091,7 @@ function EnTeteSalon({
               style={[styles.enteteSous, { color: COULEURS_PRESENCE[statutDM] }]}
               numberOfLines={1}
             >
-              {PHRASE_PRESENCE[statutDM]}
+              {t(PHRASE_PRESENCE[statutDM])}
             </Text>
           )}
         </View>
@@ -1101,7 +1103,7 @@ function EnTeteSalon({
           hitSlop={8}
           android_ripple={{ color: c.ondulation, borderless: true }}
           accessibilityRole="button"
-          accessibilityLabel="Démarrer un appel vidéo"
+          accessibilityLabel={t('salon.demarrerAppel')}
           style={({ pressed }) => ({ opacity: pressed || demarrage ? 0.5 : 1 })}
         >
           <Text style={styles.iconeEntete}>📞</Text>

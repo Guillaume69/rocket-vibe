@@ -18,7 +18,9 @@ import * as SecureStore from 'expo-secure-store';
 import { useCallback, useSyncExternalStore } from 'react';
 
 import {
+  type CleTraduction,
   type Langue,
+  type ParamsTraduction,
   type PreferenceLangue,
   type Traducteur,
   langueAppareil,
@@ -88,4 +90,14 @@ export function usePreferenceLangue(): PreferenceLangue {
 export function useT(): Traducteur {
   const langue = useLangue();
   return useCallback((cle, params) => traduire(langue, cle, params), [langue]);
+}
+
+/**
+ * Traduit avec la langue ACTIVE, HORS de tout composant (handlers natifs,
+ * callbacks module-level qui n'ont pas accès aux hooks). Reflète le choix
+ * courant de l'utilisateur — à préférer à `traduire(langueAppareil(), …)`, qui
+ * ignorerait une langue explicitement sélectionnée dans les paramètres.
+ */
+export function traduireCourant(cle: CleTraduction, params?: ParamsTraduction): string {
+  return traduire(langueActive, cle, params);
 }

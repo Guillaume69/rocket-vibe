@@ -35,18 +35,20 @@ import { hacher } from '../lib/sessionStore.ts';
 import { definirAvatar, type FichierAEnvoyer, urlAvatar } from '../lib/upload.ts';
 import { choisirAvatar } from '../ui/choisirAvatar.ts';
 import { VueEvitantLeClavier } from '../ui/clavier.tsx';
+import { traduireCourant, useT } from '../ui/i18n.ts';
 import { BoutonPrincipal, ChampPilule, TuileAvatar } from '../ui/kit.tsx';
+import type { CleTraduction } from '../ui/messages.ts';
 import { useSession } from '../ui/session.tsx';
 import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
 import { transportAvatarExpo } from '../ui/transportUpload.ts';
 
 /** Les quatre statuts choisissables, avec leur pastille (tokens du thème). */
 type TeintePresence = 'enLigne' | 'absent' | 'danger' | 'horsLigne';
-const PRESENCES: { valeur: StatutDefaut; libelle: string; teinte: TeintePresence }[] = [
-  { valeur: 'online', libelle: 'En ligne', teinte: 'enLigne' },
-  { valeur: 'away', libelle: 'Absent', teinte: 'absent' },
-  { valeur: 'busy', libelle: 'Occupé', teinte: 'danger' },
-  { valeur: 'offline', libelle: 'Hors ligne', teinte: 'horsLigne' },
+const PRESENCES: { valeur: StatutDefaut; cle: CleTraduction; teinte: TeintePresence }[] = [
+  { valeur: 'online', cle: 'monProfil.presenceEnLigne', teinte: 'enLigne' },
+  { valeur: 'away', cle: 'monProfil.presenceAbsent', teinte: 'absent' },
+  { valeur: 'busy', cle: 'monProfil.presenceOccupe', teinte: 'danger' },
+  { valeur: 'offline', cle: 'monProfil.presenceHorsLigne', teinte: 'horsLigne' },
 ];
 
 type Bandeau = { type: 'succes' | 'erreur' | 'info'; texte: string };
@@ -69,6 +71,7 @@ function FormMonProfil({
   client: ClientRest;
   username: string;
 }) {
+  const t = useT();
   const routeur = useRouter();
   const { majProfilSession } = useSession();
   // `initial` = référence lue au chargement ; `form` = valeurs en cours d'édition.
@@ -100,7 +103,7 @@ function FormMonProfil({
         setForm(p);
       })
       .catch((e: unknown) => {
-        if (vivant) setChargeErreur(e instanceof Error ? e.message : 'Profil illisible.');
+        if (vivant) setChargeErreur(e instanceof Error ? e.message : traduireCourant('monProfil.profilIllisible'));
       });
     return () => {
       vivant = false;
@@ -120,9 +123,9 @@ function FormMonProfil({
         setBandeau(null);
       }
     } catch (e) {
-      setBandeau({ type: 'erreur', texte: e instanceof Error ? e.message : 'Sélection impossible.' });
+      setBandeau({ type: 'erreur', texte: e instanceof Error ? e.message : t('monProfil.selectionImpossible') });
     }
-  }, []);
+  }, [t]);
 
   const enregistrer = useCallback(
     async (deuxFacteurs?: CodeDeuxFacteurs) => {
@@ -132,13 +135,13 @@ function FormMonProfil({
       const statutChange = form.status !== initial.status || form.statusText !== initial.statusText;
       const avatarChange = avatarLocal !== null;
       if (Object.keys(infos).length === 0 && !statutChange && !avatarChange) {
-        setBandeau({ type: 'info', texte: 'Rien à enregistrer.' });
+        setBandeau({ type: 'info', texte: t('monProfil.rienAEnregistrer') });
         return;
       }
       if (exigeMotDePasse(infos) && motDePasse.trim() === '') {
         setBandeau({
           type: 'erreur',
-          texte: 'Ton mot de passe actuel est requis pour changer l’e-mail ou le nom d’utilisateur.',
+          texte: t('monProfil.mdpRequis'),
         });
         return;
       }
@@ -172,18 +175,18 @@ function FormMonProfil({
         setDemande2FA(null);
         setCode('');
         setMotDePasse('');
-        setBandeau({ type: 'succes', texte: 'Profil enregistré ✨' });
+        setBandeau({ type: 'succes', texte: t('monProfil.profilEnregistre') });
       } catch (e) {
         if (e instanceof ErreurDeuxFacteurs) {
           // Le serveur veut un second facteur — ou refuse celui qu'on vient
           // d'envoyer, auquel cas il relève la même erreur.
-          if (deuxFacteurs !== undefined) setBandeau({ type: 'erreur', texte: 'Code refusé. Réessaie.' });
+          if (deuxFacteurs !== undefined) setBandeau({ type: 'erreur', texte: t('monProfil.codeRefuse') });
           setCode('');
           setDemande2FA(e);
         } else {
           setBandeau({
             type: 'erreur',
-            texte: e instanceof Error ? e.message : 'Enregistrement impossible.',
+            texte: e instanceof Error ? e.message : t('monProfil.enregistrementImpossible'),
           });
         }
       } finally {
@@ -191,7 +194,7 @@ function FormMonProfil({
         setOccupe(false);
       }
     },
-    [form, initial, avatarLocal, motDePasse, client, majProfilSession],
+    [form, initial, avatarLocal, motDePasse, client, majProfilSession, t],
   );
 
   const validerCode = useCallback(async () => {
@@ -202,15 +205,15 @@ function FormMonProfil({
     } catch (e) {
       setBandeau({
         type: 'erreur',
-        texte: e instanceof Error ? e.message : 'Préparation du code impossible.',
+        texte: e instanceof Error ? e.message : t('monProfil.preparationCodeImpossible'),
       });
     }
-  }, [demande2FA, code, enregistrer]);
+  }, [demande2FA, code, enregistrer, t]);
 
   if (chargeErreur !== null) {
     return (
       <VueEvitantLeClavier>
-        <Stack.Screen options={{ title: 'Mon profil' }} />
+        <Stack.Screen options={{ title: t('monProfil.titre') }} />
         <View style={styles.centre}>
           <Text style={[styles.erreurCharge, { color: c.texteErreur }]}>{chargeErreur}</Text>
         </View>
@@ -221,7 +224,7 @@ function FormMonProfil({
   if (form === null) {
     return (
       <VueEvitantLeClavier>
-        <Stack.Screen options={{ title: 'Mon profil' }} />
+        <Stack.Screen options={{ title: t('monProfil.titre') }} />
         <View style={styles.centre}>
           <ActivityIndicator color={c.accent} />
         </View>
@@ -234,14 +237,14 @@ function FormMonProfil({
 
   return (
     <VueEvitantLeClavier>
-      <Stack.Screen options={{ title: 'Mon profil' }} />
+      <Stack.Screen options={{ title: t('monProfil.titre') }} />
       <ScrollView contentContainerStyle={styles.contenu} keyboardShouldPersistTaps="handled">
         {/* Avatar — tap pour changer. Aperçu immédiat de la photo choisie. */}
         <View style={styles.avatarBloc}>
           <Pressable
             onPress={() => void choisirPhoto()}
             accessibilityRole="button"
-            accessibilityLabel="Changer la photo de profil"
+            accessibilityLabel={t('monProfil.changerPhotoLabel')}
             style={({ pressed }) => pressed && styles.presse}
           >
             <TuileAvatar
@@ -257,12 +260,12 @@ function FormMonProfil({
             </View>
           </Pressable>
           <Pressable onPress={() => void choisirPhoto()} hitSlop={8}>
-            <Text style={[styles.changerPhoto, { color: c.cyan }]}>Changer la photo</Text>
+            <Text style={[styles.changerPhoto, { color: c.cyan }]}>{t('monProfil.changerPhoto')}</Text>
           </Pressable>
         </View>
 
         {/* Présence */}
-        <Text style={[styles.sectionTitre, { color: c.attenue }]}>Présence</Text>
+        <Text style={[styles.sectionTitre, { color: c.attenue }]}>{t('monProfil.sectionPresence')}</Text>
         <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
           {PRESENCES.map((p, i) => {
             const actif = form.status === p.valeur;
@@ -277,7 +280,7 @@ function FormMonProfil({
                 unstable_pressDelay={DELAI_PRESSION_LISTE}
                 accessibilityRole="radio"
                 accessibilityState={{ selected: actif }}
-                accessibilityLabel={p.libelle}
+                accessibilityLabel={t(p.cle)}
                 style={[
                   styles.presenceLigne,
                   i > 0 && { borderTopColor: c.bordureDouce, borderTopWidth: StyleSheet.hairlineWidth },
@@ -291,7 +294,7 @@ function FormMonProfil({
                     actif && styles.presenceTexteActif,
                   ]}
                 >
-                  {p.libelle}
+                  {t(p.cle)}
                 </Text>
                 <View style={[styles.radio, { borderColor: actif ? c.accent : c.bordure }]}>
                   {actif && <View style={[styles.radioPoint, { backgroundColor: c.accent }]} />}
@@ -303,62 +306,59 @@ function FormMonProfil({
 
         <ChampPilule
           c={c}
-          etiquette="Texte de statut"
+          etiquette={t('monProfil.etiquetteStatut')}
           valeur={form.statusText}
           onChangeText={(v) => majChamp('statusText', v)}
-          placeholder="En vacances ✨"
+          placeholder={t('monProfil.placeholderStatut')}
           autoCapitalize="sentences"
           maxLength={120}
         />
 
         {/* Profil */}
-        <Text style={[styles.sectionTitre, { color: c.attenue }]}>Profil</Text>
+        <Text style={[styles.sectionTitre, { color: c.attenue }]}>{t('monProfil.sectionProfil')}</Text>
         <ChampPilule
           c={c}
-          etiquette="Nom affiché"
+          etiquette={t('monProfil.etiquetteNom')}
           valeur={form.name}
           onChangeText={(v) => majChamp('name', v)}
-          placeholder="Ton nom"
+          placeholder={t('monProfil.placeholderNom')}
           autoCapitalize="words"
         />
         <ChampPilule
           c={c}
-          etiquette="Bio"
+          etiquette={t('monProfil.etiquetteBio')}
           valeur={form.bio}
           onChangeText={(v) => majChamp('bio', v)}
-          placeholder="Quelques mots sur toi"
+          placeholder={t('monProfil.placeholderBio')}
           autoCapitalize="sentences"
           maxLength={260}
           multiligne
         />
 
         {/* Compte — sensible : e-mail et nom d'utilisateur exigent le mot de passe. */}
-        <Text style={[styles.sectionTitre, { color: c.attenue }]}>Compte</Text>
-        <Text style={[styles.aide, { color: c.attenue }]}>
-          Changer l’e-mail ou le nom d’utilisateur demande ton mot de passe actuel — et parfois un
-          code de vérification.
-        </Text>
+        <Text style={[styles.sectionTitre, { color: c.attenue }]}>{t('monProfil.sectionCompte')}</Text>
+        <Text style={[styles.aide, { color: c.attenue }]}>{t('monProfil.aideCompte')}</Text>
         <ChampPilule
           c={c}
-          etiquette="Adresse e-mail"
+          etiquette={t('monProfil.etiquetteEmail')}
           valeur={form.email}
           onChangeText={(v) => majChamp('email', v)}
-          placeholder="toi@exemple.fr"
+          placeholder={t('monProfil.placeholderEmail')}
           keyboardType="email-address"
           autoComplete="email"
         />
         <ChampPilule
           c={c}
-          etiquette="Nom d'utilisateur"
+          etiquette={t('monProfil.etiquetteUsername')}
           valeur={form.username}
           icone="@"
           onChangeText={(v) => majChamp('username', v)}
-          placeholder="pseudo"
+          placeholder={t('monProfil.placeholderUsername')}
         />
         {besoinMdp && (
           <ChampPilule
             c={c}
-            etiquette="Mot de passe actuel"
+            etiquette={t('monProfil.etiquetteMdp')}
             valeur={motDePasse}
             icone="🔒"
             onChangeText={setMotDePasse}
@@ -370,11 +370,11 @@ function FormMonProfil({
 
         {demande2FA !== null && (
           <View style={[styles.carte2FA, { backgroundColor: c.carte, borderColor: c.violet }]}>
-            <Text style={[styles.titre2FA, { color: c.texte }]}>Vérification requise</Text>
-            <Text style={[styles.aide, { color: c.attenue }]}>{etiquette2FA(demande2FA.methode)}</Text>
+            <Text style={[styles.titre2FA, { color: c.texte }]}>{t('monProfil.verificationRequise')}</Text>
+            <Text style={[styles.aide, { color: c.attenue }]}>{t(etiquette2FA(demande2FA.methode))}</Text>
             <ChampPilule
               c={c}
-              etiquette="Code"
+              etiquette={t('monProfil.etiquetteCode')}
               valeur={code}
               grand={demande2FA.methode !== 'password'}
               onChangeText={setCode}
@@ -385,7 +385,7 @@ function FormMonProfil({
               secureTextEntry={demande2FA.methode === 'password'}
               autoFocus
             />
-            <BoutonPrincipal c={c} occupe={occupe} onPress={() => void validerCode()} titre="Valider le code" />
+            <BoutonPrincipal c={c} occupe={occupe} onPress={() => void validerCode()} titre={t('monProfil.validerCode')} />
           </View>
         )}
 
@@ -426,11 +426,11 @@ function FormMonProfil({
           c={c}
           occupe={occupe}
           onPress={() => void enregistrer()}
-          titre="Enregistrer"
+          titre={t('commun.enregistrer')}
           style={styles.enregistrer}
         />
         <Pressable onPress={() => routeur.back()} hitSlop={8}>
-          <Text style={[styles.annuler, { color: c.attenue }]}>Annuler</Text>
+          <Text style={[styles.annuler, { color: c.attenue }]}>{t('commun.annuler')}</Text>
         </Pressable>
       </ScrollView>
     </VueEvitantLeClavier>
@@ -438,10 +438,10 @@ function FormMonProfil({
 }
 
 /** Sous-titre du bloc 2FA selon la méthode réclamée par le serveur. */
-function etiquette2FA(methode: ErreurDeuxFacteurs['methode']): string {
-  if (methode === 'totp') return 'Entre le code de ton application d’authentification.';
-  if (methode === 'email') return 'Entre le code qui vient de t’être envoyé par e-mail.';
-  return 'Ressaisis ton mot de passe pour confirmer.';
+function etiquette2FA(methode: ErreurDeuxFacteurs['methode']): CleTraduction {
+  if (methode === 'totp') return 'monProfil.aide2faTotp';
+  if (methode === 'email') return 'monProfil.aide2faEmail';
+  return 'monProfil.aide2faMdp';
 }
 
 const styles = StyleSheet.create({

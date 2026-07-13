@@ -17,7 +17,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
 
+import { useT } from './i18n.ts';
 import { LecteurAudio } from './lecteurAudio.tsx';
+import type { Traducteur } from './messages.ts';
 import { type Couleurs, POLICES } from './theme.ts';
 
 export type FichierEnAttente = {
@@ -37,11 +39,11 @@ function emojiFichier(type: string): string {
   return '📎';
 }
 
-function formaterTaille(octets: number | null): string | null {
+function formaterTaille(octets: number | null, t: Traducteur): string | null {
   if (octets === null || octets <= 0) return null;
-  if (octets < 1024) return `${octets} o`;
-  if (octets < 1024 * 1024) return `${Math.round(octets / 1024)} Ko`;
-  return `${(octets / 1024 / 1024).toFixed(1)} Mo`;
+  if (octets < 1024) return t('apercuPieceJointe.octets', { taille: octets });
+  if (octets < 1024 * 1024) return t('apercuPieceJointe.kilooctets', { taille: Math.round(octets / 1024) });
+  return t('apercuPieceJointe.megaoctets', { taille: (octets / 1024 / 1024).toFixed(1) });
 }
 
 export function ApercuPieceJointe({
@@ -72,9 +74,10 @@ export function ApercuPieceJointe({
    */
   retraitVertical?: number;
 }) {
+  const t = useT();
   const estImage = fichier.type.startsWith('image/');
   const estAudio = fichier.type.startsWith('audio/');
-  const taille = formaterTaille(fichier.taille);
+  const taille = formaterTaille(fichier.taille, t);
 
   return (
     <Animated.View
@@ -90,7 +93,7 @@ export function ApercuPieceJointe({
         // Le vocal se réécoute AVANT d'envoyer : le vrai lecteur, pas une icône.
         <View style={styles.rangee}>
           <View style={styles.plein}>
-            <LecteurAudio c={c} url={fichier.uri} titre="Message vocal" />
+            <LecteurAudio c={c} url={fichier.uri} titre={t('lecteurAudio.messageVocal')} />
           </View>
           <BoutonRetirer c={c} onRetirer={onRetirer} occupe={occupe} />
         </View>
@@ -113,7 +116,7 @@ export function ApercuPieceJointe({
               {fichier.nom}
             </Text>
             <Text style={[styles.meta, { color: c.attenue }]} numberOfLines={1}>
-              {estImage ? 'Image' : fichier.type || 'Fichier'}
+              {estImage ? t('apercuPieceJointe.image') : fichier.type || t('apercuPieceJointe.fichier')}
               {taille !== null ? ` · ${taille}` : ''}
             </Text>
           </View>
@@ -133,13 +136,14 @@ function BoutonRetirer({
   onRetirer: () => void;
   occupe: boolean;
 }) {
+  const t = useT();
   return (
     <Pressable
       onPress={onRetirer}
       disabled={occupe}
       hitSlop={8}
       accessibilityRole="button"
-      accessibilityLabel="Retirer la pièce jointe"
+      accessibilityLabel={t('apercuPieceJointe.retirer')}
       style={({ pressed }) => [
         styles.retirer,
         {

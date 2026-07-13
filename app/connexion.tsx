@@ -9,6 +9,7 @@ import { ClientRest, ErreurDeuxFacteurs, ErreurRest, type CodeDeuxFacteurs } fro
 import { sonderServeur, type ProfilServeur } from '../lib/server.ts';
 import { hacher, lireDernierServeur, listerServeursConnus } from '../lib/sessionStore.ts';
 import { VueEvitantLeClavier } from '../ui/clavier.tsx';
+import { useT } from '../ui/i18n.ts';
 import { BoutonPrincipal, ChampPilule, Marque, TuileAvatar } from '../ui/kit.tsx';
 import { useSession } from '../ui/session.tsx';
 import { type Couleurs, POLICES, useCouleurs } from '../ui/theme.ts';
@@ -41,6 +42,7 @@ export default function EcranConnexion() {
   const { changer } = useLocalSearchParams<{ changer?: string }>();
   const routeur = useRouter();
   const c = useCouleurs();
+  const t = useT();
   const insets = useSafeAreaInsets();
 
   const [phase, setPhase] = useState<Phase>({ nom: 'serveur' });
@@ -124,18 +126,18 @@ export default function EcranConnexion() {
         // `Accounts_ShowFormLogin = false` : le serveur ne propose que du SSO.
         // L'API accepte parfois quand même un login direct — on prévient sans
         // bloquer.
-        setMessage('Ce serveur ne propose pas la connexion par mot de passe.');
+        setMessage(t('connexion.sansMotDePasse'));
       }
       setPhase({ nom: 'identifiants', profil, client: new ClientRest(profil.baseUrl) });
     } catch (e) {
       if (!controleur.signal.aborted) {
-        setMessage(e instanceof Error ? e.message : 'Serveur injoignable.');
+        setMessage(e instanceof Error ? e.message : t('connexion.serveurInjoignable'));
       }
     } finally {
       enVol.current = false;
       if (!controleur.signal.aborted) setOccupe(false);
     }
-  }, [adresse]);
+  }, [adresse, t]);
 
   const tenterConnexion = useCallback(
     async (deuxFacteurs?: CodeDeuxFacteurs) => {
@@ -170,24 +172,24 @@ export default function EcranConnexion() {
             // relève l'erreur avec `codeGenerated: false` (renvoi limité).
             codeEnvoye: e.codeGenere || (memeMethode && phase.codeEnvoye),
           });
-          if (deuxFacteurs !== undefined && memeMethode) setMessage('Code refusé. Réessaie.');
+          if (deuxFacteurs !== undefined && memeMethode) setMessage(t('connexion.codeRefuse'));
         } else if (
           e instanceof ErreurRest &&
           (e.erreur === 'totp-invalid' || e.errorType === 'totp-invalid')
         ) {
           // Même dualité error/errorType que `totp-required` : voir lib/rest.ts.
-          setMessage('Code refusé. Réessaie.');
+          setMessage(t('connexion.codeRefuse'));
         } else if (e instanceof ErreurRest && e.statut === 401) {
-          setMessage('Identifiant ou mot de passe refusé.');
+          setMessage(t('connexion.identifiantsRefuses'));
         } else {
-          setMessage(e instanceof Error ? e.message : 'Connexion impossible.');
+          setMessage(e instanceof Error ? e.message : t('connexion.connexionImpossible'));
         }
       } finally {
         enVol.current = false;
         setOccupe(false);
       }
     },
-    [phase, utilisateur, motDePasse, connecter, routeur],
+    [phase, utilisateur, motDePasse, connecter, routeur, t],
   );
 
   const validerCode = useCallback(async () => {
@@ -197,9 +199,9 @@ export default function EcranConnexion() {
       await tenterConnexion(prepare);
     } catch (e) {
       // Un `hacher` qui échoue ne doit pas rendre le bouton muet.
-      setMessage(e instanceof Error ? e.message : 'Préparation du code impossible.');
+      setMessage(e instanceof Error ? e.message : t('connexion.preparationCodeImpossible'));
     }
-  }, [phase, code, tenterConnexion]);
+  }, [phase, code, tenterConnexion, t]);
 
   const envoyerCodeEmail = useCallback(async () => {
     if (enVol.current || phase.nom !== 'deuxFacteurs') return;
@@ -210,12 +212,12 @@ export default function EcranConnexion() {
       await demanderCodeParEmail(phase.client, utilisateur.trim());
       setPhase({ ...phase, codeEnvoye: true });
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Impossible d'envoyer le code.");
+      setMessage(e instanceof Error ? e.message : t('connexion.envoiCodeImpossible'));
     } finally {
       enVol.current = false;
       setOccupe(false);
     }
-  }, [phase, utilisateur]);
+  }, [phase, utilisateur, t]);
 
   const revenirAuServeur = useCallback(() => {
     setMotDePasse('');
@@ -236,7 +238,7 @@ export default function EcranConnexion() {
 
   return (
     <VueEvitantLeClavier>
-      <Stack.Screen options={{ headerShown: routeChangement, title: 'Connexion' }} />
+      <Stack.Screen options={{ headerShown: routeChangement, title: t('connexion.titre') }} />
       <CielEtoile c={c} />
       <ScrollView
         contentContainerStyle={[
@@ -266,7 +268,7 @@ export default function EcranConnexion() {
           <>
             <ChampPilule
               c={c}
-              etiquette="Adresse du serveur"
+              etiquette={t('connexion.adresseServeur')}
               icone="🌐"
               valeur={adresse}
               onChangeText={setAdresse}
@@ -276,11 +278,11 @@ export default function EcranConnexion() {
               placeholder="chat.exemple.fr"
               autoComplete="url"
             />
-            <BoutonPrincipal c={c} occupe={occupe} onPress={() => void validerServeur()} titre="Continuer" />
+            <BoutonPrincipal c={c} occupe={occupe} onPress={() => void validerServeur()} titre={t('connexion.continuer')} />
 
             {serveursConnus.length > 0 && (
               <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
-                <Text style={[styles.surtitre, { color: c.attenue }]}>Serveurs connus</Text>
+                <Text style={[styles.surtitre, { color: c.attenue }]}>{t('connexion.serveursConnus')}</Text>
                 {serveursConnus.map((url) => (
                   <Pressable key={url} onPress={() => void basculer(url)} disabled={occupe}>
                     <Text style={[styles.lienServeur, { color: c.cyan }]}>{url}</Text>
@@ -295,16 +297,16 @@ export default function EcranConnexion() {
           <>
             <ChampPilule
               c={c}
-              etiquette="Identifiant ou email"
+              etiquette={t('connexion.identifiantOuEmail')}
               valeur={utilisateur}
               onChangeText={setUtilisateur}
-              placeholder="jean.dupont"
+              placeholder={t('connexion.exempleIdentifiant')}
               autoComplete="username"
               autoFocus
             />
             <ChampPilule
               c={c}
-              etiquette="Mot de passe"
+              etiquette={t('connexion.motDePasse')}
               valeur={motDePasse}
               onChangeText={setMotDePasse}
               onSubmitEditing={() => void tenterConnexion()}
@@ -316,7 +318,7 @@ export default function EcranConnexion() {
               c={c}
               occupe={occupe}
               onPress={() => void tenterConnexion()}
-              titre="Se connecter"
+              titre={t('connexion.seConnecter')}
             />
           </>
         )}
@@ -338,17 +340,14 @@ export default function EcranConnexion() {
           <View style={[styles.carte, { backgroundColor: c.carteErreur, borderColor: c.danger }]}>
             <Text style={[styles.messageErreur, { color: c.texteErreur }]}>{message}</Text>
             {phase.nom === 'serveur' && Platform.OS === 'android' && (
-              <Text style={[styles.aide, { color: c.texteErreur }]}>
-                Depuis l&apos;émulateur : `adb reverse tcp:3000 tcp:3000`. Depuis un téléphone :
-                l&apos;IP LAN de la machine.
-              </Text>
+              <Text style={[styles.aide, { color: c.texteErreur }]}>{t('connexion.aideReseau')}</Text>
             )}
           </View>
         )}
 
         {phase.nom !== 'serveur' && (
           <Pressable onPress={revenirAuServeur} disabled={occupe}>
-            <Text style={[styles.lien, { color: c.cyan }]}>Changer de serveur</Text>
+            <Text style={[styles.lien, { color: c.cyan }]}>{t('connexion.changerServeur')}</Text>
           </Pressable>
         )}
       </ScrollView>
@@ -358,6 +357,7 @@ export default function EcranConnexion() {
 
 /** En-tête de la marque : licorne, barres arc-en-ciel, logotype, sous-titre. */
 function EnTeteMarque({ c }: { c: Couleurs }) {
+  const t = useT();
   return (
     <View style={styles.marque}>
       <Text style={styles.licorne}>🦄</Text>
@@ -367,7 +367,7 @@ function EnTeteMarque({ c }: { c: Couleurs }) {
         ))}
       </View>
       <Marque c={c} />
-      <Text style={[styles.sousTitre, { color: c.attenue }]}>Ton coin de chat magique ✨</Text>
+      <Text style={[styles.sousTitre, { color: c.attenue }]}>{t('connexion.slogan')}</Text>
     </View>
   );
 }
@@ -382,10 +382,11 @@ function RetourConnexion({
   onRetour: () => void;
   occupe: boolean;
 }) {
+  const t = useT();
   return (
     <Pressable onPress={onRetour} disabled={occupe} style={styles.retour} hitSlop={10}>
       <Text style={[styles.chevron, { color: c.violet }]}>‹</Text>
-      <Text style={[styles.retourTitre, { color: c.texte }]}>Connexion</Text>
+      <Text style={[styles.retourTitre, { color: c.texte }]}>{t('connexion.titre')}</Text>
     </Pressable>
   );
 }
@@ -409,23 +410,24 @@ function SectionDeuxFacteurs({
   onValider: () => void;
   onEnvoyerEmail: () => void;
 }) {
+  const t = useT();
   if (erreur.methode === 'email' && !codeEnvoye) {
     // `codeGenerated: false` : aucun code n'est encore parti, il faut le
     // demander explicitement avant d'afficher un champ de saisie.
     return (
       <>
-        <BlasonDeuxFacteurs c={c} sousTitre="Ce compte est protégé par un code envoyé par email." />
-        <BoutonPrincipal c={c} occupe={occupe} onPress={onEnvoyerEmail} titre="M'envoyer le code" />
+        <BlasonDeuxFacteurs c={c} sousTitre={t('connexion.introEmail')} />
+        <BoutonPrincipal c={c} occupe={occupe} onPress={onEnvoyerEmail} titre={t('connexion.envoyerLeCode')} />
       </>
     );
   }
 
   const etiquette =
     erreur.methode === 'totp'
-      ? "Code de l'application d'authentification"
+      ? t('connexion.etiquetteTotp')
       : erreur.methode === 'email'
-        ? 'Code reçu par email'
-        : 'Confirme ton mot de passe';
+        ? t('connexion.etiquetteEmail')
+        : t('connexion.etiquettePassword');
 
   return (
     <>
@@ -433,8 +435,8 @@ function SectionDeuxFacteurs({
         c={c}
         sousTitre={
           erreur.methode === 'password'
-            ? 'Ressaisis ton mot de passe pour confirmer.'
-            : "Entre le code de ton application\nd'authentification ✨"
+            ? t('connexion.introPassword')
+            : t('connexion.introTotp')
         }
       />
       <ChampPilule
@@ -450,10 +452,10 @@ function SectionDeuxFacteurs({
         secureTextEntry={erreur.methode === 'password'}
         autoFocus
       />
-      <BoutonPrincipal c={c} occupe={occupe} onPress={onValider} titre="Valider" />
+      <BoutonPrincipal c={c} occupe={occupe} onPress={onValider} titre={t('connexion.valider')} />
       {erreur.methode === 'email' && (
         <Pressable onPress={onEnvoyerEmail} disabled={occupe}>
-          <Text style={[styles.lien, { color: c.cyan }]}>Renvoyer le code</Text>
+          <Text style={[styles.lien, { color: c.cyan }]}>{t('connexion.renvoyerCode')}</Text>
         </Pressable>
       )}
     </>
@@ -462,6 +464,7 @@ function SectionDeuxFacteurs({
 
 /** Blason « Vérification magique » : icône bouclier en dégradé + sous-titre. */
 function BlasonDeuxFacteurs({ c, sousTitre }: { c: Couleurs; sousTitre: string }) {
+  const t = useT();
   return (
     <View style={styles.blason}>
       <TuileAvatar
@@ -471,7 +474,7 @@ function BlasonDeuxFacteurs({ c, sousTitre }: { c: Couleurs; sousTitre: string }
         rayon={22}
         enfant={<Text style={styles.bouclierGlyphe}>🛡️</Text>}
       />
-      <Text style={[styles.blasonTitre, { color: c.texte }]}>Vérification magique</Text>
+      <Text style={[styles.blasonTitre, { color: c.texte }]}>{t('connexion.verificationMagique')}</Text>
       <Text style={[styles.blasonSousTitre, { color: c.attenue }]}>{sousTitre}</Text>
     </View>
   );

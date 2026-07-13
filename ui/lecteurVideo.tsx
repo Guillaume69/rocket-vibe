@@ -23,6 +23,7 @@ import { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useT } from './i18n.ts';
 import { type Couleurs, POLICES } from './theme.ts';
 
 export function LecteurVideo({
@@ -36,6 +37,7 @@ export function LecteurVideo({
   titre?: string | null;
   surAppuiLong?: (() => void) | undefined;
 }) {
+  const t = useT();
   const [ouvert, setOuvert] = useState(false);
 
   return (
@@ -46,7 +48,7 @@ export function LecteurVideo({
         delayLongPress={350}
         style={[styles.carte, { borderColor: c.bordure }]}
         accessibilityRole="button"
-        accessibilityLabel={titre ? `Vidéo : ${titre}, toucher pour lire` : 'Vidéo, toucher pour lire'}
+        accessibilityLabel={titre ? t('lecteurVideo.lireAvecTitre', { titre }) : t('lecteurVideo.lire')}
       >
         {/* Aurore comète, tamisée par un voile sombre : un rappel de couleur
             sans que la carte crie. */}
@@ -70,7 +72,7 @@ export function LecteurVideo({
 
         <View style={styles.pied}>
           <Text style={[styles.etiquette, { color: c.texte }]} numberOfLines={1}>
-            {titre ?? 'Vidéo'}
+            {titre ?? t('lecteurVideo.video')}
           </Text>
         </View>
       </Pressable>
@@ -91,6 +93,7 @@ function ModaleVideo({
   titre: string | null;
   onFermer: () => void;
 }) {
+  const t = useT();
   const insets = useSafeAreaInsets();
   // Le player naît ici (donc à l'ouverture) et meurt au démontage : pas
   // d'instance native pour les vidéos qu'on ne regarde pas. Lecture immédiate,
@@ -124,7 +127,7 @@ function ModaleVideo({
         hitSlop={12}
         style={[styles.fermer, { top: insets.top + 8, backgroundColor: c.carte + 'D9' }]}
         accessibilityRole="button"
-        accessibilityLabel="Fermer"
+        accessibilityLabel={t('commun.fermer')}
       >
         <Text style={[styles.croix, { color: c.texte }]}>✕</Text>
       </Pressable>

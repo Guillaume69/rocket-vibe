@@ -45,6 +45,7 @@ import { enregistrerJeton } from '../lib/pushToken.ts';
 import { rattraperGlobal, rattraperSalon, reconcilierSalons } from '../lib/rattrapage.ts';
 import { Reconnecteur } from '../lib/reconnexion.ts';
 import { MoteurSynchro, STREAM_NOTIFY_USER } from '../lib/sync.ts';
+import { traduireCourant } from './i18n.ts';
 import { useSession } from './session.tsx';
 import { transportExpo } from './transportUpload.ts';
 
@@ -275,7 +276,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       if (!abandonne) {
         setSynchro({
           phase: 'erreur',
-          message: e instanceof Error ? e.message : 'Base locale inutilisable.',
+          message: e instanceof Error ? e.message : traduireCourant('synchro.baseInutilisable'),
         });
       }
     });

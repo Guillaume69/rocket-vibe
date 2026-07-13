@@ -21,17 +21,19 @@ import type { StatutPresence } from '../lib/presence.ts';
 import { lireProfilPrecharge } from '../lib/profilPreload.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar } from '../lib/upload.ts';
+import { traduireCourant, useT } from '../ui/i18n.ts';
 import { TuileAvatar } from '../ui/kit.tsx';
+import type { CleTraduction } from '../ui/messages.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
 
 /** Pastille et phrase par statut — mêmes mots que le sous-titre d'un DM. */
-const PRESENCE: Record<StatutPresence, { phrase: string; teinte: string }> = {
-  online: { phrase: 'en ligne', teinte: '#3BD16F' },
-  away: { phrase: 'absent', teinte: '#F5B03E' },
-  busy: { phrase: 'occupé', teinte: '#E8506B' },
-  offline: { phrase: 'hors ligne', teinte: '#8A8FA3' },
+const PRESENCE: Record<StatutPresence, { cle: CleTraduction; teinte: string }> = {
+  online: { cle: 'profil.presenceEnLigne', teinte: '#3BD16F' },
+  away: { cle: 'profil.presenceAbsent', teinte: '#F5B03E' },
+  busy: { cle: 'profil.presenceOccupe', teinte: '#E8506B' },
+  offline: { cle: 'profil.presenceHorsLigne', teinte: '#8A8FA3' },
 };
 
 type Profil = {
@@ -87,6 +89,7 @@ export default function EcranProfil() {
   const synchro = useSynchro();
   const c = useCouleurs();
   const routeur = useRouter();
+  const t = useT();
 
   const client: ClientRest | null = etat.phase === 'connecte' ? etat.client : null;
   const moi = etat.phase === 'connecte' ? etat.session.username : null;
@@ -126,11 +129,11 @@ export default function EcranProfil() {
       .then((r) => {
         if (!vivant) return;
         const p = profilDe(r.user);
-        if (p === null) setErreur('Profil illisible.');
+        if (p === null) setErreur(traduireCourant('profil.profilIllisible'));
         else setProfil(p);
       })
       .catch((e: unknown) => {
-        if (vivant) setErreur(e instanceof Error ? e.message : 'Profil introuvable.');
+        if (vivant) setErreur(e instanceof Error ? e.message : traduireCourant('profil.profilIntrouvable'));
       });
     void sonderAppelDisponible(client).then((ok) => {
       if (vivant) setAppelDispo(ok);
@@ -152,7 +155,7 @@ export default function EcranProfil() {
           corps: { username: profil.username },
         });
         const rid = reponse.room?._id;
-        if (typeof rid !== 'string') throw new Error('Conversation impossible.');
+        if (typeof rid !== 'string') throw new Error(t('profil.conversationImpossible'));
         if (moteur !== null && reponse.room !== undefined) await moteur.ingererSalons([reponse.room]);
         if (versAppel) {
           // `start` crée la conférence et poste le message d'appel dans le DM ;
@@ -167,13 +170,13 @@ export default function EcranProfil() {
           routeur.replace({ pathname: '/salon/[rid]', params: { rid } });
         }
       } catch (e) {
-        setErreur(e instanceof Error ? e.message : 'Action impossible.');
+        setErreur(e instanceof Error ? e.message : t('profil.actionImpossible'));
         enVol.current = false;
         setOccupe(false);
       }
       // Succès : on a navigué, l'écran se démonte — ne pas re-setter l'état.
     },
-    [client, profil, moteur, routeur],
+    [client, profil, moteur, routeur, t],
   );
 
   // Ce qu'on sait DÈS le tap (avatar + @username, ou uid pour un DM) : on rend
@@ -221,7 +224,7 @@ export default function EcranProfil() {
               ]}
             />
             <Text style={[styles.phrasePresence, { color: c.attenue }]}>
-              {profil !== null ? PRESENCE[profil.statut].phrase : '…'}
+              {profil !== null ? t(PRESENCE[profil.statut].cle) : '…'}
             </Text>
           </View>
         </View>
@@ -239,7 +242,7 @@ export default function EcranProfil() {
 
       {profil !== null && profil.utcOffset !== null && (
         <Text style={[styles.detail, { color: c.attenue }]}>
-          Heure locale : {heureLocale(profil.utcOffset)}
+          {t('profil.heureLocale', { heure: heureLocale(profil.utcOffset) })}
         </Text>
       )}
       {profil !== null && profil.bio !== null && (
@@ -268,12 +271,12 @@ export default function EcranProfil() {
               (occupe || profil === null) && styles.inactif,
             ]}
             accessibilityRole="button"
-            accessibilityLabel={`Envoyer un message à ${usernameAff ?? ''}`}
+            accessibilityLabel={t('profil.envoyerMessageLabel', { nom: usernameAff ?? '' })}
           >
             {occupe ? (
               <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
-              <Text style={styles.boutonTexte}>💬 Message</Text>
+              <Text style={styles.boutonTexte}>{t('profil.boutonMessage')}</Text>
             )}
           </Pressable>
           {appelDispo && (
@@ -288,9 +291,9 @@ export default function EcranProfil() {
                 (occupe || profil === null) && styles.inactif,
               ]}
               accessibilityRole="button"
-              accessibilityLabel={`Appeler ${usernameAff ?? ''}`}
+              accessibilityLabel={t('profil.appelerLabel', { nom: usernameAff ?? '' })}
             >
-              <Text style={[styles.boutonTexte, { color: c.texte }]}>📞 Appeler</Text>
+              <Text style={[styles.boutonTexte, { color: c.texte }]}>{t('profil.boutonAppeler')}</Text>
             </Pressable>
           )}
         </View>

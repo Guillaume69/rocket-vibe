@@ -14,6 +14,7 @@ import { WebView } from 'react-native-webview';
 
 import { rejoindreConference } from '../../lib/appel.ts';
 import type { ClientRest } from '../../lib/rest.ts';
+import { useT } from '../../ui/i18n.ts';
 import { useSession } from '../../ui/session.tsx';
 import { type Couleurs, POLICES, useCouleurs } from '../../ui/theme.ts';
 
@@ -70,10 +71,11 @@ export default function EcranAppel() {
   const c = useCouleurs();
   const { etat } = useSession();
   const { callId, titre } = useLocalSearchParams<{ callId: string; titre?: string }>();
+  const t = useT();
   // Atteint depuis un salon connecté ; un état déconnecté (session expirée)
   // renvoie au login plutôt que de crasher sur `client`.
   if (etat.phase !== 'connecte') return <Redirect href="/connexion" />;
-  return <Appel c={c} client={etat.client} callId={callId} titre={titre ?? 'Appel vidéo'} />;
+  return <Appel c={c} client={etat.client} callId={callId} titre={titre ?? t('appel.appelVideo')} />;
 }
 
 function Appel({
@@ -89,6 +91,7 @@ function Appel({
 }) {
   const routeur = useRouter();
   const insets = useSafeAreaInsets();
+  const t = useT();
   const [url, setUrl] = useState<string | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
   // Incrémenté par « Réessayer » : relance l'effet de chargement sans dupliquer
@@ -106,13 +109,13 @@ function Appel({
         const u = await rejoindreConference(client, callId);
         if (vivant) setUrl(u);
       } catch {
-        if (vivant) setErreur("Impossible de rejoindre l'appel. Il est peut-être terminé.");
+        if (vivant) setErreur(t('appel.impossibleRejoindre'));
       }
     })();
     return () => {
       vivant = false;
     };
-  }, [client, callId, essai]);
+  }, [client, callId, essai, t]);
 
   // Handler (hors effet) : y remettre l'état à zéro est légitime.
   const reessayer = useCallback(() => {
@@ -135,13 +138,13 @@ function Appel({
           onPress={terminer}
           hitSlop={10}
           accessibilityRole="button"
-          accessibilityLabel="Terminer l'appel"
+          accessibilityLabel={t('appel.terminerAppel')}
           style={({ pressed }) => [
             styles.terminer,
             { backgroundColor: c.carteErreur, opacity: pressed ? 0.7 : 1 },
           ]}
         >
-          <Text style={[styles.terminerTexte, { color: c.texteErreur }]}>Terminer</Text>
+          <Text style={[styles.terminerTexte, { color: c.texteErreur }]}>{t('appel.terminer')}</Text>
         </Pressable>
       </View>
 
@@ -149,13 +152,13 @@ function Appel({
         <View style={styles.centre}>
           <Text style={[styles.messageErreur, { color: c.texteErreur }]}>{erreur}</Text>
           <Pressable onPress={reessayer} style={styles.reessayer}>
-            <Text style={[styles.reessayerTexte, { color: c.cyan }]}>Réessayer</Text>
+            <Text style={[styles.reessayerTexte, { color: c.cyan }]}>{t('commun.reessayer')}</Text>
           </Pressable>
         </View>
       ) : url === null ? (
         <View style={styles.centre}>
           <ActivityIndicator color={c.accent} size="large" />
-          <Text style={[styles.chargeTexte, { color: c.attenue }]}>Connexion à l’appel…</Text>
+          <Text style={[styles.chargeTexte, { color: c.attenue }]}>{t('appel.connexion')}</Text>
         </View>
       ) : (
         <WebView
@@ -188,7 +191,7 @@ function Appel({
             // salon. Le bouton « Terminer » reste la sortie garantie.
             if (/\/close\d*(\.html)?/.test(nav.url)) terminer();
           }}
-          onError={() => setErreur("L'appel n'a pas pu se charger.")}
+          onError={() => setErreur(t('appel.chargementEchoue'))}
         />
       )}
     </View>

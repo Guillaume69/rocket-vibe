@@ -12,6 +12,7 @@ import {
 import { versMessage, type MessageLocal } from '../lib/normaliser.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { VueEvitantLeClavier } from '../ui/clavier.tsx';
+import { useT } from '../ui/i18n.ts';
 import { LigneMessage } from '../ui/ligneMessage.tsx';
 import { useSession } from '../ui/session.tsx';
 import { useCouleurs, type Couleurs } from '../ui/theme.ts';
@@ -29,6 +30,7 @@ export default function EcranRechercheMessages() {
   const { rid } = useLocalSearchParams<{ rid: string }>();
   const { etat } = useSession();
   const c = useCouleurs();
+  const t = useT();
 
   // Même portier que le salon : un lien profond peut atterrir ici sans session.
   if (etat.phase === 'deconnecte') return <Redirect href="/connexion" />;
@@ -36,7 +38,7 @@ export default function EcranRechercheMessages() {
   if (etat.phase !== 'connecte' || typeof rid !== 'string') {
     return (
       <View style={[styles.centre, { backgroundColor: c.fond }]}>
-        <Stack.Screen options={{ title: 'Rechercher' }} />
+        <Stack.Screen options={{ title: t('commun.rechercher') }} />
         <ActivityIndicator />
       </View>
     );
@@ -53,6 +55,7 @@ function RechercheMessages({
   client: ClientRest;
   rid: string;
 }) {
+  const t = useT();
   const [requete, setRequete] = useState('');
   const [resultats, setResultats] = useState<MessageLocal[]>([]);
   // La requête dont les résultats affichés sont issus : « on cherche » se
@@ -93,23 +96,23 @@ function RechercheMessages({
           })
           .catch(() => {
             if (sequence.current !== n) return;
-            setMessage('Recherche impossible.');
+            setMessage(t('rechercheMessages.rechercheImpossible'));
             setRepondue(propre);
           });
       },
       propre === '' ? 0 : 300,
     );
     return () => clearTimeout(minuterie);
-  }, [propre, client, rid]);
+  }, [propre, client, rid, t]);
 
   return (
     <VueEvitantLeClavier>
-      <Stack.Screen options={{ title: 'Rechercher dans le salon' }} />
+      <Stack.Screen options={{ title: t('rechercheMessages.titre') }} />
       <View style={styles.entete}>
         <TextInput
           value={requete}
           onChangeText={setRequete}
-          placeholder="Rechercher des messages…"
+          placeholder={t('rechercheMessages.placeholder')}
           placeholderTextColor={c.attenue}
           autoCapitalize="none"
           autoCorrect={false}
@@ -147,7 +150,7 @@ function RechercheMessages({
               <ActivityIndicator />
             </View>
           ) : (
-            <Text style={[styles.vide, { color: c.attenue }]}>Aucun message trouvé.</Text>
+            <Text style={[styles.vide, { color: c.attenue }]}>{t('rechercheMessages.aucunMessage')}</Text>
           )
         }
         keyboardShouldPersistTaps="handled"

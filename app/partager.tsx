@@ -37,6 +37,7 @@ import type { MoteurTeleversement } from '../lib/envoiFichiers.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { ApercuPieceJointe, type FichierEnAttente } from '../ui/apercuPieceJointe.tsx';
 import { VueEvitantLeClavier } from '../ui/clavier.tsx';
+import { useT } from '../ui/i18n.ts';
 import { AvatarSalon } from '../ui/kit.tsx';
 import { compresserImageSiUtile } from '../ui/preparerPieceJointe.ts';
 import { useSession } from '../ui/session.tsx';
@@ -61,6 +62,7 @@ export default function EcranPartager() {
   const { etat } = useSession();
   const synchro = useSynchro();
   const { shareIntent, resetShareIntent } = useShareIntentContext();
+  const t = useT();
 
   // Quitter cet écran — par envoi, retour ou geste — doit TOUJOURS solder
   // l'intent : sinon `hasShareIntent` resterait vrai et le garde rouvrirait
@@ -73,7 +75,7 @@ export default function EcranPartager() {
   useEffect(() => () => resetRef.current(true), []);
 
   if (etat.phase === 'deconnecte') {
-    return <Message c={c} texte="Connecte-toi pour partager dans une conversation." />;
+    return <Message c={c} texte={t('partager.connecteToi')} />;
   }
   if (synchro.phase === 'erreur') {
     return <Message c={c} texte={synchro.message} />;
@@ -81,7 +83,7 @@ export default function EcranPartager() {
   if (etat.phase !== 'connecte' || synchro.phase !== 'pret') {
     return (
       <View style={[styles.centre, { backgroundColor: c.fond }]}>
-        <Stack.Screen options={{ title: 'Partager' }} />
+        <Stack.Screen options={{ title: t('partager.titre') }} />
         <ActivityIndicator color={c.accent} />
       </View>
     );
@@ -99,9 +101,10 @@ export default function EcranPartager() {
 }
 
 function Message({ c, texte }: { c: Couleurs; texte: string }) {
+  const t = useT();
   return (
     <View style={[styles.centre, { backgroundColor: c.fond }]}>
-      <Stack.Screen options={{ title: 'Partager' }} />
+      <Stack.Screen options={{ title: t('partager.titre') }} />
       <Text style={[styles.message, { color: c.texteSecondaire }]}>{texte}</Text>
     </View>
   );
@@ -123,6 +126,7 @@ function Partager({
   shareIntent: ShareIntent;
 }) {
   const routeur = useRouter();
+  const t = useT();
 
   // Fichiers partagés → pièces en attente. Construites UNE fois, au montage :
   // le partage entrant est figé pour la vie de l'écran, et l'objet `shareIntent`
@@ -226,18 +230,18 @@ function Partager({
       } catch (e) {
         // Seul un refus de validation (taille/type) rejette ici ; un échec
         // réseau deviendra une ligne d'échec actionnable dans le salon.
-        setErreur(e instanceof Error ? e.message : 'Partage impossible.');
+        setErreur(e instanceof Error ? e.message : t('partager.partageImpossible'));
         enVol.current = false;
         setOccupe(false);
         setRidEnCours(null);
       }
     },
-    [aFichiers, pieces, legende, fichiers, envoi, routeur],
+    [aFichiers, pieces, legende, fichiers, envoi, routeur, t],
   );
 
   return (
     <VueEvitantLeClavier>
-      <Stack.Screen options={{ title: 'Partager', headerShown: true }} />
+      <Stack.Screen options={{ title: t('partager.titre'), headerShown: true }} />
       <View style={styles.haut}>
         {/*
           Un seul fichier : la carte pleine largeur (nom, type, taille) alignée
@@ -270,7 +274,7 @@ function Partager({
           value={legende}
           onChangeText={setLegende}
           editable={!occupe}
-          placeholder={aFichiers ? 'Ajouter une légende…' : 'Message à partager'}
+          placeholder={aFichiers ? t('partager.ajouterLegende') : t('partager.messageAPartager')}
           placeholderTextColor={c.texteTertiaire}
           multiline
           style={[
@@ -279,11 +283,11 @@ function Partager({
           ]}
         />
         {erreur !== null && <Text style={[styles.erreur, { color: c.texteErreur }]}>{erreur}</Text>}
-        <Text style={[styles.label, { color: c.attenue }]}>Partager vers</Text>
+        <Text style={[styles.label, { color: c.attenue }]}>{t('partager.partagerVers')}</Text>
         <TextInput
           value={filtre}
           onChangeText={setFiltre}
-          placeholder="Rechercher une conversation…"
+          placeholder={t('partager.rechercherConversation')}
           placeholderTextColor={c.texteTertiaire}
           autoCapitalize="none"
           autoCorrect={false}
@@ -310,7 +314,7 @@ function Partager({
           />
         )}
         ListEmptyComponent={
-          <Text style={[styles.vide, { color: c.attenue }]}>Aucune conversation.</Text>
+          <Text style={[styles.vide, { color: c.attenue }]}>{t('partager.aucuneConversation')}</Text>
         }
       />
     </VueEvitantLeClavier>
@@ -338,9 +342,10 @@ function LigneCible({
   envoiEnCours: boolean;
   onChoisir: () => void;
 }) {
+  const t = useT();
   const nom = salon.nomAffiche ?? salon.nom ?? salon.rid;
   const bloque = salon.chiffre || salon.lectureSeule;
-  const raison = salon.chiffre ? '🔒 Chiffré' : salon.lectureSeule ? 'Lecture seule' : null;
+  const raison = salon.chiffre ? t('partager.chiffre') : salon.lectureSeule ? t('partager.lectureSeule') : null;
   // Bloqué, ou une autre destination pendant un envoi : la ligne s'estompe pour
   // concentrer l'attention sur celle qui reçoit.
   const attenue = bloque || (occupe && !envoiEnCours);
@@ -434,6 +439,7 @@ function VignettePiece({
   occupe: boolean;
   onRetirer: () => void;
 }) {
+  const t = useT();
   const estImage = fichier.type.startsWith('image/');
   return (
     <View style={styles.vignetteHote}>
@@ -454,7 +460,7 @@ function VignettePiece({
         disabled={occupe}
         hitSlop={8}
         accessibilityRole="button"
-        accessibilityLabel="Retirer la pièce jointe"
+        accessibilityLabel={t('partager.retirerPieceJointe')}
         style={[
           styles.vignetteRetirer,
           {

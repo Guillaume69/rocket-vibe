@@ -19,7 +19,9 @@ import { StyleSheet, Text, View } from 'react-native';
 import type { BaseLocale } from '../db/client.ts';
 import { salons } from '../db/schema.ts';
 import type { ClientRest } from '../lib/rest.ts';
+import { traduireCourant, useT } from '../ui/i18n.ts';
 import { AvatarSalon } from '../ui/kit.tsx';
+import type { CleTraduction } from '../ui/messages.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { POLICES, useCouleurs } from '../ui/theme.ts';
@@ -35,10 +37,10 @@ function chaine(v: unknown): string | null {
   return typeof v === 'string' && v !== '' ? v : null;
 }
 
-const PHRASE_TYPE: Record<string, string> = {
-  c: 'Canal public',
-  p: 'Groupe privé',
-  d: 'Message direct',
+const PHRASE_TYPE: Record<string, CleTraduction> = {
+  c: 'salonInfo.typeCanalPublic',
+  p: 'salonInfo.typeGroupePrive',
+  d: 'salonInfo.typeMessageDirect',
 };
 
 export default function EcranSalonInfo() {
@@ -67,6 +69,7 @@ function ContenuSalonInfo({
   client: ClientRest;
   c: ReturnType<typeof useCouleurs>;
 }) {
+  const t = useT();
   const { data: lignes } = useLiveQuery(
     base.select().from(salons).where(eq(salons.rid, rid)),
     [rid],
@@ -92,7 +95,7 @@ function ContenuSalonInfo({
       .catch((e: unknown) => {
         // La base locale a déjà rempli l'essentiel : l'échec ne coûte que les
         // sections complémentaires.
-        if (vivant) setErreur(e instanceof Error ? e.message : 'Détails indisponibles.');
+        if (vivant) setErreur(e instanceof Error ? e.message : traduireCourant('salonInfo.detailsIndisponibles'));
       });
     return () => {
       vivant = false;
@@ -100,11 +103,14 @@ function ContenuSalonInfo({
   }, [client, rid]);
 
   const nom = salon?.nomAffiche ?? salon?.nom ?? '?';
+  const cleType = PHRASE_TYPE[salon?.type ?? ''];
   const sousTitre = [
-    PHRASE_TYPE[salon?.type ?? ''] ?? null,
-    complement?.membres !== null && complement !== null ? `${complement.membres} membres` : null,
-    salon?.chiffre === true ? 'chiffré' : null,
-    salon?.lectureSeule === true ? 'lecture seule' : null,
+    cleType !== undefined ? t(cleType) : null,
+    complement?.membres !== null && complement !== null
+      ? t('salonInfo.membres', { n: complement.membres })
+      : null,
+    salon?.chiffre === true ? t('salonInfo.chiffre') : null,
+    salon?.lectureSeule === true ? t('salonInfo.lectureSeule') : null,
   ]
     .filter((x): x is string => x !== null)
     .join(' · ');
@@ -136,20 +142,20 @@ function ContenuSalonInfo({
       </View>
 
       {complement?.annonce !== null && complement !== null && (
-        <Section c={c} titre="Annonce" texte={complement.annonce} />
+        <Section c={c} titre={t('salonInfo.annonce')} texte={complement.annonce} />
       )}
       {complement?.sujet !== null && complement !== null && (
-        <Section c={c} titre="Sujet" texte={complement.sujet} />
+        <Section c={c} titre={t('salonInfo.sujet')} texte={complement.sujet} />
       )}
       {complement?.description !== null && complement !== null && (
-        <Section c={c} titre="Description" texte={complement.description} />
+        <Section c={c} titre={t('salonInfo.description')} texte={complement.description} />
       )}
       {complement !== null &&
         complement.annonce === null &&
         complement.sujet === null &&
         complement.description === null && (
           <Text style={[styles.vide, { color: c.attenue }]}>
-            Ni description, ni sujet, ni annonce.
+            {t('salonInfo.rienARenseigner')}
           </Text>
         )}
       {erreur !== null && <Text style={[styles.vide, { color: c.texteErreur }]}>{erreur}</Text>}

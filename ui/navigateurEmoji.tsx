@@ -32,6 +32,8 @@ import {
 import { codesEmojiStandard, emojisParCategorie, type CategorieEmoji } from '../lib/emojis.ts';
 import { codesEmojiCustom } from '../lib/emojisCustom.ts';
 import { resoudre } from './completionEmoji.tsx';
+import { useT } from './i18n.ts';
+import type { CleTraduction } from './messages.ts';
 import { type Couleurs, DELAI_PRESSION_LISTE, POLICES } from './theme.ts';
 
 /** Une recherche dans le navigateur ratisse plus large que la bande inline. */
@@ -53,16 +55,16 @@ export function hauteurPanneauEmoji(hauteurEcran: number): number {
 type Onglet = CategorieEmoji | 'custom';
 
 /** Métadonnées d'affichage des onglets, dans l'ordre canonique. Icône = un emoji
- *  représentatif de la catégorie ; libellé pour l'accessibilité. */
-const ONGLETS: { cle: CategorieEmoji; icone: string; libelle: string }[] = [
-  { cle: 'people', icone: '😀', libelle: 'Émotions' },
-  { cle: 'nature', icone: '🐻', libelle: 'Animaux et nature' },
-  { cle: 'food', icone: '🍔', libelle: 'Nourriture et boissons' },
-  { cle: 'activity', icone: '⚽', libelle: 'Activités' },
-  { cle: 'travel', icone: '✈️', libelle: 'Voyage et lieux' },
-  { cle: 'objects', icone: '💡', libelle: 'Objets' },
-  { cle: 'symbols', icone: '❤️', libelle: 'Symboles' },
-  { cle: 'flags', icone: '🏁', libelle: 'Drapeaux' },
+ *  représentatif de la catégorie ; libellé (clé de traduction) pour l'accessibilité. */
+const ONGLETS: { cle: CategorieEmoji; icone: string; libelleCle: CleTraduction }[] = [
+  { cle: 'people', icone: '😀', libelleCle: 'navigateurEmoji.people' },
+  { cle: 'nature', icone: '🐻', libelleCle: 'navigateurEmoji.nature' },
+  { cle: 'food', icone: '🍔', libelleCle: 'navigateurEmoji.food' },
+  { cle: 'activity', icone: '⚽', libelleCle: 'navigateurEmoji.activity' },
+  { cle: 'travel', icone: '✈️', libelleCle: 'navigateurEmoji.travel' },
+  { cle: 'objects', icone: '💡', libelleCle: 'navigateurEmoji.objects' },
+  { cle: 'symbols', icone: '❤️', libelleCle: 'navigateurEmoji.symbols' },
+  { cle: 'flags', icone: '🏁', libelleCle: 'navigateurEmoji.flags' },
 ];
 
 export function NavigateurEmoji({
@@ -76,6 +78,7 @@ export function NavigateurEmoji({
   /** Reçoit ce qu'on insère : un glyphe (standard) ou `:nom:` (custom). */
   onChoisir: (insertion: string) => void;
 }) {
+  const t = useT();
   const { width } = useWindowDimensions();
   const colonnes = Math.max(6, Math.floor(width / CASE_CIBLE));
   const [onglet, setOnglet] = useState<Onglet>('people');
@@ -107,14 +110,14 @@ export function NavigateurEmoji({
         <TextInput
           value={recherche}
           onChangeText={setRecherche}
-          placeholder="Rechercher un emoji"
+          placeholder={t('navigateurEmoji.rechercher')}
           placeholderTextColor={c.texteTertiaire}
           autoCapitalize="none"
           autoCorrect={false}
           style={[styles.champRecherche, { color: c.texte }]}
         />
         {recherche !== '' && (
-          <Pressable onPress={() => setRecherche('')} hitSlop={8} accessibilityLabel="Effacer la recherche">
+          <Pressable onPress={() => setRecherche('')} hitSlop={8} accessibilityLabel={t('navigateurEmoji.effacerRecherche')}>
             <Text style={[styles.effacer, { color: c.texteTertiaire }]}>✕</Text>
           </Pressable>
         )}
@@ -123,7 +126,7 @@ export function NavigateurEmoji({
       {requete === '' && (
         <View style={[styles.onglets, { borderBottomColor: c.bordureDouce }]}>
           {(customs.length > 0
-            ? ([{ cle: 'custom' as const, icone: '⭐', libelle: 'Personnalisés' }, ...ONGLETS])
+            ? ([{ cle: 'custom' as const, icone: '⭐', libelleCle: 'navigateurEmoji.personnalises' as CleTraduction }, ...ONGLETS])
             : ONGLETS
           ).map((o) => {
             const actif = onglet === o.cle;
@@ -133,7 +136,7 @@ export function NavigateurEmoji({
                 onPress={() => setOnglet(o.cle)}
                 style={styles.onglet}
                 accessibilityRole="tab"
-                accessibilityLabel={o.libelle}
+                accessibilityLabel={t(o.libelleCle)}
                 accessibilityState={{ selected: actif }}
               >
                 <Text style={[styles.ongletIcone, !actif && styles.ongletInactif]}>{o.icone}</Text>
@@ -155,7 +158,7 @@ export function NavigateurEmoji({
         removeClippedSubviews
         contentContainerStyle={styles.grille}
         ListEmptyComponent={
-          <Text style={[styles.vide, { color: c.texteTertiaire }]}>Aucun emoji</Text>
+          <Text style={[styles.vide, { color: c.texteTertiaire }]}>{t('navigateurEmoji.vide')}</Text>
         }
         renderItem={({ item }) => {
           const { glyphe, uri, insertion, suggestion } = resoudre(item);

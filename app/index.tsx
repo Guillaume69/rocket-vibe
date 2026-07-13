@@ -8,6 +8,7 @@ import type { BaseLocale } from '../db/client.ts';
 import { abonnements, salons } from '../db/schema.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { useActivite } from '../ui/activite.ts';
+import { useT } from '../ui/i18n.ts';
 import { AvatarSalon, BadgeEtoile, BarreSynchro, Marque, TuileAvatar } from '../ui/kit.tsx';
 import { COULEURS_PRESENCE, usePresence } from '../ui/presence.ts';
 import { useSession } from '../ui/session.tsx';
@@ -49,6 +50,7 @@ export default function EcranAccueil() {
 /** Bandeau supérieur : licorne + logotype dégradé, roue des réglages. */
 function EnTeteListe({ c }: { c: Couleurs }) {
   const routeur = useRouter();
+  const t = useT();
   // Le rattrapage global (ouverture de l'app, retour au premier plan) allume
   // la barre — le cache est déjà là, ceci dit qu'on le rafraîchit.
   const enSynchro = useActivite('global');
@@ -63,7 +65,7 @@ function EnTeteListe({ c }: { c: Couleurs }) {
         android_ripple={{ color: c.ondulation, borderless: true, radius: 22 }}
         hitSlop={8}
         accessibilityRole="button"
-        accessibilityLabel="Paramètres"
+        accessibilityLabel={t('accueil.parametres')}
         style={({ pressed }) => [styles.enteteRoue, { opacity: pressed ? 0.55 : 1 }]}
       >
         <Text style={styles.enteteRoueGlyphe}>⚙️</Text>
@@ -94,6 +96,7 @@ function ListeSalons({ c, client }: { c: Couleurs; client: ClientRest }) {
 }
 
 function Salons({ c, base, client }: { c: Couleurs; base: BaseLocale; client: ClientRest }) {
+  const t = useT();
   // Deux requêtes vives, une PAR TABLE : le `useLiveQuery` de drizzle n'écoute
   // que la table du FROM. Avec une jointure, une écriture qui ne touche que
   // `abonnements` (lecture sur un autre appareil, salon masqué) ne
@@ -126,9 +129,9 @@ function Salons({ c, base, client }: { c: Couleurs; base: BaseLocale; client: Cl
   // Une section vide est retirée : pas d'en-tête « Messages privés » sans DM,
   // ni « Non lus » quand tout est lu.
   const sections: SectionSalons[] = [
-    { titre: 'Non lus', data: nonLus },
-    { titre: 'Salons', data: lus.filter((e) => e.salon.type !== 'd') },
-    { titre: 'Messages privés', data: lus.filter((e) => e.salon.type === 'd') },
+    { titre: t('accueil.sectionNonLus'), data: nonLus },
+    { titre: t('accueil.sectionSalons'), data: lus.filter((e) => e.salon.type !== 'd') },
+    { titre: t('accueil.sectionMessagesPrives'), data: lus.filter((e) => e.salon.type === 'd') },
   ].filter((s) => s.data.length > 0);
 
   return (
@@ -145,10 +148,7 @@ function Salons({ c, base, client }: { c: Couleurs; base: BaseLocale; client: Cl
       stickySectionHeadersEnabled={false}
       ListHeaderComponent={<LigneNouvelleConversation c={c} />}
       ListEmptyComponent={
-        <Text style={[styles.vide, { color: c.attenue }]}>
-          Aucun salon pour l&apos;instant — la première synchronisation peut prendre quelques
-          secondes.
-        </Text>
+        <Text style={[styles.vide, { color: c.attenue }]}>{t('accueil.listeVide')}</Text>
       }
       contentContainerStyle={styles.contenu}
     />
@@ -181,6 +181,7 @@ function LigneSalon({
   client: ClientRest;
 }) {
   const routeur = useRouter();
+  const t = useT();
   // Pastille de présence (8.4), DM à deux seulement (`dm_autre_uid` est null
   // ailleurs). Statut inconnu, ou diffusion coupée côté serveur
   // (Presence_broadcast_disabled) : rien — l'UI n'en dépend jamais.
@@ -190,7 +191,7 @@ function LigneSalon({
   const enAlerte = abonnement?.alerte === true || nonLus > 0;
   // L'aperçu d'un salon chiffré est du ciphertext : on ne le stocke même pas
   // (voir `versSalon`), le cadenas explique le vide.
-  const apercu = salon.chiffre ? 'Messages chiffrés' : (salon.dernierMessage ?? ' ');
+  const apercu = salon.chiffre ? t('accueil.messagesChiffres') : (salon.dernierMessage ?? ' ');
 
   return (
     <Pressable
@@ -246,6 +247,7 @@ function LigneSalon({
 /** Première ligne, fixe en tête de liste : démarrer une conversation. */
 function LigneNouvelleConversation({ c }: { c: Couleurs }) {
   const routeur = useRouter();
+  const t = useT();
   return (
     <Pressable
       onPress={() => routeur.push('/recherche')}
@@ -258,7 +260,7 @@ function LigneNouvelleConversation({ c }: { c: Couleurs }) {
         deg={[c.accent, c.jaune] as const}
         enfant={<Text style={[styles.plus, { color: c.surAccent }]}>＋</Text>}
       />
-      <Text style={[styles.nouvelle, { color: c.accent }]}>Nouvelle conversation</Text>
+      <Text style={[styles.nouvelle, { color: c.accent }]}>{t('accueil.nouvelleConversation')}</Text>
     </Pressable>
   );
 }

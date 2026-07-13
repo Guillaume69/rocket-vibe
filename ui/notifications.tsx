@@ -20,6 +20,7 @@ import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
 
 import { salons, abonnements } from '../db/schema.ts';
+import { traduireCourant } from './i18n.ts';
 import { useSynchro } from './synchro.tsx';
 
 /** Salons chiffrés connus — consulté par le handler global au moment d'afficher. */
@@ -42,7 +43,10 @@ Notifications.setNotificationHandler({
     if (rid !== null && ridsChiffres.has(rid)) {
       // Ne pas afficher le ciphertext : on republie un texte générique.
       Notifications.scheduleNotificationAsync({
-        content: { title: 'Message chiffré', body: 'Nouveau message dans un salon chiffré.' },
+        content: {
+          title: traduireCourant('notifications.titreChiffre'),
+          body: traduireCourant('notifications.corpsChiffre'),
+        },
         trigger: null,
       }).catch(() => {});
       return {

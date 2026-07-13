@@ -3,6 +3,8 @@ import { useEffect, useRef } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useT } from '../ui/i18n.ts';
+import type { CleTraduction } from '../ui/messages.ts';
 import { repondreSource, type SourcePieceJointe } from '../ui/sourcePieceJointe.ts';
 import { DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
 
@@ -17,15 +19,16 @@ import { DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
  * logique fichier reste ainsi au même endroit, dans le salon.
  */
 
-const OPTIONS: { source: SourcePieceJointe; icone: string; libelle: string }[] = [
-  { source: 'photo', icone: '📷', libelle: 'Prendre une photo' },
-  { source: 'video', icone: '🎥', libelle: 'Prendre une vidéo' },
-  { source: 'bibliotheque', icone: '🖼️', libelle: 'Choisir dans la bibliothèque' },
-  { source: 'fichier', icone: '📁', libelle: 'Choisir un fichier' },
+const OPTIONS: { source: SourcePieceJointe; icone: string; cle: CleTraduction }[] = [
+  { source: 'photo', icone: '📷', cle: 'joindre.photo' },
+  { source: 'video', icone: '🎥', cle: 'joindre.video' },
+  { source: 'bibliotheque', icone: '🖼️', cle: 'joindre.bibliotheque' },
+  { source: 'fichier', icone: '📁', cle: 'joindre.fichier' },
 ];
 
 export default function EcranJoindre() {
   const c = useCouleurs();
+  const t = useT();
   const routeur = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -58,11 +61,11 @@ export default function EcranJoindre() {
           android_ripple={{ color: c.ondulation }}
           unstable_pressDelay={DELAI_PRESSION_LISTE}
           accessibilityRole="button"
-          accessibilityLabel={o.libelle}
+          accessibilityLabel={t(o.cle)}
           style={({ pressed }) => [styles.ligne, { opacity: pressed ? 0.7 : 1 }]}
         >
           <Text style={styles.ligneIcone}>{o.icone}</Text>
-          <Text style={[styles.ligneTexte, { color: c.texte }]}>{o.libelle}</Text>
+          <Text style={[styles.ligneTexte, { color: c.texte }]}>{t(o.cle)}</Text>
         </Pressable>
       ))}
     </View>

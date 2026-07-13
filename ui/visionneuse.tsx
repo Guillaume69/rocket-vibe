@@ -28,6 +28,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useT } from './i18n.ts';
 import { POLICES, useCouleurs } from './theme.ts';
 
 export type CibleImage = {
@@ -78,6 +79,7 @@ function serrer(valeur: number, min: number, max: number): number {
 }
 
 function ModaleImage({ cible, onFermer }: { cible: CibleImage | null; onFermer: () => void }) {
+  const t = useT();
   const c = useCouleurs();
   const insets = useSafeAreaInsets();
   const [charge, setCharge] = useState(false);
@@ -197,7 +199,7 @@ function ModaleImage({ cible, onFermer }: { cible: CibleImage | null; onFermer: 
                     // zoom révèle le vrai détail. Sans risque — une seule image.
                     resizeMethod="scale"
                     onLoadEnd={() => setCharge(true)}
-                    accessibilityLabel={cible.titre ?? 'Image'}
+                    accessibilityLabel={cible.titre ?? t('visionneuse.image')}
                   />
                 </Animated.View>
               </GestureDetector>
@@ -211,7 +213,7 @@ function ModaleImage({ cible, onFermer }: { cible: CibleImage | null; onFermer: 
           hitSlop={12}
           style={[styles.fermer, { top: insets.top + 8, backgroundColor: c.carte + 'D9' }]}
           accessibilityRole="button"
-          accessibilityLabel="Fermer"
+          accessibilityLabel={t('commun.fermer')}
         >
           <Text style={[styles.croix, { color: c.texte }]}>✕</Text>
         </Pressable>

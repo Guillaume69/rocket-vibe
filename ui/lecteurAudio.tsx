@@ -41,6 +41,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
+import { useT } from './i18n.ts';
 import { type Couleurs, POLICES } from './theme.ts';
 
 const NB_BARRES = 28;
@@ -203,6 +204,7 @@ export function LecteurAudio({
   titre?: string | null;
   surAppuiLong?: (() => void) | undefined;
 }) {
+  const t = useT();
   const player = useAudioPlayer(url);
   const status = useAudioPlayerStatus(player);
   const niveaux = useSharedValue<number[]>(new Array(NB_BARRES).fill(0));
@@ -332,7 +334,7 @@ export function LecteurAudio({
   return (
     <View
       style={[styles.carte, { backgroundColor: c.carte, borderColor: c.bordure }]}
-      accessibilityLabel={titre ?? 'Message vocal'}
+      accessibilityLabel={titre ?? t('lecteurAudio.messageVocal')}
     >
       <Pressable
         onPress={basculer}
@@ -340,7 +342,7 @@ export function LecteurAudio({
         delayLongPress={350}
         hitSlop={6}
         accessibilityRole="button"
-        accessibilityLabel={status.playing ? 'Pause' : 'Lire le message vocal'}
+        accessibilityLabel={status.playing ? t('lecteurAudio.pause') : t('lecteurAudio.lire')}
       >
         <LinearGradient
           colors={c.degradeCta}

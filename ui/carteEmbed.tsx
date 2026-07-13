@@ -17,6 +17,7 @@ import { useMemo, useState } from 'react';
 import { Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { detecterLiensVideo, type LienVideo } from '../lib/liensVideo.ts';
+import { useT } from './i18n.ts';
 import { type Couleurs, POLICES } from './theme.ts';
 
 /** Rend une carte par lien vidéo détecté dans `texte` (rien si aucun). */
@@ -49,6 +50,7 @@ function CarteEmbed({
   lien: LienVideo;
   surAppuiLong?: (() => void) | undefined;
 }) {
+  const t = useT();
   const [erreurVignette, setErreurVignette] = useState(false);
   const montreVignette = lien.vignette !== null && !erreurVignette;
 
@@ -59,7 +61,7 @@ function CarteEmbed({
       delayLongPress={350}
       style={[styles.carte, { borderColor: c.bordure }]}
       accessibilityRole="button"
-      accessibilityLabel={`${lien.nom}, toucher pour ouvrir`}
+      accessibilityLabel={t('carteEmbed.ouvrir', { nom: lien.nom })}
     >
       {montreVignette ? (
         <Image

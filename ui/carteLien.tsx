@@ -22,6 +22,7 @@ import {
 } from 'react-native';
 
 import { apercusDeLien, type ApercuLien } from '../lib/apercuLien.ts';
+import { useT } from './i18n.ts';
 import { type Couleurs, POLICES } from './theme.ts';
 import { useVisionneuse } from './visionneuse.tsx';
 
@@ -77,6 +78,7 @@ function ApercuImage({
   largeurDispo: number;
   surAppuiLong: (() => void) | undefined;
 }) {
+  const t = useT();
   const visionneuse = useVisionneuse();
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
   const [erreur, setErreur] = useState(false);
@@ -116,7 +118,7 @@ function ApercuImage({
       onLongPress={surAppuiLong}
       delayLongPress={350}
       accessibilityRole="imagebutton"
-      accessibilityLabel="Image, toucher pour agrandir"
+      accessibilityLabel={t('carteLien.imageAgrandir')}
       style={{ width: largeur, height: hauteur }}
     >
       {dims === null ? (
@@ -147,8 +149,10 @@ function ApercuCarte({
   largeurDispo: number;
   surAppuiLong: (() => void) | undefined;
 }) {
+  const t = useT();
   const [erreurImage, setErreurImage] = useState(false);
   const montreBandeau = apercu.image !== null && !erreurImage;
+  const nomAccessible = apercu.titre ?? apercu.site ?? t('carteLien.lienDefaut');
 
   return (
     <Pressable
@@ -156,7 +160,7 @@ function ApercuCarte({
       onLongPress={surAppuiLong}
       delayLongPress={350}
       accessibilityRole="link"
-      accessibilityLabel={`${apercu.titre ?? apercu.site ?? 'Lien'}, toucher pour ouvrir`}
+      accessibilityLabel={t('carteLien.ouvrir', { nom: nomAccessible })}
       style={[styles.carte, { width: largeurDispo, backgroundColor: c.carte, borderColor: c.bordure }]}
     >
       {montreBandeau && (

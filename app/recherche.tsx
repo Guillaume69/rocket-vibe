@@ -13,6 +13,7 @@ import {
 import type { MoteurSynchro } from '../lib/sync.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { VueEvitantLeClavier } from '../ui/clavier.tsx';
+import { useT } from '../ui/i18n.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { type Couleurs, DELAI_PRESSION_LISTE, useCouleurs } from '../ui/theme.ts';
@@ -61,6 +62,7 @@ function Recherche({
   moteur: MoteurSynchro;
 }) {
   const routeur = useRouter();
+  const t = useT();
   const [requete, setRequete] = useState('');
   const [resultats, setResultats] = useState<ReponseSpotlight>({});
   const [occupe, setOccupe] = useState(false);
@@ -90,13 +92,13 @@ function Recherche({
             setMessage(null);
           })
           .catch(() => {
-            if (sequence.current === n) setMessage('Recherche impossible.');
+            if (sequence.current === n) setMessage(t('recherche.rechercheImpossible'));
           });
       },
       propre === '' ? 0 : 300,
     );
     return () => clearTimeout(minuterie);
-  }, [requete, client]);
+  }, [requete, client, t]);
 
   const ouvrirSalon = useCallback(
     async (brut: Record<string, unknown> | undefined, rid: string | undefined) => {
@@ -119,13 +121,13 @@ function Recherche({
         });
         await ouvrirSalon(reponse.room, reponse.room?._id as string | undefined);
       } catch (e) {
-        setMessage(e instanceof Error ? e.message : 'Conversation impossible.');
+        setMessage(e instanceof Error ? e.message : t('recherche.conversationImpossible'));
       } finally {
         enVol.current = false;
         setOccupe(false);
       }
     },
-    [client, ouvrirSalon],
+    [client, ouvrirSalon, t],
   );
 
   const rejoindreCanal = useCallback(
@@ -140,13 +142,13 @@ function Recherche({
         });
         await ouvrirSalon(reponse.channel, salon._id);
       } catch (e) {
-        setMessage(e instanceof Error ? e.message : 'Impossible de rejoindre.');
+        setMessage(e instanceof Error ? e.message : t('recherche.rejoindreImpossible'));
       } finally {
         enVol.current = false;
         setOccupe(false);
       }
     },
-    [client, ouvrirSalon],
+    [client, ouvrirSalon, t],
   );
 
   type Ligne =
@@ -159,12 +161,12 @@ function Recherche({
 
   return (
     <VueEvitantLeClavier>
-      <Stack.Screen options={{ title: 'Nouvelle conversation' }} />
+      <Stack.Screen options={{ title: t('recherche.titre') }} />
       <View style={styles.entete}>
         <TextInput
           value={requete}
           onChangeText={setRequete}
-          placeholder="Utilisateur ou canal…"
+          placeholder={t('recherche.placeholder')}
           placeholderTextColor={c.attenue}
           autoCapitalize="none"
           autoCorrect={false}
@@ -210,7 +212,7 @@ function Recherche({
         }
         ListEmptyComponent={
           requete.trim() === '' ? null : (
-            <Text style={[styles.vide, { color: c.attenue }]}>Aucun résultat.</Text>
+            <Text style={[styles.vide, { color: c.attenue }]}>{t('recherche.aucunResultat')}</Text>
           )
         }
         keyboardShouldPersistTaps="handled"

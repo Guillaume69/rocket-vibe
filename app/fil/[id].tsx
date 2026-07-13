@@ -26,6 +26,7 @@ import { useBrouillon } from '../../ui/brouillons.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
 import { BandeauCompletionEmoji, useCompletionEmoji } from '../../ui/completionEmoji.tsx';
 import { BandeauCompletionMention, useCandidatsMention } from '../../ui/completionMention.tsx';
+import { useT } from '../../ui/i18n.ts';
 import { hauteurPanneauEmoji, NavigateurEmoji } from '../../ui/navigateurEmoji.tsx';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
 import { useSession } from '../../ui/session.tsx';
@@ -98,6 +99,7 @@ function Fil({
   client: ClientRest;
   generation: number;
 }) {
+  const t = useT();
   // La racine du fil — elle porte le titre et le `rid`.
   const { data: lignesRacine } = useLiveQuery(
     base.select().from(messages).where(eq(messages.id, filId)).limit(1),
@@ -265,11 +267,11 @@ function Fil({
 
   return (
     <VueEvitantLeClavier>
-      <Stack.Screen options={{ title: 'Fil' }} />
+      <Stack.Screen options={{ title: t('fil.titre') }} />
       {donnees.length === 0 ? (
         <View style={styles.centre}>
           {premierPassageFini ? (
-            <Text style={[styles.vide, { color: c.attenue }]}>Fil introuvable.</Text>
+            <Text style={[styles.vide, { color: c.attenue }]}>{t('fil.introuvable')}</Text>
           ) : (
             <ActivityIndicator />
           )}
@@ -291,16 +293,12 @@ function Fil({
       )}
       {rid !== undefined && salon?.chiffre === true && (
         <View style={[styles.composer, { borderTopColor: c.bordure }]}>
-          <Text style={[styles.noteComposer, { color: c.attenue }]}>
-            🔒 Salon chiffré de bout en bout — écriture non prise en charge par cette application.
-          </Text>
+          <Text style={[styles.noteComposer, { color: c.attenue }]}>{t('fil.chiffre')}</Text>
         </View>
       )}
       {rid !== undefined && salon?.chiffre !== true && salon?.lectureSeule === true && (
         <View style={[styles.composer, { borderTopColor: c.bordure }]}>
-          <Text style={[styles.noteComposer, { color: c.attenue }]}>
-            Ce salon est en lecture seule.
-          </Text>
+          <Text style={[styles.noteComposer, { color: c.attenue }]}>{t('fil.lectureSeule')}</Text>
         </View>
       )}
       {rid !== undefined &&
@@ -352,6 +350,7 @@ function ComposerFil({
   sauverBrouillon: (texte: string) => void;
   effacerBrouillon: () => void;
 }) {
+  const t = useT();
   const [brouillon, setBrouillon] = useState(brouillonInitial);
   const { height: hauteurEcran } = useWindowDimensions();
   // Autocomplétion des emojis — mécanique partagée avec le composer du salon.
@@ -416,7 +415,7 @@ function ComposerFil({
           onPress={basculerEmoji}
           android_ripple={{ color: c.ondulation, borderless: true }}
           style={styles.boutonEmoji}
-          accessibilityLabel={panneauEmoji ? 'Revenir au clavier' : 'Choisir un emoji'}
+          accessibilityLabel={panneauEmoji ? t('fil.revenirClavier') : t('fil.choisirEmoji')}
         >
           <Text style={styles.emojiGlyphe}>{panneauEmoji ? '⌨️' : '😀'}</Text>
         </Pressable>
@@ -427,7 +426,7 @@ function ComposerFil({
           onChangeText={changer}
           onSelectionChange={surSelection}
           onFocus={() => setPanneauEmoji(false)}
-          placeholder="Répondre dans le fil"
+          placeholder={t('fil.repondre')}
           placeholderTextColor={c.attenue}
           multiline
           style={[styles.champComposer, { color: c.texte, backgroundColor: c.carte }]}
@@ -438,7 +437,7 @@ function ComposerFil({
             android_ripple={{ color: c.ondulation, borderless: true }}
             style={({ pressed }) => [styles.boutonEnvoyer, { opacity: pressed ? 0.4 : 1 }]}
           >
-            <Text style={[styles.texteEnvoyer, { color: c.accent }]}>Envoyer</Text>
+            <Text style={[styles.texteEnvoyer, { color: c.accent }]}>{t('commun.envoyer')}</Text>
           </Pressable>
         )}
       </View>

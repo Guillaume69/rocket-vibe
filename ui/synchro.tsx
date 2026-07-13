@@ -46,6 +46,7 @@ import { enregistrerJeton } from '../lib/pushToken.ts';
 import { rattraperGlobal, rattraperSalon, reconcilierSalons } from '../lib/rattrapage.ts';
 import { Reconnecteur } from '../lib/reconnexion.ts';
 import { MoteurSynchro, STREAM_NOTIFY_USER } from '../lib/sync.ts';
+import { TraducteurRC } from '../fournisseurs/rocketchat/traducteur.ts';
 import {
   effacerClePriveeE2E,
   enregistrerClePriveeE2E,
@@ -143,8 +144,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       });
       const moteur = new MoteurSynchro(
         creerDepot(brute, fileEcritures),
-        session.username,
-        session.userId,
+        new TraducteurRC(session.username, session.userId),
         e2e,
       );
       const fichiers = new MoteurTeleversement({

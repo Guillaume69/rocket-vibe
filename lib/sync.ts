@@ -7,14 +7,8 @@
  */
 
 import type { Evenement } from './ddp.ts';
-import {
-  versAbonnement,
-  versMessage,
-  versSalon,
-  type AbonnementLocal,
-  type MessageLocal,
-  type SalonLocal,
-} from './normaliser.ts';
+import type { ChangementSync, Traducteur } from './fournisseur.ts';
+import type { AbonnementLocal, MessageLocal, SalonLocal } from './normaliser.ts';
 
 /**
  * Ce que la synchro attend du moteur E2EE, structurellement (pas d'import de
@@ -118,22 +112,14 @@ export class MoteurSynchro {
   // sont pas une syntaxe effaçable, et empêcheraient de charger le module sous
   // Node — donc de le tester.
   private readonly depot: Depot;
-  /** Nom d'utilisateur du compte courant — sert à nommer les messages directs. */
-  private readonly moi: string | null;
-  /** Uid du compte courant — extrait l'autre participant d'un DM (présence). */
-  private readonly moiUid: string | null;
+  /** Décode les `Evenement` et documents bruts du serveur : toute la quirk RC est là. */
+  private readonly traducteur: Traducteur;
   /** Déchiffreur E2EE, ou `null` : un message chiffré reste alors au placeholder. */
   private dechiffreur: DechiffreurE2E | null;
 
-  constructor(
-    depot: Depot,
-    moi: string | null = null,
-    moiUid: string | null = null,
-    dechiffreur: DechiffreurE2E | null = null,
-  ) {
+  constructor(depot: Depot, traducteur: Traducteur, dechiffreur: DechiffreurE2E | null = null) {
     this.depot = depot;
-    this.moi = moi;
-    this.moiUid = moiUid;
+    this.traducteur = traducteur;
     this.dechiffreur = dechiffreur;
   }
 
@@ -188,133 +174,51 @@ export class MoteurSynchro {
   }
 
   /**
-   * Applique un événement DDP. Les charges utiles inconnues sont **ignorées en
-   * silence, mais comptées** : un stream qu'on n'attendait pas ne doit ni
-   * planter, ni disparaître sans trace.
+   * Applique un événement temps réel. Le traducteur du fournisseur le décode ;
+   * le moteur n'écrit plus que des formes neutres. Une anomalie (stream
+   * inattendu) est **comptée, jamais planquée** ; un `silence` attendu
+   * (`user-activity`) ne compte pas.
    */
   async appliquer(evenement: Evenement): Promise<void> {
-    switch (evenement.collection) {
-      case STREAM_MESSAGES: {
-        // Ici, et ici seulement, `args[0]` est directement le document.
-        const document = objetOuNull(evenement.args[0]);
-        if (document === null) {
-          this.stats.ignores++;
-          return;
-        }
-        await this.appliquerMessage(document);
-        return;
-      }
+    const traduction = this.traducteur.traduireEvenement(evenement);
+    if (traduction.sorte === 'silence') return;
+    if (traduction.sorte === 'ignore') {
+      this.stats.ignores++;
+      return;
+    }
+    await this.appliquerChangement(traduction.changement);
+  }
 
-      case STREAM_NOTIFY_USER: {
-        // La clé vaut `<uid>/<sujet>`. Le sujet seul nous intéresse.
-        // Attention : ce stream envoie `args: ['updated', {…}]` — le premier
-        // argument est une ACTION, pas le document. Le rejeter ici ferait
-        // silencieusement disparaître tous les changements d'abonnement.
-        const sujet = sujetDe(evenement.cleEvenement);
-        if (sujet === 'subscriptions-changed') return this.appliquerAbonnement(evenement);
-        if (sujet === 'rooms-changed') return this.appliquerSalon(evenement);
-        this.stats.ignores++;
+  /** Écrit un changement déjà normalisé dans le dépôt. Le seul chemin d'écriture. */
+  private async appliquerChangement(changement: ChangementSync): Promise<void> {
+    switch (changement.type) {
+      case 'message':
+        this.dechiffrer(changement.doc);
+        await this.depot.upsertMessage(changement.doc);
+        this.stats.messages++;
         return;
-      }
-
-      case STREAM_NOTIFY_ROOM: {
-        const sujet = sujetDe(evenement.cleEvenement);
-        // `user-activity` est ATTENDU (l'écran salon s'y abonne pour la
-        // saisie, 8.6) mais traité ailleurs : le compter en « ignoré »
-        // noierait le compteur d'anomalies sous des battements de frappe.
-        if (sujet === 'user-activity') return;
-        if (sujet !== 'deleteMessage') {
-          this.stats.ignores++;
-          return;
-        }
-        const document = objetOuNull(evenement.args[0]);
-        const id = typeof document?._id === 'string' ? document._id : null;
-        if (id === null) {
-          this.stats.ignores++;
-          return;
-        }
-        await this.depot.supprimerMessage(id);
+      case 'salon':
+        await this.depot.upsertSalon(changement.doc);
+        this.stats.salons++;
+        return;
+      case 'abonnement':
+        this.dechiffreur?.enregistrerCleSalon(changement.doc.rid, changement.doc.e2eKey);
+        await this.depot.upsertAbonnement(changement.doc);
+        this.stats.abonnements++;
+        return;
+      case 'suppr-message':
+        await this.depot.supprimerMessage(changement.id);
         this.stats.suppressions++;
         return;
-      }
-
-      default:
-        this.stats.ignores++;
-    }
-  }
-
-  private async appliquerMessage(brut: Record<string, unknown>): Promise<void> {
-    const message = versMessage(brut);
-    if (message === null) {
-      this.stats.ignores++;
-      return;
-    }
-    this.dechiffrer(message);
-    await this.depot.upsertMessage(message);
-    this.stats.messages++;
-  }
-
-  /**
-   * `subscriptions-changed` et `rooms-changed` livrent `[action, document]` :
-   * le premier argument est `'inserted' | 'updated' | 'removed'`. Notre routage
-   * l'a déjà consommé comme charge — on relit donc `args` au complet.
-   */
-  private async appliquerAbonnement(evenement: Evenement): Promise<void> {
-    const document = documentDeNotification(evenement);
-    if (document === null) {
-      this.stats.ignores++;
-      return;
-    }
-    // 'removed' : le compte a quitté le salon, ou le salon a été supprimé. RC
-    // n'envoie alors que le `_id` de l'ABONNEMENT — de quoi le retrouver, pas
-    // de quoi le reconstruire. On supprime par subId (efface aussi le salon),
-    // comme le rattrapage sur ses `remove[]`. SANS ce cas, un salon supprimé
-    // resterait en FANTÔME : l'upsert plus bas le maintiendrait en vie.
-    if (actionDeNotification(evenement) === 'removed') {
-      const subId = typeof document._id === 'string' ? document._id : null;
-      if (subId === null) {
-        this.stats.ignores++;
+      case 'suppr-salon':
+        await this.depot.supprimerSalon(changement.rid);
+        this.stats.suppressions++;
         return;
-      }
-      await this.depot.supprimerParSubId(subId);
-      this.stats.suppressions++;
-      return;
-    }
-    const abonnement = versAbonnement(document);
-    if (abonnement === null) {
-      this.stats.ignores++;
-      return;
-    }
-    this.dechiffreur?.enregistrerCleSalon(abonnement.rid, abonnement.e2eKey);
-    await this.depot.upsertAbonnement(abonnement);
-    this.stats.abonnements++;
-  }
-
-  private async appliquerSalon(evenement: Evenement): Promise<void> {
-    const document = documentDeNotification(evenement);
-    if (document === null) {
-      this.stats.ignores++;
-      return;
-    }
-    // 'removed' : le salon a disparu côté serveur. Le document ne porte que son
-    // `_id` (= le rid). On supprime, sinon l'upsert le ressusciterait.
-    if (actionDeNotification(evenement) === 'removed') {
-      const rid = typeof document._id === 'string' ? document._id : null;
-      if (rid === null) {
-        this.stats.ignores++;
+      case 'suppr-abonnement-par-sub':
+        await this.depot.supprimerParSubId(changement.subId);
+        this.stats.suppressions++;
         return;
-      }
-      await this.depot.supprimerSalon(rid);
-      this.stats.suppressions++;
-      return;
     }
-    const salon = versSalon(document, this.moi, this.moiUid);
-    if (salon === null) {
-      this.stats.ignores++;
-      return;
-    }
-    await this.depot.upsertSalon(salon);
-    this.stats.salons++;
   }
 
   /**
@@ -328,7 +232,7 @@ export class MoteurSynchro {
     let plusRecent: number | null = null;
     await this.depot.transaction(async (tx) => {
       for (const brut of bruts) {
-        const message = versMessage(brut);
+        const message = this.traducteur.versMessage(brut);
         if (message === null) {
           this.stats.ignores++;
           continue;
@@ -348,7 +252,7 @@ export class MoteurSynchro {
     let plusRecent: number | null = null;
     await this.depot.transaction(async (tx) => {
       for (const brut of bruts) {
-        const salon = versSalon(brut, this.moi, this.moiUid);
+        const salon = this.traducteur.versSalon(brut);
         if (salon === null) {
           this.stats.ignores++;
           continue;
@@ -367,7 +271,7 @@ export class MoteurSynchro {
     let plusRecent: number | null = null;
     await this.depot.transaction(async (tx) => {
       for (const brut of bruts) {
-        const abonnement = versAbonnement(brut);
+        const abonnement = this.traducteur.versAbonnement(brut);
         if (abonnement === null) {
           this.stats.ignores++;
           continue;
@@ -387,33 +291,4 @@ export class MoteurSynchro {
   get depotSynchro(): Depot {
     return this.depot;
   }
-}
-
-function objetOuNull(v: unknown): Record<string, unknown> | null {
-  return typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null;
-}
-
-/** `<uid>/subscriptions-changed` -> `subscriptions-changed`. */
-function sujetDe(cleEvenement: string): string {
-  return cleEvenement.split('/').slice(1).join('/');
-}
-
-/**
- * `stream-notify-user` envoie `args: ['updated', {…}]` — vérifié contre un
- * serveur 8.5. Le document est donc le **second** argument quand le premier est
- * une action. Certaines versions envoient directement le document : on accepte
- * les deux formes plutôt que de parier.
- */
-function documentDeNotification(evenement: Evenement): Record<string, unknown> | null {
-  if (typeof evenement.args[0] === 'string') return objetOuNull(evenement.args[1]);
-  return objetOuNull(evenement.args[0]);
-}
-
-/**
- * L'ACTION d'une notification `[action, document]` (`'inserted' | 'updated' |
- * 'removed'`), ou null quand le serveur envoie directement le document (forme
- * acceptée par `documentDeNotification`). Seul `'removed'` change le traitement.
- */
-function actionDeNotification(evenement: Evenement): string | null {
-  return typeof evenement.args[0] === 'string' ? evenement.args[0] : null;
 }

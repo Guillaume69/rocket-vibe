@@ -10,7 +10,7 @@
  * sont jamais coulées dans la forme Rocket.Chat.
  */
 
-import type { EtatDdp } from './ddp.ts';
+import type { Evenement, EtatDdp } from './ddp.ts';
 import type { AbonnementLocal, MessageLocal, SalonLocal } from './normaliser.ts';
 
 /**
@@ -45,10 +45,11 @@ export type Capacites = {
 };
 
 /**
- * L'écoute temps réel. Même surface que `ClientDdp` (le pilote `Reconnecteur` et
- * `ui/synchro.tsx` dépendent de cette forme), à une différence près : `surChangement`
- * émet du `ChangementSync` neutre, pas l'`Evenement` brut du transport. Un driver
- * Mattermost implémente la même interface au-dessus d'un WebSocket JSON.
+ * L'écoute temps réel. Exactement la surface publique de `ClientDdp` (le pilote
+ * `Reconnecteur` et `ui/synchro.tsx` en dépendent) : `ClientDdp` s'y conforme
+ * sans emballage. Un driver Mattermost implémente la même interface au-dessus
+ * d'un WebSocket JSON, en émettant des `Evenement` (enveloppe neutre
+ * `{collection, cleEvenement, args}`) que son `Traducteur` sait décoder.
  */
 export interface Listener {
   /** Champ public, pas un getter — comme `ClientDdp.etat`. */
@@ -57,11 +58,38 @@ export interface Listener {
   /** Enregistre une souscription désirée ; rend la fonction de relâche. Rejouée à chaque (re)connexion. */
   souscrire(nom: string, cleEvenement: string): () => void;
   /** Rend la fonction de désabonnement. */
-  surChangement(ecouteur: (changement: ChangementSync) => void): () => void;
+  surEvenement(ecouteur: (evenement: Evenement) => void): () => void;
   surPerte(ecouteur: () => void): () => void;
   fermer(): void;
   verifierVie(): Promise<boolean>;
   reinitialiser(): void;
+}
+
+/**
+ * Résultat de la traduction d'un `Evenement` brut. Reproduit exactement les
+ * trois issues du switch RC historique : un changement à écrire, une anomalie
+ * (stream inattendu — à COMPTER pour le débogage), ou un silence attendu
+ * (`user-activity` de saisie, traité ailleurs — à NE PAS compter, sinon les
+ * battements de frappe noient le compteur d'anomalies).
+ */
+export type Traduction =
+  | { sorte: 'changement'; changement: ChangementSync }
+  | { sorte: 'ignore' }
+  | { sorte: 'silence' };
+
+/**
+ * La part spécifique au serveur de la synchro : décoder ses `Evenement` bruts et
+ * ses documents REST en formes neutres. `MoteurSynchro` ne dépend que de cette
+ * interface — il ne connaît plus aucun nom de stream ni aucune quirk de wire.
+ * Un fournisseur en fournit une (RC : `TraducteurRC` ; Mattermost : la sienne).
+ */
+export interface Traducteur {
+  /** Flux temps réel : un `Evenement` du `Listener` → un changement, une anomalie, ou un silence. */
+  traduireEvenement(evenement: Evenement): Traduction;
+  /** Lots REST (rattrapage, historique) : document brut → ligne locale, ou null si irrécupérable. */
+  versMessage(brut: Record<string, unknown>): MessageLocal | null;
+  versSalon(brut: Record<string, unknown>): SalonLocal | null;
+  versAbonnement(brut: Record<string, unknown>): AbonnementLocal | null;
 }
 
 /**

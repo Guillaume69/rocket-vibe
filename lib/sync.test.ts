@@ -12,6 +12,7 @@ import {
   type SalonLocal,
 } from './normaliser.ts';
 import { MoteurSynchro, type DechiffreurE2E, type Depot } from './sync.ts';
+import { TraducteurRC } from '../fournisseurs/rocketchat/traducteur.ts';
 
 describe('versEpoch', () => {
   test('accepte l’EJSON de Rocket.Chat', () => {
@@ -232,7 +233,7 @@ const evenement = (collection: string, cleEvenement: string, args: unknown[]): E
 describe('MoteurSynchro', () => {
   test('un message du stream est écrit', async () => {
     const { depot, messages } = faireDepot();
-    const moteur = new MoteurSynchro(depot);
+    const moteur = new MoteurSynchro(depot, new TraducteurRC());
     await moteur.appliquer(
       evenement('stream-room-messages', 'r1', [
         { _id: 'm1', rid: 'r1', msg: 'salut', ts: { $date: 1 }, u: { _id: 'u1' } },
@@ -247,7 +248,7 @@ describe('MoteurSynchro', () => {
     // Traiter args[0] comme le document ferait disparaître en silence tous les
     // changements d'abonnement — donc tous les compteurs de non-lus.
     const { depot, abonnements } = faireDepot();
-    const moteur = new MoteurSynchro(depot);
+    const moteur = new MoteurSynchro(depot, new TraducteurRC());
     await moteur.appliquer(
       evenement('stream-notify-user', 'u1/subscriptions-changed', [
         'updated',
@@ -261,7 +262,7 @@ describe('MoteurSynchro', () => {
 
   test('la forme sans action est acceptée aussi', async () => {
     const { depot, abonnements } = faireDepot();
-    await new MoteurSynchro(depot).appliquer(
+    await new MoteurSynchro(depot, new TraducteurRC()).appliquer(
       evenement('stream-notify-user', 'u1/subscriptions-changed', [{ rid: 'r1', unread: 1 }]),
     );
     assert.equal(abonnements.length, 1);
@@ -269,7 +270,7 @@ describe('MoteurSynchro', () => {
 
   test('`rooms-changed` écrit un salon', async () => {
     const { depot, salons } = faireDepot();
-    await new MoteurSynchro(depot).appliquer(
+    await new MoteurSynchro(depot, new TraducteurRC()).appliquer(
       evenement('stream-notify-user', 'u1/rooms-changed', ['updated', { _id: 'r1', t: 'c' }]),
     );
     assert.equal(salons.length, 1);
@@ -280,7 +281,7 @@ describe('MoteurSynchro', () => {
     // le document (juste { _id }) tentait un upsert. Un salon supprimé côté
     // serveur restait donc en cache à vie. Ici on vérifie la suppression.
     const { depot, supprimesParSubId, abonnements } = faireDepot();
-    const moteur = new MoteurSynchro(depot);
+    const moteur = new MoteurSynchro(depot, new TraducteurRC());
     await moteur.appliquer(
       evenement('stream-notify-user', 'u1/subscriptions-changed', ['removed', { _id: 'sub1' }]),
     );
@@ -291,7 +292,7 @@ describe('MoteurSynchro', () => {
 
   test('`rooms-changed` action "removed" supprime le salon', async () => {
     const { depot, supprimesSalons, salons } = faireDepot();
-    const moteur = new MoteurSynchro(depot);
+    const moteur = new MoteurSynchro(depot, new TraducteurRC());
     await moteur.appliquer(
       evenement('stream-notify-user', 'u1/rooms-changed', ['removed', { _id: 'r1' }]),
     );
@@ -302,7 +303,7 @@ describe('MoteurSynchro', () => {
 
   test('`deleteMessage` supprime', async () => {
     const { depot, supprimes } = faireDepot();
-    const moteur = new MoteurSynchro(depot);
+    const moteur = new MoteurSynchro(depot, new TraducteurRC());
     await moteur.appliquer(evenement('stream-notify-room', 'r1/deleteMessage', [{ _id: 'm1' }]));
     assert.deepEqual(supprimes, ['m1']);
     assert.equal(moteur.stats.suppressions, 1);
@@ -310,7 +311,7 @@ describe('MoteurSynchro', () => {
 
   test('un stream inconnu est ignoré, mais compté', async () => {
     const { depot } = faireDepot();
-    const moteur = new MoteurSynchro(depot);
+    const moteur = new MoteurSynchro(depot, new TraducteurRC());
     await moteur.appliquer(evenement('stream-livechat-inquiry', 'x', [{}]));
     await moteur.appliquer(evenement('stream-notify-user', 'u1/webrtc', ['updated', {}]));
     assert.equal(moteur.stats.ignores, 2, 'ignoré ne veut pas dire invisible');
@@ -318,7 +319,7 @@ describe('MoteurSynchro', () => {
 
   test('une charge utile malformée n’interrompt pas le flux', async () => {
     const { depot, messages } = faireDepot();
-    const moteur = new MoteurSynchro(depot);
+    const moteur = new MoteurSynchro(depot, new TraducteurRC());
     await moteur.appliquer(evenement('stream-room-messages', 'r1', ['pas un objet']));
     await moteur.appliquer(evenement('stream-room-messages', 'r1', [{ _id: 'sans-rid' }]));
     assert.equal(messages.length, 0);
@@ -327,7 +328,7 @@ describe('MoteurSynchro', () => {
 
   test('un lot REST passe par les mêmes upserts que le WebSocket', async () => {
     const { depot, messages } = faireDepot();
-    const moteur = new MoteurSynchro(depot);
+    const moteur = new MoteurSynchro(depot, new TraducteurRC());
     await moteur.ingererMessages([
       { _id: 'm1', rid: 'r1', msg: 'a', ts: { $date: 1 }, u: { _id: 'u1' } },
       { _id: 'm2', rid: 'r1', msg: 'b', ts: { $date: 2 }, u: { _id: 'u1' } },
@@ -357,7 +358,7 @@ describe('MoteurSynchro — déchiffrement E2EE', () => {
       dechiffrerContenu: (_rid, content) => (content.ciphertext === 'CT' ? 'clair !' : null),
       enregistrerCleSalon: () => {},
     };
-    const moteur = new MoteurSynchro(depot, 'moi', 'uid', dechiffreur);
+    const moteur = new MoteurSynchro(depot, new TraducteurRC('moi', 'uid'), dechiffreur);
     await moteur.ingererMessages([msgChiffre('m1', 'CT')]);
     assert.equal(messages[0].texte, 'clair !');
     assert.notEqual(messages[0].chiffreBrut, null); // ciphertext gardé
@@ -371,7 +372,7 @@ describe('MoteurSynchro — déchiffrement E2EE', () => {
         deverrouille && content.ciphertext === 'CT' ? 'clair !' : null,
       enregistrerCleSalon: () => {},
     };
-    const moteur = new MoteurSynchro(depot, 'moi', 'uid', dechiffreur);
+    const moteur = new MoteurSynchro(depot, new TraducteurRC('moi', 'uid'), dechiffreur);
     await moteur.ingererMessages([msgChiffre('m1', 'CT')]);
     assert.equal(messages[0].texte, null); // verrouillé → placeholder
 
@@ -383,7 +384,7 @@ describe('MoteurSynchro — déchiffrement E2EE', () => {
 
   test('sans déchiffreur, un message chiffré garde son ciphertext et reste illisible', async () => {
     const { depot, messages } = faireDepot();
-    const moteur = new MoteurSynchro(depot, 'moi', 'uid'); // pas de déchiffreur
+    const moteur = new MoteurSynchro(depot, new TraducteurRC('moi', 'uid')); // pas de déchiffreur
     await moteur.ingererMessages([msgChiffre('m1', 'CT')]);
     assert.equal(messages[0].texte, null);
     assert.notEqual(messages[0].chiffreBrut, null);

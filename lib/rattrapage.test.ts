@@ -4,6 +4,7 @@ import { describe, test } from 'node:test';
 import { rattraperGlobal, rattraperSalon, reconcilierSalons } from './rattrapage.ts';
 import { ClientRest } from './rest.ts';
 import { MoteurSynchro, type Depot } from './sync.ts';
+import { TraducteurRC } from '../fournisseurs/rocketchat/traducteur.ts';
 
 function fauxDepotComplet() {
   const curseurs = new Map<string, number>();
@@ -76,7 +77,7 @@ function fauxClient(reponses: Record<string, unknown>) {
 describe('rattraperGlobal', () => {
   test('sans curseur : chargement complet (pas d’updatedSince), puis curseurs posés', async () => {
     const d = fauxDepotComplet();
-    const moteur = new MoteurSynchro(d.depot);
+    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
     const { client, urls } = fauxClient({
       'rooms.get': {
         update: [{ _id: 'r1', t: 'c', _updatedAt: { $date: 500 } }],
@@ -100,7 +101,7 @@ describe('rattraperGlobal', () => {
     const d = fauxDepotComplet();
     d.curseurs.set('*|salons', 1000);
     d.curseurs.set('*|abonnements', 1000);
-    const moteur = new MoteurSynchro(d.depot);
+    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
     const { client, urls } = fauxClient({
       // Projections réelles du serveur 8.5 : `remove[]` de rooms.get porte le
       // `_id` du SALON supprimé ; celui de subscriptions.get porte le `_id`
@@ -125,7 +126,7 @@ describe('rattraperGlobal', () => {
 describe('rattraperSalon', () => {
   test('sans curseur : ne fait RIEN — syncMessages sans borne re-téléchargerait tout', async () => {
     const d = fauxDepotComplet();
-    const moteur = new MoteurSynchro(d.depot);
+    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
     const { client, urls } = fauxClient({});
     await rattraperSalon(client, moteur, 'r1');
     assert.equal(urls.length, 0);
@@ -134,7 +135,7 @@ describe('rattraperSalon', () => {
   test('avec curseur : syncMessages ingère, supprime, avance le curseur', async () => {
     const d = fauxDepotComplet();
     d.curseurs.set('r1|messages', 2000);
-    const moteur = new MoteurSynchro(d.depot);
+    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
     const { client, urls } = fauxClient({
       'chat.syncMessages': {
         result: {
@@ -166,7 +167,7 @@ describe('rattraperSalon', () => {
   test('abandonné entre la réponse et l’écriture : rien n’est écrit', async () => {
     const d = fauxDepotComplet();
     d.curseurs.set('r1|messages', 2000);
-    const moteur = new MoteurSynchro(d.depot);
+    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
     const { client } = fauxClient({
       'chat.syncMessages': {
         result: { updated: [{ _id: 'm1', rid: 'r1', ts: { $date: 1 }, u: { _id: 'u' } }] },
@@ -182,7 +183,7 @@ describe('rattraperSalon', () => {
     const d = fauxDepotComplet();
     d.curseurs.set('r1|messages', 1000);
     d.setDernierLocal(9000);
-    const moteur = new MoteurSynchro(d.depot);
+    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
     // Un fetch qui rejette → `client.get` lève (comme un timeout réseau).
     const client = new ClientRest('http://x', {
       fetch: async () => {
@@ -200,7 +201,7 @@ describe('rattraperSalon', () => {
     const d = fauxDepotComplet();
     d.curseurs.set('r1|messages', 1000);
     d.setDernierLocal(null);
-    const moteur = new MoteurSynchro(d.depot);
+    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
     const client = new ClientRest('http://x', {
       fetch: async () => {
         throw new Error('timeout');
@@ -215,7 +216,7 @@ describe('rattraperSalon', () => {
 describe('reconcilierSalons', () => {
   test('purge les rids absents de la liste vivante des abonnements', async () => {
     const d = fauxDepotComplet();
-    const moteur = new MoteurSynchro(d.depot);
+    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
     const { client, urls } = fauxClient({
       'subscriptions.get': { update: [{ rid: 'r1' }, { rid: 'r2' }] },
     });
@@ -228,7 +229,7 @@ describe('reconcilierSalons', () => {
 
   test('une liste vide ne purge RIEN — garde-fou anti-purge-totale', async () => {
     const d = fauxDepotComplet();
-    const moteur = new MoteurSynchro(d.depot);
+    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
     const { client } = fauxClient({ 'subscriptions.get': { update: [] } });
     await reconcilierSalons(client, moteur);
     assert.equal(d.purges.length, 0);
@@ -236,7 +237,7 @@ describe('reconcilierSalons', () => {
 
   test('abandonné en vol : aucune purge', async () => {
     const d = fauxDepotComplet();
-    const moteur = new MoteurSynchro(d.depot);
+    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
     const { client } = fauxClient({ 'subscriptions.get': { update: [{ rid: 'r1' }] } });
     await reconcilierSalons(client, moteur, () => true);
     assert.equal(d.purges.length, 0);

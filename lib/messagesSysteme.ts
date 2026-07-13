@@ -8,53 +8,69 @@
  * Un type inconnu rend une phrase générique plutôt que rien : le serveur en
  * ajoute à chaque version, et un salon qui « perd » des événements est plus
  * déroutant qu'une mention neutre.
+ *
+ * Les phrases elles-mêmes vivent dans le catalogue (`ui/messages`, clés `sys.*`) :
+ * ce module reste PUR — le traducteur `t` est INJECTÉ (import de type seul, aucun
+ * import plateforme), donc ses tests tournent sous Node avec un `t` réel.
  */
 
-const TRADUCTIONS: Record<string, (parametre: string) => string> = {
-  uj: () => 'a rejoint le salon',
-  ujt: () => "a rejoint l'équipe",
-  ul: () => 'a quitté le salon',
-  ult: () => "a quitté l'équipe",
-  ru: (p) => `a retiré ${p} du salon`,
-  au: (p) => `a ajouté ${p} au salon`,
-  r: (p) => `a renommé le salon en ${p}`,
-  // Sur une pierre tombale `rm`, `u` reste l'AUTEUR D'ORIGINE — le modérateur
-  // qui a supprimé est dans `editedBy`. Une tournure active accuserait le
-  // mauvais acteur : on reste neutre.
-  rm: () => '(message supprimé)',
-  wm: (p) => (p === '' ? 'bienvenue !' : `bienvenue, ${p} !`),
-  uploaded: (p) => `a envoyé le fichier ${p}`,
-  message_pinned: () => 'a épinglé un message',
-  message_unpinned: () => 'a désépinglé un message',
-  // Effacer le sujet émet le même type avec un `msg` VIDE : sans ce cas, la
-  // phrase finirait sur un deux-points pendu.
-  room_changed_topic: (p) => (p === '' ? 'a retiré le sujet' : `a changé le sujet : ${p}`),
-  room_changed_announcement: (p) =>
-    p === '' ? "a retiré l'annonce" : `a changé l'annonce : ${p}`,
-  room_changed_description: (p) =>
-    p === '' ? 'a retiré la description' : `a changé la description : ${p}`,
-  room_changed_avatar: () => "a changé l'avatar du salon",
-  room_changed_privacy: (p) => `a changé la confidentialité du salon : ${p}`,
-  'room-set-read-only': () => 'a passé le salon en lecture seule',
-  'room-removed-read-only': () => 'a repassé le salon en écriture',
-  'room-archived': () => 'a archivé le salon',
-  'room-unarchived': () => 'a désarchivé le salon',
-  'user-muted': (p) => `a rendu ${p} muet`,
-  'user-unmuted': (p) => `a rendu la parole à ${p}`,
-  'subscription-role-added': (p) => `a donné un rôle à ${p}`,
-  'subscription-role-removed': (p) => `a retiré un rôle à ${p}`,
-  'room-allowed-reacting': () => 'a autorisé les réactions',
-  'room-disallowed-reacting': () => 'a interdit les réactions',
-  'message-deleted-notification': () => 'a supprimé un message',
-};
+import type { Traducteur } from '../ui/messages.ts';
 
 /**
- * Phrase française d'un message système. `parametre` est le `msg` brut du
- * message — vide pour les actions qui n'en ont pas.
+ * Table type → clé de traduction. Les types dont le rendu dépend d'un paramètre
+ * (`{p}`) le reçoivent à l'appel ; les cas où un `msg` VIDE change la phrase
+ * (sujet effacé, bienvenue anonyme) sont traités à part dans `texteSysteme`.
  */
-export function texteSysteme(type: string, parametre: string | null): string {
-  const traduire = TRADUCTIONS[type];
-  if (traduire !== undefined) return traduire(parametre ?? '');
-  const suffixe = parametre !== null && parametre !== '' ? ` : ${parametre}` : '';
-  return `(action système « ${type} »${suffixe})`;
+const CLES = {
+  uj: 'sys.uj',
+  ujt: 'sys.ujt',
+  ul: 'sys.ul',
+  ult: 'sys.ult',
+  ru: 'sys.ru',
+  au: 'sys.au',
+  r: 'sys.r',
+  rm: 'sys.rm',
+  uploaded: 'sys.uploaded',
+  message_pinned: 'sys.messagePinned',
+  message_unpinned: 'sys.messageUnpinned',
+  room_changed_avatar: 'sys.roomChangedAvatar',
+  room_changed_privacy: 'sys.roomChangedPrivacy',
+  'room-set-read-only': 'sys.setReadOnly',
+  'room-removed-read-only': 'sys.removedReadOnly',
+  'room-archived': 'sys.archived',
+  'room-unarchived': 'sys.unarchived',
+  'user-muted': 'sys.userMuted',
+  'user-unmuted': 'sys.userUnmuted',
+  'subscription-role-added': 'sys.roleAdded',
+  'subscription-role-removed': 'sys.roleRemoved',
+  'room-allowed-reacting': 'sys.allowedReacting',
+  'room-disallowed-reacting': 'sys.disallowedReacting',
+  'message-deleted-notification': 'sys.messageDeleted',
+} as const satisfies Record<string, Parameters<Traducteur>[0]>;
+
+/** Types dont un `msg` VIDE efface la partie « : … » — traités hors table. */
+const AVEC_CAS_VIDE = {
+  room_changed_topic: { retire: 'sys.topicRetire', plein: 'sys.topic' },
+  room_changed_announcement: { retire: 'sys.annonceRetire', plein: 'sys.annonce' },
+  room_changed_description: { retire: 'sys.descriptionRetire', plein: 'sys.description' },
+} as const satisfies Record<string, { retire: Parameters<Traducteur>[0]; plein: Parameters<Traducteur>[0] }>;
+
+/**
+ * Phrase d'un message système, dans la langue portée par `t`. `parametre` est
+ * le `msg` brut du message — vide pour les actions qui n'en ont pas.
+ */
+export function texteSysteme(t: Traducteur, type: string, parametre: string | null): string {
+  const p = parametre ?? '';
+
+  // Bienvenue : `msg` vide = accueil anonyme (« bienvenue ! »), sinon nominatif.
+  if (type === 'wm') return p === '' ? t('sys.wmVide') : t('sys.wm', { p });
+
+  const cas = AVEC_CAS_VIDE[type as keyof typeof AVEC_CAS_VIDE];
+  if (cas !== undefined) return p === '' ? t(cas.retire) : t(cas.plein, { p });
+
+  const cle = CLES[type as keyof typeof CLES];
+  if (cle !== undefined) return t(cle, { p });
+
+  // Type inconnu : phrase générique. Le deux-points ne pend pas quand `msg` est vide.
+  return p === '' ? t('sys.inconnu', { type }) : t('sys.inconnuParam', { type, p });
 }

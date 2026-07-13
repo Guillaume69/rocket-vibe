@@ -27,6 +27,7 @@ import { urlAvatar, urlFichierProtege } from '../lib/upload.ts';
 import { LiensEmbed } from './carteEmbed.tsx';
 import { ApercusLien } from './carteLien.tsx';
 import { useIdentites } from './identites.tsx';
+import { useT } from './i18n.ts';
 import { TuileAvatar } from './kit.tsx';
 import { LecteurAudio } from './lecteurAudio.tsx';
 import { LecteurVideo } from './lecteurVideo.tsx';
@@ -69,6 +70,7 @@ export const LigneMessage = memo(function LigneMessage({
   // tenue à jour, donne le pseudo courant ; on retombe sur l'instantané tant
   // qu'un uid n'y est pas encore connu (premier rendu, hors-ligne).
   const identites = useIdentites();
+  const t = useT();
   const auteur = (identites.get(message.auteurId) ?? message.auteurNom) ?? '?';
   // Le pseudo prend la première teinte de sa propre tuile-avatar : nom et
   // avatar s'accordent, la même personne garde sa couleur d'un message à l'autre.
@@ -131,16 +133,16 @@ export const LigneMessage = memo(function LigneMessage({
             style={[styles.auteur, { color: teinteAuteur }]}
             numberOfLines={1}
             onPress={ouvrirProfil}
-            accessibilityLabel={`Profil de ${auteur}`}
+            accessibilityLabel={t('ligneMessage.profilDe', { nom: auteur })}
           >
             {auteur}
           </TexteTappable>
           <Text style={[styles.heure, { color: c.texteTertiaire }]}>{heure}</Text>
           {message.modifieLe !== null && (
-            <Text style={[styles.heure, { color: c.texteTertiaire }]}>(modifié)</Text>
+            <Text style={[styles.heure, { color: c.texteTertiaire }]}>{t('ligneMessage.modifie')}</Text>
           )}
           {statutEnvoi === 'en-attente' && (
-            <Text style={[styles.heure, { color: c.texteTertiaire }]}>⏳ envoi…</Text>
+            <Text style={[styles.heure, { color: c.texteTertiaire }]}>{t('ligneMessage.envoiEnCours')}</Text>
           )}
         </View>
         <ContenuMessage c={c} message={message} />
@@ -164,7 +166,7 @@ export const LigneMessage = memo(function LigneMessage({
             style={[styles.puceFil, { backgroundColor: c.carte, borderColor: c.bordure }]}
           >
             <Text style={[styles.puceFilTexte, { color: c.cyan }]}>
-              💬 {message.filReponses} {message.filReponses === 1 ? 'réponse' : 'réponses'}
+              💬 {t('ligneMessage.reponses', { n: message.filReponses })}
               {message.filDernier !== null &&
                 ` · ${new Date(message.filDernier).toLocaleTimeString('fr-FR', {
                   hour: '2-digit',
@@ -176,10 +178,10 @@ export const LigneMessage = memo(function LigneMessage({
         {statutEnvoi === 'echec' && (
           <View style={styles.actionsEchec}>
             <Pressable onPress={surReessayer ?? undefined}>
-              <Text style={[styles.heure, { color: c.texteErreur }]}>⚠️ Échec — réessayer</Text>
+              <Text style={[styles.heure, { color: c.texteErreur }]}>{t('ligneMessage.echecReessayer')}</Text>
             </Pressable>
             <Pressable onPress={() => surAbandonner?.(message.id)}>
-              <Text style={[styles.heure, { color: c.attenue }]}>abandonner</Text>
+              <Text style={[styles.heure, { color: c.attenue }]}>{t('ligneMessage.abandonner')}</Text>
             </Pressable>
           </View>
         )}
@@ -195,6 +197,7 @@ export const LigneMessage = memo(function LigneMessage({
  * système (leur traduction arrive en 4.4).
  */
 function ContenuMessage({ c, message }: { c: Couleurs; message: LigneDeMessage }) {
+  const t = useT();
   // Clés = les CHAÎNES, stables à travers le barattage d'objets de
   // `useLiveQuery` (qui défait le memo de LigneMessage) : sans cela, chaque
   // écriture en base re-parserait le markdown de toutes les lignes visibles.
@@ -204,7 +207,7 @@ function ContenuMessage({ c, message }: { c: Couleurs; message: LigneDeMessage }
   );
 
   if (message.typeSysteme === 'e2e') {
-    return <Substitut c={c} texte="🔒 Message chiffré, non pris en charge" />;
+    return <Substitut c={c} texte={t('ligneMessage.chiffre')} />;
   }
   if (message.typeSysteme === 'videoconf') {
     return <CarteAppel c={c} callId={message.appelId} />;
@@ -213,13 +216,13 @@ function ContenuMessage({ c, message }: { c: Couleurs; message: LigneDeMessage }
     // La phrase suit le nom de l'auteur affiché juste au-dessus : « bob a
     // rejoint le salon ». `texte` porte le PARAMÈTRE de l'action, pas une
     // phrase — voir lib/messagesSysteme.ts.
-    return <Substitut c={c} texte={texteSysteme(message.typeSysteme, message.texte)} />;
+    return <Substitut c={c} texte={texteSysteme(t, message.typeSysteme, message.texte)} />;
   }
   if (arbre === null) {
     // Un message d'upload n'a souvent NI texte NI md : ses pièces jointes,
     // rendues à côté, sont tout son contenu — rien à substituer.
     if (message.piecesJointes !== null) return null;
-    return <Substitut c={c} texte="(message vide)" />;
+    return <Substitut c={c} texte={t('ligneMessage.messageVide')} />;
   }
   return (
     // Le `md` est en dernier ressort une donnée d'autrui : une forme qui
@@ -242,22 +245,23 @@ function Substitut({ c, texte }: { c: Couleurs; texte: string }) {
  */
 function CarteAppel({ c, callId }: { c: Couleurs; callId: string | null }) {
   const routeur = useRouter();
+  const t = useT();
   return (
     <View style={[styles.carteAppel, { backgroundColor: c.carte, borderColor: c.bordure }]}>
-      <Text style={[styles.carteAppelTitre, { color: c.texte }]}>📞 Appel vidéo</Text>
+      <Text style={[styles.carteAppelTitre, { color: c.texte }]}>{t('ligneMessage.appelVideo')}</Text>
       {callId !== null && (
         <Pressable
           onPress={() => routeur.push({ pathname: '/appel/[callId]', params: { callId } })}
           android_ripple={{ color: c.ondulation }}
           unstable_pressDelay={DELAI_PRESSION_LISTE}
           accessibilityRole="button"
-          accessibilityLabel="Rejoindre l'appel"
+          accessibilityLabel={t('ligneMessage.rejoindreAppel')}
           style={({ pressed }) => [
             styles.rejoindre,
             { backgroundColor: c.accent, opacity: pressed ? 0.7 : 1 },
           ]}
         >
-          <Text style={[styles.rejoindreTexte, { color: c.surAccent }]}>Rejoindre</Text>
+          <Text style={[styles.rejoindreTexte, { color: c.surAccent }]}>{t('ligneMessage.rejoindre')}</Text>
         </Pressable>
       )}
     </View>
@@ -297,6 +301,7 @@ function PiecesJointes({
 }) {
   const { width: largeurEcran } = useWindowDimensions();
   const visionneuse = useVisionneuse();
+  const t = useT();
   const jointes = useMemo<PieceJointe[]>(() => {
     try {
       const liste = JSON.parse(brut) as unknown;
@@ -347,7 +352,7 @@ function PiecesJointes({
               onLongPress={surAppuiLong}
               delayLongPress={350}
               accessibilityRole="imagebutton"
-              accessibilityLabel={jointe.title ?? 'Image, toucher pour agrandir'}
+              accessibilityLabel={jointe.title ?? t('ligneMessage.imageAgrandir')}
             >
               <Image
                 source={{ uri: url }}
@@ -394,7 +399,7 @@ function PiecesJointes({
               delayLongPress={350}
             >
               <Text style={[styles.texte, { color: c.accent }]}>
-                📄 {jointe.title ?? 'Fichier'}
+                📄 {jointe.title ?? t('ligneMessage.fichier')}
               </Text>
             </Pressable>
           );

@@ -5,7 +5,15 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { obtenirJetonFcm } from '../lib/push.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar } from '../lib/upload.ts';
+import { definirLangue, useT, usePreferenceLangue } from '../ui/i18n.ts';
 import { TuileAvatar } from '../ui/kit.tsx';
+import {
+  type CleTraduction,
+  LANGUES,
+  NOMS_LANGUE,
+  type PreferenceLangue,
+  type Traducteur,
+} from '../ui/messages.ts';
 import { useSession } from '../ui/session.tsx';
 import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
 
@@ -24,10 +32,10 @@ import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui
  */
 
 type NiveauPush = 'all' | 'mention' | 'nothing';
-const OPTIONS_PUSH: { valeur: NiveauPush; libelle: string }[] = [
-  { valeur: 'all', libelle: 'Tous les messages' },
-  { valeur: 'mention', libelle: 'Mentions et messages directs' },
-  { valeur: 'nothing', libelle: 'Aucune' },
+const OPTIONS_PUSH: { valeur: NiveauPush; cle: CleTraduction }[] = [
+  { valeur: 'all', cle: 'parametres.pushTous' },
+  { valeur: 'mention', cle: 'parametres.pushMentions' },
+  { valeur: 'nothing', cle: 'parametres.pushAucune' },
 ];
 
 export default function EcranParametres() {
@@ -56,7 +64,9 @@ type ReponseMe = { settings?: { preferences?: { pushNotifications?: string } } }
  */
 function usePreferencePush(client: ClientRest) {
   const [valeur, setValeur] = useState<string | null>(null);
-  const [erreur, setErreur] = useState<string | null>(null);
+  // L'erreur est stockée comme CLÉ de traduction, pas comme phrase : le
+  // composant la traduit au rendu, dans la langue courante.
+  const [erreur, setErreur] = useState<CleTraduction | null>(null);
 
   useEffect(() => {
     let vivant = true;
@@ -66,7 +76,7 @@ function usePreferencePush(client: ClientRest) {
         if (vivant) setValeur(r.settings?.preferences?.pushNotifications ?? 'default');
       })
       .catch(() => {
-        if (vivant) setErreur('Préférence de notification introuvable.');
+        if (vivant) setErreur('parametres.pushIntrouvable');
       });
     return () => {
       vivant = false;
@@ -84,7 +94,7 @@ function usePreferencePush(client: ClientRest) {
         });
       } catch {
         setValeur(precedente);
-        setErreur('Enregistrement impossible — réessaie.');
+        setErreur('parametres.enregistrementImpossible');
       }
     },
     [client, valeur],
@@ -105,6 +115,7 @@ function Parametres({
   baseUrl: string;
 }) {
   const routeur = useRouter();
+  const t = useT();
   const { deconnecter } = useSession();
   const push = usePreferencePush(client);
   const [deconnexion, setDeconnexion] = useState(false);
@@ -125,14 +136,14 @@ function Parametres({
       contentContainerStyle={styles.contenu}
       keyboardShouldPersistTaps="handled"
     >
-      <Stack.Screen options={{ title: 'Paramètres' }} />
+      <Stack.Screen options={{ title: t('parametres.titre') }} />
 
       <Pressable
         onPress={() => routeur.push('/mon-profil')}
         android_ripple={{ color: c.ondulation }}
         unstable_pressDelay={DELAI_PRESSION_LISTE}
         accessibilityRole="button"
-        accessibilityLabel="Modifier mon profil"
+        accessibilityLabel={t('parametres.modifierProfil')}
         style={({ pressed }) => [
           styles.carteProfil,
           { backgroundColor: c.carteProfonde, borderColor: c.bordure, opacity: pressed ? 0.7 : 1 },
@@ -143,34 +154,38 @@ function Parametres({
           <Text style={[styles.profilNom, { color: c.texte }]} numberOfLines={1}>
             @{username}
           </Text>
-          <Text style={[styles.profilLien, { color: c.cyan }]}>Modifier mon profil</Text>
+          <Text style={[styles.profilLien, { color: c.cyan }]}>{t('parametres.modifierProfil')}</Text>
         </View>
         <Text style={[styles.chevron, { color: c.attenue }]}>›</Text>
       </Pressable>
 
-      <Text style={[styles.sectionTitre, { color: c.attenue }]}>Notifications</Text>
+      <Text style={[styles.sectionTitre, { color: c.attenue }]}>{t('parametres.sectionNotifications')}</Text>
       <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
-        <Text style={[styles.reglageTitre, { color: c.texte }]}>Notifications push</Text>
-        <Text style={[styles.reglageAide, { color: c.attenue }]}>
-          Quels messages déclenchent une notification sur cet appareil.
-        </Text>
+        <Text style={[styles.reglageTitre, { color: c.texte }]}>{t('parametres.push')}</Text>
+        <Text style={[styles.reglageAide, { color: c.attenue }]}>{t('parametres.pushAide')}</Text>
         <ChoixNotification c={c} push={push} />
         {push.erreur !== null && (
-          <Text style={[styles.erreur, { color: c.texteErreur }]}>{push.erreur}</Text>
+          <Text style={[styles.erreur, { color: c.texteErreur }]}>{t(push.erreur)}</Text>
         )}
       </View>
 
-      <Text style={[styles.sectionTitre, { color: c.attenue }]}>Compte</Text>
+      <Text style={[styles.sectionTitre, { color: c.attenue }]}>{t('parametres.sectionLangue')}</Text>
       <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
-        <Paire c={c} cle="Connecté" valeur={`@${username}`} />
-        <Paire c={c} cle="Serveur" valeur={baseUrl} />
+        <Text style={[styles.reglageAide, { color: c.attenue }]}>{t('parametres.langueAide')}</Text>
+        <SelecteurLangue c={c} t={t} />
       </View>
 
-      <Text style={[styles.sectionTitre, { color: c.attenue }]}>Diagnostic</Text>
-      <SectionJetonFcm c={c} />
+      <Text style={[styles.sectionTitre, { color: c.attenue }]}>{t('parametres.sectionCompte')}</Text>
+      <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
+        <Paire c={c} cle={t('parametres.connecte')} valeur={`@${username}`} />
+        <Paire c={c} cle={t('parametres.serveur')} valeur={baseUrl} />
+      </View>
+
+      <Text style={[styles.sectionTitre, { color: c.attenue }]}>{t('parametres.sectionDiagnostic')}</Text>
+      <SectionJetonFcm c={c} t={t} />
 
       <Link href="/connexion?changer=1" style={[styles.lien, { color: c.cyan }]}>
-        Changer de serveur
+        {t('parametres.changerServeur')}
       </Link>
 
       <Pressable
@@ -183,7 +198,7 @@ function Parametres({
           { backgroundColor: c.carteErreur, opacity: pressed || deconnexion ? 0.6 : 1 },
         ]}
       >
-        <Text style={[styles.texteBoutonSecondaire, { color: c.texteErreur }]}>Se déconnecter</Text>
+        <Text style={[styles.texteBoutonSecondaire, { color: c.texteErreur }]}>{t('parametres.seDeconnecter')}</Text>
       </Pressable>
     </ScrollView>
   );
@@ -197,6 +212,7 @@ function ChoixNotification({
   c: Couleurs;
   push: ReturnType<typeof usePreferencePush>;
 }) {
+  const t = useT();
   if (push.valeur === null && push.erreur === null) {
     return (
       <View style={styles.charge}>
@@ -208,6 +224,7 @@ function ChoixNotification({
     <View style={styles.options}>
       {OPTIONS_PUSH.map((o, i) => {
         const actif = push.valeur === o.valeur;
+        const libelle = t(o.cle);
         return (
           <Pressable
             key={o.valeur}
@@ -217,7 +234,7 @@ function ChoixNotification({
             unstable_pressDelay={DELAI_PRESSION_LISTE}
             accessibilityRole="radio"
             accessibilityState={{ selected: actif }}
-            accessibilityLabel={o.libelle}
+            accessibilityLabel={libelle}
             style={[
               styles.optionLigne,
               i > 0 && { borderTopColor: c.bordureDouce, borderTopWidth: StyleSheet.hairlineWidth },
@@ -233,7 +250,7 @@ function ChoixNotification({
                 actif && styles.optionTexteActif,
               ]}
             >
-              {o.libelle}
+              {libelle}
             </Text>
           </Pressable>
         );
@@ -242,8 +259,62 @@ function ChoixNotification({
   );
 }
 
+/**
+ * Sélecteur de langue : « Automatique » (suit le téléphone) puis chaque langue
+ * en endonyme. Même liste radio que les notifications. La bascule est immédiate
+ * (`definirLangue` pousse dans le store abonnable) : tout l'écran, titre compris,
+ * se re-rend dans la nouvelle langue sans rechargement.
+ */
+function SelecteurLangue({ c, t }: { c: Couleurs; t: Traducteur }) {
+  const preference = usePreferenceLangue();
+  const options: { pref: PreferenceLangue; libelle: string; aide?: string }[] = [
+    { pref: 'auto', libelle: t('langue.auto'), aide: t('langue.autoAide') },
+    ...LANGUES.map((l) => ({ pref: l, libelle: NOMS_LANGUE[l] })),
+  ];
+  return (
+    <View style={styles.options}>
+      {options.map((o, i) => {
+        const actif = preference === o.pref;
+        return (
+          <Pressable
+            key={o.pref}
+            onPress={() => definirLangue(o.pref)}
+            android_ripple={{ color: c.ondulation }}
+            unstable_pressDelay={DELAI_PRESSION_LISTE}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: actif }}
+            accessibilityLabel={o.libelle}
+            style={[
+              styles.optionLigne,
+              i > 0 && { borderTopColor: c.bordureDouce, borderTopWidth: StyleSheet.hairlineWidth },
+            ]}
+          >
+            <View style={[styles.radio, { borderColor: actif ? c.accent : c.bordure }]}>
+              {actif && <View style={[styles.radioPoint, { backgroundColor: c.accent }]} />}
+            </View>
+            <View style={styles.optionTextes}>
+              <Text
+                style={[
+                  styles.optionTexte,
+                  { color: actif ? c.texte : c.texteSecondaire },
+                  actif && styles.optionTexteActif,
+                ]}
+              >
+                {o.libelle}
+              </Text>
+              {o.aide !== undefined && (
+                <Text style={[styles.optionAide, { color: c.texteTertiaire }]}>{o.aide}</Text>
+              )}
+            </View>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 /** Diagnostic push : prouve l'obtention du jeton FCM natif. Déplacé de l'accueil. */
-function SectionJetonFcm({ c }: { c: Couleurs }) {
+function SectionJetonFcm({ c, t }: { c: Couleurs; t: Traducteur }) {
   const [jeton, setJeton] = useState<string | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
 
@@ -266,7 +337,7 @@ function SectionJetonFcm({ c }: { c: Couleurs }) {
         android_ripple={{ color: c.ondulation }}
         unstable_pressDelay={DELAI_PRESSION_LISTE}
       >
-        <Text style={[styles.action, { color: c.cyan }]}>Obtenir le jeton FCM</Text>
+        <Text style={[styles.action, { color: c.cyan }]}>{t('parametres.obtenirJeton')}</Text>
       </Pressable>
       {jeton !== null && (
         <Text style={[styles.aide, { color: c.texte }]} selectable numberOfLines={3}>
@@ -331,8 +402,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   radioPoint: { width: 10, height: 10, borderRadius: 5 },
+  optionTextes: { flex: 1, gap: 1 },
   optionTexte: { fontFamily: POLICES.corpsGras, fontSize: 15, flexShrink: 1 },
   optionTexteActif: { fontFamily: POLICES.corpsFort },
+  optionAide: { fontFamily: POLICES.corps, fontSize: 12 },
   charge: { paddingVertical: 18, alignItems: 'center' },
   erreur: { fontFamily: POLICES.corpsGras, fontSize: 13 },
   paire: { flexDirection: 'row', justifyContent: 'space-between', gap: 16 },

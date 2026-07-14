@@ -256,6 +256,7 @@ function LigneSalon({
           ]}
           numberOfLines={1}
         >
+          {salon.chiffre && <Text style={styles.badgeChiffre}>🔒 </Text>}
           {nom}
         </Text>
         <Text
@@ -330,6 +331,8 @@ const styles = StyleSheet.create({
   nomEnAlerte: { fontFamily: POLICES.corpsFort },
   apercu: { fontFamily: POLICES.corps, fontSize: 12.5 },
   apercuChiffre: { fontStyle: 'italic' },
+  /** Petit cadenas devant le nom d'un salon chiffré : « ce salon est E2EE ». */
+  badgeChiffre: { fontSize: 12 },
   nouvelle: { fontFamily: POLICES.titre, fontSize: 15.5 },
   enteteSection: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 6 },
   enteteSectionTexte: {

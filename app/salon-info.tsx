@@ -18,7 +18,9 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import type { BaseLocale } from '../db/client.ts';
 import { salons } from '../db/schema.ts';
+import type { MoteurE2E } from '../lib/e2e/moteur.ts';
 import type { ClientRest } from '../lib/rest.ts';
+import { useE2EDeverrouille } from '../ui/e2e.ts';
 import { traduireCourant, useT } from '../ui/i18n.ts';
 import { AvatarSalon } from '../ui/kit.tsx';
 import type { CleTraduction } from '../ui/messages.ts';
@@ -55,21 +57,26 @@ export default function EcranSalonInfo() {
   if (etat.phase !== 'connecte' || synchro.phase !== 'pret' || typeof rid !== 'string') {
     return null;
   }
-  return <ContenuSalonInfo rid={rid} base={synchro.base} client={etat.client} c={c} />;
+  return (
+    <ContenuSalonInfo rid={rid} base={synchro.base} client={etat.client} e2e={synchro.e2e} c={c} />
+  );
 }
 
 function ContenuSalonInfo({
   rid,
   base,
   client,
+  e2e,
   c,
 }: {
   rid: string;
   base: BaseLocale;
   client: ClientRest;
+  e2e: MoteurE2E;
   c: ReturnType<typeof useCouleurs>;
 }) {
   const t = useT();
+  const deverrouille = useE2EDeverrouille(e2e);
   const { data: lignes } = useRequeteVive(
     base.select().from(salons).where(eq(salons.rid, rid)),
     [rid],
@@ -124,6 +131,7 @@ function ContenuSalonInfo({
           nom={nom}
           type={salon?.type}
           chiffre={salon?.chiffre ?? false}
+          chiffreDeverrouille={deverrouille}
           rid={salon?.rid}
           dmAutreUid={salon?.dmAutreUid}
           client={client}
@@ -132,6 +140,7 @@ function ContenuSalonInfo({
         />
         <View style={styles.identite}>
           <Text style={[styles.nom, { color: c.texte }]} numberOfLines={2}>
+            {salon?.chiffre === true && <Text style={styles.badgeChiffre}>🔒 </Text>}
             {salon?.type === 'c' ? '#' : ''}
             {nom}
           </Text>
@@ -188,6 +197,7 @@ const styles = StyleSheet.create({
   entete: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   identite: { flex: 1, gap: 2 },
   nom: { fontFamily: POLICES.titre, fontSize: 20 },
+  badgeChiffre: { fontSize: 14 },
   sousTitre: { fontFamily: POLICES.corps, fontSize: 13 },
   section: { gap: 3 },
   sectionTitre: { fontFamily: POLICES.corpsFort, fontSize: 12, textTransform: 'uppercase' },

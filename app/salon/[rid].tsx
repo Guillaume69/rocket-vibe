@@ -1076,6 +1076,8 @@ function EnTeteSalon({
   const enSynchro = useActivite(rid);
   const routeur = useRouter();
   const t = useT();
+  const synchro = useSynchro();
+  const deverrouille = useE2EDeverrouille(synchro.phase === 'pret' ? synchro.e2e : null);
 
   // Disponibilité de la visioconférence : masque le bouton là où aucun
   // fournisseur n'est configuré (Docker local), l'affiche sur la cible (Jitsi).
@@ -1132,6 +1134,7 @@ function EnTeteSalon({
           nom={nom}
           type={salon?.type}
           chiffre={salon?.chiffre ?? false}
+          chiffreDeverrouille={deverrouille}
           rid={salon?.rid}
           dmAutreUid={salon?.dmAutreUid}
           client={client}
@@ -1140,6 +1143,7 @@ function EnTeteSalon({
         />
         <View style={styles.enteteBloc}>
           <Text style={[styles.enteteNom, { color: c.texte }]} numberOfLines={1}>
+            {salon?.chiffre === true && <Text style={styles.badgeChiffreEntete}>🔒 </Text>}
             {nom}
           </Text>
           {estDM && statutDM !== null && (
@@ -1226,6 +1230,7 @@ const styles = StyleSheet.create({
   enteteFiche: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 11 },
   enteteBloc: { flex: 1, minWidth: 0 },
   enteteNom: { fontFamily: POLICES.titre, fontSize: 16 },
+  badgeChiffreEntete: { fontSize: 12 },
   enteteSous: { fontFamily: POLICES.corpsGras, fontSize: 11 },
   iconeEntete: { fontSize: 18, paddingHorizontal: 6 },
   basComposer: { position: 'relative' },

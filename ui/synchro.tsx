@@ -31,22 +31,26 @@ import {
   creerFileEcritures,
 } from '../db/depot.ts';
 import { migrerBase } from '../db/migrer.ts';
-import { ClientDdp } from '../lib/ddp.ts';
 import { MoteurE2E } from '../lib/e2e/moteur.ts';
 import {
   restaurerEmojisCustom,
   synchroniserEmojisCustom,
   viderEmojisCustom,
 } from '../lib/emojisCustom.ts';
-import { MoteurEnvoi, idDepuisOctets } from '../lib/envoi.ts';
-import { MoteurTeleversement } from '../lib/envoiFichiers.ts';
-import { MoteurPresence, EVENEMENT_PRESENCE, STREAM_NOTIFY_LOGGED } from '../lib/presence.ts';
+import { idDepuisOctets } from '../lib/envoi.ts';
+import type {
+  ActionsFournisseur,
+  Capacites,
+  Listener,
+  Outbox,
+  OutboxFichiers,
+} from '../lib/fournisseur.ts';
+import { MoteurPresence } from '../lib/presence.ts';
 import { obtenirJetonFcm } from '../lib/push.ts';
 import { enregistrerJeton } from '../lib/pushToken.ts';
-import { rattraperGlobal, rattraperSalon, reconcilierSalons } from '../lib/rattrapage.ts';
 import { Reconnecteur } from '../lib/reconnexion.ts';
-import { MoteurSynchro, STREAM_NOTIFY_USER } from '../lib/sync.ts';
-import { TraducteurRC } from '../fournisseurs/rocketchat/traducteur.ts';
+import { MoteurSynchro } from '../lib/sync.ts';
+import { creerFournisseurRC } from '../fournisseurs/rocketchat/index.ts';
 import {
   effacerClePriveeE2E,
   enregistrerClePriveeE2E,
@@ -63,9 +67,13 @@ export type EtatSynchro =
       phase: 'pret';
       base: BaseLocale;
       moteur: MoteurSynchro;
-      envoi: MoteurEnvoi;
-      fichiers: MoteurTeleversement;
-      ddp: ClientDdp;
+      envoi: Outbox;
+      fichiers: OutboxFichiers;
+      ddp: Listener;
+      /** Actions unitaires sur les messages, routées vers le bon serveur. */
+      actions: ActionsFournisseur;
+      /** Ce que le serveur courant sait faire — les écrans masquent le reste. */
+      capacites: Capacites;
       /**
        * L'écran salon se déclare à l'ouverture (null à la fermeture) : le
        * rattrapage `chat.syncMessages` — un salon à la fois, rate-limité —
@@ -99,10 +107,6 @@ export type EtatSynchro =
 
 const Contexte = createContext<EtatSynchro | null>(null);
 
-function urlWebSocket(baseUrl: string): string {
-  return `${baseUrl.replace(/^http/i, 'ws')}/websocket`;
-}
-
 export function SynchroProvider({ children }: { children: React.ReactNode }) {
   const { etat } = useSession();
   const [synchro, setSynchro] = useState<EtatSynchro>({ phase: 'inactif' });
@@ -117,7 +121,10 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
     const { session, client } = etat;
     let abandonne = false;
     const estAbandonne = () => abandonne;
-    const ddp = new ClientDdp(urlWebSocket(session.baseUrl));
+    const fournisseur = creerFournisseurRC(session, client, () =>
+      idDepuisOctets(Crypto.getRandomBytes(12)),
+    );
+    const ddp = fournisseur.listener;
     let reconnecteur: Reconnecteur | null = null;
     let surAbandon: (() => void) | null = null;
 
@@ -145,26 +152,18 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       });
       const moteur = new MoteurSynchro(
         creerDepot(brute, fileEcritures),
-        new TraducteurRC(session.username, session.userId),
+        fournisseur.traducteur,
         e2e,
       );
-      const fichiers = new MoteurTeleversement({
-        depot: creerDepotTeleversements(brute, fileEcritures),
-        client,
-        transport: transportExpo,
-        genererId: () => idDepuisOctets(Crypto.getRandomBytes(12)),
-        ingerer: async (doc) => {
+      const fichiers = fournisseur.creerTeleversement(
+        creerDepotTeleversements(brute, fileEcritures),
+        transportExpo,
+        async (doc) => {
           await moteur.ingererMessages([doc]);
         },
-      });
-      const envoi = new MoteurEnvoi({
-        depot: creerDepotEnvoi(brute, fileEcritures),
-        client,
-        moi: { id: session.userId, username: session.username },
-        genererId: () => idDepuisOctets(Crypto.getRandomBytes(12)),
-        ingerer: async (doc) => {
-          await moteur.ingererMessages([doc]);
-        },
+      );
+      const envoi = fournisseur.creerEnvoi(creerDepotEnvoi(brute, fileEcritures), async (doc) => {
+        await moteur.ingererMessages([doc]);
       });
       const depotEmojis = creerDepotEmojis(brute, fileEcritures);
       let salonActif: string | null = null;
@@ -209,6 +208,8 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         envoi,
         fichiers,
         ddp,
+        actions: fournisseur.actions,
+        capacites: fournisseur.capacites,
         signalerSalonActif: (rid) => {
           salonActif = rid;
         },
@@ -242,9 +243,8 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       });
       // Déclarées AVANT toute connexion : `souscrire` mémorise l'intention,
       // et chaque `connecter` (première fois comme reconnexion) rejoue tout.
-      ddp.souscrire(STREAM_NOTIFY_USER, `${session.userId}/subscriptions-changed`);
-      ddp.souscrire(STREAM_NOTIFY_USER, `${session.userId}/rooms-changed`);
-      ddp.souscrire(STREAM_NOTIFY_LOGGED, EVENEMENT_PRESENCE);
+      // Le fournisseur sait quels streams l'intéressent.
+      for (const [nom, cle] of fournisseur.souscriptionsInitiales()) ddp.souscrire(nom, cle);
 
       // Le PREMIER raccordement passe par le même pilote que les reconnexions
       // (backoff 1 s → 30 s avec gigue) : hors ligne au lancement, ça
@@ -263,7 +263,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           // dans `activite` : l'en-tête (liste / salon) allume sa barre de
           // synchro le temps du fetch (`suivre` rejette comme l'original, le
           // backoff du pilote garde sa main).
-          await activite.suivre('global', rattraperGlobal(client, moteur, estAbandonne));
+          await activite.suivre('global', fournisseur.rattraperGlobal(moteur, estAbandonne));
           if (salonActif !== null) {
             // Le rattrapage d'UN salon part en TIR-ET-OUBLIE : ni attendu, ni
             // fatal. `chat.syncMessages` n'est PAS borné (le serveur 8.5 ignore
@@ -279,7 +279,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
             // app/salon/[rid].tsx) pour que la fenêtre reste petite. Le stream DDP
             // (live) et l'historique d'ouverture couvrent le salon visible.
             void activite
-              .suivre(salonActif, rattraperSalon(client, moteur, salonActif, estAbandonne))
+              .suivre(salonActif, fournisseur.rattraperSalon(moteur, salonActif, estAbandonne))
               .catch((e: unknown) => console.warn('rattraperSalon: échec ignoré', e));
           }
           // Ce qui attendait le réseau part maintenant. Pas d'await : un
@@ -318,7 +318,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           // pas à chaque flap réseau. Échec → non armé, retenté au prochain.
           if (!salonsReconcilies) {
             salonsReconcilies = true;
-            reconcilierSalons(client, moteur, estAbandonne).catch(() => {
+            fournisseur.reconcilier(moteur, estAbandonne).catch(() => {
               salonsReconcilies = false;
             });
           }

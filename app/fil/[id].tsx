@@ -18,8 +18,7 @@ import {
 import type { BaseLocale } from '../../db/client.ts';
 import { messages, salons, sortie } from '../../db/schema.ts';
 import type { CandidatMention } from '../../lib/completionMention.ts';
-import type { ClientDdp } from '../../lib/ddp.ts';
-import type { MoteurEnvoi } from '../../lib/envoi.ts';
+import type { Listener, Outbox } from '../../lib/fournisseur.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
 import { useBrouillon } from '../../ui/brouillons.ts';
@@ -94,8 +93,8 @@ function Fil({
   filId: string;
   base: BaseLocale;
   moteur: MoteurSynchro;
-  envoi: MoteurEnvoi;
-  ddp: ClientDdp;
+  envoi: Outbox;
+  ddp: Listener;
   client: ClientRest;
   generation: number;
 }) {
@@ -339,7 +338,7 @@ function ComposerFil({
   c: Couleurs;
   rid: string;
   filId: string;
-  envoi: MoteurEnvoi;
+  envoi: Outbox;
   /** Avatars des suggestions de mention. */
   client: ClientRest;
   /** Auteurs récents du salon (`useCandidatsMention`), calculés par le parent. */

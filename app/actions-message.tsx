@@ -95,6 +95,7 @@ export default function EcranActionsMessage() {
   const pret = synchro.phase === 'pret' && etat.phase === 'connecte' && typeof id === 'string';
   const base = synchro.phase === 'pret' ? synchro.base : null;
   const moteur = synchro.phase === 'pret' ? synchro.moteur : null;
+  const actionneur = synchro.phase === 'pret' ? synchro.actions : null;
   const client = etat.phase === 'connecte' ? etat.client : null;
   const moi = etat.phase === 'connecte' ? etat.session.userId : null;
 
@@ -167,7 +168,7 @@ export default function EcranActionsMessage() {
     [routeur, t],
   );
 
-  if (!pret || client === null || moteur === null || charge === null) {
+  if (!pret || client === null || moteur === null || actionneur === null || charge === null) {
     return (
       <View style={[styles.feuille, styles.centre, { paddingBottom: bas }]}>
         {erreur !== null ? (
@@ -195,13 +196,7 @@ export default function EcranActionsMessage() {
                 styles.pastilleEmoji,
                 { backgroundColor: c.surfaceActive, opacity: pressed ? 0.6 : 1 },
               ]}
-              onPress={() =>
-                void agir(() =>
-                  client.post('chat.react', {
-                    corps: { messageId: message.id, emoji: `:${code}:` },
-                  }),
-                )
-              }
+              onPress={() => void agir(() => actionneur.reagir(message.rid, message.id, code, true))}
             >
               <Text style={styles.emoji}>{unicodeDeCodeCourt(code) ?? `:${code}:`}</Text>
             </Pressable>
@@ -230,11 +225,7 @@ export default function EcranActionsMessage() {
             <Pressable
               disabled={occupe}
               onPress={() =>
-                void agir(() =>
-                  client.post('chat.update', {
-                    corps: { roomId: message.rid, msgId: message.id, text: edition },
-                  }),
-                )
+                void agir(() => actionneur.modifier(message.rid, message.id, edition ?? ''))
               }
               style={({ pressed }) => [
                 styles.boutonPrincipal,
@@ -265,11 +256,7 @@ export default function EcranActionsMessage() {
               disabled={occupe}
               icone="📌"
               libelle={t('actionsMessage.epingler')}
-              onPress={() =>
-                void agir(() =>
-                  client.post('chat.pinMessage', { corps: { messageId: message.id } }),
-                )
-              }
+              onPress={() => void agir(() => actionneur.epingler(message.rid, message.id))}
             />
           )}
           {actions.includes('supprimer') && (
@@ -282,9 +269,7 @@ export default function EcranActionsMessage() {
               onPress={() =>
                 void agir(async () => {
                   try {
-                    await client.post('chat.delete', {
-                      corps: { roomId: message.rid, msgId: message.id },
-                    });
+                    await actionneur.supprimer(message.rid, message.id);
                     // La ligne locale tombera par le stream `deleteMessage`.
                   } catch (e) {
                     // Fantôme : déjà supprimé d'un AUTRE client pendant que

@@ -34,9 +34,12 @@ import { abonnements, messages, salons, sortie, televersements } from '../../db/
 import type { MoteurActivite } from '../../lib/activite.ts';
 import { demarrerConference, sonderAppelDisponible } from '../../lib/appel.ts';
 import type { CandidatMention } from '../../lib/completionMention.ts';
-import type { ClientDdp } from '../../lib/ddp.ts';
-import type { MoteurEnvoi } from '../../lib/envoi.ts';
-import type { MoteurTeleversement } from '../../lib/envoiFichiers.ts';
+import type {
+  ActionsFournisseur,
+  Listener,
+  Outbox,
+  OutboxFichiers,
+} from '../../lib/fournisseur.ts';
 import { ouvrirFicheProfil } from '../../lib/profilPreload.ts';
 import { rattraperSalon } from '../../lib/rattrapage.ts';
 import type { ClientRest } from '../../lib/rest.ts';
@@ -139,6 +142,7 @@ export default function EcranSalon() {
       envoi={synchro.envoi}
       fichiers={synchro.fichiers}
       ddp={synchro.ddp}
+      actions={synchro.actions}
       client={etat.client}
       moi={etat.session.username}
       signalerSalonActif={synchro.signalerSalonActif}
@@ -156,6 +160,7 @@ function Salon({
   envoi,
   fichiers,
   ddp,
+  actions,
   client,
   moi,
   signalerSalonActif,
@@ -166,9 +171,10 @@ function Salon({
   rid: string;
   base: BaseLocale;
   moteur: MoteurSynchro;
-  envoi: MoteurEnvoi;
-  fichiers: MoteurTeleversement;
-  ddp: ClientDdp;
+  envoi: Outbox;
+  fichiers: OutboxFichiers;
+  ddp: Listener;
+  actions: ActionsFournisseur;
   client: ClientRest;
   /** Mon username — ma propre saisie ne s'affiche pas chez moi. */
   moi: string;
@@ -265,10 +271,10 @@ function Salon({
   useEffect(() => {
     if (dernierIdRecu === undefined) return;
     const minuterie = setTimeout(() => {
-      client.post('subscriptions.read', { corps: { rid } }).catch(() => {});
+      actions.marquerLu(rid).catch(() => {});
     }, 1500);
     return () => clearTimeout(minuterie);
-  }, [client, rid, dernierIdRecu]);
+  }, [actions, rid, dernierIdRecu]);
 
   // Les données de la liste, avec la barre insérée au-dessus (visuellement)
   // du premier message d'AUTRUI postérieur à `ls`. Données DESC : ce message
@@ -697,8 +703,8 @@ function Composer({
 }: {
   c: Couleurs;
   rid: string;
-  envoi: MoteurEnvoi;
-  fichiers: MoteurTeleversement;
+  envoi: Outbox;
+  fichiers: OutboxFichiers;
   /** Avatars des suggestions de mention. */
   client: ClientRest;
   /** Auteurs récents du salon (`useCandidatsMention`), calculés par le parent. */

@@ -32,8 +32,7 @@ import {
 
 import type { BaseLocale } from '../db/client.ts';
 import { abonnements, salons } from '../db/schema.ts';
-import type { MoteurEnvoi } from '../lib/envoi.ts';
-import type { MoteurTeleversement } from '../lib/envoiFichiers.ts';
+import type { Outbox, OutboxFichiers } from '../lib/fournisseur.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { ApercuPieceJointe, type FichierEnAttente } from '../ui/apercuPieceJointe.tsx';
 import { VueEvitantLeClavier } from '../ui/clavier.tsx';
@@ -120,8 +119,8 @@ function Partager({
 }: {
   c: Couleurs;
   base: BaseLocale;
-  envoi: MoteurEnvoi;
-  fichiers: MoteurTeleversement;
+  envoi: Outbox;
+  fichiers: OutboxFichiers;
   client: ClientRest;
   shareIntent: ShareIntent;
 }) {

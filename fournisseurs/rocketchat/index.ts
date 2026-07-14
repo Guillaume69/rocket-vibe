@@ -1,0 +1,76 @@
+/**
+ * Assemble un `Fournisseur` Rocket.Chat pour une session : réunit derrière la
+ * façade neutre le DDP (listener), le traducteur, les actions, et les fabriques
+ * d'envoi/rattrapage liées au `ClientRest`. `ui/synchro.tsx` l'orchestre sans
+ * nommer Rocket.Chat. Le driver Mattermost fournira `creerFournisseurMattermost`
+ * rendant le même objet.
+ */
+
+import type { Session } from '../../lib/auth.ts';
+import { ClientDdp } from '../../lib/ddp.ts';
+import { MoteurEnvoi } from '../../lib/envoi.ts';
+import { MoteurTeleversement } from '../../lib/envoiFichiers.ts';
+import {
+  CAPACITES_ROCKETCHAT,
+  type Fournisseur,
+  type Ingerer,
+  type Outbox,
+  type OutboxFichiers,
+} from '../../lib/fournisseur.ts';
+import { EVENEMENT_PRESENCE, STREAM_NOTIFY_LOGGED } from '../../lib/presence.ts';
+import { rattraperGlobal, rattraperSalon, reconcilierSalons } from '../../lib/rattrapage.ts';
+import type { ClientRest } from '../../lib/rest.ts';
+import { STREAM_NOTIFY_USER } from '../../lib/sync.ts';
+import type { DepotEnvoi } from '../../lib/envoi.ts';
+import type { DepotTeleversements } from '../../lib/envoiFichiers.ts';
+import type { TransportUpload } from '../../lib/upload.ts';
+import { ActionsRC } from './actions.ts';
+import { TraducteurRC } from './traducteur.ts';
+
+function urlWebSocket(baseUrl: string): string {
+  return `${baseUrl.replace(/^http/i, 'ws')}/websocket`;
+}
+
+export function creerFournisseurRC(
+  session: Session,
+  client: ClientRest,
+  genererId: () => string,
+): Fournisseur {
+  const listener = new ClientDdp(urlWebSocket(session.baseUrl));
+  const traducteur = new TraducteurRC(session.username, session.userId);
+  const actions = new ActionsRC(client);
+
+  return {
+    capacites: CAPACITES_ROCKETCHAT,
+    listener,
+    traducteur,
+    actions,
+    souscriptionsInitiales(): readonly (readonly [string, string])[] {
+      return [
+        [STREAM_NOTIFY_USER, `${session.userId}/subscriptions-changed`],
+        [STREAM_NOTIFY_USER, `${session.userId}/rooms-changed`],
+        [STREAM_NOTIFY_LOGGED, EVENEMENT_PRESENCE],
+      ];
+    },
+    creerEnvoi(depot: DepotEnvoi, ingerer: Ingerer): Outbox {
+      return new MoteurEnvoi({
+        depot,
+        client,
+        moi: { id: session.userId, username: session.username },
+        genererId,
+        ingerer,
+      });
+    },
+    creerTeleversement(
+      depot: DepotTeleversements,
+      transport: TransportUpload,
+      ingerer: Ingerer,
+    ): OutboxFichiers {
+      return new MoteurTeleversement({ depot, client, transport, genererId, ingerer });
+    },
+    rattraperGlobal: (moteur, estAbandonne) => rattraperGlobal(client, moteur, estAbandonne),
+    rattraperSalon: (moteur, rid, estAbandonne) =>
+      rattraperSalon(client, moteur, rid, estAbandonne),
+    reconcilier: (moteur, estAbandonne) => reconcilierSalons(client, moteur, estAbandonne),
+  };
+}

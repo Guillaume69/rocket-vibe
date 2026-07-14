@@ -11,7 +11,11 @@
  */
 
 import type { Evenement, EtatDdp } from './ddp.ts';
+import type { DepotEnvoi } from './envoi.ts';
+import type { DepotTeleversements } from './envoiFichiers.ts';
 import type { AbonnementLocal, MessageLocal, SalonLocal } from './normaliser.ts';
+import type { MoteurSynchro } from './sync.ts';
+import type { FichierAEnvoyer, TransportUpload } from './upload.ts';
 
 /**
  * Un changement de synchro déjà normalisé, prêt à écrire dans le `Depot`. Le
@@ -120,3 +124,57 @@ export const CAPACITES_ROCKETCHAT: Capacites = {
   recherche: true,
   modeleFil: 'tmid',
 };
+
+/** Réinjecte dans la synchro un document renvoyé par un envoi (écho optimiste). */
+export type Ingerer = (doc: Record<string, unknown>) => Promise<void>;
+
+/** File d'envoi de texte persistée (outbox), rejouée à la reconnexion. */
+export interface Outbox {
+  /** Rend l'`_id` client du message posé. `filId` = post parent (fil), ou null. */
+  envoyer(rid: string, texte: string, filId?: string | null): Promise<string>;
+  traiter(): Promise<void>;
+  abandonner(id: string): Promise<void>;
+}
+
+/** File d'envoi de fichiers persistée. `progression` : 0..1 par id, pour l'UI. */
+export interface OutboxFichiers {
+  readonly progression: Map<string, number>;
+  envoyer(
+    rid: string,
+    fichier: FichierAEnvoyer & { taille: number | null },
+    legende?: string,
+  ): Promise<void>;
+  traiter(): Promise<void>;
+  abandonner(id: string): Promise<void>;
+}
+
+/**
+ * Un fournisseur de chat assemblé pour une session : tout le spécifique-serveur
+ * du chemin de synchro et d'action, derrière une seule façade. `ui/synchro.tsx`
+ * l'orchestre sans nommer Rocket.Chat ; le driver Mattermost fournira le même
+ * objet. Les ornements encore RC-only (présence, emojis custom, push, E2EE)
+ * restent hors de cette façade en 4a, gardés par `capacites`, à absorber ensuite.
+ */
+export interface Fournisseur {
+  readonly capacites: Capacites;
+  /** Transport temps réel (RC : DDP ; MM : WebSocket JSON). */
+  readonly listener: Listener;
+  /** Décodeur d'`Evenement`/documents bruts vers formes neutres. */
+  readonly traducteur: Traducteur;
+  /** Actions unitaires sur les messages. */
+  readonly actions: ActionsFournisseur;
+  /** Souscriptions désirées `[nom, cle]`, déclarées avant la 1re connexion (rejouées à chaque reconnexion). */
+  souscriptionsInitiales(): readonly (readonly [nom: string, cle: string])[];
+  creerEnvoi(depot: DepotEnvoi, ingerer: Ingerer): Outbox;
+  creerTeleversement(
+    depot: DepotTeleversements,
+    transport: TransportUpload,
+    ingerer: Ingerer,
+  ): OutboxFichiers;
+  /** Rattrapage REST global (salons + abonnements delta). */
+  rattraperGlobal(moteur: MoteurSynchro, estAbandonne: () => boolean): Promise<void>;
+  /** Rattrapage d'UN salon (l'ouvert). Rate-limité, non borné côté RC : voir `ui/synchro.tsx`. */
+  rattraperSalon(moteur: MoteurSynchro, rid: string, estAbandonne: () => boolean): Promise<void>;
+  /** Réconciliation anti-fantômes (une fois par session). */
+  reconcilier(moteur: MoteurSynchro, estAbandonne: () => boolean): Promise<void>;
+}

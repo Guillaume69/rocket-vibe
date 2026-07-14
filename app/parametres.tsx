@@ -340,6 +340,7 @@ function SectionJetonFcm({ c, t }: { c: Couleurs; t: Traducteur }) {
         onPress={demander}
         android_ripple={{ color: c.ondulation }}
         unstable_pressDelay={DELAI_PRESSION_LISTE}
+        style={styles.lienOndule}
       >
         <Text style={[styles.action, { color: c.cyan }]}>{t('parametres.obtenirJeton')}</Text>
       </Pressable>
@@ -385,7 +386,11 @@ function SectionE2E({ c, t }: { c: Couleurs; t: Traducteur }) {
             android_ripple={{ color: c.ondulation }}
             unstable_pressDelay={DELAI_PRESSION_LISTE}
             accessibilityRole="button"
-            style={({ pressed }) => ({ opacity: pressed || occupe ? 0.6 : 1, paddingVertical: 6 })}
+            style={({ pressed }) => ({
+              opacity: pressed || occupe ? 0.6 : 1,
+              paddingVertical: 6,
+              borderRadius: 10,
+            })}
           >
             <Text style={[styles.profilLien, { color: c.texteErreur }]}>
               {t('parametres.e2eVerrouiller')}
@@ -397,7 +402,7 @@ function SectionE2E({ c, t }: { c: Couleurs; t: Traducteur }) {
             android_ripple={{ color: c.ondulation }}
             unstable_pressDelay={DELAI_PRESSION_LISTE}
             accessibilityRole="button"
-            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, paddingVertical: 6 })}
+            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, paddingVertical: 6, borderRadius: 10 })}
           >
             <Text style={[styles.profilLien, { color: c.cyan }]}>
               {t('parametres.e2eDeverrouiller')}
@@ -452,6 +457,8 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingVertical: 13,
     paddingHorizontal: 4,
+    // Coins doux pour l'ondulation — invisible au repos (pas de fond).
+    borderRadius: 12,
   },
   radio: {
     width: 22,
@@ -472,6 +479,8 @@ const styles = StyleSheet.create({
   cle: { fontFamily: POLICES.corps, fontSize: 13 },
   valeur: { fontFamily: POLICES.corpsGras, fontSize: 13, flexShrink: 1, textAlign: 'right' },
   action: { fontFamily: POLICES.corpsGras, fontSize: 13 },
+  // Lien texte cliquable : arrondit le masque de l'ondulation.
+  lienOndule: { borderRadius: 10 },
   aide: { fontFamily: POLICES.corps, fontSize: 12, opacity: 0.9 },
   lien: { fontFamily: POLICES.corpsGras, fontSize: 15, paddingVertical: 12, textAlign: 'center' },
   bouton: {

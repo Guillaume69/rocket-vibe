@@ -1055,7 +1055,7 @@ function ComposerChiffre({ c }: { c: Couleurs }) {
     <Pressable
       onPress={() => routeur.push('/deverrouiller-e2e')}
       android_ripple={{ color: c.ondulation }}
-      style={[styles.composer, { borderTopColor: c.bordureDouce }]}
+      style={[styles.composer, { borderTopColor: c.bordureDouce, borderRadius: 14 }]}
       accessibilityRole="button"
       accessibilityLabel={t('salon.chiffreVerrouille')}
     >
@@ -1242,7 +1242,15 @@ const styles = StyleSheet.create({
   retour: { fontFamily: POLICES.titre, fontSize: 26, paddingRight: 2 },
   // Reprend la géométrie qu'avaient avatar + bloc en enfants directs de
   // l'en-tête (ligne, même gap, extension) — le Pressable est transparent.
-  enteteFiche: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 11 },
+  // borderRadius : masque l'ondulation en coins doux (rien au repos).
+  enteteFiche: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
+    borderRadius: 12,
+  },
   enteteBloc: { flex: 1, minWidth: 0 },
   enteteNom: { fontFamily: POLICES.titre, fontSize: 16 },
   badgeChiffreEntete: { fontSize: 12 },

@@ -477,6 +477,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     paddingVertical: 14,
+    // Coins doux pour l'ondulation — invisible au repos (pas de fond).
+    borderRadius: 12,
   },
   pastille: { width: 11, height: 11, borderRadius: 6 },
   presenceTexte: { fontFamily: POLICES.corpsGras, fontSize: 15, flex: 1 },

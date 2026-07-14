@@ -315,6 +315,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 11,
     gap: 12,
+    // Masque l'ondulation en coins doux — sans rayon, la vague sort en
+    // rectangle sec. Ne change rien au rendu au repos (pas de fond).
+    borderRadius: 18,
   },
   plus: { fontFamily: POLICES.titreFort, fontSize: 24 },
   pastille: {

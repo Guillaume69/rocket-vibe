@@ -237,6 +237,8 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
+    // Coins doux pour l'ondulation — invisible au repos (pas de fond).
+    borderRadius: 18,
   },
   prefixe: { fontSize: 20, fontWeight: '600', width: 24, textAlign: 'center' },
   nom: { fontSize: 16 },

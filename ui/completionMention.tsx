@@ -143,7 +143,15 @@ const styles = StyleSheet.create({
   // au-dessus du composer (jamais en même temps — jetons `:` et `@` exclusifs).
   bande: { maxHeight: 44, borderTopWidth: StyleSheet.hairlineWidth },
   contenu: { alignItems: 'center', paddingHorizontal: 6, gap: 4 },
-  puce: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 6 },
+  // borderRadius : masque l'ondulation en pilule au lieu d'un rectangle sec.
+  puce: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
   glypheSpecial: { fontSize: 18 },
   nom: { fontSize: 13, maxWidth: 140 },
 });

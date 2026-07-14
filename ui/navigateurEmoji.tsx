@@ -208,7 +208,8 @@ const styles = StyleSheet.create({
   ongletInactif: { opacity: 0.45 },
   soulignement: { height: 2, width: 22, borderRadius: 1, marginTop: 5 },
   grille: { paddingHorizontal: 2, paddingBottom: 8 },
-  case: { alignItems: 'center', justifyContent: 'center' },
+  // Case carrée + rayon max = ondulation circulaire sous le glyphe.
+  case: { alignItems: 'center', justifyContent: 'center', borderRadius: 999 },
   glyphe: { fontSize: 26 },
   imageCustom: { width: 28, height: 28 },
   vide: { textAlign: 'center', marginTop: 24, fontFamily: POLICES.corps, fontSize: 14 },

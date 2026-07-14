@@ -212,7 +212,15 @@ const styles = StyleSheet.create({
   // Hauteur bornée : la bande ne doit pas repousser la liste de moitié d'écran.
   bande: { maxHeight: 44, borderTopWidth: StyleSheet.hairlineWidth },
   contenu: { alignItems: 'center', paddingHorizontal: 6, gap: 4 },
-  puce: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 6 },
+  // borderRadius : masque l'ondulation en pilule au lieu d'un rectangle sec.
+  puce: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
   glyphe: { fontSize: 20 },
   image: { width: 22, height: 22 },
   code: { fontSize: 13, maxWidth: 140 },

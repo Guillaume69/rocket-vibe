@@ -537,6 +537,8 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 10,
+    // Coins doux pour l'ondulation — invisible au repos (pas de fond).
+    borderRadius: 18,
   },
   corpsLigne: { flex: 1, minWidth: 0, gap: 2 },
   nomCible: { fontFamily: POLICES.corpsGras, fontSize: 15 },

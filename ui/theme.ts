@@ -99,7 +99,9 @@ export const couleursSombres: Couleurs = {
   texteErreur: '#FF7A8A',
 
   accent: '#FF5FA2',
-  ondulation: '#E14B96',
+  // Translucide (25 %) : la RippleDrawable dessine la couleur telle quelle —
+  // opaque, la vague est un flash dur qui écrase le contenu qu'elle recouvre.
+  ondulation: '#E14B9640',
   surAccent: '#0B0913',
 
   violet: '#A78BFA',
@@ -147,7 +149,8 @@ export const couleursClaires: Couleurs = {
   texteErreur: '#D6335A',
 
   accent: '#E14B96',
-  ondulation: '#C0398A',
+  // Même logique qu'en sombre : translucide, sinon flash opaque.
+  ondulation: '#C0398A38',
   surAccent: '#FFFFFF',
 
   violet: '#7C5CE0',

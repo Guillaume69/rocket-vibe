@@ -32,6 +32,27 @@ export type ChangementSync =
   | { type: 'suppr-abonnement-par-sub'; subId: string };
 
 /**
+ * Le type de serveur d'une session. Persisté avec elle : il décide quel driver
+ * instancier au démarrage. Un seul membre aujourd'hui ; `mattermost` s'ajoute
+ * avec son driver (kChat).
+ */
+export type Genre = 'rocketchat';
+
+const GENRES: readonly Genre[] = ['rocketchat'];
+
+/**
+ * Ramène une valeur stockée à un `Genre` connu. Les sessions d'avant l'ajout du
+ * champ n'en ont pas : elles retombent sur `rocketchat` (le seul serveur
+ * possible à l'époque). Migration sans écriture — la valeur se corrige à la
+ * lecture. Défaut `rocketchat` pour toute valeur inconnue.
+ */
+export function normaliserGenre(valeur: unknown): Genre {
+  return typeof valeur === 'string' && (GENRES as readonly string[]).includes(valeur)
+    ? (valeur as Genre)
+    : 'rocketchat';
+}
+
+/**
  * Ce que chaque fournisseur sait faire. Les écrans lisent ces drapeaux pour
  * masquer ce qui n'existe pas plutôt que de raboter au plus petit dénominateur ;
  * une action non supportée jette. `modeleFil` : Rocket.Chat imbrique par `tmid`,

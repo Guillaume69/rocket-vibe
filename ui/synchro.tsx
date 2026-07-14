@@ -50,7 +50,7 @@ import { obtenirJetonFcm } from '../lib/push.ts';
 import { enregistrerJeton } from '../lib/pushToken.ts';
 import { Reconnecteur } from '../lib/reconnexion.ts';
 import { MoteurSynchro } from '../lib/sync.ts';
-import { creerFournisseurRC } from '../fournisseurs/rocketchat/index.ts';
+import { creerFournisseur } from '../fournisseurs/index.ts';
 import {
   effacerClePriveeE2E,
   enregistrerClePriveeE2E,
@@ -121,7 +121,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
     const { session, client } = etat;
     let abandonne = false;
     const estAbandonne = () => abandonne;
-    const fournisseur = creerFournisseurRC(session, client, () =>
+    const fournisseur = creerFournisseur(session, client, () =>
       idDepuisOctets(Crypto.getRandomBytes(12)),
     );
     const ddp = fournisseur.listener;

@@ -13,6 +13,7 @@
  * injecté (`expo-crypto` dans l'app, `node:crypto` dans les tests).
  */
 
+import type { Genre } from './fournisseur.ts';
 import { ClientRest, ErreurDeuxFacteurs, type CodeDeuxFacteurs } from './rest.ts';
 
 export type Session = {
@@ -20,6 +21,8 @@ export type Session = {
   authToken: string;
   userId: string;
   username: string;
+  /** Type de serveur : décide quel driver instancier. Ici toujours `rocketchat`. */
+  genre: Genre;
 };
 
 /** SHA-256 hexadécimal, en minuscules. */
@@ -109,6 +112,7 @@ function sessionDepuis(baseUrl: string, reponse: ReponseLogin | undefined): Sess
     authToken: donnees.authToken,
     userId: donnees.userId,
     username: donnees.me?.username ?? '',
+    genre: 'rocketchat',
   };
 }
 

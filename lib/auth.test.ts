@@ -66,6 +66,7 @@ describe('auth', () => {
       authToken: 'jeton-abc',
       userId: 'u1',
       username: 'alice',
+      genre: 'rocketchat',
     });
     assert.deepEqual(recues[0].corps, { user: 'alice', password: 'secret' });
   });
@@ -163,7 +164,13 @@ describe('auth', () => {
 
   test('appliquerSession branche les identifiants sur le client', () => {
     const c = new ClientRest(base);
-    appliquerSession(c, { baseUrl: base, authToken: 't', userId: 'u', username: 'alice' });
+    appliquerSession(c, {
+      baseUrl: base,
+      authToken: 't',
+      userId: 'u',
+      username: 'alice',
+      genre: 'rocketchat',
+    });
     assert.deepEqual(c.identifiants, { authToken: 't', userId: 'u' });
   });
 });

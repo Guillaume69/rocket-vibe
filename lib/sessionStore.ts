@@ -13,6 +13,7 @@ import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 
 import type { Session } from './auth.ts';
+import { normaliserGenre } from './fournisseur.ts';
 
 /**
  * La clé de stockage, le pointeur « dernier serveur » et la comparaison de
@@ -53,7 +54,9 @@ export async function lireSession(baseUrl: string): Promise<Session | null> {
     // La clé dérive d'un condensé tronqué : on ne se fie pas à elle seule pour
     // affirmer que cette session appartient bien au serveur demandé.
     if (sansSlashFinal(session.baseUrl) !== sansSlashFinal(baseUrl)) return null;
-    return session;
+    // Migration à la lecture : les sessions d'avant le champ `genre` retombent
+    // sur `rocketchat`, sans réécriture.
+    return { ...session, genre: normaliserGenre(session.genre) };
   } catch {
     return null;
   }

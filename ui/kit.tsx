@@ -206,22 +206,18 @@ export function AvatarSalon({
   taille?: number;
   rayon?: number;
 }) {
-  if (chiffre) {
-    // Déverrouillé : tuile COLORÉE (comme un salon lisible) + cadenas ouvert —
-    // le passage gris→couleur distingue nettement de l'état verrouillé (gris +
-    // cadenas fermé), là où 🔓 vs 🔒 seuls sont trop proches à cette taille.
+  // Salon chiffré VERROUILLÉ : tuile grise + cadenas fermé (illisible).
+  // Déverrouillé : on retombe sur le rendu ORDINAIRE (tuile colorée, `#` ou
+  // avatar) — le salon est lisible, il ressemble à un salon lisible. `🔓` vs
+  // `🔒` seuls étaient trop proches à cette taille pour signaler l'état.
+  if (chiffre && !chiffreDeverrouille) {
     return (
       <TuileAvatar
         c={c}
-        neutre={!chiffreDeverrouille}
-        cle={chiffreDeverrouille ? nom : undefined}
+        neutre
         taille={taille}
         rayon={rayon}
-        enfant={
-          <Text style={{ fontSize: Math.round(taille * 0.42) }}>
-            {chiffreDeverrouille ? '🔓' : '🔒'}
-          </Text>
-        }
+        enfant={<Text style={{ fontSize: Math.round(taille * 0.42) }}>🔒</Text>}
       />
     );
   }

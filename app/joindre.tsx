@@ -55,18 +55,21 @@ export default function EcranJoindre() {
   return (
     <View style={[styles.feuille, { paddingBottom: insets.bottom + 12 }]}>
       {OPTIONS.map((o) => (
-        <Pressable
-          key={o.source}
-          onPress={() => choisir(o.source)}
-          android_ripple={{ color: c.ondulation }}
-          unstable_pressDelay={DELAI_PRESSION_LISTE}
-          accessibilityRole="button"
-          accessibilityLabel={t(o.cle)}
-          style={({ pressed }) => [styles.ligne, { opacity: pressed ? 0.7 : 1 }]}
-        >
-          <Text style={styles.ligneIcone}>{o.icone}</Text>
-          <Text style={[styles.ligneTexte, { color: c.texte }]}>{t(o.cle)}</Text>
-        </Pressable>
+        // Le clip de l'enveloppe (`overflow`) découpe l'ondulation en coins
+        // doux : le masque du ripple borné ignore borderRadius sous Fabric.
+        <View key={o.source} style={styles.enveloppeLigne}>
+          <Pressable
+            onPress={() => choisir(o.source)}
+            android_ripple={{ color: c.ondulation }}
+            unstable_pressDelay={DELAI_PRESSION_LISTE}
+            accessibilityRole="button"
+            accessibilityLabel={t(o.cle)}
+            style={({ pressed }) => [styles.ligne, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <Text style={styles.ligneIcone}>{o.icone}</Text>
+            <Text style={[styles.ligneTexte, { color: c.texte }]}>{t(o.cle)}</Text>
+          </Pressable>
+        </View>
       ))}
     </View>
   );
@@ -75,13 +78,13 @@ export default function EcranJoindre() {
 const styles = StyleSheet.create({
   // Pas de flex:1 : `fitToContents` mesure la hauteur réelle du contenu.
   feuille: { paddingHorizontal: 16, paddingTop: 10, gap: 2 },
+  enveloppeLigne: { borderRadius: 12, overflow: 'hidden' },
   ligne: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
     paddingVertical: 15,
     paddingHorizontal: 8,
-    borderRadius: 12,
   },
   ligneIcone: { fontSize: 19, width: 24, textAlign: 'center' },
   ligneTexte: { fontFamily: POLICES.corpsGras, fontSize: 15.5 },

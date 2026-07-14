@@ -270,36 +270,40 @@ function FormMonProfil({
           {PRESENCES.map((p, i) => {
             const actif = form.status === p.valeur;
             return (
-              <Pressable
-                key={p.valeur}
-                onPress={() => {
-                  setBandeau(null);
-                  setForm((f) => (f === null ? f : { ...f, status: p.valeur }));
-                }}
-                android_ripple={{ color: c.ondulation }}
-                unstable_pressDelay={DELAI_PRESSION_LISTE}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: actif }}
-                accessibilityLabel={t(p.cle)}
-                style={[
-                  styles.presenceLigne,
-                  i > 0 && { borderTopColor: c.bordureDouce, borderTopWidth: StyleSheet.hairlineWidth },
-                ]}
-              >
-                <View style={[styles.pastille, { backgroundColor: c[p.teinte] }]} />
-                <Text
+              <View key={p.valeur} style={styles.enveloppePresence}>
+                <Pressable
+                  onPress={() => {
+                    setBandeau(null);
+                    setForm((f) => (f === null ? f : { ...f, status: p.valeur }));
+                  }}
+                  android_ripple={{ color: c.ondulation }}
+                  unstable_pressDelay={DELAI_PRESSION_LISTE}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: actif }}
+                  accessibilityLabel={t(p.cle)}
                   style={[
-                    styles.presenceTexte,
-                    { color: actif ? c.texte : c.texteSecondaire },
-                    actif && styles.presenceTexteActif,
+                    styles.presenceLigne,
+                    i > 0 && {
+                      borderTopColor: c.bordureDouce,
+                      borderTopWidth: StyleSheet.hairlineWidth,
+                    },
                   ]}
                 >
-                  {t(p.cle)}
-                </Text>
-                <View style={[styles.radio, { borderColor: actif ? c.accent : c.bordure }]}>
-                  {actif && <View style={[styles.radioPoint, { backgroundColor: c.accent }]} />}
-                </View>
-              </Pressable>
+                  <View style={[styles.pastille, { backgroundColor: c[p.teinte] }]} />
+                  <Text
+                    style={[
+                      styles.presenceTexte,
+                      { color: actif ? c.texte : c.texteSecondaire },
+                      actif && styles.presenceTexteActif,
+                    ]}
+                  >
+                    {t(p.cle)}
+                  </Text>
+                  <View style={[styles.radio, { borderColor: actif ? c.accent : c.bordure }]}>
+                    {actif && <View style={[styles.radioPoint, { backgroundColor: c.accent }]} />}
+                  </View>
+                </Pressable>
+              </View>
             );
           })}
         </View>
@@ -472,13 +476,15 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   carte: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 16 },
+  // Le rayon vit sur l'ENVELOPPE : seul le clip d'un parent (`overflow`)
+  // découpe l'ondulation — borderRadius sur le Pressable est ignoré par le
+  // masque du ripple sous Fabric. Invisible au repos (pas de fond).
+  enveloppePresence: { borderRadius: 12, overflow: 'hidden' },
   presenceLigne: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     paddingVertical: 14,
-    // Coins doux pour l'ondulation — invisible au repos (pas de fond).
-    borderRadius: 12,
   },
   pastille: { width: 11, height: 11, borderRadius: 6 },
   presenceTexte: { fontFamily: POLICES.corpsGras, fontSize: 15, flex: 1 },

@@ -27,6 +27,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  View,
   type NativeSyntheticEvent,
   type TextInputSelectionChangeEventData,
 } from 'react-native';
@@ -186,23 +187,24 @@ export function BandeauCompletionEmoji({
       contentContainerStyle={styles.contenu}
     >
       {resultat.items.map(({ suggestion, glyphe, uri, insertion }) => (
-        <Pressable
-          key={`${suggestion.type}:${suggestion.code}`}
-          onPress={() => surChoisir(insertion, resultat.debut)}
-          android_ripple={{ color: c.ondulation, borderless: false }}
-          unstable_pressDelay={DELAI_PRESSION_LISTE}
-          style={styles.puce}
-          accessibilityLabel={`:${suggestion.code}:`}
-        >
-          {uri !== null ? (
-            <Image source={{ uri }} style={styles.image} resizeMode="contain" />
-          ) : (
-            <Text style={styles.glyphe}>{glyphe}</Text>
-          )}
-          <Text style={[styles.code, { color: c.attenue }]} numberOfLines={1}>
-            :{suggestion.code}:
-          </Text>
-        </Pressable>
+        <View key={`${suggestion.type}:${suggestion.code}`} style={styles.enveloppePuce}>
+          <Pressable
+            onPress={() => surChoisir(insertion, resultat.debut)}
+            android_ripple={{ color: c.ondulation, borderless: false }}
+            unstable_pressDelay={DELAI_PRESSION_LISTE}
+            style={styles.puce}
+            accessibilityLabel={`:${suggestion.code}:`}
+          >
+            {uri !== null ? (
+              <Image source={{ uri }} style={styles.image} resizeMode="contain" />
+            ) : (
+              <Text style={styles.glyphe}>{glyphe}</Text>
+            )}
+            <Text style={[styles.code, { color: c.attenue }]} numberOfLines={1}>
+              :{suggestion.code}:
+            </Text>
+          </Pressable>
+        </View>
       ))}
     </ScrollView>
   );
@@ -212,15 +214,11 @@ const styles = StyleSheet.create({
   // Hauteur bornée : la bande ne doit pas repousser la liste de moitié d'écran.
   bande: { maxHeight: 44, borderTopWidth: StyleSheet.hairlineWidth },
   contenu: { alignItems: 'center', paddingHorizontal: 6, gap: 4 },
-  // borderRadius : masque l'ondulation en pilule au lieu d'un rectangle sec.
-  puce: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
+  // Le rayon vit sur l'ENVELOPPE : seul le clip d'un parent (`overflow`)
+  // découpe l'ondulation en pilule — borderRadius sur le Pressable est
+  // ignoré par le masque du ripple sous Fabric.
+  enveloppePuce: { borderRadius: 999, overflow: 'hidden' },
+  puce: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 6 },
   glyphe: { fontSize: 20 },
   image: { width: 22, height: 22 },
   code: { fontSize: 13, maxWidth: 140 },

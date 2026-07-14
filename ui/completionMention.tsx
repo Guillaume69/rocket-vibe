@@ -18,7 +18,7 @@
 import { desc, eq, isNotNull, and } from 'drizzle-orm';
 import { useRequeteVive } from './requeteVive.ts';
 import { useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import type { BaseLocale } from '../db/client.ts';
 import { messages } from '../db/schema.ts';
@@ -108,31 +108,32 @@ export function BandeauCompletionMention({
       contentContainerStyle={styles.contenu}
     >
       {resultat.items.map(({ username, uid }) => (
-        <Pressable
-          key={username}
-          onPress={() => surChoisir(`@${username}`, resultat.debut)}
-          android_ripple={{ color: c.ondulation, borderless: false }}
-          unstable_pressDelay={DELAI_PRESSION_LISTE}
-          style={styles.puce}
-          accessibilityLabel={`@${username}`}
-        >
-          {uid === null ? (
-            // Mention spéciale (@all, @here) : mégaphone, pas de photo.
-            <Text style={styles.glypheSpecial}>📣</Text>
-          ) : (
-            <TuileAvatar
-              c={c}
-              cle={username}
-              initiale={username.charAt(0)}
-              taille={22}
-              rayon={7}
-              uri={urlAvatar(client, { username, uid })}
-            />
-          )}
-          <Text style={[styles.nom, { color: c.attenue }]} numberOfLines={1}>
-            @{username}
-          </Text>
-        </Pressable>
+        <View key={username} style={styles.enveloppePuce}>
+          <Pressable
+            onPress={() => surChoisir(`@${username}`, resultat.debut)}
+            android_ripple={{ color: c.ondulation, borderless: false }}
+            unstable_pressDelay={DELAI_PRESSION_LISTE}
+            style={styles.puce}
+            accessibilityLabel={`@${username}`}
+          >
+            {uid === null ? (
+              // Mention spéciale (@all, @here) : mégaphone, pas de photo.
+              <Text style={styles.glypheSpecial}>📣</Text>
+            ) : (
+              <TuileAvatar
+                c={c}
+                cle={username}
+                initiale={username.charAt(0)}
+                taille={22}
+                rayon={7}
+                uri={urlAvatar(client, { username, uid })}
+              />
+            )}
+            <Text style={[styles.nom, { color: c.attenue }]} numberOfLines={1}>
+              @{username}
+            </Text>
+          </Pressable>
+        </View>
       ))}
     </ScrollView>
   );
@@ -143,15 +144,11 @@ const styles = StyleSheet.create({
   // au-dessus du composer (jamais en même temps — jetons `:` et `@` exclusifs).
   bande: { maxHeight: 44, borderTopWidth: StyleSheet.hairlineWidth },
   contenu: { alignItems: 'center', paddingHorizontal: 6, gap: 4 },
-  // borderRadius : masque l'ondulation en pilule au lieu d'un rectangle sec.
-  puce: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
+  // Le rayon vit sur l'ENVELOPPE : seul le clip d'un parent (`overflow`)
+  // découpe l'ondulation en pilule — borderRadius sur le Pressable est
+  // ignoré par le masque du ripple sous Fabric.
+  enveloppePuce: { borderRadius: 999, overflow: 'hidden' },
+  puce: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 6 },
   glypheSpecial: { fontSize: 18 },
   nom: { fontSize: 13, maxWidth: 140 },
 });

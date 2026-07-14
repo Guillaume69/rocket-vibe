@@ -165,7 +165,10 @@ export function NavigateurEmoji({
           return (
             <Pressable
               onPress={() => onChoisir(insertion)}
-              android_ripple={{ color: c.ondulation, borderless: false }}
+              // Vague CIRCULAIRE. `borderless` + rayon calibré sur la case :
+              // le masque du ripple borné ignore borderRadius sous Fabric
+              // (vérifié sur l'émulateur — rectangle quel que soit le style).
+              android_ripple={{ color: c.ondulation, borderless: true, radius: caseTaille / 2 - 2 }}
               unstable_pressDelay={DELAI_PRESSION_LISTE}
               style={[styles.case, { width: caseTaille, height: caseTaille }]}
               accessibilityLabel={`:${suggestion.code}:`}
@@ -208,8 +211,7 @@ const styles = StyleSheet.create({
   ongletInactif: { opacity: 0.45 },
   soulignement: { height: 2, width: 22, borderRadius: 1, marginTop: 5 },
   grille: { paddingHorizontal: 2, paddingBottom: 8 },
-  // Case carrée + rayon max = ondulation circulaire sous le glyphe.
-  case: { alignItems: 'center', justifyContent: 'center', borderRadius: 999 },
+  case: { alignItems: 'center', justifyContent: 'center' },
   glyphe: { fontSize: 26 },
   imageCustom: { width: 28, height: 28 },
   vide: { textAlign: 'center', marginTop: 24, fontFamily: POLICES.corps, fontSize: 14 },

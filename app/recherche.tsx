@@ -182,32 +182,36 @@ function Recherche({
         keyExtractor={(l) => (l.type === 'utilisateur' ? `u-${l.utilisateur._id}` : `c-${l.salon._id}`)}
         renderItem={({ item }) =>
           item.type === 'utilisateur' ? (
-            <Pressable
-              onPress={() => void demarrerDm(item.utilisateur)}
-              disabled={occupe}
-              android_ripple={{ color: c.ondulation }}
-              unstable_pressDelay={DELAI_PRESSION_LISTE}
-              style={styles.ligne}
-            >
-              <Text style={[styles.prefixe, { color: c.attenue }]}>@</Text>
-              <View>
-                <Text style={[styles.nom, { color: c.texte }]}>{item.utilisateur.username}</Text>
-                {item.utilisateur.name !== undefined && (
-                  <Text style={[styles.detail, { color: c.attenue }]}>{item.utilisateur.name}</Text>
-                )}
-              </View>
-            </Pressable>
+            <View style={styles.enveloppeLigne}>
+              <Pressable
+                onPress={() => void demarrerDm(item.utilisateur)}
+                disabled={occupe}
+                android_ripple={{ color: c.ondulation }}
+                unstable_pressDelay={DELAI_PRESSION_LISTE}
+                style={styles.ligne}
+              >
+                <Text style={[styles.prefixe, { color: c.attenue }]}>@</Text>
+                <View>
+                  <Text style={[styles.nom, { color: c.texte }]}>{item.utilisateur.username}</Text>
+                  {item.utilisateur.name !== undefined && (
+                    <Text style={[styles.detail, { color: c.attenue }]}>{item.utilisateur.name}</Text>
+                  )}
+                </View>
+              </Pressable>
+            </View>
           ) : (
-            <Pressable
-              onPress={() => void rejoindreCanal(item.salon)}
-              disabled={occupe}
-              android_ripple={{ color: c.ondulation }}
-              unstable_pressDelay={DELAI_PRESSION_LISTE}
-              style={styles.ligne}
-            >
-              <Text style={[styles.prefixe, { color: c.attenue }]}>#</Text>
-              <Text style={[styles.nom, { color: c.texte }]}>{item.salon.name}</Text>
-            </Pressable>
+            <View style={styles.enveloppeLigne}>
+              <Pressable
+                onPress={() => void rejoindreCanal(item.salon)}
+                disabled={occupe}
+                android_ripple={{ color: c.ondulation }}
+                unstable_pressDelay={DELAI_PRESSION_LISTE}
+                style={styles.ligne}
+              >
+                <Text style={[styles.prefixe, { color: c.attenue }]}>#</Text>
+                <Text style={[styles.nom, { color: c.texte }]}>{item.salon.name}</Text>
+              </Pressable>
+            </View>
           )
         }
         ListEmptyComponent={
@@ -231,14 +235,16 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 16,
   },
+  // Le rayon vit sur l'ENVELOPPE : seul le clip d'un parent (`overflow`)
+  // découpe l'ondulation — borderRadius sur le Pressable est ignoré par le
+  // masque du ripple sous Fabric. Invisible au repos (pas de fond).
+  enveloppeLigne: { borderRadius: 18, overflow: 'hidden' },
   ligne: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    // Coins doux pour l'ondulation — invisible au repos (pas de fond).
-    borderRadius: 18,
   },
   prefixe: { fontSize: 20, fontWeight: '600', width: 24, textAlign: 'center' },
   nom: { fontSize: 16 },

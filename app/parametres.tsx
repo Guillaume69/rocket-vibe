@@ -230,33 +230,34 @@ function ChoixNotification({
         const actif = push.valeur === o.valeur;
         const libelle = t(o.cle);
         return (
-          <Pressable
-            key={o.valeur}
-            onPress={() => void push.definir(o.valeur)}
-            disabled={push.valeur === null}
-            android_ripple={{ color: c.ondulation }}
-            unstable_pressDelay={DELAI_PRESSION_LISTE}
-            accessibilityRole="radio"
-            accessibilityState={{ selected: actif }}
-            accessibilityLabel={libelle}
-            style={[
-              styles.optionLigne,
-              i > 0 && { borderTopColor: c.bordureDouce, borderTopWidth: StyleSheet.hairlineWidth },
-            ]}
-          >
+          <View key={o.valeur} style={styles.enveloppeOption}>
+            <Pressable
+              onPress={() => void push.definir(o.valeur)}
+              disabled={push.valeur === null}
+              android_ripple={{ color: c.ondulation }}
+              unstable_pressDelay={DELAI_PRESSION_LISTE}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: actif }}
+              accessibilityLabel={libelle}
+              style={[
+                styles.optionLigne,
+                i > 0 && { borderTopColor: c.bordureDouce, borderTopWidth: StyleSheet.hairlineWidth },
+              ]}
+            >
             <View style={[styles.radio, { borderColor: actif ? c.accent : c.bordure }]}>
               {actif && <View style={[styles.radioPoint, { backgroundColor: c.accent }]} />}
             </View>
-            <Text
-              style={[
-                styles.optionTexte,
-                { color: actif ? c.texte : c.texteSecondaire },
-                actif && styles.optionTexteActif,
-              ]}
-            >
-              {libelle}
-            </Text>
-          </Pressable>
+              <Text
+                style={[
+                  styles.optionTexte,
+                  { color: actif ? c.texte : c.texteSecondaire },
+                  actif && styles.optionTexteActif,
+                ]}
+              >
+                {libelle}
+              </Text>
+            </Pressable>
+          </View>
         );
       })}
     </View>
@@ -280,37 +281,38 @@ function SelecteurLangue({ c, t }: { c: Couleurs; t: Traducteur }) {
       {options.map((o, i) => {
         const actif = preference === o.pref;
         return (
-          <Pressable
-            key={o.pref}
-            onPress={() => definirLangue(o.pref)}
-            android_ripple={{ color: c.ondulation }}
-            unstable_pressDelay={DELAI_PRESSION_LISTE}
-            accessibilityRole="radio"
-            accessibilityState={{ selected: actif }}
-            accessibilityLabel={o.libelle}
-            style={[
-              styles.optionLigne,
-              i > 0 && { borderTopColor: c.bordureDouce, borderTopWidth: StyleSheet.hairlineWidth },
-            ]}
-          >
+          <View key={o.pref} style={styles.enveloppeOption}>
+            <Pressable
+              onPress={() => definirLangue(o.pref)}
+              android_ripple={{ color: c.ondulation }}
+              unstable_pressDelay={DELAI_PRESSION_LISTE}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: actif }}
+              accessibilityLabel={o.libelle}
+              style={[
+                styles.optionLigne,
+                i > 0 && { borderTopColor: c.bordureDouce, borderTopWidth: StyleSheet.hairlineWidth },
+              ]}
+            >
             <View style={[styles.radio, { borderColor: actif ? c.accent : c.bordure }]}>
               {actif && <View style={[styles.radioPoint, { backgroundColor: c.accent }]} />}
             </View>
-            <View style={styles.optionTextes}>
-              <Text
-                style={[
-                  styles.optionTexte,
-                  { color: actif ? c.texte : c.texteSecondaire },
-                  actif && styles.optionTexteActif,
-                ]}
-              >
-                {o.libelle}
-              </Text>
-              {o.aide !== undefined && (
-                <Text style={[styles.optionAide, { color: c.texteTertiaire }]}>{o.aide}</Text>
-              )}
-            </View>
-          </Pressable>
+              <View style={styles.optionTextes}>
+                <Text
+                  style={[
+                    styles.optionTexte,
+                    { color: actif ? c.texte : c.texteSecondaire },
+                    actif && styles.optionTexteActif,
+                  ]}
+                >
+                  {o.libelle}
+                </Text>
+                {o.aide !== undefined && (
+                  <Text style={[styles.optionAide, { color: c.texteTertiaire }]}>{o.aide}</Text>
+                )}
+              </View>
+            </Pressable>
+          </View>
         );
       })}
     </View>
@@ -338,9 +340,10 @@ function SectionJetonFcm({ c, t }: { c: Couleurs; t: Traducteur }) {
     <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
       <Pressable
         onPress={demander}
-        android_ripple={{ color: c.ondulation }}
+        // Lien texte : vague ronde `borderless` — le masque du ripple borné
+        // ignore borderRadius sous Fabric, un rayon calibré fait le travail.
+        android_ripple={{ color: c.ondulation, borderless: true, radius: 24 }}
         unstable_pressDelay={DELAI_PRESSION_LISTE}
-        style={styles.lienOndule}
       >
         <Text style={[styles.action, { color: c.cyan }]}>{t('parametres.obtenirJeton')}</Text>
       </Pressable>
@@ -383,14 +386,10 @@ function SectionE2E({ c, t }: { c: Couleurs; t: Traducteur }) {
           <Pressable
             onPress={verrouiller}
             disabled={occupe}
-            android_ripple={{ color: c.ondulation }}
+            android_ripple={{ color: c.ondulation, borderless: true, radius: 24 }}
             unstable_pressDelay={DELAI_PRESSION_LISTE}
             accessibilityRole="button"
-            style={({ pressed }) => ({
-              opacity: pressed || occupe ? 0.6 : 1,
-              paddingVertical: 6,
-              borderRadius: 10,
-            })}
+            style={({ pressed }) => ({ opacity: pressed || occupe ? 0.6 : 1, paddingVertical: 6 })}
           >
             <Text style={[styles.profilLien, { color: c.texteErreur }]}>
               {t('parametres.e2eVerrouiller')}
@@ -399,10 +398,10 @@ function SectionE2E({ c, t }: { c: Couleurs; t: Traducteur }) {
         ) : (
           <Pressable
             onPress={() => routeur.push('/deverrouiller-e2e')}
-            android_ripple={{ color: c.ondulation }}
+            android_ripple={{ color: c.ondulation, borderless: true, radius: 24 }}
             unstable_pressDelay={DELAI_PRESSION_LISTE}
             accessibilityRole="button"
-            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, paddingVertical: 6, borderRadius: 10 })}
+            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, paddingVertical: 6 })}
           >
             <Text style={[styles.profilLien, { color: c.cyan }]}>
               {t('parametres.e2eDeverrouiller')}
@@ -451,14 +450,16 @@ const styles = StyleSheet.create({
   reglageTitre: { fontFamily: POLICES.titre, fontSize: 16 },
   reglageAide: { fontFamily: POLICES.corps, fontSize: 13, lineHeight: 18 },
   options: { marginTop: 2 },
+  // Le rayon vit sur l'ENVELOPPE : seul le clip d'un parent (`overflow`)
+  // découpe l'ondulation — borderRadius sur le Pressable est ignoré par le
+  // masque du ripple sous Fabric. Invisible au repos (pas de fond).
+  enveloppeOption: { borderRadius: 12, overflow: 'hidden' },
   optionLigne: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     paddingVertical: 13,
     paddingHorizontal: 4,
-    // Coins doux pour l'ondulation — invisible au repos (pas de fond).
-    borderRadius: 12,
   },
   radio: {
     width: 22,
@@ -479,8 +480,6 @@ const styles = StyleSheet.create({
   cle: { fontFamily: POLICES.corps, fontSize: 13 },
   valeur: { fontFamily: POLICES.corpsGras, fontSize: 13, flexShrink: 1, textAlign: 'right' },
   action: { fontFamily: POLICES.corpsGras, fontSize: 13 },
-  // Lien texte cliquable : arrondit le masque de l'ondulation.
-  lienOndule: { borderRadius: 10 },
   aide: { fontFamily: POLICES.corps, fontSize: 12, opacity: 0.9 },
   lien: { fontFamily: POLICES.corpsGras, fontSize: 15, paddingVertical: 12, textAlign: 'center' },
   bouton: {

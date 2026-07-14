@@ -351,13 +351,14 @@ function LigneCible({
   const attenue = bloque || (occupe && !envoiEnCours);
 
   return (
-    <Pressable
-      onPress={onChoisir}
-      disabled={occupe || bloque}
-      android_ripple={bloque ? undefined : { color: c.ondulation }}
-      unstable_pressDelay={DELAI_PRESSION_LISTE}
-      style={({ pressed }) => [styles.ligne, { opacity: attenue ? 0.4 : pressed ? 0.6 : 1 }]}
-    >
+    <View style={styles.enveloppeLigne}>
+      <Pressable
+        onPress={onChoisir}
+        disabled={occupe || bloque}
+        android_ripple={bloque ? undefined : { color: c.ondulation }}
+        unstable_pressDelay={DELAI_PRESSION_LISTE}
+        style={({ pressed }) => [styles.ligne, { opacity: attenue ? 0.4 : pressed ? 0.6 : 1 }]}
+      >
       <AvatarSalon
         c={c}
         nom={nom}
@@ -377,8 +378,9 @@ function LigneCible({
           </Text>
         )}
       </View>
-      {envoiEnCours && <ActivityIndicator color={c.accent} />}
-    </Pressable>
+        {envoiEnCours && <ActivityIndicator color={c.accent} />}
+      </Pressable>
+    </View>
   );
 }
 
@@ -531,14 +533,16 @@ const styles = StyleSheet.create({
   },
   liste: { flex: 1, marginTop: 4 },
   listeContenu: { paddingBottom: 16 },
+  // Le rayon vit sur l'ENVELOPPE : seul le clip d'un parent (`overflow`)
+  // découpe l'ondulation — borderRadius sur le Pressable est ignoré par le
+  // masque du ripple sous Fabric. Invisible au repos (pas de fond).
+  enveloppeLigne: { borderRadius: 18, overflow: 'hidden' },
   ligne: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 10,
-    // Coins doux pour l'ondulation — invisible au repos (pas de fond).
-    borderRadius: 18,
   },
   corpsLigne: { flex: 1, minWidth: 0, gap: 2 },
   nomCible: { fontFamily: POLICES.corpsGras, fontSize: 15 },

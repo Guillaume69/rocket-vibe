@@ -1055,7 +1055,7 @@ function ComposerChiffre({ c }: { c: Couleurs }) {
     <Pressable
       onPress={() => routeur.push('/deverrouiller-e2e')}
       android_ripple={{ color: c.ondulation }}
-      style={[styles.composer, { borderTopColor: c.bordureDouce, borderRadius: 14 }]}
+      style={[styles.composer, { borderTopColor: c.bordureDouce }]}
       accessibilityRole="button"
       accessibilityLabel={t('salon.chiffreVerrouille')}
     >
@@ -1133,17 +1133,18 @@ function EnTeteSalon({
       {/* Le nom (et l'avatar) ouvrent la fiche : celle de l'INTERLOCUTEUR pour
           un DM (visé par `dmAutreUid` — le `name` d'un DM est null localement),
           celle du salon sinon. */}
-      <Pressable
-        onPress={() =>
-          estDM && salon?.dmAutreUid != null
-            ? void ouvrirFicheProfil({ uid: salon.dmAutreUid })
-            : routeur.push({ pathname: '/salon-info', params: { rid } })
-        }
-        android_ripple={{ color: c.ondulation, borderless: false }}
-        style={styles.enteteFiche}
-        accessibilityRole="button"
-        accessibilityLabel={t('salon.infosConversation')}
-      >
+      <View style={styles.enveloppeEntete}>
+        <Pressable
+          onPress={() =>
+            estDM && salon?.dmAutreUid != null
+              ? void ouvrirFicheProfil({ uid: salon.dmAutreUid })
+              : routeur.push({ pathname: '/salon-info', params: { rid } })
+          }
+          android_ripple={{ color: c.ondulation, borderless: false }}
+          style={styles.enteteFiche}
+          accessibilityRole="button"
+          accessibilityLabel={t('salon.infosConversation')}
+        >
         <AvatarSalon
           c={c}
           nom={nom}
@@ -1169,8 +1170,9 @@ function EnTeteSalon({
               {t(PHRASE_PRESENCE[statutDM])}
             </Text>
           )}
-        </View>
-      </Pressable>
+          </View>
+        </Pressable>
+      </View>
       {appelDispo && (
         <Pressable
           onPress={demarrerAppel}
@@ -1242,15 +1244,11 @@ const styles = StyleSheet.create({
   retour: { fontFamily: POLICES.titre, fontSize: 26, paddingRight: 2 },
   // Reprend la géométrie qu'avaient avatar + bloc en enfants directs de
   // l'en-tête (ligne, même gap, extension) — le Pressable est transparent.
-  // borderRadius : masque l'ondulation en coins doux (rien au repos).
-  enteteFiche: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 11,
-    borderRadius: 12,
-  },
+  // Le rayon vit sur l'ENVELOPPE : seul le clip d'un parent (`overflow`)
+  // découpe l'ondulation — borderRadius sur le Pressable est ignoré par le
+  // masque du ripple sous Fabric. L'enveloppe porte le flex de l'en-tête.
+  enveloppeEntete: { flex: 1, minWidth: 0, borderRadius: 12, overflow: 'hidden' },
+  enteteFiche: { flexDirection: 'row', alignItems: 'center', gap: 11 },
   enteteBloc: { flex: 1, minWidth: 0 },
   enteteNom: { fontFamily: POLICES.titre, fontSize: 16 },
   badgeChiffreEntete: { fontSize: 12 },

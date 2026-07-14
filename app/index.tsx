@@ -220,12 +220,16 @@ function LigneSalon({
       : (salon.dernierMessage ?? ' ');
 
   return (
-    <Pressable
-      onPress={() => routeur.push({ pathname: '/salon/[rid]', params: { rid: salon.rid } })}
-      android_ripple={{ color: c.ondulation }}
-      unstable_pressDelay={DELAI_PRESSION_LISTE}
-      style={({ pressed }) => [styles.ligne, { opacity: pressed ? 0.6 : 1 }]}
-    >
+    // L'enveloppe arrondie + `overflow: 'hidden'` est ce qui ARRONDIT
+    // l'ondulation : le masque du ripple borné ignore borderRadius sous
+    // Fabric (vérifié sur l'émulateur), seul le clip d'un PARENT le découpe.
+    <View style={styles.enveloppeLigne}>
+      <Pressable
+        onPress={() => routeur.push({ pathname: '/salon/[rid]', params: { rid: salon.rid } })}
+        android_ripple={{ color: c.ondulation }}
+        unstable_pressDelay={DELAI_PRESSION_LISTE}
+        style={({ pressed }) => [styles.ligne, { opacity: pressed ? 0.6 : 1 }]}
+      >
       <View>
         <AvatarSalon
           c={c}
@@ -267,8 +271,9 @@ function LigneSalon({
         </Text>
       </View>
 
-      <BadgeEtoile c={c} n={nonLus} />
-    </Pressable>
+        <BadgeEtoile c={c} n={nonLus} />
+      </Pressable>
+    </View>
   );
 }
 
@@ -277,19 +282,23 @@ function LigneNouvelleConversation({ c }: { c: Couleurs }) {
   const routeur = useRouter();
   const t = useT();
   return (
-    <Pressable
-      onPress={() => routeur.push('/recherche')}
-      android_ripple={{ color: c.ondulation }}
-      unstable_pressDelay={DELAI_PRESSION_LISTE}
-      style={[styles.ligne, { borderBottomColor: c.bordureDouce, borderBottomWidth: 1 }]}
-    >
-      <TuileAvatar
-        c={c}
-        deg={[c.accent, c.jaune] as const}
-        enfant={<Text style={[styles.plus, { color: c.surAccent }]}>＋</Text>}
-      />
-      <Text style={[styles.nouvelle, { color: c.accent }]}>{t('accueil.nouvelleConversation')}</Text>
-    </Pressable>
+    <View style={styles.enveloppeLigne}>
+      <Pressable
+        onPress={() => routeur.push('/recherche')}
+        android_ripple={{ color: c.ondulation }}
+        unstable_pressDelay={DELAI_PRESSION_LISTE}
+        style={[styles.ligne, { borderBottomColor: c.bordureDouce, borderBottomWidth: 1 }]}
+      >
+        <TuileAvatar
+          c={c}
+          deg={[c.accent, c.jaune] as const}
+          enfant={<Text style={[styles.plus, { color: c.surAccent }]}>＋</Text>}
+        />
+        <Text style={[styles.nouvelle, { color: c.accent }]}>
+          {t('accueil.nouvelleConversation')}
+        </Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -309,15 +318,16 @@ const styles = StyleSheet.create({
   enteteRoue: { padding: 4 },
   enteteRoueGlyphe: { fontSize: 21 },
   contenu: { paddingBottom: 8 },
+  // Le rayon vit sur l'ENVELOPPE : c'est son clip (`overflow`) qui découpe
+  // l'ondulation — borderRadius sur le Pressable lui-même est ignoré par le
+  // masque du ripple sous Fabric. Invisible au repos (pas de fond).
+  enveloppeLigne: { borderRadius: 18, overflow: 'hidden' },
   ligne: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 11,
     gap: 12,
-    // Masque l'ondulation en coins doux — sans rayon, la vague sort en
-    // rectangle sec. Ne change rien au rendu au repos (pas de fond).
-    borderRadius: 18,
   },
   plus: { fontFamily: POLICES.titreFort, fontSize: 24 },
   pastille: {

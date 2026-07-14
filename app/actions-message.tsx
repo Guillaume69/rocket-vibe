@@ -325,18 +325,22 @@ function ActionLigne({
   destructif?: boolean;
 }) {
   return (
-    <Pressable
-      disabled={disabled}
-      onPress={onPress}
-      android_ripple={{ color: c.ondulation }}
-      unstable_pressDelay={DELAI_PRESSION_LISTE}
-      style={({ pressed }) => [styles.ligne, { opacity: pressed ? 0.7 : 1 }]}
-    >
-      <Text style={styles.ligneIcone}>{icone}</Text>
-      <Text style={[styles.ligneTexte, { color: destructif ? c.texteErreur : c.texte }]}>
-        {libelle}
-      </Text>
-    </Pressable>
+    // Le clip de l'enveloppe (`overflow`) découpe l'ondulation en coins
+    // doux : le masque du ripple borné ignore borderRadius sous Fabric.
+    <View style={styles.enveloppeLigne}>
+      <Pressable
+        disabled={disabled}
+        onPress={onPress}
+        android_ripple={{ color: c.ondulation }}
+        unstable_pressDelay={DELAI_PRESSION_LISTE}
+        style={({ pressed }) => [styles.ligne, { opacity: pressed ? 0.7 : 1 }]}
+      >
+        <Text style={styles.ligneIcone}>{icone}</Text>
+        <Text style={[styles.ligneTexte, { color: destructif ? c.texteErreur : c.texte }]}>
+          {libelle}
+        </Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -359,13 +363,13 @@ const styles = StyleSheet.create({
   },
   emoji: { fontSize: 26 },
   listeActions: { gap: 2 },
+  enveloppeLigne: { borderRadius: 12, overflow: 'hidden' },
   ligne: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
     paddingVertical: 15,
     paddingHorizontal: 8,
-    borderRadius: 12,
   },
   ligneIcone: { fontSize: 19, width: 24, textAlign: 'center' },
   ligneTexte: { fontFamily: POLICES.corpsGras, fontSize: 15.5 },

@@ -5,10 +5,11 @@
  * cryptographique du client tient ici ; l'orchestration (session, clés en
  * mémoire, REST) vit dans `lib/e2e/moteur.ts`.
  *
- * `node-forge` porte la crypto : `expo-crypto` ne fait ni RSA, ni AES-CBC/GCM,
- * ni PBKDF2. Choisi contre `react-native-quick-crypto` (natif, New-Arch) pour
- * éviter un module natif et le risque de build — au prix d'un PBKDF2 pur JS
- * (~400 ms à 100 000 itérations, une seule fois au déverrouillage).
+ * La crypto passe par l'API `node:crypto` : sous Node (tests) c'est l'implé
+ * native OpenSSL ; dans l'app RN, Metro alias `crypto` et `buffer` vers
+ * `react-native-quick-crypto` (module natif Nitro, New-Arch) — même API, même
+ * OpenSSL, PBKDF2 natif au lieu des ~400 ms en pur JS. Aliasing dans
+ * `metro.config.js`.
  *
  * Les formats EXACTS sont vérifiés contre un vrai serveur 8.5 (mémoire
  * `e2ee-protocole-rc85`). En résumé :
@@ -19,10 +20,12 @@
  *     JSON `{"msg": "<clair>"}`.
  *
  * Convention GCM de WebCrypto (côté serveur/officiel) : le tag de 16 octets est
- * COLLÉ en fin de `ciphertext`. forge le veut séparé — d'où le découpage.
+ * COLLÉ en fin de `ciphertext`. `createDecipheriv` le veut séparé via
+ * `setAuthTag` — d'où le découpage.
  */
 
-import forge from 'node-forge';
+import { constants, createDecipheriv, createPrivateKey, pbkdf2Sync, privateDecrypt, type KeyObject } from 'crypto';
+import { Buffer } from 'buffer';
 
 /** Enveloppe de la clé privée telle que renvoyée par `e2e.fetchMyKeys`. */
 export type EnveloppeClePrivee = {
@@ -51,7 +54,7 @@ export type ContenuChiffre = {
 };
 
 /** Clé privée RSA importée, opaque, à garder en mémoire le temps d'une session. */
-export type ClePriveeRSA = forge.pki.rsa.PrivateKey;
+export type ClePriveeRSA = KeyObject;
 
 /** Erreur de déchiffrement — un mot de passe faux tombe ici, pas en crash. */
 export class ErreurE2E extends Error {
@@ -62,7 +65,7 @@ export class ErreurE2E extends Error {
 }
 
 const TAILLE_TAG_GCM = 16;
-/** Taille d'un IV AES-CBC/GCM… non : CBC = 16, GCM = 12. Ici l'IV CBC de la v1. */
+/** IV AES-CBC = 16 octets (l'IV GCM, lui, fait 12). Ici l'IV CBC de la v1. */
 const TAILLE_IV_CBC = 16;
 /**
  * Un `E2EKey` = keyID + base64(clé de salon chiffrée RSA-OAEP). La sortie
@@ -75,19 +78,15 @@ function longueurKeyId(e2eKey: string): number {
   return Math.max(0, e2eKey.length - LONGUEUR_RSA_B64);
 }
 
-function base64VersOctets(b64: string): string {
-  return forge.util.decode64(b64);
+function base64VersOctets(b64: string): Buffer {
+  return Buffer.from(b64, 'base64');
 }
 
-/** base64url (JWK) → chaîne d'octets forge. */
-function base64urlVersOctets(s: string): string {
+/** base64url (JWK) → octets. */
+function base64urlVersOctets(s: string): Buffer {
   let b = s.replace(/-/g, '+').replace(/_/g, '/');
   while (b.length % 4 !== 0) b += '=';
-  return forge.util.decode64(b);
-}
-
-function base64urlVersGrandEntier(s: string): forge.jsbn.BigInteger {
-  return new forge.jsbn.BigInteger(forge.util.bytesToHex(base64urlVersOctets(s)), 16);
+  return Buffer.from(b, 'base64');
 }
 
 /**
@@ -95,22 +94,27 @@ function base64urlVersGrandEntier(s: string): forge.jsbn.BigInteger {
  * (convention WebCrypto). Rend `null` si l'authentification échoue — la seule
  * façon fiable de détecter un mauvais mot de passe / une clé fausse.
  */
-function dechiffrerGcm(cleOctets: string, ivOctets: string, ctAvecTag: string): string | null {
+function dechiffrerGcm(cle: Buffer, iv: Buffer, ctAvecTag: Buffer): Buffer | null {
   if (ctAvecTag.length < TAILLE_TAG_GCM) return null;
-  const corps = ctAvecTag.substring(0, ctAvecTag.length - TAILLE_TAG_GCM);
-  const tag = ctAvecTag.substring(ctAvecTag.length - TAILLE_TAG_GCM);
-  const dechiffreur = forge.cipher.createDecipher('AES-GCM', cleOctets);
-  dechiffreur.start({ iv: ivOctets, tag: forge.util.createBuffer(tag) });
-  dechiffreur.update(forge.util.createBuffer(corps));
-  return dechiffreur.finish() ? dechiffreur.output.getBytes() : null;
+  const corps = ctAvecTag.subarray(0, ctAvecTag.length - TAILLE_TAG_GCM);
+  const tag = ctAvecTag.subarray(ctAvecTag.length - TAILLE_TAG_GCM);
+  const dechiffreur = createDecipheriv('aes-256-gcm', cle, iv);
+  dechiffreur.setAuthTag(tag);
+  try {
+    return Buffer.concat([dechiffreur.update(corps), dechiffreur.final()]);
+  } catch {
+    return null;
+  }
 }
 
-/** Déchiffre un bloc AES-CBC 256 (remplissage PKCS#7 vérifié par `finish`). */
-function dechiffrerCbc(cleOctets: string, ivOctets: string, ct: string): string | null {
-  const dechiffreur = forge.cipher.createDecipher('AES-CBC', cleOctets);
-  dechiffreur.start({ iv: ivOctets });
-  dechiffreur.update(forge.util.createBuffer(ct));
-  return dechiffreur.finish() ? dechiffreur.output.getBytes() : null;
+/** Déchiffre un bloc AES-CBC 256 (remplissage PKCS#7 vérifié par `final`). */
+function dechiffrerCbc(cle: Buffer, iv: Buffer, ct: Buffer): Buffer | null {
+  const dechiffreur = createDecipheriv('aes-256-cbc', cle, iv);
+  try {
+    return Buffer.concat([dechiffreur.update(ct), dechiffreur.final()]);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -135,20 +139,10 @@ export function dechiffrerClePrivee(privateKey: string, motDePasse: string, uid:
     // v2 : enveloppe complète.
     if (obj !== null && typeof obj.iterations === 'number' && typeof obj.salt === 'string') {
       const env = obj as unknown as EnveloppeClePrivee;
-      const cleMaitre = forge.pkcs5.pbkdf2(
-        forge.util.encodeUtf8(motDePasse),
-        env.salt,
-        env.iterations,
-        32,
-        forge.md.sha256.create(),
-      );
-      const clair = dechiffrerGcm(
-        cleMaitre,
-        base64VersOctets(env.iv),
-        base64VersOctets(env.ciphertext),
-      );
+      const cleMaitre = pbkdf2Sync(Buffer.from(motDePasse, 'utf8'), Buffer.from(env.salt, 'utf8'), env.iterations, 32, 'sha256');
+      const clair = dechiffrerGcm(cleMaitre, base64VersOctets(env.iv), base64VersOctets(env.ciphertext));
       if (clair === null) throw new ErreurE2E('mot de passe E2E invalide');
-      return forge.util.decodeUtf8(clair);
+      return clair.toString('utf8');
     }
     // v1 emballé en binaire EJSON.
     if (obj !== null && typeof obj.$binary === 'string') {
@@ -162,35 +156,27 @@ export function dechiffrerClePrivee(privateKey: string, motDePasse: string, uid:
 /**
  * Clé privée v1 : octets = `IV(16) || AES-CBC(JWK)`, clé maître dérivée du
  * userId (sel) et de 1000 itérations PBKDF2-SHA256. Un mauvais mot de passe
- * casse le remplissage PKCS#7 → `ErreurE2E`.
+ * casse le remplissage PKCS#7 → `ErreurE2E`. Dans le cas rare où le remplissage
+ * passe par hasard, le clair n'est pas un JWK valide → `JSON.parse` lève, qu'on
+ * assimile à un mot de passe faux.
  */
-function dechiffrerClePriveeV1(octets: string, motDePasse: string, uid: string): string {
-  const cleMaitre = forge.pkcs5.pbkdf2(forge.util.encodeUtf8(motDePasse), uid, 1000, 32, forge.md.sha256.create());
-  const clair = dechiffrerCbc(cleMaitre, octets.substring(0, TAILLE_IV_CBC), octets.substring(TAILLE_IV_CBC));
+function dechiffrerClePriveeV1(octets: Buffer, motDePasse: string, uid: string): string {
+  const cleMaitre = pbkdf2Sync(Buffer.from(motDePasse, 'utf8'), Buffer.from(uid, 'utf8'), 1000, 32, 'sha256');
+  const clair = dechiffrerCbc(cleMaitre, octets.subarray(0, TAILLE_IV_CBC), octets.subarray(TAILLE_IV_CBC));
   if (clair === null) throw new ErreurE2E('mot de passe E2E invalide');
+  const texte = clair.toString('utf8');
   try {
-    // Un mauvais mot de passe peut passer le remplissage PKCS#7 par hasard : le
-    // clair est alors du binaire non-UTF8 → `decodeUtf8` lève. On l'assimile à
-    // un mot de passe faux plutôt qu'à un crash.
-    return forge.util.decodeUtf8(clair);
+    JSON.parse(texte);
   } catch {
     throw new ErreurE2E('mot de passe E2E invalide');
   }
+  return texte;
 }
 
-/** JWK JSON → objet clé privée RSA forge (reconstruit depuis n,e,d,p,q,dp,dq,qi). */
+/** JWK JSON → objet clé privée RSA. `createPrivateKey` importe le JWK nativement. */
 export function importerClePriveeRSA(jwkJson: string): ClePriveeRSA {
-  const jwk = JSON.parse(jwkJson) as Record<string, string>;
-  return forge.pki.setRsaPrivateKey(
-    base64urlVersGrandEntier(jwk.n),
-    base64urlVersGrandEntier(jwk.e),
-    base64urlVersGrandEntier(jwk.d),
-    base64urlVersGrandEntier(jwk.p),
-    base64urlVersGrandEntier(jwk.q),
-    base64urlVersGrandEntier(jwk.dp),
-    base64urlVersGrandEntier(jwk.dq),
-    base64urlVersGrandEntier(jwk.qi),
-  );
+  const jwk = JSON.parse(jwkJson) as JsonWebKey;
+  return createPrivateKey({ key: jwk, format: 'jwk' });
 }
 
 /** Le keyID en tête d'un `E2EKey` (UUID v2 ou préfixe v1) — apparie au `content.kid`. */
@@ -203,11 +189,14 @@ export function keyIdDeE2EKey(e2eKey: string): string {
  * car. en v2, 12 en v1 — calculé), RSA-OAEP/SHA-256 avec la clé privée → JWK
  * AES, dont on rend le `k` brut.
  */
-export function dechiffrerCleSalon(e2eKey: string, clePrivee: ClePriveeRSA): string {
+export function dechiffrerCleSalon(e2eKey: string, clePrivee: ClePriveeRSA): Buffer {
   const chiffre = base64VersOctets(e2eKey.substring(longueurKeyId(e2eKey)));
   let jwkJson: string;
   try {
-    jwkJson = clePrivee.decrypt(chiffre, 'RSA-OAEP', { md: forge.md.sha256.create() });
+    jwkJson = privateDecrypt(
+      { key: clePrivee, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256' },
+      chiffre,
+    ).toString('utf8');
   } catch {
     throw new ErreurE2E('déchiffrement de la clé de salon échoué');
   }
@@ -220,29 +209,21 @@ export function dechiffrerCleSalon(e2eKey: string, clePrivee: ClePriveeRSA): str
  * Objet `content` + clé de salon (octets) → texte clair du message. Le clair est
  * un JSON `{"msg": "..."}` (parfois `text`). Lève `ErreurE2E` si l'auth échoue.
  */
-export function dechiffrerMessage(contenu: ContenuChiffre, cleSalonOctets: string): string {
-  let clair: string | null;
+export function dechiffrerMessage(contenu: ContenuChiffre, cleSalonOctets: Buffer): string {
+  let clair: Buffer | null;
   if (typeof contenu.iv === 'string' && contenu.iv !== '') {
     // Structure moderne : iv et ciphertext séparés. IV de 12 octets → GCM
     // (tag collé en fin) ; de 16 → CBC (le schéma de ce compte ancien).
     const iv = base64VersOctets(contenu.iv);
     const ct = base64VersOctets(contenu.ciphertext);
-    clair =
-      iv.length === 12
-        ? dechiffrerGcm(cleSalonOctets, iv, ct)
-        : dechiffrerCbc(cleSalonOctets, iv, ct);
+    clair = iv.length === 12 ? dechiffrerGcm(cleSalonOctets, iv, ct) : dechiffrerCbc(cleSalonOctets, iv, ct);
   } else {
     // Structure héritée rc.v1 : ciphertext = keyID(12) + base64(IV(16) || CBC).
     const blob = base64VersOctets(contenu.ciphertext.substring(12));
-    clair = dechiffrerCbc(cleSalonOctets, blob.substring(0, TAILLE_IV_CBC), blob.substring(TAILLE_IV_CBC));
+    clair = dechiffrerCbc(cleSalonOctets, blob.subarray(0, TAILLE_IV_CBC), blob.subarray(TAILLE_IV_CBC));
   }
   if (clair === null) throw new ErreurE2E('déchiffrement du message échoué');
-  let texte: string;
-  try {
-    texte = forge.util.decodeUtf8(clair);
-  } catch {
-    throw new ErreurE2E('déchiffrement du message échoué');
-  }
+  const texte = clair.toString('utf8');
   // Le clair est en général un JSON `{"msg": "..."}` ; certains messages
   // hérités portent le texte brut — on retombe dessus.
   try {

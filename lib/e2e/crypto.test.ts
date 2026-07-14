@@ -16,9 +16,9 @@ import {
 /**
  * Test croisé, hors-ligne, sans secret commité : WebCrypto (l'implémentation
  * du client web officiel) CHIFFRE dans le format exact de Rocket.Chat, notre
- * module node-forge DÉCHIFFRE. Si les deux mondes s'accordent, forge respecte
- * bien le format `rc.v2.aes-sha2`. Le spike de Phase 0 a prouvé l'autre moitié
- * (forge contre un vrai serveur) ; ensemble ils tiennent la chaîne.
+ * module `node:crypto` DÉCHIFFRE. Si les deux mondes s'accordent, le module
+ * respecte bien le format `rc.v2.aes-sha2`. Le spike de Phase 0 a prouvé l'autre
+ * moitié (contre un vrai serveur) ; ensemble ils tiennent la chaîne.
  */
 
 const { subtle } = webcrypto;
@@ -176,11 +176,11 @@ describe('crypto e2e — format hérité v1', () => {
   });
 });
 
-/** Octets bruts d'une clé AES (chaîne d'octets forge) + clé WebCrypto AES-CBC. */
+/** Octets bruts d'une clé AES (Buffer) + clé WebCrypto AES-CBC. */
 async function cleAes() {
   const raw = rand(32);
   const wc = await subtle.importKey('raw', raw, { name: 'AES-CBC' }, false, ['encrypt']);
-  return { octets: Buffer.from(raw).toString('binary'), wc };
+  return { octets: Buffer.from(raw), wc };
 }
 
 describe('crypto e2e — messages CBC (compte ancien)', () => {

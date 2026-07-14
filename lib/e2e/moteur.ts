@@ -51,7 +51,7 @@ export class MoteurE2E {
 
   private clePrivee: ClePriveeRSA | null = null;
   /** rid → octets bruts de la clé AES du salon (déchiffrée une fois). */
-  private readonly clesSalon = new Map<string, string>();
+  private readonly clesSalon = new Map<string, Buffer>();
   /** rid → `E2EKey` d'abonnement connu, pour (re)calculer la clé au besoin. */
   private readonly e2eKeys = new Map<string, string>();
   private readonly ecouteurs = new Set<() => void>();

@@ -46,6 +46,7 @@ node scripts/seed.mjs                 # données de test, idempotent
 ## Contraintes non négociables
 
 - **Composants natifs par défaut.** Interdits fermes : tout kit UI (NativeBase, Tamagui, gluestack, RN Paper), toute **WebView**, `react-native-markdown-display`, et **`@gorhom/bottom-sheet`** — les bottom sheets sont natifs via `react-native-screens` (`presentation: 'formSheet'`). Toute dépendance UI se justifie dans le commit, contre `ROADMAP.md` §4.2.
+- **Modules natifs par défaut, pas de polyfill pur JS.** Pour tout calcul lourd (crypto, compression, image), préférer un module natif (JSI/Nitro) à une implé pur JS. L'E2EE passe par `react-native-quick-crypto` (API `node:crypto` native OpenSSL) : `lib/e2e/crypto.ts` importe `crypto`/`buffer`, Metro les alias vers quick-crypto (`metro.config.js`) — mêmes imports résolus vers `node:crypto` sous les tests Node. Un module natif exige un **rebuild du dev-client** (`expo prebuild` + `./gradlew`) — un simple reload Metro ne suffit pas.
 - `android/` et `ios/` sont **gitignorés** (CNG). Toute personnalisation native passe par un config plugin : en SDK 57, `expo prebuild` efface et régénère par défaut.
 - **Aucun secret dans le dépôt.** `.env`, `.env.local`, `google-services.json`, JSON de compte de service. Des `.example` les documentent.
 - TypeScript strict, zéro `any` implicite. `npx tsc --noEmit` fait partie de chaque critère de sortie `[code]`.

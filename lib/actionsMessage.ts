@@ -8,6 +8,8 @@
  * action affichée à tort échoue proprement avec son message d'erreur.
  */
 
+import { ErreurRest } from './rest.ts';
+
 export type ReglesMessages = {
   editionAutorisee: boolean;
   /** 0 = pas de limite. */
@@ -67,6 +69,34 @@ export function actionsPossibles(contexte: ContexteAction): ActionMessage[] {
   if (regles.epinglageAutorise) actions.push('epingler');
 
   return actions;
+}
+
+type LecteurMessage = {
+  get(chemin: string, options?: { params?: Record<string, unknown> }): Promise<unknown>;
+};
+
+/**
+ * Après un échec de `chat.delete` : le message existe-t-il encore côté
+ * serveur ? Le fantôme classique — supprimé d'un AUTRE client pendant que
+ * cette app était fermée, réconciliation ratée — fait répondre « No message
+ * found with the id … » ; l'objectif de l'utilisateur est pourtant déjà
+ * atteint, il ne reste qu'à purger la ligne locale. Plutôt que de dépendre du
+ * LIBELLÉ de l'erreur (fragile entre versions serveur), on confirme par
+ * `chat.getMessage`, comme `envoi.ts` confirme une livraison : un 400 ici =
+ * le serveur ne connaît plus ce message (vérifié sur 8.5 : `API.v1.failure`).
+ * Toute autre issue — message encore là, erreur réseau (statut 0), 429 —
+ * vaut « on ne sait pas » : l'erreur d'origine reste la bonne réponse.
+ */
+export async function messageDisparuDuServeur(
+  client: LecteurMessage,
+  msgId: string,
+): Promise<boolean> {
+  try {
+    await client.get('chat.getMessage', { params: { msgId } });
+    return false;
+  } catch (e) {
+    return e instanceof ErreurRest && e.statut === 400;
+  }
 }
 
 type ReglagePublic = { _id?: string; value?: unknown };

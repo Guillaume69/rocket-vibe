@@ -38,6 +38,7 @@ import type { ClientDdp } from '../../lib/ddp.ts';
 import type { MoteurEnvoi } from '../../lib/envoi.ts';
 import type { MoteurTeleversement } from '../../lib/envoiFichiers.ts';
 import { ouvrirFicheProfil } from '../../lib/profilPreload.ts';
+import { rattraperSalon } from '../../lib/rattrapage.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSaisie, phraseSaisie } from '../../lib/saisie.ts';
 import { useActivite } from '../../ui/activite.ts';
@@ -422,6 +423,20 @@ function Salon({
   useEffect(() => {
     if (type === undefined || ridCharge.current === rid) return;
     let annule = false;
+    // Réconciliation des suppressions (et éditions) survenues APP FERMÉE.
+    // L'historique ne fait qu'UPSERTER : un message supprimé côté serveur est
+    // simplement absent de la page, sa ligne locale resterait en fantôme à
+    // vie — et `chat.delete` dessus répond « No message found ». Seul
+    // `chat.syncMessages` porte les `deleted`, et à la reconnexion il ne
+    // couvre que le salon ACTIF à cet instant (la liste, au lancement à
+    // froid) — jamais celui qu'on ouvre ensuite. Parti AVANT le rechargement
+    // (qui ré-ancre le curseur), il lit encore le curseur d'avant la coupure :
+    // la fenêtre couvre les suppressions ratées. Tir-et-oublie, comme dans
+    // `connecter` : un timeout sur gros backlog est absorbé (le catch de
+    // `rattraperSalon` ré-ancre le curseur), l'ouverture n'attend rien.
+    void activite
+      .suivre(rid, rattraperSalon(client, moteur, rid))
+      .catch((e: unknown) => console.warn('rattraperSalon (ouverture): échec ignoré', e));
     // Enveloppé dans `activite` : l'en-tête allume sa barre de synchro le temps
     // du fetch, même quand le cache local remplit déjà la liste (rien ne
     // signalait sinon qu'on la rafraîchit).
@@ -443,7 +458,7 @@ function Salon({
     return () => {
       annule = true;
     };
-  }, [type, chargerHistorique, generation, activite, rid]);
+  }, [type, chargerHistorique, generation, activite, rid, client, moteur]);
 
   // Remonter vers le passé : élargir la fenêtre locale, et si elle est déjà
   // épuisée, demander la page plus ancienne au serveur (pagination keyset sur

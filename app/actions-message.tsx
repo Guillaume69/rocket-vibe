@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { messages, salons } from '../db/schema.ts';
 import {
   actionsPossibles,
+  messageDisparuDuServeur,
   reglesDepuisReglages,
   type ActionMessage,
   type ReglesMessages,
@@ -93,6 +94,7 @@ export default function EcranActionsMessage() {
 
   const pret = synchro.phase === 'pret' && etat.phase === 'connecte' && typeof id === 'string';
   const base = synchro.phase === 'pret' ? synchro.base : null;
+  const moteur = synchro.phase === 'pret' ? synchro.moteur : null;
   const client = etat.phase === 'connecte' ? etat.client : null;
   const moi = etat.phase === 'connecte' ? etat.session.userId : null;
 
@@ -165,7 +167,7 @@ export default function EcranActionsMessage() {
     [routeur, t],
   );
 
-  if (!pret || client === null || charge === null) {
+  if (!pret || client === null || moteur === null || charge === null) {
     return (
       <View style={[styles.feuille, styles.centre, { paddingBottom: bas }]}>
         {erreur !== null ? (
@@ -278,11 +280,21 @@ export default function EcranActionsMessage() {
               libelle={t('commun.supprimer')}
               destructif
               onPress={() =>
-                void agir(() =>
-                  client.post('chat.delete', {
-                    corps: { roomId: message.rid, msgId: message.id },
-                  }),
-                )
+                void agir(async () => {
+                  try {
+                    await client.post('chat.delete', {
+                      corps: { roomId: message.rid, msgId: message.id },
+                    });
+                    // La ligne locale tombera par le stream `deleteMessage`.
+                  } catch (e) {
+                    // Fantôme : déjà supprimé d'un AUTRE client pendant que
+                    // l'app était fermée — le serveur ne le connaît plus,
+                    // seule la ligne locale reste. La purger EST la
+                    // suppression demandée ; toute autre erreur reste fatale.
+                    if (!(await messageDisparuDuServeur(client, message.id))) throw e;
+                    await moteur.depotSynchro.supprimerMessage(message.id);
+                  }
+                })
               }
             />
           )}

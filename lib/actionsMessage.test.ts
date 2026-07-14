@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { actionsPossibles, reglesDepuisReglages } from './actionsMessage.ts';
+import { actionsPossibles, messageDisparuDuServeur, reglesDepuisReglages } from './actionsMessage.ts';
+import { ErreurRest } from './rest.ts';
 
 const regles = {
   editionAutorisee: true,
@@ -74,5 +75,33 @@ describe('reglesDepuisReglages', () => {
     assert.equal(r.minutesBlocageEdition, 5);
     assert.equal(r.suppressionAutorisee, false);
     assert.equal(r.epinglageAutorise, true, 'absent = permis, le serveur tranchera');
+  });
+});
+
+describe('messageDisparuDuServeur', () => {
+  const client = (get: () => Promise<unknown>) => ({ get });
+
+  test('chat.getMessage répond : le message existe encore, vrai refus', async () => {
+    const c = client(() => Promise.resolve({ message: { _id: 'm1' } }));
+    assert.equal(await messageDisparuDuServeur(c, 'm1'), false);
+  });
+
+  test('400 : le serveur ne connaît plus ce message — fantôme confirmé', async () => {
+    const c = client(() =>
+      Promise.reject(new ErreurRest('No message found with the id of "m1".', 400)),
+    );
+    assert.equal(await messageDisparuDuServeur(c, 'm1'), true);
+  });
+
+  test('statut 0 (réseau) ou 429 (rate limit) : on ne conclut PAS à la disparition', async () => {
+    const horsLigne = client(() => Promise.reject(new ErreurRest('injoignable', 0)));
+    assert.equal(await messageDisparuDuServeur(horsLigne, 'm1'), false);
+    const limite = client(() => Promise.reject(new ErreurRest('too many requests', 429)));
+    assert.equal(await messageDisparuDuServeur(limite, 'm1'), false);
+  });
+
+  test('une erreur qui n’est pas une ErreurRest ne conclut pas non plus', async () => {
+    const c = client(() => Promise.reject(new Error('boom')));
+    assert.equal(await messageDisparuDuServeur(c, 'm1'), false);
   });
 });

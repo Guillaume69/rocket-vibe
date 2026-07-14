@@ -207,10 +207,14 @@ export function AvatarSalon({
   rayon?: number;
 }) {
   if (chiffre) {
+    // Déverrouillé : tuile COLORÉE (comme un salon lisible) + cadenas ouvert —
+    // le passage gris→couleur distingue nettement de l'état verrouillé (gris +
+    // cadenas fermé), là où 🔓 vs 🔒 seuls sont trop proches à cette taille.
     return (
       <TuileAvatar
         c={c}
-        neutre
+        neutre={!chiffreDeverrouille}
+        cle={chiffreDeverrouille ? nom : undefined}
         taille={taille}
         rayon={rayon}
         enfant={

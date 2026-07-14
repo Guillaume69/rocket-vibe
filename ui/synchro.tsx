@@ -183,13 +183,21 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       // Reprise E2EE silencieuse : si la clé privée est déjà au Keystore
       // (déverrouillé lors d'une session passée), on réimporte sans mot de
       // passe. Un échec (clé absente/abîmée) laisse simplement verrouillé.
+      // Force un re-rendu de l'arbre après une transition E2EE : `MoteurE2E`
+      // notifie déjà ses abonnés (`useE2EDeverrouille`), mais bumper la
+      // génération du contexte garantit que la liste (cadenas, aperçu) reflète
+      // l'état, sans dépendre du timing d'un abonnement externe.
+      const rafraichirE2E = (): void =>
+        setSynchro((s) => (s.phase === 'pret' ? { ...s, generation: s.generation + 1 } : s));
       const deverrouillerE2E = async (motDePasse: string): Promise<void> => {
         await e2e.deverrouiller(motDePasse); // lève ErreurE2E si faux
         await moteur.deverrouillageE2E(); // éclaire les messages déjà en base
+        rafraichirE2E();
       };
       const verrouillerE2E = async (): Promise<void> => {
         await e2e.verrouiller();
         await moteur.reverrouillageE2E(); // re-masque le clair local
+        rafraichirE2E();
       };
 
       // « pret » dès la base disponible : l'UI montre le cache local sans
@@ -217,7 +225,11 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       // vive) se rafraîchit d'elle-même.
       e2e
         .reprendre()
-        .then((ok) => (ok ? moteur.deverrouillageE2E() : 0))
+        .then(async (ok) => {
+          if (!ok) return;
+          await moteur.deverrouillageE2E();
+          if (!abandonne) rafraichirE2E();
+        })
         .catch(() => {});
 
       ddp.surEvenement((evenement) => {

@@ -150,8 +150,10 @@ export class MoteurSynchro {
         n++;
       }
     }
-    // Rafraîchit l'aperçu de liste des salons chiffrés (dernier message clair).
-    if (n > 0) await this.depot.majApercuChiffre();
+    // Rafraîchit l'aperçu de liste TOUJOURS : à la reprise (clé déjà en
+    // Keystore), les messages sont déjà en clair → `n` vaut 0, mais l'aperçu
+    // reste à poser depuis ces messages déchiffrés lors d'une session passée.
+    await this.depot.majApercuChiffre();
     return n;
   }
 

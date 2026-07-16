@@ -36,6 +36,7 @@
         }
       ],
       "./plugins/with-fcm-deeplink",
+      "./plugins/with-architectures-cibles",
       "expo-audio",
       [
         "expo-font",

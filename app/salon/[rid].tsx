@@ -22,7 +22,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  useWindowDimensions,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -52,7 +51,8 @@ import { demanderSource } from '../../ui/sourcePieceJointe.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
 import { BandeauCompletionEmoji, useCompletionEmoji } from '../../ui/completionEmoji.tsx';
 import { BandeauCompletionMention, useCandidatsMention } from '../../ui/completionMention.tsx';
-import { hauteurPanneauEmoji, NavigateurEmoji } from '../../ui/navigateurEmoji.tsx';
+import { NavigateurEmoji, usePanneauEmoji } from '../../ui/navigateurEmoji.tsx';
+import { useRetourMateriel } from '../../ui/retourMateriel.ts';
 import { AvatarSalon, BarreSynchro, IndicateurSaisie, TuileAvatar } from '../../ui/kit.tsx';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
@@ -728,7 +728,6 @@ function Composer({
   const enregistreur = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const routeur = useRouter();
   const t = useT();
-  const { height: hauteurEcran } = useWindowDimensions();
 
   // Autocomplétion des emojis : curseur + insertion, mécanique partagée avec le
   // composer du fil (`useCompletionEmoji`).
@@ -738,17 +737,13 @@ function Composer({
   // Navigateur d'emojis : un panneau qui prend la place du clavier. Le bouton
   // 😀 bascule de l'un à l'autre ; toucher le champ rouvre le clavier (onFocus).
   const champRef = useRef<TextInput>(null);
-  const [panneauEmoji, setPanneauEmoji] = useState(false);
-  const basculerEmoji = useCallback(() => {
-    setPanneauEmoji((ouvert) => {
-      if (ouvert) {
-        champRef.current?.focus();
-        return false;
-      }
-      Keyboard.dismiss();
-      return true;
-    });
-  }, []);
+  const emoji = usePanneauEmoji(champRef);
+  const { fermer: fermerEmoji } = emoji;
+
+  // Le back retire l'aperçu en attente au lieu de quitter le salon — sinon on
+  // perd le salon ET la pièce jointe préparée.
+  const retirerEnAttente = useCallback(() => setEnAttente(null), []);
+  useRetourMateriel(enAttente !== null, retirerEnAttente);
 
   const changerBrouillon = useCallback(
     (texte: string) => {
@@ -888,7 +883,7 @@ function Composer({
     // Part d'un état de saisie stable : panneau emoji fermé et clavier baissé.
     // Un `TextInput` focalisé pendant le retour du sélecteur peut, lui aussi,
     // laisser une vue nulle sur le chemin de `dispatchCancelPendingInputEvents`.
-    setPanneauEmoji(false);
+    fermerEmoji();
     Keyboard.dismiss();
     const choix = demanderSource();
     routeur.push('/joindre');
@@ -902,7 +897,7 @@ function Composer({
     } catch (e) {
       setErreurFichier(e instanceof Error ? e.message : t('salon.selectionImpossible'));
     }
-  }, [routeur, depuisCamera, depuisBibliotheque, depuisFichier, t]);
+  }, [routeur, depuisCamera, depuisBibliotheque, depuisFichier, fermerEmoji, t]);
 
   // Salon chiffré : lecture désormais possible (E2EE, étape 10), mais PAS
   // l'envoi (le serveur rejette un clair, `error-not-allowed`). Verrouillé, on
@@ -939,11 +934,11 @@ function Composer({
           onRetirer={() => setEnAttente(null)}
         />
       )}
-      {!panneauEmoji && (
+      {!emoji.ouvert && (
         <BandeauCompletionEmoji texte={brouillon} curseur={curseur} c={c} surChoisir={choisirEmoji} />
       )}
       {/* Jetons `:` et `@` mutuellement exclusifs : un seul bandeau à la fois. */}
-      {!panneauEmoji && (
+      {!emoji.ouvert && (
         <BandeauCompletionMention
           texte={brouillon}
           curseur={curseur}
@@ -973,12 +968,12 @@ function Composer({
           )}
         </Pressable>
         <Pressable
-          onPress={basculerEmoji}
+          onPress={emoji.basculer}
           android_ripple={{ color: c.ondulation, borderless: true }}
           style={styles.boutonEmoji}
-          accessibilityLabel={panneauEmoji ? t('salon.revenirClavier') : t('salon.choisirEmoji')}
+          accessibilityLabel={emoji.ouvert ? t('salon.revenirClavier') : t('salon.choisirEmoji')}
         >
-          <Text style={styles.attache}>{panneauEmoji ? '⌨️' : '😀'}</Text>
+          <Text style={styles.attache}>{emoji.ouvert ? '⌨️' : '😀'}</Text>
         </Pressable>
         <TextInput
           ref={champRef}
@@ -987,7 +982,7 @@ function Composer({
           onChangeText={changerBrouillon}
           onSelectionChange={surSelection}
           // Toucher le champ referme le panneau : le clavier reprend sa place.
-          onFocus={() => setPanneauEmoji(false)}
+          onFocus={emoji.surFocus}
           placeholder={enAttente !== null ? t('salon.ajouterLegende') : t('salon.messagePlaceholder')}
           placeholderTextColor={c.texteTertiaire}
           multiline
@@ -1025,10 +1020,12 @@ function Composer({
           </Pressable>
         )}
       </View>
-      {panneauEmoji && (
+      {emoji.monte && (
         <NavigateurEmoji
           c={c}
-          hauteur={hauteurPanneauEmoji(hauteurEcran)}
+          hauteur={emoji.hauteur}
+          cible={emoji.cible}
+          glisse={emoji.glisse}
           onChoisir={insererAuCurseur}
         />
       )}

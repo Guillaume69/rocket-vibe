@@ -9,6 +9,8 @@ const path = require('path');
 // Aligné sur la version qu'expo-notifications embarque (transitive, non exposée
 // au module app — d'où cette déclaration directe pour compiler la sous-classe).
 const FIREBASE_MESSAGING = 'com.google.firebase:firebase-messaging:25.0.1';
+// Rattrapage différé des push.get ratés (voir RattrapagePushWorker ci-dessous).
+const ANDROIDX_WORK = 'androidx.work:work-runtime:2.10.1';
 
 /**
  * Répare le deep-link au tap d'une notification push, et rend les pushes de
@@ -45,7 +47,18 @@ const FIREBASE_MESSAGING = 'com.google.firebase:firebase-messaging:25.0.1';
  * AndroidKeyStore, sans runtime JS car l'app peut être tuée), puis
  * `GET /api/v1/push.get?id=<messageId>` authentifié, qui renvoie exactement la
  * notification complète (title/text/payload) qu'on affiche comme ci-dessus.
- * Échec (hors ligne, jeton périmé) → notification « Nouveau message ».
+ *
+ * ÉCHEC DU FETCH (vécu sur le terrain : appareil en Doze, radio pas encore
+ * levée à la réception — l'autre appareil du même salon affichait le contenu,
+ * celui en veille restait sur la version dégradée ; autres causes : timeout,
+ * rate-limit REST ~10 req/min sur un salon en rafale, jeton périmé) :
+ *   1. on poste immédiatement la notification « Nouveau message » (jamais de
+ *      notification perdue) ;
+ *   2. on programme un RATTRAPAGE différé via WorkManager (contrainte réseau,
+ *      backoff linéaire 15 s, 6 tentatives, unicité par messageId) qui rejoue
+ *      push.get et, dès qu'il aboutit, REMPLACE la notification dégradée par la
+ *      notification de conversation complète. Le contenu ne transite toujours
+ *      jamais par Google/Apple.
  *
  * Salons CHIFFRÉS : `Push_show_message = true` fait transiter du ciphertext ;
  * si l'ejson porte `messageType: 'e2e'`, on substitue un texte générique —
@@ -68,12 +81,22 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
+import androidx.work.BackoffPolicy
+import androidx.work.Constraints
+import androidx.work.Data
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequest
+import androidx.work.WorkManager
+import androidx.work.Worker
+import androidx.work.WorkerParameters
 import expo.modules.notifications.service.ExpoFirebaseMessagingService
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.security.KeyStore
+import java.util.concurrent.TimeUnit
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 
@@ -149,7 +172,7 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
       // (réglage enterprise inerte sans licence) : on rejoue le circuit privé
       // sur un push ordinaire pour le prouver de bout en bout en local.
       if (BuildConfig.DEBUG) verifierPushGetEnDebug(ejson)
-      return afficherNotifSalon(rid, titre, texte, ejson)
+      return afficherNotifSalon(this, rid, titre, texte, ejson)
     } catch (e: Exception) {
       // Un push mal formé ou un refus (POST_NOTIFICATIONS révoquée) ne doit pas
       // perdre la notification : on laisse expo afficher sa version simple.
@@ -162,164 +185,41 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
    * Chemin « contenu privé » : le push n'a livré qu'un messageId. On lit la
    * session stockée (expo-secure-store, sans runtime JS), on demande le contenu
    * au serveur (push.get, authentifié), puis on affiche la notification de
-   * salon. Toute défaillance (hors ligne, jeton périmé, creds absentes) tombe
-   * sur une notification « Nouveau message » : jamais de contenu chez le
-   * transporteur, jamais de notification perdue.
+   * salon. Toute défaillance (hors ligne, radio pas levée en Doze, jeton
+   * périmé, creds absentes) tombe sur une notification « Nouveau message » —
+   * jamais de contenu chez le transporteur, jamais de notification perdue —
+   * PUIS un rattrapage WorkManager retente et la remplace par le contenu réel
+   * dès que le serveur redevient joignable.
    */
   private fun recupererEtPoster(ejsonPush: JSONObject): Boolean {
     val messageId = ejsonPush.optString("messageId")
     val host = ejsonPush.optString("host")
     if (messageId.isEmpty() || host.isEmpty()) return false
 
-    val session = lireSession(host)
+    val session = lireSession(this, host)
     val notif = session?.let { recupererContenu(host, messageId, it) }
     if (notif == null) {
-      posterNotifDegradee(messageId)
+      posterNotifDegradee(this, messageId)
+      planifierRattrapage(this, host, messageId, false)
       return true
     }
     val payload = notif.optJSONObject("payload")
     val rid = payload?.optString("rid") ?: ""
     if (payload == null || rid.isEmpty()) {
-      posterNotifDegradee(messageId)
+      // Le serveur a répondu mais la forme est inattendue : retenter n'y
+      // changera rien, pas de rattrapage.
+      posterNotifDegradee(this, messageId)
       return true
     }
-    return afficherNotifSalon(rid, notif.optString("title"), notif.optString("text"), payload)
-  }
-
-  /**
-   * Construit (ou complète) la notification MessagingStyle du salon à partir de
-   * champs normalisés : titre, texte, et l'objet portant sender/type/
-   * messageType (payload REST ou ejson du push, même forme). Partagé par les
-   * deux régimes.
-   */
-  private fun afficherNotifSalon(
-    rid: String,
-    titre: String,
-    texteInitial: String,
-    ejson: JSONObject,
-  ): Boolean {
-    var texte = texteInitial
-
-    // Même dégradation E2EE que côté JS : jamais de ciphertext à l'écran.
-    if (ejson.optString("messageType") == "e2e") {
-      texte = "Message chiffré"
-    }
-
-    val sender = ejson.optJSONObject("sender")
-    val nomExpediteur = sender?.optString("name")?.takeIf { it.isNotEmpty() }
-      ?: sender?.optString("username")?.takeIf { it.isNotEmpty() }
-      ?: titre
-    // RC préfixe souvent le texte de « username: » quand le nom est déjà porté
-    // par la Person du style — on l'ôte pour ne pas l'afficher deux fois.
-    val username = sender?.optString("username")
-    if (username != null && username.isNotEmpty() && texte.startsWith(username + ": ")) {
-      texte = texte.substring(username.length + 2)
-    }
-
-    val notifId = rid.hashCode()
-    val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-
-    // Ré-extraire le style de la notification active du même salon : les
-    // messages précédents restent visibles, le nouveau s'ajoute à la suite.
-    val active = manager.activeNotifications.firstOrNull { it.id == notifId }
-    val style = active?.let {
-      NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(it.notification)
-    } ?: NotificationCompat.MessagingStyle(Person.Builder().setName("Vous").build())
-
-    // DM 1:1 : pas de titre de conversation, Android affiche le nom porté par
-    // chaque message. Canal/groupe : le titre du push (« #general », …).
-    if (ejson.optString("type") != "d") {
-      style.setConversationTitle(titre)
-    }
-    style.addMessage(
-      texte,
-      System.currentTimeMillis(),
-      Person.Builder().setName(nomExpediteur).build(),
-    )
-
-    // Le tap ouvre le salon par deep-link expo-router. MainActivity est
-    // \`singleTask\` : avec le SEUL flag NEW_TASK, un VIEW est délivré à l'Activity
-    // vivante par onNewIntent (app en marche/fond, PAS de recréation), et démarre
-    // une Activity FRAÎCHE si le process est mort — dans les deux cas l'URL est
-    // portée par l'intent.
-    //
-    // PAS de CLEAR_TASK : il RECRÉAIT la MainActivity même process vivant, ce qui
-    // DÉSENREGISTRE les ActivityResultLauncher d'expo-image-picker. Expo ne les
-    // réenregistre qu'en voyant \`hostWasDestroyed\` à l'onHostResume, or l'ordre
-    // des callbacks de CLEAR_TASK (nouvelle Activity resumée AVANT destruction de
-    // l'ancienne) contourne ce test : joindre une pièce échouait ensuite en
-    // « unregistered ActivityResultLauncher » jusqu'au redémarrage complet.
-    // PAS de SINGLE_TOP non plus : combiné à NEW_TASK sur une Activity déjà au
-    // premier plan, il empêchait la navigation vers le salon (constaté sur l'AVD).
-    val tap = Intent(
-      Intent.ACTION_VIEW,
-      Uri.parse("rocketvibe://salon/" + Uri.encode(rid)),
-    ).setPackage(packageName)
-      .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    val pending = PendingIntent.getActivity(
-      this,
-      notifId,
-      tap,
-      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-    )
-
-    val icone = resources.getIdentifier("notification_icon", "drawable", packageName)
-    val notification = NotificationCompat.Builder(this, "default")
-      .setSmallIcon(if (icone != 0) icone else android.R.drawable.ic_dialog_email)
-      .setColor(COULEUR_ACCENT)
-      .setStyle(style)
-      .setContentIntent(pending)
-      .setAutoCancel(true)
-      .setPriority(NotificationCompat.PRIORITY_HIGH)
-      .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-      .build()
-    NotificationManagerCompat.from(this).notify(notifId, notification)
-    if (BuildConfig.DEBUG) {
-      Log.d(TAG, "notif salon postée (rid=" + rid + ", id=" + notifId + ")")
-    }
-    return true
-  }
-
-  /**
-   * Repli quand le contenu n'a pas pu être récupéré : sans rid on ne peut ni
-   * grouper ni deep-linker, on ouvre simplement l'app au tap.
-   */
-  private fun posterNotifDegradee(messageId: String) {
-    try {
-      val notifId = if (messageId.isNotEmpty()) messageId.hashCode() else 0
-      val ouvrir = packageManager.getLaunchIntentForPackage(packageName)
-        ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-      val pending = PendingIntent.getActivity(
-        this,
-        notifId,
-        ouvrir ?: Intent(),
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-      )
-      val titre = try {
-        applicationInfo.loadLabel(packageManager).toString()
-      } catch (e: Exception) {
-        "Rocket Vibe"
-      }
-      val icone = resources.getIdentifier("notification_icon", "drawable", packageName)
-      val notification = NotificationCompat.Builder(this, "default")
-        .setSmallIcon(if (icone != 0) icone else android.R.drawable.ic_dialog_email)
-        .setColor(COULEUR_ACCENT)
-        .setContentTitle(titre)
-        .setContentText("Nouveau message")
-        .setContentIntent(pending)
-        .setAutoCancel(true)
-        .setPriority(NotificationCompat.PRIORITY_HIGH)
-        .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-        .build()
-      NotificationManagerCompat.from(this).notify(notifId, notification)
-    } catch (e: Exception) {
-      Log.w(TAG, "posterNotifDegradee", e)
-    }
+    return afficherNotifSalon(this, rid, notif.optString("title"), notif.optString("text"), payload)
   }
 
   /**
    * Debug seulement — voir posterNotifSalon : rejoue déchiffrement de session +
-   * push.get sur un push de contenu ordinaire et loggue le résultat.
+   * push.get sur un push de contenu ordinaire et loggue le résultat. Un fetch
+   * KO programme aussi le rattrapage en mode « ombre » (log sans notification) :
+   * c'est le SEUL moyen d'exercer RattrapagePushWorker en local, la branche
+   * message-id-only n'étant émise que par un serveur licencié.
    */
   private fun verifierPushGetEnDebug(ejson: JSONObject) {
     try {
@@ -329,7 +229,7 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
         Log.d(TAG, "shadow push.get: messageId/host absents")
         return
       }
-      val session = lireSession(host)
+      val session = lireSession(this, host)
       if (session == null) {
         Log.d(TAG, "shadow push.get: session introuvable (déchiffrement KO ?) host=" + host)
         return
@@ -337,7 +237,8 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
       Log.d(TAG, "shadow push.get: session déchiffrée uid=" + session.optString("userId"))
       val notif = recupererContenu(host, messageId, session)
       if (notif == null) {
-        Log.d(TAG, "shadow push.get: fetch KO")
+        Log.d(TAG, "shadow push.get: fetch KO, rattrapage ombre programmé")
+        planifierRattrapage(this, host, messageId, true)
         return
       }
       Log.d(
@@ -349,123 +250,334 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
     }
   }
 
-  /**
-   * Lit la session expo-secure-store correspondant au host, sans runtime JS.
-   * Reproduit le format de stockage d'expo-secure-store 57 : SharedPreferences
-   * « SecureStore », une entrée « key_v1-session-<condensé> » par serveur, dont
-   * la valeur est une enveloppe AES/GCM déchiffrable par une clé de
-   * l'AndroidKeyStore. On énumère les sessions et on retient celle dont le
-   * baseUrl matche le host ; à défaut, l'unique session connue (mono-serveur).
-   */
-  private fun lireSession(host: String): JSONObject? {
-    return try {
-      val prefs = getSharedPreferences("SecureStore", Context.MODE_PRIVATE)
-      val hote = sansSlashFinal(host)
-      var repli: JSONObject? = null
-      var nbCandidats = 0
-      for ((cle, valeur) in prefs.all) {
-        if (!cle.startsWith("key_v1-session-")) continue
-        val brut = valeur as? String ?: continue
-        val clair = dechiffrerSecureStore(brut) ?: continue
-        val session = try {
-          JSONObject(clair)
-        } catch (e: Exception) {
-          continue
-        }
-        if (session.optString("authToken").isEmpty() || session.optString("userId").isEmpty()) continue
-        nbCandidats++
-        repli = session
-        if (sansSlashFinal(session.optString("baseUrl")) == hote) return session
-      }
-      // Un seul serveur : l'utiliser même si le host ne matche pas au caractère près.
-      if (nbCandidats == 1) repli else null
-    } catch (e: Exception) {
-      Log.w(TAG, "lireSession: échec", e)
-      null
-    }
-  }
-
-  /**
-   * Déchiffre une enveloppe expo-secure-store (schéma « aes »). L'IV, la
-   * longueur du tag GCM et l'alias de clé sont dans l'enveloppe ; la clé
-   * symétrique vit dans l'AndroidKeyStore, générée par expo-secure-store.
-   */
-  private fun dechiffrerSecureStore(enveloppe: String): String? {
-    return try {
-      val obj = JSONObject(enveloppe)
-      // Schéma « hybrid » = API < 23, hors cible (minSdk RN 0.86 >= 24).
-      if (obj.optString("scheme") != "aes") return null
-      val ct = Base64.decode(obj.getString("ct"), Base64.DEFAULT)
-      val iv = Base64.decode(obj.getString("iv"), Base64.DEFAULT)
-      val tlen = obj.getInt("tlen")
-      val base = obj.optString("keystoreAlias", "key_v1").ifEmpty { "key_v1" }
-      val suffixe = if (obj.optBoolean("requireAuthentication", false)) {
-        "keystoreAuthenticated"
-      } else {
-        "keystoreUnauthenticated"
-      }
-      val alias = "AES/GCM/NoPadding:" + base +
-        (if (obj.optBoolean("usesKeystoreSuffix", false)) ":" + suffixe else "")
-      val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-      val entree = ks.getEntry(alias, null) as? KeyStore.SecretKeyEntry ?: return null
-      val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-      cipher.init(Cipher.DECRYPT_MODE, entree.secretKey, GCMParameterSpec(tlen, iv))
-      String(cipher.doFinal(ct), Charsets.UTF_8)
-    } catch (e: Exception) {
-      Log.w(TAG, "dechiffrerSecureStore: échec", e)
-      null
-    }
-  }
-
-  /**
-   * GET <host>/api/v1/push.get?id=<messageId>, authentifié par la session lue.
-   * Renvoie l'objet \`data.notification\` (title/text/payload) ou null. Timeout
-   * serré : on est sur le thread de dispatch FCM, budget limité.
-   */
-  private fun recupererContenu(host: String, messageId: String, session: JSONObject): JSONObject? {
-    var conn: HttpURLConnection? = null
-    return try {
-      val url = URL(
-        sansSlashFinal(host) + "/api/v1/push.get?id=" + URLEncoder.encode(messageId, "UTF-8"),
-      )
-      conn = (url.openConnection() as HttpURLConnection).apply {
-        requestMethod = "GET"
-        setRequestProperty("X-User-Id", session.optString("userId"))
-        setRequestProperty("X-Auth-Token", session.optString("authToken"))
-        setRequestProperty("Accept", "application/json")
-        connectTimeout = 8000
-        readTimeout = 8000
-      }
-      val code = conn.responseCode
-      if (code != 200) {
-        Log.w(TAG, "push.get HTTP " + code)
-        return null
-      }
-      val corps = conn.inputStream.bufferedReader().use { it.readText() }
-      val json = JSONObject(corps)
-      if (!json.optBoolean("success", false)) return null
-      json.optJSONObject("data")?.optJSONObject("notification")
-    } catch (e: Exception) {
-      Log.w(TAG, "recupererContenu: échec", e)
-      null
-    } finally {
-      conn?.disconnect()
-    }
-  }
-
-  /** Retire les « / » finaux, comme le sansSlashFinal côté JS (sessionStore). */
-  private fun sansSlashFinal(u: String): String = u.trimEnd('/')
-
   companion object {
-    private const val TAG = "RVPush"
     private const val NOTIF_PREFIX = "gcm.notification."
     private const val KEY_NOTIF_TITLE = "gcm.notification.title"
     private const val KEY_NOTIF_BODY = "gcm.notification.body"
     private const val KEY_NOTIF_CHANNEL = "gcm.notification.android_channel_id"
-    /** #FF5FA2 — la couleur d'accent déclarée pour expo-notifications (app.json). */
-    private const val COULEUR_ACCENT = 0xFFFF5FA2.toInt()
   }
 }
+
+/**
+ * Rattrapage d'un push.get raté : rejoue le fetch dès que le réseau est
+ * disponible (contrainte CONNECTED), avec backoff linéaire, et remplace la
+ * notification « Nouveau message » par la notification de conversation
+ * complète. Unicité par messageId (voir planifierRattrapage) : une relivraison
+ * FCM ne crée pas de doublon. En mode « ombre » (debug), loggue au lieu de
+ * poster — voir verifierPushGetEnDebug.
+ */
+class RattrapagePushWorker(contexte: Context, params: WorkerParameters) : Worker(contexte, params) {
+  override fun doWork(): Result {
+    val host = inputData.getString("host") ?: return Result.failure()
+    val messageId = inputData.getString("messageId") ?: return Result.failure()
+    val ombre = inputData.getBoolean("ombre", false)
+
+    val session = lireSession(applicationContext, host) ?: return Result.failure()
+    val notif = recupererContenu(host, messageId, session)
+    if (notif == null) {
+      // runAttemptCount démarre à 0 : MAX_TENTATIVES exécutions au plus.
+      return if (runAttemptCount >= MAX_TENTATIVES - 1) Result.failure() else Result.retry()
+    }
+    val payload = notif.optJSONObject("payload")
+    val rid = payload?.optString("rid") ?: ""
+    if (payload == null || rid.isEmpty()) return Result.failure()
+
+    if (ombre) {
+      Log.d(
+        TAG,
+        "shadow rattrapage: OK title=" + notif.optString("title") + " text=" + notif.optString("text"),
+      )
+      return Result.success()
+    }
+    // La vraie notification de salon remplace la dégradée (ids différents :
+    // la dégradée dérive du messageId, celle de salon du rid).
+    NotificationManagerCompat.from(applicationContext).cancel(messageId.hashCode())
+    afficherNotifSalon(applicationContext, rid, notif.optString("title"), notif.optString("text"), payload)
+    return Result.success()
+  }
+
+  companion object {
+    private const val MAX_TENTATIVES = 6
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers partagés entre le service FCM et le worker de rattrapage (privés au
+// fichier : les deux classes vivent ici, rien n'est exposé au reste de l'app).
+// ---------------------------------------------------------------------------
+
+private const val TAG = "RVPush"
+
+/** #FF5FA2 — la couleur d'accent déclarée pour expo-notifications (app.json). */
+private const val COULEUR_ACCENT = 0xFFFF5FA2.toInt()
+
+/**
+ * Construit (ou complète) la notification MessagingStyle du salon à partir de
+ * champs normalisés : titre, texte, et l'objet portant sender/type/
+ * messageType (payload REST ou ejson du push, même forme). Partagé par les
+ * deux régimes, et par le rattrapage différé.
+ */
+private fun afficherNotifSalon(
+  ctx: Context,
+  rid: String,
+  titre: String,
+  texteInitial: String,
+  ejson: JSONObject,
+): Boolean {
+  var texte = texteInitial
+
+  // Même dégradation E2EE que côté JS : jamais de ciphertext à l'écran.
+  if (ejson.optString("messageType") == "e2e") {
+    texte = "Message chiffré"
+  }
+
+  val sender = ejson.optJSONObject("sender")
+  val nomExpediteur = sender?.optString("name")?.takeIf { it.isNotEmpty() }
+    ?: sender?.optString("username")?.takeIf { it.isNotEmpty() }
+    ?: titre
+  // RC préfixe souvent le texte de « username: » quand le nom est déjà porté
+  // par la Person du style — on l'ôte pour ne pas l'afficher deux fois.
+  val username = sender?.optString("username")
+  if (username != null && username.isNotEmpty() && texte.startsWith(username + ": ")) {
+    texte = texte.substring(username.length + 2)
+  }
+
+  val notifId = rid.hashCode()
+  val manager = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+  // Ré-extraire le style de la notification active du même salon : les
+  // messages précédents restent visibles, le nouveau s'ajoute à la suite.
+  val active = manager.activeNotifications.firstOrNull { it.id == notifId }
+  val style = active?.let {
+    NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(it.notification)
+  } ?: NotificationCompat.MessagingStyle(Person.Builder().setName("Vous").build())
+
+  // DM 1:1 : pas de titre de conversation, Android affiche le nom porté par
+  // chaque message. Canal/groupe : le titre du push (« #general », …).
+  if (ejson.optString("type") != "d") {
+    style.setConversationTitle(titre)
+  }
+  style.addMessage(
+    texte,
+    System.currentTimeMillis(),
+    Person.Builder().setName(nomExpediteur).build(),
+  )
+
+  // Le tap ouvre le salon par deep-link expo-router. MainActivity est
+  // \`singleTask\` : avec le SEUL flag NEW_TASK, un VIEW est délivré à l'Activity
+  // vivante par onNewIntent (app en marche/fond, PAS de recréation), et démarre
+  // une Activity FRAÎCHE si le process est mort — dans les deux cas l'URL est
+  // portée par l'intent.
+  //
+  // PAS de CLEAR_TASK : il RECRÉAIT la MainActivity même process vivant, ce qui
+  // DÉSENREGISTRE les ActivityResultLauncher d'expo-image-picker. Expo ne les
+  // réenregistre qu'en voyant \`hostWasDestroyed\` à l'onHostResume, or l'ordre
+  // des callbacks de CLEAR_TASK (nouvelle Activity resumée AVANT destruction de
+  // l'ancienne) contourne ce test : joindre une pièce échouait ensuite en
+  // « unregistered ActivityResultLauncher » jusqu'au redémarrage complet.
+  // PAS de SINGLE_TOP non plus : combiné à NEW_TASK sur une Activity déjà au
+  // premier plan, il empêchait la navigation vers le salon (constaté sur l'AVD).
+  val tap = Intent(
+    Intent.ACTION_VIEW,
+    Uri.parse("rocketvibe://salon/" + Uri.encode(rid)),
+  ).setPackage(ctx.packageName)
+    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+  val pending = PendingIntent.getActivity(
+    ctx,
+    notifId,
+    tap,
+    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+  )
+
+  val icone = ctx.resources.getIdentifier("notification_icon", "drawable", ctx.packageName)
+  val notification = NotificationCompat.Builder(ctx, "default")
+    .setSmallIcon(if (icone != 0) icone else android.R.drawable.ic_dialog_email)
+    .setColor(COULEUR_ACCENT)
+    .setStyle(style)
+    .setContentIntent(pending)
+    .setAutoCancel(true)
+    .setPriority(NotificationCompat.PRIORITY_HIGH)
+    .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+    .build()
+  NotificationManagerCompat.from(ctx).notify(notifId, notification)
+  if (BuildConfig.DEBUG) {
+    Log.d(TAG, "notif salon postée (rid=" + rid + ", id=" + notifId + ")")
+  }
+  return true
+}
+
+/**
+ * Repli quand le contenu n'a pas pu être récupéré : sans rid on ne peut ni
+ * grouper ni deep-linker, on ouvre simplement l'app au tap.
+ */
+private fun posterNotifDegradee(ctx: Context, messageId: String) {
+  try {
+    val notifId = if (messageId.isNotEmpty()) messageId.hashCode() else 0
+    val ouvrir = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)
+      ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    val pending = PendingIntent.getActivity(
+      ctx,
+      notifId,
+      ouvrir ?: Intent(),
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+    val titre = try {
+      ctx.applicationInfo.loadLabel(ctx.packageManager).toString()
+    } catch (e: Exception) {
+      "Rocket Vibe"
+    }
+    val icone = ctx.resources.getIdentifier("notification_icon", "drawable", ctx.packageName)
+    val notification = NotificationCompat.Builder(ctx, "default")
+      .setSmallIcon(if (icone != 0) icone else android.R.drawable.ic_dialog_email)
+      .setColor(COULEUR_ACCENT)
+      .setContentTitle(titre)
+      .setContentText("Nouveau message")
+      .setContentIntent(pending)
+      .setAutoCancel(true)
+      .setPriority(NotificationCompat.PRIORITY_HIGH)
+      .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+      .build()
+    NotificationManagerCompat.from(ctx).notify(notifId, notification)
+  } catch (e: Exception) {
+    Log.w(TAG, "posterNotifDegradee", e)
+  }
+}
+
+/**
+ * Programme le rattrapage différé d'un push.get raté. Contrainte réseau : en
+ * Doze radio coupée, la tentative attend la fenêtre de maintenance ou le
+ * réveil de l'appareil — c'est précisément le cas vécu. Unicité KEEP par
+ * messageId : une relivraison FCM du même push ne crée pas de second worker.
+ */
+private fun planifierRattrapage(ctx: Context, host: String, messageId: String, ombre: Boolean) {
+  try {
+    val donnees = Data.Builder()
+      .putString("host", host)
+      .putString("messageId", messageId)
+      .putBoolean("ombre", ombre)
+      .build()
+    val requete = OneTimeWorkRequest.Builder(RattrapagePushWorker::class.java)
+      .setInputData(donnees)
+      .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+      .setBackoffCriteria(BackoffPolicy.LINEAR, 15, TimeUnit.SECONDS)
+      .build()
+    WorkManager.getInstance(ctx)
+      .enqueueUniqueWork("rattrapage-push-" + messageId, ExistingWorkPolicy.KEEP, requete)
+    // Log.w assumé (visible en release) : c'est la trace de diagnostic du
+    // terrain — un messageId n'expose aucun contenu.
+    Log.w(TAG, "push.get KO, rattrapage programmé (" + messageId + ")")
+  } catch (e: Exception) {
+    Log.w(TAG, "planifierRattrapage: échec", e)
+  }
+}
+
+/**
+ * Lit la session expo-secure-store correspondant au host, sans runtime JS.
+ * Reproduit le format de stockage d'expo-secure-store 57 : SharedPreferences
+ * « SecureStore », une entrée « key_v1-session-<condensé> » par serveur, dont
+ * la valeur est une enveloppe AES/GCM déchiffrable par une clé de
+ * l'AndroidKeyStore. On énumère les sessions et on retient celle dont le
+ * baseUrl matche le host ; à défaut, l'unique session connue (mono-serveur).
+ */
+private fun lireSession(ctx: Context, host: String): JSONObject? {
+  return try {
+    val prefs = ctx.getSharedPreferences("SecureStore", Context.MODE_PRIVATE)
+    val hote = sansSlashFinal(host)
+    var repli: JSONObject? = null
+    var nbCandidats = 0
+    for ((cle, valeur) in prefs.all) {
+      if (!cle.startsWith("key_v1-session-")) continue
+      val brut = valeur as? String ?: continue
+      val clair = dechiffrerSecureStore(brut) ?: continue
+      val session = try {
+        JSONObject(clair)
+      } catch (e: Exception) {
+        continue
+      }
+      if (session.optString("authToken").isEmpty() || session.optString("userId").isEmpty()) continue
+      nbCandidats++
+      repli = session
+      if (sansSlashFinal(session.optString("baseUrl")) == hote) return session
+    }
+    // Un seul serveur : l'utiliser même si le host ne matche pas au caractère près.
+    if (nbCandidats == 1) repli else null
+  } catch (e: Exception) {
+    Log.w(TAG, "lireSession: échec", e)
+    null
+  }
+}
+
+/**
+ * Déchiffre une enveloppe expo-secure-store (schéma « aes »). L'IV, la
+ * longueur du tag GCM et l'alias de clé sont dans l'enveloppe ; la clé
+ * symétrique vit dans l'AndroidKeyStore, générée par expo-secure-store.
+ */
+private fun dechiffrerSecureStore(enveloppe: String): String? {
+  return try {
+    val obj = JSONObject(enveloppe)
+    // Schéma « hybrid » = API < 23, hors cible (minSdk RN 0.86 >= 24).
+    if (obj.optString("scheme") != "aes") return null
+    val ct = Base64.decode(obj.getString("ct"), Base64.DEFAULT)
+    val iv = Base64.decode(obj.getString("iv"), Base64.DEFAULT)
+    val tlen = obj.getInt("tlen")
+    val base = obj.optString("keystoreAlias", "key_v1").ifEmpty { "key_v1" }
+    val suffixe = if (obj.optBoolean("requireAuthentication", false)) {
+      "keystoreAuthenticated"
+    } else {
+      "keystoreUnauthenticated"
+    }
+    val alias = "AES/GCM/NoPadding:" + base +
+      (if (obj.optBoolean("usesKeystoreSuffix", false)) ":" + suffixe else "")
+    val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    val entree = ks.getEntry(alias, null) as? KeyStore.SecretKeyEntry ?: return null
+    val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+    cipher.init(Cipher.DECRYPT_MODE, entree.secretKey, GCMParameterSpec(tlen, iv))
+    String(cipher.doFinal(ct), Charsets.UTF_8)
+  } catch (e: Exception) {
+    Log.w(TAG, "dechiffrerSecureStore: échec", e)
+    null
+  }
+}
+
+/**
+ * GET <host>/api/v1/push.get?id=<messageId>, authentifié par la session lue.
+ * Renvoie l'objet \`data.notification\` (title/text/payload) ou null. Timeout
+ * serré : on est sur le thread de dispatch FCM, budget limité — le rattrapage
+ * WorkManager prend le relais si ça ne suffit pas.
+ */
+private fun recupererContenu(host: String, messageId: String, session: JSONObject): JSONObject? {
+  var conn: HttpURLConnection? = null
+  return try {
+    val url = URL(
+      sansSlashFinal(host) + "/api/v1/push.get?id=" + URLEncoder.encode(messageId, "UTF-8"),
+    )
+    conn = (url.openConnection() as HttpURLConnection).apply {
+      requestMethod = "GET"
+      setRequestProperty("X-User-Id", session.optString("userId"))
+      setRequestProperty("X-Auth-Token", session.optString("authToken"))
+      setRequestProperty("Accept", "application/json")
+      connectTimeout = 8000
+      readTimeout = 8000
+    }
+    val code = conn.responseCode
+    if (code != 200) {
+      Log.w(TAG, "push.get HTTP " + code)
+      return null
+    }
+    val corps = conn.inputStream.bufferedReader().use { it.readText() }
+    val json = JSONObject(corps)
+    if (!json.optBoolean("success", false)) return null
+    json.optJSONObject("data")?.optJSONObject("notification")
+  } catch (e: Exception) {
+    Log.w(TAG, "recupererContenu: échec", e)
+    null
+  } finally {
+    conn?.disconnect()
+  }
+}
+
+/** Retire les « / » finaux, comme le sansSlashFinal côté JS (sessionStore). */
+private fun sansSlashFinal(u: String): String = u.trimEnd('/')
 `;
 }
 
@@ -514,16 +626,19 @@ function withServiceManifest(config) {
   });
 }
 
-function withFirebaseMessagingDep(config) {
+function withNativeDeps(config) {
   return withAppBuildGradle(config, (config) => {
-    const contents = config.modResults.contents;
-    if (contents.includes('com.google.firebase:firebase-messaging')) {
-      return config;
+    let contents = config.modResults.contents;
+    for (const dep of [FIREBASE_MESSAGING, ANDROIDX_WORK]) {
+      const artefact = dep.substring(0, dep.lastIndexOf(':'));
+      if (!contents.includes(artefact)) {
+        contents = contents.replace(
+          /dependencies\s*\{/,
+          (m) => `${m}\n    implementation("${dep}")`,
+        );
+      }
     }
-    config.modResults.contents = contents.replace(
-      /dependencies\s*\{/,
-      (m) => `${m}\n    implementation("${FIREBASE_MESSAGING}")`,
-    );
+    config.modResults.contents = contents;
     return config;
   });
 }
@@ -531,6 +646,6 @@ function withFirebaseMessagingDep(config) {
 module.exports = function withFcmDeeplink(config) {
   config = withServiceFile(config);
   config = withServiceManifest(config);
-  config = withFirebaseMessagingDep(config);
+  config = withNativeDeps(config);
   return config;
 };

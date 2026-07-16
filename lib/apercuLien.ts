@@ -27,7 +27,7 @@
  * carte dédiée (`ui/carteEmbed.tsx`) — sans quoi le message porterait deux cartes.
  */
 
-import { estLienVideo } from './liensVideo.ts';
+import { estLienVideo, idVideo } from './liensVideo.ts';
 
 export type ApercuLien =
   | { type: 'image'; url: string }
@@ -111,6 +111,41 @@ function carteDepuisMeta(url: string, meta: Record<string, unknown>): ApercuLien
   // bloqué le scraping, ou lien sans balises) : on laisse le lien en texte.
   if (titre === null && image === null) return null;
   return { type: 'carte', url, titre, description, image, site };
+}
+
+/** Ce que le serveur sait d'une vidéo, pour la carte embed. */
+export type MetaVideo = { titre: string | null; auteur: string | null };
+
+/**
+ * Les métas des liens VIDÉO de `urls`, indexées par identifiant de vidéo — le
+ * pendant de `apercusDeLien`, qui les saute (la carte embed les rend elle-même).
+ * Sans ça la carte n'a que le nom du fournisseur à afficher, alors que le
+ * serveur a déjà le titre : YouTube passe par oEmbed (`oembedTitle`,
+ * `oembedAuthorName`), les autres par OpenGraph.
+ */
+export function metasVideo(urlsJson: string | null | undefined): Map<string, MetaVideo> {
+  const parId = new Map<string, MetaVideo>();
+  let brut: unknown;
+  try {
+    brut = JSON.parse(urlsJson ?? '');
+  } catch {
+    return parId;
+  }
+  if (!Array.isArray(brut)) return parId;
+
+  for (const item of brut) {
+    const entree = item as EntreeUrl;
+    if (typeof entree?.url !== 'string') continue;
+    const id = idVideo(entree.url);
+    if (id === null || parId.has(id)) continue;
+    const meta = entree.meta;
+    if (!meta || typeof meta !== 'object') continue;
+    const titre = premier(meta, ['oembedTitle', 'ogTitle', 'twitterTitle', 'pageTitle']);
+    const auteur = premier(meta, ['oembedAuthorName', 'ogSiteName']);
+    if (titre === null && auteur === null) continue;
+    parId.set(id, { titre, auteur });
+  }
+  return parId;
 }
 
 /**

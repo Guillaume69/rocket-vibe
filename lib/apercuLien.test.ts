@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { apercusDeLien } from './apercuLien.ts';
+import { apercusDeLien, metasVideo } from './apercuLien.ts';
 
 // Fixtures calquées sur le relevé réel de `chat.getMessage` (RC 8.5).
 const IMAGE = {
@@ -167,5 +167,36 @@ describe('apercusDeLien', () => {
   test('une entrée sans titre ni image (lien nu) est ignorée', () => {
     const nu = { url: 'https://ex.com/nu', meta: {}, headers: { contentType: 'text/html' } };
     assert.deepEqual(apercusDeLien(json([nu])), []);
+  });
+});
+
+describe('metasVideo', () => {
+  // L'URL brute du serveur porte playlist et `utm_*` : c'est l'id qui recolle.
+  const YT = {
+    url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL1&utm_source=x',
+    meta: {
+      oembedTitle: 'Rick Astley - Never Gonna Give You Up',
+      oembedAuthorName: 'Rick Astley &amp; co',
+      oembedThumbnailUrl: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
+    },
+  };
+
+  test('indexe titre et auteur par id de vidéo, entités décodées', () => {
+    const m = metasVideo(json([YT]));
+    assert.deepEqual(m.get('dQw4w9WgXcQ'), {
+      titre: 'Rick Astley - Never Gonna Give You Up',
+      auteur: 'Rick Astley & co',
+    });
+  });
+
+  test('ignore ce qui n’est pas une vidéo, et les vidéos sans méta', () => {
+    const nue = { url: 'https://youtu.be/aaaaaaaaaaa', meta: {} };
+    const m = metasVideo(json([ARTICLE, nue]));
+    assert.equal(m.size, 0);
+  });
+
+  test('entrées invalides → map vide', () => {
+    assert.equal(metasVideo(null).size, 0);
+    assert.equal(metasVideo('{pas du json').size, 0);
   });
 });

@@ -2,12 +2,13 @@
  * Détection des liens vidéo « embed » (YouTube, Dailymotion, Vimeo) dans le
  * texte d'un message.
  *
- * On NE lit PAS les métadonnées de lien du serveur : l'app n'ingère ni `urls`
- * ni oEmbed, et surtout la lecture intégrée exigerait une WebView — interdite
- * (ROADMAP §4.2). On se contente donc du réalisable et propre : reconnaître
- * l'URL par motif, en tirer l'identifiant, et reconstruire la VIGNETTE publique
- * (prévisible chez YouTube et Dailymotion). La carte, au toucher, ouvre l'appli
- * native ou le navigateur (`Linking`) — aucune WebView, aucun flux à extraire.
+ * La DÉTECTION ne doit rien au serveur : reconnaître l'URL par motif, en tirer
+ * l'identifiant, et reconstruire la VIGNETTE publique (prévisible chez YouTube
+ * et Dailymotion) — une carte s'affiche donc même sur un message que le serveur
+ * n'a pas (encore) décrit. Le titre, lui, vient de ce que le serveur a récolté
+ * (`metasVideo`, `lib/apercuLien.ts`), rapproché par `idVideo`. La lecture
+ * intégrée exigerait une WebView (interdite, ROADMAP §4.2) : la carte, au
+ * toucher, ouvre l'appli native ou le navigateur (`Linking`).
  *
  * Vimeo n'a pas d'URL de vignette prévisible (il faut son API) : on le
  * reconnaît quand même, la carte tombe alors sur sa bannière dégradée.
@@ -17,7 +18,7 @@ export type FournisseurVideo = 'youtube' | 'dailymotion' | 'vimeo';
 
 export type LienVideo = {
   provider: FournisseurVideo;
-  /** Nom affiché (« YouTube »). */
+  /** Nom du fournisseur (« YouTube »). */
   nom: string;
   id: string;
   /** URL normalisée à ouvrir en externe. */
@@ -37,12 +38,27 @@ type Motif = {
 const vignetteYouTube = (id: string) => `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
 const urlYouTube = (id: string) => `https://www.youtube.com/watch?v=${id}`;
 
+/**
+ * Ce qui peut précéder l'hôte : le début, ou un caractère qui ne peut pas
+ * appartenir à un nom d'hôte ni à une adresse. Sans cette frontière, le motif
+ * mordait au MILIEU d'un mot — `notyoutube.com/watch?v=…` et `x@youtube.com/…`
+ * sortaient une carte, alors que Rocket.Chat ne les tient pas pour des liens
+ * (son `urls` reste vide, la carte n'aurait même pas de titre). Non capturant :
+ * le groupe 1 reste l'identifiant.
+ */
+const DEBUT = String.raw`(?:^|[^\w@.-])`;
+/** Le schéma et le sous-domaine sont optionnels — un lien se poste souvent nu. */
+const HOTE = String.raw`(?:https?:\/\/)?(?:www\.|m\.)?`;
+
 const MOTIFS: readonly Motif[] = [
   // youtu.be/ID, youtube.com/shorts|embed|live|v/ID
   {
     provider: 'youtube',
     nom: 'YouTube',
-    re: /(?:youtu\.be\/|youtube\.com\/(?:shorts|embed|live|v)\/)([A-Za-z0-9_-]{11})/gi,
+    re: new RegExp(
+      `${DEBUT}${HOTE}(?:youtu\\.be\\/|youtube\\.com\\/(?:shorts|embed|live|v)\\/)([A-Za-z0-9_-]{11})`,
+      'gi',
+    ),
     url: urlYouTube,
     vignette: vignetteYouTube,
   },
@@ -50,7 +66,7 @@ const MOTIFS: readonly Motif[] = [
   {
     provider: 'youtube',
     nom: 'YouTube',
-    re: /youtube\.com\/watch\?[^\s"'<>]*v=([A-Za-z0-9_-]{11})/gi,
+    re: new RegExp(`${DEBUT}${HOTE}youtube\\.com\\/watch\\?[^\\s"'<>]*v=([A-Za-z0-9_-]{11})`, 'gi'),
     url: urlYouTube,
     vignette: vignetteYouTube,
   },
@@ -58,7 +74,7 @@ const MOTIFS: readonly Motif[] = [
   {
     provider: 'dailymotion',
     nom: 'Dailymotion',
-    re: /(?:dailymotion\.com\/video\/|dai\.ly\/)([A-Za-z0-9]+)/gi,
+    re: new RegExp(`${DEBUT}${HOTE}(?:dailymotion\\.com\\/video\\/|dai\\.ly\\/)([A-Za-z0-9]+)`, 'gi'),
     url: (id) => `https://www.dailymotion.com/video/${id}`,
     vignette: (id) => `https://www.dailymotion.com/thumbnail/video/${id}`,
   },
@@ -66,7 +82,7 @@ const MOTIFS: readonly Motif[] = [
   {
     provider: 'vimeo',
     nom: 'Vimeo',
-    re: /vimeo\.com\/(\d+)/gi,
+    re: new RegExp(`${DEBUT}${HOTE}vimeo\\.com\\/(\\d+)`, 'gi'),
     url: (id) => `https://vimeo.com/${id}`,
     vignette: () => null,
   },
@@ -113,8 +129,19 @@ export function detecterLiensVideo(texte: string | null | undefined, max = 3): L
  * (`lib/apercuLien.ts`) sautent ces liens pour ne pas doubler la carte vidéo.
  */
 export function estLienVideo(url: string): boolean {
-  return MOTIFS.some((m) => {
+  return idVideo(url) !== null;
+}
+
+/**
+ * L'identifiant de la vidéo dans `url`, ou `null` si ce n'en est pas une. Sert à
+ * rapprocher une entrée `urls[]` du serveur (qui porte l'URL BRUTE, avec sa
+ * playlist et ses `utm_*`) de la carte détectée dans le texte.
+ */
+export function idVideo(url: string): string | null {
+  for (const m of MOTIFS) {
     m.re.lastIndex = 0; // regex partagée + drapeau `g` : réarmer avant chaque test
-    return m.re.test(url);
-  });
+    const r = m.re.exec(url);
+    if (r !== null) return r[1]!;
+  }
+  return null;
 }

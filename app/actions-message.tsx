@@ -21,9 +21,11 @@ import {
   type ActionMessage,
   type ReglesMessages,
 } from '../lib/actionsMessage.ts';
+import { permalienMessage, sansPrefixeCitation } from '../lib/citation.ts';
 import { unicodeDeCodeCourt } from '../lib/emojis.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { useT } from '../ui/i18n.ts';
+import { demanderReponse } from '../ui/reponse.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
@@ -67,12 +69,16 @@ async function lireRegles(client: ClientRest): Promise<ReglesMessages> {
 }
 
 type Charge = {
-  message: { id: string; rid: string; texte: string | null };
+  message: { id: string; rid: string; texte: string | null; auteurNom: string | null };
+  /** De quoi bâtir le permalien d'une citation (`lib/citation.ts`). */
+  salon: { type: string; nom: string | null };
   actions: ActionMessage[];
 };
 
 export default function EcranActionsMessage() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // `fil` : présent quand la feuille est ouverte DEPUIS l'écran d'un fil — la
+  // cible de réponse est alors adressée au composer de ce fil, pas du salon.
+  const { id, fil } = useLocalSearchParams<{ id: string; fil?: string }>();
   const { etat } = useSession();
   const synchro = useSynchro();
   const routeur = useRouter();
@@ -120,7 +126,10 @@ export default function EcranActionsMessage() {
       ]);
       if (annule) return;
       setCharge({
-        message: { id: brut.id, rid: brut.rid, texte: brut.texte },
+        message: { id: brut.id, rid: brut.rid, texte: brut.texte, auteurNom: brut.auteurNom },
+        // Ligne de salon absente (lien profond avant synchro) : repli `c`/rid —
+        // le serveur ne lit de toute façon que le `?msg=` du permalien.
+        salon: { type: lignesSalon[0]?.type ?? 'c', nom: lignesSalon[0]?.nom ?? null },
         actions: actionsPossibles({
           message: {
             auteurId: brut.auteurId,
@@ -131,6 +140,7 @@ export default function EcranActionsMessage() {
           regles,
           permissions: [],
           lectureSeule: lignesSalon[0]?.lectureSeule === true,
+          chiffre: lignesSalon[0]?.chiffre === true,
           maintenant: Date.now(),
         }),
       });
@@ -179,8 +189,27 @@ export default function EcranActionsMessage() {
       </View>
     );
   }
-  const { message, actions } = charge;
+  const { message, salon, actions } = charge;
   const enEdition = edition !== null;
+
+  // Arme la cible de réponse pour le composer d'origine (salon ou fil) puis se
+  // referme — l'envoi lui-même se joue là-bas, avec le texte tapé ensuite.
+  const repondre = () => {
+    void Haptics.selectionAsync();
+    demanderReponse(typeof fil === 'string' ? `${message.rid}:${fil}` : message.rid, {
+      id: message.id,
+      auteur: message.auteurNom,
+      apercu: sansPrefixeCitation(message.texte ?? '').trim() || null,
+      permalien: permalienMessage({
+        baseUrl: client.baseUrl,
+        type: salon.type,
+        nom: salon.nom,
+        rid: message.rid,
+        msgId: message.id,
+      }),
+    });
+    routeur.back();
+  };
 
   return (
     <View style={[styles.feuille, { maxHeight: hauteurMax, paddingBottom: bas }]}>
@@ -238,6 +267,15 @@ export default function EcranActionsMessage() {
         </View>
       ) : (
         <View style={styles.listeActions}>
+          {actions.includes('repondre') && (
+            <ActionLigne
+              c={c}
+              disabled={occupe}
+              icone="↩️"
+              libelle={t('actionsMessage.repondre')}
+              onPress={repondre}
+            />
+          )}
           {actions.includes('modifier') && (
             <ActionLigne
               c={c}

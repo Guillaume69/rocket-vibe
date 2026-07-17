@@ -13,6 +13,7 @@
 
 import { parse, type Root } from '@rocket.chat/message-parser';
 
+import { sansLiensDeCitation } from './citation.ts';
 import { unicodeDeCodeCourt } from './emojis.ts';
 
 export type { Root };
@@ -40,6 +41,13 @@ function noeudPlausible(n: unknown): boolean {
 }
 
 export function arbreDuMessage(md: string | null, texte: string | null): Root | null {
+  // Le permalien d'une citation (`[ ](…?msg=…)`) est retiré du corps : la
+  // citation se rend à part (pièce jointe `message_link`) — et pour un envoi
+  // optimiste, l'aperçu local. Un message qui n'était QUE la citation rend null.
+  const epure = (arbre: Root): Root | null => {
+    const filtre = sansLiensDeCitation(arbre);
+    return filtre.length > 0 ? filtre : null;
+  };
   if (md !== null) {
     try {
       const arbre = JSON.parse(md) as Root;
@@ -47,14 +55,16 @@ export function arbreDuMessage(md: string | null, texte: string | null): Root | 
       // `[null]` ou un nœud sans `type` passerait jusqu'au rendu et
       // planterait l'écran entier — durablement, puisque le `md` est
       // persisté. On préfère re-parser le texte : le contenu survit.
-      if (Array.isArray(arbre) && arbre.length > 0 && arbre.every(noeudPlausible)) return arbre;
+      if (Array.isArray(arbre) && arbre.length > 0 && arbre.every(noeudPlausible)) {
+        return epure(arbre);
+      }
     } catch {
       // `md` illisible : on retombe sur le texte, comme s'il n'existait pas.
     }
   }
   if (texte !== null && texte.trim() !== '') {
     try {
-      return parse(texte);
+      return epure(parse(texte));
     } catch {
       // Le parseur (grammaire PEG générée) peut lever sur une entrée qu'il ne
       // consomme pas : le texte brut vaut mieux qu'un écran mort.

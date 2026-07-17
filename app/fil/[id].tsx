@@ -15,11 +15,15 @@ import {
 
 import type { BaseLocale } from '../../db/client.ts';
 import { messages, salons, sortie } from '../../db/schema.ts';
+import { citer } from '../../lib/citation.ts';
 import type { CandidatMention } from '../../lib/completionMention.ts';
 import type { Listener, Outbox } from '../../lib/fournisseur.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
+import { BandeauReponse } from '../../ui/bandeauReponse.tsx';
 import { useBrouillon } from '../../ui/brouillons.ts';
+import { annulerReponse, useReponse } from '../../ui/reponse.ts';
+import { useRetourMateriel } from '../../ui/retourMateriel.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
 import { BandeauCompletionEmoji, useCompletionEmoji } from '../../ui/completionEmoji.tsx';
 import { BandeauCompletionMention, useCandidatsMention } from '../../ui/completionMention.tsx';
@@ -211,9 +215,11 @@ function Fil({
     (idMessage: string) => {
       // « Pop » à l'ouverture de la feuille — confirme que l'appui long a pris.
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      routeur.push({ pathname: '/actions-message', params: { id: idMessage } });
+      // `fil` : une éventuelle cible de réponse revient au composer de CE fil,
+      // pas à celui du salon empilé dessous.
+      routeur.push({ pathname: '/actions-message', params: { id: idMessage, fil: filId } });
     },
-    [routeur],
+    [routeur, filId],
   );
   const reessayer = useCallback(() => {
     envoi.traiter().catch(() => {});
@@ -357,6 +363,15 @@ function ComposerFil({
   const champRef = useRef<TextInput>(null);
   const emoji = usePanneauEmoji(champRef);
 
+  // Cible de réponse (citation) adressée à CE fil — voir `ui/reponse.ts`.
+  const cleReponse = `${rid}:${filId}`;
+  const reponse = useReponse(cleReponse);
+  const annulerCitation = useCallback(() => annulerReponse(cleReponse), [cleReponse]);
+  useRetourMateriel(reponse !== null, annulerCitation);
+  useEffect(() => {
+    if (reponse !== null) champRef.current?.focus();
+  }, [reponse]);
+
   const changer = useCallback(
     (texte: string) => {
       setBrouillon(texte);
@@ -368,15 +383,28 @@ function ComposerFil({
   const envoyer = useCallback(() => {
     const texte = brouillon.trim();
     if (texte === '') return;
+    const texteAEnvoyer = reponse === null ? texte : citer(reponse.permalien, texte);
+    const jointesLocales =
+      reponse === null
+        ? null
+        : JSON.stringify([
+            {
+              message_link: reponse.permalien,
+              author_name: reponse.auteur ?? undefined,
+              text: reponse.apercu ?? '',
+            },
+          ]);
     setBrouillon('');
     reinitialiser();
     effacerBrouillon();
-    envoi.envoyer(rid, texte, filId).catch(() => {});
+    annulerReponse(cleReponse);
+    envoi.envoyer(rid, texteAEnvoyer, filId, jointesLocales).catch(() => {});
     apresEnvoi();
-  }, [brouillon, envoi, rid, filId, effacerBrouillon, apresEnvoi, reinitialiser]);
+  }, [brouillon, envoi, rid, filId, reponse, cleReponse, effacerBrouillon, apresEnvoi, reinitialiser]);
 
   return (
     <View>
+      {reponse !== null && <BandeauReponse c={c} cible={reponse} surAnnuler={annulerCitation} />}
       {!emoji.ouvert && (
         <BandeauCompletionEmoji
           texte={brouillon}

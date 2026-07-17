@@ -73,9 +73,17 @@ export class MoteurEnvoi {
   /**
    * Affichage immédiat + persistance de l'intention, PUIS tentative d'envoi.
    * Rend l'`_id` généré. `filId` (le `tmid` Rocket.Chat) fait de ce message
-   * une réponse de fil.
+   * une réponse de fil. `jointesLocales` (JSON `attachments`) n'existe que
+   * pour l'AFFICHAGE optimiste — une citation, typiquement : le serveur
+   * reconstruira les vraies pièces jointes depuis le texte, et sa version
+   * (misAJourLe réel) écrase celle-ci. RIEN n'en part sur le réseau.
    */
-  async envoyer(rid: string, texte: string, filId: string | null = null): Promise<string> {
+  async envoyer(
+    rid: string,
+    texte: string,
+    filId: string | null = null,
+    jointesLocales: string | null = null,
+  ): Promise<string> {
     const id = this.genererId();
     const quand = this.maintenant();
     await this.depot.upsertMessage({
@@ -92,7 +100,7 @@ export class MoteurEnvoi {
       filAffiche: false,
       modifieLe: null,
       md: null,
-      piecesJointes: null,
+      piecesJointes: jointesLocales,
       reactions: null,
       urls: null,
       appelId: null,

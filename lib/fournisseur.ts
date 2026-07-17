@@ -151,8 +151,15 @@ export type Ingerer = (doc: Record<string, unknown>) => Promise<void>;
 
 /** File d'envoi de texte persistée (outbox), rejouée à la reconnexion. */
 export interface Outbox {
-  /** Rend l'`_id` client du message posé. `filId` = post parent (fil), ou null. */
-  envoyer(rid: string, texte: string, filId?: string | null): Promise<string>;
+  /** Rend l'`_id` client du message posé. `filId` = post parent (fil), ou null.
+   *  `jointesLocales` : pièces jointes (JSON) pour le seul affichage optimiste
+   *  (aperçu d'une citation) — jamais envoyées, écrasées par l'écho serveur. */
+  envoyer(
+    rid: string,
+    texte: string,
+    filId?: string | null,
+    jointesLocales?: string | null,
+  ): Promise<string>;
   traiter(): Promise<void>;
   abandonner(id: string): Promise<void>;
 }

@@ -32,6 +32,7 @@ import type { BaseLocale } from '../../db/client.ts';
 import { abonnements, messages, salons, sortie, televersements } from '../../db/schema.ts';
 import type { MoteurActivite } from '../../lib/activite.ts';
 import { demarrerConference, sonderAppelDisponible } from '../../lib/appel.ts';
+import { citer } from '../../lib/citation.ts';
 import type { CandidatMention } from '../../lib/completionMention.ts';
 import type {
   ActionsFournisseur,
@@ -45,7 +46,9 @@ import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSaisie, phraseSaisie } from '../../lib/saisie.ts';
 import { useActivite } from '../../ui/activite.ts';
 import { ApercuPieceJointe, type FichierEnAttente } from '../../ui/apercuPieceJointe.tsx';
+import { BandeauReponse } from '../../ui/bandeauReponse.tsx';
 import { useBrouillon } from '../../ui/brouillons.ts';
+import { annulerReponse, useReponse } from '../../ui/reponse.ts';
 import { compresserImageSiUtile } from '../../ui/preparerPieceJointe.ts';
 import { demanderSource } from '../../ui/sourcePieceJointe.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
@@ -745,6 +748,18 @@ function Composer({
   const retirerEnAttente = useCallback(() => setEnAttente(null), []);
   useRetourMateriel(enAttente !== null, retirerEnAttente);
 
+  // Cible de réponse (citation), armée par la feuille d'actions (appui long →
+  // Répondre). Déclaré APRÈS le gestionnaire de pièce jointe : inscrit en
+  // dernier, le back referme d'abord le bandeau de réponse.
+  const reponse = useReponse(rid);
+  const annulerCitation = useCallback(() => annulerReponse(rid), [rid]);
+  useRetourMateriel(reponse !== null, annulerCitation);
+  // La feuille se referme sur la cible armée : le clavier s'ouvre sur le champ,
+  // prêt pour la réponse.
+  useEffect(() => {
+    if (reponse !== null) champRef.current?.focus();
+  }, [reponse]);
+
   const changerBrouillon = useCallback(
     (texte: string) => {
       setBrouillon(texte);
@@ -755,6 +770,9 @@ function Composer({
 
   const envoyer = useCallback(() => {
     const legende = brouillon.trim();
+    // Une citation armée préfixe le texte de son permalien `[ ](…)` — le
+    // serveur en fera la pièce jointe de citation (lib/citation.ts).
+    const texteAEnvoyer = reponse === null ? legende : citer(reponse.permalien, legende);
     // Une pièce jointe en attente part AVEC la légende, en un seul message.
     if (enAttente !== null) {
       setErreurFichier(null);
@@ -764,12 +782,13 @@ function Composer({
       // réseau devient une ligne d'échec actionnable (bandeau du salon). On ne
       // vide donc l'aperçu qu'au succès, sinon le fichier serait perdu sans trace.
       fichiers
-        .envoyer(rid, enAttente, legende || undefined)
+        .envoyer(rid, enAttente, texteAEnvoyer || undefined)
         .then(() => {
           setEnAttente(null);
           setBrouillon('');
           reinitialiser();
           effacerBrouillon();
+          annulerReponse(rid);
         })
         .catch((e: unknown) =>
           setErreurFichier(e instanceof Error ? e.message : t('salon.televersementImpossible')),
@@ -781,11 +800,26 @@ function Composer({
     setBrouillon('');
     reinitialiser();
     effacerBrouillon();
+    // L'aperçu optimiste de la citation : la version du serveur, qui porte les
+    // vraies pièces jointes reconstruites du permalien, l'écrasera.
+    const jointesLocales =
+      reponse === null
+        ? null
+        : JSON.stringify([
+            {
+              message_link: reponse.permalien,
+              author_name: reponse.auteur ?? undefined,
+              text: reponse.apercu ?? '',
+            },
+          ]);
+    annulerReponse(rid);
     // L'affichage optimiste et la persistance de l'intention sont dans
     // `envoyer` : d'ici, rien à attendre. Un refus deviendra un statut
     // « échec » actionnable sur la ligne elle-même.
-    envoi.envoyer(rid, legende).catch((e: unknown) => console.warn('envoi: échec local', e));
-  }, [brouillon, enAttente, envoi, fichiers, rid, effacerBrouillon, reinitialiser, t]);
+    envoi
+      .envoyer(rid, texteAEnvoyer, null, jointesLocales)
+      .catch((e: unknown) => console.warn('envoi: échec local', e));
+  }, [brouillon, enAttente, envoi, fichiers, rid, reponse, effacerBrouillon, reinitialiser, t]);
 
   const basculerVocal = useCallback(async () => {
     setErreurFichier(null);
@@ -934,6 +968,7 @@ function Composer({
           onRetirer={() => setEnAttente(null)}
         />
       )}
+      {reponse !== null && <BandeauReponse c={c} cible={reponse} surAnnuler={annulerCitation} />}
       {!emoji.ouvert && (
         <BandeauCompletionEmoji texte={brouillon} curseur={curseur} c={c} surChoisir={choisirEmoji} />
       )}

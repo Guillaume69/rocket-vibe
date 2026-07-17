@@ -18,19 +18,26 @@ const base = {
   regles,
   permissions: [] as string[],
   lectureSeule: false,
+  chiffre: false,
   maintenant: 1_000_000 + 60_000, // une minute plus tard
 };
 
 describe('actionsPossibles', () => {
   test('mon message récent : tout est permis', () => {
-    assert.deepEqual(actionsPossibles(base), ['reagir', 'modifier', 'supprimer', 'epingler']);
+    assert.deepEqual(actionsPossibles(base), [
+      'reagir',
+      'repondre',
+      'modifier',
+      'supprimer',
+      'epingler',
+    ]);
   });
 
   test('le DÉLAI d’édition vient des settings, pas des permissions', () => {
     // 6 minutes après, avec BlockEditInMinutes = 5 : plus d'édition —
     // mais la suppression (délai 0 = illimité) reste.
     const tard = { ...base, maintenant: base.message.horodatage + 6 * 60_000 };
-    assert.deepEqual(actionsPossibles(tard), ['reagir', 'supprimer', 'epingler']);
+    assert.deepEqual(actionsPossibles(tard), ['reagir', 'repondre', 'supprimer', 'epingler']);
   });
 
   test('`bypass-time-limit-edit-and-delete` rouvre l’édition après le délai', () => {
@@ -53,15 +60,23 @@ describe('actionsPossibles', () => {
 
   test('le message d’AUTRUI ne se modifie ni ne se supprime (sans permission)', () => {
     const autrui = { ...base, message: { ...base.message, auteurId: 'lui' } };
-    assert.deepEqual(actionsPossibles(autrui), ['reagir', 'epingler']);
+    assert.deepEqual(actionsPossibles(autrui), ['reagir', 'repondre', 'epingler']);
   });
 
-  test('lecture seule : pas de réaction ; message système : rien du tout', () => {
-    assert.ok(!actionsPossibles({ ...base, lectureSeule: true }).includes('reagir'));
+  test('lecture seule : ni réaction ni réponse ; message système : rien du tout', () => {
+    const enLectureSeule = actionsPossibles({ ...base, lectureSeule: true });
+    assert.ok(!enLectureSeule.includes('reagir'));
+    assert.ok(!enLectureSeule.includes('repondre'));
     assert.deepEqual(
       actionsPossibles({ ...base, message: { ...base.message, typeSysteme: 'uj' } }),
       [],
     );
+  });
+
+  test('salon chiffré : pas de réponse (l’envoi y est impossible), réagir reste', () => {
+    const chiffre = actionsPossibles({ ...base, chiffre: true });
+    assert.ok(!chiffre.includes('repondre'));
+    assert.ok(chiffre.includes('reagir'));
   });
 });
 

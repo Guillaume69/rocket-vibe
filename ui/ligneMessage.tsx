@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 
 import type { messages } from '../db/schema.ts';
+import { sansPrefixeCitation } from '../lib/citation.ts';
 import { arbreDuMessage } from '../lib/markdown.ts';
 import { texteSysteme } from '../lib/messagesSysteme.ts';
 import { ouvrirFicheProfil } from '../lib/profilPreload.ts';
@@ -88,6 +89,13 @@ export const LigneMessage = memo(function LigneMessage({
       ? undefined
       : () => void ouvrirFicheProfil({ uid: message.auteurId });
 
+  // Les pièces jointes, citations (`message_link`) séparées des fichiers : la
+  // citation se rend AU-DESSUS du corps — on lit d'abord ce à quoi on répond —
+  // les fichiers restent en dessous.
+  const jointes = useMemo(() => analyserJointes(message.piecesJointes), [message.piecesJointes]);
+  const citations = jointes.filter((j) => typeof j.message_link === 'string');
+  const fichiersJoints = jointes.filter((j) => typeof j.message_link !== 'string');
+
   return (
     <Pressable
       onLongPress={appuiLong}
@@ -145,6 +153,9 @@ export const LigneMessage = memo(function LigneMessage({
             <Text style={[styles.heure, { color: c.texteTertiaire }]}>{t('ligneMessage.envoiEnCours')}</Text>
           )}
         </View>
+        {citations.map((jointe, i) => (
+          <Citation key={i} c={c} jointe={jointe} surAppuiLong={appuiLong} />
+        ))}
         <ContenuMessage c={c} message={message} />
         {message.typeSysteme === null && (
           <LiensEmbed c={c} texte={message.texte} urls={message.urls} surAppuiLong={appuiLong} />
@@ -152,10 +163,10 @@ export const LigneMessage = memo(function LigneMessage({
         {message.typeSysteme === null && (
           <ApercusLien c={c} urls={message.urls} surAppuiLong={appuiLong} />
         )}
-        {message.piecesJointes !== null && (
+        {fichiersJoints.length > 0 && (
           <PiecesJointes
             c={c}
-            brut={message.piecesJointes}
+            jointes={fichiersJoints}
             client={client}
             surAppuiLong={appuiLong}
           />
@@ -243,6 +254,47 @@ function Substitut({ c, texte }: { c: Couleurs; texte: string }) {
 }
 
 /**
+ * Le message CITÉ, au-dessus de la réponse : trait accent, auteur, texte en
+ * italique. Rend la pièce jointe `message_link` que le serveur attache à un
+ * message-citation (`lib/citation.ts`) — le même bloc que dessinent les clients
+ * officiels, donc les citations croisées entre apps restent lisibles.
+ */
+function Citation({
+  c,
+  jointe,
+  surAppuiLong,
+}: {
+  c: Couleurs;
+  jointe: PieceJointe;
+  surAppuiLong: (() => void) | undefined;
+}) {
+  const t = useT();
+  // Le cité peut être lui-même une réponse : on ne montre que ses mots, pas
+  // son permalien de citation. Cité sans texte (upload) : « Pièce jointe ».
+  const texte = sansPrefixeCitation(jointe.text ?? '').trim();
+  const auteur = typeof jointe.author_name === 'string' ? jointe.author_name : null;
+  return (
+    <Pressable
+      onLongPress={surAppuiLong}
+      delayLongPress={350}
+      style={[styles.citation, { borderLeftColor: c.accent, backgroundColor: c.carte }]}
+    >
+      {auteur !== null && (
+        <Text style={[styles.citationAuteur, { color: c.accent }]} numberOfLines={1}>
+          {auteur}
+        </Text>
+      )}
+      <Text
+        style={[styles.texte, styles.italique, { color: c.attenue }]}
+        numberOfLines={4}
+      >
+        {texte !== '' ? texte : `📎 ${t('commun.pieceJointe')}`}
+      </Text>
+    </Pressable>
+  );
+}
+
+/**
  * Carte d'un message d'appel (`t: 'videoconf'`) : « Appel vidéo » et un bouton
  * Rejoindre qui ouvre l'écran d'appel (WebView Jitsi). Sans `callId` — vieux
  * message d'avant la persistance du bloc, ou bloc illisible — on n'offre pas de
@@ -281,7 +333,22 @@ type PieceJointe = {
   video_url?: string;
   video_type?: string;
   image_dimensions?: { width?: number; height?: number };
+  /** Citation (reply-quote) : permalien du message cité — voir lib/citation.ts. */
+  message_link?: string;
+  author_name?: string;
+  text?: string;
 };
+
+/** `piecesJointes` (JSON sérialisé) en tableau — tolérant, comme tout ce qui vient d'autrui. */
+function analyserJointes(brut: string | null): PieceJointe[] {
+  if (brut === null) return [];
+  try {
+    const liste = JSON.parse(brut) as unknown;
+    return Array.isArray(liste) ? (liste as PieceJointe[]) : [];
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Pièces jointes (7.4) : `FileUpload_ProtectFiles = true` sur le serveur
@@ -295,26 +362,18 @@ type PieceJointe = {
  */
 function PiecesJointes({
   c,
-  brut,
+  jointes,
   client,
   surAppuiLong,
 }: {
   c: Couleurs;
-  brut: string;
+  jointes: PieceJointe[];
   client: ClientRest;
   surAppuiLong: (() => void) | undefined;
 }) {
   const { width: largeurEcran } = useWindowDimensions();
   const visionneuse = useVisionneuse();
   const t = useT();
-  const jointes = useMemo<PieceJointe[]>(() => {
-    try {
-      const liste = JSON.parse(brut) as unknown;
-      return Array.isArray(liste) ? (liste as PieceJointe[]) : [];
-    } catch {
-      return [];
-    }
-  }, [brut]);
 
   // Largeur disponible pour le corps : écran − marges de liste (16×2) −
   // colonne avatar (34) − gouttière (10), plafonnée pour les grands écrans.
@@ -426,6 +485,17 @@ const styles = StyleSheet.create({
   texte: { fontFamily: POLICES.corps, fontSize: 14, lineHeight: 20 },
   italique: { fontStyle: 'italic' },
   actionsEchec: { flexDirection: 'row', gap: 16 },
+  citation: {
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+    borderLeftWidth: 3,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginTop: 2,
+    gap: 1,
+  },
+  citationAuteur: { fontFamily: POLICES.corpsGras, fontSize: 12 },
   jointes: { gap: 6, marginTop: 4 },
   imageJointe: { borderRadius: 10, backgroundColor: '#00000010' },
   puceFil: {

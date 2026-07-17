@@ -25,10 +25,12 @@ export type ContexteAction = {
   regles: ReglesMessages;
   permissions: string[];
   lectureSeule: boolean;
+  /** Salon chiffré : on ne peut pas y ENVOYER (donc pas répondre) — réagir, si. */
+  chiffre: boolean;
   maintenant: number;
 };
 
-export type ActionMessage = 'reagir' | 'modifier' | 'supprimer' | 'epingler';
+export type ActionMessage = 'reagir' | 'repondre' | 'modifier' | 'supprimer' | 'epingler';
 
 function dansLeDelai(contexte: ContexteAction, minutes: number): boolean {
   if (minutes <= 0) return true; // 0 = illimité
@@ -37,13 +39,16 @@ function dansLeDelai(contexte: ContexteAction, minutes: number): boolean {
 
 export function actionsPossibles(contexte: ContexteAction): ActionMessage[] {
   const actions: ActionMessage[] = [];
-  const { message, moi, regles, permissions, lectureSeule } = contexte;
+  const { message, moi, regles, permissions, lectureSeule, chiffre } = contexte;
 
   // Un message système ne se modifie pas, ne s'épingle pas, ne se commente
   // pas d'un emoji.
   if (message.typeSysteme !== null) return actions;
 
   if (!lectureSeule) actions.push('reagir');
+  // Répondre en citant (`lib/citation.ts`) : n'importe quel message d'autrui ou
+  // de soi, tant qu'on PEUT poster dans le salon.
+  if (!lectureSeule && !chiffre) actions.push('repondre');
 
   const mien = message.auteurId === moi;
   // Noms RÉELS des permissions Rocket.Chat : `bypass-time-limit-edit-and-delete`

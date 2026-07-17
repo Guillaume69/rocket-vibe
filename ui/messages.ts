@@ -26,6 +26,7 @@ const fr = {
   'commun.chargement': 'Chargement…',
   'commun.supprimer': 'Supprimer',
   'commun.copier': 'Copier',
+  'commun.pieceJointe': 'Pièce jointe',
   'commun.ok': 'OK',
 
   // ── Langue (sélecteur des paramètres). Les noms de langue eux-mêmes sont des
@@ -147,6 +148,8 @@ const fr = {
   'salon.retour': 'Retour',
   'salon.infosConversation': 'Informations de la conversation',
   'salon.demarrerAppel': 'Démarrer un appel vidéo',
+  'salon.reponseA': 'Réponse à {nom}',
+  'salon.annulerReponse': 'Annuler la réponse',
 
   // ── Messages système Rocket.Chat (le champ `t` d'un message). `{p}` = le
   //    paramètre porté par `msg` (nom ajouté, nouveau sujet…).
@@ -223,6 +226,7 @@ const fr = {
   'actionsMessage.messageIntrouvable': 'Message introuvable.',
   'actionsMessage.chargementImpossible': 'Chargement impossible.',
   'actionsMessage.actionRefusee': 'Action refusée.',
+  'actionsMessage.repondre': 'Répondre',
   'actionsMessage.modifier': 'Modifier',
   'actionsMessage.epingler': 'Épingler',
 
@@ -384,6 +388,7 @@ const en: Record<CleTraduction, string> = {
   'commun.chargement': 'Loading…',
   'commun.supprimer': 'Delete',
   'commun.copier': 'Copy',
+  'commun.pieceJointe': 'Attachment',
   'commun.ok': 'OK',
 
   'langue.auto': 'Automatic',
@@ -498,6 +503,8 @@ const en: Record<CleTraduction, string> = {
   'salon.retour': 'Back',
   'salon.infosConversation': 'Conversation info',
   'salon.demarrerAppel': 'Start a video call',
+  'salon.reponseA': 'Replying to {nom}',
+  'salon.annulerReponse': 'Cancel reply',
 
   'sys.uj': 'joined the channel',
   'sys.ujt': 'joined the team',
@@ -565,6 +572,7 @@ const en: Record<CleTraduction, string> = {
   'actionsMessage.messageIntrouvable': 'Message not found.',
   'actionsMessage.chargementImpossible': "Couldn't load.",
   'actionsMessage.actionRefusee': 'Action refused.',
+  'actionsMessage.repondre': 'Reply',
   'actionsMessage.modifier': 'Edit',
   'actionsMessage.epingler': 'Pin',
 

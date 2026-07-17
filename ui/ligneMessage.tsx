@@ -19,7 +19,11 @@ import {
 } from 'react-native';
 
 import type { messages } from '../db/schema.ts';
-import { sansPrefixeCitation } from '../lib/citation.ts';
+import {
+  estJointeCitation,
+  PROFONDEUR_MAX_CITATION,
+  sansPrefixeCitation,
+} from '../lib/citation.ts';
 import { arbreDuMessage } from '../lib/markdown.ts';
 import { texteSysteme } from '../lib/messagesSysteme.ts';
 import { ouvrirFicheProfil } from '../lib/profilPreload.ts';
@@ -93,8 +97,8 @@ export const LigneMessage = memo(function LigneMessage({
   // citation se rend AU-DESSUS du corps — on lit d'abord ce à quoi on répond —
   // les fichiers restent en dessous.
   const jointes = useMemo(() => analyserJointes(message.piecesJointes), [message.piecesJointes]);
-  const citations = jointes.filter((j) => typeof j.message_link === 'string');
-  const fichiersJoints = jointes.filter((j) => typeof j.message_link !== 'string');
+  const citations = jointes.filter((j) => estJointeCitation(j));
+  const fichiersJoints = jointes.filter((j) => !estJointeCitation(j));
 
   return (
     <Pressable
@@ -154,7 +158,7 @@ export const LigneMessage = memo(function LigneMessage({
           )}
         </View>
         {citations.map((jointe, i) => (
-          <Citation key={i} c={c} jointe={jointe} surAppuiLong={appuiLong} />
+          <Citation key={i} c={c} jointe={jointe} client={client} surAppuiLong={appuiLong} />
         ))}
         <ContenuMessage c={c} message={message} />
         {message.typeSysteme === null && (
@@ -255,24 +259,36 @@ function Substitut({ c, texte }: { c: Couleurs; texte: string }) {
 
 /**
  * Le message CITÉ, au-dessus de la réponse : trait accent, auteur, texte en
- * italique. Rend la pièce jointe `message_link` que le serveur attache à un
- * message-citation (`lib/citation.ts`) — le même bloc que dessinent les clients
- * officiels, donc les citations croisées entre apps restent lisibles.
+ * italique, SES pièces (images en vignette) et — s'il était lui-même une
+ * réponse — sa propre citation, imbriquée. Rend la pièce jointe `message_link`
+ * que le serveur attache à un message-citation (`lib/citation.ts`) — le même
+ * bloc que dessinent les clients officiels, donc les citations croisées entre
+ * apps restent lisibles. La chaîne s'arrête à `PROFONDEUR_MAX_CITATION` (2),
+ * la taille que produit le serveur (`Message_QuoteChainLimit` par défaut).
  */
 function Citation({
   c,
   jointe,
+  client,
   surAppuiLong,
+  profondeur = 1,
 }: {
   c: Couleurs;
   jointe: PieceJointe;
+  client: ClientRest;
   surAppuiLong: (() => void) | undefined;
+  profondeur?: number;
 }) {
   const t = useT();
   // Le cité peut être lui-même une réponse : on ne montre que ses mots, pas
-  // son permalien de citation. Cité sans texte (upload) : « Pièce jointe ».
+  // son permalien de citation — sa citation s'affiche en bloc imbriqué.
   const texte = sansPrefixeCitation(jointe.text ?? '').trim();
   const auteur = typeof jointe.author_name === 'string' ? jointe.author_name : null;
+  const imbriquees = Array.isArray(jointe.attachments) ? jointe.attachments : [];
+  const sousCitations =
+    profondeur < PROFONDEUR_MAX_CITATION ? imbriquees.filter((j) => estJointeCitation(j)) : [];
+  const fichiers = imbriquees.filter((j) => !estJointeCitation(j));
+  const vide = texte === '' && sousCitations.length === 0 && fichiers.length === 0;
   return (
     <Pressable
       onLongPress={surAppuiLong}
@@ -284,15 +300,90 @@ function Citation({
           {auteur}
         </Text>
       )}
-      <Text
-        style={[styles.texte, styles.italique, { color: c.attenue }]}
-        numberOfLines={4}
-      >
-        {texte !== '' ? texte : `📎 ${t('commun.pieceJointe')}`}
-      </Text>
+      {sousCitations.map((sous, i) => (
+        <Citation
+          key={i}
+          c={c}
+          jointe={sous}
+          client={client}
+          surAppuiLong={surAppuiLong}
+          profondeur={profondeur + 1}
+        />
+      ))}
+      {texte !== '' && (
+        <Text style={[styles.texte, styles.italique, { color: c.attenue }]} numberOfLines={4}>
+          {texte}
+        </Text>
+      )}
+      {fichiers.map((fichier, i) => (
+        <FichierCite key={i} c={c} jointe={fichier} client={client} surAppuiLong={surAppuiLong} />
+      ))}
+      {vide && (
+        <Text style={[styles.texte, styles.italique, { color: c.attenue }]}>
+          📎 {t('commun.pieceJointe')}
+        </Text>
+      )}
     </Pressable>
   );
 }
+
+/**
+ * Une pièce du message cité, en réduit : l'image en vignette tapable (la
+ * visionneuse ouvre l'original), le reste en une ligne titrée — le bloc de
+ * citation résume, il ne rejoue pas les lecteurs audio/vidéo.
+ */
+function FichierCite({
+  c,
+  jointe,
+  client,
+  surAppuiLong,
+}: {
+  c: Couleurs;
+  jointe: PieceJointe;
+  client: ClientRest;
+  surAppuiLong: (() => void) | undefined;
+}) {
+  const visionneuse = useVisionneuse();
+  const t = useT();
+  if (typeof jointe.image_url === 'string') {
+    // Original (`title_link`) plutôt que vignette serveur — même choix que
+    // PiecesJointes : la visionneuse et l'écran haute densité le méritent.
+    const source = typeof jointe.title_link === 'string' ? jointe.title_link : jointe.image_url;
+    const url = urlFichierProtege(client, source);
+    const reelLargeur = jointe.image_dimensions?.width ?? null;
+    const reelHauteur = jointe.image_dimensions?.height ?? null;
+    const ratio = (reelHauteur ?? 1) / Math.max(reelLargeur ?? 1, 1);
+    const hauteur = Math.min(Math.max(Math.round(LARGEUR_IMAGE_CITEE * ratio), 72), 200);
+    return (
+      <Pressable
+        onPress={() =>
+          visionneuse.ouvrir({
+            uri: url,
+            largeur: reelLargeur,
+            hauteur: reelHauteur,
+            titre: jointe.title ?? null,
+          })
+        }
+        onLongPress={surAppuiLong}
+        delayLongPress={350}
+        accessibilityRole="imagebutton"
+        accessibilityLabel={jointe.title ?? t('ligneMessage.imageAgrandir')}
+      >
+        <Image source={{ uri: url }} style={[styles.imageCitee, { height: hauteur }]} resizeMode="cover" />
+      </Pressable>
+    );
+  }
+  const glyphe =
+    typeof jointe.audio_url === 'string' ? '🎵' : typeof jointe.video_url === 'string' ? '🎬' : '📎';
+  return (
+    <Text style={[styles.texte, styles.italique, { color: c.attenue }]} numberOfLines={1}>
+      {glyphe} {jointe.title ?? t('commun.pieceJointe')}
+    </Text>
+  );
+}
+
+/** Largeur fixe des images citées : une vignette, pas la pièce plein cadre. */
+const LARGEUR_IMAGE_CITEE = 200;
 
 /**
  * Carte d'un message d'appel (`t: 'videoconf'`) : « Appel vidéo » et un bouton
@@ -337,6 +428,8 @@ type PieceJointe = {
   message_link?: string;
   author_name?: string;
   text?: string;
+  /** Pièces du message CITÉ (images, fichiers… et sa propre citation, niveau 2). */
+  attachments?: PieceJointe[];
 };
 
 /** `piecesJointes` (JSON sérialisé) en tableau — tolérant, comme tout ce qui vient d'autrui. */
@@ -496,6 +589,13 @@ const styles = StyleSheet.create({
     gap: 1,
   },
   citationAuteur: { fontFamily: POLICES.corpsGras, fontSize: 12 },
+  imageCitee: {
+    width: LARGEUR_IMAGE_CITEE,
+    maxWidth: '100%',
+    borderRadius: 8,
+    backgroundColor: '#00000010',
+    marginVertical: 2,
+  },
   jointes: { gap: 6, marginTop: 4 },
   imageJointe: { borderRadius: 10, backgroundColor: '#00000010' },
   puceFil: {

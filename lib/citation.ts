@@ -59,6 +59,83 @@ export function sansPrefixeCitation(texte: string): string {
   }
 }
 
+/**
+ * Le critère serveur (`isQuoteAttachment`) : une pièce jointe qui porte
+ * `message_link` est une citation. Tout le reste (image, audio, fichier) n'en
+ * est pas.
+ */
+export function estJointeCitation(jointe: unknown): boolean {
+  return (
+    typeof jointe === 'object' &&
+    jointe !== null &&
+    typeof (jointe as { message_link?: unknown }).message_link === 'string'
+  );
+}
+
+/** Profondeur de rendu des citations imbriquées — celle que produit le serveur
+ *  avec `Message_QuoteChainLimit` par défaut (2), et qu'affiche l'app officielle. */
+export const PROFONDEUR_MAX_CITATION = 2;
+
+/**
+ * La pièce jointe de citation LOCALE (JSON `attachments` sérialisé), pour
+ * l'affichage optimiste — même forme que `createQuoteAttachment` côté serveur
+ * (8.5.1), même taille de chaîne : les pièces du message cité sont reprises
+ * telles quelles (ses images s'affichent dans le bloc), ses propres citations
+ * gardées mais purgées de LEURS citations — le niveau 3, que le serveur retire
+ * aussi (`recursiveRemoveAttachments`, limite 2).
+ */
+export function jointeCitationLocale(options: {
+  permalien: string;
+  auteur: string | null;
+  texte: string | null;
+  /** `piecesJointes` (JSON) du message cité, tel que stocké. */
+  piecesJointes: string | null;
+}): string {
+  let imbriquees: unknown[] = [];
+  try {
+    const brut = JSON.parse(options.piecesJointes ?? '[]') as unknown;
+    if (Array.isArray(brut)) imbriquees = brut;
+  } catch {
+    // Illisible : citation sans pièces, le texte reste.
+  }
+  const nettoyees = imbriquees.map((jointe) => {
+    if (!estJointeCitation(jointe)) return jointe;
+    const { attachments, ...reste } = jointe as Record<string, unknown>;
+    const fichiers = Array.isArray(attachments)
+      ? attachments.filter((a) => !estJointeCitation(a))
+      : [];
+    return fichiers.length > 0 ? { ...reste, attachments: fichiers } : reste;
+  });
+  return JSON.stringify([
+    {
+      message_link: options.permalien,
+      ...(options.auteur === null ? {} : { author_name: options.auteur }),
+      text: options.texte ?? '',
+      attachments: nettoyees,
+    },
+  ]);
+}
+
+/**
+ * L'URL (relative) de la première image du message cité — la vignette du
+ * bandeau « Réponse à … ». Les citations imbriquées sont ignorées : on montre
+ * ce que la personne citée a POSTÉ, pas ce qu'elle citait.
+ */
+export function premiereImageDesJointes(piecesJointes: string | null): string | null {
+  try {
+    const brut = JSON.parse(piecesJointes ?? '[]') as unknown;
+    if (!Array.isArray(brut)) return null;
+    for (const jointe of brut) {
+      if (estJointeCitation(jointe)) continue;
+      const image = (jointe as { image_url?: unknown } | null)?.image_url;
+      if (typeof image === 'string') return image;
+    }
+  } catch {
+    // Illisible : pas de vignette.
+  }
+  return null;
+}
+
 type NoeudInline = { type?: unknown; value?: unknown };
 
 /** Aplatissement local minimal (éviter d'importer markdown.ts : il nous importe). */

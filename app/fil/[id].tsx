@@ -384,16 +384,7 @@ function ComposerFil({
     const texte = brouillon.trim();
     if (texte === '') return;
     const texteAEnvoyer = reponse === null ? texte : citer(reponse.permalien, texte);
-    const jointesLocales =
-      reponse === null
-        ? null
-        : JSON.stringify([
-            {
-              message_link: reponse.permalien,
-              author_name: reponse.auteur ?? undefined,
-              text: reponse.apercu ?? '',
-            },
-          ]);
+    const jointesLocales = reponse === null ? null : reponse.jointeLocale;
     setBrouillon('');
     reinitialiser();
     effacerBrouillon();
@@ -404,7 +395,9 @@ function ComposerFil({
 
   return (
     <View>
-      {reponse !== null && <BandeauReponse c={c} cible={reponse} surAnnuler={annulerCitation} />}
+      {reponse !== null && (
+        <BandeauReponse c={c} cible={reponse} client={client} surAnnuler={annulerCitation} />
+      )}
       {!emoji.ouvert && (
         <BandeauCompletionEmoji
           texte={brouillon}

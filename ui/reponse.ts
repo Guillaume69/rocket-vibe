@@ -21,6 +21,11 @@ export type CibleReponse = {
   apercu: string | null;
   /** Permalien `?msg=` — deviendra le préfixe `[ ](…)` à l'envoi. */
   permalien: string;
+  /** Pièce jointe de citation prête pour l'affichage optimiste
+   *  (`jointeCitationLocale`) — pièces du cité incluses, chaîne taillée à 2. */
+  jointeLocale: string;
+  /** URL (relative) de la première image du cité — vignette du bandeau. */
+  imageApercu: string | null;
 };
 
 const cibles = new Map<string, CibleReponse>();

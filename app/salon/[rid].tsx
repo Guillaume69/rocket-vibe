@@ -802,16 +802,7 @@ function Composer({
     effacerBrouillon();
     // L'aperçu optimiste de la citation : la version du serveur, qui porte les
     // vraies pièces jointes reconstruites du permalien, l'écrasera.
-    const jointesLocales =
-      reponse === null
-        ? null
-        : JSON.stringify([
-            {
-              message_link: reponse.permalien,
-              author_name: reponse.auteur ?? undefined,
-              text: reponse.apercu ?? '',
-            },
-          ]);
+    const jointesLocales = reponse === null ? null : reponse.jointeLocale;
     annulerReponse(rid);
     // L'affichage optimiste et la persistance de l'intention sont dans
     // `envoyer` : d'ici, rien à attendre. Un refus deviendra un statut
@@ -968,7 +959,9 @@ function Composer({
           onRetirer={() => setEnAttente(null)}
         />
       )}
-      {reponse !== null && <BandeauReponse c={c} cible={reponse} surAnnuler={annulerCitation} />}
+      {reponse !== null && (
+        <BandeauReponse c={c} cible={reponse} client={client} surAnnuler={annulerCitation} />
+      )}
       {!emoji.ouvert && (
         <BandeauCompletionEmoji texte={brouillon} curseur={curseur} c={c} surChoisir={choisirEmoji} />
       )}

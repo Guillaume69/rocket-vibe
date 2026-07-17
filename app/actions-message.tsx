@@ -21,7 +21,12 @@ import {
   type ActionMessage,
   type ReglesMessages,
 } from '../lib/actionsMessage.ts';
-import { permalienMessage, sansPrefixeCitation } from '../lib/citation.ts';
+import {
+  jointeCitationLocale,
+  permalienMessage,
+  premiereImageDesJointes,
+  sansPrefixeCitation,
+} from '../lib/citation.ts';
 import { unicodeDeCodeCourt } from '../lib/emojis.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { useT } from '../ui/i18n.ts';
@@ -69,7 +74,13 @@ async function lireRegles(client: ClientRest): Promise<ReglesMessages> {
 }
 
 type Charge = {
-  message: { id: string; rid: string; texte: string | null; auteurNom: string | null };
+  message: {
+    id: string;
+    rid: string;
+    texte: string | null;
+    auteurNom: string | null;
+    piecesJointes: string | null;
+  };
   /** De quoi bâtir le permalien d'une citation (`lib/citation.ts`). */
   salon: { type: string; nom: string | null };
   actions: ActionMessage[];
@@ -126,7 +137,13 @@ export default function EcranActionsMessage() {
       ]);
       if (annule) return;
       setCharge({
-        message: { id: brut.id, rid: brut.rid, texte: brut.texte, auteurNom: brut.auteurNom },
+        message: {
+          id: brut.id,
+          rid: brut.rid,
+          texte: brut.texte,
+          auteurNom: brut.auteurNom,
+          piecesJointes: brut.piecesJointes,
+        },
         // Ligne de salon absente (lien profond avant synchro) : repli `c`/rid —
         // le serveur ne lit de toute façon que le `?msg=` du permalien.
         salon: { type: lignesSalon[0]?.type ?? 'c', nom: lignesSalon[0]?.nom ?? null },
@@ -196,17 +213,25 @@ export default function EcranActionsMessage() {
   // referme — l'envoi lui-même se joue là-bas, avec le texte tapé ensuite.
   const repondre = () => {
     void Haptics.selectionAsync();
+    const permalien = permalienMessage({
+      baseUrl: client.baseUrl,
+      type: salon.type,
+      nom: salon.nom,
+      rid: message.rid,
+      msgId: message.id,
+    });
     demanderReponse(typeof fil === 'string' ? `${message.rid}:${fil}` : message.rid, {
       id: message.id,
       auteur: message.auteurNom,
       apercu: sansPrefixeCitation(message.texte ?? '').trim() || null,
-      permalien: permalienMessage({
-        baseUrl: client.baseUrl,
-        type: salon.type,
-        nom: salon.nom,
-        rid: message.rid,
-        msgId: message.id,
+      permalien,
+      jointeLocale: jointeCitationLocale({
+        permalien,
+        auteur: message.auteurNom,
+        texte: message.texte,
+        piecesJointes: message.piecesJointes,
       }),
+      imageApercu: premiereImageDesJointes(message.piecesJointes),
     });
     routeur.back();
   };

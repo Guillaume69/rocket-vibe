@@ -32,13 +32,15 @@ export default function EcranJoindre() {
   const routeur = useRouter();
   const insets = useSafeAreaInsets();
 
-  // On répond au DÉMONTAGE, pas au tap : le composeur ne lance donc le sélecteur
-  // qu'une fois la sheet TOTALEMENT partie (fin de l'animation de fermeture),
-  // avec le salon redevenu l'activité résumée. Résoudre au tap lançait le
-  // sélecteur PENDANT la transition — `launchImageLibraryAsync` échouait alors
-  // en `dispatchCancelPendingInputEvents() on a null object reference` (decorView
-  // de l'hôte momentanément nulle). `choix` reste `null` sur un rejet (geste,
-  // back matériel), ce qui solde proprement la promesse du composeur.
+  // On répond au DÉMONTAGE, pas au tap : résoudre au tap lançait le sélecteur
+  // en pleine transition — `launchImageLibraryAsync` échouait en
+  // `dispatchCancelPendingInputEvents() on a null object reference` (decorView
+  // de l'hôte momentanément nulle). ATTENTION, le démontage JS ne clôt pas la
+  // course : React démonte au changement d'état de navigation, AVANT la fin de
+  // l'animation NATIVE — sous charge, le NPE revient (vécu 2026-07-17). Le
+  // composeur lance donc via `lancerSelecteurAvecReprise`, qui rejoue une fois
+  // ce rejet transitoire. `choix` reste `null` sur un rejet (geste, back
+  // matériel), ce qui solde proprement la promesse du composeur.
   const choix = useRef<SourcePieceJointe | null>(null);
   useEffect(
     () => () => {

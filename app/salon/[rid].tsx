@@ -48,6 +48,7 @@ import { useActivite } from '../../ui/activite.ts';
 import { ApercuPieceJointe, type FichierEnAttente } from '../../ui/apercuPieceJointe.tsx';
 import { BandeauReponse } from '../../ui/bandeauReponse.tsx';
 import { useBrouillon } from '../../ui/brouillons.ts';
+import { lancerSelecteurAvecReprise } from '../../ui/lancerSelecteur.ts';
 import { annulerReponse, useReponse } from '../../ui/reponse.ts';
 import { compresserImageSiUtile } from '../../ui/preparerPieceJointe.ts';
 import { demanderSource } from '../../ui/sourcePieceJointe.ts';
@@ -871,25 +872,31 @@ function Composer({
         setErreurFichier(t('salon.cameraRefuse'));
         return;
       }
-      const res = await ImagePicker.launchCameraAsync({
-        mediaTypes: type === 'photo' ? ['images'] : ['videos'],
-        quality: 1,
-      });
+      const res = await lancerSelecteurAvecReprise(() =>
+        ImagePicker.launchCameraAsync({
+          mediaTypes: type === 'photo' ? ['images'] : ['videos'],
+          quality: 1,
+        }),
+      );
       if (!res.canceled) await poserPieceJointe(assetVersFichier(res.assets[0]));
     },
     [poserPieceJointe, t],
   );
 
   const depuisBibliotheque = useCallback(async () => {
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images', 'videos'],
-      quality: 1,
-    });
+    const res = await lancerSelecteurAvecReprise(() =>
+      ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images', 'videos'],
+        quality: 1,
+      }),
+    );
     if (!res.canceled) await poserPieceJointe(assetVersFichier(res.assets[0]));
   }, [poserPieceJointe]);
 
   const depuisFichier = useCallback(async () => {
-    const choix = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
+    const choix = await lancerSelecteurAvecReprise(() =>
+      DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true }),
+    );
     if (choix.canceled || choix.assets.length === 0) return;
     const brut = choix.assets[0];
     await poserPieceJointe({

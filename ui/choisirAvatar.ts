@@ -11,15 +11,18 @@
 import * as ImagePicker from 'expo-image-picker';
 
 import type { FichierAEnvoyer } from '../lib/upload.ts';
+import { lancerSelecteurAvecReprise } from './lancerSelecteur.ts';
 
 export async function choisirAvatar(): Promise<FichierAEnvoyer | null> {
-  const res = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ['images'],
-    allowsEditing: true,
-    aspect: [1, 1],
-    // 0.7 : un avatar est affiché petit ; inutile de téléverser du plein format.
-    quality: 0.7,
-  });
+  const res = await lancerSelecteurAvecReprise(() =>
+    ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      // 0.7 : un avatar est affiché petit ; inutile de téléverser du plein format.
+      quality: 0.7,
+    }),
+  );
   if (res.canceled || res.assets.length === 0) return null;
   const a = res.assets[0]!;
   const type = a.mimeType ?? 'image/jpeg';

@@ -55,10 +55,23 @@ const ANDROIDX_WORK = 'androidx.work:work-runtime:2.10.1';
  *   1. on poste immédiatement la notification « Nouveau message » (jamais de
  *      notification perdue) ;
  *   2. on programme un RATTRAPAGE différé via WorkManager (contrainte réseau,
- *      backoff linéaire 15 s, 6 tentatives, unicité par messageId) qui rejoue
+ *      backoff linéaire 30 s, 8 tentatives, unicité par messageId) qui rejoue
  *      push.get et, dès qu'il aboutit, REMPLACE la notification dégradée par la
- *      notification de conversation complète. Le contenu ne transite toujours
- *      jamais par Google/Apple.
+ *      notification de conversation complète — SILENCIEUSEMENT (la dégradée a
+ *      déjà alerté). Le contenu ne transite toujours jamais par Google/Apple.
+ *
+ * ANTI-DOUBLON (constaté sur le terrain, nuit du 2026-07-17 ~04:52) : FCM
+ * relivre un push non acquitté au retour du réseau. La première livraison
+ * (fetch KO) pose la dégradée + le rattrapage ; la relivraison, elle, réussit
+ * son fetch et posterait la vraie notification À CÔTÉ de la dégradée, puis le
+ * worker rajouterait le même message une seconde fois. Le succès direct annule
+ * donc TOUJOURS la dégradée du même messageId ET son rattrapage en attente.
+ *
+ * JOURNAL DE BORD : chaque événement du circuit (réception, échec avec code ou
+ * exception, rattrapage, remplacement, abandon) s'écrit dans
+ * files/rvpush-journal.log (stockage externe de l'app, `adb pull`) — le buffer
+ * logcat du Pixel (256 KiB) s'était avéré trop court pour les occurrences
+ * nocturnes. Identifiants techniques seulement, jamais de contenu.
  *
  * Salons CHIFFRÉS : `Push_show_message = true` fait transiter du ciphertext ;
  * si l'ejson porte `messageType: 'e2e'`, on substitue un texte générique —
@@ -92,10 +105,14 @@ import androidx.work.Worker
 import androidx.work.WorkerParameters
 import expo.modules.notifications.service.ExpoFirebaseMessagingService
 import org.json.JSONObject
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.security.KeyStore
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
@@ -158,6 +175,12 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
       val ejsonBrut = extras.getString("ejson") ?: return false
       val ejson = JSONObject(ejsonBrut)
 
+      journal(
+        this,
+        "push reçu type=" + ejson.optString("notificationType").ifEmpty { "contenu" } +
+          " messageId=" + ejson.optString("messageId"),
+      )
+
       // Contenu masqué côté serveur : le push ne porte qu'un messageId.
       if (ejson.optString("notificationType") == "message-id-only") {
         return recupererEtPoster(ejson)
@@ -197,8 +220,10 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
     if (messageId.isEmpty() || host.isEmpty()) return false
 
     val session = lireSession(this, host)
-    val notif = session?.let { recupererContenu(host, messageId, it) }
+    if (session == null) journal(this, "session introuvable pour " + host)
+    val notif = session?.let { recupererContenu(this, host, messageId, it) }
     if (notif == null) {
+      journal(this, "id-only " + messageId + " : fetch KO -> dégradée + rattrapage")
       posterNotifDegradee(this, messageId)
       planifierRattrapage(this, host, messageId, false)
       return true
@@ -208,9 +233,19 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
     if (payload == null || rid.isEmpty()) {
       // Le serveur a répondu mais la forme est inattendue : retenter n'y
       // changera rien, pas de rattrapage.
+      journal(this, "id-only " + messageId + " : payload inattendu, dégradée sans rattrapage")
       posterNotifDegradee(this, messageId)
       return true
     }
+    // Succès direct : si une TENTATIVE PRÉCÉDENTE du même push avait posé la
+    // notification dégradée et programmé un rattrapage (FCM relivre un push
+    // non acquitté au retour du réseau — le process peut avoir été tué pendant
+    // le fetch bloquant), on annule les deux. Sinon la dégradée resterait
+    // affichée À CÔTÉ de la vraie, et le worker rajouterait le même message
+    // une seconde fois dans la conversation (doublon constaté sur le terrain).
+    NotificationManagerCompat.from(this).cancel(messageId.hashCode())
+    annulerRattrapage(this, messageId)
+    journal(this, "id-only " + messageId + " : fetch OK direct (rid=" + rid + ")")
     return afficherNotifSalon(this, rid, notif.optString("title"), notif.optString("text"), payload)
   }
 
@@ -235,7 +270,7 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
         return
       }
       Log.d(TAG, "shadow push.get: session déchiffrée uid=" + session.optString("userId"))
-      val notif = recupererContenu(host, messageId, session)
+      val notif = recupererContenu(this, host, messageId, session)
       if (notif == null) {
         Log.d(TAG, "shadow push.get: fetch KO, rattrapage ombre programmé")
         planifierRattrapage(this, host, messageId, true)
@@ -271,12 +306,21 @@ class RattrapagePushWorker(contexte: Context, params: WorkerParameters) : Worker
     val host = inputData.getString("host") ?: return Result.failure()
     val messageId = inputData.getString("messageId") ?: return Result.failure()
     val ombre = inputData.getBoolean("ombre", false)
+    journal(
+      applicationContext,
+      "worker tentative " + (runAttemptCount + 1) + "/" + MAX_TENTATIVES + " (" + messageId + ")" +
+        (if (ombre) " [ombre]" else ""),
+    )
 
     val session = lireSession(applicationContext, host) ?: return Result.failure()
-    val notif = recupererContenu(host, messageId, session)
+    val notif = recupererContenu(applicationContext, host, messageId, session)
     if (notif == null) {
       // runAttemptCount démarre à 0 : MAX_TENTATIVES exécutions au plus.
-      return if (runAttemptCount >= MAX_TENTATIVES - 1) Result.failure() else Result.retry()
+      if (runAttemptCount >= MAX_TENTATIVES - 1) {
+        journal(applicationContext, "worker abandon après " + MAX_TENTATIVES + " tentatives (" + messageId + ")")
+        return Result.failure()
+      }
+      return Result.retry()
     }
     val payload = notif.optJSONObject("payload")
     val rid = payload?.optString("rid") ?: ""
@@ -287,17 +331,27 @@ class RattrapagePushWorker(contexte: Context, params: WorkerParameters) : Worker
         TAG,
         "shadow rattrapage: OK title=" + notif.optString("title") + " text=" + notif.optString("text"),
       )
+      journal(applicationContext, "worker OK [ombre] (" + messageId + ")")
       return Result.success()
     }
     // La vraie notification de salon remplace la dégradée (ids différents :
-    // la dégradée dérive du messageId, celle de salon du rid).
+    // la dégradée dérive du messageId, celle de salon du rid). SILENCIEUSE :
+    // la dégradée a déjà alerté pour ce message, on ne sonne pas deux fois.
     NotificationManagerCompat.from(applicationContext).cancel(messageId.hashCode())
-    afficherNotifSalon(applicationContext, rid, notif.optString("title"), notif.optString("text"), payload)
+    afficherNotifSalon(
+      applicationContext,
+      rid,
+      notif.optString("title"),
+      notif.optString("text"),
+      payload,
+      silencieux = true,
+    )
+    journal(applicationContext, "worker OK : dégradée remplacée (" + messageId + ", rid=" + rid + ")")
     return Result.success()
   }
 
   companion object {
-    private const val MAX_TENTATIVES = 6
+    private const val MAX_TENTATIVES = 8
   }
 }
 
@@ -311,6 +365,34 @@ private const val TAG = "RVPush"
 /** #FF5FA2 — la couleur d'accent déclarée pour expo-notifications (app.json). */
 private const val COULEUR_ACCENT = 0xFFFF5FA2.toInt()
 
+/** Préfixe des noms de work uniques — partagé entre planification et annulation. */
+private const val NOM_RATTRAPAGE = "rattrapage-push-"
+
+private val VERROU_JOURNAL = Any()
+
+/**
+ * Journal de bord du circuit push, dans le dossier externe de l'app :
+ * \`/sdcard/Android/data/<pkg>/files/rvpush-journal.log\` — lisible par
+ * \`adb pull\`, il SURVIT à la rotation logcat (256 KiB sur Pixel, quelques
+ * heures : les occurrences nocturnes du terrain étaient systématiquement
+ * perdues). Identifiants techniques seulement (messageId, rid, codes) —
+ * JAMAIS le contenu des messages. Best-effort : ne casse jamais le chemin
+ * de notification. Repart à neuf au-delà de 256 Ko.
+ */
+private fun journal(ctx: Context, ligne: String) {
+  try {
+    synchronized(VERROU_JOURNAL) {
+      val dossier = ctx.getExternalFilesDir(null) ?: return
+      val fichier = File(dossier, "rvpush-journal.log")
+      if (fichier.length() > 256 * 1024) fichier.writeText("")
+      val horodatage = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date())
+      fichier.appendText(horodatage + " " + ligne + "\\n")
+    }
+  } catch (e: Exception) {
+    // Best-effort assumé.
+  }
+}
+
 /**
  * Construit (ou complète) la notification MessagingStyle du salon à partir de
  * champs normalisés : titre, texte, et l'objet portant sender/type/
@@ -323,6 +405,7 @@ private fun afficherNotifSalon(
   titre: String,
   texteInitial: String,
   ejson: JSONObject,
+  silencieux: Boolean = false,
 ): Boolean {
   var texte = texteInitial
 
@@ -398,6 +481,7 @@ private fun afficherNotifSalon(
     .setAutoCancel(true)
     .setPriority(NotificationCompat.PRIORITY_HIGH)
     .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+    .setSilent(silencieux)
     .build()
   NotificationManagerCompat.from(ctx).notify(notifId, notification)
   if (BuildConfig.DEBUG) {
@@ -459,15 +543,30 @@ private fun planifierRattrapage(ctx: Context, host: String, messageId: String, o
     val requete = OneTimeWorkRequest.Builder(RattrapagePushWorker::class.java)
       .setInputData(donnees)
       .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-      .setBackoffCriteria(BackoffPolicy.LINEAR, 15, TimeUnit.SECONDS)
+      .setBackoffCriteria(BackoffPolicy.LINEAR, 30, TimeUnit.SECONDS)
       .build()
     WorkManager.getInstance(ctx)
-      .enqueueUniqueWork("rattrapage-push-" + messageId, ExistingWorkPolicy.KEEP, requete)
+      .enqueueUniqueWork(NOM_RATTRAPAGE + messageId, ExistingWorkPolicy.KEEP, requete)
     // Log.w assumé (visible en release) : c'est la trace de diagnostic du
     // terrain — un messageId n'expose aucun contenu.
     Log.w(TAG, "push.get KO, rattrapage programmé (" + messageId + ")")
+    journal(ctx, "rattrapage programmé (" + messageId + ")")
   } catch (e: Exception) {
     Log.w(TAG, "planifierRattrapage: échec", e)
+    journal(ctx, "planifierRattrapage ÉCHEC: " + e.javaClass.simpleName + " (" + messageId + ")")
+  }
+}
+
+/**
+ * Annule le rattrapage en attente d'un message dont le contenu vient d'être
+ * obtenu par une autre voie (relivraison FCM traitée avec succès) : sans ça,
+ * le worker rajouterait le même message une seconde fois dans la conversation.
+ */
+private fun annulerRattrapage(ctx: Context, messageId: String) {
+  try {
+    WorkManager.getInstance(ctx).cancelUniqueWork(NOM_RATTRAPAGE + messageId)
+  } catch (e: Exception) {
+    Log.w(TAG, "annulerRattrapage: échec", e)
   }
 }
 
@@ -545,7 +644,12 @@ private fun dechiffrerSecureStore(enveloppe: String): String? {
  * serré : on est sur le thread de dispatch FCM, budget limité — le rattrapage
  * WorkManager prend le relais si ça ne suffit pas.
  */
-private fun recupererContenu(host: String, messageId: String, session: JSONObject): JSONObject? {
+private fun recupererContenu(
+  ctx: Context,
+  host: String,
+  messageId: String,
+  session: JSONObject,
+): JSONObject? {
   var conn: HttpURLConnection? = null
   return try {
     val url = URL(
@@ -562,6 +666,7 @@ private fun recupererContenu(host: String, messageId: String, session: JSONObjec
     val code = conn.responseCode
     if (code != 200) {
       Log.w(TAG, "push.get HTTP " + code)
+      journal(ctx, "push.get HTTP " + code + " (" + messageId + ")")
       return null
     }
     val corps = conn.inputStream.bufferedReader().use { it.readText() }
@@ -570,6 +675,10 @@ private fun recupererContenu(host: String, messageId: String, session: JSONObjec
     json.optJSONObject("data")?.optJSONObject("notification")
   } catch (e: Exception) {
     Log.w(TAG, "recupererContenu: échec", e)
+    journal(
+      ctx,
+      "push.get " + e.javaClass.simpleName + ": " + (e.message ?: "") + " (" + messageId + ")",
+    )
     null
   } finally {
     conn?.disconnect()

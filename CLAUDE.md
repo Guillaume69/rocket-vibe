@@ -22,10 +22,12 @@ Branche principale : **`master`**. Commits directs, pas de PR.
 
 > Pourquoi « prouver en exécutant » reste un bon réflexe même sans l'imposer : ça a déjà attrapé un `env.sh` cassé que je croyais testé, et un `docker compose` qui créait un compte admin **sans mot de passe** sur un serveur exposé au LAN. Relire du code jamais exécuté, c'est relire une intention.
 
-## Le shell est zsh — deux pièges à échec silencieux
+## Le shell est zsh — trois pièges à échec silencieux
 
 1. **Un glob sans correspondance est fatal.** `for d in /usr/lib/jvm/*17*` avorte toute la boucle si le motif ne correspond à rien, y compris les autres candidats. Un `?` non quoté dans une URL aussi : toujours `curl "…/settings.public?count=0"`. Passer les motifs à `find -name "…"`, jamais au shell.
 2. **Une variable non quotée n'est pas découpée en mots.** `for id in $IDS` itère **une seule fois** avec toute la chaîne. Les `$(…)` le sont, eux. Pour boucler sur une liste : `bash -s <<'BASH'`.
+
+3. **Un pipe masque le code de sortie.** `./gradlew … | tail` rend le statut de `tail` (0), pas celui du build — vécu : un `assembleRelease` en échec déclaré « réussi », APK inexistant installé de confiance. Pour un build : rediriger vers un fichier et tester `$?`, ou `set -o pipefail`.
 
 Se méfier d'une assertion qui passe alors qu'aucune ligne d'effet de bord ne s'est affichée : c'est un test vide, pas un test vert.
 

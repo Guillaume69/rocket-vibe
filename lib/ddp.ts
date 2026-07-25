@@ -56,7 +56,27 @@ export type OptionsDdp = {
   creerWebSocket?: (url: string) => WebSocketLike;
   /** Délai au-delà duquel une `method` ou une `sub` est considérée perdue. */
   delaiMs?: number;
+  /**
+   * Silence serveur au-delà duquel la socket est tenue pour suspecte. Voir
+   * `SILENCE_MAX_MS`. Réglable pour les tests, pas pour la production.
+   */
+  silenceMaxMs?: number;
+  /** Cadence du chien de garde. Voir `GARDE_MS`. */
+  gardeMs?: number;
 };
+
+/**
+ * Le serveur DDP ping ses clients **toutes les 30 s** — mesuré contre
+ * Rocket.Chat 8.5 (premier ping à +15 s de `connected`, puis 30 s pile). Le
+ * protocole GARANTIT donc un trafic descendant régulier, même salon muet.
+ *
+ * Passé un ping entier manqué, la socket ne peut plus être saine : on tient le
+ * silence pour une mort. Le seuil ne parie donc pas sur la latence du réseau —
+ * il découle du rythme que le serveur s'impose.
+ */
+const SILENCE_MAX_MS = 45_000;
+/** Cadence de vérification : assez fine pour ne pas ajouter au seuil. */
+const GARDE_MS = 15_000;
 
 type SouscriptionDesiree = {
   nom: string;
@@ -116,10 +136,19 @@ export class ClientDdp {
    * à chaque démontage un peu rapide.
    */
   private annulerNegociation: ((raison: unknown) => void) | null = null;
+  private readonly silenceMaxMs: number;
+  private readonly gardeMs: number;
+  /** Date du dernier octet reçu du serveur, tous messages confondus. */
+  private dernierTrafic = 0;
+  private garde: ReturnType<typeof setInterval> | null = null;
+  /** Une seule sonde à la fois : le chien de garde tique plus vite qu'elle. */
+  private sondeEnCours = false;
 
   constructor(url: string, options: OptionsDdp = {}) {
     this.url = url;
     this.delaiMs = options.delaiMs ?? 10_000;
+    this.silenceMaxMs = options.silenceMaxMs ?? SILENCE_MAX_MS;
+    this.gardeMs = options.gardeMs ?? GARDE_MS;
     this.creerWebSocket =
       options.creerWebSocket ?? ((u) => new WebSocket(u) as unknown as WebSocketLike);
   }
@@ -197,6 +226,9 @@ export class ClientDdp {
       };
       ws.onmessage = (e) => {
         if (!estCourante()) return;
+        // AVANT tout traitement : ce qui compte pour le chien de garde est
+        // qu'un octet soit arrivé, pas qu'il ait été compris.
+        this.dernierTrafic = Date.now();
         let m: MessageDdp;
         try {
           m = JSON.parse(String(e.data)) as MessageDdp;
@@ -238,6 +270,7 @@ export class ClientDdp {
       throw e;
     }
     this.etat = 'authentifie';
+    this.demarrerGarde();
 
     // Rejouer les souscriptions désirées : celles demandées avant
     // l'authentification, et celles d'une socket précédente. C'est ce qui
@@ -355,6 +388,43 @@ export class ClientDdp {
       if (entree.pret !== null) negociations.push(entree.pret);
     }
     await Promise.all(negociations);
+  }
+
+  /**
+   * Chien de garde du silence. Une socket peut mourir SANS que le WebSocket
+   * n'appelle jamais `onclose` : le serveur envoie son FIN, la socket part en
+   * CLOSE-WAIT côté OS, et rien ne remonte au JS. Le client se croit alors
+   * `authentifie` pour toujours — `surPerte` ne part pas, le pilote de
+   * reconnexion n'est jamais réveillé, et plus aucun message n'arrive.
+   *
+   * Constaté en vrai, reproduit sur l'AVD : après un téléversement de pièce
+   * jointe, quatre sockets vers le serveur en CLOSE-WAIT, aucun événement DDP,
+   * et les messages suivants jamais reçus — jusqu'à un passage en arrière-plan
+   * (qui sondait, lui) ou un redémarrage de l'app.
+   *
+   * Le seuil n'est pas un pari sur le réseau mais une lecture du protocole :
+   * le serveur ping toutes les 30 s (mesuré), donc un silence de 45 s prouve
+   * qu'un ping s'est perdu. On ne coupe pas pour autant — on SONDE, et c'est
+   * l'absence de pong qui tranche.
+   */
+  private demarrerGarde(): void {
+    this.arreterGarde();
+    this.dernierTrafic = Date.now();
+    this.garde = setInterval(() => {
+      if (this.etat === 'ferme' || this.sondeEnCours) return;
+      if (Date.now() - this.dernierTrafic < this.silenceMaxMs) return;
+      this.sondeEnCours = true;
+      void this.verifierVie().finally(() => {
+        this.sondeEnCours = false;
+      });
+    }, this.gardeMs);
+  }
+
+  private arreterGarde(): void {
+    if (this.garde !== null) {
+      clearInterval(this.garde);
+      this.garde = null;
+    }
   }
 
   /**
@@ -480,6 +550,7 @@ export class ClientDdp {
    * puisqu'ils appartenaient à la socket morte.
    */
   private nettoyer(raison: unknown): void {
+    this.arreterGarde();
     // Détacher les gestionnaires : une socket abandonnée ne doit plus rien dire.
     if (this.ws !== null) {
       this.ws.onopen = null;

@@ -164,6 +164,15 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         transportExpo,
         async (doc) => {
           await moteur.ingererMessages([doc]);
+          // Un téléversement fait tomber la socket DDP sans que le WebSocket
+          // n'appelle jamais `onclose` — reproduit sur l'AVD : sockets en
+          // CLOSE-WAIT côté OS, client toujours « authentifié », et plus un
+          // seul message reçu ensuite. Le chien de garde de `lib/ddp.ts` finit
+          // par le voir, mais il attend un ping serveur manqué (45 s) ; ici la
+          // fin de l'upload est un signal EXACT, donc on sonde tout de suite.
+          // Socket saine : un ping/pong, rien de plus. Socket morte : la sonde
+          // nettoie, `surPerte` part, le pilote reconnecte.
+          void ddp.verifierVie().catch(() => {});
         },
       );
       const envoi = fournisseur.creerEnvoi(creerDepotEnvoi(brute, fileEcritures), async (doc) => {

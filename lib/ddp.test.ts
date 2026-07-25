@@ -503,3 +503,96 @@ describe('ClientDdp', () => {
     assert.equal(ddp.nombreSouscriptionsDesirees, 1, 'retentée à la prochaine authentification');
   });
 });
+
+/**
+ * Une socket peut mourir sans que `onclose` ne soit JAMAIS appelé (FIN reçu,
+ * CLOSE-WAIT côté OS, rien au JS). Sans chien de garde, le client se croit
+ * authentifié pour toujours et plus aucun message n'arrive.
+ */
+describe('chien de garde du silence', () => {
+  /** Comme `clientAuthentifie`, mais avec des seuils de garde miniatures. */
+  async function clientSousGarde(): Promise<{ ddp: ClientDdp; ws: FauxWebSocket }> {
+    const ws = new FauxWebSocket();
+    const ddp = new ClientDdp('ws://x/websocket', {
+      creerWebSocket: () => ws,
+      delaiMs: 120,
+      silenceMaxMs: 60,
+      gardeMs: 20,
+    });
+    const promesse = ddp.connecter('jeton-rest');
+    ws.ouvrir();
+    ws.recevoir({ msg: 'connected', session: 'sess-1' });
+    await new Promise((r) => setImmediate(r));
+    ws.recevoir({ msg: 'result', id: ws.dernier().id, result: { id: 'u1' } });
+    await promesse;
+    return { ddp, ws };
+  }
+
+  test('une socket muette est SONDÉE : le ping part tout seul', async () => {
+    const { ddp, ws } = await clientSousGarde();
+    const avant = ws.envoyes.length;
+
+    await new Promise((r) => setTimeout(r, 110)); // dépasse le silence toléré
+
+    const pings = ws.envoyes.slice(avant).filter((m) => m.msg === 'ping');
+    assert.ok(pings.length >= 1, `le garde doit sonder, vu ${pings.length} ping`);
+    ddp.fermer();
+  });
+
+  test('sans pong, la socket est déclarée morte et `surPerte` réveille le pilote', async () => {
+    const { ddp, ws } = await clientSousGarde();
+    let pertes = 0;
+    ddp.surPerte(() => pertes++);
+
+    // Silence total : ni trafic, ni réponse à la sonde.
+    await new Promise((r) => setTimeout(r, 300));
+
+    assert.equal(ddp.etat, 'ferme', 'la socket morte est nettoyée');
+    assert.equal(pertes, 1, 'la perte est signalée — sans elle, rien ne reconnecte');
+    assert.ok(ws.ferme, 'la socket est refermée côté client');
+  });
+
+  test('un serveur qui ping REPOUSSE la garde — pas de sonde sur socket vivante', async () => {
+    const { ddp, ws } = await clientSousGarde();
+    const avant = ws.envoyes.length;
+
+    // Le serveur tient son rythme : un ping avant chaque échéance.
+    for (let i = 0; i < 5; i++) {
+      await new Promise((r) => setTimeout(r, 40));
+      ws.recevoir({ msg: 'ping' });
+    }
+
+    const sondes = ws.envoyes.slice(avant).filter((m) => m.msg === 'ping');
+    assert.equal(sondes.length, 0, 'aucune sonde : le trafic serveur suffit');
+    assert.equal(ddp.etat, 'authentifie');
+    ddp.fermer();
+  });
+
+  test('N’IMPORTE QUEL message compte comme trafic, pas seulement un ping', async () => {
+    const { ddp, ws } = await clientSousGarde();
+    const avant = ws.envoyes.length;
+
+    for (let i = 0; i < 5; i++) {
+      await new Promise((r) => setTimeout(r, 40));
+      ws.recevoir({
+        msg: 'changed',
+        collection: 'stream-room-messages',
+        fields: { eventName: 'rid', args: [{ _id: `m${i}` }] },
+      });
+    }
+
+    assert.equal(ws.envoyes.slice(avant).filter((m) => m.msg === 'ping').length, 0);
+    assert.equal(ddp.etat, 'authentifie');
+    ddp.fermer();
+  });
+
+  test('`fermer()` arrête la garde — pas de sonde sur un client rangé', async () => {
+    const { ddp, ws } = await clientSousGarde();
+    ddp.fermer();
+    const avant = ws.envoyes.length;
+
+    await new Promise((r) => setTimeout(r, 150));
+
+    assert.equal(ws.envoyes.length, avant, 'plus rien ne part après fermeture');
+  });
+});

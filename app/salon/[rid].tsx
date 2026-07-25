@@ -48,7 +48,11 @@ import { useActivite } from '../../ui/activite.ts';
 import { ApercuPieceJointe, type FichierEnAttente } from '../../ui/apercuPieceJointe.tsx';
 import { BandeauReponse } from '../../ui/bandeauReponse.tsx';
 import { useBrouillon } from '../../ui/brouillons.ts';
-import { lancerSelecteurAvecReprise } from '../../ui/lancerSelecteur.ts';
+import {
+  estRejetArbreDeVues,
+  lancerSelecteurAvecReprise,
+  PAUSE_APRES_FEUILLE_MS,
+} from '../../ui/lancerSelecteur.ts';
 import { annulerReponse, useReponse } from '../../ui/reponse.ts';
 import { compresserImageSiUtile } from '../../ui/preparerPieceJointe.ts';
 import { demanderSource } from '../../ui/sourcePieceJointe.ts';
@@ -921,13 +925,29 @@ function Composer({
     routeur.push('/joindre');
     const source = await choix;
     if (source === null) return;
+    // La feuille a rendu la main au DÉMONTAGE JS : côté natif, elle est encore
+    // en train de s'escamoter. Lancer une activité pendant ce démontage laisse
+    // un enfant null dans l'arbre de vues, et Android le déréférence sans
+    // broncher — le sélecteur devient alors inutilisable jusqu'au redémarrage
+    // de l'app. On laisse donc la feuille finir AVANT de lancer quoi que ce
+    // soit : la reprise de `lancerSelecteurAvecReprise` n'est qu'un filet.
+    await new Promise((r) => setTimeout(r, PAUSE_APRES_FEUILLE_MS));
     try {
       if (source === 'photo') await depuisCamera('photo');
       else if (source === 'video') await depuisCamera('video');
       else if (source === 'bibliotheque') await depuisBibliotheque();
       else await depuisFichier();
     } catch (e) {
-      setErreurFichier(e instanceof Error ? e.message : t('salon.selectionImpossible'));
+      // Le NPE d'arbre de vues n'a AUCUN sens pour qui le lit, et surtout il
+      // appelle un geste précis : seul un redémarrage de l'app le solde (pas
+      // même sortir du salon — vécu). On le dit, au lieu d'afficher la trace.
+      setErreurFichier(
+        estRejetArbreDeVues(e)
+          ? t('salon.selecteurBloque')
+          : e instanceof Error
+            ? e.message
+            : t('salon.selectionImpossible'),
+      );
     }
   }, [routeur, depuisCamera, depuisBibliotheque, depuisFichier, fermerEmoji, t]);
 

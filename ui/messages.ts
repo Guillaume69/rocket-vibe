@@ -136,6 +136,9 @@ const fr = {
   'salon.enregistrementImpossible': 'Enregistrement impossible.',
   'salon.cameraRefuse': 'Accès à la caméra refusé.',
   'salon.selectionImpossible': 'Sélection impossible.',
+  // Le NPE d'arbre de vues d'Android : rien dans l'app n'en sort, seul un
+  // redémarrage le solde. Autant le dire clairement (voir `lancerSelecteur.ts`).
+  'salon.selecteurBloque': "Le sélecteur ne répond plus. Fermez l'app et rouvrez-la.",
   'salon.joindreFichier': 'Joindre un fichier',
   'salon.revenirClavier': 'Revenir au clavier',
   'salon.choisirEmoji': 'Choisir un emoji',
@@ -491,6 +494,7 @@ const en: Record<CleTraduction, string> = {
   'salon.enregistrementImpossible': 'Recording failed.',
   'salon.cameraRefuse': 'Camera access denied.',
   'salon.selectionImpossible': 'Selection failed.',
+  'salon.selecteurBloque': 'The picker stopped responding. Close the app and reopen it.',
   'salon.joindreFichier': 'Attach a file',
   'salon.revenirClavier': 'Back to keyboard',
   'salon.choisirEmoji': 'Choose an emoji',

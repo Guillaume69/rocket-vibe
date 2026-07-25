@@ -15,191 +15,155 @@ function differee<T>() {
 }
 
 /** Rend la main aux microtâches en attente, sans dormir. */
-const laisserTourner = async (tours = 4): Promise<void> => {
+const laisserTourner = async (tours = 6): Promise<void> => {
   for (let i = 0; i < tours; i++) await Promise.resolve();
 };
 
-/** Attente injectée : le test la déclenche à la main. */
-function fausseAttente() {
-  const enAttente: (() => void)[] = [];
+/**
+ * Banc : un stream et un armement qu'on fait retomber à la main, dans
+ * n'importe quel ordre. Aucune horloge — c'est tout l'objet du module.
+ */
+function banc(options: { dejaActif?: boolean } = {}) {
+  const stream = differee<void>();
+  const armement = differee<void>();
+  const ordre: string[] = [];
+  /** Ce que le stream couvrait au DÉMARRAGE de chaque lecture. */
+  const couverture: boolean[] = [];
+  let arme = options.dejaActif ?? false;
+
   return {
-    patienter: (_ms: number) =>
-      new Promise<void>((resoudre) => {
-        enAttente.push(resoudre);
-      }),
-    /** Fait expirer le délai de grâce. */
-    async expirer(): Promise<void> {
-      for (const r of enAttente.splice(0)) r();
-      await laisserTourner();
+    stream,
+    armement,
+    ordre,
+    couverture,
+    /** Le serveur a armé les souscriptions : à partir d'ici, le fil couvre. */
+    armer() {
+      arme = true;
+      armement.resoudre();
     },
-    enAttente: () => enAttente.length,
-  };
-}
-
-describe('raccorder', () => {
-  test('le stream gagne la course : un seul rattrapage, après lui', async () => {
-    const stream = differee<void>();
-    const attente = fausseAttente();
-    const ordre: string[] = [];
-
-    const fini = raccorder({
+    options: {
+      streamDejaActif: () => arme,
       ouvrirStream: () => {
         ordre.push('stream:demande');
         return stream.promesse;
       },
+      streamArme: () => armement.promesse,
       rattraper: async () => {
-        ordre.push('rattrapage');
+        ordre.push('lecture');
+        couverture.push(arme);
       },
       ensuite: () => ordre.push('ensuite'),
-      patienter: attente.patienter,
-    });
+    },
+  };
+}
 
-    // Tant que le stream n'a pas répondu ET que la grâce n'a pas expiré, on ne
-    // lit rien : c'est l'ordre canonique (souscriptions avant lecture REST).
+describe('raccorder', () => {
+  test('stream instantané : la lecture ne l’attend pas, la seconde la couvre', async () => {
+    const b = banc();
+    const fini = raccorder(b.options);
+
+    // La lecture part sans rien attendre — c'est ce que l'utilisateur voit.
     await laisserTourner();
-    assert.deepEqual(ordre, ['stream:demande']);
+    assert.deepEqual(b.ordre, ['stream:demande', 'lecture', 'ensuite']);
 
-    stream.resoudre();
+    b.stream.resoudre();
+    b.armer();
     await fini;
 
-    // UNE seule passe : le stream étant là avant la fin du rattrapage, aucune
-    // fenêtre à couvrir.
-    assert.deepEqual(ordre, ['stream:demande', 'rattrapage', 'ensuite']);
+    assert.deepEqual(b.ordre, ['stream:demande', 'lecture', 'ensuite', 'lecture']);
+    // La première a lu avant l'armement, la seconde après : c'est elle qui
+    // garantit qu'aucun intervalle n'échappe aux deux transports.
+    assert.deepEqual(b.couverture, [false, true]);
   });
 
-  test('stream trop lent : le rattrapage part sans lui, puis une seconde passe couvre la fenêtre', async () => {
-    const stream = differee<void>();
-    const attente = fausseAttente();
-    const ordre: string[] = [];
-
-    const fini = raccorder({
-      ouvrirStream: () => stream.promesse,
-      rattraper: async () => {
-        ordre.push('rattrapage');
-      },
-      ensuite: () => ordre.push('ensuite'),
-      patienter: attente.patienter,
-    });
+  test('stream très lent : rien ne change — même ordre, mêmes garanties', async () => {
+    const b = banc();
+    const fini = raccorder(b.options);
 
     await laisserTourner();
-    assert.deepEqual(ordre, [], 'rien avant la fin de la grâce');
+    assert.deepEqual(b.ordre, ['stream:demande', 'lecture', 'ensuite'], 'lecture déjà faite');
 
-    // La grâce expire : on lit sans attendre le stream — c'est tout l'objet du
-    // correctif, l'utilisateur ne paie plus le timeout de négociation.
-    await attente.expirer();
-    assert.deepEqual(ordre, ['rattrapage', 'ensuite']);
+    // Le stream met « longtemps » — ici, un nombre arbitraire de tours de
+    // boucle. Aucune constante de temps ne s'applique : rien ne se décide
+    // pendant ce laps.
+    await laisserTourner(50);
+    assert.deepEqual(b.ordre, ['stream:demande', 'lecture', 'ensuite']);
 
-    // Le stream arrive après coup : l'intervalle entre la fin de la lecture et
-    // son établissement n'a été vu par personne, une seconde passe le couvre.
-    stream.resoudre();
+    b.stream.resoudre();
+    await laisserTourner();
+    // Toujours pas de seconde lecture : les souscriptions ne sont pas armées.
+    assert.deepEqual(b.ordre, ['stream:demande', 'lecture', 'ensuite']);
+
+    b.armer();
     await fini;
-    assert.deepEqual(ordre, ['rattrapage', 'ensuite', 'rattrapage']);
+    assert.deepEqual(b.couverture, [false, true], 'la seconde lecture couvre');
   });
 
-  test("l'échec du stream reste un échec — mais après que l'utilisateur a eu ses messages", async () => {
-    const stream = differee<void>();
-    const attente = fausseAttente();
-    const ordre: string[] = [];
+  test('stream déjà actif : une seule lecture, et elle couvre', async () => {
+    const b = banc({ dejaActif: true });
+    b.stream.resoudre(); // socket vivante : `ouvrirStream` ne fait rien
 
-    const fini = raccorder({
-      ouvrirStream: () => stream.promesse,
-      rattraper: async () => {
-        ordre.push('rattrapage');
-      },
-      ensuite: () => ordre.push('ensuite'),
-      patienter: attente.patienter,
-    });
-    // Sans quoi le rejet ci-dessous compterait comme non observé.
+    await raccorder(b.options);
+
+    assert.deepEqual(b.ordre, ['stream:demande', 'lecture', 'ensuite']);
+    assert.deepEqual(b.couverture, [true]);
+  });
+
+  test("l'échec du stream est relayé — mais après que l'utilisateur a eu ses messages", async () => {
+    const b = banc();
+    const fini = raccorder(b.options);
     const attendu = fini.then(
       () => null,
       (e: unknown) => e,
     );
 
-    await attente.expirer();
-    assert.deepEqual(ordre, ['rattrapage', 'ensuite'], 'le rattrapage a eu lieu');
+    await laisserTourner();
+    assert.deepEqual(b.ordre, ['stream:demande', 'lecture', 'ensuite'], 'la lecture a eu lieu');
 
-    stream.rejeter(new Error('pas de « connected » en 10000 ms'));
+    b.stream.rejeter(new Error('pas de « connected » en 10000 ms'));
     const erreur = await attendu;
 
     // Relayé pour que le pilote de reconnexion garde son backoff…
     assert.ok(erreur instanceof Error);
     assert.match(erreur.message, /connected/);
-    // …et surtout : pas de seconde passe, le stream n'est pas venu.
-    assert.deepEqual(ordre, ['rattrapage', 'ensuite']);
+    // …et sans seconde lecture : sans stream, il n'y a pas d'intervalle à
+    // couvrir, et la prochaine tentative refera l'ensemble.
+    assert.deepEqual(b.couverture, [false]);
   });
 
-  test('socket déjà vivante : rattrapage immédiat, sans attendre la grâce', async () => {
-    const attente = fausseAttente();
-    const ordre: string[] = [];
-
-    await raccorder({
-      ouvrirStream: () => Promise.resolve(),
-      rattraper: async () => {
-        ordre.push('rattrapage');
-      },
-      ensuite: () => ordre.push('ensuite'),
-      patienter: attente.patienter,
-    });
-
-    assert.deepEqual(ordre, ['rattrapage', 'ensuite']);
-  });
-
-  test('un rattrapage qui échoue fait échouer le raccordement (le pilote retentera)', async () => {
-    const attente = fausseAttente();
+  test('une lecture qui échoue fait échouer le raccordement (le pilote retentera)', async () => {
+    const b = banc({ dejaActif: true });
+    b.stream.resoudre();
     await assert.rejects(
-      raccorder({
-        ouvrirStream: () => Promise.resolve(),
-        rattraper: () => Promise.reject(new Error('rooms.get: 429')),
-        patienter: attente.patienter,
-      }),
+      raccorder({ ...b.options, rattraper: () => Promise.reject(new Error('rooms.get: 429')) }),
       /429/,
     );
   });
 
-  test('session terminée pendant la grâce : on ne touche plus à rien', async () => {
-    const stream = differee<void>();
-    const attente = fausseAttente();
-    let rattrapages = 0;
-    let ensuiteJoue = false;
+  test('session terminée avant la lecture : on ne touche plus à rien', async () => {
+    const b = banc();
+    b.stream.resoudre();
+    await raccorder({ ...b.options, estAbandonne: () => true });
 
-    const fini = raccorder({
-      ouvrirStream: () => stream.promesse,
-      rattraper: async () => {
-        rattrapages++;
-      },
-      ensuite: () => {
-        ensuiteJoue = true;
-      },
-      estAbandonne: () => true,
-      patienter: attente.patienter,
-    });
-    stream.resoudre();
-    await fini;
-
-    assert.equal(rattrapages, 0);
-    assert.equal(ensuiteJoue, false);
+    assert.deepEqual(b.ordre, ['stream:demande']);
   });
 
-  test('session terminée pendant le rattrapage : pas de seconde passe', async () => {
-    const stream = differee<void>();
-    const attente = fausseAttente();
+  test('session terminée pendant la lecture : pas de seconde passe', async () => {
+    const b = banc();
     let abandonne = false;
-    let rattrapages = 0;
-
     const fini = raccorder({
-      ouvrirStream: () => stream.promesse,
+      ...b.options,
       rattraper: async () => {
-        rattrapages++;
+        b.ordre.push('lecture');
         abandonne = true; // l'utilisateur se déconnecte pendant la lecture
       },
       estAbandonne: () => abandonne,
-      patienter: attente.patienter,
     });
 
-    await attente.expirer();
-    stream.resoudre();
+    b.stream.resoudre();
+    b.armer();
     await fini;
 
-    assert.equal(rattrapages, 1, 'la seconde passe est annulée');
+    assert.deepEqual(b.ordre, ['stream:demande', 'lecture', 'ensuite']);
   });
 });

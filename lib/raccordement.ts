@@ -2,91 +2,104 @@
  * Ordonnancement d'un raccordement : le stream et le rattrapage REST.
  *
  * Les deux transports sont indépendants — REST pour lire, DDP pour écouter —
- * mais leur ORDRE compte :
+ * mais leur ORDRE décide de ce qui peut se perdre :
  *
- * - Souscrire AVANT de lire ne laisse aucune fenêtre : un message posté pendant
- *   la lecture arrive quand même, par le stream. C'est l'ordre canonique.
- * - Lire sans attendre le stream fait apparaître les messages tout de suite,
- *   mais laisse un trou entre la fin de la lecture et l'établissement du
- *   stream.
+ * - Une lecture REST démarrée APRÈS l'armement des souscriptions ne laisse
+ *   aucun trou : tout ce que le serveur publie ensuite arrive par le fil.
+ * - Une lecture démarrée AVANT peut être évaluée côté serveur pendant que le
+ *   stream n'écoute pas encore. Ce que le serveur publie dans cet intervalle
+ *   n'est vu par personne — et comme la lecture a fait avancer les curseurs,
+ *   plus rien ne le redemande.
  *
- * D'où la course : on laisse au stream un DÉLAI DE GRÂCE pour gagner (il gagne
- * presque toujours — mesuré ~0,9 s sur l'émulateur), et passé ce délai on lit
- * sans lui. Une socket qui n'aboutira pas met, elle, tout le timeout de
- * négociation (10 s) : la faire attendre à l'utilisateur figeait le salon
- * ouvert au retour de l'arrière-plan — on croyait n'avoir rien reçu alors qu'un
- * message était là (17 s mesurées entre le retour et l'affichage).
+ * D'où deux lectures, et non une course entre elles :
  *
- * Quand le stream perd la course, la fenêtre existe : une SECONDE passe la
- * couvre, sur curseur frais donc quasi vide.
+ * 1. **Tout de suite**, sans attendre le stream — c'est ce que l'utilisateur
+ *    voit. Séquencer cette lecture derrière la socket faisait payer le timeout
+ *    de négociation DDP à chaque retour de l'arrière-plan : le salon ouvert
+ *    restait figé et on croyait n'avoir rien reçu (17 s mesurées entre le
+ *    retour et l'affichage d'un message déjà posté, jusqu'à deux minutes quand
+ *    plusieurs sockets échouaient de suite).
+ * 2. **Après l'armement des souscriptions** — c'est celle qui GARANTIT. Elle
+ *    attend un signal (`souscriptionsArmees`, le `ready` du serveur), jamais un
+ *    délai : la justesse ne dépend donc ni de la latence ni de la qualité du
+ *    réseau, seulement de l'ordre des événements.
+ *
+ * La seconde saute quand le stream était DÉJÀ actif au départ : la lecture (1)
+ * a alors elle-même démarré après l'armement, elle garantit à elle seule. C'est
+ * le cas de toute retentative sur socket vivante — donc de la majorité.
  *
  * L'échec du stream reste l'échec du raccordement — le pilote de reconnexion
  * garde son backoff — mais il n'est relayé qu'à la FIN : l'utilisateur a
  * d'abord eu ses messages.
  *
- * Pur : l'attente est injectable, tout se teste sous Node sans dormir.
+ * Pur : tout se teste sous Node, sans réseau et sans horloge.
  */
 
 export type OptionsRaccordement = {
   /**
-   * Ouvre le stream et s'authentifie. Doit se résoudre immédiatement si la
-   * socket est déjà vivante — la course n'a alors rien à arbitrer.
+   * Le stream est-il DÉJÀ actif, souscriptions armées ? Évalué avant tout le
+   * reste : c'est ce qui dit si la première lecture garantit à elle seule.
+   */
+  streamDejaActif: () => boolean;
+  /**
+   * Ouvre le stream, s'authentifie et rejoue les souscriptions désirées. Se
+   * résout immédiatement si la socket est déjà vivante.
    */
   ouvrirStream: () => Promise<void>;
-  /** Rattrapage REST. Appelé une fois, deux si le stream perd la course. */
+  /** Résolue quand le serveur a armé les souscriptions. Ne rejette pas. */
+  streamArme: () => Promise<void>;
+  /** Rattrapage REST. Appelé une fois, deux si le stream vient d'être branché. */
   rattraper: () => Promise<void>;
   /**
-   * Ce qui suit le rattrapage sans dépendre du stream (files d'envoi,
-   * présence, réveil des écrans). Joué UNE fois, avant que l'échec éventuel du
-   * stream ne soit relayé.
+   * Ce qui suit la lecture sans dépendre du stream (files d'envoi, présence,
+   * réveil des écrans). Joué UNE fois, avant que l'échec éventuel du stream ne
+   * soit relayé.
    */
   ensuite?: () => void;
   /** Coupe court : session terminée pendant le raccordement. */
   estAbandonne?: () => boolean;
-  graceMs?: number;
-  patienter?: (ms: number) => Promise<void>;
 };
-
-/** Ce qu'on accorde au stream pour gagner la course. */
-export const GRACE_STREAM_MS = 1_500;
-
-const attenteReelle = (ms: number): Promise<void> =>
-  new Promise((resoudre) => setTimeout(resoudre, ms));
 
 export async function raccorder(options: OptionsRaccordement): Promise<void> {
   const {
+    streamDejaActif,
     ouvrirStream,
+    streamArme,
     rattraper,
     ensuite,
     estAbandonne = () => false,
-    graceMs = GRACE_STREAM_MS,
-    patienter = attenteReelle,
   } = options;
 
-  let streamPret = false;
-  // Observé TOUT DE SUITE : sans cette absorption, un rejet du stream pendant
-  // qu'on rattrape remonterait en « unhandled rejection ». L'erreur est
-  // conservée comme VALEUR, pour être relevée à la fin.
+  // Lu AVANT d'ouvrir quoi que ce soit : la question est bien « le stream
+  // couvrait-il déjà quand la lecture ci-dessous a démarré ? ».
+  const dejaCouvert = streamDejaActif();
+
+  // L'issue du stream est observée TOUT DE SUITE — sans cette absorption, son
+  // rejet pendant la lecture remonterait en « unhandled rejection ». L'erreur
+  // est conservée comme VALEUR, pour être relevée à la fin.
   const echecStream = ouvrirStream().then(
-    (): Error | null => {
-      streamPret = true;
-      return null;
-    },
+    (): Error | null => null,
     (e: unknown): Error => (e instanceof Error ? e : new Error(String(e))),
   );
 
-  await Promise.race([echecStream, patienter(graceMs)]);
-  if (estAbandonne()) return;
-
+  if (estAbandonne()) {
+    await echecStream;
+    return;
+  }
   await rattraper();
-  // Le stream était-il là quand le rattrapage a rendu la main ? Sinon,
-  // l'intervalle entre les deux n'est vu par personne : ni par le REST (déjà
-  // fini), ni par les souscriptions (pas encore là).
-  const streamCouvrait = streamPret;
-
   ensuite?.();
 
   const erreur = await echecStream;
   if (erreur !== null) throw erreur;
-  if (!streamCouvrait && !estAbandonne()) await rattraper();
+  // Sans stream, il n'y a pas d'intervalle à couvrir : la prochaine tentative
+  // du pilote refera l'ensemble.
+  if (dejaCouvert || estAbandonne()) return;
+
+  // Le stream vient d'être branché : on attend que le serveur ait ARMÉ nos
+  // souscriptions, puis on relit. Cette lecture-là a forcément démarré après
+  // l'armement — quelle que soit la latence — donc plus rien ne peut tomber
+  // entre les deux transports. Curseurs frais : la réponse est quasi vide.
+  await streamArme();
+  if (estAbandonne()) return;
+  await rattraper();
 }

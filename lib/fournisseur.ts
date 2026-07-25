@@ -94,6 +94,12 @@ export interface Listener {
   surPerte(ecouteur: () => void): () => void;
   fermer(): void;
   verifierVie(): Promise<boolean>;
+  /**
+   * Résolue quand le serveur a armé les souscriptions désirées — le signal
+   * exact du moment où le stream commence à couvrir. Le raccordement s'en sert
+   * pour ordonner sa lecture REST sans jamais parier sur un délai.
+   */
+  souscriptionsArmees(): Promise<void>;
   reinitialiser(): void;
 }
 

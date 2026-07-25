@@ -153,6 +153,52 @@ describe('ClientDdp', () => {
     assert.equal(ddp.nombreSouscriptions, 1);
   });
 
+  test('`souscriptionsArmees` attend le `ready` du serveur, pas un délai', async () => {
+    const { ddp, ws } = await clientAuthentifie();
+    ddp.souscrire('stream-room-messages', 'rid-1');
+    ddp.souscrire('stream-notify-user', 'u1/rooms-changed');
+    const [avantDernier, dernier] = ws.envoyes.slice(-2);
+
+    let armees = false;
+    const attente = ddp.souscriptionsArmees().then(() => {
+      armees = true;
+    });
+
+    // Une seule des deux est prête : le raccordement ne doit PAS lire encore,
+    // sinon l'autre laisse un trou entre les deux transports.
+    ws.recevoir({ msg: 'ready', subs: [avantDernier.id] });
+    await new Promise((r) => setImmediate(r));
+    assert.equal(armees, false);
+
+    ws.recevoir({ msg: 'ready', subs: [dernier.id] });
+    await attente;
+    assert.equal(armees, true);
+    assert.equal(ddp.nombreSouscriptions, 2);
+  });
+
+  test('`souscriptionsArmees` retombe aussi sur un `nosub` — jamais de blocage', async () => {
+    const { ddp, ws } = await clientAuthentifie();
+    ddp.souscrire('stream-room-messages', 'prive');
+    const sub = ws.dernier();
+
+    const attente = ddp.souscriptionsArmees();
+    ws.recevoir({ msg: 'nosub', id: sub.id, error: { error: 'not-allowed' } });
+
+    await attente; // ne rejette pas : un salon refusé n'empêche pas de lire
+    assert.equal(ddp.nombreSouscriptions, 0);
+  });
+
+  test('`souscriptionsArmees` retombe quand la socket meurt en pleine négociation', async () => {
+    const { ddp, ws } = await clientAuthentifie();
+    ddp.souscrire('stream-room-messages', 'rid-1');
+
+    const attente = ddp.souscriptionsArmees();
+    ws.onclose?.(null); // coupure pendant que la `sub` est en vol
+
+    await attente;
+    assert.equal(ddp.etat, 'ferme');
+  });
+
   test('un `nosub` ne compte pas la souscription, mais la garde désirée', async () => {
     const { ddp, ws } = await clientAuthentifie();
     ddp.souscrire('stream-room-messages', 'prive');

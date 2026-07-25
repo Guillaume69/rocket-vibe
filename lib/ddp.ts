@@ -67,6 +67,12 @@ type SouscriptionDesiree = {
   id: string | null;
   /** `sub` en cours de négociation sur le fil. */
   enVol: boolean;
+  /**
+   * La négociation en cours, vue comme une promesse qui ne rejette JAMAIS :
+   * elle retombe sur le `ready` du serveur, sur un `nosub`, ou sur la mort de
+   * la socket. C'est ce que `souscriptionsArmees()` attend.
+   */
+  pret: Promise<void> | null;
 };
 
 type MessageDdp = {
@@ -258,6 +264,7 @@ export class ClientDdp {
       refs: 0,
       id: null,
       enVol: false,
+      pret: null,
     };
     entree.refs++;
     this.desirees.set(cle, entree);
@@ -287,7 +294,7 @@ export class ClientDdp {
     const id = `s${++this.compteur}`;
     entree.enVol = true;
 
-    this.attendre(id, `sub ${entree.nom}`)
+    entree.pret = this.attendre(id, `sub ${entree.nom}`)
       .then(() => {
         entree.enVol = false;
         if (this.desirees.get(cle) !== entree) {
@@ -327,6 +334,27 @@ export class ClientDdp {
     this.fermetureVolontaire = true;
     this.ws?.close();
     this.nettoyer(new ErreurDdp('Client fermé.'));
+  }
+
+  /**
+   * Résolue quand le serveur a ARMÉ les souscriptions désirées à l'instant de
+   * l'appel : leur `ready` reçu, leur `nosub` constaté, ou la socket morte.
+   *
+   * C'est le seul signal EXACT du moment où le stream commence à couvrir. Une
+   * lecture REST démarrée après lui ne peut plus laisser de trou : tout ce que
+   * le serveur publie ensuite arrive par le fil. Le raccordement s'en sert au
+   * lieu d'un délai — la justesse ne doit dépendre ni de la latence ni de la
+   * qualité du réseau (voir `lib/raccordement.ts`).
+   *
+   * Ne rejette jamais : une souscription qui échoue reste désirée et sera
+   * rejouée à la prochaine authentification.
+   */
+  async souscriptionsArmees(): Promise<void> {
+    const negociations: Promise<void>[] = [];
+    for (const entree of this.desirees.values()) {
+      if (entree.pret !== null) negociations.push(entree.pret);
+    }
+    await Promise.all(negociations);
   }
 
   /**

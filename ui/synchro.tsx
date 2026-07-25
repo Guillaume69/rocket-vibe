@@ -11,13 +11,12 @@
  * La base est celle du couple (serveur, compte) : les salons, aperçus et
  * non-lus sont des données du compte, pas du serveur.
  *
- * Ordre du raccordement : s'abonner aux streams AVANT le chargement REST —
- * rien ne peut se perdre entre les deux, et si les deux se recouvrent, les
- * upserts sont idempotents et arbitrés par `_updatedAt`. Cet ordre reste la
- * règle, mais il n'est plus une ATTENTE : au-delà d'un délai de grâce, la
- * lecture REST part sans le stream (voir `lib/raccordement.ts`), sans quoi
- * l'utilisateur paierait le timeout de négociation DDP à chaque retour de
- * l'arrière-plan.
+ * Ordre du raccordement : la lecture REST qui GARANTIT est celle qui suit
+ * l'armement des souscriptions — rien ne peut alors se perdre entre les deux
+ * transports, et si les deux se recouvrent, les upserts sont idempotents et
+ * arbitrés par `_updatedAt`. Une lecture part quand même AVANT, sans attendre
+ * la socket : sinon l'utilisateur paierait le timeout de négociation DDP à
+ * chaque retour de l'arrière-plan. Voir `lib/raccordement.ts`.
  */
 
 import * as Crypto from 'expo-crypto';
@@ -332,12 +331,17 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         connecter: async () => {
           if (abandonne) return;
           await raccorder({
+            // « Authentifié » veut dire que les souscriptions désirées ont été
+            // rejouées : le stream couvre déjà, la lecture qui suit garantira à
+            // elle seule.
+            streamDejaActif: () => ddp.etat === 'authentifie',
             // Ne reconnecter QUE si la socket est tombée : après un échec du
             // seul rattrapage REST, le DDP est encore authentifié et
             // `connecter` lèverait « déjà connecté » — la retentative ne
             // rejouerait alors jamais le rattrapage.
             ouvrirStream: () =>
               ddp.etat === 'ferme' ? ddp.connecter(session.authToken) : Promise.resolve(),
+            streamArme: () => ddp.souscriptionsArmees(),
             rattraper: rattraperTout,
             ensuite: apresRattrapage,
             estAbandonne,

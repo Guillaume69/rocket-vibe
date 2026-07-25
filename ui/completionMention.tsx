@@ -29,6 +29,7 @@ import {
 } from '../lib/completionMention.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar } from '../lib/upload.ts';
+import { useEtagsAvatars } from './identites.tsx';
 import { TuileAvatar } from './kit.tsx';
 import { type Couleurs, DELAI_PRESSION_LISTE } from './theme.ts';
 
@@ -87,6 +88,7 @@ export function BandeauCompletionMention({
   /** Reçoit le texte à insérer (`@username`) et le `debut` du jeton détecté. */
   surChoisir: (insertion: string, debut: number) => void;
 }) {
+  const etags = useEtagsAvatars();
   const resultat = useMemo(() => {
     const jeton = detecterJetonMention(texte, curseur);
     if (jeton === null) return null;
@@ -126,7 +128,7 @@ export function BandeauCompletionMention({
                 initiale={username.charAt(0)}
                 taille={22}
                 rayon={7}
-                uri={urlAvatar(client, { username, uid })}
+                uri={urlAvatar(client, { username, uid, etag: etags.parUsername.get(username) })}
               />
             )}
             <Text style={[styles.nom, { color: c.attenue }]} numberOfLines={1}>

@@ -12,6 +12,7 @@ import {
   type SalonLocal,
 } from './normaliser.ts';
 import { MoteurSynchro, type DechiffreurE2E, type Depot } from './sync.ts';
+import { AVATAR_SANS_PHOTO } from './upload.ts';
 import { TraducteurRC } from '../fournisseurs/rocketchat/traducteur.ts';
 
 describe('versEpoch', () => {
@@ -171,6 +172,23 @@ describe('versSalon — dmAutreUid (8.4)', () => {
     // Un canal n'en a jamais.
     assert.equal(versSalon({ ...brut, t: 'c' }, 'alice', 'moi-uid')?.dmAutreUid, null);
   });
+
+  test('extrait AUSSI son pseudo — sans lui, l’avatar d’un DM jamais ouvert reste figé', () => {
+    // Vécu sur l'émulateur : la liste affiche l'avatar d'alice alors qu'aucun de
+    // ses messages n'est ingéré. `updateAvatar` ne désignant l'utilisateur que
+    // par son pseudo, il ne trouvait AUCUNE ligne à mettre à jour.
+    const brut = { _id: 'r1', t: 'd', uids: ['moi-uid', 'lui-uid'], usernames: ['alice', 'bob'] };
+    assert.equal(versSalon(brut, 'alice', 'moi-uid')?.dmAutreUsername, 'bob');
+    // DM avec soi-même : l'autre, c'est moi — des deux côtés.
+    assert.equal(
+      versSalon({ ...brut, uids: ['moi-uid'], usernames: ['alice'] }, 'alice', 'moi-uid')
+        ?.dmAutreUsername,
+      'alice',
+    );
+    // Pas de pseudo sans uid apparié : on n'invente pas d'identité.
+    assert.equal(versSalon({ ...brut, uids: undefined }, 'alice', 'moi-uid')?.dmAutreUsername, null);
+    assert.equal(versSalon({ ...brut, usernames: undefined }, 'alice', 'moi-uid')?.dmAutreUsername, null);
+  });
 });
 
 describe('versAbonnement', () => {
@@ -192,6 +210,9 @@ function faireDepot() {
   const supprimesSalons: string[] = [];
   const supprimesParSubId: string[] = [];
   const curseurs = new Map<string, number>();
+  /** Versions d'avatar écrites, clé `u:<pseudo>` ou `r:<rid>`. */
+  const avatars = new Map<string, string>();
+  const identites: { uid: string; username: string; avatarEtag: string | null }[] = [];
   const depot: Depot = {
     upsertMessage: async (m) => void messages.push(m),
     upsertSalon: async (s) => void salons.push(s),
@@ -220,9 +241,22 @@ function faireDepot() {
       for (const m of messages) if (m.chiffreBrut !== null) m.texte = null;
     },
     majApercuChiffre: async () => {},
+    majAvatarUtilisateur: async (username, etag) => void avatars.set(`u:${username}`, etag),
+    majAvatarSalon: async (rid, etag) => void avatars.set(`r:${rid}`, etag),
+    enregistrerIdentite: async (i) => void identites.push(i),
     transaction: async (fn) => fn(depot),
   };
-  return { depot, messages, salons, abonnements, supprimes, supprimesSalons, supprimesParSubId };
+  return {
+    depot,
+    messages,
+    salons,
+    abonnements,
+    supprimes,
+    supprimesSalons,
+    supprimesParSubId,
+    avatars,
+    identites,
+  };
 }
 
 const evenement = (collection: string, cleEvenement: string, args: unknown[]): Evenement => ({
@@ -308,6 +342,46 @@ describe('MoteurSynchro', () => {
     await moteur.appliquer(evenement('stream-notify-room', 'r1/deleteMessage', [{ _id: 'm1' }]));
     assert.deepEqual(supprimes, ['m1']);
     assert.equal(moteur.stats.suppressions, 1);
+  });
+
+  test('`updateAvatar` pose la version de la photo d’un utilisateur, par PSEUDO', async () => {
+    // Le stream ne désigne jamais l'utilisateur par son uid (relevé sur 8.5) :
+    // c'est ce qui impose d'indexer les versions par pseudo AUSSI.
+    const { depot, avatars } = faireDepot();
+    const moteur = new MoteurSynchro(depot, new TraducteurRC());
+    await moteur.appliquer(
+      evenement('stream-notify-logged', 'updateAvatar', [{ username: 'bob', etag: 'e1' }]),
+    );
+    assert.equal(avatars.get('u:bob'), 'e1');
+    assert.equal(moteur.stats.ignores, 0, 'un avatar n’est pas une anomalie');
+  });
+
+  test('`updateAvatar` d’un SALON vise le rid', async () => {
+    const { depot, avatars } = faireDepot();
+    await new MoteurSynchro(depot, new TraducteurRC()).appliquer(
+      evenement('stream-notify-logged', 'updateAvatar', [{ rid: 'r1', etag: 'e2' }]),
+    );
+    assert.equal(avatars.get('r:r1'), 'e2');
+  });
+
+  test('une photo RETIRÉE (etag absent) pose quand même un marqueur', async () => {
+    // `users.resetAvatar` n'envoie pas d'etag. Sans marqueur, l'URL retomberait
+    // sur sa forme d'avant — celle que le cache image sert avec l'ANCIENNE
+    // photo : l'avatar supprimé resterait affiché.
+    const { depot, avatars } = faireDepot();
+    await new MoteurSynchro(depot, new TraducteurRC()).appliquer(
+      evenement('stream-notify-logged', 'updateAvatar', [{ username: 'bob' }]),
+    );
+    assert.equal(avatars.get('u:bob'), AVATAR_SANS_PHOTO);
+  });
+
+  test('la présence transite par le même stream mais n’est PAS une anomalie', async () => {
+    const { depot } = faireDepot();
+    const moteur = new MoteurSynchro(depot, new TraducteurRC());
+    await moteur.appliquer(
+      evenement('stream-notify-logged', 'user-status', [['u1', 'alice', 1, '']]),
+    );
+    assert.equal(moteur.stats.ignores, 0, 'sinon chaque aller-retour gonfle le compteur');
   });
 
   test('un stream inconnu est ignoré, mais compté', async () => {

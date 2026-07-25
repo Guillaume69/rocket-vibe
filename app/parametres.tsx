@@ -6,6 +6,7 @@ import { obtenirJetonFcm } from '../lib/push.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar } from '../lib/upload.ts';
 import { definirLangue, useT, usePreferenceLangue } from '../ui/i18n.ts';
+import { useEtagsAvatars } from '../ui/identites.tsx';
 import { TuileAvatar } from '../ui/kit.tsx';
 import {
   type CleTraduction,
@@ -121,6 +122,9 @@ function Parametres({
   const { deconnecter } = useSession();
   const push = usePreferencePush(client);
   const [deconnexion, setDeconnexion] = useState(false);
+  // Version de MA photo : sans elle, la carte de profil garderait l'ancienne
+  // image même après l'avoir changée dans « Mon profil » (cache image figé).
+  const etags = useEtagsAvatars();
 
   const seDeconnecter = useCallback(() => {
     if (deconnexion) return;
@@ -151,7 +155,12 @@ function Parametres({
           { backgroundColor: c.carteProfonde, borderColor: c.bordure, opacity: pressed ? 0.7 : 1 },
         ]}
       >
-        <TuileAvatar c={c} cle={username} initiale={username.charAt(0)} uri={urlAvatar(client, { username })} />
+        <TuileAvatar
+          c={c}
+          cle={username}
+          initiale={username.charAt(0)}
+          uri={urlAvatar(client, { username, etag: etags.parUsername.get(username) })}
+        />
         <View style={styles.profilTextes}>
           <Text style={[styles.profilNom, { color: c.texte }]} numberOfLines={1}>
             @{username}

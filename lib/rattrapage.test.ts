@@ -16,6 +16,7 @@ function fauxDepotComplet() {
   const messages: string[] = [];
   const supprimesParSubId: string[] = [];
   const purges: string[][] = [];
+  const identites: { uid: string; username: string; avatarEtag: string | null }[] = [];
   let dernierLocal: number | null = null;
   const depot: Depot = {
     upsertMessage: async (m) => void messages.push(m.id),
@@ -38,11 +39,15 @@ function fauxDepotComplet() {
     majTexteMessage: async () => {},
     masquerMessagesChiffres: async () => {},
     majApercuChiffre: async () => {},
+    majAvatarUtilisateur: async () => {},
+    majAvatarSalon: async () => {},
+    enregistrerIdentite: async (i) => void identites.push(i),
     transaction: async (fn) => fn(depot),
   };
   return {
     depot,
     curseurs,
+    identites,
     salons,
     abonnements,
     messages,
@@ -121,6 +126,44 @@ describe('rattraperGlobal', () => {
     assert.deepEqual(d.supprimesSalons, ['r-detruit']);
     assert.deepEqual(d.supprimesParSubId, ['sub-quitte']);
     assert.equal(d.curseurs.get('*|salons'), 1000, 'rien d’ingéré : le curseur ne bouge pas');
+  });
+
+  test('MA version d’avatar est rattrapée par `me` — le seul chemin après une app fermée', async () => {
+    // Photo changée depuis un autre client pendant que l'app dormait : aucun
+    // stream ne l'a annoncé. Sans cette lecture, l'ancienne photo resterait
+    // affichée jusqu'au prochain changement.
+    const d = fauxDepotComplet();
+    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const { client } = fauxClient({
+      'rooms.get': { update: [], remove: [] },
+      'subscriptions.get': { update: [], remove: [] },
+      me: { _id: 'u1', username: 'alice', avatarETag: 'etag-frais' },
+    });
+
+    await rattraperGlobal(client, moteur);
+
+    assert.deepEqual(d.identites, [{ uid: 'u1', username: 'alice', avatarEtag: 'etag-frais' }]);
+  });
+
+  test('un `me` en échec ne fait pas échouer le rattrapage', async () => {
+    const d = fauxDepotComplet();
+    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const client = new ClientRest('http://x', {
+      fetch: async (url) => {
+        const chemin = new URL(String(url)).pathname.split('/api/v1/')[1];
+        if (chemin === 'me') throw new Error('réseau coupé');
+        return new Response(JSON.stringify({ update: [{ _id: 'r1', t: 'c' }], remove: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      },
+      dormir: async () => {},
+    });
+
+    await rattraperGlobal(client, moteur);
+
+    assert.deepEqual(d.salons, ['r1'], 'les salons passent quand même');
+    assert.equal(d.identites.length, 0);
   });
 });
 

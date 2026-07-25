@@ -35,6 +35,13 @@ export const salons = sqliteTable(
     /** Aperçu du dernier message. `null` si le salon est chiffré. */
     dernierMessage: text('dernier_message'),
     horodatageDernierMessage: integer('horodatage_dernier_message'),
+    /**
+     * `avatarETag` : version de la photo du salon. Sans lui, `/avatar/room/<rid>`
+     * est une URI FIGÉE que le cache image d'Android sert éternellement — la
+     * photo changée côté serveur n'apparaît jamais. Injecté en query, il fait
+     * bouger l'URI à chaque changement (voir `lib/upload.ts#urlAvatar`).
+     */
+    avatarEtag: text('avatar_etag'),
     misAJourLe: integer('mis_a_jour_le').notNull().default(0),
   },
   (t) => [index('idx_salons_activite').on(t.horodatageDernierMessage)],
@@ -215,6 +222,14 @@ export const emojisCustom = sqliteTable('emojis_custom', {
 export const utilisateurs = sqliteTable('utilisateurs', {
   uid: text('uid').primaryKey(),
   username: text('username'),
+  /**
+   * `avatarETag` : version de la photo de profil, telle que le serveur la
+   * nomme. Même rôle que sur `salons` — c'est LUI qui fait changer l'URI
+   * d'avatar quand la photo change, sans quoi le cache image la fige à vie.
+   * Alimenté par le stream `updateAvatar`, par `me` au raccordement et par
+   * `users.info` à l'ouverture d'une fiche.
+   */
+  avatarEtag: text('avatar_etag'),
   /** `_updatedAt` du message qui a fixé ce pseudo : arbitre « le plus récent gagne ». */
   misAJourLe: integer('mis_a_jour_le').notNull().default(0),
 });

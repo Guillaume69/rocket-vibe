@@ -22,6 +22,7 @@ import { lireProfilPrecharge } from '../lib/profilPreload.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar } from '../lib/upload.ts';
 import { traduireCourant, useT } from '../ui/i18n.ts';
+import { useEtagsAvatars } from '../ui/identites.tsx';
 import { TuileAvatar } from '../ui/kit.tsx';
 import type { CleTraduction } from '../ui/messages.ts';
 import { useSession } from '../ui/session.tsx';
@@ -45,6 +46,12 @@ type Profil = {
   utcOffset: number | null;
   roles: string[];
   bio: string | null;
+  /**
+   * Version de sa photo. `users.info` est le SEUL rattrapage possible pour un
+   * avatar changé pendant que l'app était fermée : on la range en base au
+   * passage, pour que la liste et les messages en profitent aussi.
+   */
+  avatarEtag: string | null;
 };
 
 function chaine(v: unknown): string | null {
@@ -66,6 +73,7 @@ function profilDe(brut: Record<string, unknown> | undefined): Profil | null {
     utcOffset: typeof brut.utcOffset === 'number' ? brut.utcOffset : null,
     roles: Array.isArray(brut.roles) ? brut.roles.filter((r): r is string => typeof r === 'string') : [],
     bio: chaine(brut.bio) ?? chaine(brut.statusText),
+    avatarEtag: chaine(brut.avatarETag),
   };
 }
 
@@ -94,6 +102,7 @@ export default function EcranProfil() {
   const client: ClientRest | null = etat.phase === 'connecte' ? etat.client : null;
   const moi = etat.phase === 'connecte' ? etat.session.username : null;
   const moteur = synchro.phase === 'pret' ? synchro.moteur : null;
+  const etags = useEtagsAvatars();
 
   // Fiche préchargée AVANT l'ouverture (`lib/profilPreload`) : présente, on
   // démarre DÉJÀ avec le profil complet et la disponibilité d'appel connue → la
@@ -143,6 +152,23 @@ export default function EcranProfil() {
     };
   }, [client, username, uid, precharge]);
 
+  // Ce que la fiche vient d'apprendre profite au reste de l'app : pseudo courant
+  // et version de photo rangés en base, donc la liste des salons et les messages
+  // affichent la MÊME photo, tout de suite. Le SQL ne touche la ligne que si
+  // quelque chose a vraiment changé (voir `UPSERT_IDENTITE`).
+  useEffect(() => {
+    if (profil === null || moteur === null) return;
+    void moteur.depotSynchro
+      .enregistrerIdentite({
+        uid: profil.uid,
+        username: profil.username,
+        avatarEtag: profil.avatarEtag,
+      })
+      .catch(() => {
+        // Une base indisponible ne doit pas empêcher d'afficher la fiche.
+      });
+  }, [profil, moteur]);
+
   /** Ouvre (ou crée) le DM, puis y va — la sheet est REMPLACÉE par le salon. */
   const ouvrirDm = useCallback(
     async (versAppel: boolean) => {
@@ -187,8 +213,21 @@ export default function EcranProfil() {
   const usernameConnu = typeof username === 'string' && username !== '' ? username : null;
   const usernameAff = profil?.username ?? usernameConnu;
   const nomAff = profil?.nom ?? usernameAff ?? '';
+  // L'etag vient de la fiche fraîchement lue, sinon de la base (l'affichage
+  // reste alors identique à celui de la ligne de message d'où l'on vient — pas
+  // de photo qui saute d'une version à l'autre entre les deux écrans).
+  const etagConnu =
+    (usernameAff !== null ? etags.parUsername.get(usernameAff) : undefined) ??
+    (typeof uid === 'string' ? etags.parUid.get(uid) : undefined) ??
+    null;
   const avatarUri =
-    client !== null ? urlAvatar(client, { username: usernameAff, uid: uid ?? profil?.uid }) : null;
+    client !== null
+      ? urlAvatar(client, {
+          username: usernameAff,
+          uid: uid ?? profil?.uid,
+          etag: profil?.avatarEtag ?? etagConnu,
+        })
+      : null;
   const estMoi = usernameAff !== null && usernameAff === moi;
   const erreurAvantProfil = profil === null && erreur !== null;
 

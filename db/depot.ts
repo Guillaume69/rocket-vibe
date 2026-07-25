@@ -30,6 +30,10 @@ import {
   LIRE_CURSEUR,
   DERNIER_MESSAGE_MIS_A_JOUR,
   LISTER_CLES_SALON,
+  MAJ_AVATAR_SALON,
+  MAJ_AVATAR_UTILISATEUR,
+  UPSERT_IDENTITE,
+  paramsIdentite,
   MESSAGES_A_DECHIFFRER,
   MAJ_TEXTE_MESSAGE,
   MASQUER_MESSAGES_CHIFFRES,
@@ -111,6 +115,17 @@ export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot
     },
     async upsertSalon(s) {
       await brute.runAsync(UPSERT_SALON, paramsSalon(s));
+      // L'AUTRE d'un DM entre dans `utilisateurs` dès l'ingestion du salon, sans
+      // attendre qu'un de ses messages soit chargé : la liste montre sa photo, et
+      // le stream `updateAvatar` ne sait la rattacher qu'à une ligne existante
+      // (il ne désigne l'utilisateur que par son pseudo). Sans cela, l'avatar
+      // d'un DM jamais ouvert ne se rafraîchirait jamais.
+      if (s.dmAutreUid !== null && s.dmAutreUsername !== null) {
+        await brute.runAsync(
+          UPSERT_IDENTITE,
+          paramsIdentite({ uid: s.dmAutreUid, username: s.dmAutreUsername, avatarEtag: null }),
+        );
+      }
     },
     async upsertAbonnement(a) {
       await brute.runAsync(UPSERT_ABONNEMENT, paramsAbonnement(a));
@@ -204,6 +219,20 @@ export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot
     majApercuChiffre: () =>
       enSerie(async () => {
         await brute.runAsync(MAJ_APERCU_CHIFFRE);
+      }),
+    // Versions d'avatar. L'etag est passé deux fois : le SQL ne touche la ligne
+    // que s'il CHANGE (voir `MAJ_AVATAR_UTILISATEUR`).
+    majAvatarUtilisateur: (username, etag) =>
+      enSerie(async () => {
+        await brute.runAsync(MAJ_AVATAR_UTILISATEUR, [etag, username, etag]);
+      }),
+    majAvatarSalon: (rid, etag) =>
+      enSerie(async () => {
+        await brute.runAsync(MAJ_AVATAR_SALON, [etag, rid, etag]);
+      }),
+    enregistrerIdentite: (identite) =>
+      enSerie(async () => {
+        await brute.runAsync(UPSERT_IDENTITE, paramsIdentite(identite));
       }),
     transaction(fn) {
       // Un lot = un commit = UN événement de changement pour `useLiveQuery`,

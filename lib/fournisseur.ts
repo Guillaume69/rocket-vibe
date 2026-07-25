@@ -29,7 +29,14 @@ export type ChangementSync =
   | { type: 'abonnement'; doc: AbonnementLocal }
   | { type: 'suppr-message'; id: string }
   | { type: 'suppr-salon'; rid: string }
-  | { type: 'suppr-abonnement-par-sub'; subId: string };
+  | { type: 'suppr-abonnement-par-sub'; subId: string }
+  /**
+   * Nouvelle version de la photo d'un utilisateur (par pseudo) OU d'un salon
+   * (par rid) — l'une des deux clés, jamais les deux. `etag` est le
+   * cache-buster de l'URL d'avatar ; il vaut `AVATAR_SANS_PHOTO` quand la
+   * photo a été RETIRÉE, ce qui doit changer l'URI tout autant qu'un ajout.
+   */
+  | { type: 'avatar'; username: string | null; rid: string | null; etag: string };
 
 /**
  * Le type de serveur d'une session. Persisté avec elle : il décide quel driver

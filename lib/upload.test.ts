@@ -152,4 +152,29 @@ describe('urlAvatar', () => {
     const { client } = clientAuthentifie({});
     assert.equal(urlAvatar(client, { uid: null, username: '', rid: undefined }), null);
   });
+
+  test('la version de la photo entre dans l\'URI — sinon le cache image la fige à vie', () => {
+    // Le serveur ignore le paramètre ; c'est le CACHE d'Android qu'il vise. Sans
+    // lui, `/avatar/alice` reste identique après un changement de photo et
+    // l'ancienne image s'affiche pour toujours (aucun ETag HTTP côté serveur,
+    // relevé sur 8.5).
+    const { client } = clientAuthentifie({});
+    const avant = urlAvatar(client, { username: 'alice', etag: 'e1' });
+    const apres = urlAvatar(client, { username: 'alice', etag: 'e2' });
+    assert.match(avant ?? '', /\/avatar\/alice\?etag=e1&rc_uid=/);
+    assert.notEqual(avant, apres, 'une nouvelle version doit donner une nouvelle URI');
+  });
+
+  test('sans version connue, l\'URI reste celle d\'avant — rien ne régresse', () => {
+    const { client } = clientAuthentifie({});
+    assert.equal(
+      urlAvatar(client, { username: 'alice', etag: null }),
+      urlAvatar(client, { username: 'alice' }),
+    );
+  });
+
+  test('la version d\'un salon est encodée elle aussi', () => {
+    const { client } = clientAuthentifie({});
+    assert.match(urlAvatar(client, { rid: 'r 1', etag: 'a/b' }) ?? '', /\/avatar\/room\/r%201\?etag=a%2Fb&/);
+  });
 });

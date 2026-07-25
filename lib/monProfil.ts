@@ -41,8 +41,11 @@ function chaine(v: unknown): string {
 }
 
 type ReponseMe = {
+  _id?: unknown;
   username?: unknown;
   name?: unknown;
+  /** Version de MA photo de profil — cache-buster de l'URL d'avatar. */
+  avatarETag?: unknown;
   /** Présence LIVE (fluctue avec la connexion) — pas ce qu'on édite. */
   status?: unknown;
   /** Statut CHOISI (sticky) — ce que l'éditeur doit refléter. */
@@ -80,6 +83,26 @@ export function profilDepuisMe(brut: ReponseMe): MonProfil {
 
 export function lireMonProfil(client: ClientRest): Promise<MonProfil> {
   return client.get<ReponseMe>('me').then(profilDepuisMe);
+}
+
+/**
+ * Mon identité telle que la base locale la range : uid, pseudo courant, et
+ * version de ma photo. C'est le SEUL rattrapage possible d'un avatar changé
+ * pendant que l'app était fermée — aucun stream n'a pu l'annoncer. `me` la
+ * porte sans requête supplémentaire dédiée (vérifié sur 8.5).
+ */
+export type MonIdentite = { uid: string; username: string; avatarEtag: string | null };
+
+export function identiteDepuisMe(brut: ReponseMe): MonIdentite | null {
+  const uid = chaine(brut._id);
+  const username = chaine(brut.username);
+  if (uid === '' || username === '') return null;
+  const etag = chaine(brut.avatarETag);
+  return { uid, username, avatarEtag: etag === '' ? null : etag };
+}
+
+export function lireMonIdentite(client: ClientRest): Promise<MonIdentite | null> {
+  return client.get<ReponseMe>('me').then(identiteDepuisMe);
 }
 
 /**

@@ -134,6 +134,7 @@ function ContenuSalonInfo({
           chiffreDeverrouille={deverrouille}
           rid={salon?.rid}
           dmAutreUid={salon?.dmAutreUid}
+          avatarEtag={salon?.avatarEtag}
           client={client}
           taille={72}
           rayon={22}

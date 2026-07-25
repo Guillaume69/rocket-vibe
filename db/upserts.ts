@@ -59,8 +59,8 @@ WHERE excluded.mis_a_jour_le >= messages.mis_a_jour_le
 export const UPSERT_SALON = `
 INSERT INTO salons (
   rid, type, nom, nom_affiche, chiffre, lecture_seule, dm_autre_uid,
-  dernier_message, horodatage_dernier_message, mis_a_jour_le
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  dernier_message, horodatage_dernier_message, avatar_etag, mis_a_jour_le
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(rid) DO UPDATE SET
   type = excluded.type,
   nom = COALESCE(excluded.nom, salons.nom),
@@ -70,6 +70,11 @@ ON CONFLICT(rid) DO UPDATE SET
   dm_autre_uid = COALESCE(excluded.dm_autre_uid, salons.dm_autre_uid),
   dernier_message = COALESCE(excluded.dernier_message, salons.dernier_message),
   horodatage_dernier_message = COALESCE(excluded.horodatage_dernier_message, salons.horodatage_dernier_message),
+  -- COALESCE aussi ici, et pour une raison PARTICULIÈRE : un etag écrasé par
+  -- null ferait retomber l'URL d'avatar sur sa forme sans query — celle que le
+  -- cache image tient déjà avec l'ANCIENNE photo. Le stream updateAvatar est
+  -- souvent plus frais que le document Rooms qui suit.
+  avatar_etag = COALESCE(excluded.avatar_etag, salons.avatar_etag),
   mis_a_jour_le = excluded.mis_a_jour_le
 WHERE excluded.mis_a_jour_le >= salons.mis_a_jour_le
 `;
@@ -120,6 +125,47 @@ ON CONFLICT(uid) DO UPDATE SET
   mis_a_jour_le = excluded.mis_a_jour_le
 WHERE excluded.mis_a_jour_le >= utilisateurs.mis_a_jour_le
   AND excluded.username IS NOT utilisateurs.username
+`;
+
+/**
+ * Identité venue d'une source AUTORITAIRE (`me` au raccordement, `users.info` à
+ * l'ouverture d'une fiche) : pseudo courant ET version d'avatar, par uid.
+ *
+ * Trois écarts assumés avec `UPSERT_UTILISATEUR` :
+ *  - `mis_a_jour_le` n'est ni lu ni écrit : ces réponses ne portent pas toutes
+ *    un `_updatedAt`, et arbitrer sur l'horloge LOCALE mêlerait deux temps.
+ *    L'insertion pose 0 — le plus petit — pour qu'un message ultérieur garde la
+ *    main sur le pseudo ;
+ *  - `COALESCE` sur l'etag : `users.info` l'OMET quand l'utilisateur n'a pas de
+ *    photo, ce qui ne doit pas effacer celui qu'on connaît (voir UPSERT_SALON) ;
+ *  - le `WHERE` ne laisse passer qu'un VRAI changement : sans lui, chaque
+ *    ouverture de fiche toucherait la table et re-rendrait toutes les lignes
+ *    abonnées à `utilisateurs`.
+ */
+export const UPSERT_IDENTITE = `
+INSERT INTO utilisateurs (uid, username, avatar_etag, mis_a_jour_le) VALUES (?, ?, ?, 0)
+ON CONFLICT(uid) DO UPDATE SET
+  username = excluded.username,
+  avatar_etag = COALESCE(excluded.avatar_etag, utilisateurs.avatar_etag)
+WHERE excluded.username IS NOT utilisateurs.username
+   OR COALESCE(excluded.avatar_etag, utilisateurs.avatar_etag) IS NOT utilisateurs.avatar_etag
+`;
+
+/**
+ * Version d'avatar poussée par le stream `updateAvatar`, qui désigne sa cible
+ * par le PSEUDO (jamais par l'uid) pour un utilisateur, par le `rid` pour un
+ * salon. Un utilisateur encore inconnu localement ne touche aucune ligne : son
+ * avatar n'est affiché nulle part, et la première fiche ouverte le posera.
+ *
+ * L'etag est passé DEUX fois : la garde `IS NOT` évite une écriture inutile,
+ * donc un rejeu de toutes les requêtes vives assises sur la table.
+ */
+export const MAJ_AVATAR_UTILISATEUR = `
+UPDATE utilisateurs SET avatar_etag = ? WHERE username = ? AND avatar_etag IS NOT ?
+`;
+
+export const MAJ_AVATAR_SALON = `
+UPDATE salons SET avatar_etag = ? WHERE rid = ? AND avatar_etag IS NOT ?
 `;
 
 /** Clés de salon connues, pour la passe de déchiffrement E2EE au déverrouillage. */
@@ -277,6 +323,14 @@ export function paramsUtilisateur(u: {
   return [u.uid, u.username, u.misAJourLe];
 }
 
+export function paramsIdentite(i: {
+  uid: string;
+  username: string;
+  avatarEtag: string | null;
+}): Parametre[] {
+  return [i.uid, i.username, i.avatarEtag];
+}
+
 export function paramsMessage(m: MessageLocal): Parametre[] {
   return [
     m.id,
@@ -312,6 +366,7 @@ export function paramsSalon(s: SalonLocal): Parametre[] {
     s.dmAutreUid,
     s.dernierMessage,
     s.horodatageDernierMessage,
+    s.avatarEtag,
     s.misAJourLe,
   ];
 }

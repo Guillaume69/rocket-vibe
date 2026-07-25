@@ -58,6 +58,25 @@ export interface Depot {
   messagesADechiffrer(): Promise<{ id: string; rid: string; chiffreBrut: string }[]>;
   /** Pose le clair d'un message après déchiffrement au déverrouillage. */
   majTexteMessage(id: string, texte: string): Promise<void>;
+  /**
+   * Pose la version d'avatar (`avatarETag`) d'un utilisateur, désigné par son
+   * PSEUDO — c'est la seule clé que porte le stream. Sans effet sur un pseudo
+   * inconnu localement.
+   */
+  majAvatarUtilisateur(username: string, etag: string): Promise<void>;
+  /** Idem pour un salon, désigné par son `rid`. */
+  majAvatarSalon(rid: string, etag: string): Promise<void>;
+  /**
+   * Identité autoritaire (`me`, `users.info`) : pseudo courant et version
+   * d'avatar d'un uid. C'est le seul chemin qui puisse CRÉER la ligne d'un
+   * utilisateur qui n'a encore posté aucun message — mon propre compte, le
+   * plus souvent.
+   */
+  enregistrerIdentite(identite: {
+    uid: string;
+    username: string;
+    avatarEtag: string | null;
+  }): Promise<void>;
   /** Re-masque le clair de tous les messages chiffrés (au verrouillage). */
   masquerMessagesChiffres(): Promise<void>;
   /** Rafraîchit l'aperçu de liste des salons chiffrés (dernier message déchiffré). */
@@ -227,6 +246,16 @@ export class MoteurSynchro {
       case 'suppr-abonnement-par-sub':
         await this.depot.supprimerParSubId(changement.subId);
         this.stats.suppressions++;
+        return;
+      case 'avatar':
+        // Ni compté ni ignoré : ce n'est pas un document, juste la version
+        // d'une photo. Une cible sans pseudo NI rid n'existe pas côté serveur.
+        if (changement.username !== null) {
+          await this.depot.majAvatarUtilisateur(changement.username, changement.etag);
+        }
+        if (changement.rid !== null) {
+          await this.depot.majAvatarSalon(changement.rid, changement.etag);
+        }
         return;
     }
   }

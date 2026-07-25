@@ -31,7 +31,7 @@ import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar, urlFichierProtege } from '../lib/upload.ts';
 import { LiensEmbed } from './carteEmbed.tsx';
 import { ApercusLien } from './carteLien.tsx';
-import { useIdentites } from './identites.tsx';
+import { useEtagsAvatars, useIdentites } from './identites.tsx';
 import { useT } from './i18n.ts';
 import { TuileAvatar } from './kit.tsx';
 import { LecteurAudio } from './lecteurAudio.tsx';
@@ -75,6 +75,7 @@ export const LigneMessage = memo(function LigneMessage({
   // tenue à jour, donne le pseudo courant ; on retombe sur l'instantané tant
   // qu'un uid n'y est pas encore connu (premier rendu, hors-ligne).
   const identites = useIdentites();
+  const etags = useEtagsAvatars();
   const t = useT();
   const auteur = (identites.get(message.auteurId) ?? message.auteurNom) ?? '?';
   // Le pseudo prend la première teinte de sa propre tuile-avatar : nom et
@@ -130,9 +131,15 @@ export const LigneMessage = memo(function LigneMessage({
             // reste de l'app (par `/avatar/<username>`) affiche le courant. Le
             // username courant fait bouger l'URI au renommage → le cache se
             // rafraîchit et reste cohérent avec l'écran profil.
+            // L'`etag` (version de la photo) est ce qui rafraîchit l'image
+            // quand la personne change d'avatar : par pseudo si on le connaît,
+            // par uid sinon — les deux index pointent la même version.
             uri={urlAvatar(client, {
               username: identites.get(message.auteurId),
               uid: message.auteurId,
+              etag:
+                etags.parUsername.get(identites.get(message.auteurId) ?? '') ??
+                etags.parUid.get(message.auteurId),
             })}
             taille={34}
             rayon={12}

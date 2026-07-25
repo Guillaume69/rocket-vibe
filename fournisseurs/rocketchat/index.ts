@@ -25,7 +25,7 @@ import type { DepotEnvoi } from '../../lib/envoi.ts';
 import type { DepotTeleversements } from '../../lib/envoiFichiers.ts';
 import type { TransportUpload } from '../../lib/upload.ts';
 import { ActionsRC } from './actions.ts';
-import { TraducteurRC } from './traducteur.ts';
+import { EVENEMENT_AVATAR, TraducteurRC } from './traducteur.ts';
 
 function urlWebSocket(baseUrl: string): string {
   return `${baseUrl.replace(/^http/i, 'ws')}/websocket`;
@@ -50,6 +50,10 @@ export function creerFournisseurRC(
         [STREAM_NOTIFY_USER, `${session.userId}/subscriptions-changed`],
         [STREAM_NOTIFY_USER, `${session.userId}/rooms-changed`],
         [STREAM_NOTIFY_LOGGED, EVENEMENT_PRESENCE],
+        // Photos de profil et de salon : le serveur diffuse la nouvelle version
+        // (`etag`) à TOUS les connectés. Sans cet abonnement, un avatar changé
+        // reste figé jusqu'au prochain `me`/`users.info` — voir `urlAvatar`.
+        [STREAM_NOTIFY_LOGGED, EVENEMENT_AVATAR],
       ];
     },
     creerEnvoi(depot: DepotEnvoi, ingerer: Ingerer): Outbox {

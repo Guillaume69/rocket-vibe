@@ -26,6 +26,7 @@ import {
   enregistrerStatut,
   exigeMotDePasse,
   type InfosDeBase,
+  lireMonIdentite,
   lireMonProfil,
   type MonProfil,
   type StatutDefaut,
@@ -38,7 +39,9 @@ import { VueEvitantLeClavier } from '../ui/clavier.tsx';
 import { traduireCourant, useT } from '../ui/i18n.ts';
 import { BoutonPrincipal, ChampPilule, TuileAvatar } from '../ui/kit.tsx';
 import type { CleTraduction } from '../ui/messages.ts';
+import { useEtagsAvatars } from '../ui/identites.tsx';
 import { useSession } from '../ui/session.tsx';
+import { useSynchro } from '../ui/synchro.tsx';
 import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
 import { transportAvatarExpo } from '../ui/transportUpload.ts';
 
@@ -74,6 +77,12 @@ function FormMonProfil({
   const t = useT();
   const routeur = useRouter();
   const { majProfilSession } = useSession();
+  const synchro = useSynchro();
+  // Le dépôt local, pour y ranger la version de ma photo après l'avoir changée.
+  // `null` tant que la base n'est pas prête — l'enregistrement marche quand même,
+  // le rattrapage du prochain raccordement (`me`) posera l'etag.
+  const depot = synchro.phase === 'pret' ? synchro.moteur.depotSynchro : null;
+  const etags = useEtagsAvatars();
   // `initial` = référence lue au chargement ; `form` = valeurs en cours d'édition.
   // Le diff des deux décide quels endpoints appeler. Après un enregistrement
   // réussi, `form` DEVIENT la nouvelle référence (le diff repart à zéro).
@@ -170,6 +179,18 @@ function FormMonProfil({
         // jusqu'à une reconnexion.
         if (infos.username !== undefined) await majProfilSession({ username: infos.username });
 
+        // La nouvelle VERSION de la photo (`avatarETag`), relue à la source et
+        // rangée en base : c'est elle qui fait bouger l'URI d'avatar partout
+        // ailleurs (liste des salons, messages, Paramètres) — sans quoi le cache
+        // image d'Android continuerait de servir l'ancienne photo. Le stream
+        // `updateAvatar` le dirait aussi, mais on ne fait pas dépendre le retour
+        // visuel d'une socket qui peut être tombée. Best-effort : la photo est
+        // déjà enregistrée côté serveur, l'échec ici ne remet rien en cause.
+        if ((avatarChange || infos.username !== undefined) && depot !== null) {
+          const moi = await lireMonIdentite(client).catch(() => null);
+          if (moi !== null) await depot.enregistrerIdentite(moi).catch(() => {});
+        }
+
         setInitial(form);
         setAvatarLocal(null);
         setDemande2FA(null);
@@ -194,7 +215,7 @@ function FormMonProfil({
         setOccupe(false);
       }
     },
-    [form, initial, avatarLocal, motDePasse, client, majProfilSession, t],
+    [form, initial, avatarLocal, motDePasse, client, depot, majProfilSession, t],
   );
 
   const validerCode = useCallback(async () => {
@@ -233,7 +254,8 @@ function FormMonProfil({
   }
 
   const besoinMdp = form.email !== initial?.email || form.username !== initial?.username;
-  const avatarUri = avatarLocal?.uri ?? urlAvatar(client, { username });
+  const avatarUri =
+    avatarLocal?.uri ?? urlAvatar(client, { username, etag: etags.parUsername.get(username) });
 
   return (
     <VueEvitantLeClavier>

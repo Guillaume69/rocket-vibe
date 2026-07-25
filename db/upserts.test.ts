@@ -15,17 +15,21 @@ import {
   PURGER_ABONNEMENTS_ABSENTS,
   PURGER_MESSAGES_ABSENTS,
   PURGER_SALONS_ABSENTS,
+  MAJ_AVATAR_SALON,
+  MAJ_AVATAR_UTILISATEUR,
   SUPPRIMER_MESSAGE,
   SUPPRIMER_MESSAGE_OPTIMISTE,
   SUPPRIMER_SORTIE,
   UPSERT_ABONNEMENT,
   UPSERT_CURSEUR,
+  UPSERT_IDENTITE,
   UPSERT_MESSAGE,
   UPSERT_SALON,
   UPSERT_UTILISATEUR,
   VIDER_EMOJIS_CUSTOM,
   paramsAbonnement,
   paramsEmojiCustom,
+  paramsIdentite,
   paramsMessage,
   paramsSalon,
   paramsUtilisateur,
@@ -88,8 +92,10 @@ function salon(o: Partial<SalonLocal> & { rid: string; misAJourLe: number }) {
     chiffre: false,
     lectureSeule: false,
     dmAutreUid: null,
+    dmAutreUsername: null,
     dernierMessage: null,
     horodatageDernierMessage: null,
+    avatarEtag: null,
     ...o,
   });
 }
@@ -449,5 +455,61 @@ describe('identités (uid → pseudo courant)', () => {
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', auteurId: 'u9', auteurNom: 'bob', misAJourLe: 300 }));
     db.prepare(UPSERT_UTILISATEUR).run(...util('u9', 'bob', 300));
     assert.deepEqual(ligne(db.prepare(q).get('u9')), { username: 'bob', mis_a_jour_le: 300 });
+  });
+});
+
+describe('versions d’avatar', () => {
+  const lireUtil = 'SELECT username, avatar_etag FROM utilisateurs WHERE uid = ?';
+  const lireSalon = 'SELECT avatar_etag FROM salons WHERE rid = ?';
+
+  test('le stream pose la version par PSEUDO, pas par uid', () => {
+    db.prepare(UPSERT_UTILISATEUR).run(...paramsUtilisateur({ uid: 'u1', username: 'alice', misAJourLe: 1 }));
+    db.prepare(MAJ_AVATAR_UTILISATEUR).run('e1', 'alice', 'e1');
+    assert.deepEqual(ligne(db.prepare(lireUtil).get('u1')), {
+      username: 'alice',
+      avatar_etag: 'e1',
+    });
+  });
+
+  test('un pseudo inconnu ne crée rien — sa photo n’est affichée nulle part', () => {
+    db.prepare(MAJ_AVATAR_UTILISATEUR).run('e1', 'fantome', 'e1');
+    const n = db.prepare('SELECT COUNT(*) AS n FROM utilisateurs').get() as { n: number };
+    assert.equal(n.n, 0);
+  });
+
+  test('l’identité autoritaire CRÉE la ligne (mon compte, qui n’a rien posté)', () => {
+    db.prepare(UPSERT_IDENTITE).run(...paramsIdentite({ uid: 'moi', username: 'guy', avatarEtag: 'e7' }));
+    assert.deepEqual(ligne(db.prepare(lireUtil).get('moi')), { username: 'guy', avatar_etag: 'e7' });
+  });
+
+  test('`users.info` SANS avatarETag n’efface pas la version connue', () => {
+    // Le champ est absent quand la personne n'a pas de photo — et absent aussi
+    // des réponses partielles. L'effacer ferait retomber l'URL sur sa forme
+    // d'origine, que le cache image sert avec l'ANCIENNE photo.
+    db.prepare(UPSERT_IDENTITE).run(...paramsIdentite({ uid: 'u1', username: 'alice', avatarEtag: 'e1' }));
+    db.prepare(UPSERT_IDENTITE).run(...paramsIdentite({ uid: 'u1', username: 'alice', avatarEtag: null }));
+    assert.deepEqual(ligne(db.prepare(lireUtil).get('u1')), { username: 'alice', avatar_etag: 'e1' });
+  });
+
+  test('un salon garde sa version quand le document Rooms ne la porte pas', () => {
+    db.prepare(UPSERT_SALON).run(...salon({ rid: 'r1', misAJourLe: 100, avatarEtag: 'e1' }));
+    db.prepare(UPSERT_SALON).run(...salon({ rid: 'r1', misAJourLe: 200 }));
+    assert.deepEqual(ligne(db.prepare(lireSalon).get('r1')), { avatar_etag: 'e1' });
+  });
+
+  test('le stream met à jour la version d’un salon', () => {
+    db.prepare(UPSERT_SALON).run(...salon({ rid: 'r1', misAJourLe: 100, avatarEtag: 'e1' }));
+    db.prepare(MAJ_AVATAR_SALON).run('e2', 'r1', 'e2');
+    assert.deepEqual(ligne(db.prepare(lireSalon).get('r1')), { avatar_etag: 'e2' });
+  });
+
+  test('une version INCHANGÉE ne touche pas la ligne', () => {
+    // Sans cette garde, chaque rediffusion réveillerait toutes les requêtes
+    // vives assises sur la table — donc re-rendrait la liste entière.
+    db.prepare(UPSERT_SALON).run(...salon({ rid: 'r1', misAJourLe: 100, avatarEtag: 'e1' }));
+    const compter = () => (db.prepare('SELECT total_changes() AS n').get() as { n: number }).n;
+    const avant = compter();
+    db.prepare(MAJ_AVATAR_SALON).run('e1', 'r1', 'e1');
+    assert.equal(compter(), avant, 'aucune écriture');
   });
 });

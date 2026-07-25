@@ -15,6 +15,7 @@
  * locale, qui peut mentir — et ne régressent jamais (garanti par le SQL).
  */
 
+import { lireMonIdentite } from './monProfil.ts';
 import type { ClientRest } from './rest.ts';
 import type { MoteurSynchro } from './sync.ts';
 
@@ -36,18 +37,25 @@ export async function rattraperGlobal(
     depot.lireCurseur('*', 'abonnements'),
   ]);
 
-  const [salons, abonnements] = await Promise.all([
+  const [salons, abonnements, moi] = await Promise.all([
     client.get<ReponseDelta>('rooms.get', {
       params: { updatedSince: depuisSalons === null ? undefined : iso(depuisSalons) },
     }),
     client.get<ReponseDelta>('subscriptions.get', {
       params: { updatedSince: depuisAbonnements === null ? undefined : iso(depuisAbonnements) },
     }),
+    // MA fiche : `me` porte `avatarETag`, seul moyen de rattraper une photo
+    // changée pendant que l'app était fermée (aucun stream n'a pu l'annoncer).
+    // En parallèle des deux deltas, donc sans allonger le rattrapage, et
+    // best-effort : mon avatar ne vaut pas d'échouer une resynchronisation.
+    lireMonIdentite(client).catch(() => null),
   ]);
 
   // Une réponse qui atterrit après la déconnexion n'écrit pas dans la base
   // d'une session terminée.
   if (estAbandonne()) return;
+
+  if (moi !== null) await depot.enregistrerIdentite(moi);
 
   const recentSalons = await moteur.ingererSalons(salons.update ?? []);
   for (const retire of salons.remove ?? []) {

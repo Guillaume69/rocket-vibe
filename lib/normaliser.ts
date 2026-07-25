@@ -63,8 +63,18 @@ export type SalonLocal = {
   lectureSeule: boolean;
   /** L'autre participant d'un DM à deux — voir `versSalon`. */
   dmAutreUid: string | null;
+  /**
+   * Son PSEUDO. **Transporté, pas stocké dans `salons`** : il sert au dépôt à
+   * inscrire l'autre dans `utilisateurs` (uid ↔ pseudo). Sans cette ligne,
+   * l'événement `updateAvatar` — qui ne désigne l'utilisateur QUE par son
+   * pseudo — ne trouve rien à mettre à jour, et l'avatar du DM reste figé :
+   * la liste des salons affiche des gens dont aucun message n'a été ingéré.
+   */
+  dmAutreUsername: string | null;
   dernierMessage: string | null;
   horodatageDernierMessage: number | null;
+  /** `avatarETag` : version de la photo du salon, cache-buster de son URL. */
+  avatarEtag: string | null;
   misAJourLe: number;
 };
 
@@ -195,6 +205,18 @@ export function versSalon(
     }
   }
 
+  // Le PSEUDO de l'autre, apparié au même endroit et par la même règle que son
+  // uid (« celui des deux qui n'est pas moi ») — surtout PAS par index, les deux
+  // tableaux ne sont pas alignés. Il ne se déduit pas de `nomAffiche`, qui peut
+  // être un nom réel (`fname`) quand le serveur en pose un.
+  let dmAutreUsername: string | null = null;
+  if (dmAutreUid !== null && Array.isArray(brut.usernames)) {
+    const noms = brut.usernames.filter((u): u is string => typeof u === 'string' && u !== '');
+    if (noms.length <= 2) {
+      dmAutreUsername = noms.find((u) => u !== moi) ?? (noms.length === 1 ? noms[0] : null);
+    }
+  }
+
   return {
     rid,
     type,
@@ -203,9 +225,14 @@ export function versSalon(
     chiffre,
     lectureSeule: booleen(brut.ro),
     dmAutreUid,
+    dmAutreUsername,
     // L'aperçu d'un salon chiffré est du ciphertext : jamais affiché.
     dernierMessage: chiffre ? null : chaine(dernier?.msg),
     horodatageDernierMessage: versEpoch(dernier?.ts) ?? versEpoch(brut.lm),
+    // Absent tant que le salon n'a pas de photo, et absent des documents
+    // partiels : `null` veut dire « rien à dire », jamais « efface » (le
+    // COALESCE de `UPSERT_SALON` le garantit).
+    avatarEtag: chaine(brut.avatarETag),
     misAJourLe: versEpoch(brut._updatedAt) ?? 0,
   };
 }

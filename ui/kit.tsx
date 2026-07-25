@@ -34,6 +34,7 @@ import Animated, {
 
 import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar } from '../lib/upload.ts';
+import { useEtagsAvatars } from './identites.tsx';
 import { type Couleurs, degradeAvatar, type Degrade, POLICES } from './theme.ts';
 
 const DEBUT = { x: 0, y: 0 } as const;
@@ -189,6 +190,7 @@ export function AvatarSalon({
   chiffreDeverrouille = false,
   rid,
   dmAutreUid,
+  avatarEtag,
   client,
   taille = 44,
   rayon = 15,
@@ -202,10 +204,17 @@ export function AvatarSalon({
   rid: string | undefined;
   /** L'autre participant d'un DM à deux, pour viser sa photo par uid. */
   dmAutreUid: string | null | undefined;
+  /**
+   * `avatarETag` du SALON (colonne `salons.avatar_etag`), sans quoi l'URI de sa
+   * photo ne bougerait jamais. Pour un DM, c'est la photo de l'AUTRE qui est
+   * affichée : son etag se lit ici même, par uid.
+   */
+  avatarEtag?: string | null;
   client: ClientRest;
   taille?: number;
   rayon?: number;
 }) {
+  const etags = useEtagsAvatars();
   // Salon chiffré VERROUILLÉ : tuile grise + cadenas fermé (illisible).
   // Déverrouillé : on retombe sur le rendu ORDINAIRE (tuile colorée, `#` ou
   // avatar) — le salon est lisible, il ressemble à un salon lisible. `🔓` vs
@@ -224,7 +233,15 @@ export function AvatarSalon({
   const estDM = type === 'd';
   // DM : la photo de l'autre par uid (on n'a pas son pseudo) ; canal/groupe :
   // l'avatar de salon. Absent → SVG côté serveur → repli sur la tuile.
-  const uri = urlAvatar(client, estDM ? { uid: dmAutreUid } : { rid });
+  const uri = urlAvatar(
+    client,
+    estDM
+      ? {
+          uid: dmAutreUid,
+          etag: typeof dmAutreUid === 'string' ? etags.parUid.get(dmAutreUid) : null,
+        }
+      : { rid, etag: avatarEtag },
+  );
   return (
     <TuileAvatar
       c={c}

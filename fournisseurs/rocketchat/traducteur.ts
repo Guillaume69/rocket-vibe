@@ -19,7 +19,16 @@ import {
   type MessageLocal,
   type SalonLocal,
 } from '../../lib/normaliser.ts';
+import { EVENEMENT_PRESENCE, STREAM_NOTIFY_LOGGED } from '../../lib/presence.ts';
 import { STREAM_MESSAGES, STREAM_NOTIFY_ROOM, STREAM_NOTIFY_USER } from '../../lib/sync.ts';
+import { AVATAR_SANS_PHOTO } from '../../lib/upload.ts';
+
+/**
+ * Changement de photo, utilisateur ou salon : `args = [{username, etag}]` ou
+ * `[{rid, etag}]` (relevé par sonde sur 8.5). L'`etag` MANQUE quand la photo
+ * est retirée — voir `AVATAR_SANS_PHOTO`.
+ */
+export const EVENEMENT_AVATAR = 'updateAvatar';
 
 const IGNORE: Traduction = { sorte: 'ignore' };
 const SILENCE: Traduction = { sorte: 'silence' };
@@ -62,6 +71,15 @@ export class TraducteurRC implements Traducteur {
         if (sujet === 'subscriptions-changed') return this.traduireAbonnement(evenement);
         if (sujet === 'rooms-changed') return this.traduireSalon(evenement);
         return IGNORE;
+      }
+
+      case STREAM_NOTIFY_LOGGED: {
+        // La présence transite par le MÊME stream, mais elle est volatile et
+        // traitée par `MoteurPresence` : silence, pas anomalie — sinon chaque
+        // aller-retour d'un contact gonflerait le compteur d'ignorés.
+        if (evenement.cleEvenement === EVENEMENT_PRESENCE) return SILENCE;
+        if (evenement.cleEvenement !== EVENEMENT_AVATAR) return IGNORE;
+        return traduireAvatar(evenement);
       }
 
       case STREAM_NOTIFY_ROOM: {
@@ -108,6 +126,24 @@ export class TraducteurRC implements Traducteur {
     const salon = versSalon(document, this.moi, this.moiUid);
     return salon === null ? IGNORE : { sorte: 'changement', changement: { type: 'salon', doc: salon } };
   }
+}
+
+/**
+ * `updateAvatar` : une seule des deux clés est présente. L'`etag` absent
+ * signale un avatar RETIRÉ (`users.resetAvatar`) — on pose alors le marqueur
+ * `AVATAR_SANS_PHOTO` plutôt que rien, pour que l'URI change quand même.
+ */
+function traduireAvatar(evenement: Evenement): Traduction {
+  const document = objetOuNull(evenement.args[0]);
+  if (document === null) return IGNORE;
+  const username = typeof document.username === 'string' ? document.username : null;
+  const rid = typeof document.rid === 'string' ? document.rid : null;
+  if (username === null && rid === null) return IGNORE;
+  const etag = typeof document.etag === 'string' && document.etag !== '' ? document.etag : null;
+  return {
+    sorte: 'changement',
+    changement: { type: 'avatar', username, rid, etag: etag ?? AVATAR_SANS_PHOTO },
+  };
 }
 
 function objetOuNull(v: unknown): Record<string, unknown> | null {

@@ -12,6 +12,7 @@ import m0007 from './0007_bright_sersi.sql';
 import m0008 from './0008_panoramic_molly_hayes.sql';
 import m0009 from './0009_rainy_the_santerians.sql';
 import m0010 from './0010_dry_korvac.sql';
+import m0011 from './0011_safe_mach_iv.sql';
 
   export default {
     journal,
@@ -26,7 +27,8 @@ m0006,
 m0007,
 m0008,
 m0009,
-m0010
+m0010,
+m0011
     }
   }
   

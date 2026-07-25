@@ -141,6 +141,16 @@ export function urlFichierProtege(client: ClientRest, chemin: string): string {
 }
 
 /**
+ * Valeur d'`etag` posée quand la photo a été RETIRÉE (`users.resetAvatar` :
+ * l'événement `updateAvatar` arrive alors SANS etag, vérifié sur 8.5). Retirer
+ * une photo doit changer l'URI autant qu'en poser une : sans ça, l'URL
+ * retomberait sur sa forme d'avant, que le cache image sert encore avec
+ * l'ancienne photo. Une constante suffit — l'URL correspondante rend un SVG,
+ * que `<Image>` refuse, donc la tuile dégradée reprend sa place.
+ */
+export const AVATAR_SANS_PHOTO = 'sans-photo';
+
+/**
  * URL d'avatar authentifiée. Le serveur cible a
  * `Accounts_AvatarBlockUnauthenticatedAccess = true` : sans `rc_uid`/`rc_token`
  * l'avatar répond 404/403 (vérifié sur 8.5). Rend `null` quand rien ne désigne
@@ -149,22 +159,31 @@ export function urlFichierProtege(client: ClientRest, chemin: string): string {
  * Astuce clef : Rocket.Chat sert une VRAIE image (`image/png`, `image/jpeg`)
  * quand une photo existe, mais un SVG généré à initiales (`image/svg+xml`)
  * sinon. `<Image>` d'Android (Fresco) ne décode pas le SVG et déclenche son
- * `onError` : ce seul signal distingue « pas de photo » de « photo », sans
- * qu'on ait à synchroniser le moindre `avatarETag`.
+ * `onError` : ce seul signal distingue « pas de photo » de « photo ».
  *
- * `username` prime sur `uid` quand les deux sont fournis. Viser par `uid` seul
- * (DM : `dmAutreUid`) donne une URI STABLE, jamais 404 — mais que le cache image
- * RN fige : elle ne bouge pas au renommage NI au changement de photo. Viser par
- * le pseudo COURANT (messages : le username résolu par `ui/identites`) fait
- * bouger l'URI au renommage, ce qui rafraîchit l'avatar affiché ; l'appelant
- * garde l'uid en repli pour les instants où le pseudo courant n'est pas connu.
- * `rid` sert l'avatar d'un canal.
+ * `username` prime sur `uid` quand les deux sont fournis ; `rid` sert l'avatar
+ * d'un canal.
+ *
+ * **`etag` n'est pas un ornement.** `/avatar/<qui>` est une URI STABLE : le
+ * cache image d'Android (Fresco) la garde indéfiniment, sans revalidation — le
+ * serveur répond pourtant `Cache-Control: public, max-age=3600` et AUCUN
+ * `ETag` HTTP (relevé sur 8.5). Changer sa photo ne changeait donc rien à
+ * l'écran, pour toujours. L'`avatarETag` du serveur, ajouté en query (le
+ * serveur ignore le paramètre), fait bouger l'URI à chaque version : c'est LUI
+ * qui rafraîchit l'affichage. Il vient de la base locale (`utilisateurs`,
+ * `salons`), alimentée par le stream `updateAvatar`, par `me` et par
+ * `users.info` — voir `ui/identites.tsx`.
  */
 export function urlAvatar(
   client: ClientRest,
-  cible: { uid?: string | null; username?: string | null; rid?: string | null },
+  cible: {
+    uid?: string | null;
+    username?: string | null;
+    rid?: string | null;
+    etag?: string | null;
+  },
 ): string | null {
-  const { uid, username, rid } = cible;
+  const { uid, username, rid, etag } = cible;
   let chemin: string;
   if (typeof username === 'string' && username !== '') {
     chemin = `/avatar/${encodeURIComponent(username)}`;
@@ -174,6 +193,9 @@ export function urlAvatar(
     chemin = `/avatar/room/${encodeURIComponent(rid)}`;
   } else {
     return null;
+  }
+  if (typeof etag === 'string' && etag !== '') {
+    chemin += `?etag=${encodeURIComponent(etag)}`;
   }
   return urlFichierProtege(client, chemin);
 }

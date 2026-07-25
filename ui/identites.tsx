@@ -1,5 +1,10 @@
 /**
- * Résolution `uid → pseudo COURANT` pour l'affichage des auteurs de messages.
+ * Résolution `uid → pseudo COURANT` pour l'affichage des auteurs de messages,
+ * et `qui → version de sa photo` (`avatarETag`) pour l'affichage des avatars.
+ *
+ * Les deux sortent de la MÊME table (`utilisateurs`) et de la même requête
+ * vive, mais alimentent deux stores distincts : un renommage ne doit pas
+ * re-rendre ce qui ne regarde que les photos, ni l'inverse.
  *
  * Le pseudo Rocket.Chat est MUABLE, l'uid non : `messages.auteur_nom` n'est
  * qu'un instantané figé à l'ingestion (repli). La table `utilisateurs`,
@@ -42,6 +47,59 @@ export function useIdentites(): ReadonlyMap<string, string> {
 }
 
 /**
+ * Versions de photo connues, indexées des DEUX façons dont les écrans visent
+ * un avatar : par pseudo (messages, mentions, fiche, mon profil) et par uid
+ * (l'autre d'un DM, dont on n'a souvent que l'uid).
+ */
+export type EtagsAvatars = {
+  parUid: ReadonlyMap<string, string>;
+  parUsername: ReadonlyMap<string, string>;
+};
+
+const AUCUN_ETAG: EtagsAvatars = { parUid: new Map(), parUsername: new Map() };
+let etags: EtagsAvatars = AUCUN_ETAG;
+const ecouteursEtags = new Set<() => void>();
+
+function memeMap(a: ReadonlyMap<string, string>, b: ReadonlyMap<string, string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const [cle, valeur] of a) if (b.get(cle) !== valeur) return false;
+  return true;
+}
+
+/**
+ * Ne notifie qu'à un VRAI changement de version. La requête vive rejoue à
+ * chaque écriture dans `utilisateurs` — un simple message ingéré, donc — et
+ * chaque notification re-rendrait tous les avatars montés à l'écran.
+ */
+function poserEtags(nouveaux: EtagsAvatars): void {
+  if (
+    memeMap(etags.parUid, nouveaux.parUid) &&
+    memeMap(etags.parUsername, nouveaux.parUsername)
+  ) {
+    return;
+  }
+  etags = nouveaux;
+  for (const e of ecouteursEtags) e();
+}
+
+function sabonnerEtags(cb: () => void): () => void {
+  ecouteursEtags.add(cb);
+  return () => {
+    ecouteursEtags.delete(cb);
+  };
+}
+
+/**
+ * Versions de photo à injecter dans `urlAvatar` — c'est ce qui fait bouger
+ * l'URI quand quelqu'un change sa photo, cache image compris. Un avatar dont
+ * l'etag est encore inconnu s'affiche exactement comme avant : l'URL sans
+ * query reste valable.
+ */
+export function useEtagsAvatars(): EtagsAvatars {
+  return useSyncExternalStore(sabonnerEtags, () => etags);
+}
+
+/**
  * Alimente le store depuis la table `utilisateurs` et la session. Frère de la
  * pile (monté dans `_layout`), il ne rend rien : il pousse dans le store.
  */
@@ -61,16 +119,28 @@ function Alimente() {
   const moiUsername = etat.phase === 'connecte' ? etat.session.username : null;
 
   const { data } = useRequeteVive(
-    base!.select({ uid: utilisateurs.uid, username: utilisateurs.username }).from(utilisateurs),
+    base!
+      .select({
+        uid: utilisateurs.uid,
+        username: utilisateurs.username,
+        avatarEtag: utilisateurs.avatarEtag,
+      })
+      .from(utilisateurs),
   );
 
   useEffect(() => {
     const m = new Map<string, string>();
+    const parUid = new Map<string, string>();
+    const parUsername = new Map<string, string>();
     for (const u of data ?? []) {
       if (u.username !== null) m.set(u.uid, u.username);
+      if (u.avatarEtag === null) continue;
+      parUid.set(u.uid, u.avatarEtag);
+      if (u.username !== null) parUsername.set(u.username, u.avatarEtag);
     }
     if (moiUid !== null && moiUsername !== null) m.set(moiUid, moiUsername);
     poser(m);
+    poserEtags({ parUid, parUsername });
   }, [data, moiUid, moiUsername]);
 
   return null;

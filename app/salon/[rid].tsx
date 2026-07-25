@@ -1191,6 +1191,7 @@ function EnTeteSalon({
           chiffreDeverrouille={deverrouille}
           rid={salon?.rid}
           dmAutreUid={salon?.dmAutreUid}
+          avatarEtag={salon?.avatarEtag}
           client={client}
           taille={34}
           rayon={12}

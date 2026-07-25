@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import {
-  estRejetArbreDeVues,
-  lancerSelecteurAvecReprise,
-  PAUSE_APRES_FEUILLE_MS,
-} from './lancerSelecteur.ts';
+import { estRejetArbreDeVues, lancerSelecteurAvecReprise } from './lancerSelecteur.ts';
 
 const npeArbreDeVues = new Error(
   "Call to function 'ExponentImagePicker.launchImageLibraryAsync' has been rejected.\n" +
@@ -89,12 +85,5 @@ describe('estRejetArbreDeVues', () => {
     assert.equal(estRejetArbreDeVues('dispatchCancelPendingInputEvents'), false);
     assert.equal(estRejetArbreDeVues(null), false);
     assert.equal(estRejetArbreDeVues(undefined), false);
-  });
-});
-
-describe('PAUSE_APRES_FEUILLE_MS', () => {
-  test('couvre la fermeture d’une formSheet Android (~300 ms)', () => {
-    assert.ok(PAUSE_APRES_FEUILLE_MS >= 300, `trop court : ${PAUSE_APRES_FEUILLE_MS} ms`);
-    assert.ok(PAUSE_APRES_FEUILLE_MS <= 500, `perceptible à l’usage : ${PAUSE_APRES_FEUILLE_MS} ms`);
   });
 });

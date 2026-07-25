@@ -48,14 +48,10 @@ import { useActivite } from '../../ui/activite.ts';
 import { ApercuPieceJointe, type FichierEnAttente } from '../../ui/apercuPieceJointe.tsx';
 import { BandeauReponse } from '../../ui/bandeauReponse.tsx';
 import { useBrouillon } from '../../ui/brouillons.ts';
-import {
-  estRejetArbreDeVues,
-  lancerSelecteurAvecReprise,
-  PAUSE_APRES_FEUILLE_MS,
-} from '../../ui/lancerSelecteur.ts';
+import { estRejetArbreDeVues, lancerSelecteurAvecReprise } from '../../ui/lancerSelecteur.ts';
 import { annulerReponse, useReponse } from '../../ui/reponse.ts';
 import { compresserImageSiUtile } from '../../ui/preparerPieceJointe.ts';
-import { demanderSource } from '../../ui/sourcePieceJointe.ts';
+import { demanderSource, feuilleEstMontee } from '../../ui/sourcePieceJointe.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
 import { BandeauCompletionEmoji, useCompletionEmoji } from '../../ui/completionEmoji.tsx';
 import { BandeauCompletionMention, useCandidatsMention } from '../../ui/completionMention.tsx';
@@ -867,12 +863,21 @@ function Composer({
     }
   }, []);
 
+  // Referme la feuille « joindre », restée ouverte pendant le sélecteur. Le
+  // garde n'est pas décoratif : sans lui, si l'usager a balayé la feuille entre
+  // temps, ce `back()` dépilerait le SALON.
+  const fermerFeuilleJoindre = useCallback(() => {
+    if (feuilleEstMontee()) routeur.back();
+  }, [routeur]);
+
   const depuisCamera = useCallback(
     async (type: 'photo' | 'video') => {
       // Seule la caméra exige une permission ; le photo picker système et le
-      // sélecteur de fichiers n'en demandent pas.
+      // sélecteur de fichiers n'en demandent pas. Le dialogue de permission est
+      // lui aussi une activité : il part donc, comme le reste, feuille ouverte.
       const permission = await ImagePicker.requestCameraPermissionsAsync();
       if (!permission.granted) {
+        fermerFeuilleJoindre();
         setErreurFichier(t('salon.cameraRefuse'));
         return;
       }
@@ -882,9 +887,12 @@ function Composer({
           quality: 1,
         }),
       );
+      // On referme DÈS le retour du sélecteur, avant la compression : sinon la
+      // feuille resterait affichée le temps de traiter une grosse photo.
+      fermerFeuilleJoindre();
       if (!res.canceled) await poserPieceJointe(assetVersFichier(res.assets[0]));
     },
-    [poserPieceJointe, t],
+    [poserPieceJointe, fermerFeuilleJoindre, t],
   );
 
   const depuisBibliotheque = useCallback(async () => {
@@ -894,13 +902,15 @@ function Composer({
         quality: 1,
       }),
     );
+    fermerFeuilleJoindre();
     if (!res.canceled) await poserPieceJointe(assetVersFichier(res.assets[0]));
-  }, [poserPieceJointe]);
+  }, [poserPieceJointe, fermerFeuilleJoindre]);
 
   const depuisFichier = useCallback(async () => {
     const choix = await lancerSelecteurAvecReprise(() =>
       DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true }),
     );
+    fermerFeuilleJoindre();
     if (choix.canceled || choix.assets.length === 0) return;
     const brut = choix.assets[0];
     await poserPieceJointe({
@@ -909,11 +919,14 @@ function Composer({
       type: brut.mimeType ?? 'application/octet-stream',
       taille: brut.size ?? null,
     });
-  }, [poserPieceJointe]);
+  }, [poserPieceJointe, fermerFeuilleJoindre]);
 
   // 📎 → menu de sources (feuille native), comme l'app officielle, au lieu
   // d'ouvrir directement le sélecteur de fichiers. La feuille renvoie la source
-  // choisie via `demanderSource` ; on lance alors le bon sélecteur.
+  // choisie via `demanderSource` SANS se fermer : on lance donc le sélecteur
+  // pendant qu'elle est ouverte et immobile, seul moment où l'arbre de vues
+  // Android est sûr (voir `ui/sourcePieceJointe.ts`). C'est `depuisX` qui la
+  // referme, au retour du sélecteur.
   const joindre = useCallback(async () => {
     setErreurFichier(null);
     // Part d'un état de saisie stable : panneau emoji fermé et clavier baissé.
@@ -924,20 +937,16 @@ function Composer({
     const choix = demanderSource();
     routeur.push('/joindre');
     const source = await choix;
-    if (source === null) return;
-    // La feuille a rendu la main au DÉMONTAGE JS : côté natif, elle est encore
-    // en train de s'escamoter. Lancer une activité pendant ce démontage laisse
-    // un enfant null dans l'arbre de vues, et Android le déréférence sans
-    // broncher — le sélecteur devient alors inutilisable jusqu'au redémarrage
-    // de l'app. On laisse donc la feuille finir AVANT de lancer quoi que ce
-    // soit : la reprise de `lancerSelecteurAvecReprise` n'est qu'un filet.
-    await new Promise((r) => setTimeout(r, PAUSE_APRES_FEUILLE_MS));
+    if (source === null) return; // feuille fermée sans choix : déjà démontée
     try {
       if (source === 'photo') await depuisCamera('photo');
       else if (source === 'video') await depuisCamera('video');
       else if (source === 'bibliotheque') await depuisBibliotheque();
       else await depuisFichier();
     } catch (e) {
+      // Le sélecteur n'est jamais parti : la feuille est encore là, et l'erreur
+      // s'afficherait derrière elle. On la referme avant de la montrer.
+      fermerFeuilleJoindre();
       // Le NPE d'arbre de vues n'a AUCUN sens pour qui le lit, et surtout il
       // appelle un geste précis : seul un redémarrage de l'app le solde (pas
       // même sortir du salon — vécu). On le dit, au lieu d'afficher la trace.
@@ -949,7 +958,7 @@ function Composer({
             : t('salon.selectionImpossible'),
       );
     }
-  }, [routeur, depuisCamera, depuisBibliotheque, depuisFichier, fermerEmoji, t]);
+  }, [routeur, depuisCamera, depuisBibliotheque, depuisFichier, fermerFeuilleJoindre, fermerEmoji, t]);
 
   // Salon chiffré : lecture désormais possible (E2EE, étape 10), mais PAS
   // l'envoi (le serveur rejette un clair, `error-not-allowed`). Verrouillé, on

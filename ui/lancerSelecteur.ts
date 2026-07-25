@@ -14,17 +14,20 @@
  * (facebook/react-native#41077, invertase/notifee#1064, tous deux clos sans
  * cause racine ; le correctif notifee se contente d'attraper l'exception).
  *
- * Chez nous, l'enfant null apparaît quand le lancement part pendant le
- * démontage d'une formSheet : la feuille « joindre » répond au démontage JS,
- * mais React démonte l'écran au changement d'état de navigation — AVANT la fin
- * de l'animation NATIVE de fermeture. D'où deux défenses, dans cet ordre :
+ * Chez nous, l'enfant null venait du lancement pendant le démontage de la
+ * formSheet « joindre ». La vraie correction est ailleurs, dans
+ * `ui/sourcePieceJointe.ts` : la feuille ne se ferme plus avant, donc l'arbre
+ * est immobile au lancement et la course n'existe plus. Ce module ne fait que
+ * poser un filet pour les cas non prévus.
  *
- *  1. NE PAS courir : le composeur attend `PAUSE_APRES_FEUILLE_MS` que la
- *     feuille ait fini de disparaître avant de lancer quoi que ce soit.
- *  2. Reprendre si ça arrive quand même — plusieurs fois, en laissant de plus
- *     en plus de temps. Une seule reprise à 400 ms ne suffisait pas : signalé
- *     en vrai usage, sélecteur définitivement inutilisable jusqu'au
- *     redémarrage de l'app (2026-07-25).
+ * Le filet ne PEUT PAS être un simple délai plus long : mesuré sur l'AVD,
+ * aucun événement de navigation ne marque la fin réelle de l'animation
+ * (`transitionEnd` n'est jamais émis pour la fermeture d'une formSheet, et
+ * `focus` arrive 3 ms après le démontage JS). Il n'y a donc rien à attendre —
+ * seulement à réessayer si Android a rejeté, ce qu'on fait trois fois en
+ * laissant de plus en plus de temps. Une seule reprise à 400 ms ne suffisait
+ * pas : signalé en vrai usage, sélecteur inutilisable jusqu'au redémarrage de
+ * l'app (2026-07-25).
  *
  * Tout AUTRE rejet (permission, annulation…) ressort tel quel — pas question de
  * rejouer un refus réel.
@@ -38,9 +41,6 @@ const MARQUEUR_NPE_ARBRE_DE_VUES = 'dispatchCancelPendingInputEvents';
  * une machine chargée avant de rendre les armes.
  */
 const REPRISES_MS = [400, 900, 1600];
-
-/** Le temps qu'on laisse à la feuille « joindre » pour disparaître VRAIMENT. */
-export const PAUSE_APRES_FEUILLE_MS = 350;
 
 /** Ce rejet-là vient de l'arbre de vues Android, pas d'un refus de l'usager. */
 export function estRejetArbreDeVues(e: unknown): boolean {

@@ -1,11 +1,15 @@
-import { useRouter } from 'expo-router';
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useT } from '../ui/i18n.ts';
 import type { CleTraduction } from '../ui/messages.ts';
-import { repondreSource, type SourcePieceJointe } from '../ui/sourcePieceJointe.ts';
+import {
+  repondreSource,
+  signalerFeuilleDemontee,
+  signalerFeuilleMontee,
+  type SourcePieceJointe,
+} from '../ui/sourcePieceJointe.ts';
 import { DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
 
 /**
@@ -17,6 +21,11 @@ import { DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
  * La feuille ne FAIT pas le travail : elle renvoie la source choisie au
  * composeur (via `repondreSource`), qui lance le bon sélecteur natif. Toute la
  * logique fichier reste ainsi au même endroit, dans le salon.
+ *
+ * Et elle ne se ferme pas non plus : c'est le composeur qui la referme, au
+ * retour du sélecteur. La raison est dans `ui/sourcePieceJointe.ts` — lancer
+ * une activité pendant qu'une feuille s'escamote casse durablement TOUT
+ * lancement d'activité sous Android.
  */
 
 const OPTIONS: { source: SourcePieceJointe; icone: string; cle: CleTraduction }[] = [
@@ -29,29 +38,24 @@ const OPTIONS: { source: SourcePieceJointe; icone: string; cle: CleTraduction }[
 export default function EcranJoindre() {
   const c = useCouleurs();
   const t = useT();
-  const routeur = useRouter();
   const insets = useSafeAreaInsets();
 
-  // On répond au DÉMONTAGE, pas au tap : résoudre au tap lançait le sélecteur
-  // en pleine transition — `launchImageLibraryAsync` échouait en
-  // `dispatchCancelPendingInputEvents() on a null object reference` (decorView
-  // de l'hôte momentanément nulle). ATTENTION, le démontage JS ne clôt pas la
-  // course : React démonte au changement d'état de navigation, AVANT la fin de
-  // l'animation NATIVE — sous charge, le NPE revient (vécu 2026-07-17). Le
-  // composeur lance donc via `lancerSelecteurAvecReprise`, qui rejoue une fois
-  // ce rejet transitoire. `choix` reste `null` sur un rejet (geste, back
-  // matériel), ce qui solde proprement la promesse du composeur.
-  const choix = useRef<SourcePieceJointe | null>(null);
-  useEffect(
-    () => () => {
-      repondreSource(choix.current);
-    },
-    [],
-  );
+  // La feuille NE SE FERME PAS en répondant : elle reste ouverte, immobile, le
+  // temps que le composeur lance le sélecteur natif — c'est lui qui refermera,
+  // au retour. Se fermer d'abord lançait l'activité pendant que la feuille
+  // s'escamotait encore, et Android déréférence alors une vue déjà retirée :
+  // tout lancement d'activité échoue ensuite, jusqu'au redémarrage de l'app
+  // (voir `ui/sourcePieceJointe.ts` et `ui/lancerSelecteur.ts`).
+  //
+  // Le démontage — balayage, retour matériel, ou le `back()` du composeur —
+  // solde de toute façon une demande restée en attente.
+  useEffect(() => {
+    signalerFeuilleMontee();
+    return signalerFeuilleDemontee;
+  }, []);
 
   const choisir = (source: SourcePieceJointe) => {
-    choix.current = source;
-    routeur.back();
+    repondreSource(source);
   };
 
   return (

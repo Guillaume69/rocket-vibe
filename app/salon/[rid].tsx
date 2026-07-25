@@ -57,6 +57,7 @@ import { BandeauCompletionEmoji, useCompletionEmoji } from '../../ui/completionE
 import { BandeauCompletionMention, useCandidatsMention } from '../../ui/completionMention.tsx';
 import { NavigateurEmoji, usePanneauEmoji } from '../../ui/navigateurEmoji.tsx';
 import { useRetourMateriel } from '../../ui/retourMateriel.ts';
+import { garderAuChaud, salonCouvert } from '../../ui/salonChaud.ts';
 import { marquerSalonCharge, salonChargeSous } from '../../ui/salonsCharges.ts';
 import { AvatarSalon, BarreSynchro, IndicateurSaisie, TuileAvatar } from '../../ui/kit.tsx';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
@@ -334,9 +335,24 @@ function Salon({
     }
   }, [plusRecent, client]);
 
-  // `sub` à l'ouverture, relâchement à la fermeture. `souscrire` est
-  // synchrone et indépendant de l'état du transport : demandé trop tôt (lien
-  // profond au démarrage), le stream s'établit tout seul à l'authentification.
+  // La génération au moment de la SORTIE, lue par le cleanup. En dépendance de
+  // l'effet ci-dessous, elle le rejouerait à chaque raccordement — pour rien,
+  // les souscriptions désirées étant déjà rejouées par le client DDP.
+  const generationRef = useRef(generation);
+  useEffect(() => {
+    generationRef.current = generation;
+  }, [generation]);
+
+  // `sub` à l'ouverture. `souscrire` est synchrone et indépendant de l'état du
+  // transport : demandé trop tôt (lien profond au démarrage), le stream
+  // s'établit tout seul à l'authentification.
+  //
+  // À la SORTIE, on ne relâche PAS : on confie les références à `salonChaud`,
+  // qui garde le salon écouté. Couper l'écoute ouvrait un trou que seule une
+  // lecture pouvait combler — et cette lecture coûte 3 s sur un gros salon,
+  // barre de synchro allumée, pour n'annoncer aucun changement. Voir
+  // `ui/salonChaud.ts` : les références sont comptées, garder la nôtre n'envoie
+  // aucune `sub` de plus.
   useEffect(() => {
     const relachers = [
       ddp.souscrire(STREAM_MESSAGES, rid),
@@ -348,7 +364,7 @@ function Salon({
     signalerSalonActif(rid);
     return () => {
       signalerSalonActif(null);
-      for (const relacher of relachers) relacher();
+      garderAuChaud(rid, generationRef.current, relachers);
     };
   }, [ddp, rid, signalerSalonActif]);
 
@@ -441,9 +457,14 @@ function Salon({
   useEffect(() => {
     if (type === undefined) return;
     let annule = false;
-    void activite
-      .suivre(rid, rattraperSalon(client, moteur, rid, () => annule))
-      .catch((e: unknown) => console.warn('rattraperSalon (ouverture): échec ignoré', e));
+    // Rattrapage SAUTÉ quand le salon est resté écouté sans interruption : rien
+    // n'a pu être manqué, et la lecture coûterait plusieurs secondes pour zéro
+    // document sur un gros salon.
+    if (!salonCouvert(rid, generation)) {
+      void activite
+        .suivre(rid, rattraperSalon(client, moteur, rid, () => annule))
+        .catch((e: unknown) => console.warn('rattraperSalon (ouverture): échec ignoré', e));
+    }
 
     if (salonChargeSous(rid, generation)) {
       return () => {

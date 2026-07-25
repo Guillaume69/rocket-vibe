@@ -63,6 +63,7 @@ import {
 import { traduireCourant } from './i18n.ts';
 import { useSession } from './session.tsx';
 import { brancherSondeUpload } from './sondeUpload.ts';
+import { libererSalonsChauds } from './salonChaud.ts';
 import { oublierSalonsCharges } from './salonsCharges.ts';
 import { transportExpo } from './transportUpload.ts';
 
@@ -414,6 +415,9 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       // dont le compteur repart de zéro à la session suivante : sans purge, un
       // salon d'un AUTRE serveur pourrait passer pour déjà chargé.
       oublierSalonsCharges();
+      // Et les salons qu'on gardait à l'écoute après en être sorti : leurs
+      // souscriptions ne valent plus rien sur une socket qu'on ferme.
+      libererSalonsChauds();
       ddp.fermer();
       ddp.reinitialiser();
     };

@@ -391,6 +391,12 @@ export async function rattraperSalon(
   const depuis = await moteur.depotSynchro.lireCurseur(rid, 'messages');
   if (depuis === null) return;
 
+  // En SÉRIE, délibérément. Les deux flux sont indépendants et les paralléliser
+  // gagnerait ~0,6 s sur la première ouverture d'un gros salon — mais rendrait
+  // l'ordre des requêtes non déterministe, ce que les tests d'ici lisent pour
+  // vérifier la pagination. Depuis que la réouverture d'un salon resté écouté ne
+  // rattrape plus du tout (`ui/salonChaud.ts`), ce chemin ne sert qu'à la
+  // PREMIÈRE ouverture, où l'historique se charge de toute façon en parallèle.
   if (!(await rattraperMisAJour(client, moteur, rid, depuis, estAbandonne))) {
     await rattraperParDate(client, moteur, rid, depuis, estAbandonne, maintenant);
     return;

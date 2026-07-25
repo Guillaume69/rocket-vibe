@@ -198,7 +198,7 @@ describe('rattraperSalon', () => {
       },
     });
 
-    await rattraperSalon(client, moteur, 'r1');
+    await rattraperSalon(client, moteur, 'r1', () => false, () => 2000);
 
     assert.ok(urls[0]?.includes('chat.syncMessages'));
     assert.ok(urls[0]?.includes('roomId=r1'));
@@ -217,8 +217,47 @@ describe('rattraperSalon', () => {
         result: { updated: [{ _id: 'm1', rid: 'r1', ts: { $date: 1 }, u: { _id: 'u' } }] },
       },
     });
-    await rattraperSalon(client, moteur, 'r1', () => true);
+    await rattraperSalon(client, moteur, 'r1', () => true, () => 2000);
     assert.equal(d.messages.length, 0);
+  });
+
+  test('curseur TRÈS en retard : la fenêtre est bornée à 24 h', async () => {
+    // Le serveur 8.5 ignore `count` : sans borne côté client, un curseur vieux
+    // de plusieurs jours fait renvoyer TOUT le backlog — mesuré à 1,85 Mo et
+    // 3 000 documents sur un canal actif. C'est le « chargement trop long » de
+    // #general.
+    const jour = 24 * 60 * 60 * 1000;
+    const maintenant = 100 * jour;
+    const d = fauxDepotComplet();
+    d.curseurs.set('r1|messages', 2 * jour); // 98 jours de retard
+    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const { client, urls } = fauxClient({ 'chat.syncMessages': { result: { updated: [] } } });
+
+    await rattraperSalon(client, moteur, 'r1', () => false, () => maintenant);
+
+    const attendu = encodeURIComponent(new Date(maintenant - jour).toISOString());
+    assert.ok(
+      urls[0]?.includes(`lastUpdate=${attendu}`),
+      `la fenêtre doit être ramenée à 24 h, vu ${urls[0]}`,
+    );
+  });
+
+  test('curseur RÉCENT : utilisé tel quel — on ne redemande pas du déjà ingéré', async () => {
+    const jour = 24 * 60 * 60 * 1000;
+    const maintenant = 100 * jour;
+    const recent = maintenant - 60_000; // une minute de retard
+    const d = fauxDepotComplet();
+    d.curseurs.set('r1|messages', recent);
+    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const { client, urls } = fauxClient({ 'chat.syncMessages': { result: { updated: [] } } });
+
+    await rattraperSalon(client, moteur, 'r1', () => false, () => maintenant);
+
+    const attendu = encodeURIComponent(new Date(recent).toISOString());
+    assert.ok(
+      urls[0]?.includes(`lastUpdate=${attendu}`),
+      `la borne ne doit JAMAIS reculer sous le curseur, vu ${urls[0]}`,
+    );
   });
 
   test('syncMessages échoue → curseur RÉ-ANCRÉ sur le dernier message local', async () => {

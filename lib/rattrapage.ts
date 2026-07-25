@@ -117,6 +117,28 @@ type ReponseSyncMessages = {
 };
 
 /**
+ * Fenêtre maximale demandée à `chat.syncMessages`.
+ *
+ * Le serveur 8.5 IGNORE `count` : il renvoie TOUT ce qui a changé depuis
+ * `lastUpdate`, sans aucune borne. Mesuré contre un canal de 3 000 messages :
+ * **1,85 Mo et 3 000 documents** en une réponse, là où l'historique
+ * d'ouverture en demande 50 pour 31 Ko. Sur le `#general` d'un serveur vivant,
+ * un curseur vieux de quelques jours fait donc télécharger, parser ET ingérer
+ * des mégaoctets à chaque ouverture — l'ingestion SQLite étant le plus lourd
+ * sur un téléphone. C'est ce que l'utilisateur voit comme « chargement trop
+ * long » : la barre de synchro reste allumée tout du long.
+ *
+ * On borne donc la fenêtre côté client, puisque le serveur ne le fait pas.
+ *
+ * Ce qu'on y perd : les éditions et suppressions PLUS ANCIENNES que la
+ * fenêtre. Ce qu'on garde : l'ouverture recharge l'état courant des 50
+ * derniers messages, et la pagination fait de même en remontant. C'est
+ * exactement le compromis déjà assumé par le ré-ancrage après timeout — mais
+ * payé d'avance, au lieu de l'être après 15 s et plusieurs mégaoctets perdus.
+ */
+const FENETRE_MAX_MS = 24 * 60 * 60 * 1000;
+
+/**
  * Rattrape UN salon. Sans curseur (jamais ouvert, ou premier passage),
  * ne fait rien : l'historique d'ouverture de l'écran couvre ce cas, et
  * `syncMessages` sans borne re-téléchargerait tout.
@@ -126,15 +148,19 @@ export async function rattraperSalon(
   moteur: MoteurSynchro,
   rid: string,
   estAbandonne: () => boolean = () => false,
+  maintenant: () => number = () => Date.now(),
 ): Promise<void> {
   const depot = moteur.depotSynchro;
   const depuis = await depot.lireCurseur(rid, 'messages');
   if (depuis === null) return;
 
+  // Jamais à rebours du curseur : on ne redemande pas ce qu'on a déjà ingéré.
+  const borne = Math.max(depuis, maintenant() - FENETRE_MAX_MS);
+
   let reponse: ReponseSyncMessages;
   try {
     reponse = await client.get<ReponseSyncMessages>('chat.syncMessages', {
-      params: { roomId: rid, lastUpdate: iso(depuis) },
+      params: { roomId: rid, lastUpdate: iso(borne) },
     });
   } catch (e) {
     // `chat.syncMessages` n'est PAS borné (le serveur 8.5 ignore `count`,

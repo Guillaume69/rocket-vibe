@@ -120,6 +120,33 @@ describe('versSalon', () => {
     assert.equal(s.horodatageDernierMessage, 5, 'mais son horodatage sert au tri');
   });
 
+  test('un message SANS TEXTE (pièce jointe seule) donne quand même un aperçu', () => {
+    // Sondé sur 8.5 : un message qui n'est qu'un fichier a `msg: ''`. Sans
+    // repli, la liste gardait l'aperçu du message PRÉCÉDENT — elle annonçait
+    // un échange qui n'était plus le dernier.
+    const sansLegende = versSalon({
+      _id: 'r1',
+      t: 'c',
+      lastMessage: { msg: '', attachments: [{ title: 'photo.jpg' }] },
+    }) as SalonLocal;
+    assert.equal(sansLegende.dernierMessage, 'photo.jpg');
+
+    const avecLegende = versSalon({
+      _id: 'r1',
+      t: 'c',
+      lastMessage: { msg: '', attachments: [{ title: 'photo.jpg', description: 'le chat' }] },
+    }) as SalonLocal;
+    assert.equal(avecLegende.dernierMessage, 'le chat', 'la légende prime sur le nom du fichier');
+  });
+
+  test('salon VIDÉ : `lastMessage` disparaît, l’aperçu doit devenir null', () => {
+    // Supprimer le dernier message retire le champ du document Room. C'est le
+    // seul signal disponible — l'UPSERT s'en sert pour EFFACER l'aperçu.
+    const s = versSalon({ _id: 'r1', t: 'c', lm: { $date: 5 } }) as SalonLocal;
+    assert.equal(s.dernierMessage, null);
+    assert.equal(s.horodatageDernierMessage, 5, 'mais `lm` survit, et le tri avec');
+  });
+
   test('`fname` prime sur `name` pour l’affichage', () => {
     const s = versSalon({ _id: 'r1', t: 'c', name: 'slug', fname: 'Nom Affiché' }) as SalonLocal;
     assert.equal(s.nomAffiche, 'Nom Affiché');

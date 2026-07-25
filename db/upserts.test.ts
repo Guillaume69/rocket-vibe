@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { beforeEach, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { versSalon } from '../lib/normaliser.ts';
 import type { AbonnementLocal, MessageLocal, SalonLocal } from '../lib/normaliser.ts';
 import {
   INSERER_EMOJI_CUSTOM,
@@ -15,6 +16,7 @@ import {
   PURGER_ABONNEMENTS_ABSENTS,
   PURGER_MESSAGES_ABSENTS,
   PURGER_SALONS_ABSENTS,
+  MAJ_APERCU_CHIFFRE,
   MAJ_AVATAR_SALON,
   MAJ_AVATAR_UTILISATEUR,
   SUPPRIMER_MESSAGE,
@@ -204,10 +206,11 @@ describe('upserts idempotents', () => {
     assert.deepEqual(s, { nom: 'récent' });
   });
 
-  test('un document partiel PLUS RÉCENT n’efface ni le nom ni l’aperçu', () => {
-    // `rooms-changed` livre parfois un document sans `usernames` ni
-    // `lastMessage` : versSalon rend alors des null. Ils signifient « absent »,
-    // pas « efface » — le nom dérivé d'un DM doit survivre.
+  test('un document partiel PLUS RÉCENT n’efface ni le nom ni l’horodatage', () => {
+    // `rooms-changed` livre parfois un document sans `usernames` : versSalon
+    // rend alors un `nomAffiche` null. Il signifie « absent », pas « efface » —
+    // le nom dérivé d'un DM doit survivre. Idem pour l'horodatage, qui pilote
+    // le tri de la liste.
     db.prepare(UPSERT_SALON).run(
       ...salon({
         rid: 'r1',
@@ -221,7 +224,7 @@ describe('upserts idempotents', () => {
       ...salon({
         rid: 'r1',
         nomAffiche: null,
-        dernierMessage: null,
+        dernierMessage: 'salut',
         horodatageDernierMessage: null,
         misAJourLe: 200,
       }),
@@ -229,16 +232,43 @@ describe('upserts idempotents', () => {
     const s = ligne(
       db
         .prepare(
-          'SELECT nom_affiche, dernier_message, horodatage_dernier_message, mis_a_jour_le FROM salons WHERE rid = ?',
+          'SELECT nom_affiche, horodatage_dernier_message, mis_a_jour_le FROM salons WHERE rid = ?',
         )
         .get('r1'),
     );
     assert.deepEqual(s, {
       nom_affiche: 'bob',
-      dernier_message: 'salut',
       horodatage_dernier_message: 50,
       mis_a_jour_le: 200,
     });
+  });
+
+  test('salon VIDÉ : un aperçu absent EFFACE l’aperçu, il ne le préserve pas', () => {
+    // Supprimer le dernier message d'un salon retire `lastMessage` du document
+    // Room — c'est le SEUL signal qu'un salon a été vidé (sondé sur 8.5, stream
+    // et `rooms.get`). Le préserver figeait à vie le message supprimé dans la
+    // liste : aucun rattrapage ne pouvait plus le déloger.
+    db.prepare(UPSERT_SALON).run(
+      ...salon({ rid: 'r1', dernierMessage: 'le dernier', misAJourLe: 100 }),
+    );
+    db.prepare(UPSERT_SALON).run(...salon({ rid: 'r1', dernierMessage: null, misAJourLe: 200 }));
+    const s = ligne(db.prepare('SELECT dernier_message FROM salons WHERE rid = ?').get('r1'));
+    assert.deepEqual(s, { dernier_message: null });
+  });
+
+  test('salon CHIFFRÉ : le serveur ne peut pas effacer un aperçu qu’il ignore', () => {
+    // Le serveur ne détient que du ciphertext : `versSalon` rend toujours null
+    // pour un salon chiffré. Son aperçu vient de MAJ_APERCU_CHIFFRE, sur les
+    // messages déchiffrés localement — un `rooms-changed` ne doit pas le
+    // balayer au passage.
+    db.prepare(UPSERT_SALON).run(
+      ...salon({ rid: 'r1', chiffre: true, dernierMessage: 'clair local', misAJourLe: 100 }),
+    );
+    db.prepare(UPSERT_SALON).run(
+      ...salon({ rid: 'r1', chiffre: true, dernierMessage: null, misAJourLe: 200 }),
+    );
+    const s = ligne(db.prepare('SELECT dernier_message FROM salons WHERE rid = ?').get('r1'));
+    assert.deepEqual(s, { dernier_message: 'clair local' });
   });
 
   test('un nom non-null plus récent remplace bien l’ancien', () => {
@@ -511,5 +541,139 @@ describe('versions d’avatar', () => {
     const avant = compter();
     db.prepare(MAJ_AVATAR_SALON).run('e1', 'r1', 'e1');
     assert.equal(compter(), avant, 'aucune écriture');
+  });
+});
+
+describe('aperçu de liste d’un salon chiffré', () => {
+  const lire = 'SELECT dernier_message FROM salons WHERE rid = ?';
+  const compter = () => (db.prepare('SELECT total_changes() AS n').get() as { n: number }).n;
+
+  test('l’aperçu suit le dernier message déchiffré', () => {
+    db.prepare(UPSERT_SALON).run(...salon({ rid: 'rid-1', chiffre: true, misAJourLe: 100 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', texte: 'un', horodatage: 10, misAJourLe: 1 }));
+    db.prepare(UPSERT_MESSAGE).run(
+      ...msg({ id: 'm2', texte: 'deux', horodatage: 20, misAJourLe: 2 }),
+    );
+    db.prepare(MAJ_APERCU_CHIFFRE).run();
+    assert.deepEqual(ligne(db.prepare(lire).get('rid-1')), { dernier_message: 'deux' });
+  });
+
+  test('supprimer le dernier message fait RECULER l’aperçu sur le précédent', () => {
+    // Le serveur ne peut pas nous l'apprendre ici : il ne détient que du
+    // ciphertext. Seule la base locale sait quel message reste.
+    db.prepare(UPSERT_SALON).run(...salon({ rid: 'rid-1', chiffre: true, misAJourLe: 100 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', texte: 'un', horodatage: 10, misAJourLe: 1 }));
+    db.prepare(UPSERT_MESSAGE).run(
+      ...msg({ id: 'm2', texte: 'deux', horodatage: 20, misAJourLe: 2 }),
+    );
+    db.prepare(MAJ_APERCU_CHIFFRE).run();
+
+    db.prepare(SUPPRIMER_MESSAGE).run('m2');
+    db.prepare(MAJ_APERCU_CHIFFRE).run();
+    assert.deepEqual(ligne(db.prepare(lire).get('rid-1')), { dernier_message: 'un' });
+  });
+
+  test('salon chiffré VIDÉ : l’aperçu retombe au placeholder', () => {
+    db.prepare(UPSERT_SALON).run(...salon({ rid: 'rid-1', chiffre: true, misAJourLe: 100 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', texte: 'seul', horodatage: 10, misAJourLe: 1 }));
+    db.prepare(MAJ_APERCU_CHIFFRE).run();
+
+    db.prepare(SUPPRIMER_MESSAGE).run('m1');
+    db.prepare(MAJ_APERCU_CHIFFRE).run();
+    assert.deepEqual(ligne(db.prepare(lire).get('rid-1')), { dernier_message: null });
+  });
+
+  test('un aperçu INCHANGÉ ne touche pas la ligne', () => {
+    // `supprimerMessage` rejoue ce SQL à CHAQUE suppression, dans n'importe
+    // quel salon : sans cette garde, il réveillerait la liste entière à chaque
+    // fois — y compris sur un compte sans aucun salon chiffré.
+    db.prepare(UPSERT_SALON).run(...salon({ rid: 'rid-1', chiffre: true, misAJourLe: 100 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', texte: 'un', horodatage: 10, misAJourLe: 1 }));
+    db.prepare(MAJ_APERCU_CHIFFRE).run();
+
+    const avant = compter();
+    db.prepare(MAJ_APERCU_CHIFFRE).run();
+    assert.equal(compter(), avant, 'aucune écriture');
+  });
+
+  test('un salon EN CLAIR n’est jamais touché par cette passe', () => {
+    // Son aperçu vient du serveur (`lastMessage`), et l'historique local est
+    // partiel : le recalculer ici l'écraserait avec ce qu'on a sous la main.
+    db.prepare(UPSERT_SALON).run(
+      ...salon({ rid: 'rid-1', chiffre: false, dernierMessage: 'du serveur', misAJourLe: 100 }),
+    );
+    db.prepare(UPSERT_MESSAGE).run(
+      ...msg({ id: 'm1', texte: 'local', horodatage: 10, misAJourLe: 1 }),
+    );
+    db.prepare(MAJ_APERCU_CHIFFRE).run();
+    assert.deepEqual(ligne(db.prepare(lire).get('rid-1')), { dernier_message: 'du serveur' });
+  });
+});
+
+/**
+ * Bout en bout, sur les charges RÉELLEMENT captées d'un Rocket.Chat 8.5 (sonde
+ * DDP sur le serveur local, juillet 2026). Les tests ci-dessus éprouvent
+ * `versSalon` et le SQL séparément ; celui-ci vérifie leur COMPOSITION sur les
+ * documents que le serveur envoie vraiment — c'est là que le bug vivait.
+ */
+describe('aperçu de liste : les documents réels du serveur', () => {
+  const AUTEUR = { _id: 'a8Lu', username: 'alice', name: 'Alice Martin' };
+  const lire = 'SELECT dernier_message FROM salons WHERE rid = ?';
+
+  /** Le document Room tel que `rooms-changed` le livre, sans son `lastMessage`. */
+  const room = (misAJourLe: number) => ({
+    _id: 'r1',
+    fname: 'sonde',
+    name: 'sonde',
+    t: 'c',
+    u: AUTEUR,
+    ro: false,
+    sysMes: true,
+    lm: { $date: 1784958551573 },
+    _updatedAt: { $date: misAJourLe },
+  });
+
+  const ingerer = (brut: Record<string, unknown>) => {
+    const s = versSalon(brut, 'alice', 'a8Lu');
+    assert.notEqual(s, null, 'le document doit se normaliser');
+    db.prepare(UPSERT_SALON).run(...paramsSalon(s as SalonLocal));
+  };
+
+  test('supprimer le DERNIER message d’un salon en efface l’aperçu', () => {
+    ingerer({
+      ...room(1784958546377),
+      msgs: 1,
+      lastMessage: { _id: 'm1', msg: 'PREMIER', ts: { $date: 1784958546341 }, u: AUTEUR },
+    });
+    assert.deepEqual(ligne(db.prepare(lire).get('r1')), { dernier_message: 'PREMIER' });
+
+    // Le salon vidé : le serveur n'envoie PLUS de `lastMessage` du tout.
+    ingerer({ ...room(1784958558296), msgs: 0 });
+    assert.deepEqual(
+      ligne(db.prepare(lire).get('r1')),
+      { dernier_message: null },
+      'le message supprimé ne doit plus figurer dans la liste',
+    );
+  });
+
+  test('une pièce jointe sans légende ne laisse pas l’aperçu précédent', () => {
+    ingerer({
+      ...room(1784958546377),
+      lastMessage: { _id: 'm1', msg: 'PREMIER', ts: { $date: 1784958546341 }, u: AUTEUR },
+    });
+    ingerer({
+      ...room(1784958549011),
+      lastMessage: {
+        _id: 'm2',
+        msg: '',
+        ts: { $date: 1784958548985 },
+        u: AUTEUR,
+        file: { _id: 'f1', name: 'note.txt', type: 'text/plain' },
+        attachments: [
+          { title: 'note.txt', title_link: '/file-upload/f1/note.txt', type: 'file', format: 'TXT' },
+        ],
+      },
+    });
+    assert.deepEqual(ligne(db.prepare(lire).get('r1')), { dernier_message: 'note.txt' });
   });
 });

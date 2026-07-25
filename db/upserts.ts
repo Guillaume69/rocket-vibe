@@ -51,10 +51,23 @@ WHERE excluded.mis_a_jour_le >= messages.mis_a_jour_le
 
 /**
  * `COALESCE` sur les champs que le serveur OMET parfois : un événement
- * `rooms-changed` peut porter un document partiel (sans `usernames`, sans
- * `lastMessage`). `null` y signifie « absent de la charge », jamais « efface » —
- * sans le COALESCE, un tel événement plus récent effacerait le nom dérivé d'un
- * DM ou l'aperçu, et la liste retomberait sur le `rid` brut.
+ * `rooms-changed` peut porter un document partiel (sans `usernames`). `null` y
+ * signifie « absent de la charge », jamais « efface » — sans le COALESCE, un
+ * tel événement plus récent effacerait le nom dérivé d'un DM, et la liste
+ * retomberait sur le `rid` brut.
+ *
+ * **`dernier_message` fait exception, et c'est délibéré** : son absence est une
+ * INFORMATION, pas un trou. Sondé sur 8.5, `rooms-changed` et `rooms.get`
+ * portent toujours `lastMessage` dès que le salon en a un — renommage, topic,
+ * annonce, description, lecture seule, avatar, DM compris. Le champ ne
+ * disparaît que lorsque le salon n'a plus de dernier message visible, c'est-à-
+ * dire quand on vient de supprimer le dernier. Le COALESCE d'origine figeait
+ * donc à VIE l'aperçu d'un salon vidé : le message supprimé y restait affiché,
+ * et aucun rattrapage ne pouvait le déloger.
+ *
+ * Un salon CHIFFRÉ est le seul cas où le serveur n'a rien à en dire (il ne
+ * détient que du ciphertext) : son aperçu vient de `MAJ_APERCU_CHIFFRE`, sur
+ * les messages déchiffrés localement. D'où le `CASE`, qui n'y touche pas.
  */
 export const UPSERT_SALON = `
 INSERT INTO salons (
@@ -68,7 +81,14 @@ ON CONFLICT(rid) DO UPDATE SET
   chiffre = excluded.chiffre,
   lecture_seule = excluded.lecture_seule,
   dm_autre_uid = COALESCE(excluded.dm_autre_uid, salons.dm_autre_uid),
-  dernier_message = COALESCE(excluded.dernier_message, salons.dernier_message),
+  dernier_message = CASE
+    WHEN excluded.chiffre = 1 THEN salons.dernier_message
+    ELSE excluded.dernier_message
+  END,
+  -- L'horodatage, lui, garde son COALESCE : il pilote le TRI de la liste, et
+  -- le serveur ne le recule PAS en vidant un salon (le champ lm survit à la
+  -- suppression du dernier message, vérifié). L'effacer ferait donc sauter le
+  -- salon en fin de liste sans qu'aucun événement ne le justifie.
   horodatage_dernier_message = COALESCE(excluded.horodatage_dernier_message, salons.horodatage_dernier_message),
   -- COALESCE aussi ici, et pour une raison PARTICULIÈRE : un etag écrasé par
   -- null ferait retomber l'URL d'avatar sur sa forme sans query — celle que le
@@ -181,13 +201,27 @@ export const MASQUER_MESSAGES_CHIFFRES = `UPDATE messages SET texte = NULL WHERE
  * Aperçu de la liste pour les salons chiffrés DÉVERROUILLÉS : le dernier
  * message déchiffré. Sans déchiffrement, `dernier_message` reste null (le
  * ciphertext n'est jamais stocké) → la liste montre le placeholder.
+ *
+ * Rejoué à chaque SUPPRESSION de message (voir `Depot.supprimerMessage`) : dans
+ * un salon chiffré, le serveur ne peut pas dire quel est le nouveau dernier
+ * message, seule la base locale le sait. Sans ce rejeu, effacer le dernier
+ * message d'un salon chiffré y laissait son texte en aperçu.
+ *
+ * Le `IS NOT` final n'est pas cosmétique : sans lui, l'UPDATE toucherait la
+ * table à chaque suppression même sans rien changer, et ferait rejouer toutes
+ * les requêtes vives assises sur `salons`. La sous-requête est donc répétée —
+ * une fois pour écrire, une fois pour décider s'il y a lieu d'écrire.
  */
 export const MAJ_APERCU_CHIFFRE = `
 UPDATE salons SET dernier_message = (
   SELECT texte FROM messages
   WHERE messages.rid = salons.rid AND messages.texte IS NOT NULL
   ORDER BY messages.horodatage DESC LIMIT 1
-) WHERE chiffre = 1`;
+) WHERE chiffre = 1 AND dernier_message IS NOT (
+  SELECT texte FROM messages
+  WHERE messages.rid = salons.rid AND messages.texte IS NOT NULL
+  ORDER BY messages.horodatage DESC LIMIT 1
+)`;
 /** Au verrouillage : l'aperçu redevient le placeholder (dernier_message null). */
 export const MASQUER_APERCU_CHIFFRE = `UPDATE salons SET dernier_message = NULL WHERE chiffre = 1`;
 

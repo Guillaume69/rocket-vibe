@@ -132,6 +132,13 @@ export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot
     },
     async supprimerMessage(id) {
       await brute.runAsync(SUPPRIMER_MESSAGE, [id]);
+      // L'aperçu de liste d'un salon CHIFFRÉ n'a pas de source serveur — le
+      // stream ne porte que du ciphertext. Effacer le dernier message y
+      // laisserait donc son texte en aperçu, indéfiniment. On le recalcule sur
+      // les messages restants ; le SQL ne touche rien s'il n'a rien à changer,
+      // et c'est un no-op sans salon chiffré. Les salons en clair, eux, sont
+      // couverts par le `rooms-changed` qui suit toute suppression.
+      await brute.runAsync(MAJ_APERCU_CHIFFRE);
     },
     async supprimerSalon(rid) {
       await brute.runAsync(SUPPRIMER_SALON, [rid]);

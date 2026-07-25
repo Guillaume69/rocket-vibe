@@ -168,6 +168,28 @@ export function versMessage(brut: Record<string, unknown>): MessageLocal | null 
 }
 
 /**
+ * Le texte d'aperçu d'un `lastMessage`, pour la liste des salons.
+ *
+ * Un message qui n'est QU'une pièce jointe a `msg: ''` (sondé sur 8.5, stream
+ * comme `rooms.get`). Rendre `null` là-dessus faisait garder l'aperçu du
+ * message PRÉCÉDENT : la liste annonçait un échange qui n'était plus le
+ * dernier. On retombe donc sur ce que le serveur sait dire du fichier — sa
+ * légende (`description`), sinon son nom (`title`).
+ */
+function apercuDuDernier(dernier: Record<string, unknown> | undefined): string | null {
+  const texte = chaine(dernier?.msg);
+  if (texte !== null) return texte;
+  if (!Array.isArray(dernier?.attachments)) return null;
+  for (const jointe of dernier.attachments) {
+    if (jointe === null || typeof jointe !== 'object') continue;
+    const j = jointe as { description?: unknown; title?: unknown };
+    const libelle = chaine(j.description) ?? chaine(j.title);
+    if (libelle !== null) return libelle;
+  }
+  return null;
+}
+
+/**
  * @param moi — nom d'utilisateur du compte courant. Un message direct n'a ni
  * `name` ni `fname` dans `rooms.get` : son nom d'affichage se dérive de
  * `usernames`, en s'excluant soi-même. Sans `moi`, le DM resterait sans nom.
@@ -226,8 +248,15 @@ export function versSalon(
     lectureSeule: booleen(brut.ro),
     dmAutreUid,
     dmAutreUsername,
-    // L'aperçu d'un salon chiffré est du ciphertext : jamais affiché.
-    dernierMessage: chiffre ? null : chaine(dernier?.msg),
+    // L'aperçu d'un salon chiffré est du ciphertext : jamais affiché. Le sien
+    // est posé localement, après déchiffrement (`MAJ_APERCU_CHIFFRE`) — d'où
+    // le `null` ici, que l'UPSERT sait ne pas prendre pour un effacement.
+    //
+    // Ailleurs, `null` VEUT dire « plus de dernier message » : quand le dernier
+    // message d'un salon est supprimé, le document Room perd complètement son
+    // `lastMessage` (sondé sur 8.5, stream ET `rooms.get`). C'est la seule
+    // façon d'apprendre qu'un salon a été vidé.
+    dernierMessage: chiffre ? null : apercuDuDernier(dernier),
     horodatageDernierMessage: versEpoch(dernier?.ts) ?? versEpoch(brut.lm),
     // Absent tant que le salon n'a pas de photo, et absent des documents
     // partiels : `null` veut dire « rien à dire », jamais « efface » (le

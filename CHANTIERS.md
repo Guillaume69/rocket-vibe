@@ -25,7 +25,7 @@ chantiers sont notées ; hors d'elles, on peut piocher.
 
 | # | Chantier | Sév. | Risque | Effort | État |
 |---|---|---|---|---|---|
-| 1 | Le lot d'une ligne — corrections locales, vérifiées, à régression quasi nulle | 🟠 | faible | heures | ☐ 0/9 |
+| 1 | Le lot d'une ligne — corrections locales, vérifiées, à régression quasi nulle | 🟠 | faible | heures | ✅ 9/9 |
 | 2 | Une file d'écritures par CONNEXION SQLite (et les brouillons dedans) | 🟡 | faible | heures | ☐ 0/3 |
 | 3 | Zéro secret hors du processus | 🔴 | moyen | jour | ☐ 0/4 |
 | 4 | Ce qui entre en base doit être juste : normalisation, aperçus, clés E2EE | 🟡 | faible | jour | ☐ 0/6 |
@@ -44,22 +44,23 @@ chantiers sont notées ; hors d'elles, on peut piocher.
 
 ---
 
+<!-- fait en 3a57bae -->
 ## 1. Le lot d'une ligne — corrections locales, vérifiées, à régression quasi nulle
 
 **🟠 haute** · risque de correction **faible** · effort **heures** · 9 constats
 
 > Sept défauts dont deux de sévérité haute se corrigent chacun en trois lignes ou moins, dans un seul fichier, sans toucher à un chemin partagé. Aujourd'hui ils coûtent : plus aucune notification de la session quand les Play Services répondent mal au premier raccordement, un rechargement complet de l'historique à chaque bascule E2EE, du texte utilisateur détruit, des photos postées en double, une feuille d'actions vide sur tout un salon chiffré. Vu le maître mot (zéro régression), ce lot passe avant tout le reste : gain immédiat, surface minuscule, et deux d'entre eux (la génération E2E, la garde d'upload) débloquent des chantiers ultérieurs.
 
-- [ ] 🟠 Un échec d'obtention du jeton FCM arme quand même le drapeau : plus aucune notification pour toute la session — `ui/synchro.tsx:333`
-- [ ] 🟡 `generation` est bumpée par les transitions E2EE, ce qui refait partir historique et rattrapage sans qu'aucune connexion n'ait été perdue — `ui/synchro.tsx:211`
-- [ ] 🟡 Le texte tapé PENDANT un téléversement est effacé à la fin de l'envoi — un correctif de 8.7 a été perdu — `app/salon/[rid].tsx:813`
-- [ ] 🟡 Écran de partage : un refus de validation en milieu de boucle renvoie en double les pièces déjà envoyées — `app/partager.tsx:217`
-- [ ] 🟡 La feuille d'actions s'ouvre VIDE sur tout message d'un salon chiffré et sur tout message système — `lib/actionsMessage.ts:46`
-- [ ] ⚪ Le message d'erreur de recherche survit au vidage du champ — `app/recherche.tsx:84`
-- [ ] 🟡 L'écran de partage affiche les avatars de salon sans leur `avatarETag` : photo figée à vie par le cache Fresco — `app/partager.tsx:361` *(non passé au réfuteur)*
-- [ ] 🟡 Depuis la fiche d'un DM, « Message » empile une SECONDE copie du salon déjà ouvert — `app/profil.tsx:196` *(non passé au réfuteur)*
-- [ ] 🟡 `ouvrirFicheProfil` n'a aucune garde de réentrance : un double tap empile deux fiches — `lib/profilPreload.ts:104` *(non passé au réfuteur)*
-- [ ] **Sortie du chantier** : `tsc` propre, suite verte, et lancement réel sur le Pixel
+- [x] 🟠 Un échec d'obtention du jeton FCM arme quand même le drapeau : plus aucune notification pour toute la session — `ui/synchro.tsx:333`
+- [x] 🟡 `generation` est bumpée par les transitions E2EE, ce qui refait partir historique et rattrapage sans qu'aucune connexion n'ait été perdue — `ui/synchro.tsx:211`
+- [x] 🟡 Le texte tapé PENDANT un téléversement est effacé à la fin de l'envoi — un correctif de 8.7 a été perdu — `app/salon/[rid].tsx:813`
+- [x] 🟡 Écran de partage : un refus de validation en milieu de boucle renvoie en double les pièces déjà envoyées — `app/partager.tsx:217`
+- [x] 🟡 La feuille d'actions s'ouvre VIDE sur tout message d'un salon chiffré et sur tout message système — `lib/actionsMessage.ts:46`
+- [x] ⚪ Le message d'erreur de recherche survit au vidage du champ — `app/recherche.tsx:84`
+- [x] 🟡 L'écran de partage affiche les avatars de salon sans leur `avatarETag` : photo figée à vie par le cache Fresco — `app/partager.tsx:361` *(non passé au réfuteur)*
+- [x] 🟡 Depuis la fiche d'un DM, « Message » empile une SECONDE copie du salon déjà ouvert — `app/profil.tsx:196` *(non passé au réfuteur)*
+- [x] 🟡 `ouvrirFicheProfil` n'a aucune garde de réentrance : un double tap empile deux fiches — `lib/profilPreload.ts:104` *(non passé au réfuteur)*
+- [ ] **Sortie du chantier** : `tsc` propre ✅, suite verte ✅ (462), **lancement réel sur le Pixel — à faire**
 
 ## 2. Une file d'écritures par CONNEXION SQLite (et les brouillons dedans)
 

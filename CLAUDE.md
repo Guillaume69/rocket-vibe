@@ -4,7 +4,9 @@ Client mobile **Rocket.Chat** tiers, Android d'abord, en Expo / React Native.
 Ce fichier est rechargé à chaque session. Il porte ce qui coûte cher à redécouvrir.
 
 - `ROADMAP.md` — les décisions et leur justification. Bouge rarement.
-- `EXECUTION.md` — la checklist, l'état, le propriétaire de chaque sous-étape. **Source de vérité sur « où on en est ».**
+- `CHANTIERS.md` — la dette relevée par l'audit du 25/07/2026, à cocher au fur et à mesure. **Source de vérité sur « qu'est-ce qu'on corrige ensuite ».**
+- `EXECUTION.md` — la checklist de CONSTRUCTION du produit. ⚠️ En retard sur le code (chantier 16) : ne pas s'y fier pour juger de ce qui est livré.
+- `docs/AUDIT.md` — le relevé daté de l'audit : mécanisme, scénario d'échec et correction de chaque constat. Figé, on n'y touche plus.
 - `docs/DEV.md` — l'environnement et le relevé du serveur cible.
 
 ## La boucle de travail

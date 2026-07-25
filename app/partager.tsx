@@ -210,16 +210,29 @@ function Partager({
       setOccupe(true);
       setRidEnCours(rid);
       setErreur(null);
+      // Ce qui est DÉJÀ parti, pour ne pas le renvoyer si la boucle s'arrête en
+      // route. Local à l'appel : aucun rendu déclenché tant que l'envoi court.
+      const partis: number[] = [];
+      let legendePartie = false;
       try {
         if (aFichiers) {
           // Un message par fichier ; la légende n'accompagne que le premier,
           // sinon elle se répéterait sous chaque pièce.
           for (let i = 0; i < pieces.length; i++) {
+            const porteLegende = i === 0 && legendePropre !== '';
             await fichiers.envoyer(
               rid,
               pieces[i].aEnvoyer,
-              i === 0 && legendePropre !== '' ? legendePropre : undefined,
+              porteLegende ? legendePropre : undefined,
             );
+            // Ce qui est parti est noté, mais l'état n'est PAS amputé ici :
+            // `pieces.length` pilote le mode d'affichage des aperçus (carte
+            // pleine largeur à 1, bande de vignettes au-delà), qui basculerait
+            // alors EN PLEIN ENVOI — la liste des destinations sauterait sous
+            // le doigt alors que `scrollEnabled={!occupe}` la fige justement.
+            // L'amputation se fait dans le `catch`, seul endroit où elle sert.
+            partis.push(pieces[i].cle);
+            if (porteLegende) legendePartie = true;
           }
         } else {
           await envoi.envoyer(rid, legendePropre);
@@ -229,6 +242,15 @@ function Partager({
       } catch (e) {
         // Seul un refus de validation (taille/type) rejette ici ; un échec
         // réseau deviendra une ligne d'échec actionnable dans le salon.
+        //
+        // Amputer de ce qui est DÉJÀ parti : l'utilisateur reste sur cet écran,
+        // retire la pièce fautive et retape sur le salon — sans cela les
+        // précédentes seraient postées une seconde fois. La légende suit : elle
+        // accompagnait la première pièce, elle est partie avec elle.
+        if (partis.length > 0) {
+          setPieces((prev) => prev.filter((x) => !partis.includes(x.cle)));
+          if (legendePartie) setLegende('');
+        }
         setErreur(e instanceof Error ? e.message : t('partager.partageImpossible'));
         enVol.current = false;
         setOccupe(false);
@@ -365,8 +387,14 @@ function LigneCible({
         chiffre={salon.chiffre}
         rid={salon.rid}
         dmAutreUid={salon.dmAutreUid}
+        avatarEtag={salon.avatarEtag}
         client={client}
       />
+      {/* Pas de `chiffreDeverrouille` ici, et c'est voulu : dans cet écran un
+          salon chiffré est BLOQUÉ quoi qu'il arrive (`bloque` ci-dessus), le
+          serveur rejetant le clair en E2EE. Le cadenas fermé dit exactement
+          l'état de la ligne — un avatar ordinaire sur une ligne grisée et non
+          sélectionnable serait moins juste, pas plus. */}
       <View style={styles.corpsLigne}>
         <Text style={[styles.nomCible, { color: c.texte }]} numberOfLines={1}>
           {nom}

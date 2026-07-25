@@ -208,8 +208,13 @@ export function AvatarSalon({
    * `avatarETag` du SALON (colonne `salons.avatar_etag`), sans quoi l'URI de sa
    * photo ne bougerait jamais. Pour un DM, c'est la photo de l'AUTRE qui est
    * affichée : son etag se lit ici même, par uid.
+   *
+   * OBLIGATOIRE à écrire, même pour passer `undefined` : optionnelle, elle
+   * s'oubliait en silence (app/partager.tsx l'a fait), et le symptôme — une
+   * photo de salon figée à vie par le cache Fresco, faute d'`ETag` HTTP sur
+   * `/avatar` — ne se voit qu'après un changement de photo côté serveur.
    */
-  avatarEtag?: string | null;
+  avatarEtag: string | null | undefined;
   client: ClientRest;
   taille?: number;
   rayon?: number;

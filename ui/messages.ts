@@ -227,6 +227,7 @@ const fr = {
 
   // ── Actions sur un message
   'actionsMessage.messageIntrouvable': 'Message introuvable.',
+  'actionsMessage.aucuneAction': 'Rien à faire sur ce message.',
   'actionsMessage.chargementImpossible': 'Chargement impossible.',
   'actionsMessage.actionRefusee': 'Action refusée.',
   'actionsMessage.repondre': 'Répondre',
@@ -574,6 +575,7 @@ const en: Record<CleTraduction, string> = {
   'fil.repondre': 'Reply in thread',
 
   'actionsMessage.messageIntrouvable': 'Message not found.',
+  'actionsMessage.aucuneAction': 'Nothing to do with this message.',
   'actionsMessage.chargementImpossible': "Couldn't load.",
   'actionsMessage.actionRefusee': 'Action refused.',
   'actionsMessage.repondre': 'Reply',

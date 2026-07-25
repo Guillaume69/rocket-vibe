@@ -82,6 +82,11 @@ function Recherche({
       () => {
         if (propre === '') {
           setResultats({});
+          // Vider le champ efface AUSSI l'erreur : sans cela le bandeau
+          // « Recherche impossible. » restait au-dessus d'une liste vide.
+          // La branche jumelle de app/recherche-messages.tsx le fait déjà —
+          // les deux écrans, écrits sur le même idiome, avaient divergé.
+          setMessage(null);
           return;
         }
         client

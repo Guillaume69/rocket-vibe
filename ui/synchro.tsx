@@ -204,11 +204,21 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       // (déverrouillé lors d'une session passée), on réimporte sans mot de
       // passe. Un échec (clé absente/abîmée) laisse simplement verrouillé.
       // Force un re-rendu de l'arbre après une transition E2EE : `MoteurE2E`
-      // notifie déjà ses abonnés (`useE2EDeverrouille`), mais bumper la
-      // génération du contexte garantit que la liste (cadenas, aperçu) reflète
+      // notifie déjà ses abonnés (`useE2EDeverrouille`), mais rafraîchir la
+      // valeur de contexte garantit que la liste (cadenas, aperçu) reflète
       // l'état, sans dépendre du timing d'un abonnement externe.
+      //
+      // Une nouvelle IDENTITÉ d'objet suffit — `useContext` compare par
+      // `Object.is`. Surtout, ne PAS bumper `generation` : ce compteur répond à
+      // « la connexion a-t-elle tenu ? » et sert de critère de validité aux
+      // caches de salon (`ui/salonsCharges.ts`, `ui/salonChaud.ts`) comme de
+      // dépendance aux effets d'ouverture. Le bumper ici jetait ces caches sans
+      // qu'aucune connexion n'ait été perdue : au démarrage sur un compte dont
+      // la clé est au Keystore, le seul `e2e.reprendre()` relançait un
+      // `channels.history` complet PLUS un `chat.syncMessages` — 3 à 4 s sur un
+      // gros salon pour rapporter zéro document.
       const rafraichirE2E = (): void =>
-        setSynchro((s) => (s.phase === 'pret' ? { ...s, generation: s.generation + 1 } : s));
+        setSynchro((s) => (s.phase === 'pret' ? { ...s } : s));
       const deverrouillerE2E = async (motDePasse: string): Promise<void> => {
         await e2e.deverrouiller(motDePasse); // lève ErreurE2E si faux
         await moteur.deverrouillageE2E(); // éclaire les messages déjà en base
@@ -333,7 +343,20 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         if (!jetonPushEnregistre) {
           jetonPushEnregistre = true;
           obtenirJetonFcm()
-            .then((r) => (r.ok ? enregistrerJeton(client, r.jeton, 'gcm') : undefined))
+            .then((r) => {
+              // `obtenirJetonFcm` ne REJETTE jamais : son échec est un RÉSULTAT
+              // (`ok:false`, lib/push.ts). N'écouter que le rejet laissait donc
+              // le drapeau armé après un échec des Play Services — plus aucune
+              // notification de TOUTE la session, alors que le commentaire
+              // ci-dessus promet un rejeu au raccordement suivant.
+              // Un refus de permission, lui, ne se réarme pas : ce serait
+              // rejouer le prompt système à chaque flap réseau.
+              if (!r.ok) {
+                if (r.raison === 'echec') jetonPushEnregistre = false;
+                return undefined;
+              }
+              return enregistrerJeton(client, r.jeton, 'gcm');
+            })
             .catch(() => {
               jetonPushEnregistre = false;
             });

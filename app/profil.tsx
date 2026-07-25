@@ -12,7 +12,7 @@
  * est configuré (`sonderAppelDisponible`), comme dans l'en-tête du salon.
  */
 
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -97,6 +97,8 @@ export default function EcranProfil() {
   const synchro = useSynchro();
   const c = useCouleurs();
   const routeur = useRouter();
+  // Pour lire la pile sous la feuille — voir « Message » plus bas.
+  const navigation = useNavigation();
   const t = useT();
 
   const client: ClientRest | null = etat.phase === 'connecte' ? etat.client : null;
@@ -193,7 +195,32 @@ export default function EcranProfil() {
             params: { callId, titre: profil.nom ?? profil.username },
           });
         } else {
-          routeur.replace({ pathname: '/salon/[rid]', params: { rid } });
+          // `im.create` est idempotent : ouverte depuis un DM, la fiche rend le
+          // rid de l'écran qui est JUSTE dessous. Un `replace` y fabriquait
+          // quand même une nouvelle clé de route, donc une SECONDE instance
+          // vivante du même salon — deux minuteries `marquerLu` (deux
+          // `subscriptions.read` sur une route à 10/min), deux
+          // `signalerSalonActif`, deux écouteurs de saisie, deux FlashList — et
+          // un retour arrière qui a l'air de ne rien faire.
+          //
+          // Dans ce cas on se contente de refermer la feuille. Volontairement
+          // défensif plutôt qu'un `navigate` : celui-ci dépilerait bien jusqu'à
+          // l'écran existant, mais dans le cas NOMINAL (le DM n'est pas encore
+          // ouvert) il empilerait le salon PAR-DESSUS la fiche, qui
+          // réapparaîtrait au retour. Si la pile n'a pas la forme attendue, on
+          // retombe sur le `replace` d'avant : au pire ce code ne fait rien,
+          // jamais pire qu'avant.
+          const pile = navigation.getState()?.routes ?? [];
+          const dessous = pile.length >= 2 ? pile[pile.length - 2] : undefined;
+          // Le `name` d'une route expo-router est son chemin de fichier
+          // (`salon/[rid]`) ; on tolère une éventuelle barre de tête plutôt que
+          // de parier sur la forme exacte.
+          const dejaOuvert =
+            dessous !== undefined &&
+            dessous.name.replace(/^\//, '').startsWith('salon/') &&
+            (dessous.params as { rid?: unknown } | undefined)?.rid === rid;
+          if (dejaOuvert) routeur.back();
+          else routeur.replace({ pathname: '/salon/[rid]', params: { rid } });
         }
       } catch (e) {
         setErreur(e instanceof Error ? e.message : t('profil.actionImpossible'));
@@ -202,7 +229,7 @@ export default function EcranProfil() {
       }
       // Succès : on a navigué, l'écran se démonte — ne pas re-setter l'état.
     },
-    [client, profil, moteur, routeur, t],
+    [client, profil, moteur, routeur, navigation, t],
   );
 
   // Ce qu'on sait DÈS le tap (avatar + @username, ou uid pour un DM) : on rend

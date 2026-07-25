@@ -152,6 +152,7 @@ export default function EcranActionsMessage() {
             auteurId: brut.auteurId,
             horodatage: brut.horodatage,
             typeSysteme: brut.typeSysteme,
+            texte: brut.texte,
           },
           moi,
           regles,
@@ -292,6 +293,15 @@ export default function EcranActionsMessage() {
         </View>
       ) : (
         <View style={styles.listeActions}>
+          {/* Aucune action possible (message système : arrivée, départ,
+              renommage) : le dire. Sans ce repli la feuille montait sur une
+              bande de 30 px sans un mot, et l'appui long avait vibré pour
+              rien — l'utilisateur croit à un bug d'affichage. */}
+          {actions.length === 0 && (
+            <Text style={[styles.aucuneAction, { color: c.attenue }]}>
+              {t('actionsMessage.aucuneAction')}
+            </Text>
+          )}
           {actions.includes('repondre') && (
             <ActionLigne
               c={c}
@@ -411,6 +421,12 @@ const styles = StyleSheet.create({
   },
   emoji: { fontSize: 26 },
   listeActions: { gap: 2 },
+  aucuneAction: {
+    fontFamily: POLICES.corps,
+    fontSize: 13.5,
+    textAlign: 'center',
+    paddingVertical: 14,
+  },
   enveloppeLigne: { borderRadius: 12, overflow: 'hidden' },
   ligne: {
     flexDirection: 'row',

@@ -33,6 +33,13 @@ const CLES = {
   uploaded: 'sys.uploaded',
   message_pinned: 'sys.messagePinned',
   message_unpinned: 'sys.messageUnpinned',
+  // Épingler dans un salon CHIFFRÉ produit un type distinct côté serveur —
+  // relevé dans le bundle 8.5.1 : `originalMessage.t === 'e2e' ?
+  // 'message_pinned_e2e' : 'message_pinned'`. Sans ces deux lignes, la ligne
+  // s'affiche « (action système « message_pinned_e2e ») ». Le libellé est le
+  // même : ce qui est épinglé reste un message.
+  message_pinned_e2e: 'sys.messagePinned',
+  message_unpinned_e2e: 'sys.messageUnpinned',
   room_changed_avatar: 'sys.roomChangedAvatar',
   room_changed_privacy: 'sys.roomChangedPrivacy',
   'room-set-read-only': 'sys.setReadOnly',

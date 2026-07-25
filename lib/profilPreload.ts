@@ -97,11 +97,41 @@ export function lireProfilPrecharge(p: ParamsProfil): ProfilBrut | undefined {
 
 const delai = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+/** La CIBLE dont l'ouverture est en vol — voir la garde de `ouvrirFicheProfil`. */
+let cleEnCours: string | null = null;
+
 /**
  * Précharge la fiche puis ouvre `/profil`. À utiliser à la place d'un
  * `router.push('/profil')` direct, partout où l'on ouvre une fiche.
+ *
+ * Réentrance gardée : la fonction attend jusqu'à `PLAFOND_MS` avant de pousser
+ * l'écran, et l'indicateur d'attente est monté en `pointerEvents="none"` — rien
+ * n'arrêtait donc un second tap. On récoltait deux `push`, donc deux fiches
+ * empilées à refermer, et le `finally` de la première exécution éteignait
+ * l'indicateur alors que la seconde volait encore (`poserBusy` est un booléen
+ * global, pas un compteur). Garde d'ÉTAT, comme partout ailleurs dans le dépôt
+ * (app/actions-message.tsx, app/recherche.tsx, app/profil.tsx) : aucun délai
+ * ajouté.
+ *
+ * La garde porte sur la CIBLE, pas sur « une ouverture quelconque » : un verrou
+ * global aurait avalé, jusqu'à 2,4 s durant et sans le moindre retour visuel
+ * (l'indicateur n'apparaît qu'après `SEUIL_INDICATEUR_MS`), un tap sur un AUTRE
+ * profil — que l'utilisateur aurait dû retaper. Deux cibles différentes gardent
+ * donc le comportement d'avant.
  */
 export async function ouvrirFicheProfil(p: ParamsProfil): Promise<void> {
+  const k = cle(p);
+  if (cleEnCours === k) return;
+  cleEnCours = k;
+  try {
+    await prechargerPuisOuvrir(p);
+  } finally {
+    // Une ouverture plus récente a pris la main : ne pas effacer SA clé.
+    if (cleEnCours === k) cleEnCours = null;
+  }
+}
+
+async function prechargerPuisOuvrir(p: ParamsProfil): Promise<void> {
   const client = clientActif;
   const k = cle(p);
 

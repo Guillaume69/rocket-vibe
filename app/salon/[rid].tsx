@@ -745,6 +745,16 @@ function Composer({
   effacerBrouillon: () => void;
 }) {
   const [brouillon, setBrouillon] = useState(brouillonInitial);
+  // Le texte COURANT, lisible depuis une continuation asynchrone. Un
+  // téléversement prend des secondes et le champ reste éditable pendant tout ce
+  // temps (seuls 📎/➤/🎤 sont grisés) : à la fin de l'envoi, il faut pouvoir
+  // distinguer « le champ porte encore la légende partie » de « l'utilisateur a
+  // continué à composer ». La closure de `envoyer` ne voit que le texte de
+  // l'appui, elle ne peut pas répondre à cette question.
+  const brouillonRef = useRef(brouillon);
+  useEffect(() => {
+    brouillonRef.current = brouillon;
+  }, [brouillon]);
   const [envoiFichier, setEnvoiFichier] = useState(false);
   const [erreurFichier, setErreurFichier] = useState<string | null>(null);
   const [enregistrement, setEnregistrement] = useState(false);
@@ -810,10 +820,23 @@ function Composer({
         .envoyer(rid, enAttente, texteAEnvoyer || undefined)
         .then(() => {
           setEnAttente(null);
-          setBrouillon('');
-          reinitialiser();
-          effacerBrouillon();
+          // La citation, elle, a été CONSOMMÉE par le message qui vient de
+          // partir — son permalien est dans `texteAEnvoyer`, calculé avant
+          // l'appel. La désarmer sans condition : sous la garde ci-dessous,
+          // elle resterait armée et le message SUIVANT re-citerait la même
+          // cible sans qu'on l'ait demandé.
           annulerReponse(rid);
+          // Le reste ne se solde que si le champ n'a pas bougé depuis l'appui :
+          // ce qui a été tapé pendant le téléversement n'est ni la légende
+          // partie, ni à jeter (correctif de 8.7, perdu en 30e1c85 au profit
+          // d'un vidage sec). `effacerBrouillon()` détruit en plus la ligne
+          // persistée — le texte ne serait pas même récupérable au retour dans
+          // le salon.
+          if (brouillonRef.current === brouillon) {
+            setBrouillon('');
+            reinitialiser();
+            effacerBrouillon();
+          }
         })
         .catch((e: unknown) =>
           setErreurFichier(e instanceof Error ? e.message : t('salon.televersementImpossible')),

@@ -8,6 +8,7 @@
  * action affichée à tort échoue proprement avec son message d'erreur.
  */
 
+import { TYPE_CHIFFRE } from './normaliser.ts';
 import { ErreurRest } from './rest.ts';
 
 export type ReglesMessages = {
@@ -20,7 +21,12 @@ export type ReglesMessages = {
 };
 
 export type ContexteAction = {
-  message: { auteurId: string; horodatage: number; typeSysteme: string | null };
+  /**
+   * `texte` sert à distinguer un message chiffré LISIBLE (déchiffré en base par
+   * `deverrouillageE2E`) d'un message encore opaque — voir la garde de
+   * `actionsPossibles`.
+   */
+  message: { auteurId: string; horodatage: number; typeSysteme: string | null; texte: string | null };
   moi: string;
   regles: ReglesMessages;
   permissions: string[];
@@ -43,7 +49,16 @@ export function actionsPossibles(contexte: ContexteAction): ActionMessage[] {
 
   // Un message système ne se modifie pas, ne s'épingle pas, ne se commente
   // pas d'un emoji.
-  if (message.typeSysteme !== null) return actions;
+  //
+  // MAIS `e2e` n'est pas un type système au sens de l'affichage : c'est un
+  // message ORDINAIRE dont le corps est chiffré, et `db/upserts.ts` ne remplit
+  // que `texte` au déchiffrement — le marqueur, lui, reste. Une fois lisible,
+  // ui/ligneMessage.tsx le rend comme n'importe quel autre message ; la sortie
+  // sèche ci-dessous ouvrait donc une feuille d'actions VIDE sur la totalité
+  // d'un salon chiffré. `modifier` reste fermé (`chat.update` posterait du
+  // CLAIR, que le serveur rejette), et `repondre` l'est déjà par `chiffre`.
+  const chiffreLisible = message.typeSysteme === TYPE_CHIFFRE && message.texte !== null;
+  if (message.typeSysteme !== null && !chiffreLisible) return actions;
 
   if (!lectureSeule) actions.push('reagir');
   // Répondre en citant (`lib/citation.ts`) : n'importe quel message d'autrui ou
@@ -56,10 +71,11 @@ export function actionsPossibles(contexte: ContexteAction): ActionMessage[] {
   // `force-delete-message` portent sur les messages d'autrui.
   const sansDelai = permissions.includes('bypass-time-limit-edit-and-delete');
   if (
-    (mien &&
+    !chiffreLisible &&
+    ((mien &&
       regles.editionAutorisee &&
       (sansDelai || dansLeDelai(contexte, regles.minutesBlocageEdition))) ||
-    permissions.includes('edit-message')
+      permissions.includes('edit-message'))
   ) {
     actions.push('modifier');
   }

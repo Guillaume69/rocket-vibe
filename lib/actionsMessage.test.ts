@@ -13,7 +13,7 @@ const regles = {
 };
 
 const base = {
-  message: { auteurId: 'moi', horodatage: 1_000_000, typeSysteme: null },
+  message: { auteurId: 'moi', horodatage: 1_000_000, typeSysteme: null, texte: 'coucou' },
   moi: 'moi',
   regles,
   permissions: [] as string[],
@@ -73,10 +73,43 @@ describe('actionsPossibles', () => {
     );
   });
 
-  test('salon chiffré : pas de réponse (l’envoi y est impossible), réagir reste', () => {
-    const chiffre = actionsPossibles({ ...base, chiffre: true });
-    assert.ok(!chiffre.includes('repondre'));
-    assert.ok(chiffre.includes('reagir'));
+  // Ces trois cas remplacent un test qui passait `chiffre: true` en laissant
+  // `typeSysteme: null` — une combinaison qui n'existe PAS en base : un message
+  // d'un salon chiffré porte toujours le marqueur `e2e`, que `db/upserts.ts` ne
+  // retire pas au déchiffrement. Le test affirmait donc « réagir reste » alors
+  // que la sortie sèche sur `typeSysteme !== null` rendait un tableau vide.
+  test('salon chiffré, message DÉCHIFFRÉ : réagir/supprimer/épingler, mais ni modifier ni répondre', () => {
+    const lisible = actionsPossibles({
+      ...base,
+      chiffre: true,
+      message: { ...base.message, typeSysteme: 'e2e', texte: 'clair' },
+    });
+    assert.deepEqual(lisible, ['reagir', 'supprimer', 'epingler']);
+    // `modifier` posterait du clair par `chat.update`, que le serveur rejette
+    // (`error-not-allowed`) ; `repondre` est fermé par `chiffre`.
+    assert.ok(!lisible.includes('modifier'));
+    assert.ok(!lisible.includes('repondre'));
+  });
+
+  test('salon chiffré, message ENCORE OPAQUE : aucune action', () => {
+    assert.deepEqual(
+      actionsPossibles({
+        ...base,
+        chiffre: true,
+        message: { ...base.message, typeSysteme: 'e2e', texte: null },
+      }),
+      [],
+    );
+  });
+
+  test('un vrai message système reste fermé, même avec un texte', () => {
+    assert.deepEqual(
+      actionsPossibles({
+        ...base,
+        message: { ...base.message, typeSysteme: 'uj', texte: 'a rejoint le salon' },
+      }),
+      [],
+    );
   });
 });
 

@@ -167,8 +167,43 @@ describe('rattraperGlobal', () => {
   });
 });
 
+/** Réponses servies DANS L'ORDRE — c'est ce qui permet de tester la pagination. */
+function clientSequence(reponses: (Record<string, unknown> | number)[]) {
+  const urls: string[] = [];
+  let i = 0;
+  const client = new ClientRest('http://x', {
+    fetch: async (url) => {
+      urls.push(String(url));
+      const r = reponses[Math.min(i, reponses.length - 1)];
+      i++;
+      const statut = typeof r === 'number' ? r : 200;
+      const corps = typeof r === 'number' ? { success: false, error: 'params' } : r;
+      return new Response(JSON.stringify(corps), {
+        status: statut,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    },
+    dormir: async () => {},
+  });
+  return { client, urls };
+}
+
+/** Une page en mode curseur, telle que le serveur 8.5 la rend. */
+const page = (updated: unknown[], next: string | null, deleted: unknown[] = []) => ({
+  result: { updated, deleted, cursor: { next, previous: '0' } },
+});
+
+const msg = (id: string, maj: number) => ({
+  _id: id,
+  rid: 'r1',
+  msg: id,
+  ts: { $date: maj },
+  u: { _id: 'u1' },
+  _updatedAt: { $date: maj },
+});
+
 describe('rattraperSalon', () => {
-  test('sans curseur : ne fait RIEN — syncMessages sans borne re-téléchargerait tout', async () => {
+  test('sans curseur : ne fait RIEN — repartir de l’origine re-téléchargerait tout', async () => {
     const d = fauxDepotComplet();
     const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
     const { client, urls } = fauxClient({});
@@ -176,123 +211,201 @@ describe('rattraperSalon', () => {
     assert.equal(urls.length, 0);
   });
 
-  test('avec curseur : syncMessages ingère, supprime, avance le curseur', async () => {
+  test('mode curseur : type/next/count, et SURTOUT pas de lastUpdate', async () => {
+    // `lastUpdate`, s'il est présent, GAGNE sur `type`/`next` : la réponse
+    // retombe en mode non borné (1,85 Mo mesurés). Son absence est le cœur du
+    // correctif, pas un détail de forme.
     const d = fauxDepotComplet();
     d.curseurs.set('r1|messages', 2000);
     const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
-    const { client, urls } = fauxClient({
-      'chat.syncMessages': {
-        result: {
-          updated: [
-            {
-              _id: 'm1',
-              rid: 'r1',
-              msg: 'raté pendant la coupure',
-              ts: { $date: 2500 },
-              u: { _id: 'u1' },
-              _updatedAt: { $date: 2600 },
-            },
-          ],
-          deleted: [{ _id: 'm-efface' }],
-        },
-      },
-    });
+    const { client, urls } = clientSequence([page([msg('m1', 2600)], null)]);
 
-    await rattraperSalon(client, moteur, 'r1', () => false, () => 2000);
+    await rattraperSalon(client, moteur, 'r1');
 
     assert.ok(urls[0]?.includes('chat.syncMessages'));
     assert.ok(urls[0]?.includes('roomId=r1'));
-    assert.ok(urls[0]?.includes(`lastUpdate=${encodeURIComponent(new Date(2000).toISOString())}`));
+    assert.ok(urls[0]?.includes('type=UPDATED'));
+    assert.ok(urls[0]?.includes('next=2000'));
+    assert.ok(urls[0]?.includes('count=50'));
+    assert.ok(!urls[0]?.includes('lastUpdate'), `lastUpdate doit être absent, vu ${urls[0]}`);
     assert.deepEqual(d.messages, ['m1']);
+  });
+
+  test('le curseur avance APRÈS CHAQUE page, pas seulement à la fin', async () => {
+    // C'est ce qui rend le plafonnement sûr : interrompu à n'importe quelle
+    // page, le passage suivant reprend là où on s'est arrêté.
+    const d = fauxDepotComplet();
+    d.curseurs.set('r1|messages', 1000);
+    d.curseurs.set('r1|messages-supprimes', 9_000_000);
+    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const vus: (number | undefined)[] = [];
+    const { client } = clientSequence([page([msg('m1', 1500)], '2000'), page([msg('m2', 2500)], null)]);
+    const ecrire = d.depot.ecrireCurseur.bind(d.depot);
+    d.depot.ecrireCurseur = async (portee, flux, v) => {
+      if (flux === 'messages') vus.push(v);
+      await ecrire(portee, flux, v);
+    };
+
+    await rattraperSalon(client, moteur, 'r1');
+
+    // Le curseur du SERVEUR (2000), pas le plus grand `_updatedAt` ingéré (1500).
+    assert.deepEqual(vus, [2000]);
+    assert.deepEqual(d.messages, ['m1', 'm2']);
+  });
+
+  test('plafond : 2 pages au plus, même si le serveur en promet d’autres', async () => {
+    // Sans plafond, une tempête `_updatedAt` (changement de pseudo → tous les
+    // messages réécrits) redescendrait 60 pages, soit 1,85 Mo.
+    const d = fauxDepotComplet();
+    d.curseurs.set('r1|messages', 1000);
+    d.curseurs.set('r1|messages-supprimes', 9_000_000);
+    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    // Chaque page promet une suite : seul le plafond peut arrêter la boucle.
+    const { client, urls } = clientSequence([
+      page([msg('m1', 1500)], '2000'),
+      page([msg('m2', 2500)], '3000'),
+      page([msg('m3', 3500)], '4000'),
+    ]);
+
+    await rattraperSalon(client, moteur, 'r1');
+
+    const majs = urls.filter((u) => u.includes('type=UPDATED'));
+    assert.equal(majs.length, 2, 'la 3e page ne doit pas être demandée');
+    assert.deepEqual(d.messages, ['m1', 'm2']);
+    assert.equal(d.curseurs.get('r1|messages'), 3000, 'le reste est repris au prochain passage');
+  });
+
+  test('un curseur qui n’avance pas arrête la boucle — pas de sur-place', async () => {
+    const d = fauxDepotComplet();
+    d.curseurs.set('r1|messages', 5000);
+    d.curseurs.set('r1|messages-supprimes', 9_000_000);
+    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const { client, urls } = clientSequence([page([], '5000')]);
+
+    await rattraperSalon(client, moteur, 'r1');
+
+    assert.equal(urls.filter((u) => u.includes('type=UPDATED')).length, 1);
+  });
+
+  test('suppressions : premier passage = on cale le curseur, sans rien rapatrier', async () => {
+    // Sinon on redescendrait toute la corbeille du salon depuis l'origine.
+    const d = fauxDepotComplet();
+    d.curseurs.set('r1|messages', 4000);
+    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const { client, urls } = clientSequence([page([], null)]);
+
+    await rattraperSalon(client, moteur, 'r1');
+
+    assert.equal(urls.filter((u) => u.includes('type=DELETED')).length, 0);
+    assert.equal(d.curseurs.get('r1|messages-supprimes'), 4000);
+  });
+
+  test('suppressions : passage suivant → les messages effacés côté serveur partent', async () => {
+    const d = fauxDepotComplet();
+    d.curseurs.set('r1|messages', 4000);
+    d.curseurs.set('r1|messages-supprimes', 4000);
+    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const { client, urls } = clientSequence([
+      page([], null),
+      { result: { deleted: [{ _id: 'm-efface' }], cursor: { next: '5000', previous: '0' } } },
+      { result: { deleted: [], cursor: { next: null, previous: '0' } } },
+    ]);
+
+    await rattraperSalon(client, moteur, 'r1');
+
+    const suppr = urls.filter((u) => u.includes('type=DELETED'));
+    assert.ok(suppr[0]?.includes('next=4000'));
     assert.deepEqual(d.supprimesMessages, ['m-efface']);
-    assert.equal(d.curseurs.get('r1|messages'), 2600);
+    assert.equal(d.curseurs.get('r1|messages-supprimes'), 5000);
   });
 
   test('abandonné entre la réponse et l’écriture : rien n’est écrit', async () => {
     const d = fauxDepotComplet();
     d.curseurs.set('r1|messages', 2000);
     const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
-    const { client } = fauxClient({
-      'chat.syncMessages': {
-        result: { updated: [{ _id: 'm1', rid: 'r1', ts: { $date: 1 }, u: { _id: 'u' } }] },
-      },
-    });
-    await rattraperSalon(client, moteur, 'r1', () => true, () => 2000);
+    const { client } = clientSequence([page([msg('m1', 2500)], null)]);
+    await rattraperSalon(client, moteur, 'r1', () => true);
     assert.equal(d.messages.length, 0);
   });
 
-  test('curseur TRÈS en retard : la fenêtre est bornée à 24 h', async () => {
-    // Le serveur 8.5 ignore `count` : sans borne côté client, un curseur vieux
-    // de plusieurs jours fait renvoyer TOUT le backlog — mesuré à 1,85 Mo et
-    // 3 000 documents sur un canal actif. C'est le « chargement trop long » de
-    // #general.
-    const jour = 24 * 60 * 60 * 1000;
-    const maintenant = 100 * jour;
-    const d = fauxDepotComplet();
-    d.curseurs.set('r1|messages', 2 * jour); // 98 jours de retard
-    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
-    const { client, urls } = fauxClient({ 'chat.syncMessages': { result: { updated: [] } } });
-
-    await rattraperSalon(client, moteur, 'r1', () => false, () => maintenant);
-
-    const attendu = encodeURIComponent(new Date(maintenant - jour).toISOString());
-    assert.ok(
-      urls[0]?.includes(`lastUpdate=${attendu}`),
-      `la fenêtre doit être ramenée à 24 h, vu ${urls[0]}`,
-    );
-  });
-
-  test('curseur RÉCENT : utilisé tel quel — on ne redemande pas du déjà ingéré', async () => {
-    const jour = 24 * 60 * 60 * 1000;
-    const maintenant = 100 * jour;
-    const recent = maintenant - 60_000; // une minute de retard
-    const d = fauxDepotComplet();
-    d.curseurs.set('r1|messages', recent);
-    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
-    const { client, urls } = fauxClient({ 'chat.syncMessages': { result: { updated: [] } } });
-
-    await rattraperSalon(client, moteur, 'r1', () => false, () => maintenant);
-
-    const attendu = encodeURIComponent(new Date(recent).toISOString());
-    assert.ok(
-      urls[0]?.includes(`lastUpdate=${attendu}`),
-      `la borne ne doit JAMAIS reculer sous le curseur, vu ${urls[0]}`,
-    );
-  });
-
-  test('syncMessages échoue → curseur RÉ-ANCRÉ sur le dernier message local', async () => {
-    // Curseur très en retard (gros backlog) : `chat.syncMessages` n'est pas borné
-    // et timeoute. Sans ré-ancrage, le curseur resterait coincé → boucle sans fin.
+  test('un timeout REMONTE sans basculer en mode non borné', async () => {
+    // Le repli ne doit se déclencher que sur des paramètres refusés (400).
+    // Basculer sur `lastUpdate` parce que le réseau flanche rapporterait
+    // exactement les mégaoctets qu'on cherche à éviter.
     const d = fauxDepotComplet();
     d.curseurs.set('r1|messages', 1000);
-    d.setDernierLocal(9000);
     const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
-    // Un fetch qui rejette → `client.get` lève (comme un timeout réseau).
+    const urls: string[] = [];
     const client = new ClientRest('http://x', {
-      fetch: async () => {
+      fetch: async (url) => {
+        urls.push(String(url));
         throw new Error('timeout');
       },
     });
-    // L'échec est RELAYÉ (l'appelant le loggue)…
+
     await assert.rejects(() => rattraperSalon(client, moteur, 'r1'));
-    // …mais le curseur a avancé 1000 → 9000 : la prochaine tentative ne visera
-    // plus qu'une petite fenêtre. Plus de re-timeout à l'infini.
-    assert.equal(d.curseurs.get('r1|messages'), 9000);
+
+    assert.ok(!urls.some((u) => u.includes('lastUpdate')), 'aucun repli sur un timeout');
+    assert.equal(d.curseurs.get('r1|messages'), 1000, 'curseur intact : la reprise est exacte');
   });
 
-  test('syncMessages échoue mais AUCUN message local : curseur inchangé', async () => {
-    const d = fauxDepotComplet();
-    d.curseurs.set('r1|messages', 1000);
-    d.setDernierLocal(null);
-    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
-    const client = new ClientRest('http://x', {
-      fetch: async () => {
-        throw new Error('timeout');
-      },
+  describe('repli sur un serveur sans mode curseur (< 7.5)', () => {
+    const jour = 24 * 60 * 60 * 1000;
+
+    test('400 sur la première page → lastUpdate, fenêtre ramenée à 24 h', async () => {
+      const maintenant = 100 * jour;
+      const d = fauxDepotComplet();
+      d.curseurs.set('r1|messages', 2 * jour); // 98 jours de retard
+      const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+      const { client, urls } = clientSequence([400, { result: { updated: [] } }]);
+
+      await rattraperSalon(client, moteur, 'r1', () => false, () => maintenant);
+
+      const attendu = encodeURIComponent(new Date(maintenant - jour).toISOString());
+      assert.ok(urls[1]?.includes(`lastUpdate=${attendu}`), `vu ${urls[1]}`);
     });
-    await assert.rejects(() => rattraperSalon(client, moteur, 'r1'));
-    // Rien à quoi se raccrocher : on ne touche pas le curseur (jamais à rebours).
-    assert.equal(d.curseurs.get('r1|messages'), 1000);
+
+    test('une réponse SANS cursor vaut refus — le serveur ignore les paramètres', async () => {
+      const d = fauxDepotComplet();
+      d.curseurs.set('r1|messages', 2000);
+      const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+      const { client, urls } = clientSequence([
+        { result: { updated: [] } },
+        { result: { updated: [msg('m1', 2600)] } },
+      ]);
+
+      await rattraperSalon(client, moteur, 'r1', () => false, () => 3000);
+
+      assert.ok(urls[1]?.includes('lastUpdate'), `vu ${urls[1]}`);
+      assert.deepEqual(d.messages, ['m1']);
+    });
+
+    test('le repli échoue → curseur RÉ-ANCRÉ sur le dernier message local', async () => {
+      // Sans mode curseur, la requête n'est pas bornée et timeoute sur un gros
+      // backlog. Le curseur ne s'avançant qu'APRÈS ingestion, il resterait
+      // coincé → boucle sans fin. Le ré-ancrage ne vaut que pour ce chemin-là.
+      const d = fauxDepotComplet();
+      d.curseurs.set('r1|messages', 1000);
+      d.setDernierLocal(9000);
+      const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+      let premier = true;
+      const client = new ClientRest('http://x', {
+        fetch: async () => {
+          if (premier) {
+            premier = false;
+            return new Response(JSON.stringify({ success: false }), {
+              status: 400,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+          throw new Error('timeout');
+        },
+        dormir: async () => {},
+      });
+
+      await assert.rejects(() => rattraperSalon(client, moteur, 'r1'));
+      assert.equal(d.curseurs.get('r1|messages'), 9000);
+    });
   });
 });
 

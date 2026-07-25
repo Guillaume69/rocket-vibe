@@ -388,28 +388,19 @@ function Salon({
       );
       const lot = reponse.messages ?? [];
       const recent = await moteur.ingererMessages(lot);
-      // Le curseur de rattrapage du salon NAÎT ici, et se RÉ-ANCRE à chaque
-      // OUVERTURE (`latest` indéfini) sur le plus récent chargé — jamais à
-      // rebours (garanti par `ecrireCurseur`).
+      // Le curseur de rattrapage du salon NAÎT ici — et RIEN DE PLUS. Sans lui,
+      // `rattraperSalon` no-ope à vie (`depuis === null`) ; avec, il reprend la
+      // pagination par curseur là où elle en est.
       //
-      // Pourquoi ré-ancrer, et pas seulement naître : `chat.syncMessages` n'est
-      // PAS borné (le serveur 8.5 IGNORE `count`, vérifié). Un curseur qui a pris
-      // du retard le force à renvoyer tout le backlog — qui TIMEOUT à 15 s sur un
-      // gros salon. Le curseur n'avançant qu'APRÈS ingestion, il reste coincé, et
-      // `connecter` (la socket meurt pendant les 15 s de blocage → relance)
-      // rejoue `rattraperSalon` sur le MÊME curseur : re-timeout, à l'infini — la
-      // barre de synchro tourne « sans s'arrêter » (mesuré sur #general, backlog
-      // ~18 h). Ré-ancrer à l'ouverture garde la fenêtre de `syncMessages`
-      // minuscule.
-      //
-      // Compromis assumé : on saute les éditions/suppressions de messages
-      // ANCIENS survenues dans l'intervalle sauté. L'ouverture a rechargé l'état
-      // COURANT des récents, et la pagination re-télécharge celui des plus vieux
-      // quand on y remonte. On NE ré-ancre PAS depuis une PAGE de pagination
-      // (`latest` défini) : elle charge de l'ANCIEN, aveugle aux récents.
+      // Il ne se RÉ-ANCRE plus à chaque ouverture. Ce saut en avant n'existait
+      // que pour garder minuscule la fenêtre d'un `chat.syncMessages?lastUpdate=`
+      // non borné, au prix des éditions et suppressions de l'intervalle sauté.
+      // Depuis que le rattrapage pagine par curseur et se plafonne lui-même
+      // (`lib/rattrapage.ts`), la fenêtre n'a plus besoin d'être petite : le
+      // curseur peut redevenir honnête.
       if (recent !== null) {
         const existant = await moteur.depotSynchro.lireCurseur(rid, 'messages');
-        if (existant === null || latest === undefined) {
+        if (existant === null) {
           await moteur.depotSynchro.ecrireCurseur(rid, 'messages', recent);
         }
       }
@@ -439,13 +430,10 @@ function Salon({
     // vie — et `chat.delete` dessus répond « No message found ». Seul
     // `chat.syncMessages` porte les `deleted`, et à la reconnexion il ne
     // couvre que le salon ACTIF à cet instant (la liste, au lancement à
-    // froid) — jamais celui qu'on ouvre ensuite. Parti AVANT le rechargement
-    // (qui ré-ancre le curseur), il lit encore le curseur d'avant la coupure :
-    // la fenêtre couvre les suppressions ratées. Tir-et-oublie, comme dans
-    // `connecter` : un timeout sur gros backlog est absorbé (le catch de
-    // `rattraperSalon` ré-ancre le curseur), l'ouverture n'attend rien.
+    // froid) — jamais celui qu'on ouvre ensuite. Tir-et-oublie : chaque page
+    // est bornée à 50 documents, l'ouverture n'attend rien.
     void activite
-      .suivre(rid, rattraperSalon(client, moteur, rid))
+      .suivre(rid, rattraperSalon(client, moteur, rid, () => annule))
       .catch((e: unknown) => console.warn('rattraperSalon (ouverture): échec ignoré', e));
     // Enveloppé dans `activite` : l'en-tête allume sa barre de synchro le temps
     // du fetch, même quand le cache local remplit déjà la liste (rien ne

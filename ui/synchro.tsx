@@ -187,6 +187,8 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       let jetonPushEnregistre = false;
       let emojisSynchronises = false;
       let salonsReconcilies = false;
+      /** Un seul rattrapage de salon en vol — voir `rattraperTout`. */
+      let rattrapageSalonEnVol = false;
       const presence = new MoteurPresence();
       const activite = new MoteurActivite();
       // Emojis custom : l'index mémoire depuis SQLite AVANT « pret », pour que
@@ -275,22 +277,30 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       const rattraperTout = async (): Promise<void> => {
         await activite.suivre('global', fournisseur.rattraperGlobal(moteur, estAbandonne));
         if (salonActif === null) return;
-        // Le rattrapage d'UN salon part en TIR-ET-OUBLIE : ni attendu, ni
-        // fatal. `chat.syncMessages` n'est PAS borné (le serveur 8.5 ignore
-        // `count`) : sur un gros salon dont le curseur a pris du retard, il
-        // doit renvoyer tout le backlog et TIMEOUTE à 15 s. Si on l'attendait,
-        // `connecter` resterait bloqué ces 15 s ; la socket meurt pendant ce
-        // temps → le pilote relance → nouveau `rattraperSalon` sur le MÊME
-        // curseur (qui ne s'avance qu'APRÈS ingestion) → re-timeout, à
-        // l'infini : la barre de synchro tourne « sans s'arrêter » (mesuré sur
-        // #general, backlog ~18 h). En ne l'attendant pas, `connecter` finit
-        // tout de suite et la socket ne meurt plus de ce blocage. Le curseur,
-        // lui, est ré-ancré à chaque ouverture par `chargerHistorique` (voir
-        // app/salon/[rid].tsx) pour que la fenêtre reste petite. Le stream DDP
-        // (live) et l'historique d'ouverture couvrent le salon visible.
+        // Le rattrapage d'UN salon part en TIR-ET-OUBLIE : ni attendu, ni fatal.
+        // Chaque page est bornée à 50 documents (`lib/rattrapage.ts`), donc plus
+        // rien ne peut y timeouter sur un gros backlog ; mais l'attendre
+        // bloquerait quand même `connecter` pour un travail que le stream DDP et
+        // l'historique d'ouverture couvrent déjà.
+        //
+        // La garde interdit d'EMPILER : `raccorder` appelle `rattraper()` DEUX
+        // fois par raccordement (lib/raccordement.ts — une fois tout de suite,
+        // une fois après l'armement des souscriptions), et le pilote relance à
+        // chaque perte, à chaque retour au premier plan et après chaque sonde
+        // d'upload. Sans elle, un réseau qui bat de l'aile lancerait plusieurs
+        // paginations concurrentes sur le même curseur : requêtes redondantes,
+        // et le rate-limiter REST (10/min par route) répondrait 429 — soit 30 s
+        // de barre de synchro allumée pour rien. Un booléen, pas un délai : la
+        // demande concurrente se fond dans la pagination qui court déjà, et le
+        // curseur garantit que le prochain passage reprendra où on s'arrête.
+        if (rattrapageSalonEnVol) return;
+        rattrapageSalonEnVol = true;
         void activite
           .suivre(salonActif, fournisseur.rattraperSalon(moteur, salonActif, estAbandonne))
-          .catch((e: unknown) => console.warn('rattraperSalon: échec ignoré', e));
+          .catch((e: unknown) => console.warn('rattraperSalon: échec ignoré', e))
+          .finally(() => {
+            rattrapageSalonEnVol = false;
+          });
       };
 
       // Ce qui suit le rattrapage sans dépendre du stream. Joué une fois par

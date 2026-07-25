@@ -11,9 +11,13 @@
  * La base est celle du couple (serveur, compte) : les salons, aperçus et
  * non-lus sont des données du compte, pas du serveur.
  *
- * Ordre du raccordement : s'abonner aux streams AVANT le chargement REST.
- * Rien ne peut se perdre entre les deux, et si les deux se recouvrent, les
- * upserts sont idempotents et arbitrés par `_updatedAt`.
+ * Ordre du raccordement : s'abonner aux streams AVANT le chargement REST —
+ * rien ne peut se perdre entre les deux, et si les deux se recouvrent, les
+ * upserts sont idempotents et arbitrés par `_updatedAt`. Cet ordre reste la
+ * règle, mais il n'est plus une ATTENTE : au-delà d'un délai de grâce, la
+ * lecture REST part sans le stream (voir `lib/raccordement.ts`), sans quoi
+ * l'utilisateur paierait le timeout de négociation DDP à chaque retour de
+ * l'arrière-plan.
  */
 
 import * as Crypto from 'expo-crypto';
@@ -47,6 +51,7 @@ import type {
 } from '../lib/fournisseur.ts';
 import { MoteurPresence } from '../lib/presence.ts';
 import { obtenirJetonFcm } from '../lib/push.ts';
+import { raccorder } from '../lib/raccordement.ts';
 import { enregistrerJeton } from '../lib/pushToken.ts';
 import { Reconnecteur } from '../lib/reconnexion.ts';
 import { MoteurSynchro } from '../lib/sync.ts';
@@ -250,80 +255,93 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       // (backoff 1 s → 30 s avec gigue) : hors ligne au lancement, ça
       // retentera tout seul. À chaque nouvelle socket : login, re-souscription
       // de tous les streams, rechargement, et flush de la file d'envoi.
+      // Le gros en deux requêtes delta (`updatedSince`), puis le salon que
+      // l'utilisateur regarde — un seul `chat.syncMessages`. Enveloppés dans
+      // `activite` : l'en-tête (liste / salon) allume sa barre de synchro le
+      // temps du fetch (`suivre` rejette comme l'original, le backoff du pilote
+      // garde sa main).
+      const rattraperTout = async (): Promise<void> => {
+        await activite.suivre('global', fournisseur.rattraperGlobal(moteur, estAbandonne));
+        if (salonActif === null) return;
+        // Le rattrapage d'UN salon part en TIR-ET-OUBLIE : ni attendu, ni
+        // fatal. `chat.syncMessages` n'est PAS borné (le serveur 8.5 ignore
+        // `count`) : sur un gros salon dont le curseur a pris du retard, il
+        // doit renvoyer tout le backlog et TIMEOUTE à 15 s. Si on l'attendait,
+        // `connecter` resterait bloqué ces 15 s ; la socket meurt pendant ce
+        // temps → le pilote relance → nouveau `rattraperSalon` sur le MÊME
+        // curseur (qui ne s'avance qu'APRÈS ingestion) → re-timeout, à
+        // l'infini : la barre de synchro tourne « sans s'arrêter » (mesuré sur
+        // #general, backlog ~18 h). En ne l'attendant pas, `connecter` finit
+        // tout de suite et la socket ne meurt plus de ce blocage. Le curseur,
+        // lui, est ré-ancré à chaque ouverture par `chargerHistorique` (voir
+        // app/salon/[rid].tsx) pour que la fenêtre reste petite. Le stream DDP
+        // (live) et l'historique d'ouverture couvrent le salon visible.
+        void activite
+          .suivre(salonActif, fournisseur.rattraperSalon(moteur, salonActif, estAbandonne))
+          .catch((e: unknown) => console.warn('rattraperSalon: échec ignoré', e));
+      };
+
+      // Ce qui suit le rattrapage sans dépendre du stream. Joué une fois par
+      // raccordement, même si la socket a échoué : ces travaux sont du REST.
+      const apresRattrapage = (): void => {
+        // Ce qui attendait le réseau part maintenant. Pas d'await : un
+        // échec d'envoi ne doit pas compter comme un échec de connexion.
+        envoi.traiter().catch(() => {});
+        fichiers.traiter().catch(() => {});
+        // Présence : photo initiale, puis deltas (`from`). Ornement — un
+        // échec ne compte jamais comme un échec de raccordement.
+        void presence.charger(client);
+        // Liste des emojis custom : rafraîchie UNE fois par session (comme le
+        // jeton push), pas à chaque flap réseau — c'est un download complet et
+        // une réécriture de toute la table. La version SQLite a déjà servi le
+        // premier rendu ; les nouveaux emojis apparaissent au rendu suivant.
+        // `estAbandonne` empêche un fetch tardif de réarmer l'index d'un
+        // serveur qu'on a quitté. Échec → non armé, retenté au prochain flap.
+        if (!emojisSynchronises) {
+          emojisSynchronises = true;
+          synchroniserEmojisCustom(client, depotEmojis, estAbandonne).catch(() => {
+            emojisSynchronises = false;
+          });
+        }
+        // Cycle de vie du jeton push (6.1) : enregistré au premier
+        // raccordement de la session. Idempotent côté serveur ; un échec
+        // sera retenté au prochain raccordement.
+        if (!jetonPushEnregistre) {
+          jetonPushEnregistre = true;
+          obtenirJetonFcm()
+            .then((r) => (r.ok ? enregistrerJeton(client, r.jeton, 'gcm') : undefined))
+            .catch(() => {
+              jetonPushEnregistre = false;
+            });
+        }
+        // Réconciliation anti-fantômes (une fois par session, comme les
+        // emojis) : purge les salons supprimés côté serveur dont l'événement
+        // 'removed' a été raté. Full `subscriptions.get` — on ne le refait
+        // pas à chaque flap réseau. Échec → non armé, retenté au prochain.
+        if (!salonsReconcilies) {
+          salonsReconcilies = true;
+          fournisseur.reconcilier(moteur, estAbandonne).catch(() => {
+            salonsReconcilies = false;
+          });
+        }
+        // Réveille les écrans dont le chargement initial a raté hors ligne.
+        setSynchro((s) => (s.phase === 'pret' ? { ...s, generation: s.generation + 1 } : s));
+      };
+
       reconnecteur = new Reconnecteur({
         connecter: async () => {
           if (abandonne) return;
-          // Ne reconnecter QUE si la socket est tombée : après un échec du
-          // seul rattrapage REST, le DDP est encore authentifié et
-          // `connecter` lèverait « déjà connecté » — la retentative ne
-          // rejouerait alors jamais le rattrapage.
-          if (ddp.etat === 'ferme') await ddp.connecter(session.authToken);
-          // Le gros en deux requêtes delta (`updatedSince`), puis le salon
-          // que l'utilisateur regarde — un seul `chat.syncMessages`. Enveloppés
-          // dans `activite` : l'en-tête (liste / salon) allume sa barre de
-          // synchro le temps du fetch (`suivre` rejette comme l'original, le
-          // backoff du pilote garde sa main).
-          await activite.suivre('global', fournisseur.rattraperGlobal(moteur, estAbandonne));
-          if (salonActif !== null) {
-            // Le rattrapage d'UN salon part en TIR-ET-OUBLIE : ni attendu, ni
-            // fatal. `chat.syncMessages` n'est PAS borné (le serveur 8.5 ignore
-            // `count`) : sur un gros salon dont le curseur a pris du retard, il
-            // doit renvoyer tout le backlog et TIMEOUTE à 15 s. Si on l'attendait,
-            // `connecter` resterait bloqué ces 15 s ; la socket meurt pendant ce
-            // temps → le pilote relance → nouveau `rattraperSalon` sur le MÊME
-            // curseur (qui ne s'avance qu'APRÈS ingestion) → re-timeout, à
-            // l'infini : la barre de synchro tourne « sans s'arrêter » (mesuré sur
-            // #general, backlog ~18 h). En ne l'attendant pas, `connecter` finit
-            // tout de suite et la socket ne meurt plus de ce blocage. Le curseur,
-            // lui, est ré-ancré à chaque ouverture par `chargerHistorique` (voir
-            // app/salon/[rid].tsx) pour que la fenêtre reste petite. Le stream DDP
-            // (live) et l'historique d'ouverture couvrent le salon visible.
-            void activite
-              .suivre(salonActif, fournisseur.rattraperSalon(moteur, salonActif, estAbandonne))
-              .catch((e: unknown) => console.warn('rattraperSalon: échec ignoré', e));
-          }
-          // Ce qui attendait le réseau part maintenant. Pas d'await : un
-          // échec d'envoi ne doit pas compter comme un échec de connexion.
-          envoi.traiter().catch(() => {});
-          fichiers.traiter().catch(() => {});
-          // Présence : photo initiale, puis deltas (`from`). Ornement — un
-          // échec ne compte jamais comme un échec de raccordement.
-          void presence.charger(client);
-          // Liste des emojis custom : rafraîchie UNE fois par session (comme le
-          // jeton push), pas à chaque flap réseau — c'est un download complet et
-          // une réécriture de toute la table. La version SQLite a déjà servi le
-          // premier rendu ; les nouveaux emojis apparaissent au rendu suivant.
-          // `estAbandonne` empêche un fetch tardif de réarmer l'index d'un
-          // serveur qu'on a quitté. Échec → non armé, retenté au prochain flap.
-          if (!emojisSynchronises) {
-            emojisSynchronises = true;
-            synchroniserEmojisCustom(client, depotEmojis, estAbandonne).catch(() => {
-              emojisSynchronises = false;
-            });
-          }
-          // Cycle de vie du jeton push (6.1) : enregistré au premier
-          // raccordement de la session. Idempotent côté serveur ; un échec
-          // sera retenté au prochain raccordement.
-          if (!jetonPushEnregistre) {
-            jetonPushEnregistre = true;
-            obtenirJetonFcm()
-              .then((r) => (r.ok ? enregistrerJeton(client, r.jeton, 'gcm') : undefined))
-              .catch(() => {
-                jetonPushEnregistre = false;
-              });
-          }
-          // Réconciliation anti-fantômes (une fois par session, comme les
-          // emojis) : purge les salons supprimés côté serveur dont l'événement
-          // 'removed' a été raté. Full `subscriptions.get` — on ne le refait
-          // pas à chaque flap réseau. Échec → non armé, retenté au prochain.
-          if (!salonsReconcilies) {
-            salonsReconcilies = true;
-            fournisseur.reconcilier(moteur, estAbandonne).catch(() => {
-              salonsReconcilies = false;
-            });
-          }
-          // Réveille les écrans dont le chargement initial a raté hors ligne.
-          setSynchro((s) => (s.phase === 'pret' ? { ...s, generation: s.generation + 1 } : s));
+          await raccorder({
+            // Ne reconnecter QUE si la socket est tombée : après un échec du
+            // seul rattrapage REST, le DDP est encore authentifié et
+            // `connecter` lèverait « déjà connecté » — la retentative ne
+            // rejouerait alors jamais le rattrapage.
+            ouvrirStream: () =>
+              ddp.etat === 'ferme' ? ddp.connecter(session.authToken) : Promise.resolve(),
+            rattraper: rattraperTout,
+            ensuite: apresRattrapage,
+            estAbandonne,
+          });
         },
       });
       ddp.surPerte(() => reconnecteur?.declencher());

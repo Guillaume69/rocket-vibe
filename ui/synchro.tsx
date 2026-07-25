@@ -63,6 +63,7 @@ import {
 import { traduireCourant } from './i18n.ts';
 import { useSession } from './session.tsx';
 import { brancherSondeUpload } from './sondeUpload.ts';
+import { oublierSalonsCharges } from './salonsCharges.ts';
 import { transportExpo } from './transportUpload.ts';
 
 export type EtatSynchro =
@@ -409,6 +410,10 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       reconnecteur?.arreter();
       surAbandon?.();
       brancherSondeUpload(null); // plus de sonde vers un client rangé
+      // Le cache « ce salon a déjà son historique » est indexé par génération,
+      // dont le compteur repart de zéro à la session suivante : sans purge, un
+      // salon d'un AUTRE serveur pourrait passer pour déjà chargé.
+      oublierSalonsCharges();
       ddp.fermer();
       ddp.reinitialiser();
     };

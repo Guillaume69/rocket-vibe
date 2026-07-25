@@ -57,6 +57,7 @@ import { BandeauCompletionEmoji, useCompletionEmoji } from '../../ui/completionE
 import { BandeauCompletionMention, useCandidatsMention } from '../../ui/completionMention.tsx';
 import { NavigateurEmoji, usePanneauEmoji } from '../../ui/navigateurEmoji.tsx';
 import { useRetourMateriel } from '../../ui/retourMateriel.ts';
+import { marquerSalonCharge, salonChargeSous } from '../../ui/salonsCharges.ts';
 import { AvatarSalon, BarreSynchro, IndicateurSaisie, TuileAvatar } from '../../ui/kit.tsx';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
@@ -190,7 +191,12 @@ function Salon({
   const [limite, setLimite] = useState(PAGE);
   // Tant que le premier passage d'historique n'est pas retombé, une base
   // vide signifie « chargement », pas « salon vide ».
-  const [premierPassageFini, setPremierPassageFini] = useState(false);
+  // Un salon déjà chargé sous cette génération n'a pas de premier passage à
+  // attendre : sans cet état initial, sauter le fetch laisserait « chargement »
+  // affiché à vie (rien ne viendrait plus poser le drapeau).
+  const [premierPassageFini, setPremierPassageFini] = useState(() =>
+    salonChargeSous(rid, generation),
+  );
 
   const { data: lignesSalon } = useRequeteVive(
     base.select().from(salons).where(eq(salons.rid, rid)).limit(1),
@@ -409,45 +415,54 @@ function Salon({
     [client, moteur, rid],
   );
 
-  // Historique initial : les 50 derniers, dès que le type du salon est connu.
-  // UNE FOIS qu'il a abouti EN LIGNE pour ce salon, la reconnexion le rattrape
-  // par `rattraperSalon` (chat.syncMessages ciblé sur le salon actif) : refaire
-  // le fetch complet des 50 derniers à chaque `generation` serait redondant, et
-  // — enveloppé dans `activite` — rallumerait la barre de synchro EN BOUCLE sur
-  // une connexion qui bat de l'aile (le symptôme « ça load à l'infini »). On ne
-  // le rejoue donc que tant qu'il n'a pas abouti pour CE salon : c'est le cas
-  // d'un salon ouvert HORS LIGNE (le fetch échoue, aucun curseur n'existe,
-  // `rattraperSalon` no-ope) — le retour du réseau, via `generation`, doit alors
-  // le refaire partir.
+  // Ouverture du salon. Deux travaux de nature différente, et un seul est
+  // conditionnel.
+  //
+  // 1. `rattraperSalon` part TOUJOURS. C'est lui qui couvre le trou : en sortant
+  //    du salon on se désabonne de ses streams (voir plus haut), donc le cache
+  //    d'un salon fermé n'est plus tenu à jour par le temps réel. Sa pagination
+  //    par curseur reprend exactement où elle en était, et ne coûte que ~92
+  //    octets quand rien n'a bougé. Il porte aussi les suppressions
+  //    (`type=DELETED`), que l'historique ne peut PAS voir : un message effacé
+  //    côté serveur est simplement absent de la page, sa ligne locale resterait
+  //    en fantôme à vie — et `chat.delete` dessus répond « No message found ».
+  //    Tir-et-oublie : chaque page est bornée, l'ouverture n'attend rien.
+  //
+  // 2. L'historique complet (les 50 derniers) ne se rejoue QUE si ce salon n'a
+  //    pas déjà été chargé sous cette génération de connexion. L'écran étant
+  //    démonté à la sortie, un `useRef` de garde ne survivait pas : ressortir et
+  //    rentrer refaisait 31 Ko et ré-ingérait 50 messages identiques, barre de
+  //    synchro allumée — pur gaspillage. Le critère est causal, pas temporel :
+  //    `generation` change à chaque raccordement, donc une coupure, même brève,
+  //    fait retomber la garde (le trou peut être de n'importe quelle taille,
+  //    au-delà de ce que les 100 messages de `rattraperSalon` couvrent).
+  //    Voir `ui/salonsCharges.ts`.
   const type = salon?.type;
-  const ridCharge = useRef<string | null>(null);
   useEffect(() => {
-    if (type === undefined || ridCharge.current === rid) return;
+    if (type === undefined) return;
     let annule = false;
-    // Réconciliation des suppressions (et éditions) survenues APP FERMÉE.
-    // L'historique ne fait qu'UPSERTER : un message supprimé côté serveur est
-    // simplement absent de la page, sa ligne locale resterait en fantôme à
-    // vie — et `chat.delete` dessus répond « No message found ». Seul
-    // `chat.syncMessages` porte les `deleted`, et à la reconnexion il ne
-    // couvre que le salon ACTIF à cet instant (la liste, au lancement à
-    // froid) — jamais celui qu'on ouvre ensuite. Tir-et-oublie : chaque page
-    // est bornée à 50 documents, l'ouverture n'attend rien.
     void activite
       .suivre(rid, rattraperSalon(client, moteur, rid, () => annule))
       .catch((e: unknown) => console.warn('rattraperSalon (ouverture): échec ignoré', e));
+
+    if (salonChargeSous(rid, generation)) {
+      return () => {
+        annule = true;
+      };
+    }
     // Enveloppé dans `activite` : l'en-tête allume sa barre de synchro le temps
     // du fetch, même quand le cache local remplit déjà la liste (rien ne
     // signalait sinon qu'on la rafraîchit).
     activite
       .suivre(rid, chargerHistorique(type))
       .then(() => {
-        // Abouti en ligne : plus la peine de le rejouer aux reconnexions.
-        if (!annule) ridCharge.current = rid;
+        // Marqué au SUCCÈS seulement. Un échec (hors ligne) laisse la garde
+        // ouverte : la prochaine génération refera partir le chargement.
+        if (!annule) marquerSalonCharge(rid, generation);
       })
       .catch((e: unknown) => {
         // Hors ligne : le cache local suffit. Mais pas en silence — un échec
-        // systématique ici a déjà masqué un vrai bug. `ridCharge` reste nul :
-        // la prochaine reconnexion (`generation`) refera partir le chargement.
+        // systématique ici a déjà masqué un vrai bug.
         console.warn('salon: historique initial échoué', e);
       })
       .finally(() => {

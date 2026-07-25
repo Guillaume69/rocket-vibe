@@ -62,6 +62,7 @@ import {
 } from '../lib/sessionStore.ts';
 import { traduireCourant } from './i18n.ts';
 import { useSession } from './session.tsx';
+import { brancherSondeUpload } from './sondeUpload.ts';
 import { transportExpo } from './transportUpload.ts';
 
 export type EtatSynchro =
@@ -132,6 +133,18 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
     let reconnecteur: Reconnecteur | null = null;
     let surAbandon: (() => void) | null = null;
 
+    // Tout téléversement — pièce jointe COMME photo de profil, même transport —
+    // peut faire tomber la socket DDP sans que le WebSocket n'appelle jamais
+    // son `onclose` : sockets en CLOSE-WAIT côté OS, client toujours
+    // « authentifié », plus un seul message reçu ensuite. Le chien de garde de
+    // `lib/ddp.ts` finit par le voir, mais il lui faut un ping serveur manqué
+    // (45 s). La fin d'un upload est un signal EXACT : on sonde tout de suite.
+    // Socket saine, ça coûte un ping/pong ; socket morte, la sonde nettoie,
+    // `surPerte` part et le pilote reconnecte.
+    brancherSondeUpload(() => {
+      void ddp.verifierVie().catch(() => {});
+    });
+
     (async () => {
       setSynchro({ phase: 'preparation' });
       const { base, brute } = ouvrirBase(session.baseUrl, session.userId);
@@ -164,15 +177,6 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         transportExpo,
         async (doc) => {
           await moteur.ingererMessages([doc]);
-          // Un téléversement fait tomber la socket DDP sans que le WebSocket
-          // n'appelle jamais `onclose` — reproduit sur l'AVD : sockets en
-          // CLOSE-WAIT côté OS, client toujours « authentifié », et plus un
-          // seul message reçu ensuite. Le chien de garde de `lib/ddp.ts` finit
-          // par le voir, mais il attend un ping serveur manqué (45 s) ; ici la
-          // fin de l'upload est un signal EXACT, donc on sonde tout de suite.
-          // Socket saine : un ping/pong, rien de plus. Socket morte : la sonde
-          // nettoie, `surPerte` part, le pilote reconnecte.
-          void ddp.verifierVie().catch(() => {});
         },
       );
       const envoi = fournisseur.creerEnvoi(creerDepotEnvoi(brute, fileEcritures), async (doc) => {
@@ -394,6 +398,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       // fermeture pourrait encore programmer une tentative.
       reconnecteur?.arreter();
       surAbandon?.();
+      brancherSondeUpload(null); // plus de sonde vers un client rangé
       ddp.fermer();
       ddp.reinitialiser();
     };

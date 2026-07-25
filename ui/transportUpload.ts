@@ -11,6 +11,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 
 import { ErreurRest } from '../lib/rest.ts';
 import type { TransportUpload } from '../lib/upload.ts';
+import { signalerFinUpload } from './sondeUpload.ts';
 
 function transportExpoAvec(champ: string): TransportUpload {
   return async (url, entetes, fichier, surProgression) => {
@@ -47,6 +48,10 @@ function transportExpoAvec(champ: string): TransportUpload {
       // c'est le réseau. Statut 0 = la ligne reste « en-attente », le rejeu du
       // prochain raccordement s'en charge — même sémantique que ClientRest.
       throw new ErreurRest('Upload : serveur injoignable.', 0);
+    } finally {
+      // Réussi comme échoué : c'est le passage des octets qui fait tomber la
+      // socket, pas le verdict du serveur.
+      signalerFinUpload();
     }
     if (resultat == null) {
       throw new Error('Téléversement annulé.');

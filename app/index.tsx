@@ -9,7 +9,7 @@ import { abonnements, salons } from '../db/schema.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { useActivite } from '../ui/activite.ts';
 import { useT } from '../ui/i18n.ts';
-import { AvatarSalon, BadgeEtoile, BarreSynchro, Marque, TuileAvatar } from '../ui/kit.tsx';
+import { AvatarSalon, BadgeNonLus, BarreSynchro, Marque, TuileAvatar } from '../ui/kit.tsx';
 import { COULEURS_PRESENCE, usePresence } from '../ui/presence.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
@@ -272,7 +272,7 @@ function LigneSalon({
         </Text>
       </View>
 
-        <BadgeEtoile c={c} n={nonLus} />
+        <BadgeNonLus c={c} n={nonLus} />
       </Pressable>
     </View>
   );

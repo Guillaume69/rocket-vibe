@@ -62,6 +62,12 @@ export interface Couleurs {
   cyan: string;
   bleu: string;
   jaune: string;
+  /**
+   * Texte POSÉ sur un aplat JAUNE — toujours sombre, dans les deux thèmes.
+   * Surtout pas `surAccent` : il est blanc en clair, et blanc sur jaune tombe
+   * à 1,9:1 de contraste. Le compteur de non-lus y était illisible.
+   */
+  surJaune: string;
 
   /** Pastilles de présence. */
   enLigne: string;
@@ -108,6 +114,7 @@ export const couleursSombres: Couleurs = {
   cyan: '#34E1D0',
   bleu: '#5CC8FF',
   jaune: '#FFD34E',
+  surJaune: '#0B0913',
 
   enLigne: '#3ED67F',
   absent: '#FFC24B',
@@ -157,6 +164,7 @@ export const couleursClaires: Couleurs = {
   cyan: '#10AE9F',
   bleu: '#3AA0E8',
   jaune: '#F2B300',
+  surJaune: '#2A2140',
 
   enLigne: '#17B06B',
   absent: '#E0952A',

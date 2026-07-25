@@ -409,13 +409,21 @@ function PointSaisie({ c, rang }: { c: Couleurs; rang: number }) {
   return <Animated.View style={[styles.saisiePoint, { backgroundColor: c.accent }, style]} />;
 }
 
-/** Badge de non-lus : étoile jaune, compteur centré. Rien si le compte est nul. */
-export function BadgeEtoile({ c, n }: { c: Couleurs; n: number }) {
+/**
+ * Badge de non-lus : capsule jaune, compteur centré. Rien si le compte est nul.
+ *
+ * Une capsule, et plus l'étoile d'avant : le creux central d'une étoile à cinq
+ * branches ne fait que ~38 % de sa largeur — 11 px pour un badge de 28. Un
+ * nombre à deux chiffres en demande 13, « 99+ » en demande 19 : le compteur
+ * mordait sur les branches. Aucun réglage de taille ne rattrape ça (il aurait
+ * fallu ~50 px, presque l'avatar). Une forme convexe, elle, s'étire avec son
+ * contenu : `minWidth` la garde ronde à un chiffre, le padding fait le reste.
+ */
+export function BadgeNonLus({ c, n }: { c: Couleurs; n: number }) {
   if (n < 1) return null;
   return (
-    <View style={styles.etoile}>
-      <Text style={[styles.etoileGlyphe, { color: c.jaune }]}>★</Text>
-      <Text style={[styles.etoileTexte, { color: c.surAccent }]}>{n > 99 ? '99+' : n}</Text>
+    <View style={[styles.badgeNonLus, { backgroundColor: c.jaune }]}>
+      <Text style={[styles.badgeNonLusTexte, { color: c.surJaune }]}>{n > 99 ? '99+' : n}</Text>
     </View>
   );
 }
@@ -520,9 +528,17 @@ const styles = StyleSheet.create({
   saisieTexte: { fontFamily: POLICES.corps, fontSize: 12, fontStyle: 'italic' },
   saisiePoints: { flexDirection: 'row', alignItems: 'flex-end', gap: 3, paddingBottom: 2 },
   saisiePoint: { width: 5, height: 5, borderRadius: 3 },
-  etoile: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
-  etoileGlyphe: { position: 'absolute', fontSize: 28, lineHeight: 28 },
-  etoileTexte: { fontFamily: POLICES.corpsFort, fontSize: 11 },
+  badgeNonLus: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // `lineHeight` explicite : sans lui, Android ajoute au Text le padding de
+  // police de Nunito, asymétrique, et le chiffre se pose bas dans la capsule.
+  badgeNonLusTexte: { fontFamily: POLICES.corpsFort, fontSize: 12, lineHeight: 14 },
   groupeChamp: { gap: 6 },
   champEtiquette: { fontFamily: POLICES.corpsGras, fontSize: 12.5, paddingLeft: 4 },
   pilule: {

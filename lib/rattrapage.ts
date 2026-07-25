@@ -112,7 +112,7 @@ export async function reconcilierSalons(
 
 type ResultatSync = {
   updated?: Record<string, unknown>[];
-  deleted?: { _id?: string }[];
+  deleted?: { _id?: string; _deletedAt?: unknown }[];
   /** Présent SEULEMENT en mode curseur — c'est notre test de support. */
   cursor?: { next?: string | null; previous?: string | null } | null;
 };
@@ -242,13 +242,32 @@ async function rattraperMisAJour(
     // d'une session terminée.
     if (estAbandonne()) return true;
 
-    await moteur.ingererMessages(reponse.resultat.updated ?? []);
+    const recent = await moteur.ingererMessages(reponse.resultat.updated ?? []);
 
     // On avance sur le curseur du SERVEUR, pas sur le plus grand `_updatedAt`
     // ingéré : lui seul reprend la pagination exactement où elle s'est arrêtée,
     // groupes d'ex æquo compris. `ecrireCurseur` interdit déjà toute régression.
     const suivant = reponse.suivant;
-    if (suivant === null || suivant <= curseur) return true;
+    if (suivant === null || suivant <= curseur) {
+      // DERNIÈRE page — et c'est le cas NOMINAL, pas un cas limite : mesuré sur
+      // 8.5, le serveur rend `cursor.next = null` dès qu'il ne reste rien après,
+      // page PLEINE comprise (50 documents rendus, `next` nul). Un rattrapage
+      // qui tient en une page n'a donc jamais de curseur serveur à recopier.
+      //
+      // Sortir sans rien écrire, comme on le faisait, figeait le curseur À VIE :
+      // chaque ouverture du salon redemandait la même tranche, la ré-ingérait, et
+      // la tranche GROSSISSAIT à chaque message posté depuis. D'où la comète qui
+      // tournait plusieurs secondes à chaque entrée dans un salon, même en
+      // sortant et rentrant aussitôt.
+      //
+      // On avance donc sur le plus grand `_updatedAt` INGÉRÉ. Sûr ici, et
+      // seulement ici : le serveur vient d'affirmer qu'il n'y a plus rien
+      // au-delà, donc aucun ex æquo ne peut rester en attente derrière ce point.
+      if (recent !== null && recent > curseur) {
+        await depot.ecrireCurseur(rid, 'messages', recent);
+      }
+      return true;
+    }
     curseur = suivant;
     await depot.ecrireCurseur(rid, 'messages', curseur);
   }
@@ -280,12 +299,27 @@ async function rattraperSupprimes(
     const reponse = await pageCurseur(client, rid, 'DELETED', curseur);
     if (reponse === null || estAbandonne()) return;
 
+    // Le plus grand `_deletedAt` de la page — l'équivalent, sur cette timeline,
+    // du `_updatedAt` que rend `ingererMessages`. Il sert au même titre : sans
+    // lui, la dernière page ne ferait avancer aucun curseur et les MÊMES
+    // suppressions se re-joueraient à chaque ouverture, à vie.
+    let recent: number | null = null;
     for (const efface of reponse.resultat.deleted ?? []) {
       if (typeof efface._id === 'string') await depot.supprimerMessage(efface._id);
+      const date =
+        typeof efface._deletedAt === 'string' ? Date.parse(efface._deletedAt) : Number.NaN;
+      if (Number.isFinite(date) && (recent === null || date > recent)) recent = date;
     }
 
     const suivant = reponse.suivant;
-    if (suivant === null || suivant <= curseur) return;
+    if (suivant === null || suivant <= curseur) {
+      // Dernière page : voir `rattraperMisAJour`, même raisonnement, même sûreté
+      // (le serveur vient d'affirmer qu'il n'y a plus rien au-delà).
+      if (recent !== null && recent > curseur) {
+        await depot.ecrireCurseur(rid, FLUX_SUPPRIMES, recent);
+      }
+      return;
+    }
     curseur = suivant;
     await depot.ecrireCurseur(rid, FLUX_SUPPRIMES, curseur);
   }

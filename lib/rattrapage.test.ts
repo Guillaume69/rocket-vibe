@@ -231,7 +231,7 @@ describe('rattraperSalon', () => {
     assert.deepEqual(d.messages, ['m1']);
   });
 
-  test('le curseur avance APRÈS CHAQUE page, pas seulement à la fin', async () => {
+  test('le curseur avance APRÈS CHAQUE page, dernière comprise', async () => {
     // C'est ce qui rend le plafonnement sûr : interrompu à n'importe quelle
     // page, le passage suivant reprend là où on s'est arrêté.
     const d = fauxDepotComplet();
@@ -248,9 +248,34 @@ describe('rattraperSalon', () => {
 
     await rattraperSalon(client, moteur, 'r1');
 
-    // Le curseur du SERVEUR (2000), pas le plus grand `_updatedAt` ingéré (1500).
-    assert.deepEqual(vus, [2000]);
+    // Page 1 : le curseur du SERVEUR (2000), pas le plus grand `_updatedAt`
+    // ingéré (1500) — lui seul reprend la pagination, groupes d'ex æquo compris.
+    // Page 2 : `next: null`, il n'y a plus de curseur serveur à recopier, on
+    // avance donc sur ce qu'on a ingéré (2500).
+    assert.deepEqual(vus, [2000, 2500]);
     assert.deepEqual(d.messages, ['m1', 'm2']);
+  });
+
+  test('deux ouvertures d’affilée : la seconde ne redemande PAS la même tranche', async () => {
+    // Le symptôme vécu : sortir d'un salon et y rentrer aussitôt relançait un
+    // rattrapage de plusieurs secondes. Le serveur rend `cursor.next = null` dès
+    // qu'il ne reste rien après la page — donc le cas NOMINAL, un retard qui
+    // tient en une page, n'avait aucun curseur serveur à recopier. Le curseur
+    // restait figé à vie, la tranche était redemandée à chaque ouverture, et
+    // elle grossissait à chaque message posté depuis.
+    const d = fauxDepotComplet();
+    d.curseurs.set('r1|messages', 1000);
+    d.curseurs.set('r1|messages-supprimes', 9_000_000);
+    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const { client, urls } = clientSequence([page([msg('m1', 1500)], null)]);
+
+    await rattraperSalon(client, moteur, 'r1');
+    await rattraperSalon(client, moteur, 'r1');
+
+    const majs = urls.filter((u) => u.includes('type=UPDATED'));
+    assert.equal(majs.length, 2, 'une requête par ouverture');
+    assert.ok(majs[0]?.includes('next=1000'));
+    assert.ok(majs[1]?.includes('next=1500'), `la 2e ouverture repart de 1500, vu ${majs[1]}`);
   });
 
   test('plafond : 2 pages au plus, même si le serveur en promet d’autres', async () => {
@@ -317,6 +342,30 @@ describe('rattraperSalon', () => {
     assert.ok(suppr[0]?.includes('next=4000'));
     assert.deepEqual(d.supprimesMessages, ['m-efface']);
     assert.equal(d.curseurs.get('r1|messages-supprimes'), 5000);
+  });
+
+  test('suppressions : la dernière page avance le curseur sur `_deletedAt`', async () => {
+    // Même piège que pour les mises à jour : sans cela, les MÊMES suppressions
+    // se re-jouaient à chaque ouverture du salon.
+    const d = fauxDepotComplet();
+    d.curseurs.set('r1|messages', 4000);
+    d.curseurs.set('r1|messages-supprimes', 4000);
+    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const efface = '2026-07-25T13:12:28.691Z'; // forme relevée sur 8.5
+    const { client } = clientSequence([
+      page([], null),
+      {
+        result: {
+          deleted: [{ _id: 'm-efface', _deletedAt: efface }],
+          cursor: { next: null, previous: '0' },
+        },
+      },
+    ]);
+
+    await rattraperSalon(client, moteur, 'r1');
+
+    assert.deepEqual(d.supprimesMessages, ['m-efface']);
+    assert.equal(d.curseurs.get('r1|messages-supprimes'), Date.parse(efface));
   });
 
   test('abandonné entre la réponse et l’écriture : rien n’est écrit', async () => {

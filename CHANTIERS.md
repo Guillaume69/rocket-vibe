@@ -60,7 +60,7 @@ chantiers sont notées ; hors d'elles, on peut piocher.
 - [x] 🟡 L'écran de partage affiche les avatars de salon sans leur `avatarETag` : photo figée à vie par le cache Fresco — `app/partager.tsx:361` *(non passé au réfuteur)*
 - [x] 🟡 Depuis la fiche d'un DM, « Message » empile une SECONDE copie du salon déjà ouvert — `app/profil.tsx:196` *(non passé au réfuteur)*
 - [x] 🟡 `ouvrirFicheProfil` n'a aucune garde de réentrance : un double tap empile deux fiches — `lib/profilPreload.ts:104` *(non passé au réfuteur)*
-- [ ] **Sortie du chantier** : `tsc` propre ✅, suite verte ✅ (462), **lancement réel sur le Pixel — à faire**
+- [x] **Sortie du chantier** : `tsc` propre ✅, suite verte ✅ (462), lancement réel sur le Pixel ✅ (26/07/2026, `assembleRelease` + `adb install -r`, contre `chat.barrut.me`). Vérifiés à la main : feuille d'actions garnie sur un message chiffré de `laprivitude` ; « Message » depuis la fiche d'un DM qui rend le salon déjà ouvert sans l'empiler ; le texte tapé pendant un téléversement qui survit à la fin de l'envoi ; la citation qui se désarme à l'envoi d'une pièce jointe et ne contamine pas le message suivant.
 
 ## 2. Une file d'écritures par CONNEXION SQLite (et les brouillons dedans)
 

@@ -322,3 +322,12 @@ Signalé pendant l'audit, puis écarté. Ces lignes sont là pour qu'on ne les r
 
 Les **7 constats réfutés** (dont deux « zombies DDP » démolis en descendant jusqu'à
 `RuntimeScheduler_Modern.cpp`) sont consignés en fin de `docs/AUDIT.md`, avec le raisonnement complet.
+
+---
+
+## Relevé APRÈS l'audit
+
+Ce que l'audit n'avait pas vu, trouvé en exécutant. `docs/AUDIT.md` est figé — les constats
+postérieurs s'ajoutent ici.
+
+- [ ] 🟠 **Une fiche profil AVEC bio pousse « Message » et « Appeler » hors de l'écran : les deux actions deviennent inatteignables.** Vu sur le Pixel le 2026-07-26, en validant le chantier 1. La sheet est en `sheetAllowedDetents: 'fitToContents'` (`app/_layout.tsx:128`) ; sur un profil sans bio (`rocket.cat`) les deux boutons s'affichent normalement, sur un profil qui en a une (`@bernard` : nom, rôle `admin`, heure locale, bio) la feuille s'arrête au bas de l'écran, la bio est coupée en cours de ligne et les boutons sont dessous, hors champ. La feuille ne défile pas (pas de `ScrollView`) et tirer son bord la referme — donc aucun geste ne les ramène. La bio est pourtant bornée (`numberOfLines={4}`, `app/profil.tsx:315`) et préchargée avant navigation (`lib/profilPreload.ts`), donc la première frame est déjà complète : c'est la mesure `fitToContents` qui n'a pas suivi, pas une arrivée tardive de contenu. À instruire avant de corriger — vérifier si react-native-screens plafonne le detent mesuré sur Android.

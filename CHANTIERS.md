@@ -28,7 +28,7 @@ chantiers sont notées ; hors d'elles, on peut piocher.
 | 1 | Le lot d'une ligne — corrections locales, vérifiées, à régression quasi nulle | 🟠 | faible | heures | ✅ 9/9 |
 | 2 | Une file d'écritures par CONNEXION SQLite (et les brouillons dedans) | 🟡 | faible | heures | ✅ 3/3 |
 | 3 | Zéro secret hors du processus | 🔴 | moyen | jour | ✅ 4/4 |
-| 4 | Ce qui entre en base doit être juste : normalisation, aperçus, clés E2EE | 🟡 | faible | jour | ☐ 0/6 |
+| 4 | Ce qui entre en base doit être juste : normalisation, aperçus, clés E2EE | 🟡 | faible | jour | ✅ 6/6 |
 | 5 | Rattrapage de salon : un seul par salon, des caches qui ne mentent pas | 🟡 | moyen | jour | ☐ 0/5 |
 | 6 | Cycle de vie de la donnée locale : purge, curseurs, rétention | 🟡 | moyen | jour | ☐ 0/4 |
 | 7 | File de téléversements : ni doublon, ni disparition silencieuse | 🟠 | moyen | plusieurs-jours | ☐ 0/7 |
@@ -100,13 +100,15 @@ chantiers sont notées ; hors d'elles, on peut piocher.
 
 **Ordre.** Avant le chantier 6, qui manipule les mêmes tables.
 
-- [ ] 🟡 `versSalon` devine le pseudo de l'autre par exclusion de `moi` : si `moi` est périmé, l'uid du correspondant reçoit MON pseudo — `lib/normaliser.ts:238`
-- [ ] 🟡 L'aperçu de la liste des salons est EFFACÉ quand le dernier message n'a ni texte ni pièce jointe (message d'appel vidéo) — `lib/normaliser.ts:179` *(non passé au réfuteur)*
-- [ ] ⚪ L'aperçu d'un salon chiffré peut afficher une réponse de fil ou un message système jamais visibles dans le salon — `db/upserts.ts:216` *(non passé au réfuteur)*
-- [ ] 🟡 Une rotation de clé de salon E2EE n'est jamais prise en compte : la clé AES périmée reste en cache jusqu'au redémarrage — `lib/e2e/moteur.ts:132`
-- [ ] ⚪ Le verrouillage E2EE réécrit tous les messages chiffrés, y compris ceux déjà masqués — `db/upserts.ts:199` *(non passé au réfuteur)*
-- [ ] ⚪ `versSalon`, `versAbonnement`, `versEpoch` et `apercuDuDernier` n'ont aucun test direct — `lib/normaliser.test.ts:1`
-- [ ] **Sortie du chantier** : `tsc` propre, suite verte, et lancement réel sur le Pixel
+- [x] 🟡 `versSalon` devine le pseudo de l'autre par exclusion de `moi` : si `moi` est périmé, l'uid du correspondant reçoit MON pseudo — `lib/normaliser.ts:238` → l'exclusion doit être PROUVÉE (`nomsDM.includes(moi)`), sinon `null` : `UPSERT_SALON` n'écrit rien dessus et le premier message de l'autre posera son pseudo. Même garde appliquée à `nomAffiche`, une ligne plus haut, qui souffrait du même aveuglement.
+- [x] 🟡 L'aperçu de la liste des salons est EFFACÉ quand le dernier message n'a ni texte ni pièce jointe (message d'appel vidéo) — `lib/normaliser.ts:179` *(non passé au réfuteur)* → colonne `dernier_message_type` (migration `0012`) qui sépare les deux sens de `dernier_message IS NULL` : « salon vidé » (les deux à null) et « dernier message sans texte » (le `t` renseigné). **Écart assumé** : le libellé n'est PAS figé en base comme le suggérait l'audit — la langue est commutable à chaud (`ui/i18n.ts`), une phrase stockée resterait dans l'ancienne. Il se traduit au rendu, via `apercuSysteme`, volontairement séparé de `texteSysteme` dont les phrases sont des prédicats qui suivent un nom d'auteur que la liste n'affiche pas.
+- [x] ⚪ L'aperçu d'un salon chiffré peut afficher une réponse de fil ou un message système jamais visibles dans le salon — `db/upserts.ts:216` *(non passé au réfuteur)* → sous-requête alignée sur celle du flux, aux deux endroits : filtre de fil, messages système écartés, `id DESC` en clé secondaire.
+- [x] 🟡 Une rotation de clé de salon E2EE n'est jamais prise en compte : la clé AES périmée reste en cache jusqu'au redémarrage — `lib/e2e/moteur.ts:132` → `clesSalon.delete(rid)` quand l'`E2EKey` change vraiment ; test à deux clés successives sous la même paire RSA.
+- [x] ⚪ Le verrouillage E2EE réécrit tous les messages chiffrés, y compris ceux déjà masqués — `db/upserts.ts:199` *(non passé au réfuteur)* → `AND texte IS NOT NULL`, et `AND dernier_message IS NOT NULL` sur `MASQUER_APERCU_CHIFFRE`.
+- [x] ⚪ `versSalon`, `versAbonnement`, `versEpoch` et `apercuDuDernier` n'ont aucun test direct — `lib/normaliser.test.ts:1` → 24 cas de plus : appariement `uids`/`usernames` non alignés, `moi` périmé, DM avec soi-même, DM de groupe, salon chiffré, salon vidé, `avatarETag` absent, les trois formes de `versEpoch`, `versAbonnement` complet et vide.
+- [ ] **Sortie du chantier** : `tsc` propre ✅, suite verte ✅ (557, +40), eslint propre sur les fichiers touchés ✅, et **les cinq correctifs prouvés par retrait** — retirés un à un, 8 tests virent au rouge, ce qui écarte le test vide. **Reste le lancement réel sur le Pixel**, avec un point de vigilance : la migration `0012` s'applique à la base EXISTANTE au premier démarrage.
+
+> **Note sur `MAJ_APERCU_CHIFFRE`** : la correction littérale de l'audit (`AND type_systeme IS NULL`) aurait **vidé l'aperçu de tous les salons chiffrés** — dans un salon chiffré, TOUS les messages portent `t: 'e2e'` (`lib/normaliser.ts`), y compris ceux qu'on vient de déchiffrer. C'est-à-dire exactement ce que cette requête existe pour calculer. Le prédicat retenu est celui du flux, `estOrdinaire` (`ui/ligneMessage.tsx`) : `type_systeme IS NULL OR type_systeme = 'e2e'`. Un test le fixe.
 
 ## 5. Rattrapage de salon : un seul par salon, des caches qui ne mentent pas
 

@@ -1,0 +1,1 @@
+ALTER TABLE `salons` ADD `dernier_message_type` text;

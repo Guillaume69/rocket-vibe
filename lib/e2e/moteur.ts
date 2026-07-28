@@ -124,11 +124,20 @@ export class MoteurE2E {
   /**
    * Mémorise (et déchiffre si possible) la clé AES d'un salon depuis l'`E2EKey`
    * de son abonnement. Sûr à appeler verrouillé (mémorise l'`E2EKey`, remettra
-   * la main dessus au déverrouillage) et de façon répétée (idempotent).
+   * la main dessus au déverrouillage) et de façon répétée — idempotent tant que
+   * l'`E2EKey` ne CHANGE pas.
+   *
+   * Quand elle change, c'est une ROTATION (un membre retiré du salon en
+   * provoque une) : le cache `clesSalon` porte alors la clé AES périmée, et
+   * `dechiffrerContenu` la consulte EN PREMIER — tous les messages suivants se
+   * figeraient au placeholder 🔒 jusqu'au redémarrage, sans indice de cause.
+   * D'où la purge : la clé se recalculera à la demande, depuis la neuve.
    */
   enregistrerCleSalon(rid: string, e2eKey: string | null): void {
     if (e2eKey === null || e2eKey === '') return;
+    const ancienne = this.e2eKeys.get(rid);
     this.e2eKeys.set(rid, e2eKey);
+    if (ancienne !== undefined && ancienne !== e2eKey) this.clesSalon.delete(rid);
     if (this.clePrivee === null || this.clesSalon.has(rid)) return;
     try {
       this.clesSalon.set(rid, dechiffrerCleSalon(e2eKey, this.clePrivee));

@@ -200,6 +200,9 @@ const fr = {
   'accueil.listeVide':
     "Aucun salon pour l'instant — la première synchronisation peut prendre quelques secondes.",
   'accueil.messagesChiffres': 'Messages chiffrés',
+  // Aperçu d'un salon dont le dernier message est un appel vidéo : il n'a
+  // aucun texte, son contenu vit dans ses `blocks`.
+  'accueil.apercuAppel': 'Appel vidéo',
   'accueil.nouvelleConversation': 'Nouvelle conversation',
 
   // ── Recherche (nouvelle conversation)
@@ -554,6 +557,7 @@ const en: Record<CleTraduction, string> = {
   'accueil.sectionMessagesPrives': 'Direct messages',
   'accueil.listeVide': 'No channels yet — the first sync may take a few seconds.',
   'accueil.messagesChiffres': 'Encrypted messages',
+  'accueil.apercuAppel': 'Video call',
   'accueil.nouvelleConversation': 'New conversation',
 
   'recherche.titre': 'New conversation',

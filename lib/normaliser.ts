@@ -72,6 +72,11 @@ export type SalonLocal = {
    */
   dmAutreUsername: string | null;
   dernierMessage: string | null;
+  /**
+   * Le `t` du dernier message — ce qui sépare « salon vidé » de « dernier
+   * message sans texte à montrer ». Voir `db/schema.ts` et `apercuDuDernier`.
+   */
+  dernierMessageType: string | null;
   horodatageDernierMessage: number | null;
   /** `avatarETag` : version de la photo du salon, cache-buster de son URL. */
   avatarEtag: string | null;
@@ -175,6 +180,14 @@ export function versMessage(brut: Record<string, unknown>): MessageLocal | null 
  * message PRÉCÉDENT : la liste annonçait un échange qui n'était plus le
  * dernier. On retombe donc sur ce que le serveur sait dire du fichier — sa
  * légende (`description`), sinon son nom (`title`).
+ *
+ * Un `null` qui SORT d'ici veut dire « ce message n'a rien à montrer », ce qui
+ * n'est PAS la même chose que « ce salon n'a plus de dernier message » — depuis
+ * que `dernier_message` n'est plus COALESCÉ, les deux effacent la ligne. C'est
+ * `dernierMessageType` qui les départage : renseigné dans le premier cas, null
+ * dans le second. Le cas concret est le message d'appel vidéo (`t: 'videoconf'`,
+ * `msg: ''`, contenu dans `blocks`), qui faisait remonter le salon en tête de
+ * liste avec un aperçu vide.
  */
 function apercuDuDernier(dernier: Record<string, unknown> | undefined): string | null {
   const texte = chaine(dernier?.msg);
@@ -209,11 +222,21 @@ export function versSalon(
   const chiffre = booleen(brut.encrypted);
   const dernier = brut.lastMessage as Record<string, unknown> | undefined;
 
+  // `moi` est FIGÉ à la construction du traducteur (`session.username`) : après
+  // un renommage depuis le web, ou pour une session dont le pseudo est vide
+  // (`lib/auth.ts`), il ne figure plus dans `usernames`. S'exclure « par
+  // différence » sans le vérifier retient alors le PREMIER nom venu — le mien
+  // une fois sur deux. On ne s'exclut donc que si l'exclusion est prouvée.
+  const nomsDM = Array.isArray(brut.usernames)
+    ? brut.usernames.filter((u): u is string => typeof u === 'string' && u !== '')
+    : [];
+  const jeSuisDedans = typeof moi === 'string' && moi !== '' && nomsDM.includes(moi);
+
   let nomAffiche = chaine(brut.fname) ?? chaine(brut.name);
   if (nomAffiche === null && type === 'd' && Array.isArray(brut.usernames)) {
-    const autres = brut.usernames
-      .filter((u): u is string => typeof u === 'string')
-      .filter((u) => u !== moi);
+    // Sans exclusion prouvée, on n'a rien de mieux à proposer que la liste
+    // entière — mieux vaut un nom de trop qu'un correspondant sous mon pseudo.
+    const autres = jeSuisDedans ? nomsDM.filter((u) => u !== moi) : nomsDM;
     // Un DM avec soi-même a `usernames: [moi]` : `autres` est vide, on garde moi.
     nomAffiche = autres.length > 0 ? autres.join(', ') : (moi ?? null);
   }
@@ -231,12 +254,15 @@ export function versSalon(
   // uid (« celui des deux qui n'est pas moi ») — surtout PAS par index, les deux
   // tableaux ne sont pas alignés. Il ne se déduit pas de `nomAffiche`, qui peut
   // être un nom réel (`fname`) quand le serveur en pose un.
+  //
+  // Celui-ci part en base sous l'uid de l'autre (`UPSERT_IDENTITE`, sans garde
+  // d'horodatage) : se tromper y colle MON pseudo — et donc mon avatar — sur
+  // Bob, jusqu'à ce qu'il poste. On préfère donc ne rien dire : `UPSERT_SALON`
+  // n'écrit rien sur un `null`, et le premier message de l'autre le posera.
   let dmAutreUsername: string | null = null;
-  if (dmAutreUid !== null && Array.isArray(brut.usernames)) {
-    const noms = brut.usernames.filter((u): u is string => typeof u === 'string' && u !== '');
-    if (noms.length <= 2) {
-      dmAutreUsername = noms.find((u) => u !== moi) ?? (noms.length === 1 ? noms[0] : null);
-    }
+  if (dmAutreUid !== null && nomsDM.length <= 2) {
+    if (nomsDM.length === 1) dmAutreUsername = nomsDM[0]!;
+    else if (jeSuisDedans) dmAutreUsername = nomsDM.find((u) => u !== moi) ?? null;
   }
 
   return {
@@ -257,6 +283,11 @@ export function versSalon(
     // `lastMessage` (sondé sur 8.5, stream ET `rooms.get`). C'est la seule
     // façon d'apprendre qu'un salon a été vidé.
     dernierMessage: chiffre ? null : apercuDuDernier(dernier),
+    // Null pour un salon chiffré, comme l'aperçu : là-bas c'est la base locale
+    // qui désigne le dernier message (`MAJ_APERCU_CHIFFRE`), et elle écarte les
+    // messages système — garder le `t` du serveur ferait décrire un message par
+    // le type d'un AUTRE.
+    dernierMessageType: chiffre ? null : chaine(dernier?.t),
     horodatageDernierMessage: versEpoch(dernier?.ts) ?? versEpoch(brut.lm),
     // Absent tant que le salon n'a pas de photo, et absent des documents
     // partiels : `null` veut dire « rien à dire », jamais « efface » (le

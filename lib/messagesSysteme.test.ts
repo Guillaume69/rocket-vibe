@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import { type Traducteur, traduire } from '../ui/messages.ts';
-import { texteSysteme } from './messagesSysteme.ts';
+import { apercuSysteme, texteSysteme } from './messagesSysteme.ts';
 
 /** Traducteur réel en français : on teste les VRAIES phrases, pas un stub. */
 const t: Traducteur = (cle, params) => traduire('fr', cle, params);
@@ -38,5 +38,20 @@ describe('texteSysteme', () => {
     const en: Traducteur = (cle, params) => traduire('en', cle, params);
     assert.equal(texteSysteme(en, 'uj', null), 'joined the channel');
     assert.equal(texteSysteme(en, 'au', 'bob'), 'added bob to the channel');
+  });
+});
+
+describe('apercuSysteme — libellé de la liste des salons', () => {
+  test('un appel vidéo a un libellé AUTONOME, pas un prédicat', () => {
+    // La liste des salons n'affiche aucun nom d'auteur : y coller une phrase de
+    // `texteSysteme` donnerait « a rejoint le salon », sans sujet.
+    assert.equal(apercuSysteme(t, 'videoconf'), 'Appel vidéo');
+    assert.notEqual(apercuSysteme(t, 'videoconf'), texteSysteme(t, 'videoconf', null));
+  });
+
+  test('tout le reste ne dit rien : la ligne reste vide, comme avant', () => {
+    for (const type of [null, 'uj', 'e2e', 'un-type-inconnu']) {
+      assert.equal(apercuSysteme(t, type), null, `${type} ne devrait rien rendre`);
+    }
   });
 });

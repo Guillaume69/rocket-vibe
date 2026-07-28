@@ -34,6 +34,16 @@ export const salons = sqliteTable(
     dmAutreUid: text('dm_autre_uid'),
     /** Aperçu du dernier message. `null` si le salon est chiffré. */
     dernierMessage: text('dernier_message'),
+    /**
+     * Le `t` du dernier message, quand il en a un. Sépare les DEUX sens de
+     * `dernier_message IS NULL` : « ce salon n'a plus de dernier message »
+     * (colonne à null elle aussi) et « le dernier message n'a rien à montrer »
+     * — la forme exacte d'un appel vidéo, dont le contenu vit dans `blocks`.
+     * Sans elle, un appel vidéo faisait remonter le salon en tête de liste avec
+     * une ligne d'aperçu VIDE. Toujours null pour un salon chiffré : son aperçu
+     * se calcule localement (`MAJ_APERCU_CHIFFRE`), pas depuis `lastMessage`.
+     */
+    dernierMessageType: text('dernier_message_type'),
     horodatageDernierMessage: integer('horodatage_dernier_message'),
     /**
      * `avatarETag` : version de la photo du salon. Sans lui, `/avatar/room/<rid>`

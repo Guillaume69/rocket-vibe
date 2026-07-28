@@ -20,6 +20,8 @@ import {
   PURGER_MESSAGES_ABSENTS,
   PURGER_SALONS_ABSENTS,
   MAJ_APERCU_CHIFFRE,
+  MASQUER_APERCU_CHIFFRE,
+  MASQUER_MESSAGES_CHIFFRES,
   MAJ_AVATAR_SALON,
   MAJ_AVATAR_UTILISATEUR,
   SUPPRIMER_MESSAGE,
@@ -99,6 +101,7 @@ function salon(o: Partial<SalonLocal> & { rid: string; misAJourLe: number }) {
     dmAutreUid: null,
     dmAutreUsername: null,
     dernierMessage: null,
+    dernierMessageType: null,
     horodatageDernierMessage: null,
     avatarEtag: null,
     ...o,
@@ -599,6 +602,73 @@ describe('aperçu de liste d’un salon chiffré', () => {
     assert.equal(compter(), avant, 'aucune écriture');
   });
 
+  test('un message DÉCHIFFRÉ compte, alors qu’il porte t: e2e', () => {
+    // Anti-régression : dans un salon chiffré, TOUS les messages portent
+    // `t: 'e2e'`. Un filtre « pas de message système » écrit naïvement
+    // (`type_systeme IS NULL`) viderait donc l'aperçu de tous les salons
+    // chiffrés — c'est-à-dire la seule chose que cette requête calcule.
+    db.prepare(UPSERT_SALON).run(...salon({ rid: 'rid-1', chiffre: true, misAJourLe: 100 }));
+    db.prepare(UPSERT_MESSAGE).run(
+      ...msg({ id: 'm1', texte: 'clair', typeSysteme: 'e2e', horodatage: 10, misAJourLe: 1 }),
+    );
+    db.prepare(MAJ_APERCU_CHIFFRE).run();
+    assert.deepEqual(ligne(db.prepare(lire).get('rid-1')), { dernier_message: 'clair' });
+  });
+
+  test('une réponse de FIL invisible dans le salon ne devient pas l’aperçu', () => {
+    // Le flux du salon l'écarte (`fil_id IS NULL OR fil_affiche`) : l'annoncer
+    // en liste ferait promettre un message introuvable en ouvrant le salon.
+    db.prepare(UPSERT_SALON).run(...salon({ rid: 'rid-1', chiffre: true, misAJourLe: 100 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', texte: 'visible', horodatage: 10, misAJourLe: 1 }));
+    db.prepare(UPSERT_MESSAGE).run(
+      ...msg({ id: 'm2', texte: 'dans le fil', filId: 'm1', horodatage: 20, misAJourLe: 2 }),
+    );
+    db.prepare(MAJ_APERCU_CHIFFRE).run();
+    assert.deepEqual(ligne(db.prepare(lire).get('rid-1')), { dernier_message: 'visible' });
+  });
+
+  test('une réponse de fil COCHÉE « aussi dans le salon » compte, elle', () => {
+    db.prepare(UPSERT_SALON).run(...salon({ rid: 'rid-1', chiffre: true, misAJourLe: 100 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', texte: 'visible', horodatage: 10, misAJourLe: 1 }));
+    db.prepare(UPSERT_MESSAGE).run(
+      ...msg({
+        id: 'm2',
+        texte: 'dans le fil ET dans le salon',
+        filId: 'm1',
+        filAffiche: true,
+        horodatage: 20,
+        misAJourLe: 2,
+      }),
+    );
+    db.prepare(MAJ_APERCU_CHIFFRE).run();
+    assert.deepEqual(ligne(db.prepare(lire).get('rid-1')), {
+      dernier_message: 'dans le fil ET dans le salon',
+    });
+  });
+
+  test('un message SYSTÈME ne devient pas l’aperçu — son texte n’est qu’un paramètre', () => {
+    // Le fil rend « alice » + « a rejoint le salon » ; le `texte` seul, mis en
+    // aperçu, n'affichait que « alice ».
+    db.prepare(UPSERT_SALON).run(...salon({ rid: 'rid-1', chiffre: true, misAJourLe: 100 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', texte: 'vrai message', horodatage: 10, misAJourLe: 1 }));
+    db.prepare(UPSERT_MESSAGE).run(
+      ...msg({ id: 'm2', texte: 'alice', typeSysteme: 'uj', horodatage: 20, misAJourLe: 2 }),
+    );
+    db.prepare(MAJ_APERCU_CHIFFRE).run();
+    assert.deepEqual(ligne(db.prepare(lire).get('rid-1')), { dernier_message: 'vrai message' });
+  });
+
+  test('deux messages à la MÊME milliseconde : même gagnant que le flux', () => {
+    // Le flux départage par `id DESC`. Sans la même clé secondaire ici,
+    // l'aperçu et la première ligne du salon désignaient deux messages
+    // différents, au gré de l'ordre d'insertion (rowid).
+    db.prepare(UPSERT_SALON).run(...salon({ rid: 'rid-1', chiffre: true, misAJourLe: 100 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'mb', texte: 'B', horodatage: 10, misAJourLe: 1 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'ma', texte: 'A', horodatage: 10, misAJourLe: 2 }));
+    db.prepare(MAJ_APERCU_CHIFFRE).run();
+    assert.deepEqual(ligne(db.prepare(lire).get('rid-1')), { dernier_message: 'B' });
+  });
+
   test('un salon EN CLAIR n’est jamais touché par cette passe', () => {
     // Son aperçu vient du serveur (`lastMessage`), et l'historique local est
     // partiel : le recalculer ici l'écraserait avec ce qu'on a sous la main.
@@ -610,6 +680,130 @@ describe('aperçu de liste d’un salon chiffré', () => {
     );
     db.prepare(MAJ_APERCU_CHIFFRE).run();
     assert.deepEqual(ligne(db.prepare(lire).get('rid-1')), { dernier_message: 'du serveur' });
+  });
+});
+
+describe('verrouillage E2EE : masquer sans réécrire ce qui l’est déjà', () => {
+  const compter = () => (db.prepare('SELECT total_changes() AS n').get() as { n: number }).n;
+
+  test('le masquage efface le clair et laisse le ciphertext', () => {
+    db.prepare(UPSERT_MESSAGE).run(
+      ...msg({ id: 'm1', texte: 'clair', chiffreBrut: '{"ciphertext":"x"}', misAJourLe: 1 }),
+    );
+    db.prepare(MASQUER_MESSAGES_CHIFFRES).run();
+    assert.deepEqual(
+      ligne(db.prepare('SELECT texte, chiffre_brut FROM messages WHERE id = ?').get('m1')),
+      { texte: null, chiffre_brut: '{"ciphertext":"x"}' },
+    );
+  });
+
+  test('un verrouillage REJOUÉ n’écrit rien', () => {
+    // `reverrouillageE2E` rejoue l'opération ; sans la garde, elle toucherait
+    // toute la table `messages` et réveillerait chaque requête vive assise
+    // dessus — donc re-rendrait le salon ouvert, pour rien.
+    db.prepare(UPSERT_MESSAGE).run(
+      ...msg({ id: 'm1', texte: 'clair', chiffreBrut: '{"ciphertext":"x"}', misAJourLe: 1 }),
+    );
+    db.prepare(MASQUER_MESSAGES_CHIFFRES).run();
+
+    const avant = compter();
+    db.prepare(MASQUER_MESSAGES_CHIFFRES).run();
+    assert.equal(compter(), avant, 'aucune écriture');
+  });
+
+  test('l’aperçu chiffré déjà masqué n’est pas réécrit non plus', () => {
+    db.prepare(UPSERT_SALON).run(
+      ...salon({ rid: 'rid-1', chiffre: true, dernierMessage: 'clair', misAJourLe: 100 }),
+    );
+    db.prepare(MASQUER_APERCU_CHIFFRE).run();
+    assert.deepEqual(
+      ligne(db.prepare('SELECT dernier_message FROM salons WHERE rid = ?').get('rid-1')),
+      { dernier_message: null },
+    );
+
+    const avant = compter();
+    db.prepare(MASQUER_APERCU_CHIFFRE).run();
+    assert.equal(compter(), avant, 'aucune écriture');
+  });
+});
+
+describe('aperçu de liste : le type du dernier message', () => {
+  const lire = 'SELECT dernier_message, dernier_message_type FROM salons WHERE rid = ?';
+
+  test('un appel vidéo n’a pas de texte, mais laisse son type', () => {
+    // Sans quoi le salon remonte en tête de liste avec une ligne VIDE : c'est
+    // la colonne qui permet à l'écran d'écrire « Appel vidéo » à la place.
+    const s = versSalon({
+      _id: 'r1',
+      t: 'c',
+      _updatedAt: { $date: 100 },
+      lastMessage: { _id: 'm1', msg: '', t: 'videoconf', ts: { $date: 50 } },
+    });
+    db.prepare(UPSERT_SALON).run(...paramsSalon(s!));
+    assert.deepEqual(ligne(db.prepare(lire).get('r1')), {
+      dernier_message: null,
+      dernier_message_type: 'videoconf',
+    });
+  });
+
+  test('un message ORDINAIRE qui suit remet le type à null', () => {
+    const appel = versSalon({
+      _id: 'r1',
+      t: 'c',
+      _updatedAt: { $date: 100 },
+      lastMessage: { _id: 'm1', msg: '', t: 'videoconf', ts: { $date: 50 } },
+    });
+    db.prepare(UPSERT_SALON).run(...paramsSalon(appel!));
+
+    const apres = versSalon({
+      _id: 'r1',
+      t: 'c',
+      _updatedAt: { $date: 200 },
+      lastMessage: { _id: 'm2', msg: 'coucou', ts: { $date: 60 } },
+    });
+    db.prepare(UPSERT_SALON).run(...paramsSalon(apres!));
+    assert.deepEqual(ligne(db.prepare(lire).get('r1')), {
+      dernier_message: 'coucou',
+      dernier_message_type: null,
+    });
+  });
+
+  test('salon VIDÉ : les deux colonnes retombent à null', () => {
+    // Le document Rooms perd complètement son `lastMessage` — c'est la seule
+    // façon d'apprendre qu'un salon a été vidé, et il faut la distinguer de
+    // « dernier message sans texte ».
+    const plein = versSalon({
+      _id: 'r1',
+      t: 'c',
+      _updatedAt: { $date: 100 },
+      lastMessage: { _id: 'm1', msg: 'coucou', ts: { $date: 50 } },
+    });
+    db.prepare(UPSERT_SALON).run(...paramsSalon(plein!));
+
+    const vide = versSalon({ _id: 'r1', t: 'c', _updatedAt: { $date: 200 } });
+    db.prepare(UPSERT_SALON).run(...paramsSalon(vide!));
+    assert.deepEqual(ligne(db.prepare(lire).get('r1')), {
+      dernier_message: null,
+      dernier_message_type: null,
+    });
+  });
+
+  test('un salon CHIFFRÉ ne garde aucun type : son aperçu est calculé localement', () => {
+    // Le serveur ne sait pas lire ses messages ; y laisser le `t` ferait
+    // décrire l'aperçu local (`MAJ_APERCU_CHIFFRE`) par le type d'un AUTRE
+    // message — un « a rejoint le salon » collé sur un vrai message.
+    const s = versSalon({
+      _id: 'r1',
+      t: 'p',
+      encrypted: true,
+      _updatedAt: { $date: 100 },
+      lastMessage: { _id: 'm1', msg: 'alice', t: 'uj', ts: { $date: 50 } },
+    });
+    db.prepare(UPSERT_SALON).run(...paramsSalon(s!));
+    assert.deepEqual(ligne(db.prepare(lire).get('r1')), {
+      dernier_message: null,
+      dernier_message_type: null,
+    });
   });
 });
 

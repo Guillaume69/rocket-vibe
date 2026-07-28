@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { BaseLocale } from '../db/client.ts';
 import { abonnements, salons } from '../db/schema.ts';
+import { apercuSysteme } from '../lib/messagesSysteme.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { useActivite } from '../ui/activite.ts';
 import { useT } from '../ui/i18n.ts';
@@ -214,10 +215,15 @@ function LigneSalon({
   // Salon chiffré : tant qu'aucun message n'est déchiffré (`dernier_message`
   // null — le ciphertext n'est jamais stocké), le placeholder cadenas. Une fois
   // déverrouillé, `majApercuChiffre` y a posé le dernier message clair.
+  //
+  // Sinon, un `dernier_message` null a DEUX sens (voir `db/schema.ts`) : salon
+  // vidé — rien à écrire —, ou dernier message sans texte à montrer, auquel cas
+  // `dernier_message_type` dit lequel et le libellé se traduit ICI, au rendu :
+  // la langue est commutable à chaud, une phrase figée en base y résisterait.
   const apercu =
     salon.chiffre && salon.dernierMessage === null
       ? t('accueil.messagesChiffres')
-      : (salon.dernierMessage ?? ' ');
+      : (salon.dernierMessage ?? apercuSysteme(t, salon.dernierMessageType) ?? ' ');
 
   return (
     // L'enveloppe arrondie + `overflow: 'hidden'` est ce qui ARRONDIT

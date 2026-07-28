@@ -68,6 +68,36 @@ async function fabriquer(): Promise<{
   return { fetchMyKeys: { public_key: jwkPublique, private_key: JSON.stringify(enveloppe) }, e2eKey, contenu };
 }
 
+/**
+ * Une clé de salon DE PLUS, sous la même paire RSA — de quoi simuler la
+ * rotation que provoque le retrait d'un membre du salon.
+ */
+async function fabriquerCleSalon(
+  jwkPublique: string,
+  message: string,
+): Promise<{ e2eKey: string; contenu: ContenuChiffre }> {
+  const publique = await subtle.importKey(
+    'jwk',
+    JSON.parse(jwkPublique) as JsonWebKey,
+    { name: 'RSA-OAEP', hash: 'SHA-256' },
+    true,
+    ['encrypt'],
+  );
+  const cleSalon = await subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+  const jwkSalon = JSON.stringify(await subtle.exportKey('jwk', cleSalon));
+  const rk = new Uint8Array(await subtle.encrypt({ name: 'RSA-OAEP' }, publique, bytes(jwkSalon)));
+  const keyId = webcrypto.randomUUID();
+
+  const iv = rand(12);
+  const ct = new Uint8Array(
+    await subtle.encrypt({ name: 'AES-GCM', iv }, cleSalon, bytes(JSON.stringify({ msg: message }))),
+  );
+  return {
+    e2eKey: keyId + b64(rk),
+    contenu: { algorithm: 'rc.v2.aes-sha2', kid: keyId, iv: b64(iv), ciphertext: b64(ct) },
+  };
+}
+
 function faux(fetchMyKeys: unknown): { client: ClientE2E; stockage: StockageCleE2E; lu: () => string | null } {
   const client: ClientE2E = { get: async () => fetchMyKeys as never };
   let stocke: string | null = null;
@@ -102,6 +132,37 @@ describe('MoteurE2E', () => {
     const m = new MoteurE2E({ client, stockage, uid: 'osR3JzQEiM2H77m46' });
     m.enregistrerCleSalon(RID, e2eKey); // E2EKey connu avant d'avoir la clé privée
     await m.deverrouiller(MOT_DE_PASSE);
+    assert.equal(m.dechiffrerContenu(RID, contenu), MESSAGE);
+  });
+
+  test('une ROTATION de clé de salon est prise en compte, pas ignorée', async () => {
+    // Retirer un membre du salon fait tourner sa clé : le serveur pousse un
+    // NOUVEL E2EKey sur le même rid. Le cache `clesSalon` porte alors la clé
+    // AES périmée, et `dechiffrerContenu` le consulte EN PREMIER — sans
+    // invalidation, tous les messages suivants restaient au placeholder 🔒
+    // jusqu'au redémarrage de l'app, sans aucun indice de cause.
+    const { fetchMyKeys, e2eKey, contenu } = await fabriquer();
+    const { client, stockage } = faux(fetchMyKeys);
+    const m = new MoteurE2E({ client, stockage, uid: 'osR3JzQEiM2H77m46' });
+    await m.deverrouiller(MOT_DE_PASSE);
+    m.enregistrerCleSalon(RID, e2eKey);
+    assert.equal(m.dechiffrerContenu(RID, contenu), MESSAGE);
+
+    const APRES = 'message posté après la rotation';
+    const rot = await fabriquerCleSalon(fetchMyKeys.public_key, APRES);
+    m.enregistrerCleSalon(RID, rot.e2eKey);
+    assert.equal(m.dechiffrerContenu(RID, rot.contenu), APRES);
+    assert.equal(m.keyIdSalon(RID), rot.e2eKey.slice(0, 36));
+  });
+
+  test('réenregistrer la MÊME clé ne casse rien (idempotent)', async () => {
+    const { fetchMyKeys, e2eKey, contenu } = await fabriquer();
+    const { client, stockage } = faux(fetchMyKeys);
+    const m = new MoteurE2E({ client, stockage, uid: 'osR3JzQEiM2H77m46' });
+    await m.deverrouiller(MOT_DE_PASSE);
+    m.enregistrerCleSalon(RID, e2eKey);
+    m.enregistrerCleSalon(RID, e2eKey);
+    m.enregistrerCleSalon(RID, e2eKey);
     assert.equal(m.dechiffrerContenu(RID, contenu), MESSAGE);
   });
 

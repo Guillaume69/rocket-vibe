@@ -72,8 +72,9 @@ WHERE excluded.mis_a_jour_le >= messages.mis_a_jour_le
 export const UPSERT_SALON = `
 INSERT INTO salons (
   rid, type, nom, nom_affiche, chiffre, lecture_seule, dm_autre_uid,
-  dernier_message, horodatage_dernier_message, avatar_etag, mis_a_jour_le
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  dernier_message, dernier_message_type, horodatage_dernier_message, avatar_etag,
+  mis_a_jour_le
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(rid) DO UPDATE SET
   type = excluded.type,
   nom = COALESCE(excluded.nom, salons.nom),
@@ -85,6 +86,11 @@ ON CONFLICT(rid) DO UPDATE SET
     WHEN excluded.chiffre = 1 THEN salons.dernier_message
     ELSE excluded.dernier_message
   END,
+  -- Pas de CASE ici : versSalon rend déjà null pour un salon chiffré, et c'est
+  -- la valeur JUSTE — l'aperçu d'un salon chiffré ne vient pas de lastMessage.
+  -- Garder l'ancien type y ferait décrire l'aperçu local par le type d'un
+  -- message que le serveur, lui, n'a pas su lire.
+  dernier_message_type = excluded.dernier_message_type,
   -- L'horodatage, lui, garde son COALESCE : il pilote le TRI de la liste, et
   -- le serveur ne le recule PAS en vidant un salon (le champ lm survit à la
   -- suppression du dernier message, vérifié). L'effacer ferait donc sauter le
@@ -195,8 +201,13 @@ export const MESSAGES_A_DECHIFFRER = `SELECT id, rid, chiffre_brut FROM messages
 /** Pose le clair d'un message une fois déchiffré. */
 export const MAJ_TEXTE_MESSAGE = `UPDATE messages SET texte = ? WHERE id = ?`;
 /** Re-masque tout message chiffré au verrouillage : le clair local disparaît,
- *  le ciphertext (`chiffre_brut`) reste pour re-déchiffrer au prochain déverrou. */
-export const MASQUER_MESSAGES_CHIFFRES = `UPDATE messages SET texte = NULL WHERE chiffre_brut IS NOT NULL`;
+ *  le ciphertext (`chiffre_brut`) reste pour re-déchiffrer au prochain déverrou.
+ *
+ *  `texte IS NOT NULL` n'est pas cosmétique, comme partout ailleurs ici : un
+ *  verrouillage rejoué (`reverrouillageE2E`) sur des messages DÉJÀ masqués
+ *  toucherait toute la table sans rien changer, et réveillerait chaque
+ *  `useLiveQuery` assise dessus — donc re-rendrait le salon ouvert. */
+export const MASQUER_MESSAGES_CHIFFRES = `UPDATE messages SET texte = NULL WHERE chiffre_brut IS NOT NULL AND texte IS NOT NULL`;
 /**
  * Aperçu de la liste pour les salons chiffrés DÉVERROUILLÉS : le dernier
  * message déchiffré. Sans déchiffrement, `dernier_message` reste null (le
@@ -211,19 +222,42 @@ export const MASQUER_MESSAGES_CHIFFRES = `UPDATE messages SET texte = NULL WHERE
  * table à chaque suppression même sans rien changer, et ferait rejouer toutes
  * les requêtes vives assises sur `salons`. La sous-requête est donc répétée —
  * une fois pour écrire, une fois pour décider s'il y a lieu d'écrire.
+ *
+ * **Elle doit désigner le même message que le FLUX**, sinon l'aperçu annonce
+ * quelque chose qu'on ne trouve pas en ouvrant le salon. Trois clauses, copiées
+ * de la requête d'`app/salon/[rid].tsx` :
+ *  - `fil_id IS NULL OR fil_affiche = 1` : une réponse de fil vit dans son fil,
+ *    pas dans le salon — sauf `tshow` ;
+ *  - `type_systeme IS NULL OR type_systeme = 'e2e'` : le flux rend un message
+ *    système via `texteSysteme()` (« alice a rejoint le salon »), jamais son
+ *    `texte` brut — qui pour un `t: 'uj'` n'est QUE le pseudo. Le prendre en
+ *    aperçu affichait donc « alice » tout court. C'est exactement le prédicat
+ *    `estOrdinaire` de `ui/ligneMessage.tsx`.
+ *    ⚠️ Surtout PAS `type_systeme IS NULL` seul : dans un salon chiffré, TOUS
+ *    les messages portent `t: 'e2e'` (`lib/normaliser.ts`) — ce filtre-là
+ *    viderait l'aperçu de tous les salons chiffrés, c'est-à-dire la seule
+ *    chose que cette requête existe pour calculer ;
+ *  - `id DESC` en clé secondaire : le flux a dû l'ajouter pour départager deux
+ *    messages à la même milliseconde. Sans elle, l'aperçu et la première ligne
+ *    du salon peuvent désigner deux messages différents.
  */
 export const MAJ_APERCU_CHIFFRE = `
 UPDATE salons SET dernier_message = (
   SELECT texte FROM messages
   WHERE messages.rid = salons.rid AND messages.texte IS NOT NULL
-  ORDER BY messages.horodatage DESC LIMIT 1
+    AND (messages.fil_id IS NULL OR messages.fil_affiche = 1)
+    AND (messages.type_systeme IS NULL OR messages.type_systeme = 'e2e')
+  ORDER BY messages.horodatage DESC, messages.id DESC LIMIT 1
 ) WHERE chiffre = 1 AND dernier_message IS NOT (
   SELECT texte FROM messages
   WHERE messages.rid = salons.rid AND messages.texte IS NOT NULL
-  ORDER BY messages.horodatage DESC LIMIT 1
+    AND (messages.fil_id IS NULL OR messages.fil_affiche = 1)
+    AND (messages.type_systeme IS NULL OR messages.type_systeme = 'e2e')
+  ORDER BY messages.horodatage DESC, messages.id DESC LIMIT 1
 )`;
-/** Au verrouillage : l'aperçu redevient le placeholder (dernier_message null). */
-export const MASQUER_APERCU_CHIFFRE = `UPDATE salons SET dernier_message = NULL WHERE chiffre = 1`;
+/** Au verrouillage : l'aperçu redevient le placeholder (dernier_message null).
+ *  Même garde que ci-dessus, pour la liste des salons cette fois. */
+export const MASQUER_APERCU_CHIFFRE = `UPDATE salons SET dernier_message = NULL WHERE chiffre = 1 AND dernier_message IS NOT NULL`;
 
 export const SUPPRIMER_MESSAGE = `DELETE FROM messages WHERE id = ?`;
 
@@ -411,6 +445,7 @@ export function paramsSalon(s: SalonLocal): Parametre[] {
     b(s.lectureSeule),
     s.dmAutreUid,
     s.dernierMessage,
+    s.dernierMessageType,
     s.horodatageDernierMessage,
     s.avatarEtag,
     s.misAJourLe,

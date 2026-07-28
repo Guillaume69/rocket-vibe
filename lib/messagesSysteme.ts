@@ -81,3 +81,21 @@ export function texteSysteme(t: Traducteur, type: string, parametre: string | nu
   // Type inconnu : phrase générique. Le deux-points ne pend pas quand `msg` est vide.
   return p === '' ? t('sys.inconnu', { type }) : t('sys.inconnuParam', { type, p });
 }
+
+/**
+ * Libellé d'APERÇU pour la liste des salons, quand le dernier message n'a aucun
+ * texte à montrer (`dernier_message` null alors que le salon a bien un dernier
+ * message — voir `dernierMessageType`). `null` = rien à dire, la ligne reste
+ * vide comme avant.
+ *
+ * Volontairement SÉPARÉ de `texteSysteme` : ses phrases sont des prédicats, qui
+ * se lisent à la suite du nom d'auteur affiché juste au-dessus dans le fil
+ * (« bob » + « a rejoint le salon »). La liste des salons n'affiche aucun
+ * auteur : y coller le même texte donnerait « a rejoint le salon », sans sujet.
+ * D'où un libellé autonome, et seulement pour les types qui en ont besoin —
+ * aujourd'hui l'appel vidéo, le seul dont le contenu vive entièrement dans
+ * `blocks`.
+ */
+export function apercuSysteme(t: Traducteur, type: string | null): string | null {
+  return type === 'videoconf' ? t('accueil.apercuAppel') : null;
+}

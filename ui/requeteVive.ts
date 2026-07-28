@@ -62,6 +62,11 @@ function nomDeFichier(chemin: string): string {
  * l'ouverture, `databaseFilePath` ce que le natif rapporte — et qu'une
  * normalisation différente ferait tout filtrer. Nos noms sont uniques par
  * (serveur, compte) (db/nomFichier.ts), le nom seul suffit donc à discriminer.
+ *
+ * Relevé sur l'AVD le 2026-07-28, une trace posée des deux côtés :
+ *   attendu `rocket-vibe-10_0_2_2_3300-6a5615….db`
+ *   reçu    `/data/data/com.rocketvibe.app/files/SQLite/rocket-vibe-10_0_2_2_3300-6a5615….db`
+ *   `databaseName` = `main` — d'où le choix de `databaseFilePath`.
  */
 function fichierDeLaRequete(requete: unknown): string | null {
   const chemin = (requete as { session?: { client?: { databasePath?: unknown } } }).session?.client

@@ -26,7 +26,7 @@ chantiers sont notées ; hors d'elles, on peut piocher.
 | # | Chantier | Sév. | Risque | Effort | État |
 |---|---|---|---|---|---|
 | 1 | Le lot d'une ligne — corrections locales, vérifiées, à régression quasi nulle | 🟠 | faible | heures | ✅ 9/9 |
-| 2 | Une file d'écritures par CONNEXION SQLite (et les brouillons dedans) | 🟡 | faible | heures | ☐ 0/3 |
+| 2 | Une file d'écritures par CONNEXION SQLite (et les brouillons dedans) | 🟡 | faible | heures | ✅ 3/3 |
 | 3 | Zéro secret hors du processus | 🔴 | moyen | jour | ☐ 0/4 |
 | 4 | Ce qui entre en base doit être juste : normalisation, aperçus, clés E2EE | 🟡 | faible | jour | ☐ 0/6 |
 | 5 | Rattrapage de salon : un seul par salon, des caches qui ne mentent pas | 🟡 | moyen | jour | ☐ 0/5 |
@@ -70,10 +70,10 @@ chantiers sont notées ; hors d'elles, on peut piocher.
 
 **Ordre.** Aucune dépendance. À passer avant tout ce qui touchera à la base.
 
-- [ ] 🟡 Un changement de pseudo reconstruit toute la synchro et crée une SECONDE file d'écritures sur la même connexion SQLite — `ui/synchro.tsx:424`
-- [ ] 🟡 Les brouillons écrivent hors de la file, donc à l'intérieur des transactions de synchro — `ui/brouillons.ts:60` *(non passé au réfuteur)*
-- [ ] ⚪ `useRequeteVive` ne filtre pas les événements par base, et les connexions des comptes visités ne sont jamais fermées — `ui/requeteVive.ts:79` *(non passé au réfuteur)*
-- [ ] **Sortie du chantier** : `tsc` propre, suite verte, et lancement réel sur le Pixel
+- [x] 🟡 Un changement de pseudo reconstruit toute la synchro et crée une SECONDE file d'écritures sur la même connexion SQLite — `ui/synchro.tsx:424` → la file naît avec la connexion (`db/fileEcritures.ts`, nouveau module : le mettre dans `db/depot.ts` aurait fait importer le dépôt par `db/client.ts`, à contre-courant des couches)
+- [x] 🟡 Les brouillons écrivent hors de la file, donc à l'intérieur des transactions de synchro — `ui/brouillons.ts:60` *(non passé au réfuteur)* → `creerDepotBrouillons` + SQL statique dans `db/upserts.ts`, 6 tests
+- [x] ⚪ `useRequeteVive` ne filtre pas les événements par base, et les connexions des comptes visités ne sont jamais fermées — `ui/requeteVive.ts:79` *(non passé au réfuteur)* → **la correction prescrite par l'audit était fausse** : `databaseName` vaut `main` pour toutes nos bases (nom SQLite interne du schéma attaché), il ne discrimine rien. Filtré sur `databaseFilePath`, que le natif remplit avec `sqlite3_db_filename()` — comparaison par nom de fichier, et seulement si les deux valeurs sont lisibles, pour que le pire cas reste le comportement d'avant.
+- [ ] **Sortie du chantier** : `tsc` propre ✅, suite verte ✅ (468), **lancement réel sur le Pixel — à faire**. À regarder en premier : les messages arrivent-ils toujours en direct ? C'est le filtre par fichier qui est en jeu — s'il se trompait, l'UI cesserait de se rafraîchir.
 
 ## 3. Zéro secret hors du processus
 

@@ -250,6 +250,18 @@ SELECT mis_a_jour_depuis FROM etat_synchro WHERE portee = ? AND flux = ?
 `;
 
 /**
+ * Brouillon de composer, par `rid` ou `rid:tmid`. Pas de garde de fraîcheur ici,
+ * contrairement aux upserts venus du réseau : la seule source est la frappe de
+ * l'utilisateur, débouncée, et la dernière l'emporte toujours.
+ */
+export const UPSERT_BROUILLON = `
+INSERT INTO brouillons (cle, texte, mis_a_jour_le) VALUES (?, ?, ?)
+ON CONFLICT(cle) DO UPDATE SET texte = excluded.texte, mis_a_jour_le = excluded.mis_a_jour_le
+`;
+export const SUPPRIMER_BROUILLON = `DELETE FROM brouillons WHERE cle = ?`;
+export const LIRE_BROUILLON = `SELECT texte FROM brouillons WHERE cle = ?`;
+
+/**
  * Le plus grand `_updatedAt` déjà ingéré pour un salon — sert à RÉ-ANCRER le
  * curseur de rattrapage quand `chat.syncMessages` échoue sur un backlog trop
  * gros (le serveur 8.5 ne borne pas la requête, elle timeoute), pour ne pas

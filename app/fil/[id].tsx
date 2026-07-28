@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 
 import type { BaseLocale } from '../../db/client.ts';
+import type { DepotBrouillons } from '../../db/depot.ts';
 import { messages, salons, sortie } from '../../db/schema.ts';
 import { citer } from '../../lib/citation.ts';
 import type { CandidatMention } from '../../lib/completionMention.ts';
@@ -72,6 +73,7 @@ export default function EcranFil() {
       c={c}
       filId={id}
       base={synchro.base}
+      brouillons={synchro.brouillons}
       moteur={synchro.moteur}
       envoi={synchro.envoi}
       ddp={synchro.ddp}
@@ -85,6 +87,7 @@ function Fil({
   c,
   filId,
   base,
+  brouillons,
   moteur,
   envoi,
   ddp,
@@ -94,6 +97,7 @@ function Fil({
   c: Couleurs;
   filId: string;
   base: BaseLocale;
+  brouillons: DepotBrouillons;
   moteur: MoteurSynchro;
   envoi: Outbox;
   ddp: Listener;
@@ -260,7 +264,7 @@ function Fil({
 
   // Brouillon du fil (8.7), clé `rid:tmid` : isolé du brouillon du salon.
   // `null` tant que le rid n'est pas connu — le composer attend.
-  const persistance = useBrouillon(base, rid === undefined ? null : `${rid}:${filId}`);
+  const persistance = useBrouillon(brouillons, rid === undefined ? null : `${rid}:${filId}`);
 
   // Candidats à la mention (@) : ceux du SALON, pas seulement du fil — on
   // mentionne souvent dans un fil quelqu'un qui a parlé dans le flux principal.

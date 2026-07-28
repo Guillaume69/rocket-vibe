@@ -9,11 +9,9 @@
  * ne fuient pas d'un compte à l'autre.
  */
 
-import { eq } from 'drizzle-orm';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { BaseLocale } from '../db/client.ts';
-import { brouillons } from '../db/schema.ts';
+import type { DepotBrouillons } from '../db/depot.ts';
 
 const DELAI_MS = 400;
 
@@ -21,8 +19,12 @@ const DELAI_MS = 400;
  * `cle: null` = pas encore déterminable (fil dont le rid n'est pas arrivé) :
  * `initial` reste `null` et rien ne s'écrit. L'appelant ne monte son composer
  * qu'une fois `initial` non-null — sinon il écraserait le brouillon par ''.
+ *
+ * Le dépôt (et non la `BaseLocale` brute) : ses écritures passent par la file
+ * de la connexion, sans quoi le débounce qui tombe pendant un lot de synchro
+ * entre dans SA transaction et disparaît avec elle si le lot échoue.
  */
-export function useBrouillon(base: BaseLocale, cle: string | null) {
+export function useBrouillon(depot: DepotBrouillons, cle: string | null) {
   const [etat, setEtat] = useState<{ cle: string | null; initial: string | null }>({
     cle,
     initial: null,
@@ -35,13 +37,10 @@ export function useBrouillon(base: BaseLocale, cle: string | null) {
   useEffect(() => {
     if (cle === null) return;
     let annule = false;
-    base
-      .select()
-      .from(brouillons)
-      .where(eq(brouillons.cle, cle))
-      .limit(1)
-      .then((lignes) => {
-        if (!annule) setEtat({ cle, initial: lignes[0]?.texte ?? '' });
+    depot
+      .lire(cle)
+      .then((texte) => {
+        if (!annule) setEtat({ cle, initial: texte ?? '' });
       })
       .catch(() => {
         if (!annule) setEtat({ cle, initial: '' });
@@ -49,7 +48,7 @@ export function useBrouillon(base: BaseLocale, cle: string | null) {
     return () => {
       annule = true;
     };
-  }, [base, cle]);
+  }, [depot, cle]);
 
   const minuterie = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dernierTexte = useRef<string | null>(null);
@@ -57,22 +56,15 @@ export function useBrouillon(base: BaseLocale, cle: string | null) {
   const ecrire = useCallback(
     (texte: string) => {
       if (cle === null) return;
-      const requete =
-        texte.trim() === ''
-          ? base.delete(brouillons).where(eq(brouillons.cle, cle))
-          : base
-              .insert(brouillons)
-              .values({ cle, texte, misAJourLe: Date.now() })
-              .onConflictDoUpdate({
-                target: brouillons.cle,
-                set: { texte, misAJourLe: Date.now() },
-              });
-      requete.then(
+      const ecriture = texte.trim() === '' ? depot.supprimer(cle) : depot.ecrire(cle, texte);
+      // Les deux issues sont avalées à dessein : un brouillon perdu ne vaut ni
+      // un écran d'erreur ni un rejet non capté. La frappe suivante réécrira.
+      ecriture.then(
         () => {},
         () => {},
       );
     },
-    [base, cle],
+    [depot, cle],
   );
 
   /** À appeler à chaque frappe : l'écriture part après une pause de 400 ms. */

@@ -28,10 +28,11 @@ import { ouvrirBase } from '../db/client.ts';
 import { MoteurActivite } from '../lib/activite.ts';
 import {
   creerDepot,
+  creerDepotBrouillons,
   creerDepotEmojis,
   creerDepotEnvoi,
   creerDepotTeleversements,
-  creerFileEcritures,
+  type DepotBrouillons,
 } from '../db/depot.ts';
 import { migrerBase } from '../db/migrer.ts';
 import { MoteurE2E } from '../lib/e2e/moteur.ts';
@@ -73,6 +74,8 @@ export type EtatSynchro =
   | {
       phase: 'pret';
       base: BaseLocale;
+      /** Brouillons de composer — dans la file d'écritures, comme le reste. */
+      brouillons: DepotBrouillons;
       moteur: MoteurSynchro;
       envoi: Outbox;
       fichiers: OutboxFichiers;
@@ -149,14 +152,14 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       setSynchro({ phase: 'preparation' });
-      const { base, brute } = ouvrirBase(session.baseUrl, session.userId);
+      // La file d'écritures vient AVEC la connexion : elle sérialise les
+      // transactions d'un SQLite, donc elle doit être unique par SQLite. Cet
+      // effet se rejoue sur un simple renommage (objet `session` neuf pour le
+      // même compte) ; la créer ici en fabriquait une seconde, et les deux
+      // moteurs s'entrelaçaient (voir db/fileEcritures.ts).
+      const { base, brute, fileEcritures } = ouvrirBase(session.baseUrl, session.userId);
       await migrerBase(session.baseUrl, session.userId);
       if (abandonne) return;
-
-      // UNE file d'écritures pour la connexion : les trois dépôts partagent
-      // le même SQLite, leurs écritures ne doivent jamais s'intercaler dans
-      // une transaction ouverte par un autre (voir db/depot.ts).
-      const fileEcritures = creerFileEcritures();
       // Moteur E2EE (lecture) : déchiffre au fil de l'ingestion dès qu'une clé
       // de salon est disponible. La clé privée est rangée au Keystore PAR
       // SERVEUR (comme la session) — d'où l'adaptateur lié à `baseUrl`.
@@ -235,6 +238,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       setSynchro({
         phase: 'pret',
         base,
+        brouillons: creerDepotBrouillons(brute, fileEcritures),
         moteur,
         envoi,
         fichiers,

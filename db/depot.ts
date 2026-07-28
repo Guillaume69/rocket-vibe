@@ -17,6 +17,7 @@ import { filtrerAliases, type DepotEmojis, type EmojiCustom } from '../lib/emoji
 import type { DepotEnvoi, LigneSortie } from '../lib/envoi.ts';
 import type { DepotTeleversements, LigneTeleversement } from '../lib/envoiFichiers.ts';
 import type { Depot, EcrituresDepot } from '../lib/sync.ts';
+import type { FileEcritures } from './fileEcritures.ts';
 import {
   INSERER_EMOJI_CUSTOM,
   INSERER_SORTIE,
@@ -27,6 +28,9 @@ import {
   LISTER_TELEVERSEMENTS_A_ENVOYER,
   MARQUER_TELEVERSEMENT_ECHEC,
   SUPPRIMER_TELEVERSEMENT,
+  LIRE_BROUILLON,
+  UPSERT_BROUILLON,
+  SUPPRIMER_BROUILLON,
   LIRE_CURSEUR,
   DERNIER_MESSAGE_MIS_A_JOUR,
   LISTER_CLES_SALON,
@@ -60,35 +64,6 @@ import {
   paramsSalon,
   paramsUtilisateur,
 } from './upserts.ts';
-
-/**
- * File d'écritures d'UNE connexion SQLite. Les transactions de
- * `withTransactionAsync` sont par CONNEXION et non réentrantes : toute
- * écriture hors file émise pendant un `BEGIN` ouvert serait absorbée dedans —
- * et silencieusement annulée si le lot échoue. La file appartient donc à la
- * connexion, pas à un dépôt : les trois dépôts (`creerDepot`,
- * `creerDepotEnvoi`, `creerDepotTeleversements`) bâtis sur la même connexion
- * doivent recevoir la MÊME instance.
- *
- * Deux lots concurrents entrelacés mouraient sur « cannot rollback - no
- * transaction is active » — constaté sur l'AVD (historique d'écran +
- * rattrapage du raccordement).
- */
-export type FileEcritures = <T>(job: () => Promise<T>) => Promise<T>;
-
-export function creerFileEcritures(): FileEcritures {
-  let queue: Promise<unknown> = Promise.resolve();
-  return (job) => {
-    // `tour` porte le rejet au demandeur ; la file, elle, l'avale pour ne
-    // jamais se bloquer sur un échec passé.
-    const tour = queue.then(job);
-    queue = tour.then(
-      () => {},
-      () => {},
-    );
-    return tour;
-  };
-}
 
 export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot {
   // Les écritures DIRECTES, sans file : c'est ce que reçoit le `fn` d'une
@@ -380,6 +355,40 @@ export function creerDepotTeleversements(
     },
     supprimer(id) {
       return enSerie(() => brute.runAsync(SUPPRIMER_TELEVERSEMENT, [id]).then(() => {}));
+    },
+  };
+}
+
+/**
+ * Brouillons de composer. Ils écrivaient jusqu'ici en direct sur la connexion
+ * partagée, hors file — le seul chemin d'écriture du dépôt à le faire. Le
+ * débounce de 400 ms qui tombait pendant l'ingestion d'une page de 50 messages
+ * faisait entrer l'INSERT dans le `BEGIN` du lot (`withTransactionAsync` n'est
+ * pas exclusif), et un échec du lot annulait le brouillon en silence.
+ */
+export type DepotBrouillons = {
+  /** `null` si aucun brouillon pour cette clé. */
+  lire: (cle: string) => Promise<string | null>;
+  ecrire: (cle: string, texte: string) => Promise<void>;
+  supprimer: (cle: string) => Promise<void>;
+};
+
+export function creerDepotBrouillons(
+  brute: SQLiteDatabase,
+  enSerie: FileEcritures,
+): DepotBrouillons {
+  return {
+    async lire(cle) {
+      const ligne = await brute.getFirstAsync<{ texte: string }>(LIRE_BROUILLON, [cle]);
+      return ligne?.texte ?? null;
+    },
+    ecrire(cle, texte) {
+      return enSerie(() =>
+        brute.runAsync(UPSERT_BROUILLON, [cle, texte, Date.now()]).then(() => {}),
+      );
+    },
+    supprimer(cle) {
+      return enSerie(() => brute.runAsync(SUPPRIMER_BROUILLON, [cle]).then(() => {}));
     },
   };
 }

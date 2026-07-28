@@ -21,7 +21,9 @@
  * événements se serrent, et on rafraîchit UNE fois une fois le silence revenu.
  * Un plafond `ATTENTE_MAX_MS` évite qu'un flot d'écritures ininterrompu ne fige
  * l'affichage : on rafraîchit au moins à cette cadence. On filtre par table
- * (comme drizzle) pour ne pas relire sur le changement d'une autre table.
+ * (comme drizzle) pour ne pas relire sur le changement d'une autre table, et par
+ * FICHIER de base pour ne pas relire sur l'écriture d'un autre compte — voir
+ * `fichierDeLaRequete`.
  *
  * API identique à `useLiveQuery` (`{ data }`) : remplacement mécanique. On ne
  * gère que les requêtes SELECT (`base.select()…`), les seules utilisées ici ;
@@ -38,6 +40,34 @@ import { useEffect, useState, type DependencyList } from 'react';
 const FENETRE_MS = 48;
 /** …mais on rafraîchit au moins aussi souvent si les écritures ne cessent pas. */
 const ATTENTE_MAX_MS = 400;
+
+/** Dernier segment d'un chemin — `…/rv_chat.barrut.me_abc.db` → `rv_chat.barrut.me_abc.db`. */
+function nomDeFichier(chemin: string): string {
+  return chemin.slice(chemin.lastIndexOf('/') + 1);
+}
+
+/**
+ * Le fichier de la base sur laquelle porte cette requête, ou `null` si on n'a
+ * pas su le lire.
+ *
+ * `addDatabaseChangeListener` est GLOBAL à toutes les bases ouvertes, et
+ * `db/client.ts` en garde une par couple (serveur, compte) pour la vie du
+ * process : sans ce filtre, une écriture sur la base d'un compte visité plus tôt
+ * relancerait les requêtes de l'écran courant.
+ *
+ * On lit `session.client` du builder drizzle (drizzle-orm/expo-sqlite range là
+ * le `SQLiteDatabase`) : chemin interne, donc sondé défensivement. On compare le
+ * NOM DE FICHIER et non le chemin entier, parce que les deux valeurs ne
+ * viennent pas de la même source — `databasePath` est ce que JS a passé à
+ * l'ouverture, `databaseFilePath` ce que le natif rapporte — et qu'une
+ * normalisation différente ferait tout filtrer. Nos noms sont uniques par
+ * (serveur, compte) (db/nomFichier.ts), le nom seul suffit donc à discriminer.
+ */
+function fichierDeLaRequete(requete: unknown): string | null {
+  const chemin = (requete as { session?: { client?: { databasePath?: unknown } } }).session?.client
+    ?.databasePath;
+  return typeof chemin === 'string' && chemin !== '' ? nomDeFichier(chemin) : null;
+}
 
 export function useRequeteVive<L>(
   requete: PromiseLike<L[]>,
@@ -67,6 +97,7 @@ export function useRequeteVive<L>(
     // écoute tout (repli sûr).
     const table = (requete as { config?: { table?: unknown } }).config?.table;
     const nomTable = is(table, SQLiteTable) ? getTableConfig(table).name : null;
+    const fichier = fichierDeLaRequete(requete);
 
     let minuterie: ReturnType<typeof setTimeout> | null = null;
     let debutRafale = 0;
@@ -75,8 +106,14 @@ export function useRequeteVive<L>(
       debutRafale = 0;
       relire();
     };
-    const sub = addDatabaseChangeListener(({ tableName }) => {
+    const sub = addDatabaseChangeListener(({ tableName, databaseFilePath }) => {
       if (nomTable !== null && tableName !== nomTable) return;
+      // `databaseName` de l'événement ne discrimine RIEN : c'est le nom SQLite
+      // interne du schéma attaché, donc `main` pour toutes nos bases. Le fichier
+      // est le seul champ qui distingue deux comptes.
+      if (fichier !== null && typeof databaseFilePath === 'string' && databaseFilePath !== '') {
+        if (nomDeFichier(databaseFilePath) !== fichier) return;
+      }
       const maintenant = Date.now();
       if (debutRafale === 0) debutRafale = maintenant;
       if (minuterie !== null) clearTimeout(minuterie);

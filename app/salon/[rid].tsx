@@ -29,6 +29,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { BaseLocale } from '../../db/client.ts';
+import type { DepotBrouillons } from '../../db/depot.ts';
 import { abonnements, messages, salons, sortie, televersements } from '../../db/schema.ts';
 import type { MoteurActivite } from '../../lib/activite.ts';
 import { demarrerConference, sonderAppelDisponible } from '../../lib/appel.ts';
@@ -144,6 +145,7 @@ export default function EcranSalon() {
       c={c}
       rid={rid}
       base={synchro.base}
+      brouillons={synchro.brouillons}
       moteur={synchro.moteur}
       envoi={synchro.envoi}
       fichiers={synchro.fichiers}
@@ -162,6 +164,7 @@ function Salon({
   c,
   rid,
   base,
+  brouillons,
   moteur,
   envoi,
   fichiers,
@@ -176,6 +179,7 @@ function Salon({
   c: Couleurs;
   rid: string;
   base: BaseLocale;
+  brouillons: DepotBrouillons;
   moteur: MoteurSynchro;
   envoi: Outbox;
   fichiers: OutboxFichiers;
@@ -386,7 +390,7 @@ function Salon({
 
   // Brouillon persistant (8.7) — le hook vit ICI : le composer ne monte
   // qu'une fois la valeur initiale lue.
-  const persistance = useBrouillon(base, rid);
+  const persistance = useBrouillon(brouillons, rid);
 
   // Candidats à la mention (@) : le hook vit ICI, où `base` est en scope — le
   // composer reçoit la liste toute prête, comme le brouillon.

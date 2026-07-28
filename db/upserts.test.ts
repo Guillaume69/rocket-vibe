@@ -10,6 +10,9 @@ import type { AbonnementLocal, MessageLocal, SalonLocal } from '../lib/normalise
 import {
   INSERER_EMOJI_CUSTOM,
   INSERER_SORTIE,
+  LIRE_BROUILLON,
+  SUPPRIMER_BROUILLON,
+  UPSERT_BROUILLON,
   LISTER_EMOJIS_CUSTOM,
   LISTER_SORTIE_A_ENVOYER,
   MARQUER_SORTIE_ECHEC,
@@ -675,5 +678,53 @@ describe('aperçu de liste : les documents réels du serveur', () => {
       },
     });
     assert.deepEqual(ligne(db.prepare(lire).get('r1')), { dernier_message: 'note.txt' });
+  });
+});
+
+/**
+ * Brouillons de composer. Ce SQL n'existait pas — l'écriture était construite
+ * par Drizzle dans `ui/brouillons.ts` et lancée hors de la file d'écritures,
+ * donc jamais exécutée par un test. Il vit désormais ici, avec le reste.
+ */
+describe('brouillons', () => {
+  let db: DatabaseSync;
+  beforeEach(() => {
+    db = baseMigree();
+  });
+
+  test('écrit puis relit un brouillon', () => {
+    db.prepare(UPSERT_BROUILLON).run('r1', 'salut', 1000);
+    assert.deepEqual(ligne(db.prepare(LIRE_BROUILLON).get('r1')), { texte: 'salut' });
+  });
+
+  test('une clé absente ne rend rien', () => {
+    assert.equal(db.prepare(LIRE_BROUILLON).get('jamais-ecrit'), undefined);
+  });
+
+  test('la dernière frappe écrase la précédente, sans garde de fraîcheur', () => {
+    db.prepare(UPSERT_BROUILLON).run('r1', 'premier', 2000);
+    // Horodatage PLUS ANCIEN : contrairement aux upserts venus du réseau, il ne
+    // doit rien bloquer — la seule source est la frappe, la dernière gagne.
+    db.prepare(UPSERT_BROUILLON).run('r1', 'second', 1000);
+    assert.deepEqual(ligne(db.prepare(LIRE_BROUILLON).get('r1')), { texte: 'second' });
+  });
+
+  test('le brouillon d’un fil ne touche pas celui du salon', () => {
+    db.prepare(UPSERT_BROUILLON).run('r1', 'du salon', 1000);
+    db.prepare(UPSERT_BROUILLON).run('r1:m9', 'du fil', 1000);
+    assert.deepEqual(ligne(db.prepare(LIRE_BROUILLON).get('r1')), { texte: 'du salon' });
+    assert.deepEqual(ligne(db.prepare(LIRE_BROUILLON).get('r1:m9')), { texte: 'du fil' });
+  });
+
+  test('la suppression ne vise que sa clé', () => {
+    db.prepare(UPSERT_BROUILLON).run('r1', 'du salon', 1000);
+    db.prepare(UPSERT_BROUILLON).run('r2', 'ailleurs', 1000);
+    db.prepare(SUPPRIMER_BROUILLON).run('r1');
+    assert.equal(db.prepare(LIRE_BROUILLON).get('r1'), undefined);
+    assert.deepEqual(ligne(db.prepare(LIRE_BROUILLON).get('r2')), { texte: 'ailleurs' });
+  });
+
+  test('supprimer une clé absente ne lève pas', () => {
+    db.prepare(SUPPRIMER_BROUILLON).run('jamais-ecrit');
   });
 });

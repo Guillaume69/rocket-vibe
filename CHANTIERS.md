@@ -30,7 +30,7 @@ chantiers sont notées ; hors d'elles, on peut piocher.
 | 3 | Zéro secret hors du processus | 🔴 | moyen | jour | ✅ 4/4 |
 | 4 | Ce qui entre en base doit être juste : normalisation, aperçus, clés E2EE | 🟡 | faible | jour | ✅ 6/6 |
 | 5 | Rattrapage de salon : un seul par salon, des caches qui ne mentent pas | 🟡 | moyen | jour | ✅ 5/5 |
-| 6 | Cycle de vie de la donnée locale : purge, curseurs, rétention | 🟡 | moyen | jour | ☐ 0/4 |
+| 6 | Cycle de vie de la donnée locale : purge, curseurs, rétention | 🟡 | moyen | jour | ✅ 4/4 |
 | 7 | File de téléversements : ni doublon, ni disparition silencieuse | 🟠 | moyen | plusieurs-jours | ☐ 0/7 |
 | 8 | Transport DDP et REST : ne pas tuer une socket saine, ne pas dormir sans écouter | 🟡 | moyen | jour | ☐ 0/6 |
 | 9 | Session morte et fin de session : ramener au login, et tout emporter en partant | 🟠 | ÉLEVÉ | jour | ☐ 0/5 |
@@ -143,11 +143,19 @@ chantiers sont notées ; hors d'elles, on peut piocher.
 
 **Ordre.** Après le chantier 4. **Écrire les tests de dépôt d'abord** — on touche des `DELETE`.
 
-- [ ] 🟡 La réconciliation anti-fantômes efface un salon créé PENDANT sa propre requête réseau — `db/depot.ts:178`
-- [ ] 🟡 Les curseurs de rattrapage survivent aux données qu'ils décrivent — `db/schema.ts:242` *(non passé au réfuteur)*
-- [ ] 🟡 Les files d'envoi et de téléversement ne sont jamais purgées avec leur salon : lignes zombies rejouées à l'infini — `db/upserts.ts:246` *(non passé au réfuteur)*
-- [ ] 🟡 Aucune rétention : `messages` et ses tables satellites ne cessent jamais de croître — `db/schema.ts:77` *(non passé au réfuteur)*
-- [ ] **Sortie du chantier** : `tsc` propre, suite verte, et lancement réel sur le Pixel
+- [x] 🟡 La réconciliation anti-fantômes efface un salon créé PENDANT sa propre requête réseau — `db/depot.ts:178` → `LISTER_RIDS_CONNUS` est relevé **avant** le `subscriptions.get`, et les purges deviennent `rid IN (connus) AND rid NOT IN (vivants)`. Un DM né pendant le vol n'est dans ni l'une ni l'autre liste : il est hors de portée. C'est l'ORDRE des deux lectures qui porte la justesse, aucun délai.
+- [x] 🟡 Les curseurs de rattrapage survivent aux données qu'ils décrivent — `db/schema.ts:242` → `SUPPRIMER_CURSEURS_SALON` au départ du salon, `PURGER_CURSEURS_ABSENTS` dans la transaction de purge. `portee <> '*'` protège les curseurs globaux, que perdre relancerait un rattrapage complet.
+- [x] 🟡 Les files d'envoi et de téléversement ne sont jamais purgées avec leur salon : lignes zombies rejouées à l'infini — `db/upserts.ts:246` → la transaction de purge passe de trois DELETE à **sept** (sortie, téléversements, brouillons, curseurs en plus), et `supprimerSalon`/`supprimerParSubId` effacent les mêmes lignes tout de suite — la réconciliation n'a lieu qu'une fois par session, une ligne zombie coûtait deux appels REST par raccordement d'ici là.
+- [x] 🟡 Aucune rétention : `messages` et ses tables satellites ne cessent jamais de croître — `db/schema.ts:77` → `APPLIQUER_RETENTION` (500 par salon, `ROW_NUMBER() OVER (PARTITION BY rid)`), jouée une fois par session après le rattrapage. Deux exemptions : les optimistes (`mis_a_jour_le = 0`, que le serveur ne rendra pas) et les racines de fil encore référencées (sans quoi l'écran fil perd sa tête).
+- [x] **Sortie du chantier** : `tsc` propre, **598 tests / 116 suites** verts (contre 584), eslint propre sur les 8 fichiers touchés, et **la coupe prouvée sur le vrai SQLite d'Android** — 603 messages injectés dans `gros-general` du banc, l'app relancée, 502 au retour (les 500 plus récents plus les deux exemptés).
+
+> **Écart assumé n°1 — l'instantané couvre SEPT tables à rid, pas les trois de l'audit.** `salons ∪ abonnements ∪ messages` aurait suffi à l'anti-race, mais pas à la reprise : une ligne de `sortie` laissée orpheline par une purge d'AVANT ce correctif n'a plus de rid nulle part ailleurs, donc une purge bornée aux trois tables ne l'aurait jamais atteinte — elle serait rejouée à chaque raccordement, pour toujours. Un test la fixe (`une file d'envoi orpheline (salon déjà purgé) est reprise`).
+
+> **Écart assumé n°2 — la rétention partitionne, elle ne prend pas de liste de rids.** L'audit proposait un `json_each` des rids comme les purges. `ROW_NUMBER() OVER (PARTITION BY rid)` fait le même travail en un seul DELETE, sur TOUS les salons — y compris ceux qu'une liste construite en amont aurait oubliés. Le SQL reste statique et un seul paramètre suffit (le quota).
+
+> **Écart assumé n°3 — `supprimerSalon` n'efface toujours pas les messages.** Il efface désormais les quatre satellites, mais les messages restent à la charge de la réconciliation, comme avant ce chantier. L'asymétrie est délibérée (elle n'est pas dans le périmètre de l'audit) mais elle mérite d'être dite : `supprimerSalon` ne rend pas la base cohérente à lui seul.
+
+> **Note de méthode.** Tests de dépôt écrits AVANT le câblage, comme l'ordre l'imposait — on touche des `DELETE`. Chaque correctif prouvé PAR RETRAIT : l'instantané relevé après la requête → 1 échec ciblé ; la borne `IN (connus)` ôtée du SQL → 6 échecs ; les deux exemptions de rétention ôtées → 2 échecs, un par exemption. Et une preuve de bout en bout sur l'émulateur : base extraite par `run-as`, 603 messages injectés (dont un optimiste, une racine de fil et sa réponse), base réinjectée, app relancée, base relue — 502, avec l'optimiste et la racine intacts et le plus vieux message effacé.
 
 ## 7. File de téléversements : ni doublon, ni disparition silencieuse
 

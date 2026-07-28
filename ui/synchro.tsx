@@ -27,6 +27,7 @@ import type { BaseLocale } from '../db/client.ts';
 import { ouvrirBase } from '../db/client.ts';
 import { MoteurActivite } from '../lib/activite.ts';
 import {
+  MESSAGES_GARDES_PAR_SALON,
   creerDepot,
   creerDepotBrouillons,
   creerDepotEmojis,
@@ -202,6 +203,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       let jetonPushEnregistre = false;
       let emojisSynchronises = false;
       let salonsReconcilies = false;
+      let retentionAppliquee = false;
       const presence = new MoteurPresence();
       const activite = new MoteurActivite();
       // Emojis custom : l'index mémoire depuis SQLite AVANT « pret », pour que
@@ -375,6 +377,19 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           fournisseur.reconcilier(moteur, estAbandonne).catch(() => {
             salonsReconcilies = false;
           });
+        }
+        // Rétention (une fois par session, comme au-dessus) : au-delà de 500
+        // messages par salon, on coupe par le bas. Sans elle `messages` ne
+        // cesse jamais de croître pour un salon vivant — et ce sont surtout
+        // les blobs JSON (`md`, `pieces_jointes`, `reactions`, `urls`) qui
+        // pèsent. On ne perd rien : l'app ne lit jamais au-delà de sa
+        // pagination et sait re-télécharger. Purement local, donc APRÈS le
+        // rattrapage — couper avant l'aurait fait re-télécharger dans la
+        // foulée. Un échec n'a pas à réarmer quoi que ce soit : la place se
+        // reprendra au prochain lancement.
+        if (!retentionAppliquee) {
+          retentionAppliquee = true;
+          moteur.depotSynchro.appliquerRetention(MESSAGES_GARDES_PAR_SALON).catch(() => {});
         }
         // Réveille les écrans dont le chargement initial a raté hors ligne.
         setSynchro((s) => (s.phase === 'pret' ? { ...s, generation: s.generation + 1 } : s));

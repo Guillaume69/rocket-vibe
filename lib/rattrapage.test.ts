@@ -15,8 +15,11 @@ function fauxDepotComplet() {
   const abonnements: string[] = [];
   const messages: string[] = [];
   const supprimesParSubId: string[] = [];
-  const purges: string[][] = [];
+  const purges: { vivants: string[]; connus: string[] }[] = [];
   const identites: { uid: string; username: string; avatarEtag: string | null }[] = [];
+  const retentions: number[] = [];
+  /** Les rids « déjà en base », mutables : le stream écrit pendant le vol. */
+  const connus: string[] = [];
   let dernierLocal: number | null = null;
   const depot: Depot = {
     upsertMessage: async (m) => void messages.push(m.id),
@@ -26,7 +29,9 @@ function fauxDepotComplet() {
     supprimerSalon: async (rid) => void supprimesSalons.push(rid),
     supprimerAbonnement: async (rid) => void supprimesAbonnements.push(rid),
     supprimerParSubId: async (subId) => void supprimesParSubId.push(subId),
-    purgerSalonsAbsents: async (rids) => void purges.push(rids),
+    listerRidsConnus: async () => [...connus],
+    purgerSalonsAbsents: async (vivants, cnx) => void purges.push({ vivants, connus: cnx }),
+    appliquerRetention: async (n) => void retentions.push(n),
     lireCurseur: async (portee, flux) => curseurs.get(`${portee}|${flux}`) ?? null,
     ecrireCurseur: async (portee, flux, valeur) => {
       const cle = `${portee}|${flux}`;
@@ -56,20 +61,27 @@ function fauxDepotComplet() {
     supprimesMessages,
     supprimesParSubId,
     purges,
+    retentions,
+    connus,
     setDernierLocal: (v: number | null) => {
       dernierLocal = v;
     },
   };
 }
 
-/** Client réel, fetch simulé : on vérifie les VRAIS paramètres d'URL. */
-function fauxClient(reponses: Record<string, unknown>) {
+/**
+ * Client réel, fetch simulé : on vérifie les VRAIS paramètres d'URL.
+ * `pendantLeVol` joue au moment où le serveur répond — c'est là que le stream
+ * DDP écrit, dans le dos de la réponse qu'on est en train de recevoir.
+ */
+function fauxClient(reponses: Record<string, unknown>, pendantLeVol?: (chemin: string) => void) {
   const urls: string[] = [];
   const client = new ClientRest('http://x', {
     fetch: async (url) => {
       const u = String(url);
       urls.push(u);
       const chemin = new URL(u).pathname.split('/api/v1/')[1];
+      pendantLeVol?.(chemin ?? '');
       return new Response(JSON.stringify(reponses[chemin] ?? { success: true }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -694,6 +706,7 @@ describe('rattraperSalon — une pagination à la fois par salon', () => {
 describe('reconcilierSalons', () => {
   test('purge les rids absents de la liste vivante des abonnements', async () => {
     const d = fauxDepotComplet();
+    d.connus.push('r1', 'r2', 'rFantome');
     const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
     const { client, urls } = fauxClient({
       'subscriptions.get': { update: [{ rid: 'r1' }, { rid: 'r2' }] },
@@ -702,8 +715,25 @@ describe('reconcilierSalons', () => {
     // Full : pas d'updatedSince — on veut l'état courant, pas un delta.
     assert.match(urls[0], /\/subscriptions\.get(\?|$)/);
     assert.doesNotMatch(urls[0], /updatedSince/);
-    assert.deepEqual(d.purges, [['r1', 'r2']]);
+    assert.deepEqual(d.purges, [{ vivants: ['r1', 'r2'], connus: ['r1', 'r2', 'rFantome'] }]);
   });
+
+  test('l’instantané des connus est relevé AVANT la requête réseau', async () => {
+    const d = fauxDepotComplet();
+    d.connus.push('r1', 'r2');
+    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    // Le stream DDP écrit un DM tout neuf pendant l'aller-retour. Il n'est ni
+    // dans la réponse du serveur (calculée avant qu'il existe), ni dans
+    // l'instantané — donc la purge ne doit pas pouvoir l'atteindre.
+    const { client } = fauxClient(
+      { 'subscriptions.get': { update: [{ rid: 'r1' }] } },
+      () => void d.connus.push('rNeuf'),
+    );
+    await reconcilierSalons(client, moteur);
+    assert.deepEqual(d.purges, [{ vivants: ['r1'], connus: ['r1', 'r2'] }]);
+    assert.ok(!d.purges[0].connus.includes('rNeuf'), 'le DM né en vol est hors de portée');
+  });
+
 
   test('une liste vide ne purge RIEN — garde-fou anti-purge-totale', async () => {
     const d = fauxDepotComplet();

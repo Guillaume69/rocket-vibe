@@ -92,12 +92,23 @@ type ReponseAbonnements = {
  * réponse VIDE ne purge rien — un compte actif a toujours des abonnements, une
  * liste vide trahit une réponse anormale (proxy, erreur muette), pas « plus
  * aucun salon ».
+ *
+ * L'INSTANTANÉ des rids connus se relève AVANT la requête, et c'est tout le
+ * correctif : pendant les ~200 ms de l'aller-retour, le stream DDP continue
+ * d'écrire. Un DM ouvert par un collègue à cet instant n'est pas dans la
+ * réponse du serveur — elle a été calculée avant qu'il existe — et purger sur
+ * la seule liste vivante effaçait ses trois lignes. Le salon ne revenait qu'au
+ * prochain rattrapage global, et la notification push renvoyait entre-temps
+ * sur un salon absent. Borner la purge à ce qui était connu AVANT l'appel
+ * l'épargne : il n'y figure pas non plus. C'est l'ordre des deux lectures qui
+ * porte la justesse — aucun délai, aucune hypothèse sur la latence.
  */
 export async function reconcilierSalons(
   client: ClientRest,
   moteur: MoteurSynchro,
   estAbandonne: () => boolean = () => false,
 ): Promise<void> {
+  const connus = await moteur.depotSynchro.listerRidsConnus();
   const reponse = await client.get<ReponseAbonnements>('subscriptions.get');
   if (estAbandonne()) return;
 
@@ -107,7 +118,7 @@ export async function reconcilierSalons(
   }
   if (vivants.length === 0) return;
 
-  await moteur.depotSynchro.purgerSalonsAbsents(vivants);
+  await moteur.depotSynchro.purgerSalonsAbsents(vivants, connus);
 }
 
 type ResultatSync = {

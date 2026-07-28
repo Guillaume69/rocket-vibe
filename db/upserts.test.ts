@@ -8,17 +8,29 @@ import { fileURLToPath } from 'node:url';
 import { versSalon } from '../lib/normaliser.ts';
 import type { AbonnementLocal, MessageLocal, SalonLocal } from '../lib/normaliser.ts';
 import {
+  APPLIQUER_RETENTION,
   INSERER_EMOJI_CUSTOM,
   INSERER_SORTIE,
+  INSERER_TELEVERSEMENT,
   LIRE_BROUILLON,
+  LIRE_CURSEUR,
+  LISTER_RIDS_CONNUS,
   SUPPRIMER_BROUILLON,
+  SUPPRIMER_BROUILLONS_SALON,
+  SUPPRIMER_CURSEURS_SALON,
+  SUPPRIMER_SORTIE_SALON,
+  SUPPRIMER_TELEVERSEMENTS_SALON,
   UPSERT_BROUILLON,
   LISTER_EMOJIS_CUSTOM,
   LISTER_SORTIE_A_ENVOYER,
   MARQUER_SORTIE_ECHEC,
   PURGER_ABONNEMENTS_ABSENTS,
+  PURGER_BROUILLONS_ABSENTS,
+  PURGER_CURSEURS_ABSENTS,
   PURGER_MESSAGES_ABSENTS,
   PURGER_SALONS_ABSENTS,
+  PURGER_SORTIE_ABSENTE,
+  PURGER_TELEVERSEMENTS_ABSENTS,
   MAJ_APERCU_CHIFFRE,
   MASQUER_APERCU_CHIFFRE,
   MASQUER_MESSAGES_CHIFFRES,
@@ -415,6 +427,25 @@ describe('purge des salons fantômes (réconciliation)', () => {
     (db.prepare(`SELECT rid FROM ${table} ORDER BY rid`).all() as { rid: string }[]).map(
       (l) => l.rid,
     );
+  const ids = (table: string): string[] =>
+    (db.prepare(`SELECT id FROM ${table} ORDER BY id`).all() as { id: string }[]).map((l) => l.id);
+
+  /** Les sept DELETE, dans l'ordre où le dépôt les joue. */
+  function purger(connus: string[], vivants: string[]): void {
+    const c = JSON.stringify(connus);
+    const v = JSON.stringify(vivants);
+    for (const sql of [
+      PURGER_SALONS_ABSENTS,
+      PURGER_ABONNEMENTS_ABSENTS,
+      PURGER_MESSAGES_ABSENTS,
+      PURGER_SORTIE_ABSENTE,
+      PURGER_TELEVERSEMENTS_ABSENTS,
+      PURGER_BROUILLONS_ABSENTS,
+      PURGER_CURSEURS_ABSENTS,
+    ]) {
+      db.prepare(sql).run(c, v);
+    }
+  }
 
   test('efface salon, abonnement ET messages dont le rid n’est plus vivant', () => {
     for (const rid of ['r1', 'r2', 'r3']) {
@@ -422,24 +453,206 @@ describe('purge des salons fantômes (réconciliation)', () => {
       db.prepare(UPSERT_ABONNEMENT).run(...abo({ rid, misAJourLe: 100 }));
       db.prepare(UPSERT_MESSAGE).run(...msg({ id: `m-${rid}`, rid, misAJourLe: 100 }));
     }
-    const vivants = JSON.stringify(['r1']);
-    db.prepare(PURGER_SALONS_ABSENTS).run(vivants);
-    db.prepare(PURGER_ABONNEMENTS_ABSENTS).run(vivants);
-    db.prepare(PURGER_MESSAGES_ABSENTS).run(vivants);
+    purger(['r1', 'r2', 'r3'], ['r1']);
 
     assert.deepEqual(rids('salons'), ['r1'], 'seul le salon vivant reste');
     assert.deepEqual(rids('abonnements'), ['r1']);
-    const idsMessages = (db.prepare('SELECT id FROM messages ORDER BY id').all() as { id: string }[])
-      .map((l) => l.id);
-    assert.deepEqual(idsMessages, ['m-r1'], 'les messages orphelins partent aussi');
+    assert.deepEqual(ids('messages'), ['m-r1'], 'les messages orphelins partent aussi');
   });
 
   test('garde plusieurs rids vivants, purge le reste', () => {
     for (const rid of ['r1', 'r2', 'r3', 'r4']) {
       db.prepare(UPSERT_SALON).run(...salon({ rid, misAJourLe: 100 }));
     }
-    db.prepare(PURGER_SALONS_ABSENTS).run(JSON.stringify(['r1', 'r3']));
+    purger(['r1', 'r2', 'r3', 'r4'], ['r1', 'r3']);
     assert.deepEqual(rids('salons'), ['r1', 'r3']);
+  });
+
+  test('un salon CRÉÉ pendant la requête réseau n’est pas effacé', () => {
+    // L'instantané est pris avant l'aller-retour : il ne connaît que r1 et r2.
+    db.prepare(UPSERT_SALON).run(...salon({ rid: 'r1', misAJourLe: 100 }));
+    db.prepare(UPSERT_SALON).run(...salon({ rid: 'r2', misAJourLe: 100 }));
+    const connus = ['r1', 'r2'];
+    // …puis le stream DDP écrit un DM tout neuf pendant le vol. Il n'est ni
+    // dans les vivants (le serveur avait déjà répondu), ni dans les connus.
+    db.prepare(UPSERT_SALON).run(...salon({ rid: 'r3', misAJourLe: 200 }));
+    db.prepare(UPSERT_ABONNEMENT).run(...abo({ rid: 'r3', misAJourLe: 200 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm-r3', rid: 'r3', misAJourLe: 200 }));
+
+    purger(connus, ['r1']);
+
+    assert.deepEqual(rids('salons'), ['r1', 'r3'], 'le DM arrivé en vol survit');
+    assert.deepEqual(rids('abonnements'), ['r3']);
+    assert.deepEqual(ids('messages'), ['m-r3']);
+  });
+
+  test('la purge emporte AUSSI sortie, téléversements, brouillons et curseurs', () => {
+    for (const rid of ['r1', 'r2']) {
+      db.prepare(UPSERT_SALON).run(...salon({ rid, misAJourLe: 100 }));
+      db.prepare(INSERER_SORTIE).run(`${rid}-sortie`, rid, 'coucou', null, 1000);
+      db.prepare(INSERER_TELEVERSEMENT).run(
+        `${rid}-tlv`, rid, 'file:///a.jpg', 'a.jpg', 'image/jpeg', null, 1000,
+      );
+      db.prepare(UPSERT_BROUILLON).run(rid, 'brouillon de salon', 1000);
+      db.prepare(UPSERT_BROUILLON).run(`${rid}:tmid`, 'brouillon de fil', 1000);
+      db.prepare(UPSERT_CURSEUR).run(rid, 'messages', 5000);
+    }
+    db.prepare(UPSERT_CURSEUR).run('*', 'salons', 7000);
+
+    purger(['r1', 'r2'], ['r1']);
+
+    assert.deepEqual(ids('sortie'), ['r1-sortie'], 'la ligne zombie ne sera plus rejouée');
+    assert.deepEqual(ids('televersements'), ['r1-tlv']);
+    const cles = (db.prepare('SELECT cle FROM brouillons ORDER BY cle').all() as { cle: string }[])
+      .map((l) => l.cle);
+    assert.deepEqual(cles, ['r1', 'r1:tmid'], 'le brouillon de FIL suit son salon');
+    const portees = (
+      db.prepare('SELECT portee FROM etat_synchro ORDER BY portee').all() as { portee: string }[]
+    ).map((l) => l.portee);
+    assert.deepEqual(portees, ['*', 'r1'], 'le curseur GLOBAL ne tombe jamais');
+  });
+
+  test('une file d’envoi orpheline (salon déjà purgé) est reprise', () => {
+    // Le zombie laissé par une purge d'avant ce correctif : plus de salon, plus
+    // d'abonnement, plus de message — seulement la ligne de sortie.
+    db.prepare(INSERER_SORTIE).run('z'.repeat(24), 'rZombie', 'jamais parti', null, 1000);
+    db.prepare(UPSERT_SALON).run(...salon({ rid: 'r1', misAJourLe: 100 }));
+
+    const connus = (db.prepare(LISTER_RIDS_CONNUS).all() as { rid: string }[]).map((l) => l.rid);
+    assert.ok(connus.includes('rZombie'), 'l’instantané voit une table à rid, pas que les salons');
+
+    purger(connus, ['r1']);
+    assert.deepEqual(ids('sortie'), []);
+  });
+
+  test('un instantané VIDE n’efface rien — premier lancement', () => {
+    db.prepare(UPSERT_SALON).run(...salon({ rid: 'r1', misAJourLe: 100 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', rid: 'r1', misAJourLe: 100 }));
+    purger([], ['rAutre']);
+    assert.deepEqual(rids('salons'), ['r1']);
+    assert.deepEqual(ids('messages'), ['m1']);
+  });
+
+  test('l’instantané ne compte pas les curseurs globaux comme des rids', () => {
+    db.prepare(UPSERT_CURSEUR).run('*', 'salons', 7000);
+    db.prepare(UPSERT_CURSEUR).run('r1', 'messages', 5000);
+    const connus = (db.prepare(LISTER_RIDS_CONNUS).all() as { rid: string }[]).map((l) => l.rid);
+    assert.deepEqual(connus.sort(), ['r1']);
+  });
+});
+
+describe('départ d’un salon : les tables satellites partent avec lui', () => {
+  test('sortie, téléversements, brouillons et curseurs du rid s’effacent', () => {
+    for (const rid of ['r1', 'r2']) {
+      db.prepare(INSERER_SORTIE).run(`${rid}-sortie`, rid, 'coucou', null, 1000);
+      db.prepare(INSERER_TELEVERSEMENT).run(
+        `${rid}-tlv`, rid, 'file:///a.jpg', 'a.jpg', 'image/jpeg', null, 1000,
+      );
+      db.prepare(UPSERT_BROUILLON).run(rid, 'brouillon', 1000);
+      db.prepare(UPSERT_BROUILLON).run(`${rid}:tmid`, 'brouillon de fil', 1000);
+      db.prepare(UPSERT_CURSEUR).run(rid, 'messages', 5000);
+    }
+    db.prepare(UPSERT_CURSEUR).run('*', 'salons', 7000);
+
+    db.prepare(SUPPRIMER_SORTIE_SALON).run('r1');
+    db.prepare(SUPPRIMER_TELEVERSEMENTS_SALON).run('r1');
+    db.prepare(SUPPRIMER_BROUILLONS_SALON).run('r1');
+    db.prepare(SUPPRIMER_CURSEURS_SALON).run('r1');
+
+    const un = (sql: string): unknown[] => db.prepare(sql).all();
+    assert.equal(un(`SELECT id FROM sortie WHERE rid = 'r1'`).length, 0);
+    assert.equal(un(`SELECT id FROM televersements WHERE rid = 'r1'`).length, 0);
+    assert.equal(un(`SELECT cle FROM brouillons WHERE cle LIKE 'r1%'`).length, 0);
+    assert.equal(un(`SELECT portee FROM etat_synchro WHERE portee = 'r1'`).length, 0);
+
+    assert.equal(un(`SELECT id FROM sortie WHERE rid = 'r2'`).length, 1, 'r2 est intact');
+    assert.equal(un(`SELECT cle FROM brouillons WHERE cle LIKE 'r2%'`).length, 2);
+    assert.equal(un(`SELECT portee FROM etat_synchro WHERE portee = '*'`).length, 1);
+  });
+
+  test('un curseur effacé au départ ne ressuscite pas à la réintégration', () => {
+    // `UPSERT_CURSEUR` refuse toute régression : sans l'effacement, l'ancienne
+    // valeur reprend la main et `rattraperSalon` repart d'un point qui ne dit
+    // plus rien de l'état local — plafonné à 2 pages, il lui faut des dizaines
+    // d'ouvertures pour converger, chacune payée en appels rate-limités.
+    db.prepare(UPSERT_CURSEUR).run('r1', 'messages', 9000);
+    db.prepare(SUPPRIMER_CURSEURS_SALON).run('r1');
+    db.prepare(UPSERT_CURSEUR).run('r1', 'messages', 100);
+    const l = db.prepare(LIRE_CURSEUR).get('r1', 'messages') as { mis_a_jour_depuis: number };
+    assert.equal(l.mis_a_jour_depuis, 100, 'le nouveau curseur, bas, s’installe');
+  });
+});
+
+describe('rétention : les N derniers messages par salon', () => {
+  const ids = (): string[] =>
+    (db.prepare('SELECT id FROM messages ORDER BY id').all() as { id: string }[]).map((l) => l.id);
+
+  test('coupe PAR SALON, pas sur la table entière', () => {
+    for (const rid of ['r1', 'r2']) {
+      for (let i = 1; i <= 4; i += 1) {
+        db.prepare(UPSERT_MESSAGE).run(
+          ...msg({ id: `${rid}-m${i}`, rid, horodatage: i * 1000, misAJourLe: 100 }),
+        );
+      }
+    }
+    db.prepare(APPLIQUER_RETENTION).run(2);
+    assert.deepEqual(ids(), ['r1-m3', 'r1-m4', 'r2-m3', 'r2-m4'], 'les 2 plus récents de CHACUN');
+  });
+
+  test('un salon sous le quota n’est pas touché', () => {
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'a', horodatage: 1000, misAJourLe: 100 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'b', horodatage: 2000, misAJourLe: 100 }));
+    db.prepare(APPLIQUER_RETENTION).run(500);
+    assert.deepEqual(ids(), ['a', 'b']);
+  });
+
+  test('un message OPTIMISTE survit, si vieux soit-il, et ne consomme pas le quota', () => {
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'opt', horodatage: 1, misAJourLe: 0 }));
+    for (let i = 1; i <= 3; i += 1) {
+      db.prepare(UPSERT_MESSAGE).run(
+        ...msg({ id: `m${i}`, horodatage: i * 1000, misAJourLe: 100 }),
+      );
+    }
+    db.prepare(APPLIQUER_RETENTION).run(2);
+    assert.deepEqual(ids(), ['m2', 'm3', 'opt'], 'les 2 derniers serveur, PLUS l’optimiste');
+  });
+
+  test('une racine de fil encore référencée est épargnée', () => {
+    db.prepare(UPSERT_MESSAGE).run(
+      ...msg({ id: 'racine', horodatage: 1, misAJourLe: 100, filReponses: 2 }),
+    );
+    for (let i = 1; i <= 3; i += 1) {
+      db.prepare(UPSERT_MESSAGE).run(
+        ...msg({ id: `m${i}`, horodatage: i * 1000, misAJourLe: 100 }),
+      );
+    }
+    db.prepare(UPSERT_MESSAGE).run(
+      ...msg({ id: 'rep', horodatage: 5000, misAJourLe: 100, filId: 'racine' }),
+    );
+    db.prepare(APPLIQUER_RETENTION).run(2);
+    assert.ok(ids().includes('racine'), 'sans elle, l’écran fil n’a plus de tête');
+    assert.ok(ids().includes('rep'));
+  });
+
+  test('une racine SANS réponse locale n’est pas un cas particulier', () => {
+    db.prepare(UPSERT_MESSAGE).run(
+      ...msg({ id: 'racine', horodatage: 1, misAJourLe: 100, filReponses: 2 }),
+    );
+    for (let i = 1; i <= 3; i += 1) {
+      db.prepare(UPSERT_MESSAGE).run(
+        ...msg({ id: `m${i}`, horodatage: i * 1000, misAJourLe: 100 }),
+      );
+    }
+    db.prepare(APPLIQUER_RETENTION).run(2);
+    assert.deepEqual(ids(), ['m2', 'm3']);
+  });
+
+  test('la coupe est déterministe sur des horodatages ex æquo', () => {
+    for (const id of ['a', 'b', 'c']) {
+      db.prepare(UPSERT_MESSAGE).run(...msg({ id, horodatage: 1000, misAJourLe: 100 }));
+    }
+    db.prepare(APPLIQUER_RETENTION).run(2);
+    assert.deepEqual(ids(), ['b', 'c'], 'l’id départage, toujours dans le même sens');
   });
 });
 

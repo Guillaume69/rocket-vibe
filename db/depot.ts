@@ -19,8 +19,18 @@ import type { DepotTeleversements, LigneTeleversement } from '../lib/envoiFichie
 import type { Depot, EcrituresDepot } from '../lib/sync.ts';
 import type { FileEcritures } from './fileEcritures.ts';
 import {
+  APPLIQUER_RETENTION,
   INSERER_EMOJI_CUSTOM,
   INSERER_SORTIE,
+  LISTER_RIDS_CONNUS,
+  PURGER_BROUILLONS_ABSENTS,
+  PURGER_CURSEURS_ABSENTS,
+  PURGER_SORTIE_ABSENTE,
+  PURGER_TELEVERSEMENTS_ABSENTS,
+  SUPPRIMER_BROUILLONS_SALON,
+  SUPPRIMER_CURSEURS_SALON,
+  SUPPRIMER_SORTIE_SALON,
+  SUPPRIMER_TELEVERSEMENTS_SALON,
   INSERER_TELEVERSEMENT,
   LISTER_EMOJIS_CUSTOM,
   VIDER_EMOJIS_CUSTOM,
@@ -65,7 +75,25 @@ import {
   paramsUtilisateur,
 } from './upserts.ts';
 
+/** Le quota de rétention, par salon. Voir `APPLIQUER_RETENTION`. */
+export const MESSAGES_GARDES_PAR_SALON = 500;
+
 export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot {
+  /**
+   * Ce qu'un salon laisse derrière lui et que personne ne peut plus atteindre :
+   * sa file d'envoi, sa file de téléversements, ses brouillons, ses curseurs.
+   * Aucun écran ne lit ces lignes hors du salon ouvert — donc plus aucun
+   * bouton « abandonner » — mais le rejeu, lui, les reprend à chaque
+   * raccordement. Les messages, eux, restent à la charge de la
+   * réconciliation, comme avant : c'est elle qui balaye les orphelins.
+   */
+  const effacerSatellites = async (rid: string): Promise<void> => {
+    await brute.runAsync(SUPPRIMER_SORTIE_SALON, [rid]);
+    await brute.runAsync(SUPPRIMER_TELEVERSEMENTS_SALON, [rid]);
+    await brute.runAsync(SUPPRIMER_BROUILLONS_SALON, [rid]);
+    await brute.runAsync(SUPPRIMER_CURSEURS_SALON, [rid]);
+  };
+
   // Les écritures DIRECTES, sans file : c'est ce que reçoit le `fn` d'une
   // transaction (la file attend la fin de la transaction ouverte — passer
   // par elle depuis `fn` s'interbloquerait, la signature de
@@ -117,6 +145,7 @@ export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot
     },
     async supprimerSalon(rid) {
       await brute.runAsync(SUPPRIMER_SALON, [rid]);
+      await effacerSatellites(rid);
     },
     async supprimerAbonnement(rid) {
       await brute.runAsync(SUPPRIMER_ABONNEMENT, [rid]);
@@ -128,6 +157,7 @@ export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot
       // Quitter un salon le fait disparaître de la liste — le document Rooms
       // existe toujours côté serveur, mais plus pour ce compte.
       await brute.runAsync(SUPPRIMER_SALON, [ligne.rid]);
+      await effacerSatellites(ligne.rid);
     },
     async ecrireCurseur(portee, flux, misAJourDepuis) {
       await brute.runAsync(UPSERT_CURSEUR, [portee, flux, misAJourDepuis]);
@@ -142,22 +172,39 @@ export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot
     supprimerSalon: (rid) => enSerie(() => direct.supprimerSalon(rid)),
     supprimerAbonnement: (rid) => enSerie(() => direct.supprimerAbonnement(rid)),
     supprimerParSubId: (subId) => enSerie(() => direct.supprimerParSubId(subId)),
-    purgerSalonsAbsents(ridsVivants) {
+    async listerRidsConnus() {
+      const lignes = await brute.getAllAsync<{ rid: string }>(LISTER_RIDS_CONNUS);
+      return lignes.map((l) => l.rid);
+    },
+    purgerSalonsAbsents(ridsVivants, ridsConnus) {
       // Garde-fou : jamais de purge totale sur une liste vide (réponse serveur
       // muette ou tronquée). L'appelant garde aussi ce test — ceinture et
-      // bretelles, car `NOT IN (rien)` effacerait TOUT.
-      if (ridsVivants.length === 0) return Promise.resolve();
-      const json = JSON.stringify(ridsVivants);
-      // Les trois DELETE en UNE transaction : un seul événement de changement
+      // bretelles, car `NOT IN (rien)` effacerait tout ce qui est connu.
+      if (ridsVivants.length === 0 || ridsConnus.length === 0) return Promise.resolve();
+      const vivants = JSON.stringify(ridsVivants);
+      const connus = JSON.stringify(ridsConnus);
+      // Les sept DELETE en UNE transaction : un seul événement de changement
       // pour `useLiveQuery`, et pas de fenêtre où les tables sont incohérentes.
       return enSerie(() =>
         brute.withTransactionAsync(async () => {
-          await brute.runAsync(PURGER_SALONS_ABSENTS, [json]);
-          await brute.runAsync(PURGER_ABONNEMENTS_ABSENTS, [json]);
-          await brute.runAsync(PURGER_MESSAGES_ABSENTS, [json]);
+          for (const sql of [
+            PURGER_SALONS_ABSENTS,
+            PURGER_ABONNEMENTS_ABSENTS,
+            PURGER_MESSAGES_ABSENTS,
+            PURGER_SORTIE_ABSENTE,
+            PURGER_TELEVERSEMENTS_ABSENTS,
+            PURGER_BROUILLONS_ABSENTS,
+            PURGER_CURSEURS_ABSENTS,
+          ]) {
+            await brute.runAsync(sql, [connus, vivants]);
+          }
         }),
       );
     },
+    appliquerRetention: (nbMax) =>
+      enSerie(async () => {
+        await brute.runAsync(APPLIQUER_RETENTION, [nbMax]);
+      }),
     async lireCurseur(portee, flux) {
       // Lecture : pas de file. Elle peut voir un lot non commis — sans
       // conséquence, les curseurs ne s'écrivent qu'après le retour du lot.

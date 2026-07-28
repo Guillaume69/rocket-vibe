@@ -268,16 +268,116 @@ export const SUPPRIMER_ABONNEMENT = `DELETE FROM abonnements WHERE rid = ?`;
 export const RID_PAR_SUB_ID = `SELECT rid FROM abonnements WHERE sub_id = ?`;
 
 /**
- * Réconciliation anti-fantômes : efface tout ce dont le `rid` n'est PLUS dans
- * la liste vivante du serveur. `json_each` déballe un tableau JSON de N rids
- * passé en UN seul paramètre — le SQL reste statique (testé tel quel) quel que
- * soit N. L'appelant GARANTIT une liste non vide : `NOT IN (rien)` viderait
- * tout. On purge les trois tables liées au salon pour ne pas laisser de
- * messages orphelins invisibles.
+ * Le `rid` d'un brouillon : la clé est `rid` ou `rid:tmid` (fil). Un rid
+ * Rocket.Chat ne contient jamais de `:`, la coupe est donc sans ambiguïté.
+ * `instr` rend 0 quand il n'y a pas de séparateur — d'où le `CASE`.
  */
-export const PURGER_SALONS_ABSENTS = `DELETE FROM salons WHERE rid NOT IN (SELECT value FROM json_each(?))`;
-export const PURGER_ABONNEMENTS_ABSENTS = `DELETE FROM abonnements WHERE rid NOT IN (SELECT value FROM json_each(?))`;
-export const PURGER_MESSAGES_ABSENTS = `DELETE FROM messages WHERE rid NOT IN (SELECT value FROM json_each(?))`;
+const RID_DU_BROUILLON = `substr(cle, 1, CASE WHEN instr(cle, ':') = 0 THEN length(cle) ELSE instr(cle, ':') - 1 END)`;
+
+/**
+ * Tous les `rid` que la base connaît, quelle que soit la table qui les porte —
+ * l'INSTANTANÉ que la réconciliation doit prendre AVANT sa requête réseau.
+ *
+ * Pourquoi cet instantané : `purgerSalonsAbsents` reçoit la liste vivante d'un
+ * `subscriptions.get` qui a duré ~200 ms, pendant lesquelles le stream DDP a
+ * continué d'écrire. Un DM ouvert par un collègue dans cet intervalle n'est
+ * dans AUCUNE des deux listes — pas dans les vivants (il n'existait pas quand
+ * le serveur a répondu), pas dans les connus (il n'existait pas quand on a
+ * relevé la base). Purger `NOT IN (vivants)` l'effaçait ; purger
+ * `IN (connus) AND NOT IN (vivants)` l'épargne. C'est l'ORDRE des deux
+ * lectures qui porte la justesse, aucun délai.
+ *
+ * L'union couvre TOUTES les tables à rid, pas seulement les trois du salon :
+ * une file d'envoi orpheline (laissée par une purge d'avant ce correctif) n'a
+ * plus de ligne nulle part ailleurs, et ne serait donc jamais reprise par une
+ * purge bornée aux salons connus. `etat_synchro` y entre sans ses curseurs
+ * globaux (`portee = '*'`), qui ne sont pas des rids.
+ */
+export const LISTER_RIDS_CONNUS = `
+SELECT rid FROM salons
+UNION SELECT rid FROM abonnements
+UNION SELECT rid FROM messages
+UNION SELECT rid FROM sortie
+UNION SELECT rid FROM televersements
+UNION SELECT portee FROM etat_synchro WHERE portee <> '*'
+UNION SELECT ${RID_DU_BROUILLON} FROM brouillons
+`;
+
+/**
+ * Réconciliation anti-fantômes : efface tout ce dont le `rid` était connu au
+ * départ et n'est PLUS dans la liste vivante du serveur. `json_each` déballe un
+ * tableau JSON de N rids passé en UN seul paramètre — le SQL reste statique
+ * (testé tel quel) quel que soit N. Ordre des paramètres : **connus, puis
+ * vivants**, partout.
+ *
+ * L'appelant GARANTIT une liste vivante non vide : `NOT IN (rien)` effacerait
+ * tout ce qui est connu.
+ *
+ * On purge les SEPT tables liées au salon, pas trois. Les quatre autres ne
+ * disparaissaient jamais : un brouillon invisible, un curseur qui survit aux
+ * messages qu'il décrit (et qu'`UPSERT_CURSEUR` interdit ensuite de corriger,
+ * puisqu'il refuse toute régression), et surtout une ligne de `sortie` ou de
+ * `televersements` qu'aucun écran ne peut plus afficher — donc plus aucun
+ * bouton « abandonner » — mais que le rejeu repousse à CHAQUE raccordement,
+ * pour toujours, en retardant les envois légitimes derrière elle.
+ */
+export const PURGER_SALONS_ABSENTS = `DELETE FROM salons WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
+export const PURGER_ABONNEMENTS_ABSENTS = `DELETE FROM abonnements WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
+export const PURGER_MESSAGES_ABSENTS = `DELETE FROM messages WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
+export const PURGER_SORTIE_ABSENTE = `DELETE FROM sortie WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
+export const PURGER_TELEVERSEMENTS_ABSENTS = `DELETE FROM televersements WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
+export const PURGER_BROUILLONS_ABSENTS = `DELETE FROM brouillons WHERE ${RID_DU_BROUILLON} IN (SELECT value FROM json_each(?)) AND ${RID_DU_BROUILLON} NOT IN (SELECT value FROM json_each(?))`;
+/**
+ * `portee <> '*'` est INDISPENSABLE : les curseurs globaux (`salons`,
+ * `abonnements`) ne sont pas des rids et ne doivent jamais tomber — les perdre
+ * relancerait un rattrapage complet à chaque réconciliation.
+ */
+export const PURGER_CURSEURS_ABSENTS = `DELETE FROM etat_synchro WHERE portee <> '*' AND portee IN (SELECT value FROM json_each(?)) AND portee NOT IN (SELECT value FROM json_each(?))`;
+
+/**
+ * Départ d'un salon, immédiat : ce que la purge ferait plus tard, mais tout de
+ * suite et pour un seul rid. Sans elles, une ligne de `sortie` laissée par un
+ * salon quitté coûte deux appels REST par raccordement (`chat.sendMessage`
+ * puis le `chat.getMessage` de `messageLivre`) jusqu'à la prochaine
+ * réconciliation — qui n'a lieu qu'UNE fois par session.
+ */
+export const SUPPRIMER_SORTIE_SALON = `DELETE FROM sortie WHERE rid = ?`;
+export const SUPPRIMER_TELEVERSEMENTS_SALON = `DELETE FROM televersements WHERE rid = ?`;
+export const SUPPRIMER_BROUILLONS_SALON = `DELETE FROM brouillons WHERE ${RID_DU_BROUILLON} = ?`;
+export const SUPPRIMER_CURSEURS_SALON = `DELETE FROM etat_synchro WHERE portee = ?`;
+
+/**
+ * Rétention : par salon, ne garder que les N messages les plus RÉCENTS.
+ *
+ * Sans elle, `messages` ne cesse jamais de croître pour un salon vivant — et
+ * ce n'est pas que du texte : `md`, `pieces_jointes`, `reactions` et `urls`
+ * sont des blobs JSON souvent plus lourds que le message lui-même. Le seul
+ * recours de l'utilisateur sur Android est « vider les données », qui détruit
+ * tout, brouillons et file d'envoi compris.
+ *
+ * Deux exemptions, toutes deux nécessaires :
+ *
+ * - **les optimistes** (`mis_a_jour_le = 0`) : ils n'existent que localement,
+ *   le serveur ne les rendra pas. Ils sont hors du classement, donc ils ne
+ *   consomment pas non plus le quota.
+ * - **les racines de fil encore référencées** : effacer la racine laisserait
+ *   des réponses rattachées à un message introuvable, et l'écran fil ne
+ *   saurait plus quoi afficher en tête.
+ *
+ * Couper par `horodatage` et non par `mis_a_jour_le` : c'est l'ancienneté du
+ * MESSAGE qu'on veut, pas celle de sa dernière édition. `id` départage les
+ * ex æquo pour que la coupe soit déterministe. Inutile de ré-ancrer le curseur
+ * de rattrapage : on ne coupe que par le bas, et l'app sait re-télécharger sa
+ * pagination.
+ */
+export const APPLIQUER_RETENTION = `
+DELETE FROM messages WHERE id IN (
+  SELECT id FROM (
+    SELECT id, ROW_NUMBER() OVER (PARTITION BY rid ORDER BY horodatage DESC, id DESC) AS rang
+    FROM messages WHERE mis_a_jour_le <> 0
+  ) WHERE rang > ?
+) AND id NOT IN (SELECT fil_id FROM messages WHERE fil_id IS NOT NULL)
+`;
 
 export const LIRE_CURSEUR = `
 SELECT mis_a_jour_depuis FROM etat_synchro WHERE portee = ? AND flux = ?

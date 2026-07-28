@@ -36,12 +36,24 @@ export interface Depot {
    */
   supprimerParSubId(subId: string): Promise<void>;
   /**
-   * Réconciliation anti-fantômes : efface tout salon (et son abonnement, ses
-   * messages) dont le `rid` n'est PAS dans la liste vivante. Nettoie les
-   * salons supprimés côté serveur dont l'événement 'removed' a été raté. Ne
-   * fait RIEN sur une liste vide (garde-fou anti-purge-totale).
+   * Tous les `rid` que la base connaît, toutes tables confondues. À relever
+   * AVANT la requête réseau de la réconciliation : c'est cet instantané qui
+   * borne la purge, et donc qui épargne un salon né pendant le vol.
    */
-  purgerSalonsAbsents(ridsVivants: string[]): Promise<void>;
+  listerRidsConnus(): Promise<string[]>;
+  /**
+   * Réconciliation anti-fantômes : efface tout ce dont le `rid` figurait dans
+   * l'instantané `ridsConnus` et ne figure PAS dans la liste vivante. Nettoie
+   * les salons supprimés côté serveur dont l'événement 'removed' a été raté —
+   * salon, abonnement, messages, mais aussi files d'envoi, brouillons et
+   * curseurs. Ne fait RIEN sur une liste vide (garde-fou anti-purge-totale).
+   */
+  purgerSalonsAbsents(ridsVivants: string[], ridsConnus: string[]): Promise<void>;
+  /**
+   * Rétention : ne garder que les `nbMax` messages les plus récents de CHAQUE
+   * salon, en épargnant les optimistes et les racines de fil référencées.
+   */
+  appliquerRetention(nbMax: number): Promise<void>;
   /** Curseurs de rattrapage. `lireCurseur` rend null si jamais écrit. */
   lireCurseur(portee: string, flux: string): Promise<number | null>;
   /** N'avance jamais à rebours (garanti par le SQL). */

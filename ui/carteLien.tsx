@@ -13,7 +13,6 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
-  Linking,
   Pressable,
   StyleSheet,
   Text,
@@ -23,6 +22,7 @@ import {
 
 import { apercusDeLien, type ApercuLien } from '../lib/apercuLien.ts';
 import { useT } from './i18n.ts';
+import { ouvrirLienExterne } from './lienExterne.ts';
 import { type Couleurs, POLICES } from './theme.ts';
 import { useVisionneuse } from './visionneuse.tsx';
 
@@ -156,7 +156,7 @@ function ApercuCarte({
 
   return (
     <Pressable
-      onPress={() => void Linking.openURL(apercu.url).catch(() => {})}
+      onPress={() => ouvrirLienExterne(apercu.url)}
       onLongPress={surAppuiLong}
       delayLongPress={350}
       accessibilityRole="link"

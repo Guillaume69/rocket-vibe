@@ -64,6 +64,34 @@ describe('apercusDeLien', () => {
     assert.equal(r[0]!.type, 'image');
   });
 
+  test('un lien qui n’est pas du web ne devient RIEN — ni image, ni carte', () => {
+    // `message.urls` est stocké brut : sans ce filtre, `file:///…jpg`
+    // s'affichait dans le fil (lecture du disque de l'app) et `javascript:`
+    // devenait tapable, alors que le markdown, lui, gardait sa garde.
+    for (const u of [
+      'file:///data/data/com.rocketvibe.app/files/x.jpg',
+      'javascript:alert(1)',
+      'intent://scan#Intent;scheme=zxing;end',
+      'data:image/png;base64,iVBORw0KGgo=',
+      'content://media/external/images/1',
+    ]) {
+      assert.deepEqual(apercusDeLien(json([{ url: u, meta: { ogTitle: 'Piège' } }])), [], u);
+    }
+  });
+
+  test('une vignette non web est retirée, la carte reste', () => {
+    const r = apercusDeLien(
+      json([{ url: 'https://ex.com/a', meta: { ogTitle: 'Titre', ogImage: 'file:///etc/x.png' } }]),
+    );
+    assert.equal(r.length, 1);
+    assert.equal(r[0]!.type === 'carte' ? r[0]!.image : 'absente', null);
+  });
+
+  test('une carte sans titre dont la vignette est retirée disparaît', () => {
+    const r = apercusDeLien(json([{ url: 'https://ex.com/a', meta: { ogImage: 'file:///x.png' } }]));
+    assert.deepEqual(r, []);
+  });
+
   test('un SVG n’est PAS traité comme image (Image RN ne le rend pas)', () => {
     const svg = { url: 'https://ex.com/logo.svg', meta: {}, headers: { contentType: 'image/svg+xml' } };
     assert.deepEqual(apercusDeLien(json([svg])), []);

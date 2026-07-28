@@ -7,10 +7,10 @@
  */
 
 import { useRouter } from 'expo-router';
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Image,
-  Linking,
   Pressable,
   StyleSheet,
   Text,
@@ -31,6 +31,7 @@ import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar, urlFichierProtege } from '../lib/upload.ts';
 import { LiensEmbed } from './carteEmbed.tsx';
 import { ApercusLien } from './carteLien.tsx';
+import { ouvrirJointeProtegee } from './fichierJoint.ts';
 import { useEtagsAvatars, useIdentites } from './identites.tsx';
 import { useT } from './i18n.ts';
 import { TuileAvatar } from './kit.tsx';
@@ -554,23 +555,85 @@ function PiecesJointes({
           );
         }
         if (typeof jointe?.title_link === 'string') {
-          const url = urlFichierProtege(client, jointe.title_link);
           return (
-            <Pressable
+            <JointeFichier
               key={i}
-              onPress={() => void Linking.openURL(url).catch(() => {})}
-              onLongPress={surAppuiLong}
-              delayLongPress={350}
-            >
-              <Text style={[styles.texte, { color: c.accent }]}>
-                📄 {jointe.title ?? t('ligneMessage.fichier')}
-              </Text>
-            </Pressable>
+              c={c}
+              client={client}
+              chemin={jointe.title_link}
+              titre={jointe.title ?? null}
+              surAppuiLong={surAppuiLong}
+            />
           );
         }
         return null;
       })}
     </View>
+  );
+}
+
+/**
+ * Pièce jointe « fichier » (PDF, archive, tableur…) : on TÉLÉCHARGE puis on
+ * ouvre la feuille de partage sur la copie locale.
+ *
+ * Cette branche remettait l'URL protégée — `rc_uid` et `rc_token` en query — à
+ * `Linking.openURL`, donc à Chrome, à son historique et à sa synchronisation
+ * vers le compte Google, et à toute application déclarant gérer https. Un
+ * `rc_token` vaut le compte entier. L'image et la vidéo, elles, respectaient
+ * déjà l'invariant posé en tête de `ui/visionneuse.tsx` en gardant l'URL en
+ * mémoire ; seule celle-ci sortait.
+ *
+ * Un composant, et pas une ligne dans la boucle : il lui faut un état (le
+ * téléchargement dure) et on ne peut pas appeler de hook dans un `map`.
+ */
+function JointeFichier({
+  c,
+  client,
+  chemin,
+  titre,
+  surAppuiLong,
+}: {
+  c: Couleurs;
+  client: ClientRest;
+  chemin: string;
+  titre: string | null;
+  surAppuiLong: (() => void) | undefined;
+}) {
+  const t = useT();
+  const [enCours, setEnCours] = useState(false);
+  const [echec, setEchec] = useState(false);
+
+  const ouvrir = () => {
+    // Un second appui pendant le téléchargement ne relance rien : deux
+    // `downloadAsync` sur la même destination s'écraseraient l'un l'autre.
+    if (enCours) return;
+    setEnCours(true);
+    setEchec(false);
+    // Pas de MIME à passer : `attachments` n'en porte pas (son `type` vaut
+    // « file », ce n'est pas un type de média). C'est l'extension du nom, via le
+    // FileProvider, qui oriente la feuille de partage.
+    ouvrirJointeProtegee({ url: urlFichierProtege(client, chemin), titre, type: null })
+      .then(
+        () => setEchec(false),
+        () => setEchec(true),
+      )
+      .finally(() => setEnCours(false));
+  };
+
+  return (
+    <Pressable onPress={ouvrir} onLongPress={surAppuiLong} delayLongPress={350}>
+      <View style={styles.ligneFichier}>
+        <Text style={[styles.texte, { color: c.accent }]} numberOfLines={2}>
+          📄 {titre ?? t('ligneMessage.fichier')}
+        </Text>
+        {enCours && <ActivityIndicator size="small" color={c.accent} />}
+      </View>
+      {echec && (
+        <Text style={[styles.texte, styles.italique, { color: c.texteErreur }]}>
+          {t('ligneMessage.fichierOuvertureEchouee')}
+        </Text>
+      )}
+    </Pressable>
   );
 }
 
@@ -604,6 +667,7 @@ const styles = StyleSheet.create({
     marginVertical: 2,
   },
   jointes: { gap: 6, marginTop: 4 },
+  ligneFichier: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   imageJointe: { borderRadius: 10, backgroundColor: '#00000010' },
   puceFil: {
     alignSelf: 'flex-start',

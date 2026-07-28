@@ -127,6 +127,31 @@ describe('urlFichierProtege', () => {
     const { client } = clientAuthentifie({});
     assert.match(urlFichierProtege(client, '/file-upload/f1/x.png?a=1'), /\?a=1&rc_uid=/);
   });
+
+  test('un chemin ABSOLU vers un autre hôte ne reçoit PAS le jeton', () => {
+    // `title_link` vient d'un `attachments` de message, que `chat.sendMessage`
+    // accepte tel quel : un lien absolu forgé repartait d'ici avec rc_uid et
+    // rc_token collés dessus, et une `<Image>` les livrait à cet hôte.
+    const { client } = clientAuthentifie({});
+    const url = urlFichierProtege(client, 'https://evil.example/collecte.png');
+    assert.equal(url, 'https://evil.example/collecte.png');
+    assert.ok(!url.includes('rc_token'));
+  });
+
+  test('un hôte dont le nôtre est un préfixe reste un autre hôte', () => {
+    const { client } = clientAuthentifie({});
+    assert.ok(!urlFichierProtege(client, 'http://x.evil.example/f.png').includes('rc_token'));
+  });
+
+  test("un userinfo qui imite notre hôte n'obtient rien non plus", () => {
+    const { client } = clientAuthentifie({});
+    assert.ok(!urlFichierProtege(client, 'http://x@evil.example/f.png').includes('rc_token'));
+  });
+
+  test('une URL absolue vers NOTRE serveur reste authentifiée', () => {
+    const { client } = clientAuthentifie({});
+    assert.match(urlFichierProtege(client, 'http://x/file-upload/f1/x.png'), /rc_token=jeton-alice/);
+  });
 });
 
 describe('urlAvatar', () => {

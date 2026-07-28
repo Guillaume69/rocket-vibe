@@ -16,11 +16,12 @@
 
 import { LinearGradient } from 'expo-linear-gradient';
 import { useMemo, useState } from 'react';
-import { Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { metasVideo, type MetaVideo } from '../lib/apercuLien.ts';
 import { detecterLiensVideo, type LienVideo } from '../lib/liensVideo.ts';
 import { useT } from './i18n.ts';
+import { ouvrirLienExterne } from './lienExterne.ts';
 import { type Couleurs, POLICES } from './theme.ts';
 
 /** Rend une carte par lien vidéo détecté dans `texte` (rien si aucun). */
@@ -74,7 +75,7 @@ function CarteEmbed({
 
   return (
     <Pressable
-      onPress={() => void Linking.openURL(lien.url).catch(() => {})}
+      onPress={() => ouvrirLienExterne(lien.url)}
       onLongPress={surAppuiLong}
       delayLongPress={350}
       style={[styles.carte, { borderColor: c.bordure }]}

@@ -27,6 +27,7 @@
  * carte dédiée (`ui/carteEmbed.tsx`) — sans quoi le message porterait deux cartes.
  */
 
+import { estLienWeb } from './lienExterne.ts';
 import { estLienVideo, idVideo } from './liensVideo.ts';
 
 export type ApercuLien =
@@ -98,7 +99,10 @@ function premier(meta: Record<string, unknown>, cles: readonly string[]): string
 
 function carteDepuisMeta(url: string, meta: Record<string, unknown>): ApercuLien | null {
   const titre = premier(meta, ['ogTitle', 'oembedTitle', 'twitterTitle', 'pageTitle']);
-  const image = premier(meta, ['ogImage', 'twitterImage', 'oembedThumbnailUrl']);
+  // La vignette part dans une `<Image>` : un `file://` y ferait lire le disque
+  // de l'app, un `data:` y injecterait une image arbitraire. Seul le web.
+  const brutImage = premier(meta, ['ogImage', 'twitterImage', 'oembedThumbnailUrl']);
+  const image = estLienWeb(brutImage) ? brutImage : null;
   const description = premier(meta, [
     'ogDescription',
     'twitterDescription',
@@ -169,7 +173,12 @@ export function apercusDeLien(urlsJson: string | null | undefined, max = 3): Ape
   for (const item of brut) {
     if (apercus.length >= max) break;
     const entree = item as EntreeUrl;
-    const url = typeof entree?.url === 'string' ? entree.url : null;
+    // Filtré ICI, à la source : ce qui n'est pas du web ne doit ni s'afficher
+    // (`file:///…jpg` dans une `<Image>`) ni devenir tapable (`javascript:`,
+    // `intent:`). `message.urls` est stocké brut (lib/normaliser.ts) et n'a
+    // jamais été validé — c'est de la donnée d'autrui.
+    const brutUrl = entree?.url;
+    const url = estLienWeb(brutUrl) ? brutUrl : null;
     if (url === null || vus.has(url)) continue;
     if (estLienVideo(url)) continue; // déjà rendu par la carte vidéo
 

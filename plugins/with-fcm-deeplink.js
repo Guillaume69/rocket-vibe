@@ -221,7 +221,7 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
 
     val session = lireSession(this, host)
     if (session == null) journal(this, "session introuvable pour " + host)
-    val notif = session?.let { recupererContenu(this, host, messageId, it) }
+    val notif = session?.let { recupererContenu(this, messageId, it) }
     if (notif == null) {
       journal(this, "id-only " + messageId + " : fetch KO -> dégradée + rattrapage")
       posterNotifDegradee(this, messageId)
@@ -270,7 +270,7 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
         return
       }
       Log.d(TAG, "shadow push.get: session déchiffrée uid=" + session.optString("userId"))
-      val notif = recupererContenu(this, host, messageId, session)
+      val notif = recupererContenu(this, messageId, session)
       if (notif == null) {
         Log.d(TAG, "shadow push.get: fetch KO, rattrapage ombre programmé")
         planifierRattrapage(this, host, messageId, true)
@@ -313,7 +313,7 @@ class RattrapagePushWorker(contexte: Context, params: WorkerParameters) : Worker
     )
 
     val session = lireSession(applicationContext, host) ?: return Result.failure()
-    val notif = recupererContenu(applicationContext, host, messageId, session)
+    val notif = recupererContenu(applicationContext, messageId, session)
     if (notif == null) {
       // runAttemptCount démarre à 0 : MAX_TENTATIVES exécutions au plus.
       if (runAttemptCount >= MAX_TENTATIVES - 1) {
@@ -571,19 +571,42 @@ private fun annulerRattrapage(ctx: Context, messageId: String) {
 }
 
 /**
+ * Scheme + authority d'une URL web, en minuscules ; null si ce n'en est pas une.
+ * Pendant Kotlin de \`lib/origine.ts\` — même règle, écrite deux fois faute de
+ * langage commun entre le service natif et l'app. L'autorité est prise TELLE
+ * QUELLE, userinfo compris : « https://serveur@evil » ne doit surtout pas se
+ * réduire à « https://serveur ».
+ */
+private fun origineDe(url: String): String? {
+  val m = Regex("^(https?://[^/?#]+)", RegexOption.IGNORE_CASE).find(url) ?: return null
+  return m.groupValues[1].lowercase()
+}
+
+/**
  * Lit la session expo-secure-store correspondant au host, sans runtime JS.
  * Reproduit le format de stockage d'expo-secure-store 57 : SharedPreferences
  * « SecureStore », une entrée « key_v1-session-<condensé> » par serveur, dont
  * la valeur est une enveloppe AES/GCM déchiffrable par une clé de
- * l'AndroidKeyStore. On énumère les sessions et on retient celle dont le
- * baseUrl matche le host ; à défaut, l'unique session connue (mono-serveur).
+ * l'AndroidKeyStore.
+ *
+ * On ne retient que la session dont le baseUrl a la MÊME ORIGINE que le host
+ * demandé. Il y avait ici un repli « une seule session connue, on la prend même
+ * si le host ne matche pas » : \`host\` vient intégralement du payload FCM et
+ * n'est validé nulle part, si bien que quiconque pouvait émettre vers le jeton
+ * FCM de l'appareil faisait partir X-User-Id et X-Auth-Token vers le domaine de
+ * son choix — hors de tout runtime JS, sans trace. La tolérance que ce repli
+ * visait (barre finale, sous-chemin) est couverte par la comparaison d'origine ;
+ * la tolérance de DOMAINE ne l'a jamais été volontairement.
  */
 private fun lireSession(ctx: Context, host: String): JSONObject? {
   return try {
+    val attendue = origineDe(host)
+    if (attendue == null) {
+      Log.w(TAG, "lireSession: host non web, rejeté")
+      journal(ctx, "push: host rejeté (" + host + ")")
+      return null
+    }
     val prefs = ctx.getSharedPreferences("SecureStore", Context.MODE_PRIVATE)
-    val hote = sansSlashFinal(host)
-    var repli: JSONObject? = null
-    var nbCandidats = 0
     for ((cle, valeur) in prefs.all) {
       if (!cle.startsWith("key_v1-session-")) continue
       val brut = valeur as? String ?: continue
@@ -594,12 +617,10 @@ private fun lireSession(ctx: Context, host: String): JSONObject? {
         continue
       }
       if (session.optString("authToken").isEmpty() || session.optString("userId").isEmpty()) continue
-      nbCandidats++
-      repli = session
-      if (sansSlashFinal(session.optString("baseUrl")) == hote) return session
+      if (origineDe(session.optString("baseUrl")) == attendue) return session
     }
-    // Un seul serveur : l'utiliser même si le host ne matche pas au caractère près.
-    if (nbCandidats == 1) repli else null
+    journal(ctx, "push: aucune session pour " + attendue)
+    null
   } catch (e: Exception) {
     Log.w(TAG, "lireSession: échec", e)
     null
@@ -639,21 +660,26 @@ private fun dechiffrerSecureStore(enveloppe: String): String? {
 }
 
 /**
- * GET <host>/api/v1/push.get?id=<messageId>, authentifié par la session lue.
+ * GET <baseUrl>/api/v1/push.get?id=<messageId>, authentifié par la session lue.
  * Renvoie l'objet \`data.notification\` (title/text/payload) ou null. Timeout
  * serré : on est sur le thread de dispatch FCM, budget limité — le rattrapage
  * WorkManager prend le relais si ça ne suffit pas.
+ *
+ * L'URL est bâtie sur le \`baseUrl\` de la SESSION, jamais sur le \`host\` du
+ * payload : c'est nous qui choisissons où part le jeton. \`lireSession\` a déjà
+ * vérifié que les deux ont la même origine, mais le baseUrl porte en plus le
+ * sous-chemin d'une instance montée ailleurs qu'à la racine.
  */
 private fun recupererContenu(
   ctx: Context,
-  host: String,
   messageId: String,
   session: JSONObject,
 ): JSONObject? {
   var conn: HttpURLConnection? = null
   return try {
     val url = URL(
-      sansSlashFinal(host) + "/api/v1/push.get?id=" + URLEncoder.encode(messageId, "UTF-8"),
+      sansSlashFinal(session.optString("baseUrl")) +
+        "/api/v1/push.get?id=" + URLEncoder.encode(messageId, "UTF-8"),
     )
     conn = (url.openConnection() as HttpURLConnection).apply {
       requestMethod = "GET"

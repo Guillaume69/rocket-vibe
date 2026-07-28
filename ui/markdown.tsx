@@ -19,22 +19,21 @@
 
 import type { BigEmoji, Blocks, Inlines, Paragraph } from '@rocket.chat/message-parser';
 import { Component, type ReactElement, type ReactNode } from 'react';
-import { Image, Linking, Platform, StyleSheet, Text, View } from 'react-native';
+import { Image, Platform, StyleSheet, Text, View } from 'react-native';
 
 import { urlEmojiCustom } from '../lib/emojisCustom.ts';
 import { texteDe, unicodeDEmoji, type Root } from '../lib/markdown.ts';
 import { ouvrirFicheProfil } from '../lib/profilPreload.ts';
+import { ouvrirLienExterne } from './lienExterne.ts';
 import { TexteTappable } from './texteTappable.tsx';
 import type { Couleurs } from './theme.ts';
 
 const POLICE_MONO = Platform.select({ android: 'monospace', default: 'Menlo' });
 
-function ouvrirLien(brut: string): void {
-  // Uniquement le web : `javascript:`, `intent:`, `file:` restent lettre morte.
-  if (/^https?:\/\//i.test(brut)) {
-    Linking.openURL(brut).catch(() => {});
-  }
-}
+// La garde qui vivait ici (« uniquement le web : `javascript:`, `intent:`,
+// `file:` restent lettre morte ») est passée dans `ui/lienExterne.ts`, pour que
+// les cartes d'aperçu et d'embed en héritent au lieu de s'en passer.
+const ouvrirLien = ouvrirLienExterne;
 
 /**
  * Fiche de l'utilisateur mentionné. `ouvrirFicheProfil` (précharge + navigation)

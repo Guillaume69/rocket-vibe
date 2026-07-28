@@ -70,6 +70,7 @@ const fr = {
   'ligneMessage.rejoindre': 'Rejoindre',
   'ligneMessage.imageAgrandir': 'Image, toucher pour agrandir',
   'ligneMessage.fichier': 'Fichier',
+  'ligneMessage.fichierOuvertureEchouee': "Impossible d'ouvrir ce fichier.",
 
   // ── Connexion (serveur → identifiants → second facteur)
   'connexion.titre': 'Connexion',
@@ -431,6 +432,7 @@ const en: Record<CleTraduction, string> = {
   'ligneMessage.rejoindre': 'Join',
   'ligneMessage.imageAgrandir': 'Image, tap to enlarge',
   'ligneMessage.fichier': 'File',
+  'ligneMessage.fichierOuvertureEchouee': 'Cannot open this file.',
 
   'connexion.titre': 'Sign in',
   'connexion.slogan': 'Your magical little chat corner ✨',

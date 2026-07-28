@@ -13,6 +13,7 @@
  * dans les tests. Ce module reste pur.
  */
 
+import { memeOrigine } from './origine.ts';
 import type { ClientRest } from './rest.ts';
 
 export type FichierAEnvoyer = {
@@ -132,10 +133,20 @@ export async function definirAvatar(options: {
 /**
  * Lecture protégée (7.4) : `FileUpload_ProtectFiles = true` sur le serveur
  * cible — `/file-upload/:id/:nom` exige `rc_uid`/`rc_token` en query.
+ *
+ * **Le jeton n'est posé que sur une URL de NOTRE serveur.** `chemin` vient d'un
+ * champ de message (`title_link`, `image_url`, `audio_url`, `video_url`), donc
+ * en dernier ressort d'autrui : `chat.sendMessage` accepte un tableau
+ * `attachments` arbitraire. Un `title_link` absolu vers un hôte tiers repartait
+ * d'ici avec `rc_uid` et `rc_token` collés dessus — et il suffisait alors que
+ * l'URL soit rendue par une `<Image>` pour que Fresco les livre à cet hôte,
+ * sans un geste de l'utilisateur. Hors origine, on rend l'URL nue : le fichier
+ * ne s'affichera pas s'il était protégé, ce qui est le bon échec.
  */
 export function urlFichierProtege(client: ClientRest, chemin: string): string {
   const absolu = chemin.startsWith('http') ? chemin : `${client.baseUrl}${chemin}`;
   if (client.identifiants === null) return absolu;
+  if (!memeOrigine(absolu, client.baseUrl)) return absolu;
   const separateur = absolu.includes('?') ? '&' : '?';
   return `${absolu}${separateur}rc_uid=${encodeURIComponent(client.identifiants.userId)}&rc_token=${encodeURIComponent(client.identifiants.authToken)}`;
 }

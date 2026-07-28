@@ -27,7 +27,7 @@ chantiers sont notées ; hors d'elles, on peut piocher.
 |---|---|---|---|---|---|
 | 1 | Le lot d'une ligne — corrections locales, vérifiées, à régression quasi nulle | 🟠 | faible | heures | ✅ 9/9 |
 | 2 | Une file d'écritures par CONNEXION SQLite (et les brouillons dedans) | 🟡 | faible | heures | ✅ 3/3 |
-| 3 | Zéro secret hors du processus | 🔴 | moyen | jour | ☐ 0/4 |
+| 3 | Zéro secret hors du processus | 🔴 | moyen | jour | ✅ 4/4 |
 | 4 | Ce qui entre en base doit être juste : normalisation, aperçus, clés E2EE | 🟡 | faible | jour | ☐ 0/6 |
 | 5 | Rattrapage de salon : un seul par salon, des caches qui ne mentent pas | 🟡 | moyen | jour | ☐ 0/5 |
 | 6 | Cycle de vie de la donnée locale : purge, curseurs, rétention | 🟡 | moyen | jour | ☐ 0/4 |
@@ -83,11 +83,14 @@ chantiers sont notées ; hors d'elles, on peut piocher.
 
 **Ordre.** Indépendant de tout le reste.
 
-- [ ] 🔴 Le jeton d'authentification est remis au navigateur système quand on ouvre une pièce jointe « fichier » — `ui/ligneMessage.tsx:561`
-- [ ] 🟡 Une carte d'aperçu de lien ouvre l'URL du serveur sans garde de schéma, alors que le markdown en pose une — `ui/carteLien.tsx:159` *(non passé au réfuteur)*
-- [ ] 🟡 La WebView d'appel accorde caméra et micro à n'importe quelle origine https — `app/appel/[callId].tsx:188` *(non passé au réfuteur)*
-- [ ] 🟡 Le jeton part vers l'hôte indiqué par le payload push quand une seule session est connue, sans vérification d'hôte — `plugins/with-fcm-deeplink.js:601` *(non passé au réfuteur)*
-- [ ] **Sortie du chantier** : `tsc` propre, suite verte, et lancement réel sur le Pixel
+- [x] 🔴 Le jeton d'authentification est remis au navigateur système quand on ouvre une pièce jointe « fichier » — `ui/ligneMessage.tsx:561` → téléchargement dans le cache puis partage du fichier LOCAL (`lib/fichierJoint.ts` pur + `ui/fichierJoint.ts` natif, `expo-sharing`). **Écart assumé** : le nom n'est pas réduit à `[A-Za-z0-9._-]` comme le prescrivait l'audit — `résumé-2026.pdf` serait devenu `r_sum_-2026.pdf` sous les yeux de l'utilisateur. La garantie nécessaire est plus étroite (le nom ne peut pas s'échapper du dossier) et l'est par le dernier segment + les points de tête et de queue.
+- [x] 🟡 Une carte d'aperçu de lien ouvre l'URL du serveur sans garde de schéma, alors que le markdown en pose une — `ui/carteLien.tsx:159` *(non passé au réfuteur)* → garde extraite dans `lib/lienExterne.ts`, `ui/lienExterne.ts` devient le SEUL appelant de `Linking.openURL`, et `lib/apercuLien.ts` filtre à la source
+- [x] 🟡 La WebView d'appel accorde caméra et micro à n'importe quelle origine https — `app/appel/[callId].tsx:188` *(non passé au réfuteur)* → navigation cantonnée à l'origine de la conférence + `about:blank`, `originWhitelist` idem
+- [x] 🟡 Le jeton part vers l'hôte indiqué par le payload push quand une seule session est connue, sans vérification d'hôte — `plugins/with-fcm-deeplink.js:601` *(non passé au réfuteur)* → comparaison d'origine, repli mono-serveur supprimé, et l'URL de `push.get` bâtie sur le `baseUrl` de la session
+- [x] **En plus, trouvé en corrigeant** : `urlFichierProtege` collait `rc_uid`/`rc_token` sur N'IMPORTE QUELLE URL absolue. `chat.sendMessage` accepte un tableau `attachments` arbitraire : un `title_link` vers un hôte tiers repartait avec le jeton, et une `<Image>` suffisait à le faire livrer par Fresco sans un geste de l'utilisateur — le constat critique en pire, puisque sans interaction. Le jeton n'est plus posé que sur notre origine (`lib/origine.ts`).
+- [ ] **Sortie du chantier** : `tsc` propre ✅, suite verte ✅ (517), `assembleRelease` ✅ (le Kotlin du plugin compile), APK installé sur le Pixel ✅ et l'app démarre sans crash ✅ (expo-sharing lié). **Reste les quatre vérifications à la main** : ouvrir une pièce jointe fichier (feuille de partage, pas Chrome), taper un lien ordinaire (toujours ouvert), rejoindre un appel vidéo (la conférence charge, caméra et micro marchent), et recevoir un push (contenu réel, pas « Nouveau message » — lisible dans `rvpush-journal.log`).
+
+> **Note sur `lib/origine.ts`** : l'origine n'est PAS lue avec `new URL(u).origin`. Le `URL` de React Native est un polyfill à base de regex (`react-native/Libraries/Blob/URL.js`) qui ne lève jamais sur une entrée invalide et rend `''` — le banc Node aurait donc validé un comportement que l'appareil n'a pas. Même famille de piège que le `databaseName` du chantier 2.
 
 ## 4. Ce qui entre en base doit être juste : normalisation, aperçus, clés E2EE
 

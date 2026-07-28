@@ -64,8 +64,10 @@ import {
 import { traduireCourant } from './i18n.ts';
 import { useSession } from './session.tsx';
 import { brancherSondeUpload } from './sondeUpload.ts';
+import { oublierFilsCharges } from './filsCharges.ts';
 import { libererSalonsChauds } from './salonChaud.ts';
 import { oublierSalonsCharges } from './salonsCharges.ts';
+import { creerPileSalonsOuverts } from './salonsOuverts.ts';
 import { transportExpo } from './transportUpload.ts';
 
 export type EtatSynchro =
@@ -85,11 +87,17 @@ export type EtatSynchro =
       /** Ce que le serveur courant sait faire — les écrans masquent le reste. */
       capacites: Capacites;
       /**
-       * L'écran salon se déclare à l'ouverture (null à la fermeture) : le
-       * rattrapage `chat.syncMessages` — un salon à la fois, rate-limité —
-       * ne vise QUE lui.
+       * L'écran salon se déclare à l'ouverture et rend sa déclaration à la
+       * fermeture : le rattrapage `chat.syncMessages` — un salon à la fois,
+       * rate-limité — ne vise QUE le salon du dessus.
+       *
+       * Une PILE, pas une variable : la navigation peut empiler deux écrans
+       * salon (`ui/notifications.tsx` fait un `push` depuis n'importe où,
+       * `app/profil.tsx` un `replace`). Avec une variable unique, le retour
+       * arrière posait `null` alors qu'un salon restait affiché, et plus aucun
+       * raccordement ne rattrapait quoi que ce soit.
        */
-      signalerSalonActif: (rid: string | null) => void;
+      declarerSalonOuvert: (rid: string) => () => void;
       /** Présence volatile (8.4) — à lire via le hook `usePresence`. */
       presence: MoteurPresence;
       /**
@@ -188,12 +196,12 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         await moteur.ingererMessages([doc]);
       });
       const depotEmojis = creerDepotEmojis(brute, fileEcritures);
-      let salonActif: string | null = null;
+      // Les écrans salon montés : le sommet est celui que l'utilisateur
+      // regarde, le seul que le rattrapage vise. Voir `ui/salonsOuverts.ts`.
+      const salonsOuverts = creerPileSalonsOuverts();
       let jetonPushEnregistre = false;
       let emojisSynchronises = false;
       let salonsReconcilies = false;
-      /** Un seul rattrapage de salon en vol — voir `rattraperTout`. */
-      let rattrapageSalonEnVol = false;
       const presence = new MoteurPresence();
       const activite = new MoteurActivite();
       // Emojis custom : l'index mémoire depuis SQLite AVANT « pret », pour que
@@ -245,9 +253,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         ddp,
         actions: fournisseur.actions,
         capacites: fournisseur.capacites,
-        signalerSalonActif: (rid) => {
-          salonActif = rid;
-        },
+        declarerSalonOuvert: salonsOuverts.declarer,
         presence,
         activite,
         e2e,
@@ -292,31 +298,26 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       // garde sa main).
       const rattraperTout = async (): Promise<void> => {
         await activite.suivre('global', fournisseur.rattraperGlobal(moteur, estAbandonne));
-        if (salonActif === null) return;
+        const salonActif = salonsOuverts.sommet();
+        if (salonActif === undefined) return;
         // Le rattrapage d'UN salon part en TIR-ET-OUBLIE : ni attendu, ni fatal.
         // Chaque page est bornée à 50 documents (`lib/rattrapage.ts`), donc plus
         // rien ne peut y timeouter sur un gros backlog ; mais l'attendre
         // bloquerait quand même `connecter` pour un travail que le stream DDP et
         // l'historique d'ouverture couvrent déjà.
         //
-        // La garde interdit d'EMPILER : `raccorder` appelle `rattraper()` DEUX
-        // fois par raccordement (lib/raccordement.ts — une fois tout de suite,
-        // une fois après l'armement des souscriptions), et le pilote relance à
-        // chaque perte, à chaque retour au premier plan et après chaque sonde
-        // d'upload. Sans elle, un réseau qui bat de l'aile lancerait plusieurs
-        // paginations concurrentes sur le même curseur : requêtes redondantes,
-        // et le rate-limiter REST (10/min par route) répondrait 429 — soit 30 s
-        // de barre de synchro allumée pour rien. Un booléen, pas un délai : la
-        // demande concurrente se fond dans la pagination qui court déjà, et le
-        // curseur garantit que le prochain passage reprendra où on s'arrête.
-        if (rattrapageSalonEnVol) return;
-        rattrapageSalonEnVol = true;
+        // Aucune garde d'empilement ICI, et c'est délibéré : elle vivait à cet
+        // endroit et AVALAIT la seconde lecture du raccordement — précisément
+        // celle qui, partant une fois les souscriptions armées, garantit que
+        // rien n'est tombé entre les deux transports (lib/raccordement.ts). Le
+        // cas nominal étant que la première lecture court encore, la garantie
+        // n'était jamais rendue. La sérialisation est descendue dans
+        // `lib/rattrapage.ts`, au seul point où TOUS les chemins se rejoignent
+        // (celui-ci et l'effet d'ouverture de l'écran) : une pagination à la
+        // fois par salon, et aucune demande perdue.
         void activite
           .suivre(salonActif, fournisseur.rattraperSalon(moteur, salonActif, estAbandonne))
-          .catch((e: unknown) => console.warn('rattraperSalon: échec ignoré', e))
-          .finally(() => {
-            rattrapageSalonEnVol = false;
-          });
+          .catch((e: unknown) => console.warn('rattraperSalon: échec ignoré', e));
       };
 
       // Ce qui suit le rattrapage sans dépendre du stream. Joué une fois par
@@ -438,10 +439,14 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       reconnecteur?.arreter();
       surAbandon?.();
       brancherSondeUpload(null); // plus de sonde vers un client rangé
-      // Le cache « ce salon a déjà son historique » est indexé par génération,
-      // dont le compteur repart de zéro à la session suivante : sans purge, un
-      // salon d'un AUTRE serveur pourrait passer pour déjà chargé.
+      // Les caches « ceci a déjà son chargement d'ouverture » sont indexés par
+      // génération, dont le compteur repart de zéro à la session suivante :
+      // sans purge, un salon d'un AUTRE serveur pourrait passer pour déjà
+      // chargé. Chacune de ces purges invalide aussi le jeton de session, ce
+      // qui interdit aux écrans encore montés de les repeupler en se démontant
+      // — leur cleanup court APRÈS celui-ci (voir `ui/jetonSession.ts`).
       oublierSalonsCharges();
+      oublierFilsCharges();
       // Et les salons qu'on gardait à l'écoute après en être sorti : leurs
       // souscriptions ne valent plus rien sur une socket qu'on ferme.
       libererSalonsChauds();

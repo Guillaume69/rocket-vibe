@@ -458,6 +458,239 @@ describe('rattraperSalon', () => {
   });
 });
 
+/**
+ * Client dont chaque réponse est RETENUE jusqu'à ce que le test l'ouvre. C'est
+ * le seul moyen d'observer la concurrence : avec des réponses immédiates, tout
+ * s'exécute déjà en file et on ne prouverait rien.
+ */
+function clientRetenu(reponses: (Record<string, unknown> | number)[]) {
+  const urls: string[] = [];
+  const portes: (() => void)[] = [];
+  let i = 0;
+  const client = new ClientRest('http://x', {
+    fetch: async (url) => {
+      urls.push(String(url));
+      const r = reponses[Math.min(i, reponses.length - 1)];
+      i++;
+      await new Promise<void>((ouvrir) => portes.push(ouvrir));
+      if (r === 0) throw new Error('réseau coupé'); // 0 = échec de transport
+      const statut = typeof r === 'number' ? r : 200;
+      const corps = typeof r === 'number' ? { success: false, error: 'params' } : r;
+      return new Response(JSON.stringify(corps), {
+        status: statut,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    },
+    dormir: async () => {},
+  });
+  /** Laisse les promesses déjà prêtes se dérouler — jamais un délai. */
+  const tour = () => new Promise<void>((r) => setImmediate(r));
+  return {
+    client,
+    urls,
+    tour,
+    /** Ouvre les portes au fur et à mesure, jusqu'à ce qu'il n'en reste plus. */
+    ouvrirTout: async () => {
+      for (let garde = 0; garde < 50; garde++) {
+        const porte = portes.shift();
+        if (porte === undefined) {
+          await tour();
+          if (portes.length === 0) return;
+          continue;
+        }
+        porte();
+        await tour();
+      }
+    },
+  };
+}
+
+describe('rattraperSalon — une pagination à la fois par salon', () => {
+  /** Un dépôt déjà amorcé : curseurs posés sur les deux flux. */
+  function banc() {
+    const d = fauxDepotComplet();
+    d.curseurs.set('r1|messages', 1000);
+    d.curseurs.set('r1|messages-supprimes', 9_000_000);
+    return { d, moteur: new MoteurSynchro(d.depot, new TraducteurRC()) };
+  }
+
+  test('trois demandes concurrentes ne lancent PAS trois paginations', async () => {
+    // Le défaut vécu : à chaque raccordement, `ui/synchro.tsx` et l'effet
+    // d'ouverture de l'écran (réveillé par le bump de `generation` que ce même
+    // raccordement vient de poser) partaient tous deux sur le MÊME curseur,
+    // pour redemander la même tranche.
+    const { d, moteur } = banc();
+    const h = clientRetenu([page([], null)]);
+
+    const demandes = [
+      rattraperSalon(h.client, moteur, 'r1'),
+      rattraperSalon(h.client, moteur, 'r1'),
+      rattraperSalon(h.client, moteur, 'r1'),
+    ];
+    await h.tour();
+
+    assert.equal(h.urls.length, 1, 'une seule requête en vol, pas trois');
+
+    await h.ouvrirTout();
+    await Promise.all(demandes);
+    assert.equal(d.curseurs.get('r1|messages'), 1000);
+  });
+
+  test('mais aucune demande n’est AVALÉE : la seconde obtient sa lecture', async () => {
+    // C'est la contrainte inverse, et elle prime. `lib/raccordement.ts` lit
+    // DEUX fois par raccordement, et la seconde — celle qui part une fois les
+    // souscriptions armées — est la seule à garantir que rien n'est tombé
+    // entre les deux transports. La refuser laissait un trou définitif : le
+    // curseur avait avancé, plus rien ne redemandait cette fenêtre.
+    const { d, moteur } = banc();
+    const h = clientRetenu([page([], null)]);
+
+    const p1 = rattraperSalon(h.client, moteur, 'r1');
+    await h.tour(); // la première pagination est partie
+    const p2 = rattraperSalon(h.client, moteur, 'r1');
+
+    await h.ouvrirTout();
+    await Promise.all([p1, p2]);
+
+    const majs = h.urls.filter((u) => u.includes('type=UPDATED'));
+    assert.equal(majs.length, 2, 'la demande arrivée en cours de route a bien lu');
+    assert.equal(d.curseurs.get('r1|messages'), 1000);
+  });
+
+  test('la passe chaînée repart du curseur AVANCÉ — pas une seconde fois la même tranche', async () => {
+    // C'est ce qui rend la garantie peu coûteuse : la seconde lecture ne
+    // repagine pas, elle vérifie. ~92 octets mesurés quand rien n'a bougé.
+    const { d, moteur } = banc();
+    const h = clientRetenu([page([msg('m1', 1500)], null)]);
+
+    const p1 = rattraperSalon(h.client, moteur, 'r1');
+    await h.tour();
+    const p2 = rattraperSalon(h.client, moteur, 'r1');
+
+    await h.ouvrirTout();
+    await Promise.all([p1, p2]);
+
+    const majs = h.urls.filter((u) => u.includes('type=UPDATED'));
+    assert.ok(majs[0]?.includes('next=1000'), `1re passe, vu ${majs[0]}`);
+    assert.ok(majs[1]?.includes('next=1500'), `2e passe sur le curseur neuf, vu ${majs[1]}`);
+    assert.deepEqual(d.messages, ['m1', 'm1'], 'idempotent : la 2e ré-ingère sans dupliquer');
+  });
+
+  test('les passes ne s’ENTRELACENT pas : la seconde attend la fin de la première', async () => {
+    const { moteur } = banc();
+    const h = clientRetenu([page([], null)]);
+
+    const p1 = rattraperSalon(h.client, moteur, 'r1');
+    await h.tour();
+    const p2 = rattraperSalon(h.client, moteur, 'r1');
+    await h.tour();
+
+    assert.equal(h.urls.length, 1, 'la 2e passe n’a rien envoyé tant que la 1re court');
+
+    await h.ouvrirTout();
+    await Promise.all([p1, p2]);
+  });
+
+  test('une passe REJOINTE n’abandonne que si TOUS ses demandeurs ont lâché', async () => {
+    // Le rejoignant hérite de la passe, pas de l'abandon du premier arrivé :
+    // un effet rejoué (changement de `generation`) pose `annule = true` sur
+    // l'ancien passage juste avant de relancer le nouveau. S'exclure sur le
+    // seul premier prédicat rendrait une promesse tenue sans avoir rien lu.
+    const { d, moteur } = banc();
+    const h = clientRetenu([page([msg('m1', 1500)], null)]);
+
+    const p1 = rattraperSalon(h.client, moteur, 'r1');
+    await h.tour();
+    let demonte = false;
+    const p2 = rattraperSalon(h.client, moteur, 'r1', () => demonte);
+    const p3 = rattraperSalon(h.client, moteur, 'r1'); // rejoint la passe de p2
+    demonte = true; // l'écran de p2 s'en va, celui de p3 reste
+
+    await h.ouvrirTout();
+    await Promise.all([p1, p2, p3]);
+
+    assert.equal(
+      h.urls.filter((u) => u.includes('type=UPDATED')).length,
+      2,
+      'la passe rejointe a bien lu',
+    );
+    assert.deepEqual(d.messages, ['m1', 'm1']);
+  });
+
+  test('… et elle abandonne bien quand ils ont TOUS lâché', async () => {
+    // Preuve par retrait du test précédent : sans ce cas, `every` pourrait
+    // n'être qu'un `some` déguisé et personne ne le verrait.
+    const { d, moteur } = banc();
+    const h = clientRetenu([page([msg('m1', 1500)], null)]);
+
+    const p1 = rattraperSalon(h.client, moteur, 'r1');
+    await h.tour();
+    const p2 = rattraperSalon(h.client, moteur, 'r1', () => true);
+    const p3 = rattraperSalon(h.client, moteur, 'r1', () => true);
+
+    await h.ouvrirTout();
+    await Promise.all([p1, p2, p3]);
+
+    assert.deepEqual(d.messages, ['m1'], 'seule la 1re passe a écrit');
+  });
+
+  test('l’échec d’une passe n’annule pas la demande de la suivante', async () => {
+    const { d, moteur } = banc();
+    const h = clientRetenu([0, page([msg('m1', 1500)], null)]);
+
+    const p1 = rattraperSalon(h.client, moteur, 'r1');
+    await h.tour();
+    const p2 = rattraperSalon(h.client, moteur, 'r1');
+
+    await h.ouvrirTout();
+    await assert.rejects(() => p1, 'l’échec reste l’échec de SON demandeur');
+    await p2;
+
+    assert.deepEqual(d.messages, ['m1'], 'la seconde a lu quand même');
+  });
+
+  test('une passe d’une session RANGÉE ne retient pas celle de la nouvelle', async () => {
+    // Au changement de compte ou de serveur, le client d'avant est rangé et son
+    // `estAbandonne` restera vrai à jamais. Se chaîner derrière lui ferait
+    // attendre la session neuve pour rien — jusqu'au timeout de 15 s.
+    const { moteur } = banc();
+    const ancienne = clientRetenu([page([], null)]);
+    const neuve = clientRetenu([page([], null)]);
+
+    const p1 = rattraperSalon(ancienne.client, moteur, 'r1', () => true);
+    await ancienne.tour();
+    const p2 = rattraperSalon(neuve.client, moteur, 'r1');
+    await neuve.tour();
+
+    assert.equal(neuve.urls.length, 1, 'la nouvelle session lit tout de suite');
+
+    await ancienne.ouvrirTout();
+    await neuve.ouvrirTout();
+    await Promise.all([p1, p2]);
+  });
+
+  test('une fois tout retombé, la demande suivante repart d’une passe neuve', async () => {
+    // Sinon l'entrée resterait dans la table à vie et chaque ouverture se
+    // chaînerait derrière une promesse morte.
+    const { moteur } = banc();
+    const h = clientRetenu([page([], null)]);
+
+    await (async () => {
+      const p = rattraperSalon(h.client, moteur, 'r1');
+      await h.ouvrirTout();
+      await p;
+    })();
+    const avant = h.urls.length;
+
+    const p2 = rattraperSalon(h.client, moteur, 'r1');
+    await h.tour();
+    assert.ok(h.urls.length > avant, 'elle est partie sans attendre personne');
+
+    await h.ouvrirTout();
+    await p2;
+  });
+});
+
 describe('reconcilierSalons', () => {
   test('purge les rids absents de la liste vivante des abonnements', async () => {
     const d = fauxDepotComplet();

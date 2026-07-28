@@ -380,13 +380,16 @@ async function rattraperParDate(
  * repartir de l'origine re-téléchargerait tout.
  *
  * `maintenant` ne sert qu'au repli temporel (serveur < 7.5).
+ *
+ * Passer par `rattraperSalon` — jamais d'appel direct : c'est le sérialiseur
+ * ci-dessous qui garantit qu'une seule pagination court à la fois par salon.
  */
-export async function rattraperSalon(
+async function rattraperSalonBrut(
   client: ClientRest,
   moteur: MoteurSynchro,
   rid: string,
-  estAbandonne: () => boolean = () => false,
-  maintenant: () => number = () => Date.now(),
+  estAbandonne: () => boolean,
+  maintenant: () => number,
 ): Promise<void> {
   const depuis = await moteur.depotSynchro.lireCurseur(rid, 'messages');
   if (depuis === null) return;
@@ -403,4 +406,103 @@ export async function rattraperSalon(
   }
   if (estAbandonne()) return;
   await rattraperSupprimes(client, moteur, rid, depuis, estAbandonne);
+}
+
+/**
+ * Une passe de rattrapage sur un salon : celle qui court, ou celle déjà
+ * programmée derrière elle.
+ */
+type Passe = {
+  /**
+   * La session propriétaire. Une passe d'un client rangé (déconnexion,
+   * changement de serveur) ne se rejoint pas : elle écrit avec un jeton mort.
+   */
+  client: ClientRest;
+  /**
+   * Les `estAbandonne` de TOUS les demandeurs de cette passe. Elle n'abandonne
+   * que si CHACUN a lâché — le premier arrivé peut disparaître (effet rejoué,
+   * écran démonté) pendant qu'un autre attend toujours cette lecture.
+   */
+  abandons: (() => boolean)[];
+  /** Faux tant que la passe attend celle qui la précède. */
+  demarree: boolean;
+  fin: Promise<void>;
+};
+
+/** Une entrée par salon : la passe la plus récemment PROGRAMMÉE. */
+const passes = new Map<string, Passe>();
+
+/**
+ * Rattrape UN salon, une pagination à la fois.
+ *
+ * Deux chemins mènent ici à chaque raccordement, et ils se marchaient dessus :
+ * `ui/synchro.tsx` (le salon déclaré actif) et `app/salon/[rid].tsx` (son effet
+ * d'ouverture, réveillé par le bump de `generation` que ce même raccordement
+ * vient de poser). Deux paginations partaient donc sur le MÊME curseur, pour
+ * redemander la même tranche — jusqu'à 8 `chat.syncMessages` là où 4 suffisent,
+ * sur une route plafonnée à 10 appels/min. Rien ne se corrompait (le curseur ne
+ * régresse pas, les upserts sont idempotents) : tout était fait en double.
+ *
+ * La règle appliquée ici tient en deux phrases, et elle arbitre deux exigences
+ * contraires :
+ *
+ * 1. **Jamais deux paginations concurrentes** sur un même salon. Une demande
+ *    arrivée avant que la passe en cours n'ait lu son curseur se FOND dedans :
+ *    cette passe couvrira tout ce qu'elle voulait voir.
+ * 2. **Jamais une demande avalée.** Une demande arrivée APRÈS le départ de la
+ *    passe obtient la sienne, chaînée derrière. C'est ce qui rend sa promesse à
+ *    `lib/raccordement.ts` : la seconde lecture d'un raccordement, celle qui
+ *    part une fois les souscriptions ARMÉES, est justement celle qui garantit
+ *    qu'aucun document n'est tombé entre les deux transports. La refuser sous
+ *    prétexte qu'une pagination court déjà — le cas NOMINAL, puisque la
+ *    première lecture part sans attendre la socket — laissait un trou que plus
+ *    rien ne redemandait, le curseur ayant avancé.
+ *
+ * Une passe chaînée ne coûte pas une seconde pagination : elle part du curseur
+ * que la précédente vient d'avancer, donc d'une réponse quasi vide (~92 octets
+ * mesurés). C'est un booléen d'ordonnancement, jamais un délai : la justesse ne
+ * dépend ni de la latence ni de l'état du réseau.
+ */
+export function rattraperSalon(
+  client: ClientRest,
+  moteur: MoteurSynchro,
+  rid: string,
+  estAbandonne: () => boolean = () => false,
+  maintenant: () => number = () => Date.now(),
+): Promise<void> {
+  const programmee = passes.get(rid);
+  const memeSession = programmee !== undefined && programmee.client === client;
+  // (1) Elle n'a pas encore lu son curseur : ce demandeur-ci se fond dedans.
+  if (memeSession && !programmee.demarree) {
+    programmee.abandons.push(estAbandonne);
+    return programmee.fin;
+  }
+  // (2) Sinon une passe neuve — derrière celle qui court, jamais à côté.
+  const precedente = memeSession ? programmee.fin : null;
+  const passe: Passe = {
+    client,
+    abandons: [estAbandonne],
+    demarree: false,
+    fin: Promise.resolve(),
+  };
+  passe.fin = (async () => {
+    // L'échec de la précédente n'annule pas la demande de celle-ci : ses
+    // demandeurs attendent une lecture, pas le sort de la lecture d'autrui.
+    if (precedente !== null) await precedente.catch(() => {});
+    passe.demarree = true;
+    await rattraperSalonBrut(
+      client,
+      moteur,
+      rid,
+      () => passe.abandons.every((abandonne) => abandonne()),
+      maintenant,
+    );
+  })().finally(() => {
+    // Seulement si personne n'a pris la place derrière : sinon on effacerait
+    // l'entrée d'une passe encore à venir, qui deviendrait invisible aux
+    // demandes suivantes — et deux paginations repartiraient de front.
+    if (passes.get(rid) === passe) passes.delete(rid);
+  });
+  passes.set(rid, passe);
+  return passe.fin;
 }

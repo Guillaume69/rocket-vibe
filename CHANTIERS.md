@@ -29,7 +29,7 @@ chantiers sont notées ; hors d'elles, on peut piocher.
 | 2 | Une file d'écritures par CONNEXION SQLite (et les brouillons dedans) | 🟡 | faible | heures | ✅ 3/3 |
 | 3 | Zéro secret hors du processus | 🔴 | moyen | jour | ✅ 4/4 |
 | 4 | Ce qui entre en base doit être juste : normalisation, aperçus, clés E2EE | 🟡 | faible | jour | ✅ 6/6 |
-| 5 | Rattrapage de salon : un seul par salon, des caches qui ne mentent pas | 🟡 | moyen | jour | ☐ 0/5 |
+| 5 | Rattrapage de salon : un seul par salon, des caches qui ne mentent pas | 🟡 | moyen | jour | ✅ 5/5 |
 | 6 | Cycle de vie de la donnée locale : purge, curseurs, rétention | 🟡 | moyen | jour | ☐ 0/4 |
 | 7 | File de téléversements : ni doublon, ni disparition silencieuse | 🟠 | moyen | plusieurs-jours | ☐ 0/7 |
 | 8 | Transport DDP et REST : ne pas tuer une socket saine, ne pas dormir sans écouter | 🟡 | moyen | jour | ☐ 0/6 |
@@ -120,12 +120,20 @@ chantiers sont notées ; hors d'elles, on peut piocher.
 
 **Ordre.** Suppose acquis le correctif de `generation` du chantier 1.
 
-- [ ] 🟡 Deux rattrapages concurrents sur le même salon à chaque raccordement — `lib/rattrapage.ts:227`
-- [ ] 🟡 La lecture qui GARANTIT est avalée pour le salon actif par le garde anti-empilement — `ui/synchro.tsx:298` *(non passé au réfuteur)*
-- [ ] 🟡 `garderAuChaud` peut repeupler le LRU APRÈS `libererSalonsChauds`, et l'entrée fantôme fait mentir `salonCouvert` — `ui/synchro.tsx:420` *(non passé au réfuteur)*
-- [ ] 🟡 L'écran fil retélécharge le fil ENTIER à chaque raccordement, sans garde ni indicateur — `app/fil/[id].tsx:197` *(non passé au réfuteur)*
-- [ ] ⚪ `salonActif` suppose qu'un seul écran salon est monté — `app/salon/[rid].tsx:366` *(non passé au réfuteur)*
-- [ ] **Sortie du chantier** : `tsc` propre, suite verte, et lancement réel sur le Pixel
+- [x] 🟡 Deux rattrapages concurrents sur le même salon à chaque raccordement — `lib/rattrapage.ts:227` → sérialisation par salon DANS `lib/rattrapage.ts`, au seul point où tous les chemins se rejoignent. Aucune signature d'appelant touchée.
+- [x] 🟡 La lecture qui GARANTIT est avalée pour le salon actif par le garde anti-empilement — `ui/synchro.tsx:298` → la garde du provider est retirée ; une demande arrivée après le départ d'une passe obtient la sienne, chaînée derrière.
+- [x] 🟡 `garderAuChaud` peut repeupler le LRU APRÈS `libererSalonsChauds`, et l'entrée fantôme fait mentir `salonCouvert` — `ui/synchro.tsx:420` → jeton de session (`ui/jetonSession.ts`), capturé au montage, rendu au démontage ; s'il a changé, on relâche au lieu de mémoriser. Même traitement pour `marquerSalonCharge`.
+- [x] 🟡 L'écran fil retélécharge le fil ENTIER à chaque raccordement, sans garde ni indicateur — `app/fil/[id].tsx:197` → `ui/filsCharges.ts` (garde par génération, comme les salons) + `activite.suivre` + une `BarreSynchro` sous l'en-tête natif.
+- [x] ⚪ `salonActif` suppose qu'un seul écran salon est monté — `app/salon/[rid].tsx:366` → `ui/salonsOuverts.ts`, une pile par session ; `declarerSalonOuvert(rid)` rend de quoi se retirer, le sommet est la cible du rattrapage.
+- [x] **Sortie du chantier** : `tsc` propre, 584 tests / 114 suites verts (contre 557), eslint propre sur les 13 fichiers touchés, et lancement réel sur le Pixel
+
+> **Écart assumé n°1 — la garde du provider est SUPPRIMÉE, pas doublée.** L'audit proposait de laisser `rattrapageSalonEnVol` en place et de le retirer plus tard. Impossible : c'est LUI qui avale la lecture garantissante (constat 2), et il le fait avant même d'atteindre le sérialiseur. Les deux constats se corrigent donc d'un seul mécanisme, à un seul endroit.
+
+> **Écart assumé n°2 — un seul mécanisme au lieu de « coalescer » + « redemander ».** L'audit décrivait une coalescence (constat 1) puis un drapeau `redemande` par-dessus (constat 2). Les deux exigences sont contraires, et la règle qui les arbitre tient en une ligne : **on se fond dans une passe qui n'a pas encore lu son curseur, on en obtient une neuve sinon**. Une demande arrivée avant le départ est couverte par la passe qui part ; une demande arrivée après ne l'est pas, et mérite la sienne. Coût réel : la passe chaînée repart du curseur que la précédente vient d'avancer, donc d'une réponse quasi vide — un test le fixe (`next=1000` puis `next=1500`).
+
+> **Écart assumé n°3 — portée d'activité du fil = `filId`, pas `rid ?? filId`.** `rid` est inconnu quand le chargement part (fil ouvert par lien direct : la racine n'est pas encore en base) et apparaît EN COURS de fetch. La barre aurait écouté une portée que personne n'alimentait. `filId` est stable dès le premier rendu.
+
+> **Note de méthode.** Chaque correctif a été prouvé PAR RETRAIT : sérialisation démontée → 5 échecs ; `every` sur les abandons réduit au premier demandeur → 1 échec ciblé ; les trois gardes de jeton retirées et la pile réduite à `pop()` → 6 échecs. Aucun de ces tests n'est vide.
 
 ## 6. Cycle de vie de la donnée locale : purge, curseurs, rétention
 

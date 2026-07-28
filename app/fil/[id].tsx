@@ -16,13 +16,18 @@ import {
 import type { BaseLocale } from '../../db/client.ts';
 import type { DepotBrouillons } from '../../db/depot.ts';
 import { messages, salons, sortie } from '../../db/schema.ts';
+import type { MoteurActivite } from '../../lib/activite.ts';
 import { citer } from '../../lib/citation.ts';
 import type { CandidatMention } from '../../lib/completionMention.ts';
 import type { Listener, Outbox } from '../../lib/fournisseur.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
+import { useActivite } from '../../ui/activite.ts';
 import { BandeauReponse } from '../../ui/bandeauReponse.tsx';
 import { useBrouillon } from '../../ui/brouillons.ts';
+import { filChargeSous, marquerFilCharge } from '../../ui/filsCharges.ts';
+import { jetonSession } from '../../ui/jetonSession.ts';
+import { BarreSynchro } from '../../ui/kit.tsx';
 import { annulerReponse, useReponse } from '../../ui/reponse.ts';
 import { useRetourMateriel } from '../../ui/retourMateriel.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
@@ -78,6 +83,7 @@ export default function EcranFil() {
       envoi={synchro.envoi}
       ddp={synchro.ddp}
       client={etat.client}
+      activite={synchro.activite}
       generation={synchro.generation}
     />
   );
@@ -92,6 +98,7 @@ function Fil({
   envoi,
   ddp,
   client,
+  activite,
   generation,
 }: {
   c: Couleurs;
@@ -102,9 +109,11 @@ function Fil({
   envoi: Outbox;
   ddp: Listener;
   client: ClientRest;
+  activite: MoteurActivite;
   generation: number;
 }) {
   const t = useT();
+  const enSynchro = useActivite(filId);
   // La racine du fil — elle porte le titre et le `rid`.
   const { data: lignesRacine } = useRequeteVive(
     base.select().from(messages).where(eq(messages.id, filId)).limit(1),
@@ -165,30 +174,55 @@ function Fil({
   // `API_Allow_Infinite_Count`, un réglage serveur — désactivé, il retombe
   // silencieusement sur 50 et tronquerait le fil sans indice. On pagine par
   // pages pleines, bornées à 20 (2 000 réponses), à l'abri du réglage.
-  const [premierPassageFini, setPremierPassageFini] = useState(false);
+  // Un fil déjà chargé sous cette génération n'a pas de premier passage à
+  // attendre : sans cet état initial, sauter le fetch laisserait « chargement »
+  // affiché à vie (même piège que l'écran salon).
+  const [premierPassageFini, setPremierPassageFini] = useState(() =>
+    filChargeSous(filId, generation),
+  );
   useEffect(() => {
+    // Ce chargement ne se rejoue QUE si ce fil n'a pas déjà été chargé sous
+    // cette génération de connexion. `generation` étant dans les deps, chaque
+    // raccordement — donc chaque retour au premier plan, chaque flap réseau —
+    // relançait `chat.getMessage` PUIS toute la pagination du fil, pour
+    // ré-ingérer les mêmes documents. Voir `ui/filsCharges.ts`.
+    if (filChargeSous(filId, generation)) return;
     let annule = false;
-    (async () => {
-      // La racine d'abord : `chat.getThreadMessages` ne la renvoie JAMAIS
-      // (elle n'a pas de tmid). Ouverte par lien direct à froid, elle
-      // n'existerait nulle part sans cet appel.
-      await client
-        .get<{ message?: Record<string, unknown> }>('chat.getMessage', {
-          params: { msgId: filId },
-        })
-        .then((r) => (r.message === undefined ? null : moteur.ingererMessages([r.message])))
-        .catch(() => {});
-      const PAGE_FIL = 100;
-      for (let page = 0; page < 20 && !annule; page++) {
-        const reponse = await client.get<{ messages?: Record<string, unknown>[] }>(
-          'chat.getThreadMessages',
-          { params: { tmid: filId, count: PAGE_FIL, offset: page * PAGE_FIL } },
-        );
-        const lot = reponse.messages ?? [];
-        await moteur.ingererMessages(lot);
-        if (lot.length < PAGE_FIL) break;
-      }
-    })()
+    const jeton = jetonSession();
+    // Portée d'activité = le fil lui-même, pas son salon : `rid` n'est pas
+    // encore connu quand ce chargement part (fil ouvert par lien direct, la
+    // racine n'est pas en base) et il apparaîtrait EN COURS de fetch — la barre
+    // écouterait alors une portée que personne n'a alimentée.
+    void activite
+      .suivre(
+        filId,
+        (async () => {
+          // La racine d'abord : `chat.getThreadMessages` ne la renvoie JAMAIS
+          // (elle n'a pas de tmid). Ouverte par lien direct à froid, elle
+          // n'existerait nulle part sans cet appel.
+          await client
+            .get<{ message?: Record<string, unknown> }>('chat.getMessage', {
+              params: { msgId: filId },
+            })
+            .then((r) => (r.message === undefined ? null : moteur.ingererMessages([r.message])))
+            .catch(() => {});
+          const PAGE_FIL = 100;
+          for (let page = 0; page < 20 && !annule; page++) {
+            const reponse = await client.get<{ messages?: Record<string, unknown>[] }>(
+              'chat.getThreadMessages',
+              { params: { tmid: filId, count: PAGE_FIL, offset: page * PAGE_FIL } },
+            );
+            const lot = reponse.messages ?? [];
+            await moteur.ingererMessages(lot);
+            if (lot.length < PAGE_FIL) break;
+          }
+        })(),
+      )
+      .then(() => {
+        // Marqué au SUCCÈS seulement : un fil ouvert hors ligne doit repartir
+        // au raccordement suivant, pas rester vide.
+        if (!annule) marquerFilCharge(filId, generation, jeton);
+      })
       .catch(() => {
         // Hors ligne : le cache local suffit.
       })
@@ -198,7 +232,7 @@ function Fil({
     return () => {
       annule = true;
     };
-  }, [client, moteur, filId, generation]);
+  }, [client, moteur, filId, generation, activite]);
 
   // Les réponses arrivent par le stream du SALON : on s'y abonne aussi d'ici,
   // pour que le fil vive même ouvert par un lien direct (souscription
@@ -275,6 +309,10 @@ function Fil({
   return (
     <VueEvitantLeClavier>
       <Stack.Screen options={{ title: t('fil.titre') }} />
+      {/* L'en-tête est natif ici (pas d'`EnTeteSalon`) : la barre se pose donc
+          juste sous lui. Sans elle, le fil se réécrivait intégralement sans
+          qu'aucun signal ne l'indique. */}
+      <BarreSynchro c={c} actif={enSynchro} />
       {donnees.length === 0 ? (
         <View style={styles.centre}>
           {premierPassageFini ? (

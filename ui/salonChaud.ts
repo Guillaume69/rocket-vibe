@@ -28,6 +28,8 @@
  * que le trou peut alors être de n'importe quelle taille.
  */
 
+import { invaliderJetonSession, jetonSession } from './jetonSession.ts';
+
 type Relacher = () => void;
 
 const MAX = 3;
@@ -51,8 +53,25 @@ export function salonCouvert(rid: string, generation: number): boolean {
  * Relâche toujours le jeu précédent du même salon : à la deuxième sortie, l'écran
  * a repris ses propres références au montage, et sans cela chaque aller-retour
  * en accumulerait une de plus.
+ *
+ * `jeton` est celui capturé au MONTAGE, quand ces souscriptions ont été prises
+ * (voir [[jetonSession]]). S'il ne correspond plus, la session à laquelle elles
+ * appartenaient est finie — leur client DDP est déjà `reinitialiser()`. On
+ * relâche alors sur-le-champ : mémoriser laisserait une entrée FANTÔME que
+ * `libererSalonsChauds` ne repassera jamais nettoyer, et qui ferait répondre
+ * « rien à rattraper » à la session suivante, pour un salon que sa socket n'a
+ * jamais écouté.
  */
-export function garderAuChaud(rid: string, generation: number, relachers: Relacher[]): void {
+export function garderAuChaud(
+  rid: string,
+  generation: number,
+  relachers: Relacher[],
+  jeton: number,
+): void {
+  if (jeton !== jetonSession()) {
+    for (const relacher of relachers) relacher();
+    return;
+  }
   const ancien = chauds.get(rid);
   if (ancien !== undefined) for (const relacher of ancien.relachers) relacher();
   // Réinsertion en fin de Map : ce salon devient le plus récemment quitté.
@@ -74,4 +93,7 @@ export function libererSalonsChauds(): void {
     for (const relacher of entree.relachers) relacher();
   }
   chauds.clear();
+  // Et plus rien de cette session n'a le droit de repeupler la table : les
+  // écrans encore montés vont appeler `garderAuChaud` en se démontant.
+  invaliderJetonSession();
 }

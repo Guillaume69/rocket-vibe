@@ -26,10 +26,21 @@
  * de navigation quand cette table change.
  */
 
+import { invaliderJetonSession, jetonSession } from './jetonSession.ts';
+
 const charges = new Map<string, number>();
 
-/** Après un historique d'ouverture ABOUTI — jamais sur un échec réseau. */
-export function marquerSalonCharge(rid: string, generation: number): void {
+/**
+ * Après un historique d'ouverture ABOUTI — jamais sur un échec réseau.
+ *
+ * `jeton` est celui capturé au LANCEMENT du chargement : une réponse qui
+ * atterrit après la fin de session ne doit pas repeupler un cache qu'on vient
+ * de vider (voir [[jetonSession]]). Sans lui, la marque survivait à la session,
+ * et la suivante sautait l'historique d'ouverture du salon dès que son compteur
+ * de génération — reparti de 0 — atteignait la valeur mémorisée.
+ */
+export function marquerSalonCharge(rid: string, generation: number, jeton: number): void {
+  if (jeton !== jetonSession()) return;
   charges.set(rid, generation);
 }
 
@@ -40,4 +51,5 @@ export function salonChargeSous(rid: string, generation: number): boolean {
 /** Fin de session / changement de serveur : plus rien de ce cache ne vaut. */
 export function oublierSalonsCharges(): void {
   charges.clear();
+  invaliderJetonSession();
 }

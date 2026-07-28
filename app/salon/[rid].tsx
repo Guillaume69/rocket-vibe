@@ -58,6 +58,7 @@ import { BandeauCompletionEmoji, useCompletionEmoji } from '../../ui/completionE
 import { BandeauCompletionMention, useCandidatsMention } from '../../ui/completionMention.tsx';
 import { NavigateurEmoji, usePanneauEmoji } from '../../ui/navigateurEmoji.tsx';
 import { useRetourMateriel } from '../../ui/retourMateriel.ts';
+import { jetonSession } from '../../ui/jetonSession.ts';
 import { garderAuChaud, salonCouvert } from '../../ui/salonChaud.ts';
 import { marquerSalonCharge, salonChargeSous } from '../../ui/salonsCharges.ts';
 import { AvatarSalon, BarreSynchro, IndicateurSaisie, TuileAvatar } from '../../ui/kit.tsx';
@@ -153,7 +154,7 @@ export default function EcranSalon() {
       actions={synchro.actions}
       client={etat.client}
       moi={etat.session.username}
-      signalerSalonActif={synchro.signalerSalonActif}
+      declarerSalonOuvert={synchro.declarerSalonOuvert}
       activite={synchro.activite}
       generation={synchro.generation}
     />
@@ -172,7 +173,7 @@ function Salon({
   actions,
   client,
   moi,
-  signalerSalonActif,
+  declarerSalonOuvert,
   activite,
   generation,
 }: {
@@ -188,7 +189,7 @@ function Salon({
   client: ClientRest;
   /** Mon username — ma propre saisie ne s'affiche pas chez moi. */
   moi: string;
-  signalerSalonActif: (rid: string | null) => void;
+  declarerSalonOuvert: (rid: string) => () => void;
   activite: MoteurActivite;
   generation: number;
 }) {
@@ -358,19 +359,26 @@ function Salon({
   // `ui/salonChaud.ts` : les références sont comptées, garder la nôtre n'envoie
   // aucune `sub` de plus.
   useEffect(() => {
+    // Capturé ICI, avec les souscriptions : c'est la session à laquelle ces
+    // références appartiennent. Le provider peut être démonté AVANT cet
+    // écran — son cleanup court en premier — et les relâcheurs pointeraient
+    // alors sur un client déjà rangé. Voir `ui/jetonSession.ts`.
+    const jeton = jetonSession();
     const relachers = [
       ddp.souscrire(STREAM_MESSAGES, rid),
       ddp.souscrire(STREAM_NOTIFY_ROOM, `${rid}/deleteMessage`),
       ddp.souscrire(STREAM_NOTIFY_ROOM, `${rid}/user-activity`),
     ];
     // Le rattrapage (`chat.syncMessages`, un salon à la fois) vise le salon
-    // que l'utilisateur regarde : on se déclare.
-    signalerSalonActif(rid);
+    // que l'utilisateur regarde : on se déclare, et on rend la déclaration en
+    // partant — jamais un `null` global, qui effacerait l'écran salon resté
+    // dessous quand on dépile celui du dessus.
+    const rendreDeclaration = declarerSalonOuvert(rid);
     return () => {
-      signalerSalonActif(null);
-      garderAuChaud(rid, generationRef.current, relachers);
+      rendreDeclaration();
+      garderAuChaud(rid, generationRef.current, relachers, jeton);
     };
-  }, [ddp, rid, signalerSalonActif]);
+  }, [ddp, rid, declarerSalonOuvert]);
 
   // Indicateur de saisie (8.6) : volatil, propre à l'écran — écoute seule,
   // voir lib/saisie.ts pour l'écart consigné sur l'émission.
@@ -461,6 +469,7 @@ function Salon({
   useEffect(() => {
     if (type === undefined) return;
     let annule = false;
+    const jeton = jetonSession();
     // Rattrapage SAUTÉ quand le salon est resté écouté sans interruption : rien
     // n'a pu être manqué, et la lecture coûterait plusieurs secondes pour zéro
     // document sur un gros salon.
@@ -483,7 +492,7 @@ function Salon({
       .then(() => {
         // Marqué au SUCCÈS seulement. Un échec (hors ligne) laisse la garde
         // ouverte : la prochaine génération refera partir le chargement.
-        if (!annule) marquerSalonCharge(rid, generation);
+        if (!annule) marquerSalonCharge(rid, generation, jeton);
       })
       .catch((e: unknown) => {
         // Hors ligne : le cache local suffit. Mais pas en silence — un échec

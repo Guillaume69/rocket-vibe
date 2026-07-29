@@ -69,6 +69,7 @@ import { oublierFilsCharges } from './filsCharges.ts';
 import { libererSalonsChauds } from './salonChaud.ts';
 import { oublierSalonsCharges } from './salonsCharges.ts';
 import { creerPileSalonsOuverts } from './salonsOuverts.ts';
+import { supprimerSiTemporaire } from './fichiersTemporaires.ts';
 import { transportExpo } from './transportUpload.ts';
 
 export type EtatSynchro =
@@ -191,6 +192,18 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         transportExpo,
         async (doc) => {
           await moteur.ingererMessages([doc]);
+        },
+        {
+          // Une ligne soldée emporte son fichier de cache — la garde
+          // « est-ce bien à nous ? » vit dans `ui/fichiersTemporaires.ts`.
+          supprimerFichierLocal: supprimerSiTemporaire,
+          // Payé UNIQUEMENT quand un `file_id` déjà persisté oblige à savoir
+          // si le message existe et que la base locale ne le sait pas — le
+          // redémarrage après kill, sans écran de salon monté, donc sans
+          // `stream-room-messages` pour l'avoir livré. Sans ce rattrapage
+          // ciblé, on re-confirmerait, et le serveur poste alors un DOUBLON
+          // (sondé sur 8.5 : il répond 200 en rendant le premier message).
+          rafraichirSalon: (rid) => fournisseur.rattraperSalon(moteur, rid, () => false),
         },
       );
       const envoi = fournisseur.creerEnvoi(creerDepotEnvoi(brute, fileEcritures), async (doc) => {

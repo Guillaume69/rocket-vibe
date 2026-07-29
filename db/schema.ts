@@ -168,8 +168,26 @@ export const sortie = sqliteTable(
  * File de téléversements (7.2) — le pendant de `sortie` pour les fichiers.
  * L'`uri` pointe un fichier LOCAL (cache du picker) : il survit au kill de
  * l'app, donc le rejeu au démarrage peut reprendre un envoi interrompu.
- * Pas de `_id` client ici : la déduplication viendra du serveur au confirm ;
- * le statut `envoi` évite de relancer un upload déjà parti dans cette vie.
+ *
+ * **`file_id` est la clé de déduplication.** L'upload se fait en DEUX temps
+ * (`rooms.media` puis `rooms.mediaConfirm` — `rooms.upload` a été supprimé en
+ * 8.0) et c'est le SECOND qui poste le message. Sans état entre les deux, une
+ * réponse de `mediaConfirm` perdue — 15 s de délai maximal côté `ClientRest`,
+ * un flap réseau suffit — faisait tout reprendre à zéro au raccordement
+ * suivant : les octets repartaient, un second message était posté, et le
+ * premier fichier restait orphelin sur le serveur. Noté dès le retour de
+ * `rooms.media`, `file_id` fait sauter la première étape et permet de
+ * demander à SQLite — pas au réseau — si le message est déjà là.
+ *
+ * Les trois statuts :
+ * - `en-attente` — le seul que le rejeu automatique reprend ;
+ * - `envoi` — pris en charge par une passe de CE processus. Exclu du listage,
+ *   donc jamais téléversé deux fois en parallèle ; ré-armé au premier
+ *   `traiter()` du processus suivant, sans quoi un kill en plein upload
+ *   l'aurait figé là pour toujours ;
+ * - `echec` — le serveur a refusé. N'est PLUS rejoué automatiquement : une
+ *   vidéo refusée (413, type, quota) repoussait tous ses octets à chaque
+ *   retour au premier plan. Seul le geste « Réessayer » la ré-arme.
  */
 export const televersements = sqliteTable(
   'televersements',
@@ -180,8 +198,13 @@ export const televersements = sqliteTable(
     nom: text('nom').notNull(),
     type: text('type').notNull(),
     legende: text('legende'),
-    statut: text('statut').$type<'en-attente' | 'echec'>().notNull().default('en-attente'),
+    statut: text('statut')
+      .$type<'en-attente' | 'envoi' | 'echec'>()
+      .notNull()
+      .default('en-attente'),
     derniereErreur: text('derniere_erreur'),
+    /** Rendu par `rooms.media`. Non nul = les octets sont déjà chez le serveur. */
+    fileId: text('file_id'),
     creeLe: integer('cree_le').notNull(),
   },
   (t) => [index('idx_televersements_statut').on(t.statut)],

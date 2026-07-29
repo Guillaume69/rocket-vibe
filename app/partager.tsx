@@ -36,6 +36,7 @@ import type { Outbox, OutboxFichiers } from '../lib/fournisseur.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { ApercuPieceJointe, type FichierEnAttente } from '../ui/apercuPieceJointe.tsx';
 import { VueEvitantLeClavier } from '../ui/clavier.tsx';
+import { supprimerSiTemporaire } from '../ui/fichiersTemporaires.ts';
 import { useT } from '../ui/i18n.ts';
 import { AvatarSalon } from '../ui/kit.tsx';
 import { compresserImageSiUtile } from '../ui/preparerPieceJointe.ts';
@@ -201,6 +202,29 @@ function Partager({
       return (s.nomAffiche ?? s.nom ?? s.rid).toLowerCase().includes(filtreNorm);
     });
 
+  /**
+   * Retirer une pièce efface ses fichiers de cache. Il y en a jusqu'à DEUX :
+   * la copie faite par le module de partage (`origine`) et, quand la
+   * compression a mordu, le JPEG réécrit (`aEnvoyer`). Aucune ligne de
+   * téléversement ne les a jamais connus — le ménage de la file, qui part du
+   * dépôt, ne les atteindrait donc jamais. `supprimerSiTemporaire` refuse tout
+   * ce qui n'est pas sous le cache de l'app.
+   */
+  const retirerPiece = useCallback(
+    (cle: number) => {
+      // Hors de l'updater : React peut le rejouer, une suppression non.
+      const partante = pieces.find((x) => x.cle === cle);
+      if (partante !== undefined) {
+        void supprimerSiTemporaire(partante.origine.uri);
+        if (partante.aEnvoyer.uri !== partante.origine.uri) {
+          void supprimerSiTemporaire(partante.aEnvoyer.uri);
+        }
+      }
+      setPieces((prev) => prev.filter((x) => x.cle !== cle));
+    },
+    [pieces],
+  );
+
   const partagerVers = useCallback(
     async (rid: string) => {
       if (enVol.current) return;
@@ -240,8 +264,10 @@ function Partager({
         // Succès : on ouvre la conversation. Le démontage soldera l'intent.
         routeur.replace({ pathname: '/salon/[rid]', params: { rid } });
       } catch (e) {
-        // Seul un refus de validation (taille/type) rejette ici ; un échec
-        // réseau deviendra une ligne d'échec actionnable dans le salon.
+        // Seul un refus de validation (taille/type) rejette ici. Un refus
+        // serveur comme un réseau injoignable deviennent une ligne du bandeau
+        // du salon — qui montre maintenant aussi les `en-attente`, sans quoi un
+        // partage fait hors ligne disparaissait sans laisser de trace.
         //
         // Amputer de ce qui est DÉJÀ parti : l'utilisateur reste sur cet écran,
         // retire la pièce fautive et retape sur le salon — sans cela les
@@ -280,16 +306,11 @@ function Partager({
             occupe={occupe}
             retraitHorizontal={0}
             retraitVertical={0}
-            onRetirer={() => setPieces((prev) => prev.filter((x) => x.cle !== pieces[0].cle))}
+            onRetirer={() => retirerPiece(pieces[0].cle)}
           />
         )}
         {pieces.length > 1 && (
-          <BandeauApercus
-            c={c}
-            pieces={pieces}
-            occupe={occupe}
-            onRetirer={(cle) => setPieces((prev) => prev.filter((x) => x.cle !== cle))}
-          />
+          <BandeauApercus c={c} pieces={pieces} occupe={occupe} onRetirer={retirerPiece} />
         )}
         <TextInput
           value={legende}

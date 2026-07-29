@@ -217,3 +217,58 @@ describe('migrations', () => {
     db.close();
   });
 });
+
+/**
+ * `file_id` arrive sur une base qui tourne DÉJÀ sur le téléphone, avec des
+ * lignes de téléversement dedans. Le migrateur de drizzle applique les
+ * migrations dans une seule transaction, avec ROLLBACK sur erreur : un
+ * `ALTER TABLE` qui échoue ne casse pas la base, il bloque le démarrage à la
+ * phase `erreur`. Ce test vaut donc pour le lancement réel sur le Pixel.
+ */
+describe('ajout de file_id à la file de téléversements (0013)', () => {
+  test('une base d’AVANT, avec des lignes, gagne la colonne sans rien perdre', () => {
+    const db = baseMigreeAvant(13);
+
+    db.prepare(
+      'INSERT INTO televersements (id, rid, uri, nom, type, legende, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    ).run('t1', 'r1', 'file:///vieux.png', 'vieux.png', 'image/png', 'ma légende', 1000);
+
+    appliquerMigration(db, 13);
+
+    const l = db.prepare('SELECT * FROM televersements WHERE id = ?').get('t1') as Record<
+      string,
+      unknown
+    >;
+    assert.equal(l.uri, 'file:///vieux.png', 'la ligne d’avant survit intacte');
+    assert.equal(l.legende, 'ma légende');
+    assert.equal(l.statut, 'en-attente');
+    assert.equal(l.file_id, null, 'la colonne existe et vaut NULL sur l’historique');
+
+    // Et elle est écrivable — c'est tout l'objet de la migration.
+    db.prepare('UPDATE televersements SET file_id = ? WHERE id = ?').run('abc123', 't1');
+    const apres = db.prepare('SELECT file_id FROM televersements WHERE id = ?').get('t1') as Record<
+      string,
+      unknown
+    >;
+    assert.equal(apres.file_id, 'abc123');
+    db.close();
+  });
+
+  test('le journal et le bundle de migrations sont cohérents — sinon l’app ne démarre pas', () => {
+    // `readMigrationFiles` lève « Missing migration: <tag> » si une entrée du
+    // journal n'a pas sa clé `m00NN` dans le migrations.js généré. Le test
+    // attrape l'oubli d'un `npm run db:generate`, qui ne se voit qu'au
+    // lancement réel.
+    const journal = JSON.parse(readFileSync(join(DOSSIER, 'meta', '_journal.json'), 'utf8')) as {
+      entries: { idx: number; tag: string }[];
+    };
+    const bundle = readFileSync(join(DOSSIER, 'migrations.js'), 'utf8');
+    const fichiers = readdirSync(DOSSIER).filter((f) => f.endsWith('.sql'));
+    assert.equal(journal.entries.length, fichiers.length, 'un .sql par entrée de journal');
+    for (const e of journal.entries) {
+      const cle = `m${String(e.idx).padStart(4, '0')}`;
+      assert.ok(bundle.includes(`${cle} from './${e.tag}.sql'`), `${cle} absent du bundle`);
+      assert.ok(fichiers.includes(`${e.tag}.sql`), `${e.tag}.sql absent du dossier`);
+    }
+  });
+});

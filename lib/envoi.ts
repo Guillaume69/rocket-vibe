@@ -44,6 +44,9 @@ export function idDepuisOctets(octets: Uint8Array): string {
 
 type ReponseEnvoi = { message?: Record<string, unknown> };
 
+/** Verdict de `messageLivre` quand la question n'a pas pu être posée. */
+const INCONNU = Symbol('livraison indéterminée');
+
 export class MoteurEnvoi {
   private readonly depot: DepotEnvoi;
   private readonly client: ClientRest;
@@ -166,6 +169,12 @@ export class MoteurEnvoi {
         // créé, mais la réponse ne distingue pas « déjà livré » de
         // « refusé » : on demande au serveur.
         const livre = await this.messageLivre(ligne.id);
+        if (livre === INCONNU) {
+          // On n'a pas pu trancher. La ligne reste `en-attente` — donc
+          // rejouable — et la passe s'arrête : les lignes suivantes
+          // brûleraient le même quota pour le même verdict.
+          return false;
+        }
         if (livre !== null) {
           // Ingérer le document récupéré : c'est la vraie version (ts du
           // serveur), et son passage par le dépôt réconcilie la sortie.
@@ -186,7 +195,18 @@ export class MoteurEnvoi {
     await this.depot.supprimerMessageOptimiste(id);
   }
 
-  private async messageLivre(id: string): Promise<Record<string, unknown> | null> {
+  /**
+   * TROIS verdicts, pas deux : le document si le serveur l'a, `null` s'il
+   * répond que non, `'inconnu'` si on n'a PAS PU demander.
+   *
+   * La distinction n'est pas cosmétique. « Je n'ai pas pu vérifier » n'est pas
+   * « le serveur dit que non » : tout confondre en `null` faisait marquer
+   * `echec` — donc afficher « non envoyé » — sur un message que le serveur
+   * avait peut-être accepté. L'utilisateur le retape : il en a deux.
+   */
+  private async messageLivre(
+    id: string,
+  ): Promise<Record<string, unknown> | typeof INCONNU | null> {
     try {
       const reponse = await this.client.get<{ message?: Record<string, unknown> }>(
         'chat.getMessage',
@@ -194,8 +214,14 @@ export class MoteurEnvoi {
       );
       const doc = reponse.message;
       return doc !== undefined && doc._id === id ? doc : null;
-    } catch {
-      // Dans le doute (réseau, droit), on ne conclut pas « livré ».
+    } catch (e) {
+      // Statut 0 : personne n'a répondu. 429 : `chat.getMessage` subit la même
+      // limite de 10/min que `chat.sendMessage` (CLAUDE.md), et une rafale
+      // d'envois l'épuise — après les trois rejeux de `ClientRest`, toutes les
+      // vérifications de la passe retombent en 429. Ni l'un ni l'autre n'est
+      // un démenti du serveur.
+      if (e instanceof ErreurRest && (e.statut === 0 || e.statut === 429)) return INCONNU;
+      // Le serveur a parlé (404, droit refusé, message absent) : on tranche.
       return null;
     }
   }

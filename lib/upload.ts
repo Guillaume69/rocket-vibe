@@ -32,6 +32,13 @@ export type TransportUpload = (
   entetes: Record<string, string>,
   fichier: FichierAEnvoyer,
   surProgression?: (fraction: number) => void,
+  /**
+   * Appelé UNE fois, dès que la tâche existe, avec de quoi l'interrompre.
+   * Sans cela « Abandonner » ne faisait qu'un DELETE en base : les octets
+   * continuaient de monter et le fichier finissait par apparaître dans le
+   * salon, après que l'utilisateur l'avait explicitement abandonné.
+   */
+  surAnnulable?: (annuler: () => Promise<void>) => void,
 ) => Promise<{ statut: number; corps: string }>;
 
 export class ErreurUpload extends Error {
@@ -45,18 +52,27 @@ type ReponseMedia = { file?: { _id?: string; url?: string } };
 type ReponseConfirm = { message?: Record<string, unknown> };
 
 /**
- * Le flux complet : media, puis mediaConfirm. Rend le message créé, à passer
- * à l'ingestion. `surProgression` reçoit une fraction 0..1 du téléversement.
+ * **Premier temps : les octets.** Rend le `fileId` du serveur — à PERSISTER
+ * avant d'aller plus loin.
+ *
+ * Les deux temps sont séparés parce que l'intervalle entre eux est un point
+ * de panne réel : `ClientRest` avorte à 15 s, et un `mediaConfirm` dont la
+ * réponse se perd laissait tout reprendre à zéro au raccordement suivant —
+ * les mêmes octets repoussés, un second message posté, un fichier orphelin de
+ * plus. Avec le `fileId` en base, la reprise saute directement au confirm.
+ *
+ * `surProgression` reçoit une fraction 0..1 ; `surAnnulable`, de quoi
+ * interrompre la tâche.
  */
-export async function televerser(options: {
+export async function televerserOctets(options: {
   client: ClientRest;
   transport: TransportUpload;
   rid: string;
   fichier: FichierAEnvoyer;
-  message?: string;
   surProgression?: (fraction: number) => void;
-}): Promise<Record<string, unknown>> {
-  const { client, transport, rid, fichier, message, surProgression } = options;
+  surAnnulable?: (annuler: () => Promise<void>) => void;
+}): Promise<string> {
+  const { client, transport, rid, fichier, surProgression, surAnnulable } = options;
 
   const entetes: Record<string, string> = {};
   if (client.identifiants !== null) {
@@ -69,6 +85,7 @@ export async function televerser(options: {
     entetes,
     fichier,
     surProgression,
+    surAnnulable,
   );
 
   let media: ReponseMedia & { success?: boolean; error?: string };
@@ -81,9 +98,24 @@ export async function televerser(options: {
   if (statut >= 400 || media.success === false || typeof fileId !== 'string') {
     throw new ErreurUpload(media.error ?? `rooms.media a échoué (${statut}).`);
   }
+  return fileId;
+}
 
-  // SANS cette confirmation, aucun message n'est posté : le fichier resterait
-  // orphelin côté serveur.
+/**
+ * **Second temps : le message.** SANS cette confirmation, aucun message n'est
+ * posté : le fichier reste orphelin côté serveur.
+ *
+ * Pas d'`_id` client ici pour dédupliquer — le schéma de `rooms.mediaConfirm`
+ * est `additionalProperties: false`, le serveur refuserait le corps. La
+ * déduplication se fait donc côté client, sur le `fileId` persisté.
+ */
+export async function confirmerMedia(options: {
+  client: ClientRest;
+  rid: string;
+  fileId: string;
+  message?: string;
+}): Promise<Record<string, unknown>> {
+  const { client, rid, fileId, message } = options;
   const confirmation = await client.post<ReponseConfirm>(`rooms.mediaConfirm/${rid}/${fileId}`, {
     corps: message === undefined || message === '' ? {} : { msg: message },
   });

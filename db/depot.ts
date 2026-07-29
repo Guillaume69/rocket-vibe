@@ -37,6 +37,11 @@ import {
   paramsEmojiCustom,
   LISTER_TELEVERSEMENTS_A_ENVOYER,
   MARQUER_TELEVERSEMENT_ECHEC,
+  MARQUER_TELEVERSEMENT_EN_VOL,
+  MESSAGE_AVEC_FICHIER,
+  NOTER_FILE_ID,
+  REARMER_TELEVERSEMENT,
+  REARMER_TELEVERSEMENTS_EN_VOL,
   SUPPRIMER_TELEVERSEMENT,
   LIRE_BROUILLON,
   UPSERT_BROUILLON,
@@ -362,6 +367,7 @@ export function creerDepotEnvoi(brute: SQLiteDatabase, enSerie: FileEcritures): 
   };
 }
 
+/** Le SQL rend `file_id` en snake — la remise en `fileId` est explicite, ci-dessous. */
 type BruteTeleversement = {
   id: string;
   rid: string;
@@ -369,7 +375,8 @@ type BruteTeleversement = {
   nom: string;
   type: string;
   legende: string | null;
-  statut: 'en-attente' | 'echec';
+  statut: 'en-attente' | 'envoi' | 'echec';
+  file_id: string | null;
 };
 
 export function creerDepotTeleversements(
@@ -393,7 +400,38 @@ export function creerDepotTeleversements(
       );
     },
     async listerAEnvoyer(): Promise<LigneTeleversement[]> {
-      return brute.getAllAsync<BruteTeleversement>(LISTER_TELEVERSEMENTS_A_ENVOYER);
+      const lignes = await brute.getAllAsync<BruteTeleversement>(LISTER_TELEVERSEMENTS_A_ENVOYER);
+      return lignes.map((l) => ({
+        id: l.id,
+        rid: l.rid,
+        uri: l.uri,
+        nom: l.nom,
+        type: l.type,
+        legende: l.legende,
+        statut: l.statut,
+        fileId: l.file_id,
+      }));
+    },
+    async prendreEnCharge(id) {
+      // Hors `enSerie` : on a besoin du nombre de lignes touchées, et c'est LUI
+      // qui dit si une autre passe nous a devancés.
+      const r = await brute.runAsync(MARQUER_TELEVERSEMENT_EN_VOL, [id]);
+      return r.changes > 0;
+    },
+    rearmerEnVol(enVolIci) {
+      return enSerie(() =>
+        brute.runAsync(REARMER_TELEVERSEMENTS_EN_VOL, [JSON.stringify(enVolIci)]).then(() => {}),
+      );
+    },
+    rearmer(id) {
+      return enSerie(() => brute.runAsync(REARMER_TELEVERSEMENT, [id]).then(() => {}));
+    },
+    noterFileId(id, fileId) {
+      return enSerie(() => brute.runAsync(NOTER_FILE_ID, [fileId, id]).then(() => {}));
+    },
+    async fichierDejaPoste(rid, fileId) {
+      const l = await brute.getFirstAsync<{ id: string }>(MESSAGE_AVEC_FICHIER, [rid, fileId]);
+      return l !== null;
     },
     marquerEchec(id, erreur) {
       return enSerie(() =>

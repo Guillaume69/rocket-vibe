@@ -61,6 +61,11 @@ node scripts/seed.mjs                 # données de test, idempotent
 Serveur cible : `https://chat.barrut.me`, **version 8.5** (LTS). Le Docker local est épinglé dessus, pas sur la 8.6.
 
 - **`POST /api/v1/rooms.upload` a été SUPPRIMÉ en 8.0.0.** L'upload se fait en deux temps : `rooms.media/:rid` puis `rooms.mediaConfirm/:rid/:fileId`. `rooms.media` seul ne poste aucun message — l'oublier laisse un fichier orphelin.
+- **Rejouer `rooms.mediaConfirm` sur le même `fileId` est INDÉTERMINÉ — et les deux issues sont mauvaises** (sondé sur le banc 8.5, 29/07/2026, deux fois, résultats opposés) :
+  - **rejeu immédiat** → le serveur poste un SECOND message (l'historique en porte bien deux) mais répond **200 en rendant le PREMIER**, légende comprise. Un client qui se fie à la réponse croit à une confirmation idempotente alors qu'il vient de créer un doublon ;
+  - **rejeu différé** (quelques minutes) → **`[invalid-file]`**, un refus franc. Traité comme un échec ordinaire, il affiche « non envoyé » sur un fichier pourtant livré.
+
+  Il n'existe donc AUCUNE réponse serveur exploitable : la déduplication doit être entièrement locale, sur le `file_id` persisté (`televersements.file_id`, chantier 7), et le client doit s'assurer que sa base SAIT avant de trancher — d'où le rattrapage ciblé du salon quand elle est muette. Et comme `mediaConfirm` refuse toute clé en trop (`additionalProperties: false`), un `_id` client est exclu.
 - **Les appels de méthodes DDP sont dépréciés** (8.0), retrait en 9.0. **REST pour agir, DDP pour écouter.** Notre client DDP maison n'a besoin que de `connect`, `login`, `sub`, `unsub` et du routage des événements. Pas de `call`.
 - `@rocket.chat/ddp-client` est techniquement parfait mais livré **sans champ `license`**, avec un `LICENSE` Enterprise Edition. On écrit le nôtre, depuis la spec DDP. **Ne pas recopier son code.** `@rocket.chat/message-parser` est MIT, lui.
 - `MONGO_OPLOG_URL` **n'existe plus** depuis 8.0.0 (change streams). Le replica set reste obligatoire.

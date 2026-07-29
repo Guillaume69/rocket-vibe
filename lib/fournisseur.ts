@@ -180,13 +180,22 @@ export interface Outbox {
 /** File d'envoi de fichiers persistée. `progression` : 0..1 par id, pour l'UI. */
 export interface OutboxFichiers {
   readonly progression: Map<string, number>;
+  /** S'abonner aux changements de `progression` — rend le désabonnement. */
+  abonner(auditeur: () => void): () => void;
   envoyer(
     rid: string,
     fichier: FichierAEnvoyer & { taille: number | null },
     legende?: string,
   ): Promise<void>;
   traiter(): Promise<void>;
-  abandonner(id: string): Promise<void>;
+  /**
+   * Le geste explicite « Réessayer ». Indispensable depuis que le rejeu
+   * automatique ignore les lignes en échec : un simple `traiter()` ne les
+   * verrait plus.
+   */
+  reessayer(id: string): Promise<void>;
+  /** `uri` permet d'effacer aussi le fichier temporaire. */
+  abandonner(id: string, uri?: string): Promise<void>;
 }
 
 /**
@@ -211,6 +220,16 @@ export interface Fournisseur {
     depot: DepotTeleversements,
     transport: TransportUpload,
     ingerer: Ingerer,
+    /**
+     * Deux crochets qui ne peuvent pas vivre dans `lib/` : le premier touche
+     * `expo-file-system`, le second le rattrapage REST. Optionnels — sans eux
+     * le moteur reste correct, seulement moins bon (cache qui enfle, doublon
+     * possible sur un `mediaConfirm` perdu).
+     */
+    crochets?: {
+      supprimerFichierLocal?: (uri: string) => Promise<void>;
+      rafraichirSalon?: (rid: string) => Promise<void>;
+    },
   ): OutboxFichiers;
   /** Rattrapage REST global (salons + abonnements delta). */
   rattraperGlobal(moteur: MoteurSynchro, estAbandonne: () => boolean): Promise<void>;

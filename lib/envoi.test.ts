@@ -177,6 +177,55 @@ describe('MoteurEnvoi', () => {
     assert.equal(ingeres[0].msg, 'version serveur');
   });
 
+  /**
+   * La vérification « déjà livré ? » peut elle-même échouer — et « je n'ai pas
+   * pu demander » n'est PAS « le serveur dit que non ». Conclure à l'échec sur
+   * un réseau mort affiche « non envoyé » sur un message que le serveur a
+   * peut-être accepté ; l'utilisateur le retape, il en aura deux.
+   */
+  test('vérification impossible (réseau mort) : la ligne reste en-attente, pas en échec', async () => {
+    const { moteur, sortie } = moteurDeTest({
+      repondre: async () => ok({ success: false, error: 'starred…' }),
+      repondreGet: async () => {
+        throw new TypeError('Network request failed');
+      },
+    });
+    await moteur.envoyer('r1', 'peut-être livré');
+    const lignes = [...sortie.values()];
+    assert.equal(lignes.length, 1);
+    assert.equal(lignes[0].statut, 'en-attente', 'dans le doute, on ne condamne pas');
+    assert.equal(lignes[0].tentatives, 0, 'et on ne consomme pas une tentative');
+  });
+
+  /**
+   * `chat.getMessage` subit la même limite REST de 10/min que `chat.sendMessage`
+   * (CLAUDE.md) : une rafale d'envois épuise le quota et TOUTES les
+   * vérifications retombent en 429, après les trois rejeux de `ClientRest`.
+   */
+  test('vérification rate-limitée (429) : la ligne reste en-attente', async () => {
+    let gets = 0;
+    const { moteur, sortie } = moteurDeTest({
+      repondre: async () => ok({ success: false, error: 'starred…' }),
+      repondreGet: async () => {
+        gets++;
+        return new Response('{}', { status: 429, headers: { 'Content-Type': 'application/json' } });
+      },
+    });
+    await moteur.envoyer('r1', 'quota épuisé');
+    assert.ok(gets > 1, 'ClientRest rejoue bien le 429 avant d’abandonner');
+    assert.equal([...sortie.values()][0]?.statut, 'en-attente');
+  });
+
+  test('le serveur qui répond « ce message n’existe pas » vaut, LUI, un échec', async () => {
+    const { moteur, sortie } = moteurDeTest({
+      repondre: async () => ok({ success: false, error: 'starred…' }),
+      // Réponse HTTP franche : le serveur a parlé, le message n'est pas là.
+      repondreGet: async () => ok({ success: false, error: 'error-invalid-message' }),
+    });
+    await moteur.envoyer('r1', 'vraiment refusé');
+    assert.equal([...sortie.values()][0]?.statut, 'echec', 'un verdict du serveur tranche');
+  });
+
   test('abandonner efface la ligne de sortie ET le message optimiste', async () => {
     const { moteur, sortie, messages } = moteurDeTest({
       repondre: async () => ok({ success: false, error: 'refus définitif' }),

@@ -1,0 +1,1 @@
+ALTER TABLE `televersements` ADD `file_id` text;

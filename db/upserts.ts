@@ -469,13 +469,82 @@ DELETE FROM messages WHERE id = ? AND mis_a_jour_le = 0
 // ---------------------------------------------------------------------------
 
 export const INSERER_TELEVERSEMENT = `
-INSERT INTO televersements (id, rid, uri, nom, type, legende, statut, derniere_erreur, cree_le)
-VALUES (?, ?, ?, ?, ?, ?, 'en-attente', NULL, ?)
+INSERT INTO televersements (id, rid, uri, nom, type, legende, statut, derniere_erreur, file_id, cree_le)
+VALUES (?, ?, ?, ?, ?, ?, 'en-attente', NULL, NULL, ?)
 `;
 
+/**
+ * **`en-attente` SEUL.** L'échec était rejoué ici, et `traiter()` est appelé à
+ * chaque raccordement : une vidéo que le serveur refuse (413, type hors liste
+ * blanche, quota) repoussait donc tous ses octets à chaque flap réseau — cas
+ * fréquent sur Android, où `fileSize` est souvent nul et laisse passer la
+ * validation locale. Un échec est désormais un terminus : seul le geste
+ * « Réessayer » le ré-arme (`REARMER_TELEVERSEMENT`). Un plafond, pas un délai.
+ *
+ * `envoi` est exclu pour une autre raison : la ligne est déjà prise en charge
+ * par une passe en vol, la relister la téléverserait deux fois en parallèle.
+ */
 export const LISTER_TELEVERSEMENTS_A_ENVOYER = `
-SELECT id, rid, uri, nom, type, legende, statut FROM televersements
-WHERE statut IN ('en-attente', 'echec') ORDER BY cree_le
+SELECT id, rid, uri, nom, type, legende, statut, file_id FROM televersements
+WHERE statut = 'en-attente' ORDER BY cree_le, id
+`;
+
+/**
+ * Prise en charge. La garde `AND statut = 'en-attente'` rend l'opération
+ * atomique : deux passes concurrentes ne peuvent pas saisir la même ligne,
+ * la seconde met à jour 0 ligne et passe son chemin.
+ */
+export const MARQUER_TELEVERSEMENT_EN_VOL = `
+UPDATE televersements SET statut = 'envoi' WHERE id = ? AND statut = 'en-attente'
+`;
+
+/**
+ * Ré-armement d'UNE ligne — le geste « Réessayer » du bandeau. Efface le motif
+ * de l'échec précédent : le garder afficherait une erreur périmée pendant la
+ * nouvelle tentative.
+ */
+export const REARMER_TELEVERSEMENT = `
+UPDATE televersements SET statut = 'en-attente', derniere_erreur = NULL WHERE id = ?
+`;
+
+/**
+ * Reprise après kill. Un `envoi` qui traîne est l'orphelin d'une exécution
+ * précédente, tuée en plein téléversement — Android tue une app en
+ * arrière-plan sans prévenir. Sans ce ré-armement, la ligne resterait hors du
+ * listage pour toujours : le fichier ne partirait jamais et rien ne le dirait.
+ *
+ * **La borne n'est pas décorative.** « Orphelin » ne se déduit PAS du seul
+ * statut : `SynchroProvider` reconstruit son moteur de fichiers quand l'objet
+ * `session` change (un simple renommage suffit), sans jamais arrêter le
+ * précédent — et les deux écrivent dans la même connexion SQLite, mémoïsée par
+ * nom de fichier. Un ré-armement aveugle rendrait au rejeu une ligne dont
+ * l'ancien moteur pousse encore les octets : deux uploads, deux confirms, deux
+ * messages. On exclut donc ce que CE runtime a en vol — même discipline que la
+ * purge du chantier 6, bornée par un instantané plutôt que par un délai.
+ */
+export const REARMER_TELEVERSEMENTS_EN_VOL = `
+UPDATE televersements SET statut = 'en-attente'
+WHERE statut = 'envoi' AND id NOT IN (SELECT value FROM json_each(?))
+`;
+
+/** Les octets sont chez le serveur : `rooms.media` a rendu ce `fileId`. */
+export const NOTER_FILE_ID = `UPDATE televersements SET file_id = ? WHERE id = ?`;
+
+/**
+ * « Ce fichier a-t-il DÉJÀ été posté ? » — posé à SQLite, jamais au réseau.
+ *
+ * Le cas : `rooms.media` a réussi, `rooms.mediaConfirm` a créé le message,
+ * mais sa réponse s'est perdue. Le message existe côté serveur et le stream
+ * DDP l'a livré comme n'importe quel autre ; re-confirmer posterait un
+ * DOUBLON. Le `fileId` se retrouve dans le `title_link` de la pièce jointe
+ * (`/file-upload/<fileId>/<nom>`), donc dans la colonne `pieces_jointes`.
+ *
+ * Local, donc insensible à la limite REST de 10 appels/min — l'interroger par
+ * `chat.getMessage` aurait consommé le quota au pire moment, celui où l'on
+ * rejoue une file entière.
+ */
+export const MESSAGE_AVEC_FICHIER = `
+SELECT id FROM messages WHERE rid = ? AND pieces_jointes LIKE '%' || ? || '%' LIMIT 1
 `;
 
 export const MARQUER_TELEVERSEMENT_ECHEC = `

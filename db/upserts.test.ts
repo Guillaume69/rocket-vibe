@@ -23,7 +23,15 @@ import {
   UPSERT_BROUILLON,
   LISTER_EMOJIS_CUSTOM,
   LISTER_SORTIE_A_ENVOYER,
+  LISTER_TELEVERSEMENTS_A_ENVOYER,
   MARQUER_SORTIE_ECHEC,
+  MARQUER_TELEVERSEMENT_ECHEC,
+  MARQUER_TELEVERSEMENT_EN_VOL,
+  MESSAGE_AVEC_FICHIER,
+  NOTER_FILE_ID,
+  REARMER_TELEVERSEMENT,
+  REARMER_TELEVERSEMENTS_EN_VOL,
+  SUPPRIMER_TELEVERSEMENT,
   PURGER_ABONNEMENTS_ABSENTS,
   PURGER_BROUILLONS_ABSENTS,
   PURGER_CURSEURS_ABSENTS,
@@ -395,6 +403,190 @@ describe('file d’envoi (outbox)', () => {
     db.prepare(INSERER_SORTIE).run('c'.repeat(24), 'r1', 'premier', null, 1000);
     const ordres = db.prepare(LISTER_SORTIE_A_ENVOYER).all().map((l) => ligne(l).texte);
     assert.deepEqual(ordres, ['premier', 'deuxième']);
+  });
+});
+
+/**
+ * La file de FICHIERS n'était exécutée par aucun test — `db/depot.ts` rendait
+ * `getAllAsync` directement comme `LigneTeleversement[]`, une assertion de type
+ * que rien ne vérifiait : une colonne renommée dans le SQL aurait donné des
+ * `undefined` silencieux jusque dans l'URI téléversée.
+ *
+ * On insère ici avec EXACTEMENT les paramètres que passe `db/depot.ts`, dans
+ * le même ordre — un décalage entre l'ordre des colonnes et l'ordre des
+ * valeurs fait échouer ces tests au lieu de corrompre la base.
+ */
+function televersement(o: Partial<Record<string, unknown>> & { id: string }) {
+  const v = { rid: 'r1', uri: 'file:///a.png', nom: 'a.png', type: 'image/png', legende: null, creeLe: 1000, ...o };
+  return [v.id, v.rid, v.uri, v.nom, v.type, v.legende, v.creeLe] as const;
+}
+
+describe('file de téléversements', () => {
+  test('les colonnes relues sont EXACTEMENT celles du type `LigneTeleversement`', () => {
+    db.prepare(INSERER_TELEVERSEMENT).run(
+      ...televersement({ id: 't1', legende: 'ma légende', uri: 'file:///photo.jpg' }),
+    );
+    const lignes = db.prepare(LISTER_TELEVERSEMENTS_A_ENVOYER).all().map(ligne);
+    assert.equal(lignes.length, 1);
+    // deepEqual et non une série d'`equal` : une colonne EN TROP la fait
+    // échouer aussi. C'est le seul garde-fou contre le cast de db/depot.ts.
+    assert.deepEqual(lignes[0], {
+      id: 't1',
+      rid: 'r1',
+      uri: 'file:///photo.jpg',
+      nom: 'a.png',
+      type: 'image/png',
+      legende: 'ma légende',
+      statut: 'en-attente',
+      // Colonne SNAKE : `db/depot.ts` doit la remettre en `fileId`, comme il
+      // le fait déjà pour `fil_id` dans la file de sortie.
+      file_id: null,
+    });
+  });
+
+  test('une légende absente reste NULL, pas la chaîne « null »', () => {
+    db.prepare(INSERER_TELEVERSEMENT).run(...televersement({ id: 't1' }));
+    const l = ligne(db.prepare(LISTER_TELEVERSEMENTS_A_ENVOYER).all()[0]);
+    assert.equal(l.legende, null, 'le moteur passe `legende ?? undefined` au confirm');
+  });
+
+  /**
+   * Le cœur du constat : un échec ne doit PLUS repartir tout seul. C'est ce
+   * test qui interdit de revenir à `statut IN ('en-attente','echec')`.
+   */
+  test('un échec sort du rejeu automatique et n’y revient que par « Réessayer »', () => {
+    db.prepare(INSERER_TELEVERSEMENT).run(...televersement({ id: 't1' }));
+    assert.equal(db.prepare(LISTER_TELEVERSEMENTS_A_ENVOYER).all().length, 1);
+
+    db.prepare(MARQUER_TELEVERSEMENT_ECHEC).run('413 trop gros', 't1');
+    assert.equal(
+      db.prepare(LISTER_TELEVERSEMENTS_A_ENVOYER).all().length,
+      0,
+      'sinon la vidéo refusée repousse tous ses octets à chaque raccordement',
+    );
+    // La ligne EXISTE toujours : c'est elle que le bandeau affiche.
+    const restee = ligne(db.prepare('SELECT statut, derniere_erreur FROM televersements WHERE id = ?').get('t1'));
+    assert.equal(restee.statut, 'echec');
+    assert.equal(restee.derniere_erreur, '413 trop gros', "le motif est gardé pour l'UI");
+
+    db.prepare(REARMER_TELEVERSEMENT).run('t1');
+    const rearmee = db.prepare(LISTER_TELEVERSEMENTS_A_ENVOYER).all().map(ligne);
+    assert.equal(rearmee.length, 1, '« Réessayer » la remet dans la file');
+    assert.equal(rearmee[0].statut, 'en-attente');
+    const apres = ligne(db.prepare('SELECT derniere_erreur FROM televersements WHERE id = ?').get('t1'));
+    assert.equal(apres.derniere_erreur, null, 'une erreur périmée ne doit pas rester affichée');
+
+    db.prepare(SUPPRIMER_TELEVERSEMENT).run('t1');
+    assert.equal(db.prepare(LISTER_TELEVERSEMENTS_A_ENVOYER).all().length, 0);
+  });
+
+  test('une ligne prise en charge (`envoi`) sort du listage — jamais deux uploads du même fichier', () => {
+    db.prepare(INSERER_TELEVERSEMENT).run(...televersement({ id: 't1' }));
+    const pris = db.prepare(MARQUER_TELEVERSEMENT_EN_VOL).run('t1');
+    assert.equal(pris.changes, 1);
+    assert.equal(db.prepare(LISTER_TELEVERSEMENTS_A_ENVOYER).all().length, 0);
+  });
+
+  test('deux passes concurrentes : la seconde prise en charge ne change AUCUNE ligne', () => {
+    db.prepare(INSERER_TELEVERSEMENT).run(...televersement({ id: 't1' }));
+    assert.equal(db.prepare(MARQUER_TELEVERSEMENT_EN_VOL).run('t1').changes, 1);
+    assert.equal(
+      db.prepare(MARQUER_TELEVERSEMENT_EN_VOL).run('t1').changes,
+      0,
+      'la garde `AND statut = en-attente` rend la saisie atomique',
+    );
+  });
+
+  test('un `envoi` orphelin d’un processus tué est ré-armé, pas perdu', () => {
+    db.prepare(INSERER_TELEVERSEMENT).run(...televersement({ id: 't1' }));
+    db.prepare(INSERER_TELEVERSEMENT).run(...televersement({ id: 't2' }));
+    db.prepare(MARQUER_TELEVERSEMENT_EN_VOL).run('t1');
+    db.prepare(MARQUER_TELEVERSEMENT_ECHEC).run('refusé', 't2');
+
+    db.prepare(REARMER_TELEVERSEMENTS_EN_VOL).run(JSON.stringify([]));
+
+    const ids = db.prepare(LISTER_TELEVERSEMENTS_A_ENVOYER).all().map((l) => ligne(l).id);
+    assert.deepEqual(ids, ['t1'], 'le kill est réparé…');
+    const t2 = ligne(db.prepare('SELECT statut FROM televersements WHERE id = ?').get('t2'));
+    assert.equal(t2.statut, 'echec', '…sans ressusciter les échecs, qui restent un terminus');
+  });
+
+  /**
+   * La borne du ré-armement. `SynchroProvider` peut construire un second
+   * moteur sans arrêter le premier ; sans cette exclusion, le nouveau rendrait
+   * au rejeu une ligne dont l'ancien pousse encore les octets — deux uploads,
+   * deux confirms, et le serveur poste bien DEUX messages (sondé sur 8.5).
+   */
+  test('une ligne encore en vol dans CE runtime n’est PAS ré-armée', () => {
+    db.prepare(INSERER_TELEVERSEMENT).run(...televersement({ id: 'enVol' }));
+    db.prepare(INSERER_TELEVERSEMENT).run(...televersement({ id: 'orphelin' }));
+    db.prepare(MARQUER_TELEVERSEMENT_EN_VOL).run('enVol');
+    db.prepare(MARQUER_TELEVERSEMENT_EN_VOL).run('orphelin');
+
+    db.prepare(REARMER_TELEVERSEMENTS_EN_VOL).run(JSON.stringify(['enVol']));
+
+    const ids = db.prepare(LISTER_TELEVERSEMENTS_A_ENVOYER).all().map((l) => ligne(l).id);
+    assert.deepEqual(ids, ['orphelin'], 'seul l’orphelin repart');
+    const survivant = ligne(db.prepare('SELECT statut FROM televersements WHERE id = ?').get('enVol'));
+    assert.equal(survivant.statut, 'envoi', 'la ligne en vol garde sa prise en charge');
+  });
+
+  test('l’ordre de rejeu départage les créations de la même milliseconde', () => {
+    // `app/partager.tsx` insère N pièces dans une boucle serrée : `Date.now()`
+    // peut rendre la même valeur pour plusieurs.
+    db.prepare(INSERER_TELEVERSEMENT).run(...televersement({ id: 'b', nom: 'deux', creeLe: 7 }));
+    db.prepare(INSERER_TELEVERSEMENT).run(...televersement({ id: 'a', nom: 'un', creeLe: 7 }));
+    db.prepare(INSERER_TELEVERSEMENT).run(...televersement({ id: 'c', nom: 'trois', creeLe: 8 }));
+    const noms = db.prepare(LISTER_TELEVERSEMENTS_A_ENVOYER).all().map((l) => ligne(l).nom);
+    assert.deepEqual(noms, ['un', 'deux', 'trois'], 'ordre total, jamais indéfini');
+  });
+
+  test('le `file_id` de `rooms.media` est persisté et relu', () => {
+    db.prepare(INSERER_TELEVERSEMENT).run(...televersement({ id: 't1' }));
+    db.prepare(NOTER_FILE_ID).run('abc123', 't1');
+    const l = ligne(db.prepare(LISTER_TELEVERSEMENTS_A_ENVOYER).all()[0]);
+    assert.equal(l.file_id, 'abc123', 'sans lui, les octets repartiraient au rejeu');
+  });
+
+  test('« ce fichier a-t-il déjà été posté ? » se lit dans `pieces_jointes`, sans réseau', () => {
+    // Le message que le serveur a créé au `mediaConfirm` dont on a perdu la
+    // réponse : livré par le stream DDP comme n'importe quel autre.
+    db.prepare(UPSERT_MESSAGE).run(
+      ...msg({
+        id: 'm1',
+        misAJourLe: 5,
+        piecesJointes: JSON.stringify([
+          { title: 'photo.jpg', title_link: '/file-upload/abc123/photo.jpg' },
+        ]),
+      }),
+    );
+
+    assert.ok(
+      db.prepare(MESSAGE_AVEC_FICHIER).get('rid-1', 'abc123') !== undefined,
+      'le fileId est dans le title_link de la pièce jointe',
+    );
+    assert.equal(
+      db.prepare(MESSAGE_AVEC_FICHIER).get('rid-1', 'jamais-vu'),
+      undefined,
+      'un fichier non posté ne doit pas faire croire à un doublon',
+    );
+    assert.equal(
+      db.prepare(MESSAGE_AVEC_FICHIER).get('autre-salon', 'abc123'),
+      undefined,
+      'la recherche est bornée au salon',
+    );
+  });
+
+  test('le rejeu liste dans l’ordre de création, pas dans celui de l’id', () => {
+    db.prepare(INSERER_TELEVERSEMENT).run(...televersement({ id: 'zzz', nom: 'premier', creeLe: 1000 }));
+    db.prepare(INSERER_TELEVERSEMENT).run(...televersement({ id: 'aaa', nom: 'second', creeLe: 2000 }));
+    const noms = db.prepare(LISTER_TELEVERSEMENTS_A_ENVOYER).all().map((l) => ligne(l).nom);
+    assert.deepEqual(noms, ['premier', 'second']);
+  });
+
+  test('marquer en échec une ligne inconnue ne crée rien', () => {
+    db.prepare(MARQUER_TELEVERSEMENT_ECHEC).run('oups', 'fantome');
+    assert.equal(db.prepare(LISTER_TELEVERSEMENTS_A_ENVOYER).all().length, 0);
   });
 });
 

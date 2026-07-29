@@ -14,7 +14,7 @@ import type { TransportUpload } from '../lib/upload.ts';
 import { signalerFinUpload } from './sondeUpload.ts';
 
 function transportExpoAvec(champ: string): TransportUpload {
-  return async (url, entetes, fichier, surProgression) => {
+  return async (url, entetes, fichier, surProgression, surAnnulable) => {
     // Un fichier de cache purgé par l'OS (kill entre la sélection et le rejeu)
     // n'est PAS une panne réseau : erreur franche → statut « échec »,
     // abandonnable — pas une attente éternelle.
@@ -40,6 +40,11 @@ function transportExpoAvec(champ: string): TransportUpload {
         }
       },
     );
+    // Remonté AVANT le premier octet : « Abandonner » doit pouvoir mordre dès
+    // le début, sinon les octets continuent de monter après le geste et le
+    // fichier finit par apparaître dans le salon.
+    surAnnulable?.(() => tache.cancelAsync());
+
     let resultat;
     try {
       resultat = await tache.uploadAsync();

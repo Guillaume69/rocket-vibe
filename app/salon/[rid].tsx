@@ -51,7 +51,9 @@ import { BandeauReponse } from '../../ui/bandeauReponse.tsx';
 import { useBrouillon } from '../../ui/brouillons.ts';
 import { estRejetArbreDeVues, lancerSelecteurAvecReprise } from '../../ui/lancerSelecteur.ts';
 import { annulerReponse, useReponse } from '../../ui/reponse.ts';
+import { supprimerSiTemporaire } from '../../ui/fichiersTemporaires.ts';
 import { compresserImageSiUtile } from '../../ui/preparerPieceJointe.ts';
+import { useProgressionFichiers } from '../../ui/progressionFichiers.ts';
 import { demanderSource, feuilleEstMontee } from '../../ui/sourcePieceJointe.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
 import { BandeauCompletionEmoji, useCompletionEmoji } from '../../ui/completionEmoji.tsx';
@@ -242,13 +244,21 @@ function Salon({
     base.select().from(sortie).where(eq(sortie.rid, rid)),
     [rid],
   );
-  // Téléversements en échec : sans surface UI, une ligne morte (fichier de
-  // cache purgé, refus serveur) serait rejouée à vie, invisiblement.
+  // TOUS les téléversements de ce salon, quel que soit leur statut.
+  //
+  // Le filtre `statut === 'echec'` d'avant laissait un trou béant : un fichier
+  // envoyé hors ligne reste `en-attente`, `envoyer()` résout normalement — donc
+  // l'aperçu, le brouillon et la citation se vident — et l'écran ne montrait
+  // RIEN. La photo disparaissait sans le moindre signe ; l'utilisateur la
+  // renvoyait, il en avait deux.
   const { data: lignesTeleversements } = useRequeteVive(
     base.select().from(televersements).where(eq(televersements.rid, rid)),
     [rid],
   );
-  const televersementsEnEchec = (lignesTeleversements ?? []).filter((t) => t.statut === 'echec');
+  const fichiersEnCours = lignesTeleversements ?? [];
+  // La fraction d'avancement ne vit qu'en mémoire du moteur : aucune écriture
+  // SQLite ne la porte, donc `useRequeteVive` ne la verrait jamais bouger.
+  const progressions = useProgressionFichiers(fichiers);
   // Les décisions (pagination) se prennent sur la valeur FRAÎCHE ; seul
   // l'affichage est lissé.
   const fraiches = useMemo(() => brutes ?? [], [brutes]);
@@ -649,19 +659,39 @@ function Salon({
           contentContainerStyle={styles.contenu}
         />
       )}
-      {televersementsEnEchec.map((tele) => (
-        <View key={tele.id} style={styles.bandeEchecFichier}>
-          <Text style={[styles.heure, { color: c.texteErreur }]} numberOfLines={1}>
-            {t('salon.fichierNonEnvoye', { nom: tele.nom })}
-          </Text>
-          <Pressable onPress={() => void fichiers.traiter()}>
-            <Text style={[styles.heure, { color: c.accent }]}>{t('salon.reessayer')}</Text>
-          </Pressable>
-          <Pressable onPress={() => void fichiers.abandonner(tele.id)}>
-            <Text style={[styles.heure, { color: c.attenue }]}>{t('salon.abandonner')}</Text>
-          </Pressable>
-        </View>
-      ))}
+      {fichiersEnCours.map((tele) => {
+        const enEchec = tele.statut === 'echec';
+        const libelle = enEchec
+          ? t('salon.fichierNonEnvoye', { nom: tele.nom })
+          : tele.statut === 'envoi'
+            ? t('salon.fichierEnvoi', {
+                nom: tele.nom,
+                pourcent: String(Math.round((progressions.get(tele.id) ?? 0) * 100)),
+              })
+            : t('salon.fichierEnAttente', { nom: tele.nom });
+        return (
+          <View key={tele.id} style={styles.bandeEchecFichier}>
+            <Text
+              style={[styles.heure, { color: enEchec ? c.texteErreur : c.attenue }]}
+              numberOfLines={1}
+            >
+              {libelle}
+            </Text>
+            {/* « Réessayer » n'a de sens que sur un échec — et il lui faut
+                l'id : le rejeu automatique ne voit plus les lignes en échec,
+                un simple `traiter()` passerait à côté. Une ligne `en-attente`
+                ou `envoi`, elle, part déjà toute seule. */}
+            {enEchec && (
+              <Pressable onPress={() => void fichiers.reessayer(tele.id)}>
+                <Text style={[styles.heure, { color: c.accent }]}>{t('salon.reessayer')}</Text>
+              </Pressable>
+            )}
+            <Pressable onPress={() => void fichiers.abandonner(tele.id, tele.uri)}>
+              <Text style={[styles.heure, { color: c.attenue }]}>{t('salon.abandonner')}</Text>
+            </Pressable>
+          </View>
+        );
+      })}
       {/* Une réponse de FIL refusée n'a aucune ligne dans ce flux (filtrée par
           fil_id) : sans ce bandeau, son échec ne serait visible qu'en
           rouvrant le fil exact — silencieusement jamais, en pratique. */}
@@ -793,7 +823,16 @@ function Composer({
 
   // Le back retire l'aperçu en attente au lieu de quitter le salon — sinon on
   // perd le salon ET la pièce jointe préparée.
-  const retirerEnAttente = useCallback(() => setEnAttente(null), []);
+  // Retirer l'aperçu efface AUSSI le fichier : aucune ligne de téléversement
+  // ne l'a jamais connu, donc le ménage de la file ne l'atteindrait jamais.
+  // `supprimerSiTemporaire` ne touche que le cache de l'app — jamais la photo
+  // que l'utilisateur a désignée en place.
+  // L'effacement est HORS de l'updater : React peut rejouer un updater, et une
+  // suppression de fichier n'est pas rejouable.
+  const retirerEnAttente = useCallback(() => {
+    if (enAttente !== null) void supprimerSiTemporaire(enAttente.uri);
+    setEnAttente(null);
+  }, [enAttente]);
   useRetourMateriel(enAttente !== null, retirerEnAttente);
 
   // Cible de réponse (citation), armée par la feuille d'actions (appui long →
@@ -826,9 +865,11 @@ function Composer({
       setErreurFichier(null);
       setEnvoiFichier(true);
       // `fichiers.envoyer` valide (taille/type), persiste l'intention puis
-      // téléverse ; il ne REJETTE que sur un refus de validation — un échec
-      // réseau devient une ligne d'échec actionnable (bandeau du salon). On ne
-      // vide donc l'aperçu qu'au succès, sinon le fichier serait perdu sans trace.
+      // téléverse ; il ne REJETTE que sur un refus de validation. Tout le
+      // reste — refus serveur ET réseau injoignable — devient une ligne du
+      // bandeau ci-dessus, désormais affichée QUEL QUE SOIT son statut : un
+      // envoi hors ligne reste `en-attente` et n'aurait été visible nulle part.
+      // On ne vide donc l'aperçu qu'au succès, sinon le fichier serait perdu.
       fichiers
         .envoyer(rid, enAttente, texteAEnvoyer || undefined)
         .then(() => {
@@ -917,11 +958,21 @@ function Composer({
   const poserPieceJointe = useCallback(async (brut: FichierEnAttente) => {
     setEnvoiFichier(true);
     try {
-      setEnAttente(await compresserImageSiUtile(brut));
+      const pret = await compresserImageSiUtile(brut);
+      // La compression a écrit un JPEG neuf : l'original copié par le picker
+      // ne sert plus à rien. Et choisir une SECONDE pièce sans envoyer la
+      // première abandonnait la sienne de la même façon.
+      if (pret.uri !== brut.uri) void supprimerSiTemporaire(brut.uri);
+      // Choisir une SECONDE pièce sans envoyer la première abandonnait la
+      // sienne : aucune ligne SQL ne l'avait jamais connue.
+      if (enAttente !== null && enAttente.uri !== pret.uri) {
+        void supprimerSiTemporaire(enAttente.uri);
+      }
+      setEnAttente(pret);
     } finally {
       setEnvoiFichier(false);
     }
-  }, []);
+  }, [enAttente]);
 
   // Referme la feuille « joindre », restée ouverte pendant le sélecteur. Le
   // garde n'est pas décoratif : sans lui, si l'usager a balayé la feuille entre

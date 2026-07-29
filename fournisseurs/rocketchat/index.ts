@@ -69,8 +69,20 @@ export function creerFournisseurRC(
       depot: DepotTeleversements,
       transport: TransportUpload,
       ingerer: Ingerer,
+      crochets?: {
+        supprimerFichierLocal?: (uri: string) => Promise<void>;
+        rafraichirSalon?: (rid: string) => Promise<void>;
+      },
     ): OutboxFichiers {
-      return new MoteurTeleversement({ depot, client, transport, genererId, ingerer });
+      return new MoteurTeleversement({
+        depot,
+        client,
+        transport,
+        genererId,
+        ingerer,
+        supprimerFichierLocal: crochets?.supprimerFichierLocal,
+        rafraichirSalon: crochets?.rafraichirSalon,
+      });
     },
     rattraperGlobal: (moteur, estAbandonne) => rattraperGlobal(client, moteur, estAbandonne),
     rattraperSalon: (moteur, rid, estAbandonne) =>

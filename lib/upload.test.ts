@@ -3,9 +3,10 @@ import { describe, test } from 'node:test';
 
 import { ClientRest } from './rest.ts';
 import {
+  confirmerMedia,
   definirAvatar,
   ErreurUpload,
-  televerser,
+  televerserOctets,
   urlAvatar,
   urlFichierProtege,
   type TransportUpload,
@@ -30,46 +31,31 @@ function clientAuthentifie(reponsesPost: Record<string, unknown>) {
 
 const fichier = { uri: 'file:///x/mini.png', nom: 'mini.png', type: 'image/png' };
 
-describe('televerser', () => {
-  test('media PUIS mediaConfirm : le message confirmé est rendu', async () => {
+describe('televerserOctets', () => {
+  test('poste sur rooms.media, authentifié, et rend le fileId — SANS rien confirmer', async () => {
     const appels: string[] = [];
     const transport: TransportUpload = async (url, entetes) => {
       appels.push(url);
       assert.equal(entetes['X-Auth-Token'], 'jeton-alice', "l'upload est authentifié");
       return { statut: 200, corps: JSON.stringify({ file: { _id: 'f1' }, success: true }) };
     };
-    const { client, posts } = clientAuthentifie({
-      'rooms.mediaConfirm/r1/f1': { success: true, message: { _id: 'm1', rid: 'r1' } },
-    });
+    const { client, posts } = clientAuthentifie({});
 
-    const message = await televerser({ client, transport, rid: 'r1', fichier, message: 'légende' });
+    const fileId = await televerserOctets({ client, transport, rid: 'r1', fichier });
 
     assert.deepEqual(appels, ['http://x/api/v1/rooms.media/r1']);
-    assert.equal(posts[0]?.chemin, 'rooms.mediaConfirm/r1/f1', 'SANS confirm, fichier orphelin');
-    assert.deepEqual(posts[0]?.corps, { msg: 'légende' });
-    assert.equal(message._id, 'm1');
+    assert.equal(fileId, 'f1', 'c’est LUI qu’on persiste avant d’aller plus loin');
+    assert.equal(posts.length, 0, 'les deux temps sont bien séparés');
   });
 
-  test('sans légende, le corps du confirm est VIDE (additionalProperties: false)', async () => {
-    const transport: TransportUpload = async () => ({
-      statut: 200,
-      corps: JSON.stringify({ file: { _id: 'f1' } }),
-    });
-    const { client, posts } = clientAuthentifie({
-      'rooms.mediaConfirm/r1/f1': { success: true, message: { _id: 'm1' } },
-    });
-    await televerser({ client, transport, rid: 'r1', fichier });
-    assert.deepEqual(posts[0]?.corps, {});
-  });
-
-  test('un refus de rooms.media est une erreur claire, et AUCUN confirm ne part', async () => {
+  test('un refus de rooms.media est une erreur claire', async () => {
     const transport: TransportUpload = async () => ({
       statut: 413,
       corps: JSON.stringify({ success: false, error: 'File too large' }),
     });
     const { client, posts } = clientAuthentifie({});
     await assert.rejects(
-      televerser({ client, transport, rid: 'r1', fichier }),
+      televerserOctets({ client, transport, rid: 'r1', fichier }),
       (e: unknown) => e instanceof ErreurUpload && e.message === 'File too large',
     );
     assert.equal(posts.length, 0);
@@ -78,7 +64,52 @@ describe('televerser', () => {
   test('une réponse non JSON (reverse proxy) ne plante pas en TypeError', async () => {
     const transport: TransportUpload = async () => ({ statut: 502, corps: '<html>bad gateway' });
     const { client } = clientAuthentifie({});
-    await assert.rejects(televerser({ client, transport, rid: 'r1', fichier }), ErreurUpload);
+    await assert.rejects(televerserOctets({ client, transport, rid: 'r1', fichier }), ErreurUpload);
+  });
+
+  test('l’interrupteur de la tâche est remonté à l’appelant', async () => {
+    let annuler: (() => Promise<void>) | null = null;
+    let annule = false;
+    const transport: TransportUpload = async (_u, _e, _f, _p, surAnnulable) => {
+      surAnnulable?.(async () => void (annule = true));
+      return { statut: 200, corps: JSON.stringify({ file: { _id: 'f1' } }) };
+    };
+    const { client } = clientAuthentifie({});
+    await televerserOctets({
+      client,
+      transport,
+      rid: 'r1',
+      fichier,
+      surAnnulable: (a) => void (annuler = a),
+    });
+    assert.notEqual(annuler, null, 'sans lui, « Abandonner » ne serait qu’un DELETE');
+    await (annuler as unknown as () => Promise<void>)();
+    assert.ok(annule);
+  });
+});
+
+describe('confirmerMedia', () => {
+  test('c’est mediaConfirm qui CRÉE le message — rooms.media seul laisse un orphelin', async () => {
+    const { client, posts } = clientAuthentifie({
+      'rooms.mediaConfirm/r1/f1': { success: true, message: { _id: 'm1', rid: 'r1' } },
+    });
+    const message = await confirmerMedia({ client, rid: 'r1', fileId: 'f1', message: 'légende' });
+    assert.equal(posts[0]?.chemin, 'rooms.mediaConfirm/r1/f1');
+    assert.deepEqual(posts[0]?.corps, { msg: 'légende' });
+    assert.equal(message._id, 'm1');
+  });
+
+  test('sans légende, le corps est VIDE (additionalProperties: false)', async () => {
+    const { client, posts } = clientAuthentifie({
+      'rooms.mediaConfirm/r1/f1': { success: true, message: { _id: 'm1' } },
+    });
+    await confirmerMedia({ client, rid: 'r1', fileId: 'f1' });
+    assert.deepEqual(posts[0]?.corps, {}, 'le serveur refuserait toute clé en trop');
+  });
+
+  test('une confirmation sans message est une erreur, pas un succès silencieux', async () => {
+    const { client } = clientAuthentifie({ 'rooms.mediaConfirm/r1/f1': { success: true } });
+    await assert.rejects(confirmerMedia({ client, rid: 'r1', fileId: 'f1' }), ErreurUpload);
   });
 });
 

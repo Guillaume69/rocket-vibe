@@ -61,8 +61,15 @@ import {
   effacerClePriveeE2E,
   enregistrerClePriveeE2E,
   lireClePriveeE2E,
+  purgerCleE2EHeritee,
+  retenirJetonPush,
 } from '../lib/sessionStore.ts';
+import { oublierDisponibiliteAppel } from '../lib/appel.ts';
+import { oublierFichesProfil } from '../lib/profilPreload.ts';
+import { oublierEtatNotifications } from './etatNotifications.ts';
 import { traduireCourant } from './i18n.ts';
+import { oublierReponses } from './reponse.ts';
+import { oublierIdentites } from './storeIdentites.ts';
 import { useSession } from './session.tsx';
 import { brancherSondeUpload } from './sondeUpload.ts';
 import { oublierFilsCharges } from './filsCharges.ts';
@@ -171,17 +178,25 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       await migrerBase(session.baseUrl, session.userId);
       if (abandonne) return;
       // Moteur E2EE (lecture) : déchiffre au fil de l'ingestion dès qu'une clé
-      // de salon est disponible. La clé privée est rangée au Keystore PAR
-      // SERVEUR (comme la session) — d'où l'adaptateur lié à `baseUrl`.
+      // de salon est disponible. La clé privée est rangée au Keystore par
+      // (SERVEUR, COMPTE) — comme la base SQLite juste au-dessus, et pour la
+      // même raison : c'est une donnée du compte. Indexée par serveur seul,
+      // elle était réimportée pour le compte SUIVANT, qui se croyait alors
+      // déverrouillé sans rien pouvoir lire.
       const e2e = new MoteurE2E({
         client,
         uid: session.userId, // sel PBKDF2 des clés privées héritées (v1)
         stockage: {
-          lire: () => lireClePriveeE2E(session.baseUrl),
-          enregistrer: (jwk) => enregistrerClePriveeE2E(session.baseUrl, jwk),
-          effacer: () => effacerClePriveeE2E(session.baseUrl),
+          lire: () => lireClePriveeE2E(session.baseUrl, session.userId),
+          enregistrer: (jwk) => enregistrerClePriveeE2E(session.baseUrl, session.userId, jwk),
+          effacer: () => effacerClePriveeE2E(session.baseUrl, session.userId),
         },
       });
+      // L'entrée de l'ancien format ne sera plus jamais lue — mais elle porte
+      // un JWK RSA DÉCHIFFRÉ, et le Keystore n'énumère pas ses clés : si on ne
+      // l'efface pas ici, plus rien ne saura la retrouver. Tir-et-oublie : un
+      // Keystore qui refuse une suppression ne doit pas retenir le démarrage.
+      void purgerCleE2EHeritee(session.baseUrl).catch(() => {});
       const moteur = new MoteurSynchro(
         creerDepot(brute, fileEcritures),
         fournisseur.traducteur,
@@ -203,7 +218,14 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           // `stream-room-messages` pour l'avoir livré. Sans ce rattrapage
           // ciblé, on re-confirmerait, et le serveur poste alors un DOUBLON
           // (sondé sur 8.5 : il répond 200 en rendant le premier message).
-          rafraichirSalon: (rid) => fournisseur.rattraperSalon(moteur, rid, () => false),
+          // `estAbandonne`, et non `() => false` : une passe de rattrapage
+          // n'abandonne que si TOUS ses demandeurs ont lâché
+          // (`lib/rattrapage.ts`). Avec un prédicat toujours faux, celle-ci ne
+          // pouvait JAMAIS s'arrêter — elle continuait de paginer
+          // `chat.syncMessages` avec un jeton mort après la déconnexion, sur
+          // une route plafonnée à 10 appels/min, et écrivait dans la base du
+          // compte quitté. Elle contaminait en plus toute demande fondue dedans.
+          rafraichirSalon: (rid) => fournisseur.rattraperSalon(moteur, rid, estAbandonne),
         },
       );
       const envoi = fournisseur.creerEnvoi(creerDepotEnvoi(brute, fileEcritures), async (doc) => {
@@ -283,7 +305,18 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       e2e
         .reprendre()
         .then(async (ok) => {
-          if (!ok) return;
+          if (!ok) {
+            // Verrouillé, et pourtant la base peut porter du clair E2E : celui
+            // qu'une session déverrouillée y a écrit. Le cas se produit pour de
+            // bon depuis que la clé privée est indexée par COMPTE — l'entrée
+            // de l'ancien format n'est plus lue, donc la reprise échoue une
+            // fois, et l'app affichait alors du clair tout en se déclarant
+            // verrouillée. Le `chiffreBrut` est conservé : le masquage est
+            // exactement ce que fait le bouton « Verrouiller », donc réversible.
+            await moteur.reverrouillageE2E();
+            if (!abandonne) rafraichirE2E();
+            return;
+          }
           await moteur.deverrouillageE2E();
           if (!abandonne) rafraichirE2E();
         })
@@ -375,6 +408,11 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
                 if (r.raison === 'echec') jetonPushEnregistre = false;
                 return undefined;
               }
+              // Retenu au Keystore À L'ENREGISTREMENT : c'est la déconnexion
+              // qui en aura besoin, et elle ne doit pas le redemander à FCM —
+              // `obtenirJetonFcm` demande la permission système au passage, et
+              // ne rend rien sur un appareil sans Play Services.
+              void retenirJetonPush(r.jeton).catch(() => {});
               return enregistrerJeton(client, r.jeton, 'gcm');
             })
             .catch(() => {
@@ -468,7 +506,23 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         if (ddp.etat !== 'ferme') ddp.verifierVie().catch(() => {});
         reconnecteur?.declencher();
       });
-      surAbandon = () => aboAppState.remove();
+      surAbandon = () => {
+        aboAppState.remove();
+        // Le clair E2E ne survit pas à la fin de session. `deverrouillageE2E`
+        // écrit le texte déchiffré dans la colonne `texte` (lib/sync.ts), et le
+        // projet reconnaît déjà que ce clair doit pouvoir disparaître — c'est
+        // le bouton « Verrouiller ». Il était incohérent que le geste le plus
+        // fort, la déconnexion, protège moins que le plus faible.
+        //
+        // Ici plutôt que dans `deconnecter()` : le moteur et sa file
+        // d'écritures vivent dans cette portée. La connexion SQLite, elle,
+        // reste ouverte pour la durée du process (db/client.ts), donc cette
+        // écriture-là ne court sous personne — la file la sérialise derrière
+        // les transactions en vol. Tir-et-oublie : un cleanup ne peut pas
+        // attendre, et le masquage se rejoue de toute façon au démarrage
+        // suivant tant qu'on est verrouillé.
+        void moteur.reverrouillageE2E().catch(() => {});
+      };
     })().catch((e: unknown) => {
       // Ici, même la base locale n'est pas utilisable : écran d'erreur.
       if (!abandonne) {
@@ -497,6 +551,18 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       // Et les salons qu'on gardait à l'écoute après en être sorti : leurs
       // souscriptions ne valent plus rien sur une socket qu'on ferme.
       libererSalonsChauds();
+      // La règle « tout store de module se purge en fin de session », sans
+      // exception cette fois. Chacun de ceux-ci laissait passer une donnée du
+      // compte quitté vers le suivant : le permalien d'une citation en suspens
+      // (qui embarque l'ANCIENNE baseUrl), les pseudos et les versions de photo
+      // — dont un etag périmé fait resservir l'ancienne image par le cache
+      // d'Android —, le verdict de disponibilité des appels, la liste des
+      // salons chiffrés et le badge d'icône, et les fiches de profil brutes.
+      oublierReponses();
+      oublierIdentites();
+      oublierDisponibiliteAppel();
+      oublierEtatNotifications();
+      oublierFichesProfil();
       ddp.fermer();
       ddp.reinitialiser();
     };

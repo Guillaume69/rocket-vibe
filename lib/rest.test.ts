@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { after, before, beforeEach, describe, test } from 'node:test';
 
-import { ClientRest, ErreurDeuxFacteurs, ErreurRest } from './rest.ts';
+import { ClientRest, ErreurDeuxFacteurs, ErreurRest, estJetonRefuse } from './rest.ts';
 
 type Poignee = (req: IncomingMessage, res: ServerResponse) => void;
 
@@ -439,5 +439,215 @@ describe('ClientRest', () => {
 
   test('la barre finale de baseUrl est normalisée', () => {
     assert.equal(new ClientRest('http://x:3000///').baseUrl, 'http://x:3000');
+  });
+});
+
+/**
+ * Le prédicat qui autorise une déconnexion automatique. Écrit et éprouvé AVANT
+ * d'être branché : c'est le seul garde-fou contre le vrai danger de ce
+ * chantier — éjecter un utilisateur dont la session est parfaitement valide.
+ *
+ * Les valeurs de statut ci-dessous ne sont pas choisies : elles sont celles
+ * relevées contre un Rocket.Chat 8.5 (banc local, 30/07/2026).
+ */
+describe('estJetonRefuse', () => {
+  /** Ce que `ClientRest` construit quand il a LU l'enveloppe Rocket.Chat. */
+  const duServeur = (statut: number, erreur?: string, errorType?: string) =>
+    new ErreurRest(erreur ?? 'x', statut, erreur, errorType, true);
+
+  test('un 401 du serveur applicatif est un jeton refusé', () => {
+    // Le corps exact d'un jeton révoqué par `logout`, relevé sur 8.5.
+    assert.equal(estJetonRefuse(duServeur(401, 'You must be logged in to do this.')), true);
+  });
+
+  test('un défi 2FA n’est PAS un jeton refusé', () => {
+    // `ErreurDeuxFacteurs` se DÉCLARE 401 quel que soit le statut HTTP réel —
+    // et sur 8.5 une opération sensible en cours de session (users.update)
+    // répond 400. Sans cette exclusion, changer son mot de passe déconnectait.
+    assert.equal(estJetonRefuse(new ErreurDeuxFacteurs('password', ['password'], false)), false);
+  });
+
+  test('un échec réseau (statut 0) n’est PAS un jeton refusé', () => {
+    // C'est la moitié du chantier : hors ligne n'est pas révoqué. Un client
+    // mobile passe sa vie sans réseau ; jeter la session pour ça serait pire
+    // que l'état zombie qu'on corrige.
+    assert.equal(estJetonRefuse(new ErreurRest('serveur injoignable.', 0)), false);
+  });
+
+  test('une erreur d’un autre transport (DDP) n’est PAS un jeton refusé', () => {
+    class ErreurDdp extends Error {}
+    assert.equal(estJetonRefuse(new ErreurDdp('Message refusé')), false);
+    assert.equal(estJetonRefuse(new Error('boum')), false);
+    assert.equal(estJetonRefuse('401'), false);
+    assert.equal(estJetonRefuse(null), false);
+    assert.equal(estJetonRefuse(undefined), false);
+  });
+
+  test('un 401 dont le corps n’est PAS du Rocket.Chat est ignoré', () => {
+    // Le proxy d'entreprise, le portail captif, le ballast de maintenance :
+    // ils répondent 401 en HTML. `ClientRest` lève alors sans `reponseComprise`
+    // (branche « réponse non JSON »), et ce statut est le LEUR.
+    assert.equal(estJetonRefuse(new ErreurRest('réponse non JSON (401, 812 octets).', 401)), false);
+  });
+
+  test('les refus que 8.5 rend AUTREMENT qu’en 401 sont ignorés', () => {
+    // Relevés un par un sur le banc. Chacun survient en session parfaitement
+    // valide, et chacun aurait éjecté l'utilisateur si on s'était contenté de
+    // « le serveur a dit non ».
+    assert.equal(estJetonRefuse(duServeur(403, 'User does not have the permissions required for this action [error-unauthorized]')), false);
+    assert.equal(estJetonRefuse(duServeur(400, 'Not allowed [error-not-allowed]', 'error-not-allowed')), false);
+    assert.equal(estJetonRefuse(duServeur(400, 'does not match any channel [error-room-not-found]', 'error-room-not-found')), false);
+    assert.equal(estJetonRefuse(duServeur(404, 'Not Found')), false);
+    assert.equal(estJetonRefuse(duServeur(429, 'too many requests')), false);
+    assert.equal(estJetonRefuse(duServeur(500, 'boum')), false);
+  });
+});
+
+describe('ClientRest — signalement du jeton refusé', () => {
+  test('un 401 du serveur signale le jeton RÉELLEMENT envoyé', async () => {
+    poignee = (_req, res) =>
+      repondre(res, 401, {
+        success: false,
+        error: 'You must be logged in to do this.',
+        status: 'error',
+        message: 'You must be logged in to do this.',
+      });
+    const c = client();
+    c.identifiants = { authToken: 'jeton-a', userId: 'u1' };
+    const signales: string[] = [];
+    c.surJetonRefuse = (j) => signales.push(j);
+
+    await assert.rejects(c.get('chat.syncMessages'));
+    assert.deepEqual(signales, ['jeton-a']);
+  });
+
+  test('le jeton signalé est celui du DÉPART, pas celui de l’arrivée', async () => {
+    // La course réelle : déconnexion puis reconnexion pendant que la requête
+    // volait. Signaler le jeton courant ferait effacer la session TOUTE NEUVE.
+    const c = client();
+    c.identifiants = { authToken: 'ancien', userId: 'u1' };
+    poignee = (_req, res) => {
+      c.identifiants = { authToken: 'tout-neuf', userId: 'u1' };
+      repondre(res, 401, { success: false, error: 'You must be logged in to do this.' });
+    };
+    const signales: string[] = [];
+    c.surJetonRefuse = (j) => signales.push(j);
+
+    await assert.rejects(c.get('me'));
+    assert.deepEqual(signales, ['ancien'], 'l’appelant doit pouvoir reconnaître un 401 périmé');
+  });
+
+  test('un appel ANONYME ne signale rien : il n’a pas envoyé de jeton', async () => {
+    // `settings.public`, `/api/info`, le login lui-même. Leur 401 ne dit rien
+    // de la session — et au login il n'y en a même pas encore.
+    poignee = (_req, res) => repondre(res, 401, { success: false, error: 'unauthorized' });
+    const c = client();
+    c.identifiants = { authToken: 'jeton-a', userId: 'u1' };
+    let signale = 0;
+    c.surJetonRefuse = () => signale++;
+
+    await assert.rejects(c.get('settings.public', { anonyme: true }));
+    assert.equal(signale, 0);
+  });
+
+  test('un défi 2FA en cours de session ne signale rien', async () => {
+    // Sondé sur 8.5 : `users.update` sans code répond **400** `totp-required`.
+    poignee = (_req, res) =>
+      repondre(res, 400, {
+        success: false,
+        error: 'TOTP Required [totp-required]',
+        errorType: 'totp-required',
+        details: { method: 'password', codeGenerated: false, availableMethods: [] },
+      });
+    const c = client();
+    c.identifiants = { authToken: 'jeton-a', userId: 'u1' };
+    let signale = 0;
+    c.surJetonRefuse = () => signale++;
+
+    await assert.rejects(c.post('users.update'), (e: unknown) => e instanceof ErreurDeuxFacteurs);
+    assert.equal(signale, 0, 'changer son mot de passe ne doit pas déconnecter');
+  });
+
+  test('un 401 JSON qui n’est PAS du Rocket.Chat ne signale rien', async () => {
+    // Une passerelle d'API répond volontiers `{"message":"Unauthorized"}` :
+    // ça parse, donc « on a lu du JSON » ne prouve rien. Ce qu'il faut, c'est
+    // la marque de l'enveloppe maison — `success`, `status`, `errorType`.
+    poignee = (_req, res) => repondre(res, 401, { message: 'Unauthorized' });
+    const c = client();
+    c.identifiants = { authToken: 'jeton-a', userId: 'u1' };
+    let signale = 0;
+    c.surJetonRefuse = () => signale++;
+
+    await assert.rejects(c.get('me'), (e: unknown) => {
+      assert.ok(e instanceof ErreurRest);
+      assert.equal(e.reponseComprise, false);
+      return true;
+    });
+    assert.equal(signale, 0);
+  });
+
+  test('un 401 de LOGIN porte bien l’enveloppe — mais l’appel est anonyme', async () => {
+    // Sondé sur 8.5 : un mauvais mot de passe rend
+    // `{"success":false,"error":"Unauthorized","status":"error"}` en 401. C'est
+    // une enveloppe Rocket.Chat parfaitement valide : seule la garde `anonyme`
+    // empêche une saisie ratée de détruire la session en cours.
+    poignee = (_req, res) =>
+      repondre(res, 401, { success: false, error: 'Unauthorized', status: 'error' });
+    const c = client();
+    c.identifiants = { authToken: 'jeton-a', userId: 'u1' };
+    let signale = 0;
+    c.surJetonRefuse = () => signale++;
+
+    await assert.rejects(c.post('login', { anonyme: true, corps: { user: 'x', password: 'y' } }));
+    assert.equal(signale, 0);
+  });
+
+  test('un 401 en HTML (proxy) ne signale rien', async () => {
+    poignee = (_req, res) => {
+      res.writeHead(401, { 'content-type': 'text/html' });
+      res.end('<html><body>401 Authorization Required</body></html>');
+    };
+    const c = client();
+    c.identifiants = { authToken: 'jeton-a', userId: 'u1' };
+    let signale = 0;
+    c.surJetonRefuse = () => signale++;
+
+    await assert.rejects(c.get('me'), (e: unknown) => {
+      assert.ok(e instanceof ErreurRest);
+      assert.equal(e.statut, 401, 'le statut du proxy est bien conservé…');
+      assert.equal(e.reponseComprise, false, '…mais il ne vient pas du serveur applicatif');
+      return true;
+    });
+    assert.equal(signale, 0);
+  });
+
+  test('une session saine ne signale jamais rien', async () => {
+    // Les trois refus légitimes de 8.5, joués contre un vrai serveur HTTP.
+    const cas = [
+      [403, { success: false, error: 'User does not have the permissions required for this action [error-unauthorized]' }],
+      [400, { success: false, error: 'Not allowed [error-not-allowed]', errorType: 'error-not-allowed' }],
+      [500, { success: false, error: 'boum' }],
+    ] as const;
+    const c = client();
+    c.identifiants = { authToken: 'jeton-a', userId: 'u1' };
+    let signale = 0;
+    c.surJetonRefuse = () => signale++;
+
+    for (const [statut, corps] of cas) {
+      poignee = (_req, res) => repondre(res, statut, corps);
+      await assert.rejects(c.get('quelque.chose'));
+    }
+    assert.equal(signale, 0);
+  });
+
+  test('sans abonné, un 401 reste une erreur ordinaire', async () => {
+    poignee = (_req, res) => repondre(res, 401, { success: false, error: 'You must be logged in to do this.' });
+    const c = client();
+    c.identifiants = { authToken: 'jeton-a', userId: 'u1' };
+    await assert.rejects(c.get('me'), (e: unknown) => {
+      assert.ok(e instanceof ErreurRest);
+      assert.equal(e.statut, 401);
+      return true;
+    });
   });
 });

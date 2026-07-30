@@ -134,11 +134,22 @@ export function demanderCodeParEmail(client: ClientRest, emailOuNom: string): Pr
  * l'utilisateur est de fait déconnecté : propager l'erreur ferait afficher un
  * échec alors que la session locale est effacée.
  */
-export async function seDeconnecter(client: ClientRest): Promise<void> {
+/**
+ * Rend **vrai si le serveur a bien fermé la session**, faux si l'appel n'a pas
+ * abouti. L'appelant s'en sert pour mettre la déconnexion en file plutôt que
+ * de la perdre (`lib/deconnexionDifferee.ts`) : hors ligne, le jeton reste
+ * vivant côté serveur, et personne ne le savait.
+ *
+ * L'échec n'est toujours PAS relayé en exception : l'état local est déconnecté
+ * quoi qu'il arrive, un serveur injoignable ne doit pas retenir l'utilisateur
+ * sur un écran qu'il vient de quitter.
+ */
+export async function seDeconnecter(client: ClientRest): Promise<boolean> {
   try {
     await client.post('logout');
+    return true;
   } catch {
-    // Volontairement ignoré : voir ci-dessus.
+    return false;
   } finally {
     client.identifiants = null;
   }

@@ -11,17 +11,24 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { appliquerSession, reprendreSession, seDeconnecter, type Session } from '../lib/auth.ts';
+import { terminerDeconnexions } from '../lib/deconnexionDifferee.ts';
 import { definirClientProfil } from '../lib/profilPreload.ts';
-import { obtenirJetonFcm } from '../lib/push.ts';
 import { desenregistrerJeton } from '../lib/pushToken.ts';
-import { ClientRest, ErreurRest } from '../lib/rest.ts';
+import { ClientRest, estJetonRefuse } from '../lib/rest.ts';
 import {
+  ajouterDeconnexionEnSuspens,
+  effacerClePriveeE2E,
   effacerSession,
   enregistrerDernierServeur,
   enregistrerServeurConnu,
   enregistrerSession,
   lireDernierServeur,
+  lireJetonPushRetenu,
   lireSession,
+  listerDeconnexionsEnSuspens,
+  purgerCleE2EHeritee,
+  purgerToutesClesE2EHeritees,
+  retirerDeconnexionEnSuspens,
 } from '../lib/sessionStore.ts';
 
 export type EtatSession =
@@ -52,10 +59,35 @@ type ContexteSession = {
 
 const Contexte = createContext<ContexteSession | null>(null);
 
-function clientPour(session: Session): ClientRest {
+/**
+ * Point de création UNIQUE des clients de la vie courante — les trois chemins
+ * (démarrage, connexion, bascule de serveur) passent par ici. C'est ce qui
+ * permet d'y brancher la révocation une seule fois et de couvrir tous les
+ * appels de l'app, sans toucher un seul site d'appel.
+ */
+function clientPour(session: Session, surJetonRefuse: (jeton: string) => void): ClientRest {
   const client = new ClientRest(session.baseUrl);
+  client.surJetonRefuse = surJetonRefuse;
   appliquerSession(client, session);
   return client;
+}
+
+/**
+ * Tout ce qu'une session laisse au Keystore, effacé d'un bloc.
+ *
+ * Rangé ici plutôt qu'inline aux quatre sorties (déconnexion, révocation, et
+ * les deux 401 de validation) parce qu'un oubli à l'une d'elles ne se voit
+ * pas : la clé privée E2EE survivait à la déconnexion, et c'est un JWK RSA
+ * **déchiffré**. Les trois effacements sont indépendants, donc en parallèle.
+ */
+async function effacerTraces(session: Session): Promise<void> {
+  await Promise.all([
+    effacerSession(session.baseUrl),
+    effacerClePriveeE2E(session.baseUrl, session.userId),
+    // L'entrée de l'ancien format, si le balayage de démarrage ne l'a pas
+    // encore emportée : sans elle, cette fonction mentirait sur son contrat.
+    purgerCleE2EHeritee(session.baseUrl),
+  ]);
 }
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
@@ -73,8 +105,64 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     definirClientProfil(etat.phase === 'connecte' ? etat.client : null);
   }, [etat]);
 
+  /**
+   * Le serveur a refusé ce jeton EN COURS DE SESSION.
+   *
+   * Déclenché par `ClientRest.surJetonRefuse`, donc par n'importe quel appel de
+   * la vie courante — rattrapage, `chat.syncMessages`, envoi, présence. Sans
+   * lui, un jeton révoqué ailleurs (mot de passe changé, `Accounts_LoginExpiration`,
+   * `logoutOtherClients`) laissait l'app tourner sur le cache de la veille avec
+   * une barre de synchro qui bat : indiscernable d'une panne réseau, et sans
+   * aucun chemin de sortie avant un redémarrage.
+   *
+   * Deux gardes, pas une : `estJetonRefuse` a déjà écarté tout ce qui n'est pas
+   * une révocation (lib/rest.ts) ; ici on écarte le 401 **périmé**, celui qui
+   * atterrit sur un jeton déjà remplacé — déconnexion puis reconnexion pendant
+   * que la requête volait, même serveur donc même clé de stockage. Sans cette
+   * comparaison, un 401 tardif effacerait une session toute neuve.
+   *
+   * Aucun `POST /logout` : le jeton est déjà mort côté serveur, l'appeler ne
+   * ferait que reprendre un 401. On efface, et on rend l'écran de connexion.
+   */
+  const revoquer = useCallback((session: Session, jeton: string) => {
+    if (jetonCourant.current !== jeton) return;
+    void (async () => {
+      // On REGARDE avant de détruire. `connecter()` persiste la session neuve
+      // AVANT de basculer l'état, donc entre le drapeau lu ci-dessus et cette
+      // ligne, une reconnexion a pu écrire un jeton tout neuf sous la même clé
+      // — le stockage est indexé par serveur, pas par session. Effacer en
+      // aveugle emporterait cette session-là, et l'app démarrerait déconnectée
+      // alors qu'un compte valide venait d'être ouvert.
+      const stockee = await lireSession(session.baseUrl);
+      if (stockee !== null && stockee.authToken !== jeton) return;
+      await effacerTraces(session);
+      // Relu APRÈS l'attente, pour la même raison.
+      if (jetonCourant.current === jeton) setEtat({ phase: 'deconnecte' });
+    })();
+  }, []);
+
   useEffect(() => {
     let abandonne = false;
+
+    // Les déconnexions que le réseau avait interrompues. Indépendant de la
+    // session qui démarre — on peut très bien reprendre une session sur un
+    // serveur pendant qu'on solde une déconnexion sur un autre. Tir-et-oublie :
+    // rien ici ne doit retenir l'écran.
+    terminerDeconnexions(
+      { lister: listerDeconnexionsEnSuspens, retirer: retirerDeconnexionEnSuspens },
+      (entree) => {
+        const c = new ClientRest(entree.baseUrl);
+        c.identifiants = { authToken: entree.authToken, userId: entree.userId };
+        return c;
+      },
+    ).catch(() => {});
+
+    // Les clés privées E2EE de l'ANCIEN format, indexées par serveur seul. Ici
+    // et pas dans `SynchroProvider` : celui-ci ne monte que sur session active,
+    // donc il ne verrait jamais l'orpheline d'un serveur que l'utilisateur a
+    // quitté — précisément le cas que la migration doit servir.
+    purgerToutesClesE2EHeritees().catch(() => {});
+
     (async () => {
       const serveur = await lireDernierServeur();
       const session = serveur === null ? null : await lireSession(serveur);
@@ -84,7 +172,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const client = clientPour(session);
+      const client = clientPour(session, (jeton) => revoquer(session, jeton));
       setEtat({ phase: 'connecte', session, client });
 
       // Validation en arrière-plan. Un jeton révoqué répond 401 : on efface.
@@ -111,8 +199,15 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (e) {
         const perime = jetonCourant.current !== session.authToken;
-        if (abandonne || perime || !(e instanceof ErreurRest) || e.statut !== 401) return;
-        await effacerSession(session.baseUrl);
+        // `estJetonRefuse` et non un `statut === 401` nu : `reprendreSession`
+        // part en `anonyme` (le jeton voyage dans le CORPS), donc le crochet
+        // `surJetonRefuse` ne la couvre pas — cette validation garde sa propre
+        // détection, et elle doit être la même. Un 401 de proxy en HTML tombait
+        // ici en plein, et déconnectait une session valide.
+        if (abandonne || perime || !estJetonRefuse(e)) return;
+        // La clé privée E2EE part avec la session : rangée par (serveur,
+        // compte), elle n'a plus de compte à qui appartenir.
+        await effacerTraces(session);
         if (!abandonne && jetonCourant.current === session.authToken) {
           setEtat({ phase: 'deconnecte' });
         }
@@ -124,7 +219,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     return () => {
       abandonne = true;
     };
-  }, []);
+    // `revoquer` est stable (useCallback sans dépendance) : le citer ne fait
+    // pas rejouer cet effet, qui doit courir une fois et une seule.
+  }, [revoquer]);
 
   const connecter = useCallback(async (session: Session) => {
     // Persister AVANT de basculer l'UI : si l'écriture échoue, l'utilisateur
@@ -136,8 +233,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       enregistrerDernierServeur(session.baseUrl),
       enregistrerServeurConnu(session.baseUrl),
     ]);
-    setEtat({ phase: 'connecte', session, client: clientPour(session) });
-  }, []);
+    setEtat({
+      phase: 'connecte',
+      session,
+      client: clientPour(session, (jeton) => revoquer(session, jeton)),
+    });
+  }, [revoquer]);
 
   const changerDeServeur = useCallback(async (baseUrl: string) => {
     // Lire AVANT d'écrire quoi que ce soit : s'il n'y a pas de session
@@ -148,40 +249,60 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     if (session === null) return false;
 
     await enregistrerDernierServeur(baseUrl);
-    const client = clientPour(session);
+    const client = clientPour(session, (jeton) => revoquer(session, jeton));
     setEtat({ phase: 'connecte', session, client });
 
     // Même règle qu'au démarrage : validation en arrière-plan, seul un 401
     // (jeton révoqué) déconnecte — et seulement si cette session est encore
     // celle affichée.
     reprendreSession(client, session.authToken).catch(async (e: unknown) => {
-      if (
-        e instanceof ErreurRest &&
-        e.statut === 401 &&
-        jetonCourant.current === session.authToken
-      ) {
-        await effacerSession(session.baseUrl);
+      if (estJetonRefuse(e) && jetonCourant.current === session.authToken) {
+        await effacerTraces(session);
         if (jetonCourant.current === session.authToken) setEtat({ phase: 'deconnecte' });
       }
     });
     return true;
-  }, []);
+  }, [revoquer]);
 
   const deconnecter = useCallback(async () => {
     if (etat.phase !== 'connecte') return;
     const { client, session } = etat;
     setEtat({ phase: 'deconnecte' });
     try {
+      // Le jeton FCM vient du Keystore, où il a été retenu À SON ENREGISTREMENT
+      // (`ui/synchro.tsx`). Le redemander ici à `obtenirJetonFcm()` créait le
+      // canal de notification et demandait la permission POST_NOTIFICATIONS :
+      // se déconnecter pouvait faire surgir un prompt système. Et sur un
+      // appareil sans Play Services, il ne rendait rien — donc aucun `DELETE`
+      // n'était même tenté, alors que le jeton, lui, avait bien été enregistré.
+      const jetonPush = await lireJetonPushRetenu().catch(() => null);
+
       // Dé-enregistrer le jeton push AVANT le logout : l'appel exige encore
-      // l'authentification. Best-effort — un appareil sans Play Services ou
-      // hors ligne ne doit pas bloquer la déconnexion ; un 404 est un succès.
-      try {
-        const r = await obtenirJetonFcm();
-        if (r.ok) await desenregistrerJeton(client, r.jeton);
-      } catch {
-        // Volontairement ignoré.
+      // l'authentification. Un 404 est un succès (`lib/pushToken.ts`).
+      const pushRetire =
+        jetonPush === null ? true : await desenregistrerJeton(client, jetonPush).then(() => true, () => false);
+      const sessionFermee = await seDeconnecter(client);
+
+      // Ce que le réseau n'a pas laissé aboutir se rejoue au prochain
+      // démarrage. Sans cette file, un logout hors ligne laissait la session
+      // ouverte côté serveur ET le jeton push enregistré : l'appareil
+      // continuait de recevoir des « Nouveau message » fantômes pour un compte
+      // dont il n'a plus rien, jusqu'à la désinstallation.
+      if (!pushRetire || !sessionFermee) {
+        await ajouterDeconnexionEnSuspens({
+          baseUrl: session.baseUrl,
+          userId: session.userId,
+          authToken: session.authToken,
+          jetonPush: pushRetire ? null : jetonPush,
+        });
       }
-      await Promise.all([seDeconnecter(client), effacerSession(session.baseUrl)]);
+
+      // La clé privée E2EE part AVEC la session. C'est le JWK RSA déchiffré :
+      // la laisser derrière faisait que le geste le plus fort de l'app —
+      // « Se déconnecter » — protégeait moins que le bouton « Verrouiller ».
+      // EN DERNIER : la file ci-dessus a besoin du jeton, et `effacerTraces`
+      // ne le lit pas mais l'ordre rend l'intention lisible.
+      await effacerTraces(session);
     } catch {
       // L'état local est déjà déconnecté ; rien d'utile à remonter.
     }

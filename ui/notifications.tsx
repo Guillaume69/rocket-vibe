@@ -20,11 +20,9 @@ import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
 
 import { salons, abonnements } from '../db/schema.ts';
+import { estSalonChiffre, poserSalonsChiffres } from './etatNotifications.ts';
 import { traduireCourant } from './i18n.ts';
 import { useSynchro } from './synchro.tsx';
-
-/** Salons chiffrés connus — consulté par le handler global au moment d'afficher. */
-const ridsChiffres = new Set<string>();
 
 function ridDeNotification(contenu: Notifications.NotificationContent): string | null {
   const brut = (contenu.data as { ejson?: unknown } | null)?.ejson;
@@ -40,7 +38,7 @@ function ridDeNotification(contenu: Notifications.NotificationContent): string |
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     const rid = ridDeNotification(notification.request.content);
-    if (rid !== null && ridsChiffres.has(rid)) {
+    if (rid !== null && estSalonChiffre(rid)) {
       // Ne pas afficher le ciphertext : on republie un texte générique.
       Notifications.scheduleNotificationAsync({
         content: {
@@ -121,10 +119,7 @@ function SuiviBadgeEtChiffre() {
   }, [lignesAbonnements]);
 
   useEffect(() => {
-    ridsChiffres.clear();
-    for (const s of lignesSalons ?? []) {
-      if (s.chiffre) ridsChiffres.add(s.rid);
-    }
+    poserSalonsChiffres((lignesSalons ?? []).filter((s) => s.chiffre).map((s) => s.rid));
   }, [lignesSalons]);
 
   return null;

@@ -189,6 +189,16 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
       // Contenu présent dans le push (réglage désactivé, ou serveur sans plan).
       val rid = ejson.optString("rid")
       if (rid.isEmpty()) return false
+      // Plus de session pour ce serveur = l'utilisateur s'est déconnecté, et
+      // le serveur ne le sait pas encore (dé-enregistrement du jeton échoué
+      // hors ligne). Ce chemin-ci ne consultait AUCUNE session : il affichait
+      // le CONTENU COMPLET d'un message sur un appareil sans compte. On avale
+      // le push — \`true\` pour qu'expo ne poste pas sa version non plus.
+      val hoteContenu = ejson.optString("host")
+      if (hoteContenu.isNotEmpty() && lireSession(this, hoteContenu) == null) {
+        journal(this, "contenu " + rid + " : aucune session pour " + hoteContenu + " -> ignoré")
+        return true
+      }
       val titre = extras.getString("title") ?: return false
       val texte = extras.getString("message") ?: return false
       // (debug) Le serveur local n'active jamais le mode message-id-only
@@ -220,8 +230,20 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
     if (messageId.isEmpty() || host.isEmpty()) return false
 
     val session = lireSession(this, host)
-    if (session == null) journal(this, "session introuvable pour " + host)
-    val notif = session?.let { recupererContenu(this, messageId, it) }
+    // Pas de session pour cet hôte = compte déconnecté sur cet appareil. Le
+    // serveur, lui, continue de pousser : le dé-enregistrement du jeton peut
+    // avoir échoué hors ligne (voir \`lib/deconnexionDifferee.ts\`, qui le
+    // rejoue au démarrage suivant). Sans cette garde, chaque push produisait un
+    // « Nouveau message » fantôme, non annulable depuis l'app puisqu'il n'y a
+    // plus de compte — et PLUS un rattrapage WorkManager mort-né, dont la
+    // première exécution fait \`lireSession(...) ?: return Result.failure()\`
+    // sans jamais retirer la dégradée déjà posée. Elle restait donc à l'écran
+    // pour toujours. On avale : \`true\` empêche aussi expo d'en poster une.
+    if (session == null) {
+      journal(this, "id-only " + messageId + " : aucune session pour " + host + " -> ignoré")
+      return true
+    }
+    val notif = recupererContenu(this, messageId, session)
     if (notif == null) {
       journal(this, "id-only " + messageId + " : fetch KO -> dégradée + rattrapage")
       posterNotifDegradee(this, messageId)

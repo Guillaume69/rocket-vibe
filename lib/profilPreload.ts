@@ -95,6 +95,21 @@ export function lireProfilPrecharge(p: ParamsProfil): ProfilBrut | undefined {
   return cache.get(cle(p));
 }
 
+/**
+ * Fin de session / changement de serveur.
+ *
+ * Le cache retient des fiches `users.info` BRUTES — rôles, bio, fuseau, champs
+ * personnalisés — sous une clé qui ne porte ni serveur ni compte. Le chemin
+ * nominal ne peut pas les servir à un autre compte (`prechargerPuisOuvrir`
+ * réécrit l'entrée avant de pousser l'écran), mais les laisser en mémoire pour
+ * la vie du process est une résidence de données personnelles que rien ne
+ * justifie — et une course étroite suffit à les afficher.
+ */
+export function oublierFichesProfil(): void {
+  cache.clear();
+  cleEnCours = null;
+}
+
 const delai = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /** La CIBLE dont l'ouverture est en vol — voir la garde de `ouvrirFicheProfil`. */

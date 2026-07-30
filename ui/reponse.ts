@@ -7,7 +7,14 @@
  * soldée par l'envoi. Clé = `rid` pour le salon, `rid:filId` pour un fil : les
  * deux composers peuvent coexister (le fil est empilé sur le salon) sans se
  * voler la cible. Mémoire seule, volontairement : contrairement au brouillon,
- * une citation en suspens ne survit pas au redémarrage.
+ * une citation en suspens ne survit ni au redémarrage ni à la FIN DE SESSION.
+ *
+ * Le « ni à la fin de session » a longtemps été une intention, pas un fait :
+ * une déconnexion ne démonte que l'arbre React, elle n'efface pas un store de
+ * module. Le permalien retenu embarque la `baseUrl` (`lib/citation.ts`), donc
+ * le premier message tapé après reconnexion partait préfixé du permalien de la
+ * session précédente — l'ancien serveur cité dans un message posté sur le
+ * nouveau. D'où `oublierReponses`, appelé au démontage de `SynchroProvider`.
  */
 
 import { useSyncExternalStore } from 'react';
@@ -42,6 +49,13 @@ export function demanderReponse(cle: string, cible: CibleReponse): void {
 
 export function annulerReponse(cle: string): void {
   if (cibles.delete(cle)) notifier();
+}
+
+/** Fin de session / changement de serveur : aucune citation ne traverse. */
+export function oublierReponses(): void {
+  if (cibles.size === 0) return;
+  cibles.clear();
+  notifier();
 }
 
 function souscrire(relire: () => void): () => void {

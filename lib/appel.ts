@@ -21,7 +21,7 @@
  * Module sans `react-native` : il ne dépend que du client REST, comme `rest.ts`.
  */
 
-import { ErreurRest } from './rest.ts';
+import { ErreurRest, estJetonRefuse } from './rest.ts';
 import type { ClientRest } from './rest.ts';
 
 const chaine = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
@@ -68,6 +68,9 @@ export async function rejoindreConference(
  * Une panne réseau (`statut === 0`) est incertaine → on ne la mémoïse pas, la
  * prochaine ouverture de salon retentera. En cas de doute, on renvoie `false` :
  * mieux vaut un bouton qui manque qu'un bouton qui échoue au tap.
+ *
+ * « Par session » n'était pas tenu : le store est au niveau module, donc c'était
+ * par PROCESS. D'où `oublierDisponibiliteAppel`, appelé en fin de session.
  */
 const dispoParServeur = new Map<string, boolean>();
 
@@ -79,9 +82,19 @@ export async function sonderAppelDisponible(client: ClientRest): Promise<boolean
     dispoParServeur.set(client.baseUrl, true);
     return true;
   } catch (e) {
-    if (e instanceof ErreurRest && e.statut !== 0) dispoParServeur.set(client.baseUrl, false);
+    // Un 401 ne dit rien de la visioconférence — il dit que la session est
+    // finie. Le mémoïser éteignait le bouton 📞 pour la vie du process, y
+    // compris après une reconnexion réussie, et aucun geste n'en sortait.
+    if (e instanceof ErreurRest && e.statut !== 0 && !estJetonRefuse(e)) {
+      dispoParServeur.set(client.baseUrl, false);
+    }
     return false;
   }
+}
+
+/** Fin de session / changement de serveur : le verdict est celui d'un compte. */
+export function oublierDisponibiliteAppel(): void {
+  dispoParServeur.clear();
 }
 
 /**

@@ -27,13 +27,31 @@ export class ErreurRest extends Error {
   readonly statut: number;
   readonly erreur?: string;
   readonly errorType?: string;
+  /**
+   * Le corps a été lu comme une réponse **Rocket.Chat** (enveloppe
+   * `success`/`error`), et non comme une page opaque.
+   *
+   * C'est ce qui sépare « le serveur applicatif nous répond » de « quelque
+   * chose sur le chemin nous répond » : un proxy d'entreprise, un portail
+   * captif ou un ballast de maintenance peut rendre un 401 en HTML. Son statut
+   * est le SIEN — il ne dit rien de notre jeton, et le prendre pour une
+   * révocation éjecterait l'utilisateur d'une session parfaitement valide.
+   */
+  readonly reponseComprise: boolean;
 
-  constructor(message: string, statut: number, erreur?: string, errorType?: string) {
+  constructor(
+    message: string,
+    statut: number,
+    erreur?: string,
+    errorType?: string,
+    reponseComprise = false,
+  ) {
     super(message);
     this.name = 'ErreurRest';
     this.statut = statut;
     this.erreur = erreur;
     this.errorType = errorType;
+    this.reponseComprise = reponseComprise;
   }
 }
 
@@ -54,12 +72,57 @@ export class ErreurDeuxFacteurs extends ErreurRest {
     methodesDisponibles: MethodeDeuxFacteurs[],
     codeGenere: boolean,
   ) {
-    super(`Double authentification requise (${methode})`, 401, undefined, 'totp-required');
+    // `reponseComprise` vaut bien TRUE : un défi 2FA est une réponse
+    // Rocket.Chat en bonne et due forme, lue comme telle. Ce qui l'écarte
+    // d'une révocation est son TYPE, pas un défaut de lecture — et c'est ce
+    // qui rend la garde `instanceof` du prédicat portante plutôt que
+    // décorative. Le 401 déclaré ici, lui, ne reflète pas le statut HTTP :
+    // hors login, 8.5 répond 400.
+    super(`Double authentification requise (${methode})`, 401, undefined, 'totp-required', true);
     this.name = 'ErreurDeuxFacteurs';
     this.methode = methode;
     this.methodesDisponibles = methodesDisponibles;
     this.codeGenere = codeGenere;
   }
+}
+
+/**
+ * « Le serveur a-t-il refusé CE jeton ? »
+ *
+ * Le seul prédicat autorisé à déclencher une déconnexion automatique. Il est
+ * volontairement le plus étroit possible : une erreur de discrimination éjecte
+ * l'utilisateur d'une session saine, ce qui est pire que le défaut qu'on
+ * corrige.
+ *
+ * Sondé contre un Rocket.Chat 8.5 (banc local, 30/07/2026), le serveur est net
+ * — **401 veut dire « non authentifié », et rien d'autre** :
+ *
+ * | situation                                   | réponse |
+ * |---------------------------------------------|---------|
+ * | jeton révoqué par `logout`                  | **401** `You must be logged in to do this.` |
+ * | jeton absent, jeton bidon, uid bidon        | **401**, corps identique |
+ * | permission manquante (route admin)          | 403 `error-unauthorized` |
+ * | exclu du salon, salon inexistant            | 400 `error-not-allowed` / `error-room-not-found` |
+ * | 2FA exigée sur une opération sensible       | 400 `totp-required` |
+ *
+ * D'où les trois conditions, chacune fermant un faux positif réel :
+ *
+ * 1. `ErreurRest` de statut 401 — le cas nominal ;
+ * 2. **pas** une `ErreurDeuxFacteurs` : elle se déclare 401 quelle que soit la
+ *    réponse HTTP (le serveur répond 400 hors login), et c'est un défi, pas un
+ *    refus. La traiter en révocation déconnecterait quiconque change son mot
+ *    de passe ;
+ * 3. `reponseComprise` : un 401 dont le corps n'est pas du Rocket.Chat vient
+ *    d'un intermédiaire, pas du serveur.
+ *
+ * Ce que le prédicat NE dit pas : si ce jeton est encore celui de la session
+ * affichée. Cette comparaison appartient à l'appelant, qui seul connaît le
+ * jeton réellement envoyé (voir `surJetonRefuse`).
+ */
+export function estJetonRefuse(e: unknown): boolean {
+  if (e instanceof ErreurDeuxFacteurs) return false;
+  if (!(e instanceof ErreurRest)) return false;
+  return e.statut === 401 && e.reponseComprise;
 }
 
 export type OptionsAppel = {
@@ -138,6 +201,25 @@ function erreurAnnulation(): Error {
 export class ClientRest {
   readonly baseUrl: string;
   identifiants: Identifiants | null = null;
+
+  /**
+   * Appelé quand le serveur refuse le jeton (`estJetonRefuse`), avec le jeton
+   * **réellement envoyé** — pas celui qui est courant à la réception.
+   *
+   * C'est la seule façon de couvrir toute la vie courante sans toucher un seul
+   * site d'appel : `rattraperGlobal`, `chat.syncMessages`, `chat.sendMessage`,
+   * `users.presence`… passent tous par ici. Sans ce crochet, un jeton révoqué
+   * en cours de session (mot de passe changé ailleurs, `Accounts_LoginExpiration`,
+   * `logoutOtherClients`) laissait l'app en état zombie : cache d'hier affiché,
+   * barre de synchro qui bat, tout envoi en échec — l'aspect exact d'un
+   * problème réseau, et aucun chemin de sortie avant un redémarrage.
+   *
+   * Le jeton est passé pour que l'abonné puisse ignorer un 401 **tardif**,
+   * arrivé sur un jeton déjà remplacé (déconnexion puis reconnexion pendant que
+   * la requête volait). `ClientRest` ne connaît pas la notion de session : il
+   * rapporte, il ne décide pas.
+   */
+  surJetonRefuse: ((jeton: string) => void) | null = null;
 
   private readonly dep: Dependances;
 
@@ -240,6 +322,12 @@ export class ClientRest {
     // Hermes, d'où l'erreur construite à la main.
     if (options.signal?.aborted) throw erreurAnnulation();
 
+    // Le jeton tel qu'il part sur le fil, capturé AVANT la requête. Le relire à
+    // la réception rendrait le jeton COURANT : sur une session remplacée
+    // pendant le vol, un 401 portant l'ancien jeton se présenterait alors sous
+    // le nouveau, et effacerait une session toute neuve.
+    const jetonEnvoye = options.anonyme === true ? null : (this.identifiants?.authToken ?? null);
+
     const controleur = new AbortController();
     let expire = false;
     const minuterie = setTimeout(() => {
@@ -326,7 +414,26 @@ export class ClientRest {
     // `status: 'error'` sur /api/v1/login. Les deux valent échec.
     if (!reponse.ok || json.success === false || json.status === 'error') {
       const message = json.error ?? json.message ?? `${chemin} a échoué`;
-      throw new ErreurRest(message, reponse.status, json.error, json.errorType);
+      // « Du JSON » ne suffit pas à dire « du Rocket.Chat ». Une passerelle
+      // d'API répond volontiers `{"message":"Unauthorized"}` en 401 : ça parse,
+      // et ça ne dit RIEN de notre jeton. On exige donc une marque de
+      // l'enveloppe maison — c'est elle que `reponseComprise` certifie.
+      const enveloppeRC =
+        typeof json.success === 'boolean' ||
+        json.status === 'error' ||
+        typeof json.errorType === 'string';
+      const erreur = new ErreurRest(
+        message,
+        reponse.status,
+        json.error,
+        json.errorType,
+        enveloppeRC,
+      );
+      // Placé APRÈS la branche `totp-required` (jamais sur un défi 2FA) et
+      // APRÈS le parse (jamais sur un 401 HTML de proxy). Un appel `anonyme`
+      // n'a envoyé aucun jeton : son 401 ne dit rien de la session.
+      if (jetonEnvoye !== null && estJetonRefuse(erreur)) this.surJetonRefuse?.(jetonEnvoye);
+      throw erreur;
     }
 
     return json as T;

@@ -36,6 +36,8 @@ export class Reconnecteur {
   private enVol = false;
   private relance = false;
   private arrete = false;
+  /** Réversible, contrairement à `arrete` : le temps d'un passage en fond. */
+  private suspendu = false;
 
   constructor(options: OptionsReconnexion) {
     this.connecter = options.connecter;
@@ -61,7 +63,7 @@ export class Reconnecteur {
    * plus rien ne reconnecterait jamais.
    */
   declencher(): void {
-    if (this.arrete || this.minuterie !== null) return;
+    if (this.arrete || this.suspendu || this.minuterie !== null) return;
     if (this.enVol) {
       this.relance = true;
       return;
@@ -99,5 +101,36 @@ export class Reconnecteur {
       this.annulerMinuterie(this.minuterie);
       this.minuterie = null;
     }
+  }
+
+  /**
+   * Le temps d'un passage en arrière-plan. Contrairement à `arreter()`, c'est
+   * réversible — et ça ferme les DEUX chemins qui rouvraient une socket en
+   * fond : la minuterie déjà armée, qu'on désarme ici, et la relance que
+   * l'échec (ou la mémorisation) d'une tentative en vol demanderait ensuite,
+   * que le drapeau bloque dans `declencher()`.
+   *
+   * Chaque tentative en fond coûte une socket que Doze tuera — ce qui
+   * redéclenche `surPerte` — et un `rattraperTout()` REST rate-limité.
+   */
+  suspendre(): void {
+    this.suspendu = true;
+    if (this.minuterie !== null) {
+      this.annulerMinuterie(this.minuterie);
+      this.minuterie = null;
+    }
+  }
+
+  /**
+   * Au retour au premier plan. Le backoff accumulé décrit un réseau observé
+   * écran éteint : on le remet à zéro pour que la tentative suivante parte
+   * tout de suite. Sans quoi le retour d'un utilisateur — un geste, donc une
+   * cadence bornée par lui — se paierait jusqu'à trente secondes d'attente.
+   *
+   * Ne ressuscite pas un pilote `arreter()` : ce chemin-là est définitif.
+   */
+  reprendre(): void {
+    this.suspendu = false;
+    this.tentative = 0;
   }
 }

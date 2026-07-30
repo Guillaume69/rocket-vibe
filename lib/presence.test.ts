@@ -124,3 +124,100 @@ describe('MoteurPresence — users.presence', () => {
     assert.equal(moteur.statutDe('u1'), 'online');
   });
 });
+
+describe('MoteurPresence — invalidation', () => {
+  test('invalider rend TOUT inconnu et notifie', () => {
+    // Le contrat de l'en-tête du module : « une présence périmée affichée
+    // depuis un cache est pire que pas de présence du tout ». Il n'était tenu
+    // que contre la persistance ; en mémoire, la pastille verte d'avant le
+    // tunnel restait affichée jusqu'au raccordement suivant.
+    const moteur = new MoteurPresence();
+    moteur.appliquer(evenement([['u1', 'bob', 1, '']]));
+    moteur.appliquer(evenement([['u2', 'ana', 2, '']]));
+    let notifications = 0;
+    moteur.surChangement(() => notifications++);
+
+    moteur.invalider();
+
+    assert.equal(moteur.statutDe('u1'), null, 'l’UI n’affiche plus rien, au lieu de mentir');
+    assert.equal(moteur.statutDe('u2'), null);
+    assert.equal(notifications, 1, 'les écrans montés doivent se redessiner');
+  });
+
+  test('invalider sans rien à oublier ne réveille pas les écrans', () => {
+    const moteur = new MoteurPresence();
+    let notifications = 0;
+    moteur.surChangement(() => notifications++);
+    moteur.invalider();
+    moteur.invalider();
+    assert.equal(notifications, 0, 'un flap réseau sur une app muette ne redessine rien');
+  });
+
+  test('une photo PARTIE avant l’invalidation ne ressuscite pas les statuts effacés', async () => {
+    // Course réelle : la socket meurt pendant que `users.presence` est en vol.
+    // Sa réponse décrit le monde d'AVANT la coupure — l'appliquer remettrait
+    // exactement les pastilles que l'invalidation venait d'éteindre.
+    const moteur = new MoteurPresence();
+    let livrer: () => void = () => {};
+    const { client } = fauxClient(() => ({
+      users: [
+        { _id: 'u1', status: 'online' },
+        { _id: 'u2', status: 'away' },
+      ],
+    }));
+    const clientLent = {
+      get: async (...args: unknown[]) => {
+        await new Promise<void>((r) => {
+          livrer = r;
+        });
+        return (client.get as (...a: unknown[]) => Promise<unknown>)(...args);
+      },
+    } as unknown as typeof client;
+
+    const chargement = moteur.charger(clientLent);
+    await Promise.resolve(); // la requête est partie
+    moteur.invalider(); // le transport meurt
+    livrer();
+    await chargement;
+
+    assert.equal(moteur.statutDe('u1'), null, 'la photo d’avant la coupure est jetée');
+    assert.equal(moteur.statutDe('u2'), null);
+  });
+
+  test('après invalidation, une NOUVELLE photo repeuple normalement', async () => {
+    const moteur = new MoteurPresence();
+    moteur.appliquer(evenement([['u1', 'bob', 1, '']]));
+    moteur.invalider();
+    const { client } = fauxClient(() => ({ users: [{ _id: 'u1', status: 'away' }] }));
+
+    await moteur.charger(client);
+    assert.equal(moteur.statutDe('u1'), 'away');
+  });
+
+  test('un événement STREAM postérieur à l’invalidation gagne sur la photo en vol', async () => {
+    // Le compteur de séquence doit rester MONOTONE à travers l'invalidation :
+    // le remettre à zéro ferait repasser un événement frais pour antérieur au
+    // seuil pris par la photo, et la photo l'écraserait.
+    const moteur = new MoteurPresence();
+    for (let i = 0; i < 5; i++) moteur.appliquer(evenement([[`u${i}`, 'x', 1, '']]));
+    let livrer: () => void = () => {};
+    const { client } = fauxClient(() => ({ users: [{ _id: 'u1', status: 'online' }] }));
+    const clientLent = {
+      get: async (...args: unknown[]) => {
+        await new Promise<void>((r) => {
+          livrer = r;
+        });
+        return (client.get as (...a: unknown[]) => Promise<unknown>)(...args);
+      },
+    } as unknown as typeof client;
+
+    const chargement = moteur.charger(clientLent);
+    await Promise.resolve();
+    moteur.invalider();
+    moteur.appliquer(evenement([['u1', 'bob', 0, '']])); // reçu APRÈS, donc vrai
+    livrer();
+    await chargement;
+
+    assert.equal(moteur.statutDe('u1'), 'offline');
+  });
+});

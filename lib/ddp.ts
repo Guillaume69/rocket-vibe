@@ -104,6 +104,10 @@ type MessageDdp = {
   error?: unknown;
   result?: unknown;
   fields?: { eventName?: string; args?: unknown[] };
+  /** Sur `msg: 'error'` : la raison du refus, en clair. */
+  reason?: string;
+  /** Sur `msg: 'error'` : le message refusé, tel qu'on l'avait envoyé. */
+  offendingMessage?: { id?: string };
 };
 
 export class ClientDdp {
@@ -143,6 +147,11 @@ export class ClientDdp {
   private garde: ReturnType<typeof setInterval> | null = null;
   /** Une seule sonde à la fois : le chien de garde tique plus vite qu'elle. */
   private sondeEnCours = false;
+  /**
+   * `nettoyer()` a déjà couru sur cette socket. Vrai au départ : un client
+   * neuf n'a rien à nettoyer. Remis à faux par `connecter()`.
+   */
+  private nettoye = true;
 
   constructor(url: string, options: OptionsDdp = {}) {
     this.url = url;
@@ -189,6 +198,7 @@ export class ClientDdp {
     if (this.etat !== 'ferme') throw new ErreurDdp('Client déjà connecté.');
     this.etat = 'connexion';
     this.fermetureVolontaire = false;
+    this.nettoye = false;
 
     await new Promise<void>((resoudre, rejeter) => {
       // Le timeout NETTOIE, il ne fait pas que rejeter : sinon l'état reste
@@ -434,7 +444,16 @@ export class ClientDdp {
    * `surPerte` et laisse le pilote de reconnexion reprendre la main.
    */
   async verifierVie(): Promise<boolean> {
-    if (this.etat === 'ferme') return false;
+    // Une NÉGOCIATION en cours ne se sonde pas. Sondé sur le banc 8.5.1 : un
+    // `ping` envoyé avant le `connect` reçoit `{msg:'error', reason:'Must
+    // connect first', offendingMessage:{id}}`, jamais de `pong`. Le `catch`
+    // ci-dessous fermerait alors une socket qui, dix secondes plus tard, a
+    // terminé son login et rejoué ses souscriptions. La négociation a déjà
+    // son propre délai (`delaiMs`) : elle n'a pas besoin qu'on la surveille.
+    //
+    // L'état `connecte` (handshake fait, login pas encore répondu) est en
+    // revanche bien sondable — même sonde, `pong` reçu.
+    if (this.etat !== 'connecte' && this.etat !== 'authentifie') return false;
     const id = `v${++this.compteur}`;
     try {
       const promesse = this.attendre(id, 'sonde de vie');
@@ -511,6 +530,19 @@ export class ClientDdp {
         }
         break;
 
+      case 'error': {
+        // Refus d'un message mal formé ou hors séquence. Le serveur ne
+        // répondra JAMAIS à l'id fautif : sans ce cas, l'attente pend
+        // jusqu'à `delaiMs` et son échec est mis sur le compte de la socket.
+        // Relevé sur le banc 8.5.1 — l'erreur porte bien le message refusé,
+        // donc son `id` : on peut rejeter la bonne attente, pas toutes.
+        const id = m.offendingMessage?.id;
+        if (typeof id === 'string') {
+          this.terminer(id, undefined, new ErreurDdp(`Message refusé : ${m.reason ?? 'sans raison'}`));
+        }
+        break;
+      }
+
       case 'changed': {
         // Format des streamers : `collection` = nom du stream, la clé est dans
         // `fields.eventName`, la charge utile dans `fields.args`.
@@ -548,8 +580,16 @@ export class ClientDdp {
    * Les souscriptions **désirées** survivent : ce sont elles que l'étape 5.1
    * rejouera à la reconnexion. Seuls leurs identifiants de fil sont oubliés,
    * puisqu'ils appartenaient à la socket morte.
+   *
+   * **Idempotent.** Une socket qui meurt pendant le login passe ici deux fois :
+   * une par `onclose`, une par le `catch` de `connecter()` — l'attente du login
+   * ayant été rejetée par le premier passage. Sans sortie anticipée, `surPerte`
+   * partirait deux fois, et le second passage réémettrait l'événement sur un
+   * objet déjà entièrement vidé.
    */
   private nettoyer(raison: unknown): void {
+    if (this.nettoye) return;
+    this.nettoye = true;
     this.arreterGarde();
     // Détacher les gestionnaires : une socket abandonnée ne doit plus rien dire.
     if (this.ws !== null) {

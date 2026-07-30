@@ -50,6 +50,11 @@ export class MoteurPresence {
   private compteur = 0;
   private enVol = false;
   private repasser = false;
+  /**
+   * Incrémentée à chaque `invalider()`. Une photo partie sous une époque
+   * révolue décrit le monde d'avant la coupure : on la jette entière.
+   */
+  private epoque = 0;
 
   /** `null` = inconnu — l'UI ne doit alors RIEN afficher (dégradation). */
   statutDe(uid: string): StatutPresence | null {
@@ -65,6 +70,25 @@ export class MoteurPresence {
 
   private notifier(): void {
     for (const ecouteur of this.ecouteurs) ecouteur();
+  }
+
+  /**
+   * Le transport est mort (ou l'app part en arrière-plan) : tout ce qu'on
+   * sait est daté et plus rien ne le corrigera. On oublie, et `statutDe`
+   * rend de nouveau `null` — l'UI n'affiche alors RIEN, la dégradation que
+   * l'en-tête de ce module spécifie. Sans cela, la liste des DM continue
+   * d'afficher les pastilles vertes de l'entrée dans le tunnel.
+   *
+   * `compteur` n'est PAS remis à zéro : il départage les événements du stream
+   * et les photos REST, et le rembobiner ferait passer un événement frais
+   * pour antérieur au seuil d'une photo en vol, qui l'écraserait.
+   */
+  invalider(): void {
+    this.epoque++;
+    const avaitQuelqueChose = this.statuts.size > 0;
+    this.statuts.clear();
+    this.sequences.clear();
+    if (avaitQuelqueChose) this.notifier();
   }
 
   /** Route un événement DDP. Tout ce qui n'est pas de la présence est ignoré. */
@@ -124,8 +148,13 @@ export class MoteurPresence {
 
   private async unePhoto(client: ClientRest): Promise<void> {
     const seuil = this.compteur;
+    const epoque = this.epoque;
     try {
       const reponse = await client.get<ReponsePresence>('users.presence', { params: {} });
+      // Une invalidation a eu lieu pendant la requête : cette photo décrit le
+      // monde d'avant la coupure. L'appliquer rallumerait exactement les
+      // pastilles qu'on vient d'éteindre.
+      if (this.epoque !== epoque) return;
       const photo = new Map<string, StatutPresence>();
       for (const u of reponse.users ?? []) {
         if (typeof u._id !== 'string' || u._id === '') continue;

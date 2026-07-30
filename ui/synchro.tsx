@@ -429,7 +429,13 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           });
         },
       });
-      ddp.surPerte(() => reconnecteur?.declencher());
+      ddp.surPerte(() => {
+        // La présence ne vit que par le stream : sans socket, ce qu'on en sait
+        // fige à l'instant de la coupure. On l'oublie plutôt que d'afficher
+        // des pastilles vertes de l'entrée dans le tunnel (`lib/presence.ts`).
+        presence.invalider();
+        reconnecteur?.declencher();
+      });
       reconnecteur.declencher();
 
       // Cycle de vie de la socket (6.2). En ARRIÈRE-PLAN : fermeture propre
@@ -439,13 +445,26 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       // RETOUR : la sonde de vie couvre le cas d'une socket restée « ouverte »
       // mais morte (gel sans passage par background), et `declencher` refait
       // tout — reconnexion, re-login, re-souscriptions, rattrapage.
+      //
+      // `fermer()` ne SUFFIT PAS à tenir cette promesse : il ne dit rien au
+      // pilote. Une minuterie de backoff déjà armée tirait quand même, et
+      // l'échec d'une tentative en vol relançait la boucle — donc des sockets
+      // rouvertes en fond, chacune payée d'un `rattraperTout()` REST
+      // rate-limité, et tuées par Doze, ce qui redéclenchait `surPerte`.
+      // D'où la suspension, réversible, AVANT la fermeture : sinon la perte
+      // constatée entre les deux réarmerait le pilote qu'on vient de calmer.
       const aboAppState = AppState.addEventListener('change', (etatApp) => {
         if (abandonne) return;
         if (etatApp === 'background') {
+          reconnecteur?.suspendre();
           ddp.fermer();
+          // Ce qu'on croit savoir de la présence date de l'instant d'avant :
+          // aucun stream ne la corrigera plus tant qu'on est en fond.
+          presence.invalider();
           return;
         }
         if (etatApp !== 'active') return;
+        reconnecteur?.reprendre();
         if (ddp.etat !== 'ferme') ddp.verifierVie().catch(() => {});
         reconnecteur?.declencher();
       });

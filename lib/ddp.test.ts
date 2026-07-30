@@ -405,6 +405,92 @@ describe('ClientDdp', () => {
     assert.equal(ws.ferme, true, 'la socket ne doit pas fuir');
   });
 
+  test('une socket morte pendant le login ne notifie la perte QU’UNE FOIS', async () => {
+    // `onclose` nettoie et rejette l'attente du login ; le `catch` de
+    // `connecter()` rappelle `nettoyer()`. Sans idempotence, tout abonné
+    // (compteur de coupures, bandeau hors ligne, métrique) compte double, et
+    // le second passage réémet l'événement sur un objet déjà vidé.
+    const ws = new FauxWebSocket();
+    const ddp = new ClientDdp('ws://x', { creerWebSocket: () => ws, delaiMs: 200 });
+    let pertes = 0;
+    ddp.surPerte(() => pertes++);
+    const p = ddp.connecter('jeton');
+    ws.ouvrir();
+    ws.recevoir({ msg: 'connected', session: 's' });
+    await new Promise((r) => setImmediate(r)); // le `method login` est parti
+    ws.onclose?.(null); // la socket meurt AVANT la réponse au login
+
+    await assert.rejects(p);
+    assert.equal(pertes, 1, 'une coupure, un événement');
+    assert.equal(ddp.etat, 'ferme');
+  });
+
+  test('`verifierVie` pendant la NÉGOCIATION ne sonde pas et ne tue pas la socket', async () => {
+    // Sondé sur un vrai Rocket.Chat 8.5 : un `ping` envoyé avant le `connect`
+    // reçoit `{msg:'error', reason:'Must connect first'}` — jamais de `pong`.
+    // L'attente pendrait donc jusqu'à son délai, et le `catch` fermerait une
+    // socket qui, entre-temps, a fini son login et rejoué ses souscriptions.
+    const ws = new FauxWebSocket();
+    const ddp = new ClientDdp('ws://x', { creerWebSocket: () => ws, delaiMs: 60 });
+    const p = ddp.connecter('jeton');
+    ws.ouvrir();
+    assert.equal(ddp.etat, 'connexion');
+
+    const avant = ws.envoyes.length;
+    assert.equal(await ddp.verifierVie(), false, 'une négociation a déjà son propre délai');
+    assert.equal(ws.envoyes.length, avant, 'aucun ping ne part');
+
+    // La négociation aboutit normalement, la socket est intacte.
+    ws.recevoir({ msg: 'connected', session: 's' });
+    await new Promise((r) => setImmediate(r));
+    ws.recevoir({ msg: 'result', id: ws.dernier().id, result: {} });
+    await p;
+    assert.equal(ddp.etat, 'authentifie');
+    assert.equal(ws.ferme, false, 'la sonde prématurée n’a rien fermé');
+  });
+
+  test('`verifierVie` sonde dès l’état « connecte », avant même le login', async () => {
+    // Vérifié sur le banc 8.5.1 : `connect` puis `ping` sans login → `pong`.
+    // La garde ne doit donc pas être plus stricte que le serveur.
+    const ws = new FauxWebSocket();
+    const ddp = new ClientDdp('ws://x', { creerWebSocket: () => ws, delaiMs: 200 });
+    const p = ddp.connecter('jeton');
+    ws.ouvrir();
+    ws.recevoir({ msg: 'connected', session: 's' });
+    await new Promise((r) => setImmediate(r));
+    assert.equal(ddp.etat, 'connecte');
+
+    const sonde = ddp.verifierVie();
+    const ping = ws.envoyes.filter((m) => m.msg === 'ping').at(-1);
+    assert.ok(ping, 'la sonde part');
+    ws.recevoir({ msg: 'pong', id: ping.id });
+    assert.equal(await sonde, true);
+
+    ws.recevoir({ msg: 'result', id: ws.envoyes.find((m) => m.msg === 'method')?.id, result: {} });
+    await p;
+  });
+
+  test('un `msg: error` rejette l’attente fautive au lieu de la laisser expirer', async () => {
+    // Forme relevée sur le banc 8.5.1 :
+    // {"msg":"error","reason":"Must connect first","offendingMessage":{"msg":"ping","id":"v1"}}
+    // Sans ce cas, le message est avalé et l'appelant attend `delaiMs` pour
+    // rien — c'est ce silence qui rendait la sonde prématurée destructrice.
+    const { ddp, ws } = await clientAuthentifie(); // délai 200 ms
+    const sonde = ddp.verifierVie();
+    const id = ws.dernier().id;
+
+    ws.recevoir({ msg: 'error', reason: 'Must connect first', offendingMessage: { msg: 'ping', id } });
+
+    // Sans attendre les 200 ms du délai : la réponse doit être immédiate.
+    assert.equal(await Promise.race([sonde, new Promise((r) => setTimeout(() => r('pendante'), 60))]), false);
+  });
+
+  test('un `msg: error` sans `offendingMessage` exploitable est ignoré, pas fatal', async () => {
+    const { ddp, ws } = await clientAuthentifie();
+    ws.recevoir({ msg: 'error', reason: 'Bad request' });
+    assert.equal(ddp.etat, 'authentifie');
+  });
+
   test('deux souscriptions au même stream ne produisent qu’une `sub` sur le fil', async () => {
     const { ddp, ws } = await clientAuthentifie();
     ddp.souscrire('stream-room-messages', 'rid');

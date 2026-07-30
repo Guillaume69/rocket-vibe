@@ -36,13 +36,18 @@ function repondre(res: ServerResponse, statut: number, corps: unknown, enTetes: 
   res.end(typeof corps === 'string' ? corps : JSON.stringify(corps));
 }
 
-/** Client dont le sommeil est instantané et l'horloge figée. */
+/**
+ * Client dont le sommeil est instantané, l'horloge figée et la dispersion
+ * nulle — les délais restent donc des nombres exacts, et c'est le test dédié
+ * ci-dessous qui éprouve la dispersion.
+ */
 function client(dormirs: number[] = []) {
   return new ClientRest(base, {
     dormir: async (ms) => {
       dormirs.push(ms);
     },
     maintenant: () => 1_000_000,
+    alea: () => 0,
   });
 }
 
@@ -307,6 +312,129 @@ describe('ClientRest', () => {
       return true;
     });
     assert.equal(appels, 1, 'aucun rejeu sans le drapeau');
+  });
+
+  test('le rejeu 429 est DISPERSÉ, et la dispersion reste bornée', async () => {
+    // Deux appels concurrents reçoivent le MÊME `x-ratelimit-reset` : sans
+    // dispersion ils repartent à la même milliseconde sur une fenêtre qui
+    // n'en admet que dix, et se reprennent un 429.
+    const releve = async (alea: number) => {
+      const dormirs: number[] = [];
+      let appels = 0;
+      poignee = (_q, res) => {
+        appels++;
+        if (appels === 1) {
+          repondre(res, 429, { success: false }, { 'x-ratelimit-reset': '1002000' });
+        } else {
+          repondre(res, 200, { success: true });
+        }
+      };
+      const c = new ClientRest(base, {
+        dormir: async (ms) => {
+          dormirs.push(ms);
+        },
+        maintenant: () => 1_000_000,
+        alea: () => alea,
+      });
+      await c.get('chat.postMessage');
+      return dormirs[0];
+    };
+
+    const [bas, milieu, haut] = [await releve(0), await releve(0.5), await releve(1)];
+    assert.ok(bas < milieu && milieu < haut, `l’aléa doit moduler : ${bas}/${milieu}/${haut}`);
+    // Encadrement : jamais AVANT le reset annoncé, jamais plus d'une
+    // demi-seconde après — sinon la dispersion coûterait plus qu'elle ne rend.
+    for (const d of [bas, milieu, haut]) {
+      assert.ok(d >= 2250 && d <= 2750, `hors bornes : ${d}`);
+    }
+  });
+
+  test('un en-tête de réinitialisation aberrant reste plafonné, dispersion comprise', async () => {
+    const dormirs: number[] = [];
+    poignee = (_q, res) =>
+      repondre(res, 429, { success: false }, { 'x-ratelimit-reset': '9999999999999' });
+    const c = new ClientRest(base, {
+      dormir: async (ms) => {
+        dormirs.push(ms);
+      },
+      maintenant: () => 1_000_000,
+      alea: () => 1,
+    });
+    await assert.rejects(c.get('chat.postMessage'), ErreurRest);
+    assert.deepEqual(dormirs, [30_000, 30_000, 30_000], 'le plafond tient malgré la dispersion');
+  });
+
+  test('un abort() PENDANT le sommeil de rejeu est constaté TOUT DE SUITE', async () => {
+    // Le `finally` d'`appeler` retire l'écouteur d'annulation avant de dormir :
+    // l'abandon n'était vu qu'au retour de récursion, jusqu'à 30 s plus tard.
+    // Ici le sommeil ne se termine JAMAIS de lui-même — seule l'annulation
+    // peut débloquer, donc le test ne peut pas passer par accident.
+    poignee = (_q, res) =>
+      repondre(res, 429, { success: false }, { 'x-ratelimit-reset': '1030000' });
+    let dortMaintenant: () => void = () => {};
+    const sommeilEntame = new Promise<void>((r) => {
+      dortMaintenant = r;
+    });
+    const c = new ClientRest(base, {
+      dormir: () =>
+        new Promise<void>(() => {
+          dortMaintenant();
+        }),
+      maintenant: () => 1_000_000,
+      alea: () => 0,
+    });
+
+    const controleur = new AbortController();
+    const p = c.get('chat.postMessage', { signal: controleur.signal });
+    await sommeilEntame; // on SAIT qu'on dort — pas de délai arbitraire
+    controleur.abort();
+
+    // Le chien de garde n'est PAS une synchronisation : le chemin correct
+    // répond immédiatement. Il est là pour que la régression se lise comme un
+    // échec, et non comme une suite de tests qui pend pour toujours.
+    const verdict = await Promise.race([
+      p.then(
+        () => 'résolue',
+        (e: unknown) => (e instanceof Error && e.name === 'AbortError' ? 'annulée' : 'autre'),
+      ),
+      new Promise((r) => setTimeout(() => r('pendante'), 250)),
+    ]);
+    assert.equal(verdict, 'annulée', "l'annulation doit être vue PENDANT le sommeil");
+  });
+
+  test('un signal avorté juste AVANT le sommeil ne le laisse pas commencer', async () => {
+    // `addEventListener('abort')` sur un signal DÉJÀ avorté ne se déclenche
+    // jamais : sans le test en tête de `dormirAnnulable`, on dormirait le
+    // délai complet et l'abandon ne serait vu qu'au retour de récursion.
+    //
+    // La fenêtre est étroite mais réelle : `appeler` retire son relais dans
+    // son `finally`, puis `await reponse.body?.cancel()` rend la main. On
+    // avorte exactement là, en fournissant nous-mêmes le corps de la réponse.
+    let dodos = 0;
+    const controleur = new AbortController();
+    const c = new ClientRest(base, {
+      fetch: async () =>
+        new Response(
+          new ReadableStream({
+            cancel() {
+              controleur.abort();
+            },
+          }),
+          { status: 429, headers: { 'x-ratelimit-reset': '1030000' } },
+        ),
+      dormir: async () => {
+        dodos++;
+      },
+      maintenant: () => 1_000_000,
+      alea: () => 0,
+    });
+
+    await assert.rejects(c.get('chat.postMessage', { signal: controleur.signal }), (e: unknown) => {
+      assert.ok(e instanceof Error);
+      assert.equal(e.name, 'AbortError');
+      return true;
+    });
+    assert.equal(dodos, 0, 'aucun sommeil entamé : 30 s économisées');
   });
 
   test('la barre finale de baseUrl est normalisée', () => {

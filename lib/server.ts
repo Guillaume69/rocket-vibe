@@ -7,11 +7,14 @@
  * connexion avant d'afficher quoi que ce soit.
  *
  * Le transport vient de `ClientRest` (délai, annulation, JSON défensif, rejeu
- * sur 429). Seul `/api/info` échappe à `ClientRest`, car il ne vit pas sous
- * `/api/v1/`.
+ * sur 429) — **y compris `/api/info`**, qui ne vit pas sous `/api/v1/` et
+ * passe donc par l'option `horsApiV1`. Il en était exclu, sur un `fetch` nu :
+ * une requête restée pendante (reverse proxy, portail captif) laissait le
+ * `Promise.all` ci-dessous pendre à vie, donc l'écran de connexion mort et
+ * muet, son garde `enVol` armé pour toujours.
  */
 
-import { ClientRest, ErreurRest } from './rest.ts';
+import { ClientRest, type Dependances, ErreurRest } from './rest.ts';
 
 export type DeuxFacteurs = {
   actif: boolean;
@@ -82,27 +85,35 @@ function indexerReglages(charge: unknown): Map<string, unknown> {
 
 const vraiSi = (v: unknown): boolean => v === true;
 
-/** `/api/info` vit hors de `/api/v1/`, d'où cet appel direct. */
-async function recupererVersion(base: string, signal?: AbortSignal): Promise<string> {
-  const reponse = await fetch(`${base}/api/info`, { signal });
-  if (!reponse.ok) throw new ErreurServeur(`/api/info a répondu ${reponse.status}.`);
-  const texte = await reponse.text();
-  let charge: unknown;
-  try {
-    charge = JSON.parse(texte) as unknown;
-  } catch (e) {
-    throw new ErreurServeur(`/api/info n'a pas renvoyé du JSON (${texte.length} octets).`, e);
-  }
-  const version = (charge as { version?: unknown } | null)?.version;
-  if (typeof version !== 'string') {
+/**
+ * `/api/info` vit hors de `/api/v1/`, d'où `horsApiV1` — mais il hérite ainsi
+ * du délai maximal, du relais d'annulation, du rejeu sur 429 et du parsage
+ * défensif. Non authentifié, il rend `{version: '8.5', success: true}` sur
+ * 8.5.1 : la version MINEURE seulement, ce qui suffit à nos bascules.
+ */
+async function recupererVersion(
+  client: ClientRest,
+  signal?: AbortSignal,
+): Promise<string> {
+  const charge = await client.get<{ version?: unknown }>('api/info', {
+    anonyme: true,
+    horsApiV1: true,
+    signal,
+  });
+  if (typeof charge.version !== 'string') {
     throw new ErreurServeur("La réponse ne ressemble pas à celle d'un Rocket.Chat.");
   }
-  return version;
+  return charge.version;
 }
 
-export async function sonderServeur(entree: string, signal?: AbortSignal): Promise<ProfilServeur> {
+export async function sonderServeur(
+  entree: string,
+  signal?: AbortSignal,
+  /** Même seam que `ClientRest` : les tests éprouvent la borne sans dormir. */
+  dep?: Partial<Dependances>,
+): Promise<ProfilServeur> {
   const base = normaliserUrl(entree);
-  const client = new ClientRest(base);
+  const client = new ClientRest(base, dep);
 
   const controleur = new AbortController();
   const relayer = () => controleur.abort();
@@ -112,7 +123,7 @@ export async function sonderServeur(entree: string, signal?: AbortSignal): Promi
   try {
     // Les deux appels sont indépendants : les enchaîner doublerait la latence.
     // `count=0` désactive la pagination, sans quoi on n'obtient qu'une page.
-    const pVersion = recupererVersion(base, controleur.signal);
+    const pVersion = recupererVersion(client, controleur.signal);
     const pReglages = client.get<unknown>('settings.public', {
       params: { count: 0 },
       anonyme: true,

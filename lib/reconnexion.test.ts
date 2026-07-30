@@ -140,6 +140,116 @@ describe('Reconnecteur', () => {
     assert.equal(essais, 2);
   });
 
+  test('suspendre annule la minuterie prévue et bloque les demandes', () => {
+    // En arrière-plan, le handler AppState ferme volontairement la socket et
+    // « le push prend le relais ». Sans suspension, une minuterie de backoff
+    // déjà armée tire quand même : chaque tentative rouvre une socket que
+    // Doze tuera, et entraîne un rattraperTout() REST rate-limité.
+    const horloge = fausseHorloge();
+    let essais = 0;
+    const r = new Reconnecteur({
+      connecter: async () => {
+        essais++;
+      },
+      programmer: horloge.programmer,
+      annuler: horloge.annuler,
+    });
+    r.declencher();
+    assert.equal(horloge.enAttente(), 1);
+
+    r.suspendre();
+    assert.equal(horloge.enAttente(), 0, 'la minuterie armée est désarmée');
+    r.declencher();
+    assert.equal(horloge.enAttente(), 0, 'plus aucune demande ne programme');
+    assert.equal(essais, 0);
+  });
+
+  test("l'échec d'une tentative EN VOL ne relance pas la boucle après suspendre", async () => {
+    // L'autre chemin : la minuterie a déjà tiré, la tentative est partie, et
+    // c'est son `catch` qui rappellera `declencher()`. Le drapeau doit tenir
+    // là aussi, sinon le passage en arrière-plan ne suspend qu'une moitié.
+    const horloge = fausseHorloge();
+    const vanne: { echouer: ((e: Error) => void) | null } = { echouer: null };
+    const r = new Reconnecteur({
+      connecter: () =>
+        new Promise<void>((_, rejeter) => {
+          vanne.echouer = rejeter;
+        }),
+      programmer: horloge.programmer,
+      annuler: horloge.annuler,
+    });
+    r.declencher();
+    await horloge.avancer(); // tentative en vol
+
+    r.suspendre(); // l'app passe en arrière-plan pendant la tentative
+    vanne.echouer?.(new Error('réseau coupé'));
+    await new Promise((s) => setImmediate(s));
+    await new Promise((s) => setImmediate(s));
+
+    assert.equal(horloge.enAttente(), 0, 'rien ne se reprogramme en fond');
+  });
+
+  test('une relance mémorisée pendant une tentative RÉUSSIE ne survit pas à suspendre', async () => {
+    const horloge = fausseHorloge();
+    const vanne: { ouvrir: (() => void) | null } = { ouvrir: null };
+    const r = new Reconnecteur({
+      connecter: () =>
+        new Promise<void>((resoudre) => {
+          vanne.ouvrir = resoudre;
+        }),
+      programmer: horloge.programmer,
+      annuler: horloge.annuler,
+    });
+    r.declencher();
+    await horloge.avancer();
+    r.declencher(); // la socket retombe : relance mémorisée
+    r.suspendre(); // …puis l'app part en arrière-plan
+    vanne.ouvrir?.();
+    await new Promise((s) => setImmediate(s));
+    await new Promise((s) => setImmediate(s));
+
+    assert.equal(horloge.enAttente(), 0);
+  });
+
+  test('reprendre réarme, et la tentative est IMMÉDIATE — pas au bout du backoff', async () => {
+    // Le backoff accumulé décrit un réseau observé écran éteint. Au retour au
+    // premier plan la situation est neuve, et c'est un geste de l'utilisateur :
+    // le faire attendre 30 s serait la punition que ce chantier veut lever.
+    const horloge = fausseHorloge();
+    let essais = 0;
+    const r = new Reconnecteur({
+      connecter: async () => {
+        essais++;
+        throw new Error('non');
+      },
+      alea: () => 1,
+      programmer: horloge.programmer,
+      annuler: horloge.annuler,
+    });
+    r.declencher();
+    for (let i = 0; i < 6; i++) await horloge.avancer(); // le backoff monte
+    assert.equal(essais, 6);
+
+    r.suspendre();
+    r.reprendre();
+    r.declencher();
+    assert.equal(await horloge.avancer(), 0, 'immédiate au retour');
+    assert.equal(essais, 7);
+  });
+
+  test('reprendre ne ressuscite pas un pilote arrêté', () => {
+    const horloge = fausseHorloge();
+    const r = new Reconnecteur({
+      connecter: async () => {},
+      programmer: horloge.programmer,
+      annuler: horloge.annuler,
+    });
+    r.arreter(); // démontage : définitif
+    r.reprendre();
+    r.declencher();
+    assert.equal(horloge.enAttente(), 0);
+  });
+
   test('un declencher PENDANT une tentative en vol ne double pas', async () => {
     const horloge = fausseHorloge();
     const vanne: { ouvrir: (() => void) | null } = { ouvrir: null };

@@ -77,6 +77,13 @@ export type OptionsAppel = {
    * vit dans lib/envoi, qui garde la ligne « en-attente » pour un rejeu propre.
    */
   rejeuReseau?: boolean;
+  /**
+   * Chemin servi HORS de `/api/v1/`. Un seul cas : `/api/info`, la seule
+   * route Rocket.Chat utile qui vive à la racine. Sans cela, elle échappait à
+   * toute la défense de ce module — délai maximal en tête — et pouvait
+   * bloquer l'écran de connexion à vie (voir `lib/server.ts`).
+   */
+  horsApiV1?: boolean;
 };
 
 /** Injectables pour les tests : aucun sommeil réel, aucune horloge réelle. */
@@ -84,6 +91,8 @@ export type Dependances = {
   fetch: typeof globalThis.fetch;
   dormir: (ms: number) => Promise<void>;
   maintenant: () => number;
+  /** Dispersion des rejeux. Injecté pour que les délais restent testables. */
+  alea: () => number;
 };
 
 const DELAI_MS = 15_000;
@@ -91,6 +100,14 @@ const TENTATIVES_429 = 3;
 /** Un seul rejeu sur échec réseau : une connexion keep-alive morte repart neuve. */
 const TENTATIVES_RESEAU = 1;
 const DELAI_REJEU_RESEAU_MS = 400;
+/**
+ * Dispersion ajoutée au rejeu d'un 429. Sans elle, deux appels concurrents
+ * reçoivent le MÊME `x-ratelimit-reset` et se réveillent à la même
+ * milliseconde : ils repartent en rafale sur une fenêtre qui vient tout juste
+ * de rouvrir, et se reprennent un 429. Même raison que la gigue du pilote de
+ * reconnexion (`lib/reconnexion.ts`) — un troupeau tonnant, à deux têtes.
+ */
+const DISPERSION_429_MS = 500;
 
 type ReponseRocketChat = {
   success?: boolean;
@@ -130,7 +147,34 @@ export class ClientRest {
       fetch: dep?.fetch ?? globalThis.fetch.bind(globalThis),
       dormir: dep?.dormir ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
       maintenant: dep?.maintenant ?? (() => Date.now()),
+      alea: dep?.alea ?? Math.random,
     };
+  }
+
+  /**
+   * Dort, mais en ÉCOUTANT l'annulation.
+   *
+   * `appeler()` retire son écouteur d'annulation dans son `finally`, donc
+   * avant le sommeil de rejeu : un `abort()` pendant ces secondes-là n'était
+   * constaté qu'au retour de récursion — jusqu'à 30 s plus tard, 90 s
+   * cumulés sur trois tentatives. La promesse rendue à l'appelant restait
+   * pendante d'autant, et son spinner avec elle.
+   */
+  private async dormirAnnulable(ms: number, signal?: AbortSignal): Promise<void> {
+    if (signal === undefined) return this.dep.dormir(ms);
+    if (signal.aborted) throw erreurAnnulation();
+    let surAbandon: () => void = () => {};
+    const annulation = new Promise<never>((_, rejeter) => {
+      surAbandon = () => rejeter(erreurAnnulation());
+      signal.addEventListener('abort', surAbandon);
+    });
+    try {
+      await Promise.race([this.dep.dormir(ms), annulation]);
+    } finally {
+      // Détaché dans tous les cas : sans quoi un `abort()` postérieur au
+      // réveil rejetterait une promesse que plus personne n'observe.
+      signal.removeEventListener('abort', surAbandon);
+    }
   }
 
   get<T>(chemin: string, options: OptionsAppel = {}): Promise<T> {
@@ -145,8 +189,10 @@ export class ClientRest {
     return this.appeler<T>('DELETE', chemin, options);
   }
 
-  private construireUrl(chemin: string, params: OptionsAppel['params']): string {
-    const url = new URL(`${this.baseUrl}/api/v1/${chemin}`);
+  private construireUrl(chemin: string, options: OptionsAppel): string {
+    const prefixe = options.horsApiV1 === true ? '' : 'api/v1/';
+    const url = new URL(`${this.baseUrl}/${prefixe}${chemin}`);
+    const params = options.params;
     for (const [cle, valeur] of Object.entries(params ?? {})) {
       if (valeur !== undefined) url.searchParams.set(cle, String(valeur));
     }
@@ -170,12 +216,15 @@ export class ClientRest {
    * Délai avant nouvelle tentative sur 429. Le serveur donne la date de
    * réinitialisation en epoch ms dans `x-ratelimit-reset` ; à défaut, repli
    * exponentiel. On plafonne : un en-tête aberrant ne doit pas geler l'app.
+   *
+   * La dispersion s'ajoute AVANT le plafond, pour qu'un en-tête aberrant
+   * reste borné à 30 s.
    */
   private delaiApres429(reponse: Response, tentative: number): number {
     const brut = Number(reponse.headers.get('x-ratelimit-reset'));
     const attente = Number.isFinite(brut) ? brut - this.dep.maintenant() : 0;
     const delai = attente > 0 ? attente + 250 : 1000 * 2 ** tentative;
-    return Math.min(delai, 30_000);
+    return Math.min(delai + this.dep.alea() * DISPERSION_429_MS, 30_000);
   }
 
   private async appeler<T>(
@@ -202,7 +251,7 @@ export class ClientRest {
 
     let reponse: Response;
     try {
-      reponse = await this.dep.fetch(this.construireUrl(chemin, options.params), {
+      reponse = await this.dep.fetch(this.construireUrl(chemin, options), {
         method: methode,
         headers: this.enTetes(options),
         body: options.corps === undefined ? undefined : JSON.stringify(options.corps),
@@ -224,7 +273,7 @@ export class ClientRest {
         // Le `finally` ferme minuterie et listener à l'évaluation du `return` ;
         // la récursion en réarme de neufs. Les 400 ms d'attente restent bien en
         // deçà du timeout de 15 s, donc l'ancien timer ne fire pas entre-temps.
-        await this.dep.dormir(DELAI_REJEU_RESEAU_MS);
+        await this.dormirAnnulable(DELAI_REJEU_RESEAU_MS, options.signal);
         return this.appeler<T>(methode, chemin, options, tentative, tentativeReseau + 1);
       }
       throw new ErreurRest(`${chemin} : serveur injoignable.`, 0);
@@ -236,7 +285,7 @@ export class ClientRest {
     if (reponse.status === 429 && tentative < TENTATIVES_429) {
       const delai = this.delaiApres429(reponse, tentative);
       await reponse.body?.cancel();
-      await this.dep.dormir(delai);
+      await this.dormirAnnulable(delai, options.signal);
       return this.appeler<T>(methode, chemin, options, tentative + 1, tentativeReseau);
     }
 

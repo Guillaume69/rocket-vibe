@@ -254,6 +254,17 @@ export const POLICES = {
 export const DELAI_PRESSION_LISTE = 120;
 
 /**
+ * Largeur disponible pour le corps d'un message : écran − marges de liste
+ * (16×2) − colonne avatar (34) − gouttière (10), plafonnée pour les grands
+ * écrans. Partagée entre les images jointes (`ui/ligneMessage.tsx`) et les
+ * aperçus de lien (`ui/carteLien.tsx`), qui doivent s'aligner — le calcul
+ * était recopié dans les deux.
+ */
+export function largeurDispoCorps(largeurEcran: number): number {
+  return Math.min(largeurEcran - 92, 380);
+}
+
+/**
  * Choisit un dégradé d'avatar STABLE pour une clé (nom, id) : la même personne
  * garde sa cutie-mark d'un écran à l'autre. Somme des points de code modulo la
  * taille de la palette — déterministe, sans dépendance.

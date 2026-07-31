@@ -16,6 +16,8 @@ import {
   Text,
   useWindowDimensions,
   View,
+  type ImageStyle,
+  type StyleProp,
 } from 'react-native';
 
 import type { messages } from '../db/schema.ts';
@@ -42,7 +44,13 @@ import { LecteurAudio } from './lecteurAudio.tsx';
 import { LecteurVideo } from './lecteurVideo.tsx';
 import { CorpsMessage, GardeRendu } from './markdown.tsx';
 import { TexteTappable } from './texteTappable.tsx';
-import { type Couleurs, DELAI_PRESSION_LISTE, degradeAvatar, POLICES } from './theme.ts';
+import {
+  type Couleurs,
+  DELAI_PRESSION_LISTE,
+  degradeAvatar,
+  largeurDispoCorps,
+  POLICES,
+} from './theme.ts';
 import { useVisionneuse } from './visionneuse.tsx';
 
 export type LigneDeMessage = typeof messages.$inferSelect;
@@ -439,34 +447,20 @@ function FichierCite({
   client: ClientRest;
   surAppuiLong: (() => void) | undefined;
 }) {
-  const visionneuse = useVisionneuse();
   const t = useT();
   if (typeof jointe.image_url === 'string') {
-    // Original (`title_link`) plutôt que vignette serveur — même choix que
-    // PiecesJointes : la visionneuse et l'écran haute densité le méritent.
-    const source = typeof jointe.title_link === 'string' ? jointe.title_link : jointe.image_url;
-    const url = urlFichierProtege(client, source);
-    const reelLargeur = jointe.image_dimensions?.width ?? null;
-    const reelHauteur = jointe.image_dimensions?.height ?? null;
-    const ratio = (reelHauteur ?? 1) / Math.max(reelLargeur ?? 1, 1);
-    const hauteur = Math.min(Math.max(Math.round(LARGEUR_IMAGE_CITEE * ratio), 72), 200);
+    // Bornes égales = largeur FIXE : une vignette, pas la pièce plein cadre.
     return (
-      <Pressable
-        onPress={() =>
-          visionneuse.ouvrir({
-            uri: url,
-            largeur: reelLargeur,
-            hauteur: reelHauteur,
-            titre: jointe.title ?? null,
-          })
-        }
-        onLongPress={surAppuiLong}
-        delayLongPress={350}
-        accessibilityRole="imagebutton"
-        accessibilityLabel={jointe.title ?? t('ligneMessage.imageAgrandir')}
-      >
-        <Image source={{ uri: url }} style={[styles.imageCitee, { height: hauteur }]} resizeMode="cover" />
-      </Pressable>
+      <ImageJointe
+        jointe={jointe}
+        client={client}
+        largeurMin={LARGEUR_IMAGE_CITEE}
+        largeurMax={LARGEUR_IMAGE_CITEE}
+        hauteurMin={72}
+        hauteurMax={200}
+        style={styles.imageCitee}
+        surAppuiLong={surAppuiLong}
+      />
     );
   }
   const glyphe =
@@ -480,6 +474,79 @@ function FichierCite({
 
 /** Largeur fixe des images citées : une vignette, pas la pièce plein cadre. */
 const LARGEUR_IMAGE_CITEE = 200;
+
+/**
+ * Une image jointe — du bloc citation comme du corps du message : choix de la
+ * source, URL protégée, gabarit borné et ouverture en visionneuse. Était écrit
+ * deux fois dans ce fichier, avec des bornes déjà divergées.
+ *
+ * Rocket.Chat génère une VIGNETTE ~480 px (`image_url`) et conserve l'ORIGINAL
+ * pleine résolution dans `title_link`. Afficher la vignette la rendait
+ * pixelisée dès qu'on l'agrandissait : on prend donc l'original, en le
+ * laissant se sous-échantillonner à la taille d'affichage. Repli sur
+ * `image_url` si le serveur ne génère pas de vignette (l'original EST alors
+ * `image_url`).
+ *
+ * Le gabarit : largeur naturelle bornée à [largeurMin, largeurMax] (bornes
+ * égales = largeur fixe, le cas de la vignette citée), hauteur au ratio de
+ * l'original bornée à [hauteurMin, hauteurMax] — un portrait très haut est
+ * plafonné (et recadré par `cover`) : la vue en grand, au toucher, montre
+ * l'image entière. `image_dimensions` décrit la vignette, mais son RATIO est
+ * celui de l'original — parfait pour le gabarit ; carré quand il manque.
+ */
+function ImageJointe({
+  jointe,
+  client,
+  largeurMin,
+  largeurMax,
+  hauteurMin,
+  hauteurMax,
+  style,
+  surAppuiLong,
+}: {
+  jointe: PieceJointe;
+  client: ClientRest;
+  largeurMin: number;
+  largeurMax: number;
+  hauteurMin: number;
+  hauteurMax: number;
+  /** L'habillage (rayon, marges, fond d'attente) reste à l'appelant. */
+  style: StyleProp<ImageStyle>;
+  surAppuiLong: (() => void) | undefined;
+}) {
+  const visionneuse = useVisionneuse();
+  const t = useT();
+  if (typeof jointe.image_url !== 'string') return null;
+  const source = typeof jointe.title_link === 'string' ? jointe.title_link : jointe.image_url;
+  const url = urlFichierProtege(client, source);
+  const reelLargeur = jointe.image_dimensions?.width ?? null;
+  const reelHauteur = jointe.image_dimensions?.height ?? null;
+  const largeur = Math.max(Math.min(reelLargeur ?? largeurMax, largeurMax), largeurMin);
+  const ratio = (reelHauteur ?? largeur) / Math.max(reelLargeur ?? largeur, 1);
+  const hauteur = Math.min(Math.max(Math.round(largeur * ratio), hauteurMin), hauteurMax);
+  return (
+    <Pressable
+      onPress={() =>
+        visionneuse.ouvrir({
+          uri: url,
+          largeur: reelLargeur,
+          hauteur: reelHauteur,
+          titre: jointe.title ?? null,
+        })
+      }
+      onLongPress={surAppuiLong}
+      delayLongPress={350}
+      accessibilityRole="imagebutton"
+      accessibilityLabel={jointe.title ?? t('ligneMessage.imageAgrandir')}
+    >
+      <Image
+        source={{ uri: url }}
+        style={[style, { width: largeur, height: hauteur }]}
+        resizeMode="cover"
+      />
+    </Pressable>
+  );
+}
 
 /**
  * Carte d'un message d'appel (`t: 'videoconf'`) : « Appel vidéo » et un bouton
@@ -561,58 +628,24 @@ function PiecesJointes({
   surAppuiLong: (() => void) | undefined;
 }) {
   const { width: largeurEcran } = useWindowDimensions();
-  const visionneuse = useVisionneuse();
-  const t = useT();
-
-  // Largeur disponible pour le corps : écran − marges de liste (16×2) −
-  // colonne avatar (34) − gouttière (10), plafonnée pour les grands écrans.
-  const dispoLargeur = Math.min(largeurEcran - 92, 380);
+  const dispoLargeur = largeurDispoCorps(largeurEcran);
 
   return (
     <View style={styles.jointes}>
       {jointes.map((jointe, i) => {
         if (typeof jointe?.image_url === 'string') {
-          // Rocket.Chat génère une VIGNETTE ~480 px (`image_url`) et conserve
-          // l'ORIGINAL pleine résolution dans `title_link`. Afficher la
-          // vignette la rendait pixelisée dès qu'on l'agrandissait : on prend
-          // donc l'original, en le laissant se sous-échantillonner à la taille
-          // d'affichage. Repli sur `image_url` si le serveur ne génère pas de
-          // vignette (l'original EST alors `image_url`).
-          const source =
-            typeof jointe.title_link === 'string' ? jointe.title_link : jointe.image_url;
-          const url = urlFichierProtege(client, source);
-          // `image_dimensions` décrit la vignette, mais son RATIO est celui de
-          // l'original — parfait pour le gabarit. La borne « pas d'upscale »
-          // reste juste : min(480, dispo) = dispo, on remplit donc la largeur.
-          const reelLargeur = jointe.image_dimensions?.width ?? null;
-          const reelHauteur = jointe.image_dimensions?.height ?? null;
-          const largeur = Math.max(Math.min(reelLargeur ?? dispoLargeur, dispoLargeur), 120);
-          const ratio = (reelHauteur ?? largeur) / Math.max(reelLargeur ?? largeur, 1);
-          // Un portrait très haut est plafonné (et recadré par `cover`) : la
-          // vue en grand, au toucher, montre l'image entière.
-          const hauteur = Math.min(Math.round(largeur * ratio), 400);
           return (
-            <Pressable
+            <ImageJointe
               key={i}
-              onPress={() =>
-                visionneuse.ouvrir({
-                  uri: url,
-                  largeur: reelLargeur,
-                  hauteur: reelHauteur,
-                  titre: jointe.title ?? null,
-                })
-              }
-              onLongPress={surAppuiLong}
-              delayLongPress={350}
-              accessibilityRole="imagebutton"
-              accessibilityLabel={jointe.title ?? t('ligneMessage.imageAgrandir')}
-            >
-              <Image
-                source={{ uri: url }}
-                style={[styles.imageJointe, { width: largeur, height: hauteur }]}
-                resizeMode="cover"
-              />
-            </Pressable>
+              jointe={jointe}
+              client={client}
+              largeurMin={120}
+              largeurMax={dispoLargeur}
+              hauteurMin={0}
+              hauteurMax={400}
+              style={styles.imageJointe}
+              surAppuiLong={surAppuiLong}
+            />
           );
         }
         if (typeof jointe?.audio_url === 'string') {
@@ -747,8 +780,8 @@ const styles = StyleSheet.create({
     gap: 1,
   },
   citationAuteur: { fontFamily: POLICES.corpsGras, fontSize: 12 },
+  // La largeur et la hauteur viennent du gabarit d'`ImageJointe`.
   imageCitee: {
-    width: LARGEUR_IMAGE_CITEE,
     maxWidth: '100%',
     borderRadius: 8,
     backgroundColor: '#00000010',

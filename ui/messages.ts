@@ -20,14 +20,10 @@ const fr = {
   'commun.annuler': 'Annuler',
   'commun.reessayer': 'Réessayer',
   'commun.fermer': 'Fermer',
-  'commun.erreur': 'Erreur',
   'commun.envoyer': 'Envoyer',
   'commun.rechercher': 'Rechercher',
-  'commun.chargement': 'Chargement…',
   'commun.supprimer': 'Supprimer',
-  'commun.copier': 'Copier',
   'commun.pieceJointe': 'Pièce jointe',
-  'commun.ok': 'OK',
   // Mise en phrase des refus de validation d'upload (ui/validationFichiers.ts),
   // partagée entre le composer du salon et l'écran de partage.
   'commun.fichierTropLourd': 'Fichier trop lourd (maximum {mo} Mo).',
@@ -127,8 +123,6 @@ const fr = {
   'salon.reponseFilNonEnvoyee': '⚠️ Réponse de fil non envoyée — ouvrir',
   'salon.reessayer': 'réessayer',
   'salon.abandonner': 'abandonner',
-  'salon.chiffre':
-    '🔒 Salon chiffré de bout en bout — écriture non prise en charge par cette application.',
   'salon.chiffreVerrouille': '🔓 Déverrouiller pour lire ce salon chiffré',
   'salon.chiffreLecture': '🔒 Chiffré — lecture seule (envoi non pris en charge)',
   'e2e.titre': 'Déverrouiller le chiffrement',
@@ -239,14 +233,10 @@ const fr = {
   'rechercheMessages.rechercheImpossible': 'Recherche impossible.',
   'rechercheMessages.aucunMessage': 'Aucun message trouvé.',
 
-  // ── Fil de discussion
+  // ── Fil de discussion — le composer commun (ui/composer.tsx) parle avec
+  // les clés `salon.*` : les doublons `fil.*` ont été fusionnés (chantier 14).
   'fil.titre': 'Fil',
   'fil.introuvable': 'Fil introuvable.',
-  'fil.chiffre':
-    '🔒 Salon chiffré de bout en bout — écriture non prise en charge par cette application.',
-  'fil.lectureSeule': 'Ce salon est en lecture seule.',
-  'fil.revenirClavier': 'Revenir au clavier',
-  'fil.choisirEmoji': 'Choisir un emoji',
   'fil.repondre': 'Répondre dans le fil',
 
   // ── Actions sur un message
@@ -368,7 +358,6 @@ const fr = {
   // ── Fiche d'un utilisateur
   'profil.profilIllisible': 'Profil illisible.',
   'profil.profilIntrouvable': 'Profil introuvable.',
-  'profil.conversationImpossible': 'Conversation impossible.',
   'profil.actionImpossible': 'Action impossible.',
   'profil.heureLocale': 'Heure locale : {heure}',
   'profil.envoyerMessageLabel': 'Envoyer un message à {nom}',
@@ -402,14 +391,10 @@ const en: Record<CleTraduction, string> = {
   'commun.annuler': 'Cancel',
   'commun.reessayer': 'Retry',
   'commun.fermer': 'Close',
-  'commun.erreur': 'Error',
   'commun.envoyer': 'Send',
   'commun.rechercher': 'Search',
-  'commun.chargement': 'Loading…',
   'commun.supprimer': 'Delete',
-  'commun.copier': 'Copy',
   'commun.pieceJointe': 'Attachment',
-  'commun.ok': 'OK',
   'commun.fichierTropLourd': 'File too large ({mo} MB maximum).',
   'commun.typeFichierRefuse': 'Type {type} rejected by the server.',
   'commun.presenceEnLigne': 'online',
@@ -496,8 +481,6 @@ const en: Record<CleTraduction, string> = {
   'salon.reponseFilNonEnvoyee': '⚠️ Thread reply not sent — open',
   'salon.reessayer': 'retry',
   'salon.abandonner': 'discard',
-  'salon.chiffre':
-    '🔒 End-to-end encrypted channel — writing is not supported by this app.',
   'salon.chiffreVerrouille': '🔓 Unlock to read this encrypted channel',
   'salon.chiffreLecture': '🔒 Encrypted — read-only (sending not supported)',
   'e2e.titre': 'Unlock encryption',
@@ -597,10 +580,6 @@ const en: Record<CleTraduction, string> = {
 
   'fil.titre': 'Thread',
   'fil.introuvable': 'Thread not found.',
-  'fil.chiffre': '🔒 End-to-end encrypted channel — writing is not supported by this app.',
-  'fil.lectureSeule': 'This channel is read-only.',
-  'fil.revenirClavier': 'Back to keyboard',
-  'fil.choisirEmoji': 'Choose an emoji',
   'fil.repondre': 'Reply in thread',
 
   'actionsMessage.messageIntrouvable': 'Message not found.',
@@ -709,7 +688,6 @@ const en: Record<CleTraduction, string> = {
 
   'profil.profilIllisible': 'Profile unreadable.',
   'profil.profilIntrouvable': 'Profile not found.',
-  'profil.conversationImpossible': 'Conversation failed.',
   'profil.actionImpossible': 'Action failed.',
   'profil.heureLocale': 'Local time: {heure}',
   'profil.envoyerMessageLabel': 'Send a message to {nom}',

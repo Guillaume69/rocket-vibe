@@ -96,6 +96,7 @@ export default function EcranProfil() {
   const client: ClientRest | null = etat.phase === 'connecte' ? etat.client : null;
   const moi = etat.phase === 'connecte' ? etat.session.username : null;
   const moteur = synchro.phase === 'pret' ? synchro.moteur : null;
+  const actions = synchro.phase === 'pret' ? synchro.actions : null;
   const etags = useEtagsAvatars();
 
   // Fiche préchargée AVANT l'ouverture (`lib/profilPreload`) : présente, on
@@ -166,17 +167,13 @@ export default function EcranProfil() {
   /** Ouvre (ou crée) le DM, puis y va — la sheet est REMPLACÉE par le salon. */
   const ouvrirDm = useCallback(
     async (versAppel: boolean) => {
-      if (client === null || profil === null || enVol.current) return;
+      if (client === null || actions === null || profil === null || enVol.current) return;
       enVol.current = true;
       setOccupe(true);
       setErreur(null);
       try {
-        const reponse = await client.post<{ room?: Record<string, unknown> }>('im.create', {
-          corps: { username: profil.username },
-        });
-        const rid = reponse.room?._id;
-        if (typeof rid !== 'string') throw new Error(t('profil.conversationImpossible'));
-        if (moteur !== null && reponse.room !== undefined) await moteur.ingererSalons([reponse.room]);
+        const { rid, salonBrut } = await actions.ouvrirOuCreerDm(profil.username);
+        if (moteur !== null) await moteur.ingererSalons([salonBrut]);
         if (versAppel) {
           // `start` crée la conférence et poste le message d'appel dans le DM ;
           // l'écran d'appel fait le `join`. Au retour (back), on retombe là où
@@ -221,7 +218,7 @@ export default function EcranProfil() {
       }
       // Succès : on a navigué, l'écran se démonte — ne pas re-setter l'état.
     },
-    [client, profil, moteur, routeur, navigation, t],
+    [client, actions, profil, moteur, routeur, navigation, t],
   );
 
   // Ce qu'on sait DÈS le tap (avatar + @username, ou uid pour un DM) : on rend

@@ -1,5 +1,5 @@
 import { Stack, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -10,10 +10,12 @@ import {
   View,
 } from 'react-native';
 
+import type { ActionsFournisseur } from '../lib/fournisseur.ts';
 import type { MoteurSynchro } from '../lib/sync.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { VueEvitantLeClavier } from '../ui/clavier.tsx';
 import { useT } from '../ui/i18n.ts';
+import { useRechercheDebouncee } from '../ui/rechercheDebouncee.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
@@ -21,14 +23,17 @@ import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui
 /**
  * Démarrer une conversation (5.4) : sans cet écran, l'app ne fait que lister
  * l'existant. `GET spotlight?query=` cherche utilisateurs ET canaux publics ;
- * un utilisateur → `im.create`, un canal → `channels.join`. Dans les deux
- * cas, le salon rendu par le serveur est ingéré immédiatement — la navigation
- * n'attend pas le stream.
+ * un utilisateur → DM via `actions.ouvrirOuCreerDm`, un canal →
+ * `channels.join`. Dans les deux cas, le salon rendu par le serveur est ingéré
+ * immédiatement — la navigation n'attend pas le stream.
  */
 
 type Utilisateur = { _id: string; username?: string; name?: string };
 type SalonPublic = { _id: string; name?: string; t?: string };
 type ReponseSpotlight = { users?: Utilisateur[]; rooms?: SalonPublic[] };
+
+/** Stable (module-level) : une valeur recréée à chaque rendu relancerait l'effet. */
+const AUCUN_RESULTAT: ReponseSpotlight = {};
 
 export default function EcranRecherche() {
   const { etat } = useSession();
@@ -49,61 +54,38 @@ export default function EcranRecherche() {
       </View>
     );
   }
-  return <Recherche c={c} client={etat.client} moteur={synchro.moteur} />;
+  return (
+    <Recherche c={c} client={etat.client} moteur={synchro.moteur} actions={synchro.actions} />
+  );
 }
 
 function Recherche({
   c,
   client,
   moteur,
+  actions,
 }: {
   c: Couleurs;
   client: ClientRest;
   moteur: MoteurSynchro;
+  actions: ActionsFournisseur;
 }) {
   const routeur = useRouter();
   const t = useT();
   const [requete, setRequete] = useState('');
-  const [resultats, setResultats] = useState<ReponseSpotlight>({});
   const [occupe, setOccupe] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const enVol = useRef(false);
 
-  // Recherche débouncée : une requête par pause de frappe, pas par touche —
-  // spotlight est du REST rate-limité comme le reste. La garde de séquence
-  // rejette les réponses EN RETARD : sans elle, la réponse lente de « a »
-  // écraserait les résultats frais de « ab » (le rejeu sur 429 du client rend
-  // le cas très réel).
-  const sequence = useRef(0);
-  useEffect(() => {
-    const propre = requete.trim();
-    const n = ++sequence.current;
-    const minuterie = setTimeout(
-      () => {
-        if (propre === '') {
-          setResultats({});
-          // Vider le champ efface AUSSI l'erreur : sans cela le bandeau
-          // « Recherche impossible. » restait au-dessus d'une liste vide.
-          // La branche jumelle de app/recherche-messages.tsx le fait déjà —
-          // les deux écrans, écrits sur le même idiome, avaient divergé.
-          setMessage(null);
-          return;
-        }
-        client
-          .get<ReponseSpotlight>('spotlight', { params: { query: propre } })
-          .then((r) => {
-            if (sequence.current !== n) return;
-            setResultats(r);
-            setMessage(null);
-          })
-          .catch(() => {
-            if (sequence.current === n) setMessage(t('recherche.rechercheImpossible'));
-          });
-      },
-      propre === '' ? 0 : 300,
-    );
-    return () => clearTimeout(minuterie);
-  }, [requete, client, t]);
+  const chercherSpotlight = useCallback(
+    (propre: string) => client.get<ReponseSpotlight>('spotlight', { params: { query: propre } }),
+    [client],
+  );
+  const { resultats, message, setMessage } = useRechercheDebouncee(
+    requete,
+    AUCUN_RESULTAT,
+    chercherSpotlight,
+    t('recherche.rechercheImpossible'),
+  );
 
   const ouvrirSalon = useCallback(
     async (brut: Record<string, unknown> | undefined, rid: string | undefined) => {
@@ -121,10 +103,8 @@ function Recherche({
       setOccupe(true);
       setMessage(null);
       try {
-        const reponse = await client.post<{ room?: Record<string, unknown> }>('im.create', {
-          corps: { username: utilisateur.username },
-        });
-        await ouvrirSalon(reponse.room, reponse.room?._id as string | undefined);
+        const { rid, salonBrut } = await actions.ouvrirOuCreerDm(utilisateur.username);
+        await ouvrirSalon(salonBrut, rid);
       } catch (e) {
         setMessage(e instanceof Error ? e.message : t('recherche.conversationImpossible'));
       } finally {
@@ -132,7 +112,7 @@ function Recherche({
         setOccupe(false);
       }
     },
-    [client, ouvrirSalon, t],
+    [actions, ouvrirSalon, setMessage, t],
   );
 
   const rejoindreCanal = useCallback(
@@ -153,7 +133,7 @@ function Recherche({
         setOccupe(false);
       }
     },
-    [client, ouvrirSalon, t],
+    [client, ouvrirSalon, setMessage, t],
   );
 
   type Ligne =

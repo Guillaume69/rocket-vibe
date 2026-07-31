@@ -4,37 +4,24 @@ import { useRequeteVive } from '../../ui/requeteVive.ts';
 import * as Haptics from 'expo-haptics';
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import type { BaseLocale } from '../../db/client.ts';
 import type { DepotBrouillons } from '../../db/depot.ts';
 import { messages, salons, sortie } from '../../db/schema.ts';
 import type { MoteurActivite } from '../../lib/activite.ts';
-import { citer } from '../../lib/citation.ts';
-import type { CandidatMention } from '../../lib/completionMention.ts';
 import type { ActionsFournisseur, Listener, Outbox } from '../../lib/fournisseur.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
 import { useActivite } from '../../ui/activite.ts';
-import { BandeauReponse } from '../../ui/bandeauReponse.tsx';
 import { useBrouillon } from '../../ui/brouillons.ts';
 import { filChargeSous, marquerFilCharge } from '../../ui/filsCharges.ts';
 import { jetonSession } from '../../ui/jetonSession.ts';
 import { BarreSynchro } from '../../ui/kit.tsx';
-import { annulerReponse, useReponse } from '../../ui/reponse.ts';
-import { useRetourMateriel } from '../../ui/retourMateriel.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
-import { BandeauCompletionEmoji, useCompletionEmoji } from '../../ui/completionEmoji.tsx';
-import { BandeauCompletionMention, useCandidatsMention } from '../../ui/completionMention.tsx';
+import { useCandidatsMention } from '../../ui/completionMention.tsx';
+import { Composer } from '../../ui/composer.tsx';
 import { useT } from '../../ui/i18n.ts';
-import { NavigateurEmoji, usePanneauEmoji } from '../../ui/navigateurEmoji.tsx';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
 import { useSession } from '../../ui/session.tsx';
 import { useSynchro } from '../../ui/synchro.tsx';
@@ -370,172 +357,30 @@ function Fil({
           maintainVisibleContentPosition={{ autoscrollToBottomThreshold: 0.2 }}
         />
       )}
-      {rid !== undefined && salon?.chiffre === true && (
-        <View style={[styles.composer, { borderTopColor: c.bordure }]}>
-          <Text style={[styles.noteComposer, { color: c.attenue }]}>{t('fil.chiffre')}</Text>
-        </View>
-      )}
-      {rid !== undefined && salon?.chiffre !== true && salon?.lectureSeule === true && (
-        <View style={[styles.composer, { borderTopColor: c.bordure }]}>
-          <Text style={[styles.noteComposer, { color: c.attenue }]}>{t('fil.lectureSeule')}</Text>
-        </View>
-      )}
-      {rid !== undefined &&
-        salon !== undefined &&
-        !salon.chiffre &&
-        !salon.lectureSeule &&
-        persistance.initial !== null && (
-          <ComposerFil
-            key={`${rid}:${filId}`}
-            c={c}
-            rid={rid}
-            filId={filId}
-            envoi={envoi}
-            client={client}
-            candidatsMention={candidatsMention}
-            apresEnvoi={apresEnvoi}
-            brouillonInitial={persistance.initial}
-            sauverBrouillon={persistance.sauver}
-            effacerBrouillon={persistance.effacer}
-          />
-        )}
-    </VueEvitantLeClavier>
-  );
-}
-
-function ComposerFil({
-  c,
-  rid,
-  filId,
-  envoi,
-  client,
-  candidatsMention,
-  apresEnvoi,
-  brouillonInitial,
-  sauverBrouillon,
-  effacerBrouillon,
-}: {
-  c: Couleurs;
-  rid: string;
-  filId: string;
-  envoi: Outbox;
-  /** Avatars des suggestions de mention. */
-  client: ClientRest;
-  /** Auteurs récents du salon (`useCandidatsMention`), calculés par le parent. */
-  candidatsMention: CandidatMention[];
-  /** Reçoit l'`_id` client posé par l'outbox — le parent suit son apparition. */
-  apresEnvoi: (idMessage: string) => void;
-  /** Brouillon restauré (8.7) — le parent attend sa lecture avant de monter. */
-  brouillonInitial: string;
-  sauverBrouillon: (texte: string) => void;
-  effacerBrouillon: () => void;
-}) {
-  const t = useT();
-  const [brouillon, setBrouillon] = useState(brouillonInitial);
-  // Autocomplétion des emojis — mécanique partagée avec le composer du salon.
-  const { curseur, selection, surSelection, choisirEmoji, insererAuCurseur, reinitialiser } =
-    useCompletionEmoji(brouillon, setBrouillon, sauverBrouillon);
-
-  // Navigateur d'emojis : mêmes gestes que le salon (bouton 😀 ↔ clavier).
-  const champRef = useRef<TextInput>(null);
-  const emoji = usePanneauEmoji(champRef);
-
-  // Cible de réponse (citation) adressée à CE fil — voir `ui/reponse.ts`.
-  const cleReponse = `${rid}:${filId}`;
-  const reponse = useReponse(cleReponse);
-  const annulerCitation = useCallback(() => annulerReponse(cleReponse), [cleReponse]);
-  useRetourMateriel(reponse !== null, annulerCitation);
-  useEffect(() => {
-    if (reponse !== null) champRef.current?.focus();
-  }, [reponse]);
-
-  const changer = useCallback(
-    (texte: string) => {
-      setBrouillon(texte);
-      sauverBrouillon(texte);
-    },
-    [sauverBrouillon],
-  );
-
-  const envoyer = useCallback(() => {
-    const texte = brouillon.trim();
-    if (texte === '') return;
-    const texteAEnvoyer = reponse === null ? texte : citer(reponse.permalien, texte);
-    const jointesLocales = reponse === null ? null : reponse.jointeLocale;
-    setBrouillon('');
-    reinitialiser();
-    effacerBrouillon();
-    annulerReponse(cleReponse);
-    // `envoyer` résout avec l'`_id` client dès l'écriture locale : le parent
-    // défile quand CE message apparaît dans la liste, pas après un délai.
-    envoi.envoyer(rid, texteAEnvoyer, filId, jointesLocales).then(apresEnvoi, () => {});
-  }, [brouillon, envoi, rid, filId, reponse, cleReponse, effacerBrouillon, apresEnvoi, reinitialiser]);
-
-  return (
-    <View>
-      {reponse !== null && (
-        <BandeauReponse c={c} cible={reponse} client={client} surAnnuler={annulerCitation} />
-      )}
-      {!emoji.ouvert && (
-        <BandeauCompletionEmoji
-          texte={brouillon}
-          curseur={curseur}
+      {/* Le composer COMMUN (ui/composer.tsx) : les variantes chiffré /
+          lecture seule vivent dedans — dans un salon chiffré, il propose
+          désormais le déverrouillage E2E, comme l'écran salon. `fichiers`
+          est null : pas de pièces jointes ni de vocal dans un fil. */}
+      {rid !== undefined && salon !== undefined && persistance.initial !== null && (
+        <Composer
+          key={`${rid}:${filId}`}
           c={c}
-          surChoisir={choisirEmoji}
-        />
-      )}
-      {/* Jetons `:` et `@` mutuellement exclusifs : un seul bandeau à la fois. */}
-      {!emoji.ouvert && (
-        <BandeauCompletionMention
-          texte={brouillon}
-          curseur={curseur}
-          candidats={candidatsMention}
+          rid={rid}
+          filId={filId}
+          envoi={envoi}
+          fichiers={null}
           client={client}
-          c={c}
-          surChoisir={choisirEmoji}
-        />
-      )}
-      <View style={[styles.composer, { borderTopColor: c.bordure }]}>
-        <Pressable
-          onPress={emoji.basculer}
-          android_ripple={{ color: c.ondulation, borderless: true }}
-          style={styles.boutonEmoji}
-          accessibilityLabel={emoji.ouvert ? t('fil.revenirClavier') : t('fil.choisirEmoji')}
-        >
-          <Text style={styles.emojiGlyphe}>{emoji.ouvert ? '⌨️' : '😀'}</Text>
-        </Pressable>
-        <TextInput
-          ref={champRef}
-          value={brouillon}
-          selection={selection}
-          onChangeText={changer}
-          onSelectionChange={surSelection}
-          onFocus={emoji.surFocus}
+          candidatsMention={candidatsMention}
+          lectureSeule={salon.lectureSeule}
+          chiffre={salon.chiffre}
           placeholder={t('fil.repondre')}
-          placeholderTextColor={c.attenue}
-          multiline
-          style={[styles.champComposer, { color: c.texte, backgroundColor: c.carte }]}
-        />
-        {brouillon.trim() !== '' && (
-          <Pressable
-            onPress={envoyer}
-            android_ripple={{ color: c.ondulation, borderless: true }}
-            style={({ pressed }) => [styles.boutonEnvoyer, { opacity: pressed ? 0.4 : 1 }]}
-          >
-            <Text style={[styles.texteEnvoyer, { color: c.accent }]}>{t('commun.envoyer')}</Text>
-          </Pressable>
-        )}
-      </View>
-      {emoji.monte && (
-        <NavigateurEmoji
-          c={c}
-          hauteur={emoji.hauteur}
-          cible={emoji.cible}
-          glisse={emoji.glisse}
-          onChoisir={insererAuCurseur}
+          apresEnvoi={apresEnvoi}
+          brouillonInitial={persistance.initial}
+          sauverBrouillon={persistance.sauver}
+          effacerBrouillon={persistance.effacer}
         />
       )}
-    </View>
+    </VueEvitantLeClavier>
   );
 }
 
@@ -544,25 +389,4 @@ const styles = StyleSheet.create({
   contenu: { paddingHorizontal: 16, paddingVertical: 8 },
   vide: { textAlign: 'center', padding: 24, fontSize: 14 },
   erreur: { fontFamily: POLICES.corpsSemi, fontSize: 14, textAlign: 'center' },
-  composer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  champComposer: {
-    flex: 1,
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    fontSize: 15,
-    maxHeight: 120,
-  },
-  boutonEnvoyer: { paddingVertical: 10, paddingHorizontal: 4 },
-  texteEnvoyer: { fontFamily: POLICES.corpsGras, fontSize: 15 },
-  boutonEmoji: { paddingVertical: 8, paddingHorizontal: 2 },
-  emojiGlyphe: { fontSize: 20 },
-  noteComposer: { flex: 1, textAlign: 'center', fontSize: 13, paddingVertical: 8 },
 });

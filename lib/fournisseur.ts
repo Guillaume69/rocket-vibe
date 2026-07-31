@@ -145,6 +145,13 @@ export interface ActionsFournisseur {
   supprimer(rid: string, mid: string): Promise<void>;
   epingler(rid: string, mid: string): Promise<void>;
   marquerLu(rid: string): Promise<void>;
+  /**
+   * Ouvre (ou crée — idempotent côté serveur) le DM avec `username`. Rend le
+   * `rid` et le document salon brut, à ingérer pour naviguer sans attendre le
+   * stream. Était écrit deux fois (fiche profil, recherche), avec deux
+   * validations différentes de la réponse.
+   */
+  ouvrirOuCreerDm(username: string): Promise<{ rid: string; salonBrut: Record<string, unknown> }>;
 }
 
 /** Capacités de Rocket.Chat. E2EE dégradé (lecture seule), push par gateway hors périmètre. */

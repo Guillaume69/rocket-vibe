@@ -23,7 +23,7 @@ import {
 import { apercusDeLien, type ApercuLien } from '../lib/apercuLien.ts';
 import { useT } from './i18n.ts';
 import { ouvrirLienExterne } from './lienExterne.ts';
-import { type Couleurs, POLICES } from './theme.ts';
+import { type Couleurs, largeurDispoCorps, POLICES } from './theme.ts';
 import { useVisionneuse } from './visionneuse.tsx';
 
 /** Rend un aperçu par lien exploitable dans `urls` (rien si aucun). */
@@ -40,9 +40,8 @@ export function ApercusLien({
   const apercus = useMemo(() => apercusDeLien(urls), [urls]);
   if (apercus.length === 0) return null;
 
-  // Même largeur disponible que les images jointes : écran − marges de liste
-  // (16×2) − colonne avatar (34) − gouttière (10), plafonnée.
-  const largeurDispo = Math.min(largeurEcran - 92, 380);
+  // Même largeur disponible que les images jointes — voir `largeurDispoCorps`.
+  const largeurDispo = largeurDispoCorps(largeurEcran);
 
   return (
     <View style={styles.liste}>

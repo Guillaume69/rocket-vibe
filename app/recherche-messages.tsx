@@ -1,5 +1,5 @@
 import { Redirect, Stack, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -14,6 +14,7 @@ import type { ClientRest } from '../lib/rest.ts';
 import { VueEvitantLeClavier } from '../ui/clavier.tsx';
 import { useT } from '../ui/i18n.ts';
 import { LigneMessage } from '../ui/ligneMessage.tsx';
+import { useRechercheDebouncee } from '../ui/rechercheDebouncee.ts';
 import { useSession } from '../ui/session.tsx';
 import { useCouleurs, type Couleurs, POLICES } from '../ui/theme.ts';
 
@@ -25,6 +26,9 @@ import { useCouleurs, type Couleurs, POLICES } from '../ui/theme.ts';
  * faire. Pas de saut vers le message dans l'historique : consigné, viendra
  * avec une vraie pagination arrière ciblée.
  */
+
+/** Stable (module-level) : une valeur recréée à chaque rendu relancerait l'effet. */
+const AUCUN_MESSAGE: MessageLocal[] = [];
 
 export default function EcranRechercheMessages() {
   const { rid } = useLocalSearchParams<{ rid: string }>();
@@ -57,53 +61,30 @@ function RechercheMessages({
 }) {
   const t = useT();
   const [requete, setRequete] = useState('');
-  const [resultats, setResultats] = useState<MessageLocal[]>([]);
-  // La requête dont les résultats affichés sont issus : « on cherche » se
-  // DÉRIVE (requête courante ≠ requête répondue) au lieu de vivre dans un
-  // état posé par l'effet — sans quoi, pendant les 300 ms de débounce d'une
-  // nouvelle frappe, l'écran afficherait un faux « Aucun message trouvé ».
-  const [repondue, setRepondue] = useState('');
-  const [message, setMessage] = useState<string | null>(null);
+
+  // Les résultats sont normalisés dès la réponse (`versMessage`, comme tout
+  // document serveur) — jamais écrits en base, voir l'en-tête du fichier.
+  const chercherMessages = useCallback(
+    (propre: string) =>
+      client
+        .get<{ messages?: Record<string, unknown>[] }>('chat.search', {
+          params: { roomId: rid, searchText: propre, count: 50 },
+        })
+        .then((r) =>
+          (r.messages ?? [])
+            .map((brut) => versMessage(brut))
+            .filter((m): m is MessageLocal => m !== null),
+        ),
+    [client, rid],
+  );
+  const { resultats, message, repondue } = useRechercheDebouncee(
+    requete,
+    AUCUN_MESSAGE,
+    chercherMessages,
+    t('rechercheMessages.rechercheImpossible'),
+  );
   const propre = requete.trim();
   const cherche = propre !== '' && repondue !== propre;
-
-  // Même idiome que le spotlight : débounce (REST rate-limité) + garde de
-  // séquence (la réponse lente de « a » n'écrase pas celle de « ab »).
-  const sequence = useRef(0);
-  useEffect(() => {
-    const n = ++sequence.current;
-    const minuterie = setTimeout(
-      () => {
-        if (propre === '') {
-          setResultats([]);
-          setMessage(null);
-          setRepondue('');
-          return;
-        }
-        client
-          .get<{ messages?: Record<string, unknown>[] }>('chat.search', {
-            params: { roomId: rid, searchText: propre, count: 50 },
-          })
-          .then((r) => {
-            if (sequence.current !== n) return;
-            setResultats(
-              (r.messages ?? [])
-                .map((brut) => versMessage(brut))
-                .filter((m): m is MessageLocal => m !== null),
-            );
-            setMessage(null);
-            setRepondue(propre);
-          })
-          .catch(() => {
-            if (sequence.current !== n) return;
-            setMessage(t('rechercheMessages.rechercheImpossible'));
-            setRepondue(propre);
-          });
-      },
-      propre === '' ? 0 : 300,
-    );
-    return () => clearTimeout(minuterie);
-  }, [propre, client, rid, t]);
 
   return (
     <VueEvitantLeClavier>

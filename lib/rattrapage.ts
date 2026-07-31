@@ -234,18 +234,29 @@ async function pageCurseur(
   };
 }
 
-/** Rend `false` si le serveur ne sait pas paginer — l'appelant se replie. */
-async function rattraperMisAJour(
+/**
+ * La boucle de pagination, commune aux deux timelines (`UPDATED` / `DELETED`).
+ * Elle a coûté un correctif écrit DEUX fois (ffe1f7c, même hunk dans les deux
+ * copies) : elle n'existe plus qu'ici. `appliquer` ingère une page et rend le
+ * plus grand horodatage traité — ce qui fait avancer le curseur quand le
+ * serveur n'a plus de `next` à offrir.
+ *
+ * Rend `false` si le serveur refuse le mode curseur dès la PREMIÈRE page
+ * (mode inconnu, l'appelant se replie) ; `true` sinon.
+ */
+async function paginerCurseur(
   client: ClientRest,
-  moteur: MoteurSynchro,
+  depot: MoteurSynchro['depotSynchro'],
   rid: string,
+  type: 'UPDATED' | 'DELETED',
+  flux: string,
   depuis: number,
   estAbandonne: () => boolean,
+  appliquer: (resultat: ResultatSync) => Promise<number | null>,
 ): Promise<boolean> {
-  const depot = moteur.depotSynchro;
   let curseur = depuis;
   for (let page = 0; page < PAGES_MAX; page++) {
-    const reponse = await pageCurseur(client, rid, 'UPDATED', curseur);
+    const reponse = await pageCurseur(client, rid, type, curseur);
     // Refus dès la PREMIÈRE page = serveur sans mode curseur → repli. Plus loin,
     // le mode est déjà prouvé : on garde ce qui a été ingéré, sans se replier.
     if (reponse === null) return page !== 0;
@@ -253,9 +264,9 @@ async function rattraperMisAJour(
     // d'une session terminée.
     if (estAbandonne()) return true;
 
-    const recent = await moteur.ingererMessages(reponse.resultat.updated ?? []);
+    const recent = await appliquer(reponse.resultat);
 
-    // On avance sur le curseur du SERVEUR, pas sur le plus grand `_updatedAt`
+    // On avance sur le curseur du SERVEUR, pas sur le plus grand horodatage
     // ingéré : lui seul reprend la pagination exactement où elle s'est arrêtée,
     // groupes d'ex æquo compris. `ecrireCurseur` interdit déjà toute régression.
     const suivant = reponse.suivant;
@@ -271,22 +282,42 @@ async function rattraperMisAJour(
       // tournait plusieurs secondes à chaque entrée dans un salon, même en
       // sortant et rentrant aussitôt.
       //
-      // On avance donc sur le plus grand `_updatedAt` INGÉRÉ. Sûr ici, et
+      // On avance donc sur le plus grand horodatage INGÉRÉ. Sûr ici, et
       // seulement ici : le serveur vient d'affirmer qu'il n'y a plus rien
       // au-delà, donc aucun ex æquo ne peut rester en attente derrière ce point.
       if (recent !== null && recent > curseur) {
-        await depot.ecrireCurseur(rid, 'messages', recent);
+        await depot.ecrireCurseur(rid, flux, recent);
       }
       return true;
     }
     curseur = suivant;
-    await depot.ecrireCurseur(rid, 'messages', curseur);
+    await depot.ecrireCurseur(rid, flux, curseur);
   }
   // Jamais en silence : une troncature muette se lirait comme « tout est à jour ».
   console.warn(
-    `rattraperSalon(${rid}): plafond de ${PAGES_MAX} pages atteint, reprise au prochain passage`,
+    `rattraperSalon(${rid}): plafond de ${PAGES_MAX} pages atteint (${type}), reprise au prochain passage`,
   );
   return true;
+}
+
+/** Rend `false` si le serveur ne sait pas paginer — l'appelant se replie. */
+function rattraperMisAJour(
+  client: ClientRest,
+  moteur: MoteurSynchro,
+  rid: string,
+  depuis: number,
+  estAbandonne: () => boolean,
+): Promise<boolean> {
+  return paginerCurseur(
+    client,
+    moteur.depotSynchro,
+    rid,
+    'UPDATED',
+    'messages',
+    depuis,
+    estAbandonne,
+    (resultat) => moteur.ingererMessages(resultat.updated ?? []),
+  );
 }
 
 async function rattraperSupprimes(
@@ -305,37 +336,28 @@ async function rattraperSupprimes(
     await depot.ecrireCurseur(rid, FLUX_SUPPRIMES, curseurMessages);
     return;
   }
-  let curseur = depuis;
-  for (let page = 0; page < PAGES_MAX; page++) {
-    const reponse = await pageCurseur(client, rid, 'DELETED', curseur);
-    if (reponse === null || estAbandonne()) return;
-
-    // Le plus grand `_deletedAt` de la page — l'équivalent, sur cette timeline,
-    // du `_updatedAt` que rend `ingererMessages`. Il sert au même titre : sans
-    // lui, la dernière page ne ferait avancer aucun curseur et les MÊMES
-    // suppressions se re-joueraient à chaque ouverture, à vie.
-    let recent: number | null = null;
-    for (const efface of reponse.resultat.deleted ?? []) {
-      if (typeof efface._id === 'string') await depot.supprimerMessage(efface._id);
-      const date =
-        typeof efface._deletedAt === 'string' ? Date.parse(efface._deletedAt) : Number.NaN;
-      if (Number.isFinite(date) && (recent === null || date > recent)) recent = date;
-    }
-
-    const suivant = reponse.suivant;
-    if (suivant === null || suivant <= curseur) {
-      // Dernière page : voir `rattraperMisAJour`, même raisonnement, même sûreté
-      // (le serveur vient d'affirmer qu'il n'y a plus rien au-delà).
-      if (recent !== null && recent > curseur) {
-        await depot.ecrireCurseur(rid, FLUX_SUPPRIMES, recent);
+  await paginerCurseur(
+    client,
+    depot,
+    rid,
+    'DELETED',
+    FLUX_SUPPRIMES,
+    depuis,
+    estAbandonne,
+    async (resultat) => {
+      // Le plus grand `_deletedAt` de la page — l'équivalent, sur cette
+      // timeline, du `_updatedAt` que rend `ingererMessages` : c'est lui qui
+      // clôt la dernière page, sans quoi les MÊMES suppressions se
+      // re-joueraient à chaque ouverture, à vie.
+      let recent: number | null = null;
+      for (const efface of resultat.deleted ?? []) {
+        if (typeof efface._id === 'string') await depot.supprimerMessage(efface._id);
+        const date =
+          typeof efface._deletedAt === 'string' ? Date.parse(efface._deletedAt) : Number.NaN;
+        if (Number.isFinite(date) && (recent === null || date > recent)) recent = date;
       }
-      return;
-    }
-    curseur = suivant;
-    await depot.ecrireCurseur(rid, FLUX_SUPPRIMES, curseur);
-  }
-  console.warn(
-    `rattraperSalon(${rid}): plafond de ${PAGES_MAX} pages de suppressions atteint`,
+      return recent;
+    },
   );
 }
 

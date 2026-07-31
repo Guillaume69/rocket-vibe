@@ -38,7 +38,7 @@ chantiers sont notées ; hors d'elles, on peut piocher.
 | 11 | Écrans : boucles sans borne, attentes fixes, coûts natifs inutiles | 🟡 | faible | jour | ✅ 9/9 |
 | 12 | Filet de test là où le code n'est pas atteignable | 🟡 | nul | jour | ✅ 5/5 |
 | 13 | Une seule source par concept : i18n, couleurs, formats, tables MIME | 🟡 | faible | jour | ✅ 6/6 |
-| 14 | Duplication structurelle et découpage de l'écran salon | 🟡 | moyen | plusieurs-jours | ☐ 0/7 |
+| 14 | Duplication structurelle et découpage de l'écran salon | 🟡 | moyen | plusieurs-jours | ✅ 7/7 |
 | 15 | La façade Fournisseur : ce qui nomme Rocket.Chat doit passer par elle | 🟡 | moyen | jour | ☐ 0/4 |
 | 16 | Remettre la documentation d'accord avec le code | 🟡 | nul | heures | ☐ 0/2 |
 
@@ -379,14 +379,14 @@ chantiers sont notées ; hors d'elles, on peut piocher.
 
 **Ordre.** Refactor pur. Après 12 et 13, et quand aucune correction fonctionnelle n'est en vol dans ces fichiers. Commencer par les déplacements sans risque ; **laisser le moteur de liste tranquille**.
 
-- [ ] 🟡 `app/salon/[rid].tsx` mélange trois responsabilités sur 1 397 lignes ; deux sont extractibles sans aucun risque — `app/salon/[rid].tsx:161` *(non passé au réfuteur)*
-- [ ] 🟡 Le composer du fil est une copie divergée du composer du salon — `app/fil/[id].tsx:330` *(non passé au réfuteur)*
-- [ ] 🟡 `rattraperMisAJour` et `rattraperSupprimes` sont deux copies de la même boucle de pagination — `lib/rattrapage.ts:227`
-- [ ] 🟡 Débounce + garde de séquence recopiés entre les deux écrans de recherche — `app/recherche.tsx:85` *(non passé au réfuteur)*
-- [ ] 🟡 « Ouvrir ou créer un DM » est implémenté deux fois, avec deux traitements différents de la réponse — `app/profil.tsx:180` *(non passé au réfuteur)*
-- [ ] ⚪ Le rendu des images de pièce jointe est écrit deux fois dans le même fichier, avec des bornes différentes — `ui/ligneMessage.tsx:355` *(non passé au réfuteur)*
-- [ ] ⚪ Code mort : `couleursClaires` et cinq clés de traduction inutilisées — `ui/theme.ts:141` *(non passé au réfuteur)*
-- [ ] **Sortie du chantier** : `tsc` propre, suite verte, et lancement réel sur le Pixel
+- [x] 🟡 (2026-07-31) `app/salon/[rid].tsx` mélangeait trois responsabilités (1 623 lignes au moment du découpage, l'audit en comptait 1 397) → déplacements PURS : `Composer`+`ComposerChiffre`+`assetVersFichier` → `ui/composer.tsx`, `EnTeteSalon` → `ui/enTeteSalon.tsx`, `cheminHistorique` → `fournisseurs/rocketchat/historique.ts` (`useDonneesLissees` était déjà extrait). L'écran retombe à ~900 lignes — plus que les ~450 prévus parce que le fichier avait grossi depuis l'audit (barre de non-lus, marquerLu à plancher, salon chaud…) ; `useFluxSalon` n'est PAS extrait, comme prescrit.
+- [x] 🟡 (2026-07-31) Composer du fil fusionné dans `ui/composer.tsx`, paramétré par ce qui diffère réellement : `filId` (clé de réponse `rid:filId` + cible d'envoi), `fichiers: OutboxFichiers | null` (null = ni 📎 ni 🎤), `apresEnvoi` (suivi de l'`_id` pour défiler), `placeholder`. Le fil GAGNE au passage : les familles `POLICES` (il s'affichait en police système), la tuile d'envoi ➤, et le déverrouillage E2E sur salon chiffré. Écart consigné : les clés dupliquées `fil.chiffre/lectureSeule/revenirClavier/choisirEmoji` sont fusionnées sous les clés `salon.*` existantes, pas renommées en `commun.*` — renommer 17 clés déjà uniques n'aurait rien dédupliqué de plus.
+- [x] 🟡 (2026-07-31) `paginerCurseur(client, depot, rid, type, flux, depuis, estAbandonne, appliquer)` porte désormais seule la boucle (plafond, garde d'abandon, avancée du curseur par page, clôture sur le plus grand horodatage ingéré) ; `rattraperMisAJour` et `rattraperSupprimes` tombent à un appel chacun. Les 31 tests de `lib/rattrapage.test.ts` passent inchangés.
+- [x] 🟡 (2026-07-31) `useRechercheDebouncee<T>(requete, vide, chercher, messageEchec, delaiMs)` dans `ui/rechercheDebouncee.ts` : minuterie, garde de séquence, remise à zéro complète (résultats ET message) sur requête vide, `repondue` pour dériver « on cherche », `setMessage` exposé (le bandeau est partagé avec les actions de l'écran spotlight). Les deux écrans branchés.
+- [x] 🟡 (2026-07-31) `ouvrirOuCreerDm(username)` sur `ActionsFournisseur`, implémenté une fois dans `fournisseurs/rocketchat/actions.ts` (garde de type, erreur-diagnostic sur 200 sans salon) ; `app/profil.tsx` et `app/recherche.tsx` appellent et naviguent. +2 tests dans `actions.test.ts` ; la clé `profil.conversationImpossible`, devenue morte, est retirée.
+- [x] ⚪ (2026-07-31) `<ImageJointe>` (local à `ui/ligneMessage.tsx`, les deux usages y sont) : source `title_link ?? image_url`, URL protégée, gabarit borné `[largeurMin..largeurMax] × [hauteurMin..hauteurMax]` (bornes égales = vignette citée à largeur fixe), visionneuse. `largeurDispoCorps(largeurEcran)` exporté de `ui/theme.ts`, branché dans `ligneMessage` et `carteLien`.
+- [x] ⚪ (2026-07-31) Les cinq clés mortes (`commun.erreur/chargement/copier/ok`, `salon.chiffre`) retirées des deux catalogues. **Écart assumé : `couleursClaires` est GARDÉE** — ce n'est pas du code mort accidentel mais une réserve documentée (« l'import du design ne livre que le dark, choix @guillaume », écran « jour » 2b), que le chantier 13 vient de compléter (`ombrePortee` différenciée) ; la brancher sur `useColorScheme()` serait un changement fonctionnel non vérifiable visuellement aujourd'hui, hors périmètre d'un refactor pur.
+- [x] **Sortie du chantier** (2026-07-31) : `tsc` 0 erreur ; suite **784 tests / 146 suites / 0 échec** (+2 `ouvrirOuCreerDm`) ; parité eslint 28 problèmes, tous dans les fichiers préexistants connus, zéro dans les fichiers créés/touchés ; `assembleRelease` BUILD SUCCESSFUL (APK 99 737 249 o), install Pixel `Success`, démarrage À FROID stable (pid 14849 constant sur 14 s), dropbox 0 crash. Même écart que le chantier 13 : pas de vérification VISUELLE (écran verrouillé par empreinte) — à l'œil à la prochaine utilisation : le composer du FIL doit montrer Nunito, la tuile ➤ et, sur salon chiffré, le bouton de déverrouillage.
 
 ## 15. La façade Fournisseur : ce qui nomme Rocket.Chat doit passer par elle
 

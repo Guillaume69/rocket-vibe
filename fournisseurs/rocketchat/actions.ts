@@ -43,4 +43,20 @@ export class ActionsRC implements ActionsFournisseur {
   async marquerLu(rid: string): Promise<void> {
     await this.client.post('subscriptions.read', { corps: { rid } });
   }
+
+  async ouvrirOuCreerDm(
+    username: string,
+  ): Promise<{ rid: string; salonBrut: Record<string, unknown> }> {
+    const reponse = await this.client.post<{ room?: Record<string, unknown> }>('im.create', {
+      corps: { username },
+    });
+    const salonBrut = reponse.room;
+    const rid = salonBrut?._id;
+    // Un 200 sans salon est anormal (proxy, réponse tronquée) : message de
+    // DIAGNOSTIC, pas une phrase d'écran — l'appelant met en phrase s'il veut.
+    if (salonBrut === undefined || typeof rid !== 'string') {
+      throw new Error('im.create: réponse sans salon');
+    }
+    return { rid, salonBrut };
+  }
 }

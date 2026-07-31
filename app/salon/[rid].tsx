@@ -2,10 +2,7 @@ import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { and, desc, eq, isNull, or } from 'drizzle-orm';
 import { useRequeteVive } from '../../ui/requeteVive.ts';
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { AudioModule, RecordingPresets, useAudioRecorder } from 'expo-audio';
-import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
-import * as ImagePicker from 'expo-image-picker';
 import {
   useCallback,
   useEffect,
@@ -16,13 +13,10 @@ import {
 } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   AppState,
-  Keyboard,
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -33,9 +27,6 @@ import type { BaseLocale } from '../../db/client.ts';
 import type { DepotBrouillons } from '../../db/depot.ts';
 import { abonnements, messages, salons, sortie, televersements } from '../../db/schema.ts';
 import type { MoteurActivite } from '../../lib/activite.ts';
-import { demarrerConference, sonderAppelDisponible } from '../../lib/appel.ts';
-import { citer } from '../../lib/citation.ts';
-import type { CandidatMention } from '../../lib/completionMention.ts';
 import type {
   ActionsFournisseur,
   Listener,
@@ -43,48 +34,30 @@ import type {
   OutboxFichiers,
 } from '../../lib/fournisseur.ts';
 import { versEpoch } from '../../lib/normaliser.ts';
-import { ouvrirFicheProfil } from '../../lib/profilPreload.ts';
 import { rattraperSalon } from '../../lib/rattrapage.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSaisie, resumerSaisie } from '../../lib/saisie.ts';
-import { useActivite } from '../../ui/activite.ts';
-import { ApercuPieceJointe, type FichierEnAttente } from '../../ui/apercuPieceJointe.tsx';
-import { BandeauReponse } from '../../ui/bandeauReponse.tsx';
+import { cheminHistorique } from '../../fournisseurs/rocketchat/historique.ts';
 import { useBrouillon } from '../../ui/brouillons.ts';
-import { estRejetArbreDeVues, lancerSelecteurAvecReprise } from '../../ui/lancerSelecteur.ts';
-import { annulerReponse, useReponse } from '../../ui/reponse.ts';
-import { supprimerSiTemporaire } from '../../ui/fichiersTemporaires.ts';
-import { compresserImageSiUtile } from '../../ui/preparerPieceJointe.ts';
 import { useProgressionFichiers } from '../../ui/progressionFichiers.ts';
-import { demanderSource, feuilleEstMontee } from '../../ui/sourcePieceJointe.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
-import { BandeauCompletionEmoji, useCompletionEmoji } from '../../ui/completionEmoji.tsx';
-import { BandeauCompletionMention, useCandidatsMention } from '../../ui/completionMention.tsx';
-import { NavigateurEmoji, usePanneauEmoji } from '../../ui/navigateurEmoji.tsx';
-import { useRetourMateriel } from '../../ui/retourMateriel.ts';
+import { useCandidatsMention } from '../../ui/completionMention.tsx';
+import { Composer } from '../../ui/composer.tsx';
+import { EnTeteSalon } from '../../ui/enTeteSalon.tsx';
 import { jetonSession } from '../../ui/jetonSession.ts';
 import { insererBarreNonLus, type LigneBarre } from '../../ui/barreNonLus.ts';
 import { useDonneesLissees } from '../../ui/donneesLissees.ts';
-import { phraseValidation } from '../../ui/validationFichiers.ts';
 import { avancerBorne, borneImmobile, pageARecule } from '../../ui/paginationSalon.ts';
 import { garderAuChaud, salonCouvert } from '../../ui/salonChaud.ts';
 import { marquerSalonCharge, salonChargeSous } from '../../ui/salonsCharges.ts';
-import {
-  AvatarSalon,
-  BarreSynchro,
-  BoutonPrincipal,
-  IndicateurSaisie,
-  TuileAvatar,
-} from '../../ui/kit.tsx';
+import { BoutonPrincipal, IndicateurSaisie } from '../../ui/kit.tsx';
 import { memeOrigine, origineDe } from '../../lib/origine.ts';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
-import type { StatutPresence } from '../../lib/presence.ts';
-import { CLES_PRESENCE, couleursPresence, usePresence } from '../../ui/presence.ts';
+import { usePresence } from '../../ui/presence.ts';
 import { useT } from '../../ui/i18n.ts';
 import { useSession } from '../../ui/session.tsx';
 import { useSynchro } from '../../ui/synchro.tsx';
-import { useE2EDeverrouille } from '../../ui/e2e.ts';
 import { type Couleurs, POLICES, useCouleurs } from '../../ui/theme.ts';
 
 /**
@@ -129,8 +102,6 @@ const DEBOUNCE_LU_MS = 1_500;
  * MAINTENANT, le suivant englobe les précédents.
  */
 const PLANCHER_LU_MS = 10_000;
-
-type LigneDeSalon = typeof salons.$inferSelect;
 
 export default function EcranSalon() {
   // `host` vient du deep-link d'une notification (natif comme expo) : il dit de
@@ -889,6 +860,7 @@ function Salon({
             candidatsMention={candidatsMention}
             lectureSeule={salon.lectureSeule}
             chiffre={salon.chiffre}
+            placeholder={t('salon.messagePlaceholder')}
             brouillonInitial={persistance.initial}
             sauverBrouillon={persistance.sauver}
             effacerBrouillon={persistance.effacer}
@@ -899,672 +871,11 @@ function Salon({
   );
 }
 
-/** Média d'`expo-image-picker` → pièce en attente normalisée. */
-function assetVersFichier(a: ImagePicker.ImagePickerAsset): FichierEnAttente {
-  const estVideo = a.type === 'video';
-  return {
-    uri: a.uri,
-    nom: a.fileName ?? a.uri.split('/').pop() ?? `piece-${Date.now()}.${estVideo ? 'mp4' : 'jpg'}`,
-    type: a.mimeType ?? (estVideo ? 'video/mp4' : 'image/jpeg'),
-    taille: a.fileSize ?? null,
-  };
-}
-
-function Composer({
-  c,
-  rid,
-  envoi,
-  fichiers,
-  client,
-  candidatsMention,
-  lectureSeule,
-  chiffre,
-  brouillonInitial,
-  sauverBrouillon,
-  effacerBrouillon,
-}: {
-  c: Couleurs;
-  rid: string;
-  envoi: Outbox;
-  fichiers: OutboxFichiers;
-  /** Avatars des suggestions de mention. */
-  client: ClientRest;
-  /** Auteurs récents du salon (`useCandidatsMention`), calculés par le parent. */
-  candidatsMention: CandidatMention[];
-  lectureSeule: boolean;
-  chiffre: boolean;
-  /** Brouillon restauré (8.7) — le parent attend sa lecture avant de monter. */
-  brouillonInitial: string;
-  sauverBrouillon: (texte: string) => void;
-  effacerBrouillon: () => void;
-}) {
-  const [brouillon, setBrouillon] = useState(brouillonInitial);
-  // Le texte COURANT, lisible depuis une continuation asynchrone. Un
-  // téléversement prend des secondes et le champ reste éditable pendant tout ce
-  // temps (seuls 📎/➤/🎤 sont grisés) : à la fin de l'envoi, il faut pouvoir
-  // distinguer « le champ porte encore la légende partie » de « l'utilisateur a
-  // continué à composer ». La closure de `envoyer` ne voit que le texte de
-  // l'appui, elle ne peut pas répondre à cette question.
-  const brouillonRef = useRef(brouillon);
-  useEffect(() => {
-    brouillonRef.current = brouillon;
-  }, [brouillon]);
-  const [envoiFichier, setEnvoiFichier] = useState(false);
-  const [erreurFichier, setErreurFichier] = useState<string | null>(null);
-  const [enregistrement, setEnregistrement] = useState(false);
-  // Pièce jointe en attente d'envoi (image, audio, ou tout fichier) : elle se
-  // pose au-dessus du composer, on lui ajoute une légende, puis on l'envoie —
-  // au lieu de partir dès le choix (7.x). Une seule à la fois.
-  const [enAttente, setEnAttente] = useState<FichierEnAttente | null>(null);
-  // `.m4a` AAC (préréglage HIGH_QUALITY) — le MIME attendu est `audio/mp4`.
-  const enregistreur = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-  const routeur = useRouter();
-  const t = useT();
-
-  // Autocomplétion des emojis : curseur + insertion, mécanique partagée avec le
-  // composer du fil (`useCompletionEmoji`).
-  const { curseur, selection, surSelection, choisirEmoji, insererAuCurseur, reinitialiser } =
-    useCompletionEmoji(brouillon, setBrouillon, sauverBrouillon);
-
-  // Navigateur d'emojis : un panneau qui prend la place du clavier. Le bouton
-  // 😀 bascule de l'un à l'autre ; toucher le champ rouvre le clavier (onFocus).
-  const champRef = useRef<TextInput>(null);
-  const emoji = usePanneauEmoji(champRef);
-  const { fermer: fermerEmoji } = emoji;
-
-  // Le back retire l'aperçu en attente au lieu de quitter le salon — sinon on
-  // perd le salon ET la pièce jointe préparée.
-  // Retirer l'aperçu efface AUSSI le fichier : aucune ligne de téléversement
-  // ne l'a jamais connu, donc le ménage de la file ne l'atteindrait jamais.
-  // `supprimerSiTemporaire` ne touche que le cache de l'app — jamais la photo
-  // que l'utilisateur a désignée en place.
-  // L'effacement est HORS de l'updater : React peut rejouer un updater, et une
-  // suppression de fichier n'est pas rejouable.
-  const retirerEnAttente = useCallback(() => {
-    if (enAttente !== null) void supprimerSiTemporaire(enAttente.uri);
-    setEnAttente(null);
-  }, [enAttente]);
-  useRetourMateriel(enAttente !== null, retirerEnAttente);
-
-  // Cible de réponse (citation), armée par la feuille d'actions (appui long →
-  // Répondre). Déclaré APRÈS le gestionnaire de pièce jointe : inscrit en
-  // dernier, le back referme d'abord le bandeau de réponse.
-  const reponse = useReponse(rid);
-  const annulerCitation = useCallback(() => annulerReponse(rid), [rid]);
-  useRetourMateriel(reponse !== null, annulerCitation);
-  // La feuille se referme sur la cible armée : le clavier s'ouvre sur le champ,
-  // prêt pour la réponse.
-  useEffect(() => {
-    if (reponse !== null) champRef.current?.focus();
-  }, [reponse]);
-
-  const changerBrouillon = useCallback(
-    (texte: string) => {
-      setBrouillon(texte);
-      sauverBrouillon(texte);
-    },
-    [sauverBrouillon],
-  );
-
-  const envoyer = useCallback(() => {
-    const legende = brouillon.trim();
-    // Une citation armée préfixe le texte de son permalien `[ ](…)` — le
-    // serveur en fera la pièce jointe de citation (lib/citation.ts).
-    const texteAEnvoyer = reponse === null ? legende : citer(reponse.permalien, legende);
-    // Une pièce jointe en attente part AVEC la légende, en un seul message.
-    if (enAttente !== null) {
-      setErreurFichier(null);
-      setEnvoiFichier(true);
-      // `fichiers.envoyer` valide (taille/type), persiste l'intention puis
-      // téléverse ; il ne REJETTE que sur un refus de validation. Tout le
-      // reste — refus serveur ET réseau injoignable — devient une ligne du
-      // bandeau ci-dessus, désormais affichée QUEL QUE SOIT son statut : un
-      // envoi hors ligne reste `en-attente` et n'aurait été visible nulle part.
-      // On ne vide donc l'aperçu qu'au succès, sinon le fichier serait perdu.
-      fichiers
-        .envoyer(rid, enAttente, texteAEnvoyer || undefined)
-        .then(() => {
-          setEnAttente(null);
-          // La citation, elle, a été CONSOMMÉE par le message qui vient de
-          // partir — son permalien est dans `texteAEnvoyer`, calculé avant
-          // l'appel. La désarmer sans condition : sous la garde ci-dessous,
-          // elle resterait armée et le message SUIVANT re-citerait la même
-          // cible sans qu'on l'ait demandé.
-          annulerReponse(rid);
-          // Le reste ne se solde que si le champ n'a pas bougé depuis l'appui :
-          // ce qui a été tapé pendant le téléversement n'est ni la légende
-          // partie, ni à jeter (correctif de 8.7, perdu en 30e1c85 au profit
-          // d'un vidage sec). `effacerBrouillon()` détruit en plus la ligne
-          // persistée — le texte ne serait pas même récupérable au retour dans
-          // le salon.
-          if (brouillonRef.current === brouillon) {
-            setBrouillon('');
-            reinitialiser();
-            effacerBrouillon();
-          }
-        })
-        .catch((e: unknown) =>
-          setErreurFichier(
-            phraseValidation(e, t) ??
-              (e instanceof Error ? e.message : t('salon.televersementImpossible')),
-          ),
-        )
-        .finally(() => setEnvoiFichier(false));
-      return;
-    }
-    if (legende === '') return;
-    setBrouillon('');
-    reinitialiser();
-    effacerBrouillon();
-    // L'aperçu optimiste de la citation : la version du serveur, qui porte les
-    // vraies pièces jointes reconstruites du permalien, l'écrasera.
-    const jointesLocales = reponse === null ? null : reponse.jointeLocale;
-    annulerReponse(rid);
-    // L'affichage optimiste et la persistance de l'intention sont dans
-    // `envoyer` : d'ici, rien à attendre. Un refus deviendra un statut
-    // « échec » actionnable sur la ligne elle-même.
-    envoi
-      .envoyer(rid, texteAEnvoyer, null, jointesLocales)
-      .catch((e: unknown) => console.warn('envoi: échec local', e));
-  }, [brouillon, enAttente, envoi, fichiers, rid, reponse, effacerBrouillon, reinitialiser, t]);
-
-  const basculerVocal = useCallback(async () => {
-    setErreurFichier(null);
-    try {
-      if (!enregistrement) {
-        const permission = await AudioModule.requestRecordingPermissionsAsync();
-        if (!permission.granted) {
-          setErreurFichier(t('salon.microRefuse'));
-          return;
-        }
-        await enregistreur.prepareToRecordAsync();
-        enregistreur.record();
-        setEnregistrement(true);
-        return;
-      }
-      setEnregistrement(false);
-      await enregistreur.stop();
-      const uri = enregistreur.uri;
-      if (uri === null) {
-        setErreurFichier(t('salon.enregistrementVide'));
-        return;
-      }
-      // On ne l'envoie plus tout de suite : le vocal se pose au-dessus du
-      // composer (réécoutable), en attente d'une éventuelle légende et de l'envoi.
-      setEnAttente({
-        uri,
-        nom: `vocal-${Date.now()}.m4a`,
-        type: 'audio/mp4',
-        taille: null,
-      });
-    } catch (e) {
-      setEnregistrement(false);
-      setErreurFichier(e instanceof Error ? e.message : t('salon.enregistrementImpossible'));
-    }
-  }, [enregistrement, enregistreur, t]);
-
-  // Normalise un média/fichier choisi en pièce en attente : compression (7.3)
-  // DÈS le choix — l'aperçu montre déjà ce qui partira (une photo repart en
-  // JPEG raisonnable, inutile de pousser 12 Mpx pour un chat ; logique partagée
-  // avec l'écran de partage) — puis on la pose au-dessus du composer, en
-  // attente d'une légende. Validation (taille/type) et envoi arrivent au clic
-  // sur « envoyer » (voir `envoyer`).
-  const poserPieceJointe = useCallback(async (brut: FichierEnAttente) => {
-    setEnvoiFichier(true);
-    try {
-      const pret = await compresserImageSiUtile(brut);
-      // La compression a écrit un JPEG neuf : l'original copié par le picker
-      // ne sert plus à rien. Et choisir une SECONDE pièce sans envoyer la
-      // première abandonnait la sienne de la même façon.
-      if (pret.uri !== brut.uri) void supprimerSiTemporaire(brut.uri);
-      // Choisir une SECONDE pièce sans envoyer la première abandonnait la
-      // sienne : aucune ligne SQL ne l'avait jamais connue.
-      if (enAttente !== null && enAttente.uri !== pret.uri) {
-        void supprimerSiTemporaire(enAttente.uri);
-      }
-      setEnAttente(pret);
-    } finally {
-      setEnvoiFichier(false);
-    }
-  }, [enAttente]);
-
-  // Referme la feuille « joindre », restée ouverte pendant le sélecteur. Le
-  // garde n'est pas décoratif : sans lui, si l'usager a balayé la feuille entre
-  // temps, ce `back()` dépilerait le SALON.
-  const fermerFeuilleJoindre = useCallback(() => {
-    if (feuilleEstMontee()) routeur.back();
-  }, [routeur]);
-
-  const depuisCamera = useCallback(
-    async (type: 'photo' | 'video') => {
-      // Seule la caméra exige une permission ; le photo picker système et le
-      // sélecteur de fichiers n'en demandent pas. Le dialogue de permission est
-      // lui aussi une activité : il part donc, comme le reste, feuille ouverte.
-      const permission = await ImagePicker.requestCameraPermissionsAsync();
-      if (!permission.granted) {
-        fermerFeuilleJoindre();
-        setErreurFichier(t('salon.cameraRefuse'));
-        return;
-      }
-      const res = await lancerSelecteurAvecReprise(() =>
-        ImagePicker.launchCameraAsync({
-          mediaTypes: type === 'photo' ? ['images'] : ['videos'],
-          quality: 1,
-        }),
-      );
-      // On referme DÈS le retour du sélecteur, avant la compression : sinon la
-      // feuille resterait affichée le temps de traiter une grosse photo.
-      fermerFeuilleJoindre();
-      if (!res.canceled) await poserPieceJointe(assetVersFichier(res.assets[0]));
-    },
-    [poserPieceJointe, fermerFeuilleJoindre, t],
-  );
-
-  const depuisBibliotheque = useCallback(async () => {
-    const res = await lancerSelecteurAvecReprise(() =>
-      ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images', 'videos'],
-        quality: 1,
-      }),
-    );
-    fermerFeuilleJoindre();
-    if (!res.canceled) await poserPieceJointe(assetVersFichier(res.assets[0]));
-  }, [poserPieceJointe, fermerFeuilleJoindre]);
-
-  const depuisFichier = useCallback(async () => {
-    const choix = await lancerSelecteurAvecReprise(() =>
-      DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true }),
-    );
-    fermerFeuilleJoindre();
-    if (choix.canceled || choix.assets.length === 0) return;
-    const brut = choix.assets[0];
-    await poserPieceJointe({
-      uri: brut.uri,
-      nom: brut.name,
-      type: brut.mimeType ?? 'application/octet-stream',
-      taille: brut.size ?? null,
-    });
-  }, [poserPieceJointe, fermerFeuilleJoindre]);
-
-  // 📎 → menu de sources (feuille native), comme l'app officielle, au lieu
-  // d'ouvrir directement le sélecteur de fichiers. La feuille renvoie la source
-  // choisie via `demanderSource` SANS se fermer : on lance donc le sélecteur
-  // pendant qu'elle est ouverte et immobile, seul moment où l'arbre de vues
-  // Android est sûr (voir `ui/sourcePieceJointe.ts`). C'est `depuisX` qui la
-  // referme, au retour du sélecteur.
-  const joindre = useCallback(async () => {
-    setErreurFichier(null);
-    // Part d'un état de saisie stable : panneau emoji fermé et clavier baissé.
-    // Un `TextInput` focalisé pendant le retour du sélecteur peut, lui aussi,
-    // laisser une vue nulle sur le chemin de `dispatchCancelPendingInputEvents`.
-    fermerEmoji();
-    Keyboard.dismiss();
-    const choix = demanderSource();
-    routeur.push('/joindre');
-    const source = await choix;
-    if (source === null) return; // feuille fermée sans choix : déjà démontée
-    try {
-      if (source === 'photo') await depuisCamera('photo');
-      else if (source === 'video') await depuisCamera('video');
-      else if (source === 'bibliotheque') await depuisBibliotheque();
-      else await depuisFichier();
-    } catch (e) {
-      // Le sélecteur n'est jamais parti : la feuille est encore là, et l'erreur
-      // s'afficherait derrière elle. On la referme avant de la montrer.
-      fermerFeuilleJoindre();
-      // Le NPE d'arbre de vues n'a AUCUN sens pour qui le lit, et surtout il
-      // appelle un geste précis : seul un redémarrage de l'app le solde (pas
-      // même sortir du salon — vécu). On le dit, au lieu d'afficher la trace.
-      setErreurFichier(
-        estRejetArbreDeVues(e)
-          ? t('salon.selecteurBloque')
-          : e instanceof Error
-            ? e.message
-            : t('salon.selectionImpossible'),
-      );
-    }
-  }, [routeur, depuisCamera, depuisBibliotheque, depuisFichier, fermerFeuilleJoindre, fermerEmoji, t]);
-
-  // Salon chiffré : lecture désormais possible (E2EE, étape 10), mais PAS
-  // l'envoi (le serveur rejette un clair, `error-not-allowed`). Verrouillé, on
-  // propose de déverrouiller ; déverrouillé, on explique la lecture seule.
-  if (chiffre) {
-    return <ComposerChiffre c={c} />;
-  }
-  if (lectureSeule) {
-    return (
-      <View style={[styles.composer, { borderTopColor: c.bordureDouce }]}>
-        <Text style={[styles.noteComposer, { color: c.attenue }]}>{t('salon.lectureSeule')}</Text>
-      </View>
-    );
-  }
-
-  const brouillonVide = brouillon.trim() === '';
-  // Le bouton d'envoi remplace le micro dès qu'il y a un texte OU une pièce
-  // jointe en attente — mais JAMAIS pendant l'enregistrement, où le bouton doit
-  // rester « arrêter » (⏹), même si du texte a été tapé entre-temps.
-  const montrerEnvoi = (!brouillonVide || enAttente !== null) && !enregistrement;
-
-  return (
-    <View>
-      {erreurFichier !== null && (
-        <Text style={[styles.erreurComposer, { color: c.texteErreur }]}>{erreurFichier}</Text>
-      )}
-      {/* Le buffer d'aperçu : la pièce jointe attend ici qu'on l'envoie. Son
-          apparition pousse nativement le dernier message vers le haut. */}
-      {enAttente !== null && (
-        <ApercuPieceJointe
-          c={c}
-          fichier={enAttente}
-          occupe={envoiFichier}
-          onRetirer={() => setEnAttente(null)}
-        />
-      )}
-      {reponse !== null && (
-        <BandeauReponse c={c} cible={reponse} client={client} surAnnuler={annulerCitation} />
-      )}
-      {!emoji.ouvert && (
-        <BandeauCompletionEmoji texte={brouillon} curseur={curseur} c={c} surChoisir={choisirEmoji} />
-      )}
-      {/* Jetons `:` et `@` mutuellement exclusifs : un seul bandeau à la fois. */}
-      {!emoji.ouvert && (
-        <BandeauCompletionMention
-          texte={brouillon}
-          curseur={curseur}
-          candidats={candidatsMention}
-          client={client}
-          c={c}
-          surChoisir={choisirEmoji}
-        />
-      )}
-      <View style={[styles.composer, { borderTopColor: c.bordureDouce }]}>
-        <Pressable
-          onPress={() => void joindre()}
-          // Une seule pièce jointe à la fois : pour en changer, on retire d'abord.
-          disabled={envoiFichier || enregistrement || enAttente !== null}
-          android_ripple={{ color: c.ondulation, borderless: true }}
-          style={styles.boutonJoindre}
-          accessibilityLabel={t('salon.joindreFichier')}
-        >
-          {envoiFichier ? (
-            <ActivityIndicator size="small" color={c.accent} />
-          ) : (
-            <Text
-              style={[styles.attache, (enregistrement || enAttente !== null) && styles.attacheInactif]}
-            >
-              📎
-            </Text>
-          )}
-        </Pressable>
-        <Pressable
-          onPress={emoji.basculer}
-          android_ripple={{ color: c.ondulation, borderless: true }}
-          style={styles.boutonEmoji}
-          accessibilityLabel={emoji.ouvert ? t('salon.revenirClavier') : t('salon.choisirEmoji')}
-        >
-          <Text style={styles.attache}>{emoji.ouvert ? '⌨️' : '😀'}</Text>
-        </Pressable>
-        <TextInput
-          ref={champRef}
-          value={brouillon}
-          selection={selection}
-          onChangeText={changerBrouillon}
-          onSelectionChange={surSelection}
-          // Toucher le champ referme le panneau : le clavier reprend sa place.
-          onFocus={emoji.surFocus}
-          placeholder={enAttente !== null ? t('salon.ajouterLegende') : t('salon.messagePlaceholder')}
-          placeholderTextColor={c.texteTertiaire}
-          multiline
-          style={[styles.champComposer, { color: c.texte, backgroundColor: c.carte }]}
-        />
-        {montrerEnvoi ? (
-          <Pressable
-            onPress={envoyer}
-            disabled={envoiFichier}
-            style={({ pressed }) => ({ opacity: pressed || envoiFichier ? 0.7 : 1 })}
-            accessibilityLabel={t('commun.envoyer')}
-          >
-            <TuileAvatar
-              c={c}
-              deg={[c.accent, c.violet] as const}
-              taille={40}
-              rayon={20}
-              enfant={<Text style={[styles.rondGlyphe, { color: c.surAccent }]}>➤</Text>}
-            />
-          </Pressable>
-        ) : (
-          <Pressable
-            onPress={() => void basculerVocal()}
-            disabled={envoiFichier}
-            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
-            accessibilityLabel={enregistrement ? t('salon.arreterEnregistrement') : t('salon.messageVocal')}
-          >
-            <TuileAvatar
-              c={c}
-              deg={enregistrement ? ([c.danger, c.danger] as const) : ([c.accent, c.violet] as const)}
-              taille={40}
-              rayon={20}
-              enfant={<Text style={styles.rondGlyphe}>{enregistrement ? '⏹' : '🎤'}</Text>}
-            />
-          </Pressable>
-        )}
-      </View>
-      {emoji.monte && (
-        <NavigateurEmoji
-          c={c}
-          hauteur={emoji.hauteur}
-          cible={emoji.cible}
-          glisse={emoji.glisse}
-          onChoisir={insererAuCurseur}
-        />
-      )}
-    </View>
-  );
-}
-
-/**
- * Zone composer d'un salon chiffré. Verrouillé : un bouton qui ouvre la feuille
- * de déverrouillage (les messages s'éclairent ensuite tout seuls). Déverrouillé :
- * une note de lecture seule — l'envoi chiffré n'est pas encore pris en charge.
- */
-function ComposerChiffre({ c }: { c: Couleurs }) {
-  const t = useT();
-  const routeur = useRouter();
-  const synchro = useSynchro();
-  // Composer monté seulement en phase 'pret' (garde de l'écran) ; le hook
-  // tolère null pour rester inconditionnel.
-  const e2e = synchro.phase === 'pret' ? synchro.e2e : null;
-  const deverrouille = useE2EDeverrouille(e2e);
-
-  if (deverrouille) {
-    return (
-      <View style={[styles.composer, { borderTopColor: c.bordureDouce }]}>
-        <Text style={[styles.noteComposer, { color: c.attenue }]}>{t('salon.chiffreLecture')}</Text>
-      </View>
-    );
-  }
-  return (
-    <Pressable
-      onPress={() => routeur.push('/deverrouiller-e2e')}
-      android_ripple={{ color: c.ondulation }}
-      style={[styles.composer, { borderTopColor: c.bordureDouce }]}
-      accessibilityRole="button"
-      accessibilityLabel={t('salon.chiffreVerrouille')}
-    >
-      <Text style={[styles.noteComposer, { color: c.accent }]}>{t('salon.chiffreVerrouille')}</Text>
-    </Pressable>
-  );
-}
-
-/** En-tête du salon : retour, tuile, nom, présence du correspondant (DM), recherche. */
-function EnTeteSalon({
-  c,
-  rid,
-  salon,
-  client,
-  statutDM,
-  insetTop,
-  onRetour,
-  onRecherche,
-}: {
-  c: Couleurs;
-  rid: string;
-  salon: LigneDeSalon | undefined;
-  client: ClientRest;
-  statutDM: StatutPresence | null;
-  insetTop: number;
-  onRetour: () => void;
-  onRecherche: () => void;
-}) {
-  const nom = salon ? (salon.nomAffiche ?? salon.nom ?? salon.rid) : '…';
-  const estDM = salon?.type === 'd';
-  // Chargement de l'historique (ouverture) et rattrapage du salon (reconnexion)
-  // allument la barre — même portée `rid` que le fetch enveloppé plus haut.
-  const enSynchro = useActivite(rid);
-  const routeur = useRouter();
-  const t = useT();
-  const synchro = useSynchro();
-  const deverrouille = useE2EDeverrouille(synchro.phase === 'pret' ? synchro.e2e : null);
-
-  // Disponibilité de la visioconférence : masque le bouton là où aucun
-  // fournisseur n'est configuré (Docker local), l'affiche sur la cible (Jitsi).
-  const [appelDispo, setAppelDispo] = useState(false);
-  const [demarrage, setDemarrage] = useState(false);
-  useEffect(() => {
-    let vivant = true;
-    void sonderAppelDisponible(client).then((ok) => {
-      if (vivant) setAppelDispo(ok);
-    });
-    return () => {
-      vivant = false;
-    };
-  }, [client]);
-
-  const demarrerAppel = useCallback(() => {
-    if (demarrage) return;
-    setDemarrage(true);
-    void (async () => {
-      try {
-        // `start` crée la conférence, poste le message d'appel dans le salon,
-        // et renvoie le callId — l'écran d'appel s'occupe de `join` + WebView.
-        const callId = await demarrerConference(client, rid);
-        routeur.push({ pathname: '/appel/[callId]', params: { callId, titre: nom } });
-      } catch {
-        Alert.alert(t('salon.appelTitre'), t('salon.appelImpossibleDemarrer'));
-      } finally {
-        setDemarrage(false);
-      }
-    })();
-  }, [demarrage, client, rid, routeur, nom, t]);
-
-  return (
-    <View style={[styles.entete, { paddingTop: insetTop + 6, borderBottomColor: c.bordureDouce }]}>
-      <Pressable onPress={onRetour} hitSlop={10} accessibilityRole="button" accessibilityLabel={t('salon.retour')}>
-        <Text style={[styles.retour, { color: c.violet }]}>‹</Text>
-      </Pressable>
-      {/* Le nom (et l'avatar) ouvrent la fiche : celle de l'INTERLOCUTEUR pour
-          un DM (visé par `dmAutreUid` — le `name` d'un DM est null localement),
-          celle du salon sinon. */}
-      <View style={styles.enveloppeEntete}>
-        <Pressable
-          onPress={() =>
-            estDM && salon?.dmAutreUid != null
-              ? void ouvrirFicheProfil({ uid: salon.dmAutreUid })
-              : routeur.push({ pathname: '/salon-info', params: { rid } })
-          }
-          android_ripple={{ color: c.ondulation, borderless: false }}
-          style={styles.enteteFiche}
-          accessibilityRole="button"
-          accessibilityLabel={t('salon.infosConversation')}
-        >
-        <AvatarSalon
-          c={c}
-          nom={nom}
-          type={salon?.type}
-          chiffre={salon?.chiffre ?? false}
-          chiffreDeverrouille={deverrouille}
-          rid={salon?.rid}
-          dmAutreUid={salon?.dmAutreUid}
-          avatarEtag={salon?.avatarEtag}
-          client={client}
-          taille={34}
-          rayon={12}
-        />
-        <View style={styles.enteteBloc}>
-          <Text style={[styles.enteteNom, { color: c.texte }]} numberOfLines={1}>
-            {salon?.chiffre === true && <Text style={styles.badgeChiffreEntete}>🔒 </Text>}
-            {nom}
-          </Text>
-          {estDM && statutDM !== null && (
-            <Text
-              style={[styles.enteteSous, { color: couleursPresence(c)[statutDM] }]}
-              numberOfLines={1}
-            >
-              {t(CLES_PRESENCE[statutDM])}
-            </Text>
-          )}
-          </View>
-        </Pressable>
-      </View>
-      {appelDispo && (
-        <Pressable
-          onPress={demarrerAppel}
-          disabled={demarrage}
-          hitSlop={8}
-          android_ripple={{ color: c.ondulation, borderless: true }}
-          accessibilityRole="button"
-          accessibilityLabel={t('salon.demarrerAppel')}
-          style={({ pressed }) => ({ opacity: pressed || demarrage ? 0.5 : 1 })}
-        >
-          <Text style={styles.iconeEntete}>📞</Text>
-        </Pressable>
-      )}
-      <Pressable
-        onPress={onRecherche}
-        hitSlop={8}
-        android_ripple={{ color: c.ondulation, borderless: true }}
-      >
-        <Text style={styles.iconeEntete}>🔍</Text>
-      </Pressable>
-      <BarreSynchro c={c} actif={enSynchro} />
-    </View>
-  );
-}
-
-function cheminHistorique(type: string): string {
-  // Trois endpoints pour la même chose, selon le type du salon — héritage de
-  // l'API Rocket.Chat. `l` (livechat) est hors périmètre.
-  if (type === 'c') return 'channels.history';
-  if (type === 'p') return 'groups.history';
-  return 'im.history';
-}
-
 const styles = StyleSheet.create({
   plein: { flex: 1 },
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   contenu: { paddingHorizontal: 16, paddingVertical: 8 },
   heure: { fontSize: 11 },
-  entete: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 11,
-    paddingHorizontal: 14,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-  },
-  retour: { fontFamily: POLICES.titre, fontSize: 26, paddingRight: 2 },
-  // Reprend la géométrie qu'avaient avatar + bloc en enfants directs de
-  // l'en-tête (ligne, même gap, extension) — le Pressable est transparent.
-  // Le rayon vit sur l'ENVELOPPE : seul le clip d'un parent (`overflow`)
-  // découpe l'ondulation — borderRadius sur le Pressable est ignoré par le
-  // masque du ripple sous Fabric. L'enveloppe porte le flex de l'en-tête.
-  enveloppeEntete: { flex: 1, minWidth: 0, borderRadius: 12, overflow: 'hidden' },
-  enteteFiche: { flexDirection: 'row', alignItems: 'center', gap: 11 },
-  enteteBloc: { flex: 1, minWidth: 0 },
-  enteteNom: { fontFamily: POLICES.titre, fontSize: 16 },
-  badgeChiffreEntete: { fontSize: 12 },
-  enteteSous: { fontFamily: POLICES.corpsGras, fontSize: 11 },
-  iconeEntete: { fontSize: 18, paddingHorizontal: 6 },
   basComposer: { position: 'relative' },
   vide: { textAlign: 'center', padding: 24, fontSize: 14, fontFamily: POLICES.corps },
   erreur: { fontFamily: POLICES.corpsGras, fontSize: 14, textAlign: 'center' },
@@ -1575,29 +886,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   autreServeurBouton: { marginTop: 20, alignSelf: 'stretch' },
-  composer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 9,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderTopWidth: 1,
-  },
-  champComposer: {
-    flex: 1,
-    borderRadius: 22,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    fontFamily: POLICES.corps,
-    fontSize: 15,
-    maxHeight: 120,
-  },
-  attache: { fontSize: 20 },
-  attacheInactif: { opacity: 0.35 },
-  rondGlyphe: { fontSize: 18 },
-  boutonJoindre: { paddingVertical: 8, paddingHorizontal: 2 },
-  boutonEmoji: { paddingVertical: 8, paddingHorizontal: 2 },
-  erreurComposer: { fontSize: 12, textAlign: 'center', paddingTop: 6, paddingHorizontal: 12 },
   barreNouveaux: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8 },
   traitNouveaux: { flex: 1, height: 2, borderRadius: 2, opacity: 0.5 },
   texteNouveaux: {
@@ -1612,12 +900,5 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 6,
-  },
-  noteComposer: {
-    flex: 1,
-    textAlign: 'center',
-    fontFamily: POLICES.corps,
-    fontSize: 13,
-    paddingVertical: 8,
   },
 });

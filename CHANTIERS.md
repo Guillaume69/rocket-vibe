@@ -40,7 +40,7 @@ chantiers sont notées ; hors d'elles, on peut piocher.
 | 13 | Une seule source par concept : i18n, couleurs, formats, tables MIME | 🟡 | faible | jour | ✅ 6/6 |
 | 14 | Duplication structurelle et découpage de l'écran salon | 🟡 | moyen | plusieurs-jours | ✅ 7/7 |
 | 15 | La façade Fournisseur : ce qui nomme Rocket.Chat doit passer par elle | 🟡 | moyen | jour | ✅ 4/4 |
-| 16 | Remettre la documentation d'accord avec le code | 🟡 | nul | heures | ☐ 0/2 |
+| 16 | Remettre la documentation d'accord avec le code | 🟡 | nul | heures | ✅ 2/2 |
 
 ---
 
@@ -410,9 +410,9 @@ chantiers sont notées ; hors d'elles, on peut piocher.
 
 **Ordre.** En dernier, pour décrire l'état réel plutôt qu'un état intermédiaire.
 
-- [ ] 🟡 EXECUTION.md, déclaré source de vérité, a 110 commits de retard et sa table renumérote les étapes à faux — `EXECUTION.md:77`
-- [ ] 🟡 La WebView de l'écran d'appel n'est consignée dans aucun des trois documents qui la déclarent interdite — `ROADMAP.md:150`
-- [ ] **Sortie du chantier** : `tsc` propre, suite verte, et lancement réel sur le Pixel
+- [x] 🟡 EXECUTION.md, déclaré source de vérité, a 110 commits de retard et sa table renumérote les étapes à faux — `EXECUTION.md:77` · fait le 2026-07-31 : bannière d'état en tête (la checklist s'arrête au 2026-07-11, cérémonie levée, `CHANTIERS.md` fait foi sur la suite), table corrigée (8 clos le 07-11, 9 = thème, 10 = iOS), 9.4 coché rétroactivement (livré en continu : sheet native `0ec5477`, écrans au thème), et une section « Après la checklist » qui résume les ~140 commits par domaine (médias, partage, appels, E2EE lecture, i18n, citations, façade, profils, push, synchro, composer, thème, audit) avec commits d'ancrage — pour qu'aucune session future ne réimplémente ni ne supprime du travail livré. `CLAUDE.md` réaligné (l'avertissement « en retard » remplacé par le renvoi à la section).
+- [x] 🟡 La WebView de l'écran d'appel n'est consignée dans aucun des trois documents qui la déclarent interdite — `ROADMAP.md:150` · fait le 2026-07-31 : `ROADMAP.md` §4.2 gagne un encadré « l'exception WebView : l'écran d'appel, et rien d'autre » (Jitsi est une web-app, le SDK natif vise RN ~0.79 et embarque react-native-webrtc ; bornes : une seule route, origine verrouillée — la navigation est le seul verrou car Android n'arbitre pas caméra/micro par origine) et `react-native-webview` entre au niveau 2 des exceptions assumées ; l'interdit ferme est requalifié « hors l'exception bornée » dans `ROADMAP.md`, `EXECUTION.md` (règles permanentes) et `CLAUDE.md` ; `ui/carteEmbed.tsx` précise « interdite hors de l'écran d'appel » — il ne cite plus une autorité que l'écran d'appel viole.
+- [x] **Sortie du chantier** : `tsc` propre, suite verte, et lancement réel sur le Pixel · fait le 2026-07-31 — `tsc` 0 erreur, 790 tests / 147 suites verts, `assembleRelease` EXIT=0 (APK 99 738 689 o). **Pixel débranché ce jour-là** : lancement réel fait sur le banc émulateur (`vibe_mac`, arm64) — install Success, démarrage à froid par `am start` (le monkey ne résout pas l'activité, `isDefault=false` — particularité du manifeste, pas une régression), pid stable ~15 s, dropbox 0 crash, `MainActivity` au premier plan. À rejouer sur le Pixel au prochain branchement, avec les vérifications visuelles en attente.
 
 ---
 

@@ -5,7 +5,7 @@ Ce fichier est rechargé à chaque session. Il porte ce qui coûte cher à redé
 
 - `ROADMAP.md` — les décisions et leur justification. Bouge rarement.
 - `CHANTIERS.md` — la dette relevée par l'audit du 25/07/2026, à cocher au fur et à mesure. **Source de vérité sur « qu'est-ce qu'on corrige ensuite ».**
-- `EXECUTION.md` — la checklist de CONSTRUCTION du produit. ⚠️ En retard sur le code (chantier 16) : ne pas s'y fier pour juger de ce qui est livré.
+- `EXECUTION.md` — la checklist de CONSTRUCTION du produit, remise d'accord avec le code le 2026-07-31 (chantier 16) : la construction y est gelée, et sa section « Après la checklist » résume ce qui a été livré en continu depuis.
 - `docs/AUDIT.md` — le relevé daté de l'audit : mécanisme, scénario d'échec et correction de chaque constat. Figé, on n'y touche plus.
 - `docs/DEV.md` — l'environnement et le relevé du serveur cible.
 
@@ -49,7 +49,7 @@ node scripts/seed.mjs                 # données de test, idempotent
 
 ## Contraintes non négociables
 
-- **Composants natifs par défaut.** Interdits fermes : tout kit UI (NativeBase, Tamagui, gluestack, RN Paper), toute **WebView**, `react-native-markdown-display`, et **`@gorhom/bottom-sheet`** — les bottom sheets sont natifs via `react-native-screens` (`presentation: 'formSheet'`). Toute dépendance UI se justifie dans le commit, contre `ROADMAP.md` §4.2.
+- **Composants natifs par défaut.** Interdits fermes : tout kit UI (NativeBase, Tamagui, gluestack, RN Paper), toute **WebView** — une seule exception, bornée : l'écran d'appel Jitsi (`app/appel/[callId].tsx`), origine verrouillée, consignée dans `ROADMAP.md` §4.2 —, `react-native-markdown-display`, et **`@gorhom/bottom-sheet`** — les bottom sheets sont natifs via `react-native-screens` (`presentation: 'formSheet'`). Toute dépendance UI se justifie dans le commit, contre `ROADMAP.md` §4.2.
 - **Modules natifs par défaut, pas de polyfill pur JS.** Pour tout calcul lourd (crypto, compression, image), préférer un module natif (JSI/Nitro) à une implé pur JS. L'E2EE passe par `react-native-quick-crypto` (API `node:crypto` native OpenSSL) : `lib/e2e/crypto.ts` importe `crypto`/`buffer`, Metro les alias vers quick-crypto (`metro.config.js`) — mêmes imports résolus vers `node:crypto` sous les tests Node. Un module natif exige un **rebuild du dev-client** (`expo prebuild` + `./gradlew`) — un simple reload Metro ne suffit pas.
 - `android/` et `ios/` sont **gitignorés** (CNG). Toute personnalisation native passe par un config plugin : en SDK 57, `expo prebuild` efface et régénère par défaut.
 - **Aucun secret dans le dépôt.** `.env`, `.env.local`, `google-services.json`, JSON de compte de service. Des `.example` les documentent.

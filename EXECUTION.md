@@ -1,7 +1,14 @@
 # EXECUTION — rocket-vibe
 
-Checklist d'exécution pas à pas. **`ROADMAP.md` dit *pourquoi*, ce document dit *quoi faire ensuite*.**
-Chaque sous-étape est un commit. Chaque grosse étape est un incrément livrable.
+Checklist de la CONSTRUCTION du produit. **`ROADMAP.md` dit *pourquoi*, ce document dit *ce qui a été construit, et comment*.**
+
+> **État du document (2026-07-31, chantier 16).** La checklist s'arrête au 2026-07-11 : la version
+> de base acceptable atteinte, la cérémonie par sous-étape a été levée (`2ac7550`, consigné dans
+> `CLAUDE.md`) et le développement est passé en continu — implémenter, vérifier, commiter. Tout ce
+> qui a été livré depuis est résumé dans **« Après la checklist »** (fin de document) ; le détail
+> vit dans l'historique git. **Pour savoir ce qu'on corrige ensuite, la source de vérité est
+> `CHANTIERS.md`**, la feuille de route de l'audit du 2026-07-25. La boucle décrite ci-dessous est
+> celle de la construction : elle ne s'applique plus telle quelle.
 
 ---
 
@@ -49,7 +56,7 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
 ## Règles permanentes
 
 - **Aucune dépendance nouvelle** sans qu'elle entre dans un des niveaux de `ROADMAP.md` §4.2. Toute exception se justifie dans le message de commit.
-- Interdits fermes, rappel : kit UI, WebView, `react-native-markdown-display`, `@gorhom/bottom-sheet`.
+- Interdits fermes, rappel : kit UI, WebView, `react-native-markdown-display`, `@gorhom/bottom-sheet`. **Une seule exception WebView, bornée : l'écran d'appel Jitsi** (`app/appel/[callId].tsx`, origine verrouillée) — consignée dans `ROADMAP.md` §4.2.
 - TypeScript **strict**, zéro `any` implicite. `npx tsc --noEmit` fait partie de chaque critère de sortie `[code]`.
 - `android/` et `ios/` sont **gitignorés** (CNG). Toute personnalisation native passe par un config plugin. En SDK 57, `expo prebuild` efface et régénère par défaut : une édition manuelle serait perdue.
 - Aucun secret dans le dépôt. `google-services.json`, le JSON de compte de service Firebase et le `.env` sont gitignorés. Des `.example` les documentent.
@@ -85,8 +92,10 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
 | 5 | Résilience et rattrapage | ✅ 2026-07-10 |
 | 6 | Push intégré | ✅ 2026-07-10 |
 | 7 | Upload | ✅ 2026-07-10 |
-| 8 | Offline-first et finitions | ✅ 2026-07-10 |
-| 9 | iOS | ☐ |
+| 8 | Offline-first et finitions | ✅ 2026-07-11 |
+| 9 | Thème « Nuit Étoilée » | ✅ 2026-07-11 (9.4 livré en continu, hors checklist) |
+| — | **Après la checklist** — développement continu, puis audit et chantiers | ✅ voir la section en fin de document, et `CHANTIERS.md` |
+| 10 | iOS | ☐ |
 
 ---
 
@@ -362,7 +371,31 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
   Prouvé sur l'AVD (dev-client, captures) : Connexion **fidèle** au mockup (wordmark dégradé masqué, halo rose, anneau cyan au focus, étoiles, Baloo 2/Nunito) ; le retour natif apparaît bien sur « changer de serveur » ; les écrans pas encore re-skinés (liste…) restent lisibles en sombre, sans crash. `tsc` propre, `lint` propre. Build release installé sur le Pixel. Suite des écrans en 9.2–9.4. Fait le : `2026-07-11`
 - [x] **9.2 — Liste des salons** · `@claude` · `[code]` — en-tête à logo DESSINÉ (headerShown:false : l'en-tête natif ne rend pas le wordmark dégradé) — licorne + wordmark + ⚙️ (→ debug) ; ligne « Nouvelle conversation » à tuile ＋ dégradée ; lignes de salon via `AvatarSalon` (kit) : cadenas neutre si chiffré, première lettre pour un DM, `#` pour un canal ; pastille de présence en overlay (DM), `BadgeEtoile` de non-lus (rien si zéro), pied fonctionnel (compte/serveur/FCM/déconnexion) restylé. Prouvé sur l'AVD : liste fidèle au mockup, avatars à teinte STABLE par nom, chiffré en tuile grise + 🔒 ; aucune étoile faute de non-lus dans les données de test (comportement attendu). `tsc`/`lint` verts. Fait le : `2026-07-11`
 - [x] **9.3 — Salon (et fil)** · `@claude` · `[code]` — PRÉSENTATION seule ; la mécanique lourde reste INTACTE (FlashList inversée + mVCP coupé, pagination keyset `chargerPlus`/`passeEpuise`, souscriptions DDP, outbox, brouillons, complétion emoji, lissage, barre de non-lus). En-tête custom `EnTeteSalon` (retour avec repli `canGoBack() → replace('/')`, `AvatarSalon`, nom, sous-titre = présence du DM, 🔍) ; ligne de message PARTAGÉE (`ui/ligneMessage.tsx`, salon + fil) avec `TuileAvatar` + pseudo coloré (première teinte de son propre dégradé) + horodatage tertiaire, puce de fil en pilule ; séparateur « ✦ nouveaux messages » rose ; composer en pilule + `TuileAvatar` circulaire comme bouton 🎤/⏹/➤. **Revue (high, 4 findings, tous corrigés)** : (1) retour custom sans rôle/label a11y → `accessibilityRole="button"` + label ; (2) l'initiale d'avatar devenait un nœud TalkBack (la ligne est `accessible={false}`) → sous-arbre `importantForAccessibility="no-hide-descendants"` ; (3) `back()` inconditionnel, mort sur un deep-link à froid → repli `canGoBack()` sinon `replace('/')` ; (4) logique d'avatar dupliquée liste/en-tête → `AvatarSalon` partagé (extrait en 9.2). Prouvé sur l'AVD : en-tête, avatars + pseudos colorés, message système en italique, composer pilule, bascule mic→envoi (➤), frappe sans saut de caret, brouillon restauré, retour propre. `tsc`/`lint` verts. Fait le : `2026-07-11`
-- [ ] **9.4 — Recherche & feuille d'actions** · `@claude` · `[code]` — champ de recherche à anneau, sections à avatars ; barre de réactions et actions (modifier/épingler/supprimer) au design.
+- [x] **9.4 — Recherche & feuille d'actions** · `@claude` · `[code]` — champ de recherche à anneau, sections à avatars ; barre de réactions et actions (modifier/épingler/supprimer) au design.
+  **Livré en continu, hors checklist** (la cérémonie était levée) : les écrans de recherche sont passés aux tokens du thème (`useCouleurs`/`POLICES`) avec la `LigneMessage` partagée, et la feuille d'actions est devenue une **bottom sheet native** avec retours haptiques (`0ec5477`), réactions comprises (chantier 11, `592f953`). La fidélité pixel au mockup n'a jamais été auditée formellement — si un écart gêne, c'est une retouche, pas un chantier. Fait le : `2026-07-31` (constat rétroactif).
+
+---
+
+## Après la checklist — livré en continu (2026-07-11 → 2026-07-31)
+
+> La cérémonie levée, le produit a continué de grandir au rythme d'« implémenter, vérifier,
+> commiter » — environ 140 commits. Ce relevé existe pour qu'aucune session future ne
+> réimplémente ni ne supprime du travail livré ; chaque entrée cite un ou deux commits
+> d'ancrage, `git log` porte le reste.
+
+- **Médias** — visionneuse d'images plein écran avec zoom et gestes (`036b84f`, `a3d0abc`), affichage de l'original plutôt que la vignette 480 px (`eccc576`), lecture des vidéos en place (`672d727`), lecteur de vocaux avec visualiseur FFT (`f14ef3d`, `5fb4b9d`), cartes d'aperçu des liens vidéo YouTube/Dailymotion/Vimeo (`fc8ed23`, `7896191`) et aperçus de lien génériques depuis `message.urls` (`4c2fb3a`).
+- **Pièces jointes et partage** — aperçu avant envoi (`30e1c85`), bande de vignettes multi-fichiers (`7b83cab`), cible de partage Android `ACTION_SEND` (`1a4957b`), menu de sources « joindre » en feuille native (`6c406ee`) avec la reprise du NPE de sélecteur (`c9e6694`, `e06f658`, `ad8ecec`).
+- **Appels vidéo (Jitsi)** — `video-conference.join` puis conférence dans une **WebView bornée à l'écran d'appel**, origine verrouillée (`61fc7d4`, `2fa01fa`) ; sonde de disponibilité intégrée à l'ouverture de fiche. L'exception WebView est consignée dans `ROADMAP.md` §4.2. Rejoindre un appel existant reste non vérifié de bout en bout (dette du chantier 3).
+- **E2EE en lecture** — module de déchiffrement et moteur de déverrouillage (`0304124`, `c11fe26`, UI `0d48d93`), clés héritées v1 et messages AES-CBC `rc.v1`/`rc.v2` (`8917eb1`, `410353d`), aperçus déchiffrés et cadenas dans la liste (`6d504b4`), crypto passée au module natif `react-native-quick-crypto` (`ead6c25`). L'écriture chiffrée reste hors périmètre (`ROADMAP.md` §6.6).
+- **i18n** — fondation EN/FR et sélecteur de langue (`b03d273`), migration de toute l'app vers `t()` (`4dc5df6`), écran Paramètres (`ce59d26`).
+- **Citations** — répondre en citant par appui long (`d04b9ec`), images citées et citation de citation, profondeur 2 (`b5d6ab5`) ; permalien assis sur `Site_Url` depuis le chantier 15.
+- **Façade multi-fournisseur** — contrat `Fournisseur` (`fb194c9`), cœur de synchro rendu neutre via `Traducteur` (`5e84206`), actions derrière `ActionsRC` (`4955bac`), assemblage et sélection du driver par genre de session (`59bc618`, `eb764a9`) — étendue ensuite par les chantiers 13 à 15 (souscriptions, historique, fils).
+- **Profils et identités** — fiche utilisateur et fiche salon en formSheet préchargée (`f5d613b`, `fa0db00`, `696ee98`), écran « Mon profil » (`a151a3d`), résolution des pseudos par uid (`87650b0`), propagation des changements d'avatar partout (`d1936b9`, `f98d696`).
+- **Push durci** — notifications de conversation groupées par salon, `MessagingStyle` (`35d323c`) ; contenu masqué récupéré par `push.get` avec rattrapage WorkManager (`5680702`, `57a615f`) ; anti-doublon de relivraison FCM et journal de bord natif (`249887e`) ; deep-link réparé puis multi-serveur (`597c142`, `e32160f`, chantier 10) ; icône de notification fusée (`caeede6`).
+- **Synchro et performance** — purge des salons fantômes (`aacfe90`), réconciliation des suppressions hors-ligne (`7d6c9e7`), pagination curseur de `chat.syncMessages` plafonnée (`a19db98`, `ffe1f7c`), caches de salon chaud — historique non rechargé, écoute gardée après fermeture (`93a10ce`, `d2d996d`) —, sonde de socket morte (`6dae827`), raccordement ordonné sur signal (`08e82b8`), coalescence des rafales `useLiveQuery` (`05215db`).
+- **Composer** — autocomplétion des mentions `@username` (`fcccb79`), complétion emoji dès une lettre et navigateur d'emojis (`a4300dc`), panneau qui suit le clavier (`0313574`).
+- **Écrans et thème, en continu** — vraies photos de profil avec repli tuile (`7673f3a`), icône « corne-fusée » (`e8bbe6d`), barre-comète de synchro (`c10d68e`), pastille de saisie flottante (`da5b704`), liste en trois sections (`4eff294`), capsule de non-lus (`e50a177`), ondulation Material sur les Pressable (`86f065b`).
+- **L'audit et les chantiers (2026-07-25 →)** — état des lieux en éventail, 115 constats retenus (`50c00dc`, `docs/AUDIT.md`), feuille de route `CHANTIERS.md` (`915cfb0`), puis les chantiers 1 à 16 clos entre le 2026-07-26 et le 2026-07-31 (`3a57bae` → ce commit). **C'est `CHANTIERS.md` qui fait foi sur cette phase**, dettes résiduelles comprises (kill gate 2.5b, appels de bout en bout, vérifications visuelles sur le Pixel).
 
 ---
 
@@ -376,4 +409,4 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
 
 ---
 
-*Créé le 2026-07-09. `ROADMAP.md` fixe les décisions ; ce document suit leur exécution.*
+*Créé le 2026-07-09. Remis d'accord avec le code le 2026-07-31 (chantier 16). `ROADMAP.md` fixe les décisions ; ce document raconte la construction ; `CHANTIERS.md` dit ce qui bouge.*

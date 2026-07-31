@@ -127,7 +127,7 @@ Ta contrainte est *« uniquement des composants natifs tant que c'est possible, 
 |---|---|---|
 | **0 — Primitives RN pures** | `View`, `Text`, `Pressable`, `ScrollView`, `TextInput`, `Modal`, `Image` | Aucune justification requise. |
 | **1 — Bindings natifs** (exposent une capacité de l'OS, pas un design system) | `react-native-screens` (stack natif **et bottom sheets natifs**), `react-native-safe-area-context` (edge-to-edge imposé par targetSdk 36), `expo-image` (cache disque natif, headers), `react-native-gesture-handler`, `expo-haptics`, `@react-native-menu/menu` (menu contextuel Material natif) | Justifiés : chacun mappe une capacité Android native, aucun n'impose un look. |
-| **2 — Exceptions assumées** | **`@shopify/flash-list`** : recyclage de vues natif, indispensable pour des milliers de messages. **`react-native-keyboard-controller`** : `KeyboardAvoidingView` est médiocre sur Android ; cette lib s'abonne à `WindowInsetsAnimationCallback` pour un composer synchronisé image par image. **`@rocket.chat/message-parser`** : parseur JS pur, pas de l'UI. | Trois exceptions, chacune motivée. |
+| **2 — Exceptions assumées** | **`@shopify/flash-list`** : recyclage de vues natif, indispensable pour des milliers de messages. **`react-native-keyboard-controller`** : `KeyboardAvoidingView` est médiocre sur Android ; cette lib s'abonne à `WindowInsetsAnimationCallback` pour un composer synchronisé image par image. **`@rocket.chat/message-parser`** : parseur JS pur, pas de l'UI. **`react-native-webview`** : l'écran d'appel Jitsi, et lui seul — voir l'encadré ci-dessous. | Quatre exceptions, chacune motivée. |
 
 **Les bottom sheets sont natifs, aucune dépendance à ajouter.** `react-native-screens` 4.25 embarque une implémentation Android bâtie sur le `BottomSheetBehavior` de Material (`android/src/main/java/com/swmansion/rnscreens/bottomsheet/`, dépendance `com.google.android.material:material:1.13.0`), et le `UISheetPresentationController` natif sur iOS. `expo-router` l'expose directement :
 
@@ -147,7 +147,18 @@ Ta contrainte est *« uniquement des composants natifs tant que c'est possible, 
 
 C'est ce qu'on utilisera pour la feuille d'actions sur un message, le sélecteur d'emoji et le choix de pièce jointe.
 
-**Interdits fermes** : tout kit UI (NativeBase, Tamagui, gluestack, RN Paper), toute **WebView**, `react-native-markdown-display`, `react-native-render-html`, et **`@gorhom/bottom-sheet`** — c'est une réimplémentation JS/Reanimated d'un composant que la plateforme fournit déjà.
+**Interdits fermes** : tout kit UI (NativeBase, Tamagui, gluestack, RN Paper), toute **WebView** hors l'exception bornée ci-dessous, `react-native-markdown-display`, `react-native-render-html`, et **`@gorhom/bottom-sheet`** — c'est une réimplémentation JS/Reanimated d'un composant que la plateforme fournit déjà.
+
+> **L'exception WebView : l'écran d'appel, et rien d'autre** (consignée au chantier 16, livrée
+> le 2026-07-12, `61fc7d4`). La visioconférence Jitsi est une **web-app** : l'alternative native,
+> `@jitsi/react-native-sdk`, vise RN ~0.79 et embarque `react-native-webrtc` — un pari New
+> Architecture fragile contre notre RN 0.86. `app/appel/[callId].tsx` charge donc l'URL rendue
+> par `video-conference.join` (JWT inclus) dans une WebView plein écran. Les bornes, et elles ne
+> se négocient pas : **une seule route** ; **origine verrouillée** sur celle que le serveur a
+> désignée (`originWhitelist` + `onShouldStartLoadWithRequest`, primitives de `lib/origine.ts`) —
+> parce que l'app détient caméra et micro pendant l'appel et qu'Android ne sait pas arbitrer ces
+> permissions par origine, la navigation est le seul verrou. Partout ailleurs, l'interdit tient :
+> la lecture intégrée des liens vidéo, par exemple, reste une carte native (`ui/carteEmbed.tsx`).
 
 > **Piège transverse, et il est inévitable** : `react-native-reanimated` augmente la RAM de 25 à 30 % depuis RN 0.85 (changement Hermes), même inutilisé. Vérifié après installation : **`expo-router@57.0.4` en dépend directement**, ainsi que de `react-native-worklets`. Aucun choix de template ne l'évite. S'en passer supposerait d'abandonner `expo-router` pour `react-navigation` nu — probablement pas rentable. À surveiller au profilage plutôt qu'à combattre.
 

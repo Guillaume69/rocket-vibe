@@ -1,7 +1,8 @@
 /**
  * Carte d'aperçu pour un lien vidéo « embed » (YouTube, Dailymotion, Vimeo).
  *
- * La lecture vraiment intégrée exigerait une WebView (interdite, ROADMAP §4.2) :
+ * La lecture vraiment intégrée exigerait une WebView (interdite hors de
+ * l'écran d'appel, ROADMAP §4.2) :
  * on montre donc une carte dans le même langage que la carte vidéo locale —
  * vignette publique en bannière, voile sombre, bouton de lecture dégradé, et un
  * pied qui porte le titre de la vidéo et sa chaîne quand le serveur les a

@@ -182,9 +182,14 @@ Elle se déroule **dans cet ordre**, sans sauter de marche.
   > ⚠️ Rocket.Chat ne pousse **que vers les utilisateurs hors ligne**, sur **DM ou mention** seulement.
   Fait le : **2026-07-10** — verdict complet dans `docs/PUSH.md`.
 
-- [ ] **2.5b — Le kill gate, sur appareil physique** · `@duo` · `[infra]` — *le Pixel est branché, mais je n'y installe rien sans toi*
+- [ ] **2.5b — Le kill gate, sur appareil physique** · `@duo` · `[infra]`
   App **swipe-killed** depuis les récents (pas `force-stop`) sur le Pixel 10 Pro.
   **Critère de sortie (binaire)** : une notification **visible** arrive **deux fois de suite**, app tuée. Confirme Doze et les conditions réelles ; l'émulateur a déjà validé la chaîne.
+  **Procédure convenue (2026-07-31), à dérouler au prochain créneau — dix minutes, Pixel branché :**
+  1. @guillaume balaye l'app depuis les récents (le piège : « forcer l'arrêt » place l'app en *stopped*, où FCM ne livre RIEN — un échec avec force-stop ne prouverait rien) ;
+  2. un **second compte** envoie un DM à `@bernard` (RC ne pousse que DM/mention, vers un hors-ligne) — au choix : @guillaume depuis le web avec un autre compte, ou il fournit un compte de test / jeton jetable de `chat.barrut.me` (HORS dépôt) et Claude déclenche les DM par REST ;
+  3. Claude constate la notification par `dumpsys notification` (lisible écran verrouillé), **deux fois de suite**, et coche cette case.
+  Réglages déjà en place côté Pixel : « Données en arrière-plan » réactivées + whitelist batterie (2026-07-18, durable via Paramètres).
 
 - [x] **2.6 — Consigner le verdict** · `@claude` · `[doc]`
   `docs/PUSH.md` : payload FCM réel, les trois pièges de terrain, et les deux défauts connus à corriger en 6.3 (canal `fcm_fallback_notification_channel` au lieu du nôtre en `HIGH` ; rien au premier plan sans `setNotificationHandler`).

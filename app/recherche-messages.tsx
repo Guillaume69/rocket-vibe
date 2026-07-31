@@ -141,6 +141,9 @@ function RechercheMessages({
               // résultat ancien n'y est pas forcément — fausse promesse.
               surAppuiLong={null}
               surOuvrirFil={null}
+              // Même raison pour les réactions : lecture seule, rien de marqué.
+              moi={null}
+              surReagir={null}
             />
           </View>
         )}

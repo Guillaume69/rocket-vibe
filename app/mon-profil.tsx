@@ -159,6 +159,15 @@ function FormMonProfil({
       setOccupe(true);
       setBandeau(null);
       try {
+        // Chaque étape réussie devient ACQUISE sur-le-champ (`initial` mis à
+        // jour champ par champ, `avatarLocal` vidé dès la photo posée) : une
+        // réémission après l'échec d'une étape SUIVANTE ne rejoue alors que ce
+        // qui reste. Avant, le `catch` unique laissait `initial` intact : la
+        // réémission rejouait un pseudo déjà accepté, que le serveur refusait
+        // (« déjà pris »), et l'écran devenait inutilisable pour la seule étape
+        // restante. Le bandeau d'erreur, lui, ne porte plus que l'étape qui a
+        // vraiment échoué.
+
         // Les infos de base EN PREMIER : seul appel susceptible d'exiger la 2FA.
         // S'il la réclame, il lève AVANT tout effet de bord (statut, avatar) —
         // on prompte, puis on rejoue toute la fonction avec le code.
@@ -166,18 +175,23 @@ function FormMonProfil({
           const data: InfosDeBase = { ...infos };
           if (exigeMotDePasse(infos)) data.currentPassword = await hacher(motDePasse);
           await enregistrerInfos(client, data, deuxFacteurs);
+          setInitial((i) => (i === null ? i : { ...i, ...infos }));
+          setMotDePasse('');
+          // Le pseudo est porté par la session (Paramètres, avatar de cet
+          // écran) : le rafraîchir tout de suite, sinon il resterait à
+          // l'ancienne valeur jusqu'à une reconnexion.
+          if (infos.username !== undefined) await majProfilSession({ username: infos.username });
         }
         if (statutChange) {
           await enregistrerStatut(client, { status: form.status, message: form.statusText });
+          setInitial((i) =>
+            i === null ? i : { ...i, status: form.status, statusText: form.statusText },
+          );
         }
         if (avatarChange) {
           await definirAvatar({ client, transport: transportAvatarExpo, fichier: avatarLocal });
+          setAvatarLocal(null);
         }
-
-        // Le pseudo est porté par la session (Paramètres, avatar de cet écran) :
-        // le rafraîchir tout de suite, sinon il resterait à l'ancienne valeur
-        // jusqu'à une reconnexion.
-        if (infos.username !== undefined) await majProfilSession({ username: infos.username });
 
         // La nouvelle VERSION de la photo (`avatarETag`), relue à la source et
         // rangée en base : c'est elle qui fait bouger l'URI d'avatar partout
@@ -191,11 +205,8 @@ function FormMonProfil({
           if (moi !== null) await depot.enregistrerIdentite(moi).catch(() => {});
         }
 
-        setInitial(form);
-        setAvatarLocal(null);
         setDemande2FA(null);
         setCode('');
-        setMotDePasse('');
         setBandeau({ type: 'succes', texte: t('monProfil.profilEnregistre') });
       } catch (e) {
         if (e instanceof ErreurDeuxFacteurs) {

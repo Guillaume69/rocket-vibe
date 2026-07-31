@@ -1,5 +1,5 @@
 import { Link, Redirect, Stack, useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { obtenirJetonFcm } from '../lib/push.ts';
@@ -86,8 +86,14 @@ function usePreferencePush(client: ClientRest) {
     };
   }, [client]);
 
+  // Numéro de séquence : deux choix rapprochés lancent deux POST concurrents,
+  // et sans lui le `catch` du PREMIER restaurait la valeur d'AVANT le second
+  // choix — l'UI affichait un niveau que le serveur ne porte pas. Seul le
+  // DERNIER choix garde le droit de rollback et de message d'erreur.
+  const sequence = useRef(0);
   const definir = useCallback(
     async (nouvelle: NiveauPush) => {
+      const n = ++sequence.current;
       const precedente = valeur;
       setValeur(nouvelle);
       setErreur(null);
@@ -96,6 +102,7 @@ function usePreferencePush(client: ClientRest) {
           corps: { data: { pushNotifications: nouvelle } },
         });
       } catch {
+        if (sequence.current !== n) return;
         setValeur(precedente);
         setErreur('parametres.enregistrementImpossible');
       }

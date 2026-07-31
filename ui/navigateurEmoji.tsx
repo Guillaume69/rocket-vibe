@@ -13,7 +13,14 @@
  * panneau reste ouvert après un choix — on en enchaîne plusieurs.
  */
 
-import { type RefObject, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  type RefObject,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import {
   FlatList,
   Image,
@@ -44,7 +51,7 @@ import {
   type SuggestionEmoji,
 } from '../lib/completionEmoji.ts';
 import { codesEmojiStandard, emojisParCategorie, type CategorieEmoji } from '../lib/emojis.ts';
-import { codesEmojiCustom } from '../lib/emojisCustom.ts';
+import { codesEmojiCustom, surChangementEmojisCustom } from '../lib/emojisCustom.ts';
 import { resoudre } from './completionEmoji.tsx';
 import { useT } from './i18n.ts';
 import type { CleTraduction } from './messages.ts';
@@ -129,15 +136,17 @@ export function usePanneauEmoji(champRef: RefObject<TextInput | null>) {
   );
 
   const basculer = useCallback(() => {
-    setEtat((e) => {
-      if (e === 'ouvert') {
-        champRef.current?.focus();
-        return 'cede';
-      }
-      Keyboard.dismiss();
-      return 'ouvert';
-    });
-  }, [champRef]);
+    // L'état suivant se calcule ICI, et les effets de bord partent APRÈS le
+    // `setEtat` : un updater doit rester PUR — StrictMode le double, un rendu
+    // concurrent interrompu le rejoue — et un `Keyboard.dismiss()` exécuté une
+    // fois de trop pendant l'animation peut faire manquer sa transition à
+    // `useAnimatedReaction`, laissant le panneau en `cede`, hauteur réservée
+    // sous le composer.
+    const suivant: EtatPanneau = etat === 'ouvert' ? 'cede' : 'ouvert';
+    setEtat(suivant);
+    if (suivant === 'cede') champRef.current?.focus();
+    else Keyboard.dismiss();
+  }, [etat, champRef]);
 
   // Toucher le champ rend la place au clavier.
   const surFocus = useCallback(() => setEtat((e) => (e === 'ouvert' ? 'cede' : e)), []);
@@ -223,9 +232,13 @@ export function NavigateurEmoji({
   const [onglet, setOnglet] = useState<Onglet>('people');
   const [recherche, setRecherche] = useState('');
 
-  // Les customs ne changent qu'à la synchro (1×/session) : figés au montage. Le
-  // panneau se démonte à la fermeture, donc pas d'angle mort en pratique.
-  const customs = useMemo(() => codesEmojiCustom(), []);
+  // ABONNÉ, pas figé au montage : ce panneau ne se démonte JAMAIS
+  // (`usePanneauEmoji` le monte une fois pour toutes), et
+  // `synchroniserEmojisCustom` court APRÈS `pret` — à la première installation,
+  // la liste lue au montage est vide, l'onglet ⭐ n'existerait pas et la
+  // recherche ne proposerait aucun custom de toute la session. Le cache gelé de
+  // `codesEmojiCustom` est l'instantané stable qu'exige `useSyncExternalStore`.
+  const customs = useSyncExternalStore(surChangementEmojisCustom, codesEmojiCustom);
   const parCategorie = useMemo(() => emojisParCategorie(), []);
 
   const requete = recherche.trim();

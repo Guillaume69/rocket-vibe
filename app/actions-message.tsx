@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -28,6 +28,7 @@ import {
   sansPrefixeCitation,
 } from '../lib/citation.ts';
 import { unicodeDeCodeCourt } from '../lib/emojis.ts';
+import { listeReactions } from '../lib/reactions.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { useT } from '../ui/i18n.ts';
 import { demanderReponse } from '../ui/reponse.ts';
@@ -80,6 +81,7 @@ type Charge = {
     texte: string | null;
     auteurNom: string | null;
     piecesJointes: string | null;
+    reactions: string | null;
   };
   /** De quoi bâtir le permalien d'une citation (`lib/citation.ts`). */
   salon: { type: string; nom: string | null };
@@ -115,6 +117,9 @@ export default function EcranActionsMessage() {
   const actionneur = synchro.phase === 'pret' ? synchro.actions : null;
   const client = etat.phase === 'connecte' ? etat.client : null;
   const moi = etat.phase === 'connecte' ? etat.session.userId : null;
+  // Les réactions se jugent au USERNAME (le serveur ne stocke que les pseudos),
+  // là où `actionsPossibles` raisonne par uid — les deux identités servent.
+  const monUsername = etat.phase === 'connecte' ? etat.session.username : null;
 
   useEffect(() => {
     if (!pret || base === null || client === null || moi === null) return;
@@ -143,6 +148,7 @@ export default function EcranActionsMessage() {
           texte: brut.texte,
           auteurNom: brut.auteurNom,
           piecesJointes: brut.piecesJointes,
+          reactions: brut.reactions,
         },
         // Ligne de salon absente (lien profond avant synchro) : repli `c`/rid —
         // le serveur ne lit de toute façon que le `?msg=` du permalien.
@@ -169,6 +175,19 @@ export default function EcranActionsMessage() {
       annule = true;
     };
   }, [pret, id, base, client, moi, t]);
+
+  // Mes réactions déjà posées sur ce message : contour accentué, et le tap
+  // RETIRE au lieu d'ajouter — `chat.react` sait faire les deux, le câblage en
+  // dur à `mettre: true` rendait toute réaction inannulable.
+  const mesReactions = useMemo(
+    () =>
+      new Set(
+        listeReactions(charge?.message.reactions ?? null, monUsername)
+          .filter((r) => r.parMoi)
+          .map((r) => r.code),
+      ),
+    [charge, monUsername],
+  );
 
   // Garde de réentrance dans une ref : l'état React d'un rendu passé
   // laisserait un double-tap déclencher l'action deux fois — et deux
@@ -241,21 +260,33 @@ export default function EcranActionsMessage() {
     <View style={[styles.feuille, { maxHeight: hauteurMax, paddingBottom: bas }]}>
       {!enEdition && actions.includes('reagir') && (
         <View style={styles.rangeeEmojis}>
-          {CODES_REACTION.map((code) => (
-            <Pressable
-              key={code}
-              disabled={occupe}
-              android_ripple={{ color: c.ondulation, borderless: true }}
-              unstable_pressDelay={DELAI_PRESSION_LISTE}
-              style={({ pressed }) => [
-                styles.pastilleEmoji,
-                { backgroundColor: c.surfaceActive, opacity: pressed ? 0.6 : 1 },
-              ]}
-              onPress={() => void agir(() => actionneur.reagir(message.rid, message.id, code, true))}
-            >
-              <Text style={styles.emoji}>{unicodeDeCodeCourt(code) ?? `:${code}:`}</Text>
-            </Pressable>
-          ))}
+          {CODES_REACTION.map((code) => {
+            const dejaPosee = mesReactions.has(code);
+            return (
+              <Pressable
+                key={code}
+                disabled={occupe}
+                android_ripple={{ color: c.ondulation, borderless: true }}
+                unstable_pressDelay={DELAI_PRESSION_LISTE}
+                accessibilityState={{ selected: dejaPosee }}
+                style={({ pressed }) => [
+                  styles.pastilleEmoji,
+                  {
+                    backgroundColor: c.surfaceActive,
+                    opacity: pressed ? 0.6 : 1,
+                    // Toujours une bordure (transparente au repos) : son
+                    // apparition ne doit pas faire bouger la rangée d'un pixel.
+                    borderColor: dejaPosee ? c.accent : 'transparent',
+                  },
+                ]}
+                onPress={() =>
+                  void agir(() => actionneur.reagir(message.rid, message.id, code, !dejaPosee))
+                }
+              >
+                <Text style={styles.emoji}>{unicodeDeCodeCourt(code) ?? `:${code}:`}</Text>
+              </Pressable>
+            );
+          })}
         </View>
       )}
 
@@ -416,6 +447,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
+    borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
   },

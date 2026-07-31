@@ -19,7 +19,7 @@ import { messages, salons, sortie } from '../../db/schema.ts';
 import type { MoteurActivite } from '../../lib/activite.ts';
 import { citer } from '../../lib/citation.ts';
 import type { CandidatMention } from '../../lib/completionMention.ts';
-import type { Listener, Outbox } from '../../lib/fournisseur.ts';
+import type { ActionsFournisseur, Listener, Outbox } from '../../lib/fournisseur.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
 import { useActivite } from '../../ui/activite.ts';
@@ -82,7 +82,9 @@ export default function EcranFil() {
       moteur={synchro.moteur}
       envoi={synchro.envoi}
       ddp={synchro.ddp}
+      actions={synchro.actions}
       client={etat.client}
+      moi={etat.session.username}
       activite={synchro.activite}
       generation={synchro.generation}
     />
@@ -97,7 +99,9 @@ function Fil({
   moteur,
   envoi,
   ddp,
+  actions,
   client,
+  moi,
   activite,
   generation,
 }: {
@@ -108,7 +112,10 @@ function Fil({
   moteur: MoteurSynchro;
   envoi: Outbox;
   ddp: Listener;
+  actions: ActionsFournisseur;
   client: ClientRest;
+  /** Mon username — marque mes réactions dans les lignes. */
+  moi: string;
   activite: MoteurActivite;
   generation: number;
 }) {
@@ -268,6 +275,14 @@ function Fil({
     },
     [envoi],
   );
+  // Tir-et-oublie, comme l'écran salon : l'écho du stream réécrit
+  // `messages.reactions`, la requête vive re-rend la pastille.
+  const reagir = useCallback(
+    (ridMessage: string, idMessage: string, code: string, mettre: boolean) => {
+      actions.reagir(ridMessage, idMessage, code, mettre).catch(() => {});
+    },
+    [actions],
+  );
 
   const rendreLigne = useCallback(
     ({ item }: { item: LigneDeMessage }) => {
@@ -283,18 +298,37 @@ function Fil({
           surAppuiLong={etatEnvoi === undefined ? ouvrirActions : null}
           // On EST dans le fil : pas d'indicateur « N réponses » sur la racine.
           surOuvrirFil={null}
+          moi={moi}
+          surReagir={etatEnvoi === undefined ? reagir : null}
         />
       );
     },
-    [c, client, sortieParId, reessayer, abandonner, ouvrirActions],
+    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, moi, reagir],
   );
 
   const liste = useRef<FlashListRef<LigneDeMessage>>(null);
-  const apresEnvoi = useCallback(() => {
-    // La liste s'ouvre sur la RACINE : sans ce défilement, la réponse
-    // optimiste naît sous le pli et l'envoi semble n'avoir rien fait.
-    setTimeout(() => liste.current?.scrollToEnd({ animated: true }), 250);
+  // La liste s'ouvre sur la RACINE : sans défilement après envoi, la réponse
+  // optimiste naît sous le pli et l'envoi semble n'avoir rien fait. On attend
+  // l'`_id` rendu par `envoi.envoyer` DANS les données — c'est le rendu qui
+  // recale la liste, pas une horloge. Le `setTimeout(250)` d'avant perdait la
+  // course dès que la file d'écritures était occupée : la chaîne écriture
+  // SQLite → `addDatabaseChangeListener` → `useRequeteVive` (débounce plafonné
+  // à 400 ms) n'a AUCUNE borne supérieure garantie sous ce délai — et la règle
+  // permanente du projet interdit les correctifs par temps d'attente.
+  // Une ref, pas un état : « quel envoi attend son défilement » ne rend rien.
+  // `envoyer` résout à l'ÉCRITURE locale, et la projection de cette écriture
+  // arrive forcément après (débounce ≥ 48 ms de la requête vive) : la ref est
+  // toujours posée avant le changement de `donnees` qui la consomme.
+  const envoiASuivre = useRef<string | null>(null);
+  const apresEnvoi = useCallback((idMessage: string) => {
+    envoiASuivre.current = idMessage;
   }, []);
+  useEffect(() => {
+    if (envoiASuivre.current === null) return;
+    if (!donnees.some((m) => m.id === envoiASuivre.current)) return;
+    envoiASuivre.current = null;
+    liste.current?.scrollToEnd({ animated: true });
+  }, [donnees]);
 
   // Brouillon du fil (8.7), clé `rid:tmid` : isolé du brouillon du salon.
   // `null` tant que le rid n'est pas connu — le composer attend.
@@ -389,7 +423,8 @@ function ComposerFil({
   client: ClientRest;
   /** Auteurs récents du salon (`useCandidatsMention`), calculés par le parent. */
   candidatsMention: CandidatMention[];
-  apresEnvoi: () => void;
+  /** Reçoit l'`_id` client posé par l'outbox — le parent suit son apparition. */
+  apresEnvoi: (idMessage: string) => void;
   /** Brouillon restauré (8.7) — le parent attend sa lecture avant de monter. */
   brouillonInitial: string;
   sauverBrouillon: (texte: string) => void;
@@ -431,8 +466,9 @@ function ComposerFil({
     reinitialiser();
     effacerBrouillon();
     annulerReponse(cleReponse);
-    envoi.envoyer(rid, texteAEnvoyer, filId, jointesLocales).catch(() => {});
-    apresEnvoi();
+    // `envoyer` résout avec l'`_id` client dès l'écriture locale : le parent
+    // défile quand CE message apparaît dans la liste, pas après un délai.
+    envoi.envoyer(rid, texteAEnvoyer, filId, jointesLocales).then(apresEnvoi, () => {});
   }, [brouillon, envoi, rid, filId, reponse, cleReponse, effacerBrouillon, apresEnvoi, reinitialiser]);
 
   return (

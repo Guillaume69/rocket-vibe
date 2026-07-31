@@ -17,6 +17,7 @@ import {
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Keyboard,
   Pressable,
   StyleSheet,
@@ -41,6 +42,7 @@ import type {
   Outbox,
   OutboxFichiers,
 } from '../../lib/fournisseur.ts';
+import { versEpoch } from '../../lib/normaliser.ts';
 import { ouvrirFicheProfil } from '../../lib/profilPreload.ts';
 import { rattraperSalon } from '../../lib/rattrapage.ts';
 import type { ClientRest } from '../../lib/rest.ts';
@@ -112,6 +114,18 @@ import { type Couleurs, POLICES, useCouleurs } from '../../ui/theme.ts';
 const PAGE = 50;
 /** Sous ce défilement (px depuis le bas), un entrant nous ramène au bas. */
 const PRES_DU_BAS_PX = 120;
+
+/** Regroupe la rafale d'entrants avant de marquer lu. */
+const DEBOUNCE_LU_MS = 1_500;
+/**
+ * Cadence PLANCHER de `marquerLu` : le débounce seul ne borne que l'écart entre
+ * deux appels, pas leur nombre — un message toutes les 2 s produisait 30
+ * `subscriptions.read` par minute sur une route limitée à 10/min, et chaque 429
+ * coûtait à `lib/rest.ts` jusqu'à trois siestes de 30 s pour un travail
+ * idempotent. Rien n'est perdu à espacer : l'appel marque tout lu jusqu'à
+ * MAINTENANT, le suivant englobe les précédents.
+ */
+const PLANCHER_LU_MS = 10_000;
 
 type LigneDeSalon = typeof salons.$inferSelect;
 
@@ -376,16 +390,50 @@ function Salon({
     };
   }, [base, rid]);
 
-  // Marquer lu : à l'ouverture, puis à chaque nouvel entrant écran ouvert —
-  // débouncé, le REST est rate-limité.
+  // Marquer lu : à l'ouverture, puis à chaque nouvel entrant écran ouvert.
+  // Débounce (regrouper la rafale) + PLANCHER de cadence (voir PLANCHER_LU_MS).
+  //
+  // Un appel déjà programmé ABSORBE les entrants suivants au lieu d'être
+  // réarmé : `subscriptions.read` marque tout lu jusqu'à maintenant, donc
+  // l'appel en attente couvre ce qui arrive d'ici son départ — et un timer
+  // qu'on ne repousse jamais ne peut pas être affamé par un flot continu
+  // (l'ancien débounce réarmé à chaque entrant, PIRE que la cadence : sous un
+  // message/seconde il ne partait JAMAIS).
   const dernierIdRecu = fraiches[0]?.id;
+  const luProgramme = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dernierLu = useRef(0);
   useEffect(() => {
     if (dernierIdRecu === undefined) return;
-    const minuterie = setTimeout(() => {
+    if (luProgramme.current !== null) return;
+    const restant = dernierLu.current + PLANCHER_LU_MS - Date.now();
+    luProgramme.current = setTimeout(() => {
+      luProgramme.current = null;
+      dernierLu.current = Date.now();
       actions.marquerLu(rid).catch(() => {});
-    }, 1500);
-    return () => clearTimeout(minuterie);
+    }, Math.max(DEBOUNCE_LU_MS, restant));
   }, [actions, rid, dernierIdRecu]);
+
+  // L'appel EN ATTENTE part tout de suite quand l'écran se ferme ou que l'app
+  // passe en arrière-plan : différé par le plancher, il serait sinon perdu (le
+  // démontage l'annule, l'arrière-plan gèle les timers JS) et le salon
+  // resterait « non lu » sur les autres appareils. Rien en attente → rien à
+  // envoyer : la sortie d'un salon déjà marqué ne coûte aucune requête.
+  const flusherLu = useCallback(() => {
+    if (luProgramme.current === null) return;
+    clearTimeout(luProgramme.current);
+    luProgramme.current = null;
+    dernierLu.current = Date.now();
+    actions.marquerLu(rid).catch(() => {});
+  }, [actions, rid]);
+  useEffect(() => {
+    const abonnement = AppState.addEventListener('change', (suivant) => {
+      if (suivant !== 'active') flusherLu();
+    });
+    return () => {
+      abonnement.remove();
+      flusherLu();
+    };
+  }, [flusherLu]);
 
   // Les données de la liste, avec la barre insérée au-dessus (visuellement)
   // du premier message d'AUTRUI postérieur à `ls`. Données DESC : ce message
@@ -500,7 +548,7 @@ function Salon({
   const candidatsMention = useCandidatsMention(base, rid);
 
   const chargerHistorique = useCallback(
-    async (type: string, latest?: string): Promise<number> => {
+    async (type: string, latest?: string): Promise<{ plusAncien: number | null }> => {
       const reponse = await client.get<{ messages?: Record<string, unknown>[] }>(
         cheminHistorique(type),
         {
@@ -517,6 +565,13 @@ function Salon({
       );
       const lot = reponse.messages ?? [];
       const recent = await moteur.ingererMessages(lot);
+      // Le plus ancien `ts` de la page : c'est LUI qui dit à `chargerPlus` si
+      // la page a vraiment reculé dans le passé (voir le critère là-bas).
+      let plusAncien: number | null = null;
+      for (const brut of lot) {
+        const ts = versEpoch((brut as { ts?: unknown }).ts);
+        if (ts !== null && (plusAncien === null || ts < plusAncien)) plusAncien = ts;
+      }
       // Le curseur de rattrapage du salon NAÎT ici — et RIEN DE PLUS. Sans lui,
       // `rattraperSalon` no-ope à vie (`depuis === null`) ; avec, il reprend la
       // pagination par curseur là où elle en est.
@@ -533,7 +588,7 @@ function Salon({
           await moteur.depotSynchro.ecrireCurseur(rid, 'messages', recent);
         }
       }
-      return lot.length;
+      return { plusAncien };
     },
     [client, moteur, rid],
   );
@@ -612,6 +667,9 @@ function Salon({
   // rate-limité. Ce verrou s'arme à la première page vide et ne se relâche
   // plus — le passé d'un salon ne repousse pas.
   const passeEpuise = useRef(false);
+  // Filet : si le message-borne n'a pas changé après deux pages consécutives,
+  // la pagination n'avance plus — quoi qu'en dise le contenu des réponses.
+  const bornePrecedente = useRef<{ id: string; pages: number } | null>(null);
   const chargerPlus = useCallback(() => {
     const epuise = fraiches.length < limite;
     if (!epuise) {
@@ -621,20 +679,39 @@ function Salon({
     if (passeEpuise.current || enVol.current || type === undefined || fraiches.length === 0) {
       return;
     }
-    enVol.current = true;
     const plusVieux = fraiches[fraiches.length - 1];
+    const borne = bornePrecedente.current;
+    bornePrecedente.current =
+      borne !== null && borne.id === plusVieux.id
+        ? { id: plusVieux.id, pages: borne.pages + 1 }
+        : { id: plusVieux.id, pages: 1 };
+    if (bornePrecedente.current.pages > 2) {
+      passeEpuise.current = true;
+      console.warn(`salon ${rid}: pagination immobile sur ${plusVieux.id}, passé déclaré épuisé`);
+      return;
+    }
+    enVol.current = true;
     chargerHistorique(type, new Date(plusVieux.horodatage).toISOString())
-      .then((n) => {
-        // > 1 : la page contient au moins autre chose que le message-borne
-        // (renvoyé par `inclusive: true`). Sinon, le passé est épuisé.
-        if (n > 1) setLimite((l) => l + PAGE);
-        else passeEpuise.current = true;
+      .then(({ plusAncien }) => {
+        // Il reste du passé si la page a VRAIMENT reculé : un message
+        // strictement plus ancien que la borne. Compter (`n > 1`) ne le
+        // prouvait pas — `inclusive: true` renvoie la borne ET tous ses
+        // jumeaux de la même milliseconde (rafale de bot, import), donc un
+        // groupe d'ex æquo en queue d'historique gardait `n > 1` pour
+        // toujours : `passeEpuise` jamais armé, la ré-ingestion faisait
+        // changer `data`, `onEndReached` (FlashList v2) se réarmait, et la
+        // boucle s'auto-entretenait jusqu'au 429.
+        if (plusAncien !== null && plusAncien < plusVieux.horodatage) {
+          setLimite((l) => l + PAGE);
+        } else {
+          passeEpuise.current = true;
+        }
       })
       .catch((e: unknown) => console.warn('salon: page d’historique échouée', e))
       .finally(() => {
         enVol.current = false;
       });
-  }, [fraiches, limite, type, chargerHistorique]);
+  }, [fraiches, limite, type, chargerHistorique, rid]);
 
   const routeur = useRouter();
   const ouvrirActions = useCallback(
@@ -660,6 +737,14 @@ function Salon({
       envoi.abandonner(id).catch(() => {});
     },
     [envoi],
+  );
+  // Tir-et-oublie : l'écho du stream réécrit `messages.reactions`, et la
+  // requête vive re-rend la pastille — pas d'état optimiste à tenir ici.
+  const reagir = useCallback(
+    (ridMessage: string, id: string, code: string, mettre: boolean) => {
+      actions.reagir(ridMessage, id, code, mettre).catch(() => {});
+    },
+    [actions],
   );
 
   const sortieParId = useMemo(
@@ -691,10 +776,12 @@ function Salon({
           // peuvent qu'échouer. Ses vraies actions sont réessayer/abandonner.
           surAppuiLong={etatEnvoi === undefined ? ouvrirActions : null}
           surOuvrirFil={ouvrirFil}
+          moi={moi}
+          surReagir={etatEnvoi === undefined ? reagir : null}
         />
       );
     },
-    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, ouvrirFil, t],
+    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, ouvrirFil, t, moi, reagir],
   );
 
   return (

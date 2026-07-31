@@ -24,8 +24,11 @@ import {
   PROFONDEUR_MAX_CITATION,
   sansPrefixeCitation,
 } from '../lib/citation.ts';
+import { unicodeDeCodeCourt } from '../lib/emojis.ts';
+import { urlEmojiCustom } from '../lib/emojisCustom.ts';
 import { arbreDuMessage } from '../lib/markdown.ts';
 import { texteSysteme } from '../lib/messagesSysteme.ts';
+import { listeReactions, type ReactionAffichee } from '../lib/reactions.ts';
 import { ouvrirFicheProfil } from '../lib/profilPreload.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar, urlFichierProtege } from '../lib/upload.ts';
@@ -53,6 +56,8 @@ export const LigneMessage = memo(function LigneMessage({
   surAbandonner,
   surAppuiLong,
   surOuvrirFil,
+  moi,
+  surReagir,
 }: {
   c: Couleurs;
   message: LigneDeMessage;
@@ -63,6 +68,10 @@ export const LigneMessage = memo(function LigneMessage({
   surAppuiLong: ((id: string) => void) | null;
   /** Ouvre l'écran du fil. `null` dans l'écran fil lui-même. */
   surOuvrirFil: ((id: string) => void) | null;
+  /** Mon username — marque mes réactions. `null` : rien n'est marqué mien. */
+  moi: string | null;
+  /** Pose/retire une réaction. `null` : pastilles en lecture seule (recherche). */
+  surReagir: ((rid: string, id: string, code: string, mettre: boolean) => void) | null;
 }) {
   const heure = new Date(message.horodatage).toLocaleTimeString('fr-FR', {
     hour: '2-digit',
@@ -101,6 +110,14 @@ export const LigneMessage = memo(function LigneMessage({
   const jointes = useMemo(() => analyserJointes(message.piecesJointes), [message.piecesJointes]);
   const citations = jointes.filter((j) => estJointeCitation(j));
   const fichiersJoints = jointes.filter((j) => !estJointeCitation(j));
+
+  // Les réactions, ENFIN lues : la colonne était écrite depuis le premier jour
+  // et rafraîchie par le stream, mais aucun rendu ne la projetait — réagir ne
+  // changeait rien à l'écran et rien n'était retirable (audit, chantier 11).
+  const reactions = useMemo(
+    () => listeReactions(message.reactions, moi),
+    [message.reactions, moi],
+  );
 
   return (
     <Pressable
@@ -183,6 +200,24 @@ export const LigneMessage = memo(function LigneMessage({
             surAppuiLong={appuiLong}
           />
         )}
+        {reactions.length > 0 && (
+          <View style={styles.reactions}>
+            {reactions.map((reaction) => (
+              <PastilleReaction
+                key={reaction.code}
+                c={c}
+                reaction={reaction}
+                // Le tap BASCULE : `chat.react` sait aussi retirer — câbler
+                // `mettre` en dur à `true` rendait la réaction inannulable.
+                surPresser={
+                  surReagir === null
+                    ? undefined
+                    : () => surReagir(message.rid, message.id, reaction.code, !reaction.parMoi)
+                }
+              />
+            ))}
+          </View>
+        )}
         {surOuvrirFil !== null && message.filReponses > 0 && (
           <Pressable
             onPress={() => surOuvrirFil(message.id)}
@@ -255,7 +290,14 @@ function ContenuMessage({ c, message }: { c: Couleurs; message: LigneDeMessage }
   return (
     // Le `md` est en dernier ressort une donnée d'autrui : une forme qui
     // échappe aux validations ne doit coûter que ce message, pas l'écran.
-    <GardeRendu repli={<Text style={[styles.texte, { color: c.texte }]}>{message.texte}</Text>}>
+    // La `key` fait RENAÎTRE la garde quand le CONTENU change : sans elle,
+    // `casse` restait armé pour toujours et l'édition qui corrige un `md`
+    // mal formé laissait le message figé sur son texte nu jusqu'au recyclage
+    // de la cellule (le garde-fou était le seul maillon sans réarmement).
+    <GardeRendu
+      key={message.md ?? message.texte ?? ''}
+      repli={<Text style={[styles.texte, { color: c.texte }]}>{message.texte}</Text>}
+    >
       <CorpsMessage arbre={arbre} c={c} />
     </GardeRendu>
   );
@@ -263,6 +305,58 @@ function ContenuMessage({ c, message }: { c: Couleurs; message: LigneDeMessage }
 
 function Substitut({ c, texte }: { c: Couleurs; texte: string }) {
   return <Text style={[styles.texte, styles.italique, { color: c.attenue }]}>{texte}</Text>;
+}
+
+/**
+ * Une pastille de réaction : l'emoji (glyphe standard, image custom, ou `:nom:`
+ * littéral en dernier ressort — même ordre de résolution que le corps des
+ * messages) et le compteur. Contour et compteur ACCENTUÉS quand ma réaction y
+ * figure : c'est aussi l'indice que le tap retire au lieu d'ajouter.
+ */
+function PastilleReaction({
+  c,
+  reaction,
+  surPresser,
+}: {
+  c: Couleurs;
+  reaction: ReactionAffichee;
+  surPresser: (() => void) | undefined;
+}) {
+  const glyphe = unicodeDeCodeCourt(reaction.code);
+  const uri = glyphe === null ? urlEmojiCustom(reaction.code) : null;
+  return (
+    <Pressable
+      onPress={surPresser}
+      disabled={surPresser === undefined}
+      unstable_pressDelay={DELAI_PRESSION_LISTE}
+      accessibilityRole="button"
+      accessibilityState={{ selected: reaction.parMoi }}
+      accessibilityLabel={`:${reaction.code}: ${reaction.total}`}
+      style={({ pressed }) => [
+        styles.pastilleReaction,
+        {
+          backgroundColor: c.carte,
+          borderColor: reaction.parMoi ? c.accent : c.bordure,
+          opacity: pressed ? 0.6 : 1,
+        },
+      ]}
+    >
+      {glyphe !== null ? (
+        <Text style={styles.reactionEmoji}>{glyphe}</Text>
+      ) : uri !== null ? (
+        <Image source={{ uri }} style={styles.reactionImage} resizeMode="contain" />
+      ) : (
+        <Text style={[styles.reactionCode, { color: c.attenue }]} numberOfLines={1}>
+          :{reaction.code}:
+        </Text>
+      )}
+      <Text
+        style={[styles.reactionTotal, { color: reaction.parMoi ? c.accent : c.attenue }]}
+      >
+        {reaction.total}
+      </Text>
+    </Pressable>
+  );
 }
 
 /**
@@ -667,6 +761,20 @@ const styles = StyleSheet.create({
     marginVertical: 2,
   },
   jointes: { gap: 6, marginTop: 4 },
+  reactions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
+  pastilleReaction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+  },
+  reactionEmoji: { fontSize: 14 },
+  reactionImage: { width: 16, height: 16 },
+  reactionCode: { fontFamily: POLICES.corps, fontSize: 11, maxWidth: 90 },
+  reactionTotal: { fontFamily: POLICES.corpsGras, fontSize: 12 },
   ligneFichier: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   imageJointe: { borderRadius: 10, backgroundColor: '#00000010' },
   puceFil: {

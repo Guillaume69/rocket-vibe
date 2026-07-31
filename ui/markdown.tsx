@@ -51,6 +51,13 @@ function ouvrirProfil(username: string): void {
  * ressort d'autrui. Une forme inattendue qui échapperait aux validations ne
  * doit coûter QUE le message fautif — jamais l'écran du salon, qui replanterait
  * à chaque ouverture puisque le `md` est persisté.
+ *
+ * `casse` ne se réarme pas TOUT SEUL : l'appelant doit poser une `key` dérivée
+ * du contenu (`message.md ?? message.texte`), qui fait renaître la garde quand
+ * l'ÉDITION corrige le `md` — et seulement là. Un `componentDidUpdate` sur
+ * l'identité de `children` réessaierait à CHAQUE re-rendu du parent (le
+ * barattage d'objets de `useLiveQuery` en produit un par écriture en base),
+ * soit un parse + throw + catch par écriture et par message cassé.
  */
 export class GardeRendu extends Component<
   { repli: React.ReactNode; children: React.ReactNode },

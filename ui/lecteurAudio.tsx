@@ -19,12 +19,22 @@
  *  - **Lissage** : chaque barre glisse (`withTiming`) vers sa cible, au lieu de
  *    sauter à chaque échantillon.
  *
+ * **Le player n'existe que lorsqu'on écoute** — même parti pris que
+ * `ui/lecteurVideo.tsx`, et pour les mêmes raisons en pire : `useAudioPlayer`
+ * au corps du composant faisait naître, PAR MESSAGE VOCAL SIMPLEMENT VISIBLE,
+ * un ExoPlayer qui bufférise immédiatement l'URL distante (porteuse de
+ * `rc_uid`/`rc_token`), une MediaSession, une coroutine périodique et un
+ * `Visualizer` système. Faire défiler vingt vocaux téléchargeait ~20 Mo pour
+ * zéro seconde d'écoute. La carte au repos ne coûte rien ; `LecteurAudioActif`
+ * (player + FFT + visualiseur) ne se monte qu'au premier « lire », et la
+ * lecture part à son montage.
+ *
  * Un seul lecteur à la fois (coordinateur au niveau module).
  */
 
 import { useAudioPlayer, useAudioPlayerStatus, useAudioSampleListener } from 'expo-audio';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   type LayoutChangeEvent,
@@ -193,17 +203,70 @@ function Barre({
   return <Animated.View style={[styles.barre, { backgroundColor: couleur }, style]} />;
 }
 
-export function LecteurAudio({
-  c,
-  url,
-  titre,
-  surAppuiLong,
-}: {
+type PropsLecteur = {
   c: Couleurs;
   url: string;
   titre?: string | null;
   surAppuiLong?: (() => void) | undefined;
-}) {
+};
+
+export function LecteurAudio({ c, url, titre, surAppuiLong }: PropsLecteur) {
+  const t = useT();
+  const [actif, setActif] = useState(false);
+  const couleurs = useMemo(() => repartirArcEnCiel(c.degradeMarque, NB_BARRES), [c.degradeMarque]);
+
+  if (actif) {
+    return <LecteurAudioActif c={c} url={url} titre={titre} surAppuiLong={surAppuiLong} />;
+  }
+
+  // La carte AU REPOS : même gabarit que la carte active (le montage du player
+  // ne fait pas bouger la ligne d'un pixel), barres à plat, aucun natif.
+  const activer = () => setActif(true);
+  return (
+    <View
+      style={[styles.carte, { backgroundColor: c.carte, borderColor: c.bordure }]}
+      accessibilityLabel={titre ?? t('lecteurAudio.messageVocal')}
+    >
+      <Pressable
+        onPress={activer}
+        onLongPress={surAppuiLong}
+        delayLongPress={350}
+        hitSlop={6}
+        accessibilityRole="button"
+        accessibilityLabel={t('lecteurAudio.lire')}
+      >
+        <LinearGradient
+          colors={c.degradeCta}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.bouton}
+        >
+          <View style={[styles.iconePlay, { borderLeftColor: c.surAccent }]} />
+        </LinearGradient>
+      </Pressable>
+
+      <Pressable
+        style={styles.centre}
+        onPress={activer}
+        onLongPress={surAppuiLong}
+        delayLongPress={350}
+      >
+        <View style={styles.barres}>
+          {couleurs.map((couleur, i) => (
+            <View key={i} style={[styles.barre, styles.barreRepos, { backgroundColor: couleur }]} />
+          ))}
+        </View>
+        <View style={[styles.piste, { backgroundColor: c.bordure }]} />
+      </Pressable>
+
+      {/* La durée n'est pas connue sans player (l'attachement ne la porte pas) :
+          l'emplacement reste réservé pour que le montage ne décale rien. */}
+      <Text style={[styles.temps, { color: c.attenue }]} />
+    </View>
+  );
+}
+
+function LecteurAudioActif({ c, url, titre, surAppuiLong }: PropsLecteur) {
   const t = useT();
   const player = useAudioPlayer(url);
   const status = useAudioPlayerStatus(player);
@@ -223,12 +286,16 @@ export function LecteurAudio({
 
   const couleurs = useMemo(() => repartirArcEnCiel(c.degradeMarque, NB_BARRES), [c.degradeMarque]);
 
+  // Monté = « lire » vient d'être touché : lecture immédiate, en prenant le
+  // relais du lecteur en cours — même coordinateur que `basculer`.
+  //
+  // (L'ancien `setAudioSamplingEnabled(true)` explicite a disparu :
+  // `useAudioSampleListener` le fait déjà, APRÈS avoir vérifié
+  // `isAudioSamplingSupported` — ce que notre appel ne faisait pas.)
   useEffect(() => {
-    try {
-      player.setAudioSamplingEnabled(true);
-    } catch {
-      // Pas d'échantillons : barres au repos, audio quand même jouable.
-    }
+    if (lecteurActif !== null && lecteurActif !== moi.current) lecteurActif.pause();
+    lecteurActif = moi.current;
+    player.play();
   }, [player]);
 
   useAudioSampleListener(player, (echantillon) => {
@@ -424,6 +491,7 @@ const styles = StyleSheet.create({
     height: H_MAX,
   },
   barre: { width: 3, borderRadius: 2 },
+  barreRepos: { height: H_MIN },
   piste: { height: 3, borderRadius: 2, overflow: 'hidden' },
   pisteRemplie: { height: 3, borderRadius: 2 },
   temps: {

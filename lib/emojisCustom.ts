@@ -65,11 +65,32 @@ let baseActive: string | null = null;
 // chaque frappe du composer. Invalidé partout où `index` est réassigné.
 let codesCache: readonly string[] | null = null;
 
+// L'index doit être OBSERVABLE par l'UI : le navigateur d'emojis ne se démonte
+// jamais (`usePanneauEmoji` le monte une fois pour toutes), donc « lu au
+// montage » signifie « figé pour la session » — à la première installation,
+// `synchroniserEmojisCustom` court APRÈS le montage et l'onglet ⭐ n'existait
+// pas. `surChangementEmojisCustom` + `codesEmojiCustom` forment le contrat
+// `useSyncExternalStore` : le cache gelé ci-dessus EST l'instantané stable.
+const abonnes = new Set<() => void>();
+
+function notifierChangement(): void {
+  for (const abonne of [...abonnes]) abonne();
+}
+
+/** S'abonner aux réassignations de l'index — rend le désabonnement. */
+export function surChangementEmojisCustom(abonne: () => void): () => void {
+  abonnes.add(abonne);
+  return () => {
+    abonnes.delete(abonne);
+  };
+}
+
 /** Pose l'index du serveur actif. Appelé au démarrage puis après un fetch. */
 export function definirEmojisCustom(baseUrl: string, entrees: EmojiCustom[]): void {
   baseActive = baseUrl.replace(/\/+$/, '');
   index = indexer(entrees);
   codesCache = null;
+  notifierChangement();
 }
 
 /** À la déconnexion : un index survivant servirait les emojis de l'ancien serveur. */
@@ -77,6 +98,7 @@ export function viderEmojisCustom(): void {
   index = new Map();
   baseActive = null;
   codesCache = null;
+  notifierChangement();
 }
 
 /**

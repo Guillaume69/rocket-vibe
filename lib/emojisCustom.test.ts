@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import { afterEach, describe, test } from 'node:test';
 
 import {
+  codesEmojiCustom,
   definirEmojisCustom,
   filtrerAliases,
   indexer,
   normaliserEntree,
+  surChangementEmojisCustom,
   synchroniserEmojisCustom,
   urlEmojiCustom,
   viderEmojisCustom,
@@ -88,6 +90,39 @@ describe('urlEmojiCustom', () => {
     definirEmojisCustom('https://a.fr', [PARROT]);
     viderEmojisCustom();
     assert.equal(urlEmojiCustom('party_parrot'), null);
+  });
+});
+
+describe('surChangementEmojisCustom', () => {
+  afterEach(viderEmojisCustom);
+
+  test('notifie à chaque pose ou vidage d’index, et l’instantané change d’identité', () => {
+    // Le contrat `useSyncExternalStore` du navigateur d'emojis : sans cette
+    // notification, le panneau — qui ne se démonte JAMAIS — garderait la liste
+    // vide de la première installation pour toute la session.
+    let notifications = 0;
+    const desabonner = surChangementEmojisCustom(() => notifications++);
+    const avant = codesEmojiCustom();
+    definirEmojisCustom('https://chat.exemple.fr', [PARROT]);
+    assert.equal(notifications, 1);
+    const apres = codesEmojiCustom();
+    assert.notEqual(avant, apres);
+    assert.ok(apres.includes('party_parrot'));
+    viderEmojisCustom();
+    assert.equal(notifications, 2);
+    desabonner();
+  });
+
+  test('l’instantané est STABLE entre deux changements (exigence useSyncExternalStore)', () => {
+    definirEmojisCustom('https://chat.exemple.fr', [PARROT]);
+    assert.equal(codesEmojiCustom(), codesEmojiCustom());
+  });
+
+  test('le désabonnement tient', () => {
+    let notifications = 0;
+    surChangementEmojisCustom(() => notifications++)();
+    definirEmojisCustom('https://chat.exemple.fr', [SHIP]);
+    assert.equal(notifications, 0);
   });
 });
 

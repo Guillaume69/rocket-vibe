@@ -34,7 +34,7 @@ chantiers sont notées ; hors d'elles, on peut piocher.
 | 7 | File de téléversements : ni doublon, ni disparition silencieuse | 🟠 | moyen | plusieurs-jours | ✅ 7/7 |
 | 8 | Transport DDP et REST : ne pas tuer une socket saine, ne pas dormir sans écouter | 🟡 | moyen | jour | ✅ 6/6 |
 | 9 | Session morte et fin de session : ramener au login, et tout emporter en partant | 🟠 | ÉLEVÉ | jour | ✅ 5/5 |
-| 10 | Push natif : doublons, deep-link multi-serveur, hygiène du service | 🟠 | moyen | plusieurs-jours | ☐ 0/8 |
+| 10 | Push natif : doublons, deep-link multi-serveur, hygiène du service | 🟠 | moyen | plusieurs-jours | ✅ 8/8 |
 | 11 | Écrans : boucles sans borne, attentes fixes, coûts natifs inutiles | 🟡 | faible | jour | ☐ 0/9 |
 | 12 | Filet de test là où le code n'est pas atteignable | 🟡 | nul | jour | ☐ 0/5 |
 | 13 | Une seule source par concept : i18n, couleurs, formats, tables MIME | 🟡 | faible | jour | ☐ 0/6 |
@@ -270,15 +270,39 @@ chantiers sont notées ; hors d'elles, on peut piocher.
 
 **Ordre.** Un seul passage, un seul cycle `expo prebuild` + `assembleRelease` (statut testé **sans pipe**). Y embarquer la validation d'hôte du chantier 3.
 
-- [ ] 🟠 Le garde anti-doublon ne couvre pas le cas « le worker a déjà posté » — `plugins/with-fcm-deeplink.js:249`
-- [ ] 🟡 Le deep-link de notification ne porte pas le serveur : spinner définitif en multi-serveur — `plugins/with-fcm-deeplink.js:465`
-- [ ] 🟡 Aucune notification n'est retirée quand le salon est lu — `ui/notifications.tsx:118` *(non passé au réfuteur)*
-- [ ] 🟡 Le `push.get` bloquant peut coûter 16 s (32 s en debug) sur le thread de dispatch FCM — `plugins/with-fcm-deeplink.js:663` *(non passé au réfuteur)*
-- [ ] ⚪ Un 401 sur `push.get` déclenche huit tentatives WorkManager vouées à l'échec, par notification — `plugins/with-fcm-deeplink.js:667` *(non passé au réfuteur)*
-- [ ] 🟡 Les chaînes de la voie native sont en français en dur alors que l'app est intégralement EN/FR — `plugins/with-fcm-deeplink.js:414` *(non passé au réfuteur)*
-- [ ] ⚪ La rotation du jeton FCM n'est jamais écoutée — `ui/synchro.tsx:333` *(non passé au réfuteur)*
-- [ ] ⚪ La chirurgie de configuration du plugin (JS pur) n'a aucun test — `plugins/with-fcm-deeplink.js:737` *(non passé au réfuteur)*
-- [ ] **Sortie du chantier** : `tsc` propre, suite verte, et lancement réel sur le Pixel
+- [x] 🟠 Le garde anti-doublon ne couvre pas le cas « le worker a déjà posté » — `plugins/with-fcm-deeplink.js:249` → `dejaAffiche(ctx, messageId)`, test-et-pose atomique (SharedPreferences dédié, `commit()` et non `apply()` car le process de dispatch peut mourir juste après, purge au-delà d'une heure, `@Synchronized`), consulté dans les DEUX voies : dans `recupererEtPoster` APRÈS l'annulation de la dégradée (elle doit disparaître même quand on renonce à afficher) et dans `doWork` sous la forme `isStopped || dejaAffiche(…)`, **après** le fetch — le poser avant aurait fait qu'un `Result.retry()` retrouve son propre marqueur et n'affiche plus jamais rien. La dégradée ne pose pas le marqueur : elle doit rester remplaçable.
+- [x] 🟡 Le deep-link de notification ne porte pas le serveur : spinner définitif en multi-serveur — `plugins/with-fcm-deeplink.js:465` → `?host=` ajouté au lien par `afficherNotifSalon`, alimenté par les TROIS appelants (jamais par le payload de `push.get`) ; miroir côté JS dans `ui/notifications.tsx` ; et `app/salon/[rid].tsx` rend `AutreServeur`, un écran explicite avec bouton de bascule. `host` absent → comportement identique à avant.
+- [x] 🟡 Aucune notification n'est retirée quand le salon est lu — `ui/notifications.tsx:118` *(non passé au réfuteur)* → `dismissNotificationAsync` sur tout `rid` à `nonLus === 0`, via `lib/notificationId.ts` (`hashCodeJava` + la forme `expo-notifications://foreign_notifications?id=<hash>` que `parseNotificationIdentifier` traduit en `cancel(null, id)`).
+- [x] 🟡 Le `push.get` bloquant peut coûter 16 s (32 s en debug) sur le thread de dispatch FCM — `plugins/with-fcm-deeplink.js:663` *(non passé au réfuteur)* → 3 s de connect + 3 s de read, et la sonde de debug passe derrière un DRAPEAU explicite (`files/rvpush-sonde`, posé à la main) au lieu de `BuildConfig.DEBUG`, qui n'est pas un drapeau mais le régime ordinaire de tout développement.
+- [x] ⚪ Un 401 sur `push.get` déclenche huit tentatives WorkManager vouées à l'échec, par notification — `plugins/with-fcm-deeplink.js:667` *(non passé au réfuteur)* → `ResultatPush` porte le code HTTP ; 401/403 posent la dégradée SANS rattrapage, et coupent court dans le worker. En prime, le 429 lit `x-ratelimit-reset` et devient un `setInitialDelay` au lieu d'une tentative brûlée d'avance.
+- [x] 🟡 Les chaînes de la voie native sont en français en dur alors que l'app est intégralement EN/FR — `plugins/with-fcm-deeplink.js:414` *(non passé au réfuteur)* → `res/values/strings.xml` (anglais, par défaut) + `res/values-fr/strings.xml`, posés par le plugin, lus par `R.string.…` et non par `getIdentifier` ; la préférence EXPLICITE de l'app (`langue-preferee`, même SecureStore que la session) l'emporte sur la locale du téléphone.
+- [x] ⚪ La rotation du jeton FCM n'est jamais écoutée — `ui/synchro.tsx:333` *(non passé au réfuteur)* → `surRotationJeton` (`lib/push.ts`) branché pour la durée de la session : réenregistrement `push.token` **et** mise à jour du jeton retenu au Keystore, celui que la déconnexion dé-enregistrera.
+- [x] ⚪ La chirurgie de configuration du plugin (JS pur) n'a aucun test — `plugins/with-fcm-deeplink.js:737` *(non passé au réfuteur)* → `plugins/with-fcm-deeplink.test.mjs`, 13 cas sur les fonctions pures désormais exportées (`chirurgie`). `npm test` gagne le motif `plugins/**/*.test.mjs`.
+- [x] **Sortie du chantier** : `tsc` propre ✅, suite verte ✅ (723, +21), `expo prebuild` ✅, `assembleRelease` ✅ **statut testé sans pipe** (`GRADLE_EXIT=0`, APK 99 726 965 octets) — c'est la SEULE preuve disponible que le Kotlin compile. **Vérifié sur l'AVD contre le banc local (31/07/2026), cinq gestes** : `?host=` d'un AUTRE serveur → écran de bascule ; aucun `host` → le salon s'ouvre ; `host` = le serveur COURANT → le salon s'ouvre ; `host` non-web (`ftp://…`) → ignoré, le salon s'ouvre ; retour système depuis l'écran de bascule → la liste (pas d'impasse). Les deux captures de l'écran de bascule sont **identiques au bit près**, et elles encadrent une capture du salon : les transitions sont donc réelles, pas un écran figé. **Le circuit push lui-même n'est PAS corroboré ici** — voir l'écart n°1.
+
+> **Vérifié dans le code d'expo, pas déduit.** Deux formes exactes portent tout le chantier et aucune n'est devinable :
+>
+> | Ce dont on dépend | Où c'est écrit | Ce qu'on en tire |
+> |---|---|---|
+> | `expo-notifications://foreign_notifications?[tag=…&]id=<entier>` | `ExpoPresentationDelegate.kt` (`parseNotificationIdentifier`) | `dismissNotificationAsync` sait retirer une notification postée par NOTRE Kotlin — sans tag, l'id est `rid.hashCode()` |
+> | `"<keychainService>-<clé>"`, keychainService par défaut `key_v1` | `SecureStoreModule.kt` (`createKeychainAwareKey`) | le natif lit `key_v1-langue-preferee` comme il lit déjà `key_v1-session-…` |
+> | les query params d'un lien profond sont FUSIONNÉS dans les params de route | `expo-router/build/fork/getStateFromPath-forks.js` (`parseQueryParams`) | `?host=` arrive dans `useLocalSearchParams` en `string` |
+>
+> Et les valeurs de `hashCodeJava` du test sortent d'un `java.lang.String.hashCode` réellement exécuté (Temurin 17), pas de l'implémentation qu'elles jugent.
+
+> **Écarts assumés.**
+>
+> 1. **Le circuit push n'est toujours pas corroboré de bout en bout** — c'est aussi la dette du chantier 3, et elle reste ouverte. Ce poste n'a ni clé de compte de service Firebase ni `Push_google_api_credentials` sur le RC local : le banc ne peut PAS émettre de push, et le Pixel n'était pas branché. Ce qui est prouvé : le Kotlin compile (`assembleRelease`, statut lu sans pipe) et les formes dont il dépend sont vérifiées dans le code d'expo. Ce qui ne l'est pas : qu'un vrai push traverse `dejaAffiche`, que le rattrapage 429 parte au bon moment, que la notification se retire à la lecture. **À refaire sur le Pixel, avec une mention explicite, app en arrière-plan.**
+> 2. **Le régime « contenu présent dans le push » ne pose PAS de marqueur anti-doublon**, conformément au périmètre de l'audit : il n'a ni dégradée ni rattrapage, donc pas de course entre deux voies. Une relivraison FCM pure y dédoublerait quand même la ligne — mais ce régime ne s'applique pas au serveur cible, où le contenu masqué est actif. Le laisser tel quel garde le correctif dans son périmètre mesuré.
+> 3. **Le budget de `push.get` descend à 3 s + 3 s, ce qui fera plus de notifications dégradées**, pas moins : en Doze radio non levée, le fetch direct échouera plus souvent et le contenu arrivera par le rattrapage. C'est le troc voulu par l'audit — 16 s sur le thread de dispatch, c'est surtout une chance de se faire tuer en plein fetch, donc de provoquer la relivraison FCM et la famille de doublons qu'on combat par ailleurs.
+> 4. **`x-ratelimit-reset` n'est pas relu dans le worker**, seulement à la réception. Un 429 pendant un rattrapage retombe sur le backoff linéaire de 30 s, qui finit par dépasser la fenêtre du serveur. Câbler le délai depuis `Result.retry()` n'est pas offert par WorkManager sans ré-enfiler un travail — plus de mécanique que de gain.
+
+> **Note de méthode.** Preuve par retrait sur les six lignes portantes testables : ancrage colonne 0 du bloc `dependencies` → 2 suites rouges ; levée quand il n'y a pas de bloc racine → 1 ; garde `includes(artefact)` → 2 ; garde de non-duplication du service → 1 ; échappement de l'apostrophe → 1 ; échappement des entités XML → 1. **Deux retraits ont d'abord été des tests vides**, tous deux rattrapés en vérifiant que la substitution avait bien mordu :
+>
+> - l'assertion « aucune apostrophe nue dans le `strings.xml` » passait sans échappement, puisqu'AUCUNE des trois chaînes n'a d'apostrophe. Elle jugeait le catalogue d'aujourd'hui, pas la règle. Réécrite sur `echapperXml` directement — c'est la PROCHAINE chaîne (« Nouveau message d'Alice ») que le test doit protéger, et elle ferait échouer `aapt2` ;
+> - `Math.imul(31, h)` dans `hashCodeJava` **n'est pas prouvable, et n'est pas portant** : le `| 0` à chaque tour garde `h` dans l'int32, donc `31 * h` reste sous 2^53 et la multiplication flottante est EXACTE. Vérifié par différentiel sur 200 000 chaînes aléatoires : zéro écart. On garde `imul` parce qu'il dit ce qu'il fait et resterait juste si la constante grandissait — mais c'est consigné comme non prouvé, pas maquillé en garde portante.
+>
+> Piège d'environnement, à retenir : `perl -pi -e "s/\Q$avant\E/…/"` **interpole les variables perl à l'intérieur de `\Q…\E`**. Un motif contenant `$?` (ici `s.$?.['android:name']`) partait donc mutilé et ne trouvait rien — un retrait vide de plus. Les retraits suivants passent par un petit script Node en remplacement littéral.
 
 ## 11. Écrans : boucles sans borne, attentes fixes, coûts natifs inutiles
 

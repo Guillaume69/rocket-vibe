@@ -17,19 +17,24 @@
 import * as Notifications from 'expo-notifications';
 import { useRequeteVive } from './requeteVive.ts';
 import { useRouter } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 import { salons, abonnements } from '../db/schema.ts';
 import { estSalonChiffre, poserSalonsChiffres } from './etatNotifications.ts';
+import { identifiantNotifSalon } from '../lib/notificationId.ts';
 import { traduireCourant } from './i18n.ts';
 import { useSynchro } from './synchro.tsx';
 
-function ridDeNotification(contenu: Notifications.NotificationContent): string | null {
+/** Le salon d'un push, et le serveur d'où il vient (multi-session). */
+type CibleNotification = { rid: string; host: string | null };
+
+function cibleDeNotification(contenu: Notifications.NotificationContent): CibleNotification | null {
   const brut = (contenu.data as { ejson?: unknown } | null)?.ejson;
   if (typeof brut !== 'string') return null;
   try {
-    const ejson = JSON.parse(brut) as { rid?: unknown };
-    return typeof ejson.rid === 'string' ? ejson.rid : null;
+    const ejson = JSON.parse(brut) as { rid?: unknown; host?: unknown };
+    if (typeof ejson.rid !== 'string') return null;
+    return { rid: ejson.rid, host: typeof ejson.host === 'string' ? ejson.host : null };
   } catch {
     return null;
   }
@@ -37,8 +42,8 @@ function ridDeNotification(contenu: Notifications.NotificationContent): string |
 
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
-    const rid = ridDeNotification(notification.request.content);
-    if (rid !== null && estSalonChiffre(rid)) {
+    const cible = cibleDeNotification(notification.request.content);
+    if (cible !== null && estSalonChiffre(cible.rid)) {
       // Ne pas afficher le ciphertext : on republie un texte générique.
       Notifications.scheduleNotificationAsync({
         content: {
@@ -82,8 +87,16 @@ export function GestionNotifications() {
       const id = reponse.notification.request.identifier;
       if (id === dejaRoute) return;
       dejaRoute = id;
-      const rid = ridDeNotification(reponse.notification.request.content);
-      if (rid !== null) routeur.push({ pathname: '/salon/[rid]', params: { rid } });
+      const cible = cibleDeNotification(reponse.notification.request.content);
+      if (cible === null) return;
+      // Le `host` voyage avec le rid, comme dans le deep-link natif : plusieurs
+      // sessions coexistent et poussent toutes les deux. Sans lui, un rid d'un
+      // autre serveur atterrissait sur un écran salon sans ligne pour ce rid,
+      // donc sur un indicateur d'activité définitif.
+      routeur.push({
+        pathname: '/salon/[rid]',
+        params: cible.host === null ? { rid: cible.rid } : { rid: cible.rid, host: cible.host },
+      });
     };
     const abo = Notifications.addNotificationResponseReceivedListener(ouvrir);
     Notifications.getLastNotificationResponseAsync()
@@ -105,7 +118,7 @@ export function GestionNotifications() {
   return <SuiviBadgeEtChiffre />;
 }
 
-/** Vit seulement quand la base est prête : badge et registre du chiffré. */
+/** Vit seulement quand la base est prête : badge, retrait des lus, chiffré. */
 function SuiviBadgeEtChiffre() {
   const synchro = useSynchro();
   const base = synchro.phase === 'pret' ? synchro.base : null;
@@ -116,6 +129,31 @@ function SuiviBadgeEtChiffre() {
   useEffect(() => {
     const total = (lignesAbonnements ?? []).reduce((somme, a) => somme + a.nonLus, 0);
     Notifications.setBadgeCountAsync(total).catch(() => {});
+  }, [lignesAbonnements]);
+
+  // Salon lu ⇒ sa notification s'en va. `setAutoCancel(true)` ne la retire qu'au
+  // TAP : lire #general depuis l'icône laissait ses trois messages dans la barre
+  // d'état, et le suivant s'y ajoutait en quatrième ligne — les notifications de
+  // la voie native étant groupées ET cumulatives. Le compteur de non-lus suit
+  // déjà le serveur en temps réel, y compris quand c'est un AUTRE appareil qui
+  // a lu : c'est la source la moins menteuse dont on dispose ici.
+  //
+  // Le `Set` mémorise ce qui a déjà été retiré, sinon chaque re-rendu rejouerait
+  // l'appel pour tous les salons lus. Le premier passage n'est PAS sauté : à
+  // l'ouverture de l'app, un salon déjà lu ailleurs peut très bien avoir sa
+  // notification en attente dans la barre. Retirer une notification absente est
+  // un `NotificationManagerCompat.cancel` sur un id inconnu — sans effet.
+  const retirees = useRef(new Set<string>());
+  useEffect(() => {
+    for (const a of lignesAbonnements ?? []) {
+      if (a.nonLus > 0) {
+        retirees.current.delete(a.rid);
+        continue;
+      }
+      if (retirees.current.has(a.rid)) continue;
+      retirees.current.add(a.rid);
+      Notifications.dismissNotificationAsync(identifiantNotifSalon(a.rid)).catch(() => {});
+    }
   }, [lignesAbonnements]);
 
   useEffect(() => {

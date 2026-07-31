@@ -63,7 +63,14 @@ import { useRetourMateriel } from '../../ui/retourMateriel.ts';
 import { jetonSession } from '../../ui/jetonSession.ts';
 import { garderAuChaud, salonCouvert } from '../../ui/salonChaud.ts';
 import { marquerSalonCharge, salonChargeSous } from '../../ui/salonsCharges.ts';
-import { AvatarSalon, BarreSynchro, IndicateurSaisie, TuileAvatar } from '../../ui/kit.tsx';
+import {
+  AvatarSalon,
+  BarreSynchro,
+  BoutonPrincipal,
+  IndicateurSaisie,
+  TuileAvatar,
+} from '../../ui/kit.tsx';
+import { memeOrigine, origineDe } from '../../lib/origine.ts';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
 import type { StatutPresence } from '../../lib/presence.ts';
@@ -118,7 +125,10 @@ const PHRASE_PRESENCE: Record<StatutPresence, CleTraduction> = {
 };
 
 export default function EcranSalon() {
-  const { rid } = useLocalSearchParams<{ rid: string }>();
+  // `host` vient du deep-link d'une notification (natif comme expo) : il dit de
+  // QUEL serveur ce message parle. Absent pour toute navigation interne — le
+  // comportement est alors exactement celui d'avant.
+  const { rid, host } = useLocalSearchParams<{ rid: string; host?: string }>();
   const { etat } = useSession();
   const synchro = useSynchro();
   const c = useCouleurs();
@@ -143,6 +153,23 @@ export default function EcranSalon() {
     );
   }
 
+  // Notification d'un AUTRE serveur que celui affiché. Les sessions coexistent
+  // (`changerDeServeur` n'en efface aucune) et le jeton push est enregistré sur
+  // chacune : les deux serveurs poussent. Sans ce garde, on tombait dans le
+  // salon avec un rid que la base locale ne connaît pas — `type === undefined`
+  // court-circuite l'effet de chargement, `premierPassageFini` reste faux, et
+  // l'écran garde son indicateur d'activité POUR TOUJOURS.
+  //
+  // On travaille sur l'ORIGINE, pas sur la chaîne reçue : elle vient d'un intent
+  // que n'importe quelle app peut émettre. Ce qui n'est pas une URL web n'est
+  // pas un serveur Rocket.Chat — on l'ignore, et le comportement redevient
+  // exactement celui d'avant plutôt que d'afficher au premier plan un texte
+  // arbitraire de longueur arbitraire.
+  const origineHote = typeof host === 'string' ? origineDe(host) : null;
+  if (origineHote !== null && !memeOrigine(host!, etat.session.baseUrl)) {
+    return <AutreServeur c={c} hote={origineHote} rid={rid} />;
+  }
+
   return (
     <Salon
       c={c}
@@ -160,6 +187,64 @@ export default function EcranSalon() {
       activite={synchro.activite}
       generation={synchro.generation}
     />
+  );
+}
+
+/**
+ * Le message pointé par la notification vit sur un autre serveur que celui
+ * affiché. On ne bascule PAS tout seul : `changerDeServeur` déplace le pointeur
+ * de reprise, ferme la socket, rouvre une autre base — un tap sur une
+ * notification ne doit pas emporter ça sans qu'on le demande. Geste explicite,
+ * donc, et le libellé dit où l'on va.
+ */
+function AutreServeur({ c, hote, rid }: { c: Couleurs; hote: string; rid: string }) {
+  const t = useT();
+  const routeur = useRouter();
+  const { changerDeServeur } = useSession();
+  const [occupe, setOccupe] = useState(false);
+  const [echec, setEchec] = useState(false);
+
+  const basculer = useCallback(() => {
+    setOccupe(true);
+    setEchec(false);
+    changerDeServeur(hote).then(
+      (ok) => {
+        // Succès : `replace` retire le `host` de l'URL. Le laisser rejouerait ce
+        // même écran si l'utilisateur repassait plus tard sur l'autre serveur.
+        // Aucun `setState` sur ce chemin : l'écran est déjà en train de partir.
+        if (ok) routeur.replace({ pathname: '/salon/[rid]', params: { rid } });
+        else {
+          setOccupe(false);
+          setEchec(true);
+        }
+      },
+      () => {
+        setOccupe(false);
+        setEchec(true);
+      },
+    );
+  }, [changerDeServeur, hote, rid, routeur]);
+
+  return (
+    <View style={[styles.centre, { backgroundColor: c.fond }]}>
+      <Stack.Screen options={{ title: t('salon.autreServeurTitre') }} />
+      <Text style={[styles.erreur, { color: c.texte }]}>{t('salon.autreServeurTitre')}</Text>
+      <Text style={[styles.autreServeurHote, { color: c.texteSecondaire }]}>
+        {t('salon.autreServeurCorps', { hote })}
+      </Text>
+      <BoutonPrincipal
+        c={c}
+        titre={t('salon.autreServeurBouton')}
+        onPress={basculer}
+        occupe={occupe}
+        style={styles.autreServeurBouton}
+      />
+      {echec ? (
+        <Text style={[styles.autreServeurHote, { color: c.texteErreur }]}>
+          {t('salon.autreServeurEchec')}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -1436,6 +1521,13 @@ const styles = StyleSheet.create({
   basComposer: { position: 'relative' },
   vide: { textAlign: 'center', padding: 24, fontSize: 14, fontFamily: POLICES.corps },
   erreur: { fontFamily: POLICES.corpsGras, fontSize: 14, textAlign: 'center' },
+  autreServeurHote: {
+    fontFamily: POLICES.corps,
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  autreServeurBouton: { marginTop: 20, alignSelf: 'stretch' },
   composer: {
     flexDirection: 'row',
     alignItems: 'flex-end',

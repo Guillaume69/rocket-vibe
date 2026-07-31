@@ -1,7 +1,9 @@
 const {
+  AndroidConfig,
   withAndroidManifest,
   withAppBuildGradle,
   withDangerousMod,
+  withStringsXml,
 } = require('expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
@@ -32,8 +34,8 @@ const ANDROIDX_WORK = 'androidx.work:work-runtime:2.10.1';
  *     une notification `MessagingStyle` dont l'id dérive du `rid` : les messages
  *     successifs d'un même salon s'ACCUMULENT dans la même notification (le
  *     style précédent est ré-extrait et complété). Le tap porte un deep-link
- *     `rocketvibe://salon/<rid>` (géré par expo-router, à froid comme en
- *     marche) — plus besoin du circuit expo-notifications pour ces pushes.
+ *     `rocketvibe://salon/<rid>?host=<serveur>` (géré par expo-router, à froid
+ *     comme en marche) — plus besoin du circuit expo-notifications pour ceux-là.
  *   - Tout autre intent (autres pushes, messages sans `rid`) → route expo
  *     inchangée : title/body recopiés dans les clés `data` que lit expo
  *     (`title`, `message`), expo affiche et gère le tap comme avant.
@@ -59,13 +61,21 @@ const ANDROIDX_WORK = 'androidx.work:work-runtime:2.10.1';
  *      push.get et, dès qu'il aboutit, REMPLACE la notification dégradée par la
  *      notification de conversation complète — SILENCIEUSEMENT (la dégradée a
  *      déjà alerté). Le contenu ne transite toujours jamais par Google/Apple.
+ *   Sauf REFUS DÉFINITIF (401/403) : retenter ne fera que rejouer huit fois la
+ *   même session morte. On garde la dégradée et on s'arrête là.
  *
  * ANTI-DOUBLON (constaté sur le terrain, nuit du 2026-07-17 ~04:52) : FCM
- * relivre un push non acquitté au retour du réseau. La première livraison
- * (fetch KO) pose la dégradée + le rattrapage ; la relivraison, elle, réussit
- * son fetch et posterait la vraie notification À CÔTÉ de la dégradée, puis le
- * worker rajouterait le même message une seconde fois. Le succès direct annule
- * donc TOUJOURS la dégradée du même messageId ET son rattrapage en attente.
+ * relivre un push non acquitté au retour du réseau, et le worker de rattrapage
+ * est réveillé par le MÊME événement — le retour du réseau. Les deux voies
+ * peuvent donc aboutir à quelques secondes d'intervalle et ajouter DEUX FOIS le
+ * même message au MessagingStyle du salon. Deux gardes, dans les deux sens :
+ *   - le succès direct annule la dégradée du même messageId ET son rattrapage ;
+ *   - un test-et-pose atomique (`dejaAffiche`) porte la mémoire qui manquait :
+ *     un messageId qui a DÉJÀ produit une notification de conversation n'en
+ *     produit pas une seconde, quelle que soit la voie. `cancelUniqueWork`
+ *     n'arrête pas un worker EN VOL : c'est ce test (et `isStopped`) qui le
+ *     rattrape. La dégradée, elle, ne pose pas le marqueur — elle doit rester
+ *     remplaçable par le contenu réel.
  *
  * JOURNAL DE BORD : chaque événement du circuit (réception, échec avec code ou
  * exception, rattrapage, remplacement, abandon) s'écrit dans
@@ -76,9 +86,25 @@ const ANDROIDX_WORK = 'androidx.work:work-runtime:2.10.1';
  * Salons CHIFFRÉS : `Push_show_message = true` fait transiter du ciphertext ;
  * si l'ejson porte `messageType: 'e2e'`, on substitue un texte générique —
  * même dégradation que côté JS (`ui/notifications.tsx`).
+ *
+ * LANGUE : les trois chaînes que l'utilisateur voit de cette voie sortent de
+ * `res/values[-fr]/strings.xml` (posés par ce plugin), en honorant d'abord la
+ * langue EXPLICITEMENT choisie dans l'app (`langue-preferee`, même SecureStore
+ * que la session) et à défaut celle du téléphone.
  */
 
 const SERVICE_CLASS = 'RocketVibeMessagingService';
+
+/**
+ * Les trois chaînes vues par l'utilisateur sur la voie native. `en` est la
+ * ressource par DÉFAUT (`values/`), `fr` la traduction (`values-fr/`) — même
+ * couple que le catalogue JS de `ui/messages.ts`, dont elles reprennent le ton.
+ */
+const CHAINES = {
+  rv_push_message_chiffre: { en: 'Encrypted message', fr: 'Message chiffré' },
+  rv_push_moi: { en: 'You', fr: 'Vous' },
+  rv_push_nouveau_message: { en: 'New message', fr: 'Nouveau message' },
+};
 
 function kotlinSource(pkg) {
   return `package ${pkg}
@@ -87,6 +113,8 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
+import android.content.res.Resources
 import android.net.Uri
 import android.os.Bundle
 import android.util.Base64
@@ -201,11 +229,12 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
       }
       val titre = extras.getString("title") ?: return false
       val texte = extras.getString("message") ?: return false
-      // (debug) Le serveur local n'active jamais le mode message-id-only
-      // (réglage enterprise inerte sans licence) : on rejoue le circuit privé
-      // sur un push ordinaire pour le prouver de bout en bout en local.
-      if (BuildConfig.DEBUG) verifierPushGetEnDebug(ejson)
-      return afficherNotifSalon(this, rid, titre, texte, ejson)
+      // (debug, et seulement si la sonde est armée — voir sondeArmee) Le serveur
+      // local n'active jamais le mode message-id-only (réglage enterprise inerte
+      // sans licence) : on rejoue le circuit privé sur un push ordinaire pour le
+      // prouver de bout en bout en local.
+      if (BuildConfig.DEBUG && sondeArmee(this)) verifierPushGetEnDebug(ejson)
+      return afficherNotifSalon(this, rid, titre, texte, ejson, hoteContenu)
     } catch (e: Exception) {
       // Un push mal formé ou un refus (POST_NOTIFICATIONS révoquée) ne doit pas
       // perdre la notification : on laisse expo afficher sa version simple.
@@ -218,11 +247,13 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
    * Chemin « contenu privé » : le push n'a livré qu'un messageId. On lit la
    * session stockée (expo-secure-store, sans runtime JS), on demande le contenu
    * au serveur (push.get, authentifié), puis on affiche la notification de
-   * salon. Toute défaillance (hors ligne, radio pas levée en Doze, jeton
-   * périmé, creds absentes) tombe sur une notification « Nouveau message » —
-   * jamais de contenu chez le transporteur, jamais de notification perdue —
-   * PUIS un rattrapage WorkManager retente et la remplace par le contenu réel
-   * dès que le serveur redevient joignable.
+   * salon. Toute défaillance PASSAGÈRE (hors ligne, radio pas levée en Doze,
+   * rate-limit) tombe sur une notification « Nouveau message » — jamais de
+   * contenu chez le transporteur, jamais de notification perdue — PUIS un
+   * rattrapage WorkManager retente et la remplace par le contenu réel dès que le
+   * serveur redevient joignable. Un refus DÉFINITIF (401/403) s'arrête à la
+   * dégradée : huit tentatives sur une session morte ne rendraient que de la
+   * batterie en moins.
    */
   private fun recupererEtPoster(ejsonPush: JSONObject): Boolean {
     val messageId = ejsonPush.optString("messageId")
@@ -243,11 +274,16 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
       journal(this, "id-only " + messageId + " : aucune session pour " + host + " -> ignoré")
       return true
     }
-    val notif = recupererContenu(this, messageId, session)
+    val resultat = recupererContenu(this, messageId, session)
+    val notif = resultat.notification
     if (notif == null) {
-      journal(this, "id-only " + messageId + " : fetch KO -> dégradée + rattrapage")
       posterNotifDegradee(this, messageId)
-      planifierRattrapage(this, host, messageId, false)
+      if (resultat.definitif) {
+        journal(this, "id-only " + messageId + " : refus " + resultat.code + ", pas de rattrapage")
+      } else {
+        journal(this, "id-only " + messageId + " : fetch KO (" + resultat.code + ") -> dégradée + rattrapage")
+        planifierRattrapage(this, host, messageId, false, resultat.attenteMs)
+      }
       return true
     }
     val payload = notif.optJSONObject("payload")
@@ -262,21 +298,34 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
     // Succès direct : si une TENTATIVE PRÉCÉDENTE du même push avait posé la
     // notification dégradée et programmé un rattrapage (FCM relivre un push
     // non acquitté au retour du réseau — le process peut avoir été tué pendant
-    // le fetch bloquant), on annule les deux. Sinon la dégradée resterait
-    // affichée À CÔTÉ de la vraie, et le worker rajouterait le même message
-    // une seconde fois dans la conversation (doublon constaté sur le terrain).
+    // le fetch bloquant), on annule les deux. L'annulation vient AVANT le test
+    // anti-doublon : la dégradée doit disparaître dans TOUS les cas, y compris
+    // celui où le worker a déjà posté la vraie notification et où l'on va
+    // renoncer à l'afficher.
     NotificationManagerCompat.from(this).cancel(messageId.hashCode())
     annulerRattrapage(this, messageId)
+    if (dejaAffiche(this, messageId)) {
+      journal(this, "id-only " + messageId + " : déjà affiché ailleurs -> pas de second ajout")
+      return true
+    }
     journal(this, "id-only " + messageId + " : fetch OK direct (rid=" + rid + ")")
-    return afficherNotifSalon(this, rid, notif.optString("title"), notif.optString("text"), payload)
+    return afficherNotifSalon(
+      this,
+      rid,
+      notif.optString("title"),
+      notif.optString("text"),
+      payload,
+      host,
+    )
   }
 
   /**
-   * Debug seulement — voir posterNotifSalon : rejoue déchiffrement de session +
-   * push.get sur un push de contenu ordinaire et loggue le résultat. Un fetch
-   * KO programme aussi le rattrapage en mode « ombre » (log sans notification) :
-   * c'est le SEUL moyen d'exercer RattrapagePushWorker en local, la branche
-   * message-id-only n'étant émise que par un serveur licencié.
+   * Debug seulement, et seulement sonde armée — voir posterNotifSalon : rejoue
+   * déchiffrement de session + push.get sur un push de contenu ordinaire et
+   * loggue le résultat. Un fetch KO programme aussi le rattrapage en mode
+   * « ombre » (log sans notification) : c'est le SEUL moyen d'exercer
+   * RattrapagePushWorker en local, la branche message-id-only n'étant émise que
+   * par un serveur licencié.
    */
   private fun verifierPushGetEnDebug(ejson: JSONObject) {
     try {
@@ -292,10 +341,11 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
         return
       }
       Log.d(TAG, "shadow push.get: session déchiffrée uid=" + session.optString("userId"))
-      val notif = recupererContenu(this, messageId, session)
+      val resultat = recupererContenu(this, messageId, session)
+      val notif = resultat.notification
       if (notif == null) {
-        Log.d(TAG, "shadow push.get: fetch KO, rattrapage ombre programmé")
-        planifierRattrapage(this, host, messageId, true)
+        Log.d(TAG, "shadow push.get: fetch KO (" + resultat.code + "), rattrapage ombre programmé")
+        planifierRattrapage(this, host, messageId, true, resultat.attenteMs)
         return
       }
       Log.d(
@@ -320,7 +370,7 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
  * disponible (contrainte CONNECTED), avec backoff linéaire, et remplace la
  * notification « Nouveau message » par la notification de conversation
  * complète. Unicité par messageId (voir planifierRattrapage) : une relivraison
- * FCM ne crée pas de doublon. En mode « ombre » (debug), loggue au lieu de
+ * FCM ne crée pas de second worker. En mode « ombre » (debug), loggue au lieu de
  * poster — voir verifierPushGetEnDebug.
  */
 class RattrapagePushWorker(contexte: Context, params: WorkerParameters) : Worker(contexte, params) {
@@ -328,6 +378,14 @@ class RattrapagePushWorker(contexte: Context, params: WorkerParameters) : Worker
     val host = inputData.getString("host") ?: return Result.failure()
     val messageId = inputData.getString("messageId") ?: return Result.failure()
     val ombre = inputData.getBoolean("ombre", false)
+    // \`cancelUniqueWork\` n'interrompt pas un worker EN VOL : il lève seulement
+    // \`isStopped\`. Sans ce test, une annulation décidée par la voie directe
+    // (relivraison FCM traitée avec succès) arrivait trop tard et le message
+    // était ajouté deux fois à la conversation.
+    if (isStopped) {
+      journal(applicationContext, "worker arrêté avant fetch (" + messageId + ")")
+      return Result.success()
+    }
     journal(
       applicationContext,
       "worker tentative " + (runAttemptCount + 1) + "/" + MAX_TENTATIVES + " (" + messageId + ")" +
@@ -335,8 +393,14 @@ class RattrapagePushWorker(contexte: Context, params: WorkerParameters) : Worker
     )
 
     val session = lireSession(applicationContext, host) ?: return Result.failure()
-    val notif = recupererContenu(applicationContext, messageId, session)
+    val resultat = recupererContenu(applicationContext, messageId, session)
+    val notif = resultat.notification
     if (notif == null) {
+      // Un refus définitif (401/403) ne s'améliorera pas au bout de huit essais.
+      if (resultat.definitif) {
+        journal(applicationContext, "worker abandon : refus " + resultat.code + " (" + messageId + ")")
+        return Result.failure()
+      }
       // runAttemptCount démarre à 0 : MAX_TENTATIVES exécutions au plus.
       if (runAttemptCount >= MAX_TENTATIVES - 1) {
         journal(applicationContext, "worker abandon après " + MAX_TENTATIVES + " tentatives (" + messageId + ")")
@@ -356,6 +420,13 @@ class RattrapagePushWorker(contexte: Context, params: WorkerParameters) : Worker
       journal(applicationContext, "worker OK [ombre] (" + messageId + ")")
       return Result.success()
     }
+    // Second point de contrôle, APRÈS le fetch : il a pu durer, et la voie
+    // directe a pu poster entre-temps. Test-et-pose atomique — celui des deux
+    // qui arrive le premier affiche, l'autre s'efface.
+    if (isStopped || dejaAffiche(applicationContext, messageId)) {
+      journal(applicationContext, "worker : déjà affiché ailleurs (" + messageId + ")")
+      return Result.success()
+    }
     // La vraie notification de salon remplace la dégradée (ids différents :
     // la dégradée dérive du messageId, celle de salon du rid). SILENCIEUSE :
     // la dégradée a déjà alerté pour ce message, on ne sonne pas deux fois.
@@ -366,6 +437,7 @@ class RattrapagePushWorker(contexte: Context, params: WorkerParameters) : Worker
       notif.optString("title"),
       notif.optString("text"),
       payload,
+      host,
       silencieux = true,
     )
     journal(applicationContext, "worker OK : dégradée remplacée (" + messageId + ", rid=" + rid + ")")
@@ -390,7 +462,19 @@ private const val COULEUR_ACCENT = 0xFFFF5FA2.toInt()
 /** Préfixe des noms de work uniques — partagé entre planification et annulation. */
 private const val NOM_RATTRAPAGE = "rattrapage-push-"
 
+/** Mémoire des messageId déjà affichés en notification de conversation. */
+private const val PREFS_AFFICHES = "rvpush-affiches"
+
+/**
+ * Au-delà, un marqueur est oublié. Une heure couvre très largement la fenêtre
+ * de relivraison FCM d'un push non acquitté ; au-delà, un même messageId qui
+ * reviendrait mérite d'être réaffiché plutôt que silencieusement avalé.
+ */
+private const val RETENTION_AFFICHES_MS = 60L * 60L * 1000L
+
 private val VERROU_JOURNAL = Any()
+
+private val VERROU_AFFICHES = Any()
 
 /**
  * Journal de bord du circuit push, dans le dossier externe de l'app :
@@ -416,10 +500,120 @@ private fun journal(ctx: Context, ligne: String) {
 }
 
 /**
+ * Drapeau EXPLICITE de la sonde de debug : le fichier
+ * \`/sdcard/Android/data/<pkg>/files/rvpush-sonde\`, posé à la main
+ * (\`adb shell touch …\`). Elle enchaînait auparavant un SECOND push.get complet
+ * derrière chaque push de contenu, sur le thread de dispatch FCM — soit le
+ * double du budget de temps, et une chance de plus de se faire tuer en plein
+ * fetch, ce qui ALIMENTE la relivraison qu'on cherche justement à ne pas
+ * dédoubler. \`BuildConfig.DEBUG\` n'est pas un drapeau : c'est le régime
+ * ordinaire de tout développement.
+ */
+private fun sondeArmee(ctx: Context): Boolean {
+  return try {
+    val dossier = ctx.getExternalFilesDir(null) ?: return false
+    File(dossier, "rvpush-sonde").exists()
+  } catch (e: Exception) {
+    false
+  }
+}
+
+/**
+ * Test-et-pose ATOMIQUE : « ce messageId a-t-il déjà produit une notification de
+ * conversation ? » — et sinon, il en produira une, c'est noté tout de suite.
+ *
+ * Les deux voies id-only (relivraison FCM traitée directement, et worker de
+ * rattrapage) sont réveillées par le MÊME événement, le retour du réseau. Rien
+ * ne mémorisait qu'un messageId avait déjà été affiché : \`afficherNotifSalon\`
+ * ré-extrait le MessagingStyle actif et y AJOUTE le message, si bien que le
+ * même texte apparaissait deux fois avec « 2 nouveaux messages ».
+ *
+ * \`commit()\` et non \`apply()\` : le process de dispatch FCM peut être tué
+ * juste après ; une écriture encore en vol ne protégerait rien.
+ *
+ * Best-effort dans le bon sens : toute exception rend \`false\`, donc AFFICHE.
+ * Un doublon est un désagrément, une notification perdue est un message manqué.
+ */
+private fun dejaAffiche(ctx: Context, messageId: String): Boolean {
+  if (messageId.isEmpty()) return false
+  try {
+    synchronized(VERROU_AFFICHES) {
+      val prefs = ctx.getSharedPreferences(PREFS_AFFICHES, Context.MODE_PRIVATE)
+      val maintenant = System.currentTimeMillis()
+      val pose = prefs.getLong(messageId, 0L)
+      if (pose != 0L && maintenant - pose <= RETENTION_AFFICHES_MS) return true
+      val edit = prefs.edit()
+      for ((cle, valeur) in prefs.all) {
+        val quand = valeur as? Long ?: 0L
+        if (maintenant - quand > RETENTION_AFFICHES_MS) edit.remove(cle)
+      }
+      edit.putLong(messageId, maintenant)
+      edit.commit()
+    }
+  } catch (e: Exception) {
+    Log.w(TAG, "dejaAffiche", e)
+  }
+  return false
+}
+
+/**
+ * Les ressources dans la langue de l'utilisateur. La préférence EXPLICITE de
+ * l'app (\`langue-preferee\`, écrite par \`ui/i18n.ts\` dans le même SecureStore
+ * que la session) l'emporte sur la locale du téléphone — sans quoi un
+ * utilisateur ayant choisi « Français » sur un téléphone en anglais verrait
+ * l'app en français et ses notifications en anglais. « Automatique » EFFACE la
+ * clé côté JS : son absence signifie donc « suivre le téléphone », et on rend
+ * les ressources telles quelles.
+ */
+private fun ressourcesLocalisees(ctx: Context): Resources {
+  return try {
+    val pref = lireLanguePreferee(ctx) ?: return ctx.resources
+    val config = Configuration(ctx.resources.configuration)
+    config.setLocale(Locale.forLanguageTag(pref))
+    ctx.createConfigurationContext(config).resources
+  } catch (e: Exception) {
+    ctx.resources
+  }
+}
+
+private fun lireLanguePreferee(ctx: Context): String? {
+  return try {
+    val prefs = ctx.getSharedPreferences("SecureStore", Context.MODE_PRIVATE)
+    val brut = prefs.getString("key_v1-langue-preferee", null) ?: return null
+    val clair = dechiffrerSecureStore(brut) ?: return null
+    if (clair == "fr" || clair == "en") clair else null
+  } catch (e: Exception) {
+    null
+  }
+}
+
+/**
+ * Une chaîne de \`strings.xml\` dans la langue de l'utilisateur.
+ *
+ * Référence DIRECTE à \`R.string\`, et non \`resources.getIdentifier(nom, …)\`
+ * comme pour l'icône juste en dessous : une constante fait échouer la
+ * COMPILATION si \`withChainesNatives\` n'a pas posé les ressources, là où
+ * \`getIdentifier\` rendrait 0 en silence — et la survivrait à un
+ * \`shrinkResources\`, qui ne voit pas les lookups par nom. Le repli en dur ne
+ * sert donc que le cas invraisemblable d'un \`getString\` qui lève.
+ */
+private fun chaine(ctx: Context, id: Int, repli: String): String {
+  return try {
+    ressourcesLocalisees(ctx).getString(id)
+  } catch (e: Exception) {
+    repli
+  }
+}
+
+/**
  * Construit (ou complète) la notification MessagingStyle du salon à partir de
  * champs normalisés : titre, texte, et l'objet portant sender/type/
  * messageType (payload REST ou ejson du push, même forme). Partagé par les
  * deux régimes, et par le rattrapage différé.
+ *
+ * \`host\` vient de l'APPELANT (l'ejson du push, ou l'entrée du worker), jamais
+ * du payload de \`push.get\` dont la forme n'est pas garantie : c'est le serveur
+ * dont la notification parle, et le tap doit y ramener.
  */
 private fun afficherNotifSalon(
   ctx: Context,
@@ -427,13 +621,14 @@ private fun afficherNotifSalon(
   titre: String,
   texteInitial: String,
   ejson: JSONObject,
+  host: String,
   silencieux: Boolean = false,
 ): Boolean {
   var texte = texteInitial
 
   // Même dégradation E2EE que côté JS : jamais de ciphertext à l'écran.
   if (ejson.optString("messageType") == "e2e") {
-    texte = "Message chiffré"
+    texte = chaine(ctx, R.string.rv_push_message_chiffre, "Encrypted message")
   }
 
   val sender = ejson.optJSONObject("sender")
@@ -455,7 +650,9 @@ private fun afficherNotifSalon(
   val active = manager.activeNotifications.firstOrNull { it.id == notifId }
   val style = active?.let {
     NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(it.notification)
-  } ?: NotificationCompat.MessagingStyle(Person.Builder().setName("Vous").build())
+  } ?: NotificationCompat.MessagingStyle(
+    Person.Builder().setName(chaine(ctx, R.string.rv_push_moi, "You")).build(),
+  )
 
   // DM 1:1 : pas de titre de conversation, Android affiche le nom porté par
   // chaque message. Canal/groupe : le titre du push (« #general », …).
@@ -474,6 +671,14 @@ private fun afficherNotifSalon(
   // une Activity FRAÎCHE si le process est mort — dans les deux cas l'URL est
   // portée par l'intent.
   //
+  // Le \`host\` voyage AVEC le rid : l'app supporte plusieurs sessions
+  // simultanées (\`changerDeServeur\` n'en efface aucune) et le jeton push est
+  // enregistré sur chacune, donc les deux serveurs poussent. Sans lui, un rid
+  // d'un AUTRE serveur atterrissait sur un écran salon qui n'a aucune ligne
+  // pour ce rid : l'effet de chargement se court-circuitait et l'écran gardait
+  // son indicateur d'activité à vie. L'écran sait maintenant proposer la
+  // bascule (\`app/salon/[rid].tsx\`).
+  //
   // PAS de CLEAR_TASK : il RECRÉAIT la MainActivity même process vivant, ce qui
   // DÉSENREGISTRE les ActivityResultLauncher d'expo-image-picker. Expo ne les
   // réenregistre qu'en voyant \`hostWasDestroyed\` à l'onHostResume, or l'ordre
@@ -482,10 +687,10 @@ private fun afficherNotifSalon(
   // « unregistered ActivityResultLauncher » jusqu'au redémarrage complet.
   // PAS de SINGLE_TOP non plus : combiné à NEW_TASK sur une Activity déjà au
   // premier plan, il empêchait la navigation vers le salon (constaté sur l'AVD).
-  val tap = Intent(
-    Intent.ACTION_VIEW,
-    Uri.parse("rocketvibe://salon/" + Uri.encode(rid)),
-  ).setPackage(ctx.packageName)
+  val lien = StringBuilder("rocketvibe://salon/").append(Uri.encode(rid))
+  if (host.isNotEmpty()) lien.append("?host=").append(Uri.encode(host))
+  val tap = Intent(Intent.ACTION_VIEW, Uri.parse(lien.toString()))
+    .setPackage(ctx.packageName)
     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
   val pending = PendingIntent.getActivity(
     ctx,
@@ -537,7 +742,7 @@ private fun posterNotifDegradee(ctx: Context, messageId: String) {
       .setSmallIcon(if (icone != 0) icone else android.R.drawable.ic_dialog_email)
       .setColor(COULEUR_ACCENT)
       .setContentTitle(titre)
-      .setContentText("Nouveau message")
+      .setContentText(chaine(ctx, R.string.rv_push_nouveau_message, "New message"))
       .setContentIntent(pending)
       .setAutoCancel(true)
       .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -554,25 +759,35 @@ private fun posterNotifDegradee(ctx: Context, messageId: String) {
  * Doze radio coupée, la tentative attend la fenêtre de maintenance ou le
  * réveil de l'appareil — c'est précisément le cas vécu. Unicité KEEP par
  * messageId : une relivraison FCM du même push ne crée pas de second worker.
+ *
+ * \`attenteMs\` sert le cas du 429 : le serveur a dit QUAND il rouvrira
+ * (\`x-ratelimit-reset\`), inutile de brûler une tentative avant. Une rafale
+ * dans un salon animé dépasse vite les 10 req/min de \`push.get\`.
  */
-private fun planifierRattrapage(ctx: Context, host: String, messageId: String, ombre: Boolean) {
+private fun planifierRattrapage(
+  ctx: Context,
+  host: String,
+  messageId: String,
+  ombre: Boolean,
+  attenteMs: Long,
+) {
   try {
     val donnees = Data.Builder()
       .putString("host", host)
       .putString("messageId", messageId)
       .putBoolean("ombre", ombre)
       .build()
-    val requete = OneTimeWorkRequest.Builder(RattrapagePushWorker::class.java)
+    val constructeur = OneTimeWorkRequest.Builder(RattrapagePushWorker::class.java)
       .setInputData(donnees)
       .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
       .setBackoffCriteria(BackoffPolicy.LINEAR, 30, TimeUnit.SECONDS)
-      .build()
+    if (attenteMs > 0) constructeur.setInitialDelay(attenteMs, TimeUnit.MILLISECONDS)
     WorkManager.getInstance(ctx)
-      .enqueueUniqueWork(NOM_RATTRAPAGE + messageId, ExistingWorkPolicy.KEEP, requete)
+      .enqueueUniqueWork(NOM_RATTRAPAGE + messageId, ExistingWorkPolicy.KEEP, constructeur.build())
     // Log.w assumé (visible en release) : c'est la trace de diagnostic du
     // terrain — un messageId n'expose aucun contenu.
     Log.w(TAG, "push.get KO, rattrapage programmé (" + messageId + ")")
-    journal(ctx, "rattrapage programmé (" + messageId + ")")
+    journal(ctx, "rattrapage programmé dans " + attenteMs + " ms (" + messageId + ")")
   } catch (e: Exception) {
     Log.w(TAG, "planifierRattrapage: échec", e)
     journal(ctx, "planifierRattrapage ÉCHEC: " + e.javaClass.simpleName + " (" + messageId + ")")
@@ -583,6 +798,8 @@ private fun planifierRattrapage(ctx: Context, host: String, messageId: String, o
  * Annule le rattrapage en attente d'un message dont le contenu vient d'être
  * obtenu par une autre voie (relivraison FCM traitée avec succès) : sans ça,
  * le worker rajouterait le même message une seconde fois dans la conversation.
+ * N'interrompt PAS un worker déjà en train de tourner — c'est \`isStopped\` et
+ * \`dejaAffiche\` qui couvrent ce cas-là.
  */
 private fun annulerRattrapage(ctx: Context, messageId: String) {
   try {
@@ -682,10 +899,38 @@ private fun dechiffrerSecureStore(enveloppe: String): String? {
 }
 
 /**
+ * L'issue d'un push.get. \`null\` disait seulement « ça n'a pas marché » : le
+ * chemin d'échec programmait donc huit tentatives WorkManager sur un jeton
+ * révoqué exactement comme sur une radio endormie.
+ */
+private class ResultatPush(
+  val notification: JSONObject?,
+  /** Code HTTP, ou 0 si la requête n'a pas abouti (réseau, timeout, corps illisible). */
+  val code: Int,
+  /** Délai avant un rejeu utile (429 : \`x-ratelimit-reset\`), 0 si immédiat. */
+  val attenteMs: Long = 0L,
+) {
+  /** Un refus que le temps ne changera pas : ne pas programmer de rattrapage. */
+  val definitif: Boolean get() = code == 401 || code == 403
+}
+
+/**
+ * Budget de temps du fetch, en millisecondes. On est sur le thread de dispatch
+ * FCM : le commentaire annonçait un « timeout serré » mais posait 8 s de connect
+ * ET 8 s de read, soit 16 s en Doze radio non levée — assez pour se faire tuer
+ * en plein fetch, ce qui provoque justement la relivraison FCM et la famille de
+ * doublons qu'on combat par ailleurs. 3 + 3 laisse le rattrapage WorkManager
+ * faire son travail, qui est précisément d'avoir le temps.
+ */
+private const val TIMEOUT_PUSH_GET_MS = 3000
+
+/** Plafond de l'attente déduite d'un 429 : au-delà, le backoff ordinaire suffit. */
+private const val ATTENTE_429_MAX_MS = 60_000L
+
+/**
  * GET <baseUrl>/api/v1/push.get?id=<messageId>, authentifié par la session lue.
- * Renvoie l'objet \`data.notification\` (title/text/payload) ou null. Timeout
- * serré : on est sur le thread de dispatch FCM, budget limité — le rattrapage
- * WorkManager prend le relais si ça ne suffit pas.
+ * Rend la notification (title/text/payload) ET le code HTTP, pour que l'appelant
+ * puisse distinguer une panne passagère d'un refus définitif.
  *
  * L'URL est bâtie sur le \`baseUrl\` de la SESSION, jamais sur le \`host\` du
  * payload : c'est nous qui choisissons où part le jeton. \`lireSession\` a déjà
@@ -696,7 +941,7 @@ private fun recupererContenu(
   ctx: Context,
   messageId: String,
   session: JSONObject,
-): JSONObject? {
+): ResultatPush {
   var conn: HttpURLConnection? = null
   return try {
     val url = URL(
@@ -708,34 +953,143 @@ private fun recupererContenu(
       setRequestProperty("X-User-Id", session.optString("userId"))
       setRequestProperty("X-Auth-Token", session.optString("authToken"))
       setRequestProperty("Accept", "application/json")
-      connectTimeout = 8000
-      readTimeout = 8000
+      connectTimeout = TIMEOUT_PUSH_GET_MS
+      readTimeout = TIMEOUT_PUSH_GET_MS
     }
     val code = conn.responseCode
     if (code != 200) {
       Log.w(TAG, "push.get HTTP " + code)
       journal(ctx, "push.get HTTP " + code + " (" + messageId + ")")
-      return null
+      return ResultatPush(null, code, if (code == 429) attenteApres429(conn) else 0L)
     }
     val corps = conn.inputStream.bufferedReader().use { it.readText() }
     val json = JSONObject(corps)
-    if (!json.optBoolean("success", false)) return null
-    json.optJSONObject("data")?.optJSONObject("notification")
+    if (!json.optBoolean("success", false)) return ResultatPush(null, code)
+    ResultatPush(json.optJSONObject("data")?.optJSONObject("notification"), code)
   } catch (e: Exception) {
     Log.w(TAG, "recupererContenu: échec", e)
     journal(
       ctx,
       "push.get " + e.javaClass.simpleName + ": " + (e.message ?: "") + " (" + messageId + ")",
     )
-    null
+    ResultatPush(null, 0)
   } finally {
     conn?.disconnect()
+  }
+}
+
+/**
+ * Le serveur donne la date de réouverture en epoch ms dans \`x-ratelimit-reset\`
+ * (même en-tête que celui lu par \`lib/rest.ts\`). En-tête absent ou aberrant :
+ * 0, et le rattrapage part dès que le réseau est là.
+ */
+private fun attenteApres429(conn: HttpURLConnection): Long {
+  return try {
+    val brut = conn.getHeaderField("x-ratelimit-reset")?.toLongOrNull() ?: return 0L
+    val delai = brut - System.currentTimeMillis()
+    if (delai <= 0L) 0L else minOf(delai, ATTENTE_429_MAX_MS)
+  } catch (e: Exception) {
+    0L
   }
 }
 
 /** Retire les « / » finaux, comme le sansSlashFinal côté JS (sessionStore). */
 private fun sansSlashFinal(u: String): String = u.trimEnd('/')
 `;
+}
+
+// ---------------------------------------------------------------------------
+// Chirurgie de configuration — la partie PURE du plugin, celle qui n'a besoin
+// ni d'Expo ni d'un build pour être jugée. Exportée (`chirurgie`) et couverte
+// par `plugins/with-fcm-deeplink.test.mjs` : le Kotlin ci-dessus ne se vérifie
+// qu'en compilant, mais ceci est du JS ordinaire, et deux de ses propriétés
+// sont porteuses — la priorité `1` du service (sans elle, FCM route vers le
+// service d'expo et tout le fichier devient mort) et l'endroit exact où
+// atterrissent les `implementation`.
+// ---------------------------------------------------------------------------
+
+/**
+ * Le bloc `dependencies` de PLUS HAUT NIVEAU d'un `build.gradle` Groovy : celui
+ * qui commence en colonne 0. `/dependencies\s*\{/` visait la PREMIÈRE occurrence
+ * du fichier, quelle que soit sa profondeur — correct aujourd'hui par propriété
+ * du gabarit RN 0.86 (il n'en a qu'un), pas par propriété du plugin. Un bloc
+ * imbriqué (`buildscript { dependencies { … } }`, un `subprojects`) aurait reçu
+ * nos artefacts, où ils ne compilent pas le module app.
+ */
+const BLOC_DEPENDANCES = /^dependencies\s*\{/m;
+
+/**
+ * Ajoute les artefacts manquants au bloc `dependencies` racine.
+ *
+ * La garde est `includes(artefact)` SANS la version : si une autre dépendance
+ * amène déjà `com.google.firebase:firebase-messaging` dans une version voisine,
+ * en déclarer une seconde ferait diverger la résolution. Idempotent, donc — un
+ * `expo prebuild` sans `--clean` repasse sur un fichier déjà traité.
+ *
+ * L'absence de bloc racine LÈVE, au lieu de rendre le fichier intact : la
+ * compilation échouerait bien plus loin, sur une classe Kotlin introuvable, et
+ * la cause serait à retrouver.
+ */
+function ajouterDependances(contents, deps) {
+  if (!BLOC_DEPENDANCES.test(contents)) {
+    throw new Error(
+      "with-fcm-deeplink : aucun bloc `dependencies {` racine dans app/build.gradle — " +
+        'firebase-messaging et work-runtime ne peuvent pas être déclarés.',
+    );
+  }
+  let sortie = contents;
+  for (const dep of deps) {
+    const artefact = dep.substring(0, dep.lastIndexOf(':'));
+    if (sortie.includes(artefact)) continue;
+    sortie = sortie.replace(BLOC_DEPENDANCES, (m) => `${m}\n    implementation("${dep}")`);
+  }
+  return sortie;
+}
+
+/**
+ * Déclare notre `FirebaseMessagingService` dans le `<application>` du manifeste.
+ *
+ * `android:priority="1"` n'est pas décoratif : celui d'expo-notifications est à
+ * `-1`, et FCM route l'intent vers le service de plus haute priorité. Une valeur
+ * plus basse rendrait tout le Kotlin de ce fichier inatteignable, sans erreur
+ * de build ni message — juste des notifications qui redeviennent celles d'expo.
+ */
+function ajouterService(application, nomService = `.${SERVICE_CLASS}`) {
+  application.service = application.service || [];
+  const deja = application.service.some((s) => s.$?.['android:name'] === nomService);
+  if (!deja) {
+    application.service.push({
+      $: { 'android:name': nomService, 'android:exported': 'false' },
+      'intent-filter': [
+        {
+          $: { 'android:priority': '1' },
+          action: [{ $: { 'android:name': 'com.google.firebase.MESSAGING_EVENT' } }],
+        },
+      ],
+    });
+  }
+  return application;
+}
+
+/** Le `strings.xml` d'une langue donnée, tel qu'écrit dans `res/values-<lg>/`. */
+function stringsXml(langue) {
+  const lignes = Object.entries(CHAINES).map(
+    ([nom, formes]) => `    <string name="${nom}">${echapperXml(formes[langue])}</string>`,
+  );
+  return `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n${lignes.join('\n')}\n</resources>\n`;
+}
+
+/**
+ * Échappement Android : les entités XML, plus l'apostrophe, que le compilateur
+ * de ressources traite comme un délimiteur et refuse non échappée.
+ */
+function echapperXml(s) {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, "\\'");
 }
 
 function withServiceFile(config) {
@@ -764,45 +1118,65 @@ function withServiceManifest(config) {
     if (!application) {
       throw new Error('with-fcm-deeplink : <application> introuvable dans le manifeste');
     }
-    application.service = application.service || [];
-    const name = `.${SERVICE_CLASS}`;
-    const deja = application.service.some((s) => s.$?.['android:name'] === name);
-    if (!deja) {
-      application.service.push({
-        $: { 'android:name': name, 'android:exported': 'false' },
-        'intent-filter': [
-          {
-            // Priorité > -1 (celle d'expo) : FCM route vers notre service.
-            $: { 'android:priority': '1' },
-            action: [{ $: { 'android:name': 'com.google.firebase.MESSAGING_EVENT' } }],
-          },
-        ],
-      });
-    }
+    ajouterService(application);
     return config;
   });
 }
 
 function withNativeDeps(config) {
   return withAppBuildGradle(config, (config) => {
-    let contents = config.modResults.contents;
-    for (const dep of [FIREBASE_MESSAGING, ANDROIDX_WORK]) {
-      const artefact = dep.substring(0, dep.lastIndexOf(':'));
-      if (!contents.includes(artefact)) {
-        contents = contents.replace(
-          /dependencies\s*\{/,
-          (m) => `${m}\n    implementation("${dep}")`,
-        );
-      }
-    }
-    config.modResults.contents = contents;
+    config.modResults.contents = ajouterDependances(config.modResults.contents, [
+      FIREBASE_MESSAGING,
+      ANDROIDX_WORK,
+    ]);
     return config;
   });
+}
+
+/**
+ * Les chaînes de la voie native. `values/` (défaut, anglais) passe par le
+ * helper d'Expo, qui FUSIONNE avec ce que le gabarit y met déjà (`app_name`…) ;
+ * `values-fr/` est un dossier que nous sommes seuls à peupler, donc écrit tel
+ * quel.
+ */
+function withChainesNatives(config) {
+  config = withStringsXml(config, (config) => {
+    for (const [nom, formes] of Object.entries(CHAINES)) {
+      config.modResults = AndroidConfig.Strings.setStringItem(
+        [AndroidConfig.Resources.buildResourceItem({ name: nom, value: formes.en })],
+        config.modResults,
+      );
+    }
+    return config;
+  });
+  return withDangerousMod(config, [
+    'android',
+    (config) => {
+      const dir = path.join(
+        config.modRequest.platformProjectRoot,
+        'app/src/main/res/values-fr',
+      );
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'strings.xml'), stringsXml('fr'));
+      return config;
+    },
+  ]);
 }
 
 module.exports = function withFcmDeeplink(config) {
   config = withServiceFile(config);
   config = withServiceManifest(config);
   config = withNativeDeps(config);
+  config = withChainesNatives(config);
   return config;
+};
+
+// Pour les tests (`plugins/with-fcm-deeplink.test.mjs`) — pas pour l'app.
+module.exports.chirurgie = {
+  SERVICE_CLASS,
+  ajouterDependances,
+  ajouterService,
+  echapperXml,
+  stringsXml,
+  CHAINES,
 };

@@ -156,6 +156,13 @@ const fr = {
   'salon.demarrerAppel': 'Démarrer un appel vidéo',
   'salon.reponseA': 'Réponse à {nom}',
   'salon.annulerReponse': 'Annuler la réponse',
+  // ── Notification venue d'un AUTRE serveur que celui affiché. La bascule est
+  //    un geste EXPLICITE : changer de serveur tout seul déplacerait le pointeur
+  //    de reprise et la liste des salons sous les pieds de l'utilisateur.
+  'salon.autreServeurTitre': 'Ce message est sur un autre serveur',
+  'salon.autreServeurCorps': 'Il vient de {hote}.',
+  'salon.autreServeurBouton': 'Basculer sur ce serveur',
+  'salon.autreServeurEchec': 'Aucune session enregistrée pour ce serveur.',
 
   // ── Messages système Rocket.Chat (le champ `t` d'un message). `{p}` = le
   //    paramètre porté par `msg` (nom ajouté, nouveau sujet…).
@@ -519,6 +526,10 @@ const en: Record<CleTraduction, string> = {
   'salon.demarrerAppel': 'Start a video call',
   'salon.reponseA': 'Replying to {nom}',
   'salon.annulerReponse': 'Cancel reply',
+  'salon.autreServeurTitre': 'This message is on another server',
+  'salon.autreServeurCorps': 'It comes from {hote}.',
+  'salon.autreServeurBouton': 'Switch to that server',
+  'salon.autreServeurEchec': 'No session stored for that server.',
 
   'sys.uj': 'joined the channel',
   'sys.ujt': 'joined the team',

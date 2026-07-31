@@ -51,7 +51,7 @@ import type {
   OutboxFichiers,
 } from '../lib/fournisseur.ts';
 import { MoteurPresence } from '../lib/presence.ts';
-import { obtenirJetonFcm } from '../lib/push.ts';
+import { obtenirJetonFcm, surRotationJeton } from '../lib/push.ts';
 import { raccorder } from '../lib/raccordement.ts';
 import { enregistrerJeton } from '../lib/pushToken.ts';
 import { Reconnecteur } from '../lib/reconnexion.ts';
@@ -165,6 +165,18 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
     // `surPerte` part et le pilote reconnecte.
     brancherSondeUpload(() => {
       void ddp.verifierVie().catch(() => {});
+    });
+
+    // Rotation du jeton FCM. L'enregistrement plus bas n'a lieu qu'UNE FOIS par
+    // session ; si FCM fait tourner le jeton pendant qu'on tourne, le serveur
+    // continue de pousser vers l'ancien — donc dans le vide, sans erreur nulle
+    // part, jusqu'au prochain démarrage à froid. `push.token` est idempotent, et
+    // le nouveau jeton est retenu au Keystore comme celui de l'enregistrement :
+    // c'est lui que la déconnexion devra dé-enregistrer.
+    const cesserEcouteJeton = surRotationJeton((jeton) => {
+      if (abandonne) return;
+      void retenirJetonPush(jeton).catch(() => {});
+      void enregistrerJeton(client, jeton, 'gcm').catch(() => {});
     });
 
     (async () => {
@@ -540,6 +552,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       reconnecteur?.arreter();
       surAbandon?.();
       brancherSondeUpload(null); // plus de sonde vers un client rangé
+      cesserEcouteJeton(); // ni de réenregistrement vers un serveur quitté
       // Les caches « ceci a déjà son chargement d'ouverture » sont indexés par
       // génération, dont le compteur repart de zéro à la session suivante :
       // sans purge, un salon d'un AUTRE serveur pourrait passer pour déjà

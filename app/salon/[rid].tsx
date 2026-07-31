@@ -46,7 +46,7 @@ import { versEpoch } from '../../lib/normaliser.ts';
 import { ouvrirFicheProfil } from '../../lib/profilPreload.ts';
 import { rattraperSalon } from '../../lib/rattrapage.ts';
 import type { ClientRest } from '../../lib/rest.ts';
-import { MoteurSaisie, phraseSaisie } from '../../lib/saisie.ts';
+import { MoteurSaisie, resumerSaisie } from '../../lib/saisie.ts';
 import { useActivite } from '../../ui/activite.ts';
 import { ApercuPieceJointe, type FichierEnAttente } from '../../ui/apercuPieceJointe.tsx';
 import { BandeauReponse } from '../../ui/bandeauReponse.tsx';
@@ -65,6 +65,7 @@ import { useRetourMateriel } from '../../ui/retourMateriel.ts';
 import { jetonSession } from '../../ui/jetonSession.ts';
 import { insererBarreNonLus, type LigneBarre } from '../../ui/barreNonLus.ts';
 import { useDonneesLissees } from '../../ui/donneesLissees.ts';
+import { phraseValidation } from '../../ui/validationFichiers.ts';
 import { avancerBorne, borneImmobile, pageARecule } from '../../ui/paginationSalon.ts';
 import { garderAuChaud, salonCouvert } from '../../ui/salonChaud.ts';
 import { marquerSalonCharge, salonChargeSous } from '../../ui/salonsCharges.ts';
@@ -79,9 +80,8 @@ import { memeOrigine, origineDe } from '../../lib/origine.ts';
 import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
 import type { StatutPresence } from '../../lib/presence.ts';
-import { COULEURS_PRESENCE, usePresence } from '../../ui/presence.ts';
+import { CLES_PRESENCE, couleursPresence, usePresence } from '../../ui/presence.ts';
 import { useT } from '../../ui/i18n.ts';
-import type { CleTraduction } from '../../ui/messages.ts';
 import { useSession } from '../../ui/session.tsx';
 import { useSynchro } from '../../ui/synchro.tsx';
 import { useE2EDeverrouille } from '../../ui/e2e.ts';
@@ -131,15 +131,6 @@ const DEBOUNCE_LU_MS = 1_500;
 const PLANCHER_LU_MS = 10_000;
 
 type LigneDeSalon = typeof salons.$inferSelect;
-
-/** Sous-titre d'en-tête d'un DM, selon la présence du correspondant. Clés de
- *  traduction (constante module → pas de hook) résolues au rendu. */
-const PHRASE_PRESENCE: Record<StatutPresence, CleTraduction> = {
-  online: 'salon.presenceOnline',
-  away: 'salon.presenceAway',
-  busy: 'salon.presenceBusy',
-  offline: 'salon.presenceOffline',
-};
 
 export default function EcranSalon() {
   // `host` vient du deep-link d'une notification (natif comme expo) : il dit de
@@ -527,7 +518,15 @@ function Salon({
     useCallback((relire) => saisie.surChangement(relire), [saisie]),
     useCallback(() => saisie.quiTape(), [saisie]),
   );
-  const phraseQuiTape = phraseSaisie(quiTape);
+  const resumeQuiTape = resumerSaisie(quiTape);
+  const phraseQuiTape =
+    resumeQuiTape === null
+      ? null
+      : resumeQuiTape.forme === 'un'
+        ? t('salon.saisieUn', { nom: resumeQuiTape.nom })
+        : resumeQuiTape.forme === 'deux'
+          ? t('salon.saisieDeux', { a: resumeQuiTape.a, b: resumeQuiTape.b })
+          : t('salon.saisieN', { n: resumeQuiTape.n });
 
   // Brouillon persistant (8.7) — le hook vit ICI : le composer ne monte
   // qu'une fois la valeur initiale lue.
@@ -1045,7 +1044,10 @@ function Composer({
           }
         })
         .catch((e: unknown) =>
-          setErreurFichier(e instanceof Error ? e.message : t('salon.televersementImpossible')),
+          setErreurFichier(
+            phraseValidation(e, t) ??
+              (e instanceof Error ? e.message : t('salon.televersementImpossible')),
+          ),
         )
         .finally(() => setEnvoiFichier(false));
       return;
@@ -1495,10 +1497,10 @@ function EnTeteSalon({
           </Text>
           {estDM && statutDM !== null && (
             <Text
-              style={[styles.enteteSous, { color: COULEURS_PRESENCE[statutDM] }]}
+              style={[styles.enteteSous, { color: couleursPresence(c)[statutDM] }]}
               numberOfLines={1}
             >
-              {t(PHRASE_PRESENCE[statutDM])}
+              {t(CLES_PRESENCE[statutDM])}
             </Text>
           )}
           </View>

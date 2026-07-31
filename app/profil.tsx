@@ -24,18 +24,10 @@ import { urlAvatar } from '../lib/upload.ts';
 import { traduireCourant, useT } from '../ui/i18n.ts';
 import { useEtagsAvatars } from '../ui/identites.tsx';
 import { TuileAvatar } from '../ui/kit.tsx';
-import type { CleTraduction } from '../ui/messages.ts';
+import { CLES_PRESENCE, couleursPresence } from '../ui/presence.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
-
-/** Pastille et phrase par statut — mêmes mots que le sous-titre d'un DM. */
-const PRESENCE: Record<StatutPresence, { cle: CleTraduction; teinte: string }> = {
-  online: { cle: 'profil.presenceEnLigne', teinte: '#3BD16F' },
-  away: { cle: 'profil.presenceAbsent', teinte: '#F5B03E' },
-  busy: { cle: 'profil.presenceOccupe', teinte: '#E8506B' },
-  offline: { cle: 'profil.presenceHorsLigne', teinte: '#8A8FA3' },
-};
 
 type Profil = {
   uid: string;
@@ -286,11 +278,11 @@ export default function EcranProfil() {
             <View
               style={[
                 styles.pastille,
-                { backgroundColor: profil !== null ? PRESENCE[profil.statut].teinte : c.attenue },
+                { backgroundColor: profil !== null ? couleursPresence(c)[profil.statut] : c.attenue },
               ]}
             />
             <Text style={[styles.phrasePresence, { color: c.attenue }]}>
-              {profil !== null ? t(PRESENCE[profil.statut].cle) : '…'}
+              {profil !== null ? t(CLES_PRESENCE[profil.statut]) : '…'}
             </Text>
           </View>
         </View>

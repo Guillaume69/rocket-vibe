@@ -15,7 +15,7 @@
  */
 
 import * as SecureStore from 'expo-secure-store';
-import { useCallback, useSyncExternalStore } from 'react';
+import { useCallback, useMemo, useSyncExternalStore } from 'react';
 
 import {
   type CleTraduction,
@@ -23,6 +23,7 @@ import {
   type ParamsTraduction,
   type PreferenceLangue,
   type Traducteur,
+  formateurHeure,
   langueAppareil,
   traduire,
 } from './messages.ts';
@@ -90,6 +91,16 @@ export function usePreferenceLangue(): PreferenceLangue {
 export function useT(): Traducteur {
   const langue = useLangue();
   return useCallback((cle, params) => traduire(langue, cle, params), [langue]);
+}
+
+/**
+ * L'heure des messages dans la langue courante. Mémoïsé sur la langue : le
+ * `Intl.DateTimeFormat` sous-jacent n'est reconstruit qu'à une vraie bascule,
+ * pas à chaque ligne de message rendue.
+ */
+export function useHeure(): (ms: number) => string {
+  const langue = useLangue();
+  return useMemo(() => formateurHeure(langue), [langue]);
 }
 
 /**

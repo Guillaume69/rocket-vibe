@@ -16,7 +16,7 @@ import { VueEvitantLeClavier } from '../ui/clavier.tsx';
 import { useT } from '../ui/i18n.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
-import { type Couleurs, DELAI_PRESSION_LISTE, useCouleurs } from '../ui/theme.ts';
+import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
 
 /**
  * Démarrer une conversation (5.4) : sans cet écran, l'app ne fait que lister
@@ -238,6 +238,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
+    fontFamily: POLICES.corps,
     fontSize: 16,
   },
   // Le rayon vit sur l'ENVELOPPE : seul le clip d'un parent (`overflow`)
@@ -251,9 +252,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  prefixe: { fontSize: 20, fontWeight: '600', width: 24, textAlign: 'center' },
-  nom: { fontSize: 16 },
-  detail: { fontSize: 13 },
-  vide: { textAlign: 'center', padding: 24, fontSize: 14 },
-  messageErreur: { textAlign: 'center', paddingHorizontal: 16, paddingBottom: 8, fontSize: 13 },
+  prefixe: { fontFamily: POLICES.corpsSemi, fontSize: 20, width: 24, textAlign: 'center' },
+  nom: { fontFamily: POLICES.corps, fontSize: 16 },
+  detail: { fontFamily: POLICES.corps, fontSize: 13 },
+  vide: { textAlign: 'center', padding: 24, fontFamily: POLICES.corps, fontSize: 14 },
+  messageErreur: {
+    textAlign: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    fontFamily: POLICES.corps,
+    fontSize: 13,
+  },
 });

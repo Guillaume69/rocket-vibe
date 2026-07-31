@@ -39,9 +39,11 @@ import { VueEvitantLeClavier } from '../ui/clavier.tsx';
 import { supprimerSiTemporaire } from '../ui/fichiersTemporaires.ts';
 import { useT } from '../ui/i18n.ts';
 import { AvatarSalon } from '../ui/kit.tsx';
+import { emojiFichier, estImage } from '../ui/mime.ts';
 import { compresserImageSiUtile } from '../ui/preparerPieceJointe.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
+import { phraseValidation } from '../ui/validationFichiers.ts';
 import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
 
 type LigneDeSalon = typeof salons.$inferSelect;
@@ -277,7 +279,10 @@ function Partager({
           setPieces((prev) => prev.filter((x) => !partis.includes(x.cle)));
           if (legendePartie) setLegende('');
         }
-        setErreur(e instanceof Error ? e.message : t('partager.partageImpossible'));
+        setErreur(
+          phraseValidation(e, t) ??
+            (e instanceof Error ? e.message : t('partager.partageImpossible')),
+        );
         enVol.current = false;
         setOccupe(false);
         setRidEnCours(null);
@@ -432,16 +437,6 @@ function LigneCible({
   );
 }
 
-/** Émoji d'après la famille MIME, pour les vignettes non-image. */
-function emojiPiece(type: string): string {
-  if (type.startsWith('video/')) return '🎬';
-  if (type.startsWith('audio/')) return '🎵';
-  if (type === 'application/pdf') return '📄';
-  if (type.startsWith('text/')) return '📃';
-  if (type.includes('zip') || type.includes('compressed')) return '🗜️';
-  return '📎';
-}
-
 /**
  * Bande d'aperçus compacte pour PLUSIEURS pièces : des vignettes carrées côte à
  * côte, défilables horizontalement. La hauteur est fixe quel que soit le nombre
@@ -490,10 +485,10 @@ function VignettePiece({
   onRetirer: () => void;
 }) {
   const t = useT();
-  const estImage = fichier.type.startsWith('image/');
+  const enImage = estImage(fichier.type);
   return (
     <View style={styles.vignetteHote}>
-      {estImage ? (
+      {enImage ? (
         <Image source={{ uri: fichier.uri }} style={styles.vignetteImg} resizeMode="cover" />
       ) : (
         <LinearGradient
@@ -502,7 +497,7 @@ function VignettePiece({
           end={{ x: 1, y: 1 }}
           style={styles.vignetteImg}
         >
-          <Text style={styles.vignetteEmoji}>{emojiPiece(fichier.type)}</Text>
+          <Text style={styles.vignetteEmoji}>{emojiFichier(fichier.type)}</Text>
         </LinearGradient>
       )}
       <Pressable

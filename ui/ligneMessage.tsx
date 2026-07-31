@@ -36,7 +36,7 @@ import { LiensEmbed } from './carteEmbed.tsx';
 import { ApercusLien } from './carteLien.tsx';
 import { ouvrirJointeProtegee } from './fichierJoint.ts';
 import { useEtagsAvatars, useIdentites } from './identites.tsx';
-import { useT } from './i18n.ts';
+import { useHeure, useT } from './i18n.ts';
 import { TuileAvatar } from './kit.tsx';
 import { LecteurAudio } from './lecteurAudio.tsx';
 import { LecteurVideo } from './lecteurVideo.tsx';
@@ -73,10 +73,8 @@ export const LigneMessage = memo(function LigneMessage({
   /** Pose/retire une réaction. `null` : pastilles en lecture seule (recherche). */
   surReagir: ((rid: string, id: string, code: string, mettre: boolean) => void) | null;
 }) {
-  const heure = new Date(message.horodatage).toLocaleTimeString('fr-FR', {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const formatHeure = useHeure();
+  const heure = formatHeure(message.horodatage);
 
   const appuiLong = surAppuiLong === null ? undefined : () => surAppuiLong(message.id);
   // Pseudo à AFFICHER, résolu par UID (`ui/identites`) : `auteurNom` est
@@ -225,11 +223,7 @@ export const LigneMessage = memo(function LigneMessage({
           >
             <Text style={[styles.puceFilTexte, { color: c.cyan }]}>
               💬 {t('ligneMessage.reponses', { n: message.filReponses })}
-              {message.filDernier !== null &&
-                ` · ${new Date(message.filDernier).toLocaleTimeString('fr-FR', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}`}
+              {message.filDernier !== null && ` · ${formatHeure(message.filDernier)}`}
             </Text>
           </Pressable>
         )}

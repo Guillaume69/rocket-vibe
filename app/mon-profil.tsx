@@ -40,19 +40,17 @@ import { traduireCourant, useT } from '../ui/i18n.ts';
 import { BoutonPrincipal, ChampPilule, TuileAvatar } from '../ui/kit.tsx';
 import type { CleTraduction } from '../ui/messages.ts';
 import { useEtagsAvatars } from '../ui/identites.tsx';
+import { CLES_PRESENCE, couleursPresence } from '../ui/presence.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
 import { transportAvatarExpo } from '../ui/transportUpload.ts';
 
-/** Les quatre statuts choisissables, avec leur pastille (tokens du thème). */
-type TeintePresence = 'enLigne' | 'absent' | 'danger' | 'horsLigne';
-const PRESENCES: { valeur: StatutDefaut; cle: CleTraduction; teinte: TeintePresence }[] = [
-  { valeur: 'online', cle: 'monProfil.presenceEnLigne', teinte: 'enLigne' },
-  { valeur: 'away', cle: 'monProfil.presenceAbsent', teinte: 'absent' },
-  { valeur: 'busy', cle: 'monProfil.presenceOccupe', teinte: 'danger' },
-  { valeur: 'offline', cle: 'monProfil.presenceHorsLigne', teinte: 'horsLigne' },
-];
+/** Les quatre statuts choisissables — couleurs et libellés : ui/presence.ts. */
+const PRESENCES: readonly StatutDefaut[] = ['online', 'away', 'busy', 'offline'];
+
+/** Les clés `commun.presence*` sont en minuscule ; ici, entrées d'un sélecteur. */
+const capitaliser = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 
 type Bandeau = { type: 'succes' | 'erreur' | 'info'; texte: string };
 
@@ -301,19 +299,20 @@ function FormMonProfil({
         <Text style={[styles.sectionTitre, { color: c.attenue }]}>{t('monProfil.sectionPresence')}</Text>
         <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
           {PRESENCES.map((p, i) => {
-            const actif = form.status === p.valeur;
+            const actif = form.status === p;
+            const libelle = capitaliser(t(CLES_PRESENCE[p]));
             return (
-              <View key={p.valeur} style={styles.enveloppePresence}>
+              <View key={p} style={styles.enveloppePresence}>
                 <Pressable
                   onPress={() => {
                     setBandeau(null);
-                    setForm((f) => (f === null ? f : { ...f, status: p.valeur }));
+                    setForm((f) => (f === null ? f : { ...f, status: p }));
                   }}
                   android_ripple={{ color: c.ondulation }}
                   unstable_pressDelay={DELAI_PRESSION_LISTE}
                   accessibilityRole="radio"
                   accessibilityState={{ selected: actif }}
-                  accessibilityLabel={t(p.cle)}
+                  accessibilityLabel={libelle}
                   style={[
                     styles.presenceLigne,
                     i > 0 && {
@@ -322,7 +321,7 @@ function FormMonProfil({
                     },
                   ]}
                 >
-                  <View style={[styles.pastille, { backgroundColor: c[p.teinte] }]} />
+                  <View style={[styles.pastille, { backgroundColor: couleursPresence(c)[p] }]} />
                   <Text
                     style={[
                       styles.presenceTexte,
@@ -330,7 +329,7 @@ function FormMonProfil({
                       actif && styles.presenceTexteActif,
                     ]}
                   >
-                    {t(p.cle)}
+                    {libelle}
                   </Text>
                   <View style={[styles.radio, { borderColor: actif ? c.accent : c.bordure }]}>
                     {actif && <View style={[styles.radioPoint, { backgroundColor: c.accent }]} />}

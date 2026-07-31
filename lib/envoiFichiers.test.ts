@@ -16,9 +16,14 @@ describe('validerFichier', () => {
   test('la taille maximale du serveur est respectée AVANT le moindre octet', () => {
     const regles = { tailleMax: 1000, typesAcceptes: null };
     validerFichier(regles, { type: 'image/png', taille: 999 });
+    // Le refus porte une DONNÉE (code + params), pas une phrase : c'est le
+    // contrat du point d'affichage (ui/validationFichiers.ts).
     assert.throws(
       () => validerFichier(regles, { type: 'image/png', taille: 1001 }),
-      ErreurValidation,
+      (e: unknown) =>
+        e instanceof ErreurValidation &&
+        e.detail.code === 'taille' &&
+        e.detail.maxMo === '0.0',
     );
   });
 
@@ -28,7 +33,8 @@ describe('validerFichier', () => {
     validerFichier(regles, { type: 'application/pdf', taille: null });
     assert.throws(
       () => validerFichier(regles, { type: 'video/mp4', taille: null }),
-      ErreurValidation,
+      (e: unknown) =>
+        e instanceof ErreurValidation && e.detail.code === 'type' && e.detail.type === 'video/mp4',
     );
   });
 

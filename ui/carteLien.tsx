@@ -50,6 +50,7 @@ export function ApercusLien({
         apercu.type === 'image' ? (
           <ApercuImage
             key={apercu.url + i}
+            c={c}
             url={apercu.url}
             largeurDispo={largeurDispo}
             surAppuiLong={surAppuiLong}
@@ -70,10 +71,12 @@ export function ApercusLien({
 
 /** Un lien qui EST une image : affichée, tapable pour agrandir. */
 function ApercuImage({
+  c,
   url,
   largeurDispo,
   surAppuiLong,
 }: {
+  c: Couleurs;
   url: string;
   largeurDispo: number;
   surAppuiLong: (() => void) | undefined;
@@ -122,13 +125,21 @@ function ApercuImage({
       style={{ width: largeur, height: hauteur }}
     >
       {dims === null ? (
-        <View style={[styles.imageAttente, { width: largeur, height: hauteur }]}>
+        <View
+          style={[
+            styles.imageAttente,
+            { width: largeur, height: hauteur, backgroundColor: c.fondImageAttente },
+          ]}
+        >
           <ActivityIndicator />
         </View>
       ) : (
         <Image
           source={{ uri: url }}
-          style={[styles.image, { width: largeur, height: hauteur }]}
+          style={[
+            styles.image,
+            { width: largeur, height: hauteur, backgroundColor: c.fondImageAttente },
+          ]}
           resizeMode="cover"
           onError={() => setErreur(true)}
         />
@@ -166,7 +177,7 @@ function ApercuCarte({
       {montreBandeau && (
         <Image
           source={{ uri: apercu.image! }}
-          style={styles.bandeau}
+          style={[styles.bandeau, { backgroundColor: c.fondImageAttente }]}
           resizeMode="cover"
           onError={() => setErreurImage(true)}
         />
@@ -194,10 +205,10 @@ function ApercuCarte({
 
 const styles = StyleSheet.create({
   liste: { gap: 6, marginTop: 4 },
-  image: { borderRadius: 10, backgroundColor: '#00000010' },
+  // Les fonds d'attente (`fondImageAttente`) viennent du thème, posés au rendu.
+  image: { borderRadius: 10 },
   imageAttente: {
     borderRadius: 10,
-    backgroundColor: '#00000020',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -210,7 +221,6 @@ const styles = StyleSheet.create({
   bandeau: {
     width: '100%',
     aspectRatio: 1.91, // ratio OpenGraph standard
-    backgroundColor: '#00000020',
   },
   texteCarte: { paddingHorizontal: 12, paddingVertical: 10, gap: 3 },
   site: { fontFamily: POLICES.corpsSemi, fontSize: 11, letterSpacing: 0.3 },

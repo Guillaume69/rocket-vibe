@@ -28,6 +28,16 @@ const fr = {
   'commun.copier': 'Copier',
   'commun.pieceJointe': 'Pièce jointe',
   'commun.ok': 'OK',
+  // Mise en phrase des refus de validation d'upload (ui/validationFichiers.ts),
+  // partagée entre le composer du salon et l'écran de partage.
+  'commun.fichierTropLourd': 'Fichier trop lourd (maximum {mo} Mo).',
+  'commun.typeFichierRefuse': 'Type {type} refusé par le serveur.',
+  // Présence, en minuscule — la casse d'un contexte (sélecteur) est à
+  // l'appelant. Table statut → clé : CLES_PRESENCE (ui/presence.ts).
+  'commun.presenceEnLigne': 'en ligne',
+  'commun.presenceAbsent': 'absent',
+  'commun.presenceOccupe': 'occupé',
+  'commun.presenceHorsLigne': 'hors ligne',
 
   // ── Langue (sélecteur des paramètres). Les noms de langue eux-mêmes sont des
   //    endonymes (cf. NOMS_LANGUE dans i18n.ts), identiques dans toutes les
@@ -104,12 +114,13 @@ const fr = {
   'connexion.renvoyerCode': 'Renvoyer le code',
 
   // ── Salon (écran d'un salon : liste + composer + en-tête)
-  'salon.presenceOnline': 'en ligne',
-  'salon.presenceAway': 'absent',
-  'salon.presenceBusy': 'occupé',
-  'salon.presenceOffline': 'hors ligne',
   'salon.nouveauxMessages': '✦ nouveaux messages',
   'salon.aucunMessage': 'Aucun message.',
+  // Le « … » final est un contrat : `IndicateurSaisie` (ui/kit.tsx) le retire
+  // pour le remplacer par ses points animés.
+  'salon.saisieUn': '{nom} écrit…',
+  'salon.saisieDeux': '{a} et {b} écrivent…',
+  'salon.saisieN': '{n} personnes écrivent…',
   'salon.fichierNonEnvoye': '⚠️ {nom} non envoyé',
   'salon.fichierEnAttente': '⏳ {nom} en attente d’envoi',
   'salon.fichierEnvoi': '⬆️ {nom} — {pourcent} %',
@@ -320,10 +331,6 @@ const fr = {
 
   // ── Mon profil (édition)
   'monProfil.titre': 'Mon profil',
-  'monProfil.presenceEnLigne': 'En ligne',
-  'monProfil.presenceAbsent': 'Absent',
-  'monProfil.presenceOccupe': 'Occupé',
-  'monProfil.presenceHorsLigne': 'Hors ligne',
   'monProfil.profilIllisible': 'Profil illisible.',
   'monProfil.selectionImpossible': 'Sélection impossible.',
   'monProfil.rienAEnregistrer': 'Rien à enregistrer.',
@@ -359,10 +366,6 @@ const fr = {
   'monProfil.validerCode': 'Valider le code',
 
   // ── Fiche d'un utilisateur
-  'profil.presenceEnLigne': 'en ligne',
-  'profil.presenceAbsent': 'absent',
-  'profil.presenceOccupe': 'occupé',
-  'profil.presenceHorsLigne': 'hors ligne',
   'profil.profilIllisible': 'Profil illisible.',
   'profil.profilIntrouvable': 'Profil introuvable.',
   'profil.conversationImpossible': 'Conversation impossible.',
@@ -407,6 +410,12 @@ const en: Record<CleTraduction, string> = {
   'commun.copier': 'Copy',
   'commun.pieceJointe': 'Attachment',
   'commun.ok': 'OK',
+  'commun.fichierTropLourd': 'File too large ({mo} MB maximum).',
+  'commun.typeFichierRefuse': 'Type {type} rejected by the server.',
+  'commun.presenceEnLigne': 'online',
+  'commun.presenceAbsent': 'away',
+  'commun.presenceOccupe': 'busy',
+  'commun.presenceHorsLigne': 'offline',
 
   'langue.auto': 'Automatic',
   'langue.autoAide': 'Follows the phone language',
@@ -476,12 +485,11 @@ const en: Record<CleTraduction, string> = {
   'connexion.valider': 'Confirm',
   'connexion.renvoyerCode': 'Resend the code',
 
-  'salon.presenceOnline': 'online',
-  'salon.presenceAway': 'away',
-  'salon.presenceBusy': 'busy',
-  'salon.presenceOffline': 'offline',
   'salon.nouveauxMessages': '✦ new messages',
   'salon.aucunMessage': 'No messages.',
+  'salon.saisieUn': '{nom} is typing…',
+  'salon.saisieDeux': '{a} and {b} are typing…',
+  'salon.saisieN': '{n} people are typing…',
   'salon.fichierNonEnvoye': '⚠️ {nom} not sent',
   'salon.fichierEnAttente': '⏳ {nom} waiting to send',
   'salon.fichierEnvoi': '⬆️ {nom} — {pourcent}%',
@@ -666,10 +674,6 @@ const en: Record<CleTraduction, string> = {
   'synchro.baseInutilisable': 'Local database unavailable.',
 
   'monProfil.titre': 'My profile',
-  'monProfil.presenceEnLigne': 'Online',
-  'monProfil.presenceAbsent': 'Away',
-  'monProfil.presenceOccupe': 'Busy',
-  'monProfil.presenceHorsLigne': 'Offline',
   'monProfil.profilIllisible': 'Profile unreadable.',
   'monProfil.selectionImpossible': 'Selection failed.',
   'monProfil.rienAEnregistrer': 'Nothing to save.',
@@ -703,10 +707,6 @@ const en: Record<CleTraduction, string> = {
   'monProfil.etiquetteCode': 'Code',
   'monProfil.validerCode': 'Submit code',
 
-  'profil.presenceEnLigne': 'online',
-  'profil.presenceAbsent': 'away',
-  'profil.presenceOccupe': 'busy',
-  'profil.presenceHorsLigne': 'offline',
   'profil.profilIllisible': 'Profile unreadable.',
   'profil.profilIntrouvable': 'Profile not found.',
   'profil.conversationImpossible': 'Conversation failed.',
@@ -764,6 +764,22 @@ export function langueAppareil(): Langue {
   const locale = Intl.DateTimeFormat().resolvedOptions().locale;
   const sousTag = locale.split(/[-_]/)[0]?.toLowerCase();
   return sousTag === 'fr' ? 'fr' : 'en';
+}
+
+/**
+ * Formateur d'heure des messages, lié à une LANGUE — pas à la locale de
+ * l'appareil : l'heure suit la langue choisie dans les paramètres, comme toute
+ * chaîne du catalogue. FR « 14:05 » (2-digit), EN « 2:05 PM » (numeric — le
+ * 2-digit anglophone donnerait « 02:05 PM », que personne n'écrit). Fabrique à
+ * mémoïser par l'appelant : construire un `Intl.DateTimeFormat` coûte cher,
+ * `format` non (cf. `useHeure`, ui/i18n.ts).
+ */
+export function formateurHeure(langue: Langue): (ms: number) => string {
+  const format = new Intl.DateTimeFormat(langue === 'fr' ? 'fr-FR' : 'en-US', {
+    hour: langue === 'fr' ? '2-digit' : 'numeric',
+    minute: '2-digit',
+  });
+  return (ms) => format.format(new Date(ms));
 }
 
 /**

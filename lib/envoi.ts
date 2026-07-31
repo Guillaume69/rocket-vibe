@@ -182,6 +182,8 @@ export class MoteurEnvoi {
           await this.depot.supprimerSortie(ligne.id);
           continue;
         }
+        // `derniere_erreur` est un DIAGNOSTIC (jamais affiché — l'UI montre
+        // `ligneMessage.echecReessayer`) : pas une chaîne à traduire.
         const message = e instanceof Error ? e.message : 'Envoi refusé.';
         await this.depot.marquerEchec(ligne.id, message);
       }

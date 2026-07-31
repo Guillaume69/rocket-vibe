@@ -21,6 +21,7 @@
 
 import { router } from 'expo-router';
 
+import { traduireCourant } from '../ui/i18n.ts';
 import { sonderAppelDisponible } from './appel.ts';
 import type { ClientRest } from './rest.ts';
 
@@ -167,10 +168,13 @@ async function prechargerPuisOuvrir(p: ParamsProfil): Promise<void> {
 
   const fetchBrut = client
     .get<{ user?: Record<string, unknown> }>('users.info', { params: rest })
-    .then<ProfilBrut>((r) => ({ user: r.user, erreur: r.user ? null : 'Profil illisible.' }))
+    .then<ProfilBrut>((r) => ({
+      user: r.user,
+      erreur: r.user ? null : traduireCourant('profil.profilIllisible'),
+    }))
     .catch<ProfilBrut>((e: unknown) => ({
       user: undefined,
-      erreur: e instanceof Error ? e.message : 'Profil introuvable.',
+      erreur: e instanceof Error ? e.message : traduireCourant('profil.profilIntrouvable'),
     }));
 
   // Indicateur différé : ne s'affiche QUE si l'attente dépasse le seuil, et

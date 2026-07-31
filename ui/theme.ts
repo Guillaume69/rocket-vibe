@@ -14,7 +14,10 @@
  * Rebrancher la bascule système demandera TROIS retouches, pas une : ici
  * (`useCouleurs` → `useColorScheme()`), `app.json` (`userInterfaceStyle` repassé
  * à `automatic`) et `app/_layout.tsx` (qui code en dur `couleursSombres` pour la
- * coquille de navigation).
+ * coquille de navigation). Cette phrase sert de CONTRAT : toute couleur écrite
+ * en dur dans un composant la rend fausse — même les voiles des médias passent
+ * par les jetons ci-dessous (identiques dans les deux jeux quand ils se posent
+ * sur un média, pas sur le fond du thème).
  */
 
 /** Un dégradé linéaire : au moins deux arrêts de couleur. */
@@ -77,6 +80,22 @@ export interface Couleurs {
   /** Action destructive (supprimer). */
   danger: string;
 
+  /**
+   * Fond d'un média plein écran (visionneuse, vidéo). Une photo se regarde sur
+   * du noir, thème clair compris : identique dans les deux jeux.
+   */
+  fondPleinEcran: string;
+  /** Voile couvrant posé SUR un média, sous une icône claire (lecteur vidéo). */
+  voileMedia: string;
+  /** Voile léger qui laisse transparaître la vignette (embed vidéo). */
+  voileMediaLeger: string;
+  /** Fond d'attente sous une image en cours de chargement (cartes lien/embed). */
+  fondImageAttente: string;
+  /** Initiale posée sur le dégradé (saturé) d'une tuile avatar. */
+  surDegradeAvatar: string;
+  /** Ombre portée d'un élément flottant (pastille de saisie). */
+  ombrePortee: string;
+
   /** Dégradé des boutons d'action principale. */
   degradeCta: Degrade;
   /** Dégradé du logotype « rocket-vibe ». */
@@ -121,6 +140,13 @@ export const couleursSombres: Couleurs = {
   horsLigne: '#5A5573',
 
   danger: '#FF7A8A',
+
+  fondPleinEcran: 'rgba(4,3,10,0.94)',
+  voileMedia: 'rgba(12,11,22,0.80)',
+  voileMediaLeger: 'rgba(12,11,22,0.42)',
+  fondImageAttente: '#00000020',
+  surDegradeAvatar: '#FFFFFF',
+  ombrePortee: 'rgba(0,0,0,0.55)',
 
   degradeCta: ['#FF5FA2', '#A78BFA'],
   degradeMarque: ['#FF5FA2', '#A78BFA', '#34E1D0'],
@@ -171,6 +197,15 @@ export const couleursClaires: Couleurs = {
   horsLigne: '#C4B7DA',
 
   danger: '#D6335A',
+
+  // Posés sur un média (pas sur le fond du thème) : mêmes valeurs qu'en sombre.
+  fondPleinEcran: 'rgba(4,3,10,0.94)',
+  voileMedia: 'rgba(12,11,22,0.80)',
+  voileMediaLeger: 'rgba(12,11,22,0.42)',
+  fondImageAttente: '#00000020',
+  surDegradeAvatar: '#FFFFFF',
+  // Une ombre à 55 % sur fond clair serait un pochoir : adoucie.
+  ombrePortee: 'rgba(0,0,0,0.25)',
 
   degradeCta: ['#E14B96', '#7C5CE0'],
   degradeMarque: ['#E14B96', '#7C5CE0', '#10AE9F'],

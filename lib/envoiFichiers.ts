@@ -94,10 +94,21 @@ export async function lireReglesUpload(client: ClientRest): Promise<ReglesUpload
  */
 const EN_VOL_ICI = new Set<string>();
 
+/**
+ * Un refus de validation porte une DONNÉE (code + paramètres), pas une phrase :
+ * ce module est pur et testé sous Node, il n'embarque aucune langue. La mise en
+ * phrase se fait au point d'affichage (`phraseValidation`, ui/validationFichiers.ts).
+ */
+export type DetailValidation = { code: 'taille'; maxMo: string } | { code: 'type'; type: string };
+
 export class ErreurValidation extends Error {
-  constructor(message: string) {
-    super(message);
+  readonly detail: DetailValidation;
+
+  constructor(detail: DetailValidation) {
+    // `message` est un diagnostic (logs) — jamais la chaîne affichée.
+    super(detail.code === 'taille' ? `taille > ${detail.maxMo} Mo` : `type ${detail.type} refusé`);
     this.name = 'ErreurValidation';
+    this.detail = detail;
   }
 }
 
@@ -108,7 +119,7 @@ export function validerFichier(
 ): void {
   if (regles.tailleMax !== null && fichier.taille !== null && fichier.taille > regles.tailleMax) {
     const mo = (regles.tailleMax / 1024 / 1024).toFixed(1);
-    throw new ErreurValidation(`Fichier trop lourd (maximum ${mo} Mo).`);
+    throw new ErreurValidation({ code: 'taille', maxMo: mo });
   }
   if (regles.typesAcceptes !== null) {
     const accepte = regles.typesAcceptes.some((motif) => {
@@ -117,7 +128,7 @@ export function validerFichier(
       return sous === '*' && fichier.type.startsWith(`${famille}/`);
     });
     if (!accepte) {
-      throw new ErreurValidation(`Type ${fichier.type} refusé par le serveur.`);
+      throw new ErreurValidation({ code: 'type', type: fichier.type });
     }
   }
 }
@@ -269,6 +280,8 @@ export class MoteurTeleversement {
           await this.depot.rearmer(ligne.id);
           return false;
         }
+        // `derniere_erreur` est un DIAGNOSTIC (jamais affiché — l'UI montre
+        // `ligneMessage.echecReessayer`) : pas une chaîne à traduire.
         await this.depot.marquerEchec(ligne.id, e instanceof Error ? e.message : 'Envoi refusé.');
       } finally {
         EN_VOL_ICI.delete(ligne.id);

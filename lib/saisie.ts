@@ -116,10 +116,20 @@ export class MoteurSaisie {
   }
 }
 
-/** « bob écrit… », « bob et carol écrivent… » — null si personne. */
-export function phraseSaisie(noms: string[]): string | null {
+/**
+ * La projection d'affichage : un nom, deux noms, ou le compte seul. La mise en
+ * PHRASE appartient au catalogue (`salon.saisieUn/Deux/N`, ui/messages.ts) —
+ * ce module, pur et testé sous Node, n'embarque aucune langue.
+ */
+export type ResumeSaisie =
+  | { forme: 'un'; nom: string }
+  | { forme: 'deux'; a: string; b: string }
+  | { forme: 'plusieurs'; n: number };
+
+/** null si personne n'écrit. */
+export function resumerSaisie(noms: string[]): ResumeSaisie | null {
   if (noms.length === 0) return null;
-  if (noms.length === 1) return `${noms[0]} écrit…`;
-  if (noms.length === 2) return `${noms[0]} et ${noms[1]} écrivent…`;
-  return `${noms.length} personnes écrivent…`;
+  if (noms.length === 1) return { forme: 'un', nom: noms[0] };
+  if (noms.length === 2) return { forme: 'deux', a: noms[0], b: noms[1] };
+  return { forme: 'plusieurs', n: noms.length };
 }

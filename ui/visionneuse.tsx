@@ -183,7 +183,7 @@ function ModaleImage({ cible, onFermer }: { cible: CibleImage | null; onFermer: 
     >
       {/* La Modal est une fenêtre native séparée : son propre root de gestes. */}
       <GestureHandlerRootView style={styles.racine}>
-        <View style={styles.fond}>
+        <View style={[styles.fond, { backgroundColor: c.fondPleinEcran }]}>
           {cible !== null && (
             <>
               {!charge && (
@@ -232,12 +232,11 @@ function ModaleImage({ cible, onFermer }: { cible: CibleImage | null; onFermer: 
 
 const styles = StyleSheet.create({
   racine: { flex: 1 },
+  // La couleur (`fondPleinEcran`) vient du thème, posée au rendu.
   fond: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    // Presque opaque : une photo se regarde sur du noir, pas sur le salon.
-    backgroundColor: 'rgba(4,3,10,0.94)',
   },
   cadre: { width: '100%', height: '100%' },
   image: { width: '100%', height: '100%' },

@@ -26,7 +26,7 @@ import { texteDe, unicodeDEmoji, type Root } from '../lib/markdown.ts';
 import { ouvrirFicheProfil } from '../lib/profilPreload.ts';
 import { ouvrirLienExterne } from './lienExterne.ts';
 import { TexteTappable } from './texteTappable.tsx';
-import type { Couleurs } from './theme.ts';
+import { type Couleurs, POLICES } from './theme.ts';
 
 const POLICE_MONO = Platform.select({ android: 'monospace', default: 'Menlo' });
 
@@ -310,23 +310,28 @@ function rendreEmoji(
 
 const styles = StyleSheet.create({
   corps: { gap: 2 },
-  paragraphe: { fontSize: 15, lineHeight: 21 },
-  titre: { fontWeight: '700', lineHeight: 26 },
+  // `fontFamily` PARTOUT où du texte se rend : le `<Text>` d'un bloc n'est
+  // imbriqué dans aucun `<Text>` parent (que des `<View>`), rien n'est hérité —
+  // sans famille, le corps sortirait en police système à côté du reste de
+  // l'app en Nunito. Et une famille PAR graisse, jamais de `fontWeight`
+  // (faux-gras synthétique d'Android — voir POLICES, ui/theme.ts).
+  paragraphe: { fontFamily: POLICES.corps, fontSize: 15, lineHeight: 21 },
+  titre: { fontFamily: POLICES.titre, lineHeight: 26 },
   citation: { borderLeftWidth: 3, paddingLeft: 10, marginVertical: 2, gap: 2 },
   blocCode: { borderRadius: 8, padding: 10, marginVertical: 2 },
   code: { fontFamily: POLICE_MONO, fontSize: 13, lineHeight: 18, borderRadius: 4 },
   liste: { gap: 2 },
   itemListe: { flexDirection: 'row', gap: 8 },
-  texteItem: { flexShrink: 1 },
+  texteItem: { fontFamily: POLICES.corps, flexShrink: 1 },
   grosEmoji: { fontSize: 36, lineHeight: 44 },
   // Emojis custom : au fil du texte (aligné sur la hauteur de ligne) et en
   // grand pour un BIG_EMOJI. `<Image>` inline dans `<Text>` = alignement natif.
   emojiCustomInline: { width: 18, height: 18 },
   emojiCustomGrand: { width: 36, height: 36 },
   sautDeLigne: { height: 8 },
-  gras: { fontWeight: '700' },
+  gras: { fontFamily: POLICES.corpsGras },
   italique: { fontStyle: 'italic' },
   barre: { textDecorationLine: 'line-through' },
   lien: { textDecorationLine: 'underline' },
-  mention: { fontWeight: '600' },
+  mention: { fontFamily: POLICES.corpsSemi },
 });

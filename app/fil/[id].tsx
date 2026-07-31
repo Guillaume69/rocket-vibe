@@ -38,7 +38,7 @@ import { NavigateurEmoji, usePanneauEmoji } from '../../ui/navigateurEmoji.tsx';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
 import { useSession } from '../../ui/session.tsx';
 import { useSynchro } from '../../ui/synchro.tsx';
-import { useCouleurs, type Couleurs } from '../../ui/theme.ts';
+import { useCouleurs, type Couleurs, POLICES } from '../../ui/theme.ts';
 
 /**
  * Écran d'un fil (8.3). `id` = `_id` du message racine (`tmid` de ses
@@ -543,7 +543,7 @@ const styles = StyleSheet.create({
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   contenu: { paddingHorizontal: 16, paddingVertical: 8 },
   vide: { textAlign: 'center', padding: 24, fontSize: 14 },
-  erreur: { fontSize: 14, fontWeight: '600', textAlign: 'center' },
+  erreur: { fontFamily: POLICES.corpsSemi, fontSize: 14, textAlign: 'center' },
   composer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -561,7 +561,7 @@ const styles = StyleSheet.create({
     maxHeight: 120,
   },
   boutonEnvoyer: { paddingVertical: 10, paddingHorizontal: 4 },
-  texteEnvoyer: { fontSize: 15, fontWeight: '700' },
+  texteEnvoyer: { fontFamily: POLICES.corpsGras, fontSize: 15 },
   boutonEmoji: { paddingVertical: 8, paddingHorizontal: 2 },
   emojiGlyphe: { fontSize: 20 },
   noteComposer: { flex: 1, textAlign: 'center', fontSize: 13, paddingVertical: 8 },

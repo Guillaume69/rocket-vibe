@@ -58,7 +58,7 @@ export function LecteurVideo({
           end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFill}
         />
-        <View style={[StyleSheet.absoluteFill, styles.voile]} />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: c.voileMedia }]} />
 
         <LinearGradient
           colors={c.degradeCta}
@@ -111,7 +111,7 @@ function ModaleVideo({
       onRequestClose={onFermer}
       supportedOrientations={['portrait', 'landscape']}
     >
-      <View style={styles.fond}>
+      <View style={[styles.fond, { backgroundColor: c.fondPleinEcran }]}>
         <VideoView
           player={player}
           style={styles.video}
@@ -154,7 +154,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  voile: { backgroundColor: 'rgba(12,11,22,0.80)' },
   bouton: {
     width: 52,
     height: 52,
@@ -179,11 +178,11 @@ const styles = StyleSheet.create({
     bottom: 8,
   },
   etiquette: { fontFamily: POLICES.corpsSemi, fontSize: 12 },
+  // La couleur (`fondPleinEcran`) vient du thème, posée au rendu.
   fond: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(4,3,10,0.94)',
   },
   video: { width: '100%', height: '100%' },
   fermer: {

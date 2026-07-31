@@ -11,7 +11,7 @@ import type { ClientRest } from '../lib/rest.ts';
 import { useActivite } from '../ui/activite.ts';
 import { useT } from '../ui/i18n.ts';
 import { AvatarSalon, BadgeNonLus, BarreSynchro, Marque, TuileAvatar } from '../ui/kit.tsx';
-import { COULEURS_PRESENCE, usePresence } from '../ui/presence.ts';
+import { couleursPresence, usePresence } from '../ui/presence.ts';
 import { construireSections, type EntreeAccueil } from '../ui/sectionsAccueil.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
@@ -238,7 +238,7 @@ function LigneSalon({
           <View
             style={[
               styles.pastille,
-              { backgroundColor: COULEURS_PRESENCE[statut], borderColor: c.fond },
+              { backgroundColor: couleursPresence(c)[statut], borderColor: c.fond },
             ]}
           />
         )}

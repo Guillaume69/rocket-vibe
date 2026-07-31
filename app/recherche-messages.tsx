@@ -15,7 +15,7 @@ import { VueEvitantLeClavier } from '../ui/clavier.tsx';
 import { useT } from '../ui/i18n.ts';
 import { LigneMessage } from '../ui/ligneMessage.tsx';
 import { useSession } from '../ui/session.tsx';
-import { useCouleurs, type Couleurs } from '../ui/theme.ts';
+import { useCouleurs, type Couleurs, POLICES } from '../ui/theme.ts';
 
 /**
  * Recherche de messages dans UN salon (8.5) — `chat.search` exige un
@@ -171,10 +171,17 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
+    fontFamily: POLICES.corps,
     fontSize: 16,
   },
   contenu: { paddingHorizontal: 16 },
   resultat: { paddingVertical: 2 },
-  vide: { textAlign: 'center', padding: 24, fontSize: 14 },
-  messageErreur: { textAlign: 'center', paddingHorizontal: 16, paddingBottom: 8, fontSize: 13 },
+  vide: { textAlign: 'center', padding: 24, fontFamily: POLICES.corps, fontSize: 14 },
+  messageErreur: {
+    textAlign: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    fontFamily: POLICES.corps,
+    fontSize: 13,
+  },
 });

@@ -78,7 +78,7 @@ function CarteEmbed({
       onPress={() => ouvrirLienExterne(lien.url)}
       onLongPress={surAppuiLong}
       delayLongPress={350}
-      style={[styles.carte, { borderColor: c.bordure }]}
+      style={[styles.carte, { borderColor: c.bordure, backgroundColor: c.fondImageAttente }]}
       accessibilityRole="button"
       accessibilityLabel={t('carteEmbed.ouvrir', { nom: titre ?? lien.nom })}
     >
@@ -100,7 +100,7 @@ function CarteEmbed({
       )}
       {/* Voile : contraste pour que le bouton et l'étiquette ressortent sur
           n'importe quelle vignette. */}
-      <View style={[StyleSheet.absoluteFill, styles.voile]} />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: c.voileMediaLeger }]} />
 
       <LinearGradient
         colors={c.degradeCta}
@@ -132,16 +132,15 @@ function CarteEmbed({
 
 const styles = StyleSheet.create({
   liste: { gap: 6, marginTop: 4 },
+  // Les couleurs (`fondImageAttente`, `voileMediaLeger`) viennent du thème.
   carte: {
     width: 240,
     maxWidth: '100%',
     borderRadius: 14,
     borderWidth: 1,
     overflow: 'hidden',
-    backgroundColor: '#00000020',
   },
   media: { aspectRatio: 16 / 9, alignItems: 'center', justifyContent: 'center' },
-  voile: { backgroundColor: 'rgba(12,11,22,0.42)' },
   bouton: {
     width: 52,
     height: 52,

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { CATALOGUES, LANGUES, langueAppareil, traduire } from './messages.ts';
+import { CATALOGUES, LANGUES, formateurHeure, langueAppareil, traduire } from './messages.ts';
 
 describe('traduire', () => {
   test('substitue les {param}', () => {
@@ -41,6 +41,17 @@ describe('catalogue', () => {
         assert.notEqual(valeur.trim(), '', `${langue}/${cle} est vide`);
       }
     }
+  });
+});
+
+describe('formateurHeure', () => {
+  // On asserte la FORME, pas la valeur : le formateur suit le fuseau local du
+  // runner, qu'on ne fige pas. Le `\s` du motif EN couvre l'espace fine
+  // insécable (U+202F) qu'ICU met devant AM/PM.
+  test('FR au format 24 h sur deux chiffres, EN au format 12 h AM/PM', () => {
+    const ms = Date.UTC(2026, 0, 15, 14, 5, 0);
+    assert.match(formateurHeure('fr')(ms), /^\d{2}:\d{2}$/u);
+    assert.match(formateurHeure('en')(ms), /^\d{1,2}:\d{2}\s[AP]M$/u);
   });
 });
 

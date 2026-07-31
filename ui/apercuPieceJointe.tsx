@@ -20,6 +20,7 @@ import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
 import { useT } from './i18n.ts';
 import { LecteurAudio } from './lecteurAudio.tsx';
 import type { Traducteur } from './messages.ts';
+import { emojiFichier, estImage } from './mime.ts';
 import { type Couleurs, POLICES } from './theme.ts';
 
 export type FichierEnAttente = {
@@ -29,15 +30,6 @@ export type FichierEnAttente = {
   type: string;
   taille: number | null;
 };
-
-/** Émoji d'après la famille MIME, pour les fichiers non-image / non-audio. */
-function emojiFichier(type: string): string {
-  if (type.startsWith('video/')) return '🎬';
-  if (type === 'application/pdf') return '📄';
-  if (type.startsWith('text/')) return '📃';
-  if (type.includes('zip') || type.includes('compressed')) return '🗜️';
-  return '📎';
-}
 
 function formaterTaille(octets: number | null, t: Traducteur): string | null {
   if (octets === null || octets <= 0) return null;
@@ -75,7 +67,7 @@ export function ApercuPieceJointe({
   retraitVertical?: number;
 }) {
   const t = useT();
-  const estImage = fichier.type.startsWith('image/');
+  const enImage = estImage(fichier.type);
   const estAudio = fichier.type.startsWith('audio/');
   const taille = formaterTaille(fichier.taille, t);
 
@@ -99,7 +91,7 @@ export function ApercuPieceJointe({
         </View>
       ) : (
         <View style={[styles.carte, { backgroundColor: c.carte, borderColor: c.bordure }]}>
-          {estImage ? (
+          {enImage ? (
             <Image source={{ uri: fichier.uri }} style={styles.vignette} resizeMode="cover" />
           ) : (
             <LinearGradient
@@ -116,7 +108,7 @@ export function ApercuPieceJointe({
               {fichier.nom}
             </Text>
             <Text style={[styles.meta, { color: c.attenue }]} numberOfLines={1}>
-              {estImage ? t('apercuPieceJointe.image') : fichier.type || t('apercuPieceJointe.fichier')}
+              {enImage ? t('apercuPieceJointe.image') : fichier.type || t('apercuPieceJointe.fichier')}
               {taille !== null ? ` · ${taille}` : ''}
             </Text>
           </View>

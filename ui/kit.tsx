@@ -116,7 +116,7 @@ export function TuileAvatar({
   rayon = 15,
   neutre = false,
   deg,
-  couleurTexte = '#FFFFFF',
+  couleurTexte,
   enfant,
   uri,
   style,
@@ -159,7 +159,11 @@ export function TuileAvatar({
     >
       {enfant ?? (
         <Text
-          style={{ fontFamily: POLICES.titreFort, fontSize: taille * 0.4, color: couleurTexte }}
+          style={{
+            fontFamily: POLICES.titreFort,
+            fontSize: taille * 0.4,
+            color: couleurTexte ?? c.surDegradeAvatar,
+          }}
           numberOfLines={1}
         >
           {(initiale ?? '?').toUpperCase()}
@@ -365,7 +369,7 @@ export function IndicateurSaisie({ c, phrase }: { c: Couleurs; phrase: string | 
     opacity: ouverture.value,
   }));
 
-  // Les points animés REMPLACENT les points de suspension de `phraseSaisie`.
+  // Les points animés REMPLACENT le « … » final des clés `salon.saisieUn/Deux/N`.
   const texte = (phrase ?? derniere ?? '').replace(/…$/u, '');
 
   return (
@@ -380,7 +384,16 @@ export function IndicateurSaisie({ c, phrase }: { c: Couleurs; phrase: string | 
         }}
         style={styles.saisieContenu}
       >
-        <View style={[styles.saisiePastille, { backgroundColor: c.carte, borderColor: c.bordure }]}>
+        <View
+          style={[
+            styles.saisiePastille,
+            {
+              backgroundColor: c.carte,
+              borderColor: c.bordure,
+              boxShadow: `0px 6px 16px -6px ${c.ombrePortee}`,
+            },
+          ]}
+        >
           <Text style={[styles.saisieTexte, { color: c.texteSecondaire }]} numberOfLines={1}>
             {texte}
           </Text>
@@ -528,7 +541,6 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     maxWidth: '100%',
-    boxShadow: '0px 6px 16px -6px rgba(0,0,0,0.55)',
   },
   saisieTexte: { fontFamily: POLICES.corps, fontSize: 12, fontStyle: 'italic' },
   saisiePoints: { flexDirection: 'row', alignItems: 'flex-end', gap: 3, paddingBottom: 2 },

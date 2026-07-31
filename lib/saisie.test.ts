@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { MoteurSaisie, phraseSaisie } from './saisie.ts';
+import { MoteurSaisie, resumerSaisie } from './saisie.ts';
 
 const evenement = (rid: string, args: unknown[]) => ({
   collection: 'stream-notify-room',
@@ -93,11 +93,11 @@ describe('MoteurSaisie', () => {
   });
 });
 
-describe('phraseSaisie', () => {
-  test('accords', () => {
-    assert.equal(phraseSaisie([]), null);
-    assert.equal(phraseSaisie(['bob']), 'bob écrit…');
-    assert.equal(phraseSaisie(['bob', 'carol']), 'bob et carol écrivent…');
-    assert.equal(phraseSaisie(['a', 'b', 'c']), '3 personnes écrivent…');
+describe('resumerSaisie', () => {
+  test('projection : un nom, deux noms, puis le compte seul', () => {
+    assert.equal(resumerSaisie([]), null);
+    assert.deepEqual(resumerSaisie(['bob']), { forme: 'un', nom: 'bob' });
+    assert.deepEqual(resumerSaisie(['bob', 'carol']), { forme: 'deux', a: 'bob', b: 'carol' });
+    assert.deepEqual(resumerSaisie(['a', 'b', 'c']), { forme: 'plusieurs', n: 3 });
   });
 });

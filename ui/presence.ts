@@ -6,16 +6,31 @@
 import { useCallback, useSyncExternalStore } from 'react';
 
 import type { StatutPresence } from '../lib/presence.ts';
+import type { CleTraduction } from './messages.ts';
 import { useSynchro } from './synchro.tsx';
+import type { Couleurs } from './theme.ts';
 
 const RIEN = () => {};
 
-/** Couleurs des pastilles — celles de Rocket.Chat, reconnaissables. */
-export const COULEURS_PRESENCE: Record<StatutPresence, string> = {
-  online: '#2de0a5',
-  away: '#ffd21f',
-  busy: '#f5455c',
-  offline: '#9ea2a8',
+/**
+ * Pastilles de présence, alimentées par les JETONS DU THÈME — la seule table
+ * statut → couleur de l'app (l'audit en avait relevé trois, avec trois teintes
+ * différentes pour le même statut).
+ */
+export function couleursPresence(c: Couleurs): Record<StatutPresence, string> {
+  return { online: c.enLigne, away: c.absent, busy: c.danger, offline: c.horsLigne };
+}
+
+/**
+ * Libellés par statut — quatre clés `commun.presence*` pour toute l'app, en
+ * minuscule : la casse d'un contexte (« En ligne » d'un sélecteur) est à
+ * l'appelant.
+ */
+export const CLES_PRESENCE: Record<StatutPresence, CleTraduction> = {
+  online: 'commun.presenceEnLigne',
+  away: 'commun.presenceAbsent',
+  busy: 'commun.presenceOccupe',
+  offline: 'commun.presenceHorsLigne',
 };
 
 /**

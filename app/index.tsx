@@ -12,6 +12,7 @@ import { useActivite } from '../ui/activite.ts';
 import { useT } from '../ui/i18n.ts';
 import { AvatarSalon, BadgeNonLus, BarreSynchro, Marque, TuileAvatar } from '../ui/kit.tsx';
 import { COULEURS_PRESENCE, usePresence } from '../ui/presence.ts';
+import { construireSections, type EntreeAccueil } from '../ui/sectionsAccueil.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { useE2EDeverrouille } from '../ui/e2e.ts';
@@ -124,29 +125,14 @@ function Salons({
   );
   const { data: lignesAbonnements } = useRequeteVive(base.select().from(abonnements));
 
-  const abonnementParRid = new Map((lignesAbonnements ?? []).map((a) => [a.rid, a]));
-  // `ouvert === false` : salon masqué par l'utilisateur. Pas encore
-  // d'abonnement reçu : visible, plutôt que de faire clignoter la liste.
-  const visibles: EntreeSalon[] = (lignesSalons ?? [])
-    .filter((s) => abonnementParRid.get(s.rid)?.ouvert !== false)
-    .map((s) => ({ salon: s, abonnement: abonnementParRid.get(s.rid) ?? null }));
-
-  // « J'ai un message » = des non-lus, OU le drapeau d'alerte du serveur (une
-  // mention peut le lever sans que le compteur bouge). Ces salons remontent en
-  // tête, TOUS TYPES CONFONDUS ; le reste se répartit ensuite Salons (# canaux
-  // et groupes privés) / Messages privés (DM).
-  const aUnMessage = (e: EntreeSalon) =>
-    (e.abonnement?.nonLus ?? 0) > 0 || e.abonnement?.alerte === true;
-  const nonLus = visibles.filter(aUnMessage);
-  const lus = visibles.filter((e) => !aUnMessage(e));
-
-  // Une section vide est retirée : pas d'en-tête « Messages privés » sans DM,
-  // ni « Non lus » quand tout est lu.
-  const sections: SectionSalons[] = [
-    { titre: t('accueil.sectionNonLus'), data: nonLus },
-    { titre: t('accueil.sectionSalons'), data: lus.filter((e) => e.salon.type !== 'd') },
-    { titre: t('accueil.sectionMessagesPrives'), data: lus.filter((e) => e.salon.type === 'd') },
-  ].filter((s) => s.data.length > 0);
+  // Fusion, masquage, remontée des non-lus, répartition, sections vides
+  // retirées : la projection vit dans `ui/sectionsAccueil.ts`, testée sous
+  // Node.
+  const sections: SectionSalons[] = construireSections(lignesSalons, lignesAbonnements, {
+    nonLus: t('accueil.sectionNonLus'),
+    salons: t('accueil.sectionSalons'),
+    messagesPrives: t('accueil.sectionMessagesPrives'),
+  });
 
   return (
     <SectionList<EntreeSalon, SectionSalons>
@@ -177,7 +163,7 @@ function Salons({
 
 type LigneDeSalon = typeof salons.$inferSelect;
 type LigneDAbonnement = typeof abonnements.$inferSelect;
-type EntreeSalon = { salon: LigneDeSalon; abonnement: LigneDAbonnement | null };
+type EntreeSalon = EntreeAccueil<LigneDeSalon, LigneDAbonnement>;
 type SectionSalons = { titre: string; data: EntreeSalon[] };
 
 /** Titre de section de la liste : « Non lus », « Salons », « Messages privés ». */

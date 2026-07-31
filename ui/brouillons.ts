@@ -9,11 +9,10 @@
  * ne fuient pas d'un compte à l'autre.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { creerBrouillonDifferre } from './brouillonDifferre.ts';
 import type { DepotBrouillons } from '../db/depot.ts';
-
-const DELAI_MS = 400;
 
 /**
  * `cle: null` = pas encore déterminable (fil dont le rid n'est pas arrivé) :
@@ -50,60 +49,36 @@ export function useBrouillon(depot: DepotBrouillons, cle: string | null) {
     };
   }, [depot, cle]);
 
-  const minuterie = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dernierTexte = useRef<string | null>(null);
-
-  const ecrire = useCallback(
-    (texte: string) => {
-      if (cle === null) return;
-      const ecriture = texte.trim() === '' ? depot.supprimer(cle) : depot.ecrire(cle, texte);
-      // Les deux issues sont avalées à dessein : un brouillon perdu ne vaut ni
-      // un écran d'erreur ni un rejet non capté. La frappe suivante réécrira.
-      ecriture.then(
+  // La mécanique (débounce, flush, dernière-frappe-gagne) vit dans
+  // `creerBrouillonDifferre`, testée sous Node. UNE instance PAR CLÉ : ses
+  // écritures sont liées à `cle` à la création, donc un flush tardif ne peut
+  // écrire que sous la clé qui a vu la frappe. Les rejets sont avalés à
+  // dessein : un brouillon perdu ne vaut ni un écran d'erreur ni un rejet non
+  // capté — la frappe suivante réécrira.
+  const differe = useMemo(() => {
+    if (cle === null) return null;
+    const avaler = (p: Promise<void>): void => {
+      p.then(
         () => {},
         () => {},
       );
-    },
-    [depot, cle],
-  );
+    };
+    return creerBrouillonDifferre({
+      ecrire: (texte) => avaler(depot.ecrire(cle, texte)),
+      supprimer: () => avaler(depot.supprimer(cle)),
+    });
+  }, [depot, cle]);
+
+  // Départ de l'écran OU changement de clé pendant la pause : sans ce flush,
+  // les derniers caractères tapés seraient perdus. Le cleanup tient l'instance
+  // de l'ANCIENNE clé — c'est elle qui écrit, jamais la nouvelle.
+  useEffect(() => () => differe?.flusher(), [differe]);
 
   /** À appeler à chaque frappe : l'écriture part après une pause de 400 ms. */
-  const sauver = useCallback(
-    (texte: string) => {
-      dernierTexte.current = texte;
-      if (minuterie.current !== null) clearTimeout(minuterie.current);
-      minuterie.current = setTimeout(() => {
-        minuterie.current = null;
-        dernierTexte.current = null;
-        ecrire(texte);
-      }, DELAI_MS);
-    },
-    [ecrire],
-  );
+  const sauver = useCallback((texte: string) => differe?.sauver(texte), [differe]);
 
   /** À l'envoi : le brouillon n'a plus lieu d'être, débounce compris. */
-  const effacer = useCallback(() => {
-    if (minuterie.current !== null) clearTimeout(minuterie.current);
-    minuterie.current = null;
-    dernierTexte.current = null;
-    ecrire('');
-  }, [ecrire]);
-
-  // Départ de l'écran pendant la pause de débounce : sans ce flush, les
-  // derniers caractères tapés seraient perdus. Les refs sont REMISES À ZÉRO
-  // après le flush : ce cleanup court aussi au changement de clé, et des refs
-  // survivantes feraient rejouer le texte de l'ancienne clé sous la nouvelle.
-  useEffect(
-    () => () => {
-      if (minuterie.current !== null) {
-        clearTimeout(minuterie.current);
-        if (dernierTexte.current !== null) ecrire(dernierTexte.current);
-        minuterie.current = null;
-        dernierTexte.current = null;
-      }
-    },
-    [ecrire],
-  );
+  const effacer = useCallback(() => differe?.effacer(), [differe]);
 
   const initial = etat.cle === cle ? etat.initial : null;
   return useMemo(() => ({ initial, sauver, effacer }), [initial, sauver, effacer]);

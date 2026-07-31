@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
+import { avecPiegeTransaction } from './depotDeTest.ts';
 import { rattraperGlobal, rattraperSalon, reconcilierSalons } from './rattrapage.ts';
 import { ClientRest } from './rest.ts';
 import { MoteurSynchro, type Depot } from './sync.ts';
@@ -21,7 +22,9 @@ function fauxDepotComplet() {
   /** Les rids « déjà en base », mutables : le stream écrit pendant le vol. */
   const connus: string[] = [];
   let dernierLocal: number | null = null;
-  const depot: Depot = {
+  // Le piège rejoue l'invariant de `db/depot.ts` : pendant une transaction,
+  // seules les écritures du `tx` reçu passent — celles du dépôt jettent.
+  const depot: Depot = avecPiegeTransaction({
     upsertMessage: async (m) => void messages.push(m.id),
     upsertSalon: async (s) => void salons.push(s.rid),
     upsertAbonnement: async (a) => void abonnements.push(a.rid),
@@ -47,8 +50,7 @@ function fauxDepotComplet() {
     majAvatarUtilisateur: async () => {},
     majAvatarSalon: async () => {},
     enregistrerIdentite: async (i) => void identites.push(i),
-    transaction: async (fn) => fn(depot),
-  };
+  });
   return {
     depot,
     curseurs,

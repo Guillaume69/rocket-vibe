@@ -11,6 +11,7 @@ import {
   type MessageLocal,
   type SalonLocal,
 } from './normaliser.ts';
+import { avecPiegeTransaction } from './depotDeTest.ts';
 import { MoteurSynchro, type DechiffreurE2E, type Depot } from './sync.ts';
 import { AVATAR_SANS_PHOTO } from './upload.ts';
 import { TraducteurRC } from '../fournisseurs/rocketchat/traducteur.ts';
@@ -240,7 +241,9 @@ function faireDepot() {
   /** Versions d'avatar écrites, clé `u:<pseudo>` ou `r:<rid>`. */
   const avatars = new Map<string, string>();
   const identites: { uid: string; username: string; avatarEtag: string | null }[] = [];
-  const depot: Depot = {
+  // Le piège rejoue l'invariant de `db/depot.ts` : pendant une transaction,
+  // seules les écritures du `tx` reçu passent — celles du dépôt jettent.
+  const depot: Depot = avecPiegeTransaction({
     upsertMessage: async (m) => void messages.push(m),
     upsertSalon: async (s) => void salons.push(s),
     upsertAbonnement: async (a) => void abonnements.push(a),
@@ -273,8 +276,7 @@ function faireDepot() {
     majAvatarUtilisateur: async (username, etag) => void avatars.set(`u:${username}`, etag),
     majAvatarSalon: async (rid, etag) => void avatars.set(`r:${rid}`, etag),
     enregistrerIdentite: async (i) => void identites.push(i),
-    transaction: async (fn) => fn(depot),
-  };
+  });
   return {
     depot,
     messages,

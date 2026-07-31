@@ -36,18 +36,34 @@ const json = (corps: unknown, statut = 200) =>
     headers: { 'Content-Type': 'application/json' },
   });
 
-/** Répond selon l'URL demandée, et note les URL réellement construites. */
-function transport(reponses: (url: string) => Response | Promise<Response>) {
+/**
+ * Répond selon l'URL demandée, et note les URL réellement construites ainsi
+ * que le signal d'annulation reçu par chaque requête (clé : pathname).
+ */
+function transport(reponses: (url: string, init?: RequestInit) => Response | Promise<Response>) {
   const urls: string[] = [];
+  const signaux = new Map<string, AbortSignal | null>();
   return {
     urls,
+    signaux,
     fetch: (async (url: string | URL | Request, init?: RequestInit) => {
       const u = String(url);
       urls.push(u);
-      void init;
-      return reponses(u);
+      signaux.set(new URL(u).pathname, init?.signal ?? null);
+      return reponses(u, init);
     }) as unknown as typeof globalThis.fetch,
   };
+}
+
+/** Une requête qui ne répond JAMAIS d'elle-même — sauf pour rejeter à l'annulation. */
+function reponsePendante(init?: RequestInit): Promise<Response> {
+  return new Promise<Response>((_, rejeter) => {
+    init?.signal?.addEventListener('abort', () => {
+      const e = new Error('The operation was aborted.');
+      e.name = 'AbortError';
+      rejeter(e);
+    });
+  });
 }
 
 describe('normaliserUrl', () => {
@@ -70,9 +86,25 @@ describe('normaliserUrl', () => {
     assert.equal(normaliserUrl('  chat.exemple.fr  '), 'https://chat.exemple.fr');
   });
 
+  test('query et fragment ne font pas partie de l’adresse d’un serveur', () => {
+    // Une URL collée depuis le navigateur porte volontiers `?msg=…` : la
+    // conserver ferait viser `settings.public` avec des paramètres parasites.
+    assert.equal(normaliserUrl('https://exemple.fr/chat?x=1#y'), 'https://exemple.fr/chat');
+  });
+
+  test('l’hôte se normalise en minuscules, le port sans schéma survit', () => {
+    assert.equal(normaliserUrl('HTTPS://Chat.Exemple.fr'), 'https://chat.exemple.fr');
+    assert.equal(normaliserUrl('chat.exemple.fr:8443'), 'https://chat.exemple.fr:8443');
+  });
+
   test('vide et invalide lèvent ErreurServeur, pas une TypeError brute', () => {
+    // NB : repose sur un `URL` qui LÈVE sur l'invalide — vrai sous Node comme
+    // dans l'app (runtime Winter d'Expo, conforme au standard), faux du vieux
+    // polyfill regex de RN, le piège consigné pour `lib/origine.ts`.
+    assert.throws(() => normaliserUrl(''), ErreurServeur);
     assert.throws(() => normaliserUrl('   '), ErreurServeur);
     assert.throws(() => normaliserUrl('https://'), ErreurServeur);
+    assert.throws(() => normaliserUrl('chat exemple.fr'), ErreurServeur);
   });
 });
 
@@ -97,7 +129,11 @@ describe('sonderServeur', () => {
     const t = transport((u) =>
       u.endsWith('/api/info') ? json({ version: '8.5' }) : json(REGLAGES),
     );
-    await sonderServeur('https://exemple.fr/chat', undefined, t);
+    // Entrée BRUTE : c'est l'URL normalisée que le sondage doit viser, et
+    // c'est elle que `baseUrl` doit rendre — l'appelant construit son client
+    // dessus, pas sur sa propre re-normalisation de la saisie.
+    const p = await sonderServeur('exemple.fr/chat/', undefined, t);
+    assert.equal(p.baseUrl, 'https://exemple.fr/chat');
     assert.ok(t.urls.every((u) => u.startsWith('https://exemple.fr/chat/')), t.urls.join(' '));
   });
 
@@ -164,7 +200,53 @@ describe('sonderServeur', () => {
     await assert.rejects(sonderServeur('https://x', undefined, t), ErreurServeur);
   });
 
-  test("un signal déjà avorté par l'appelant ressort en AbortError", async () => {
+  test('settings.public 200 SANS tableau `settings` → ErreurServeur', async () => {
+    // Un proxy qui répond du JSON à tout ne doit pas produire un profil où
+    // chaque réglage vaudrait « faux » en silence.
+    const t = transport((u) =>
+      u.endsWith('/api/info') ? json({ version: '8.5' }) : json({ success: true }),
+    );
+    await assert.rejects(
+      sonderServeur('https://x', undefined, t),
+      (e: unknown) => e instanceof ErreurServeur && /tableau/.test(e.message),
+    );
+  });
+
+  test('réseau mort → ErreurServeur « injoignable », et la requête SŒUR est annulée', async () => {
+    // Le `controleur.abort()` du catch de `sonderServeur` : sans lui, la
+    // requête restée pendante traîne jusqu'à sa borne de 15 s — connexion
+    // ouverte pour rien, et un serveur re-sondé aussitôt en reçoit deux.
+    const t = transport((u, init) =>
+      u.endsWith('/api/info')
+        ? reponsePendante(init)
+        : Promise.reject(new TypeError('Network request failed')),
+    );
+    await assert.rejects(sonderServeur('https://x', undefined, t), (e: unknown) => {
+      assert.ok(e instanceof ErreurServeur);
+      assert.match(e.message, /injoignable/);
+      return true;
+    });
+    assert.equal(t.signaux.get('/api/info')?.aborted, true, 'la sœur doit être annulée');
+  });
+
+  test('une annulation EN VOL coupe les deux requêtes et ressort en AbortError', async () => {
+    // L'utilisateur corrige sa saisie pendant le sondage : ce n'est pas une
+    // panne, l'écran ne doit pas afficher « serveur injoignable ».
+    const t = transport((_u, init) => reponsePendante(init));
+    const controleur = new AbortController();
+    const sondage = sonderServeur('https://x', controleur.signal, t);
+    controleur.abort();
+    await assert.rejects(sondage, (e: unknown) => {
+      assert.ok(e instanceof Error);
+      assert.equal(e.name, 'AbortError');
+      assert.ok(!(e instanceof ErreurServeur));
+      return true;
+    });
+    assert.equal(t.signaux.get('/api/info')?.aborted, true);
+    assert.equal(t.signaux.get('/api/v1/settings.public')?.aborted, true);
+  });
+
+  test("un signal déjà avorté par l'appelant ressort en AbortError, sans qu'aucune requête parte", async () => {
     const t = transport(() => json({ version: '8.5' }));
     const controleur = new AbortController();
     controleur.abort();
@@ -173,6 +255,13 @@ describe('sonderServeur', () => {
       assert.equal(e.name, 'AbortError');
       return true;
     });
+    assert.deepEqual(t.urls, []);
+  });
+
+  test('une adresse invalide échoue AVANT toute requête', async () => {
+    const t = transport(() => json({ version: '8.5' }));
+    await assert.rejects(sonderServeur('', undefined, t), ErreurServeur);
+    assert.deepEqual(t.urls, []);
   });
 
   test('un /api/info PENDANT ne bloque plus l’écran de connexion à vie', async () => {

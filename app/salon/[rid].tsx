@@ -63,6 +63,9 @@ import { BandeauCompletionMention, useCandidatsMention } from '../../ui/completi
 import { NavigateurEmoji, usePanneauEmoji } from '../../ui/navigateurEmoji.tsx';
 import { useRetourMateriel } from '../../ui/retourMateriel.ts';
 import { jetonSession } from '../../ui/jetonSession.ts';
+import { insererBarreNonLus, type LigneBarre } from '../../ui/barreNonLus.ts';
+import { useDonneesLissees } from '../../ui/donneesLissees.ts';
+import { avancerBorne, borneImmobile, pageARecule } from '../../ui/paginationSalon.ts';
 import { garderAuChaud, salonCouvert } from '../../ui/salonChaud.ts';
 import { marquerSalonCharge, salonChargeSous } from '../../ui/salonsCharges.ts';
 import {
@@ -435,26 +438,13 @@ function Salon({
     };
   }, [flusherLu]);
 
-  // Les données de la liste, avec la barre insérée au-dessus (visuellement)
-  // du premier message d'AUTRUI postérieur à `ls`. Données DESC : ce message
-  // est la DERNIÈRE occurrence qui satisfait le prédicat, et « au-dessus »
-  // est l'index SUIVANT — la liste inversée rend l'index i+1 au-dessus de i.
-  type LigneListe = LigneDeMessage | { barre: true; id: string };
-  const donneesAvecBarre = useMemo<LigneListe[]>(() => {
-    if (typeof luJusquA !== 'number') return donnees;
-    const moiUid = client.identifiants?.userId;
-    let premierNonLu = -1;
-    for (let i = 0; i < donnees.length; i++) {
-      const m = donnees[i];
-      if (m.horodatage > luJusquA && m.auteurId !== moiUid) premierNonLu = i;
-    }
-    if (premierNonLu === -1) return donnees;
-    return [
-      ...donnees.slice(0, premierNonLu + 1),
-      { barre: true, id: 'barre-nouveaux' },
-      ...donnees.slice(premierNonLu + 1),
-    ];
-  }, [donnees, luJusquA, client]);
+  // Les données de la liste, avec la barre « nouveaux messages » insérée —
+  // la projection vit dans `ui/barreNonLus.ts`, testée sous Node.
+  type LigneListe = LigneDeMessage | LigneBarre;
+  const donneesAvecBarre = useMemo<LigneListe[]>(
+    () => insererBarreNonLus(donnees, luJusquA, client.identifiants?.userId),
+    [donnees, luJusquA, client],
+  );
 
   // Suivi des entrants (idiome duogo) : à l'offset 0, un nouveau `data[0]`
   // s'affiche tout seul — natif. Légèrement remonté, on snappe au bas si le
@@ -680,12 +670,10 @@ function Salon({
       return;
     }
     const plusVieux = fraiches[fraiches.length - 1];
-    const borne = bornePrecedente.current;
-    bornePrecedente.current =
-      borne !== null && borne.id === plusVieux.id
-        ? { id: plusVieux.id, pages: borne.pages + 1 }
-        : { id: plusVieux.id, pages: 1 };
-    if (bornePrecedente.current.pages > 2) {
+    // Prédicats extraits dans `ui/paginationSalon.ts`, testés sous Node — ils
+    // encodent les deux leçons payées en 429 (ex æquo, borne immobile).
+    bornePrecedente.current = avancerBorne(bornePrecedente.current, plusVieux.id);
+    if (borneImmobile(bornePrecedente.current)) {
       passeEpuise.current = true;
       console.warn(`salon ${rid}: pagination immobile sur ${plusVieux.id}, passé déclaré épuisé`);
       return;
@@ -693,15 +681,7 @@ function Salon({
     enVol.current = true;
     chargerHistorique(type, new Date(plusVieux.horodatage).toISOString())
       .then(({ plusAncien }) => {
-        // Il reste du passé si la page a VRAIMENT reculé : un message
-        // strictement plus ancien que la borne. Compter (`n > 1`) ne le
-        // prouvait pas — `inclusive: true` renvoie la borne ET tous ses
-        // jumeaux de la même milliseconde (rafale de bot, import), donc un
-        // groupe d'ex æquo en queue d'historique gardait `n > 1` pour
-        // toujours : `passeEpuise` jamais armé, la ré-ingestion faisait
-        // changer `data`, `onEndReached` (FlashList v2) se réarmait, et la
-        // boucle s'auto-entretenait jusqu'au 429.
-        if (plusAncien !== null && plusAncien < plusVieux.horodatage) {
+        if (pageARecule(plusAncien, plusVieux.horodatage)) {
           setLimite((l) => l + PAGE);
         } else {
           passeEpuise.current = true;
@@ -1555,28 +1535,6 @@ function cheminHistorique(type: string): string {
   if (type === 'c') return 'channels.history';
   if (type === 'p') return 'groups.history';
   return 'im.history';
-}
-
-/** Throttle avant/arrière : la valeur suit, mais jamais plus vite que `delaiMs`. */
-function useDonneesLissees<T>(valeur: T, delaiMs: number): T {
-  const [lisse, setLisse] = useState(valeur);
-  const dernierRendu = useRef(0);
-
-  useEffect(() => {
-    const ecoule = Date.now() - dernierRendu.current;
-    if (ecoule >= delaiMs) {
-      dernierRendu.current = Date.now();
-      setLisse(valeur);
-      return;
-    }
-    const minuterie = setTimeout(() => {
-      dernierRendu.current = Date.now();
-      setLisse(valeur);
-    }, delaiMs - ecoule);
-    return () => clearTimeout(minuterie);
-  }, [valeur, delaiMs]);
-
-  return lisse;
 }
 
 const styles = StyleSheet.create({

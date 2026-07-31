@@ -49,9 +49,14 @@ export async function lireSession(baseUrl: string): Promise<Session | null> {
     // La clé dérive d'un condensé tronqué : on ne se fie pas à elle seule pour
     // affirmer que cette session appartient bien au serveur demandé.
     if (sansSlashFinal(session.baseUrl) !== sansSlashFinal(baseUrl)) return null;
-    // Migration à la lecture : les sessions d'avant le champ `genre` retombent
-    // sur `rocketchat`, sans réécriture.
-    return { ...session, genre: normaliserGenre(session.genre) };
+    // Migration à la lecture : les sessions d'avant les champs `genre` et
+    // `siteUrl` retombent sur leurs replis (`rocketchat`, null → `baseUrl` à
+    // l'usage), sans réécriture.
+    return {
+      ...session,
+      genre: normaliserGenre(session.genre),
+      siteUrl: typeof session.siteUrl === 'string' ? session.siteUrl : null,
+    };
   } catch {
     return null;
   }

@@ -20,11 +20,12 @@ import {
 import { EVENEMENT_PRESENCE, STREAM_NOTIFY_LOGGED } from '../../lib/presence.ts';
 import { rattraperGlobal, rattraperSalon, reconcilierSalons } from '../../lib/rattrapage.ts';
 import type { ClientRest } from '../../lib/rest.ts';
-import { STREAM_NOTIFY_USER } from '../../lib/sync.ts';
+import { STREAM_MESSAGES, STREAM_NOTIFY_ROOM, STREAM_NOTIFY_USER } from '../../lib/sync.ts';
 import type { DepotEnvoi } from '../../lib/envoi.ts';
 import type { DepotTeleversements } from '../../lib/envoiFichiers.ts';
 import type { TransportUpload } from '../../lib/upload.ts';
 import { ActionsRC } from './actions.ts';
+import { chargerFil, chargerHistorique } from './historique.ts';
 import { EVENEMENT_AVATAR, TraducteurRC } from './traducteur.ts';
 
 function urlWebSocket(baseUrl: string): string {
@@ -56,6 +57,18 @@ export function creerFournisseurRC(
         [STREAM_NOTIFY_LOGGED, EVENEMENT_AVATAR],
       ];
     },
+    souscriptionsSalon(rid: string): readonly (readonly [string, string])[] {
+      // Le format « rid » / « rid/sujet » est CELUI de Rocket.Chat : fabriqué
+      // ici, parsé par `sujetDe` dans le traducteur — nulle part ailleurs.
+      return [
+        [STREAM_MESSAGES, rid],
+        [STREAM_NOTIFY_ROOM, `${rid}/deleteMessage`],
+        [STREAM_NOTIFY_ROOM, `${rid}/user-activity`],
+      ];
+    },
+    chargerHistorique: (moteur, rid, type, latest) =>
+      chargerHistorique(client, moteur, rid, type, latest),
+    chargerFil: (moteur, filId, estAbandonne) => chargerFil(client, moteur, filId, estAbandonne),
     creerEnvoi(depot: DepotEnvoi, ingerer: Ingerer): Outbox {
       return new MoteurEnvoi({
         depot,

@@ -67,6 +67,9 @@ describe('auth', () => {
       userId: 'u1',
       username: 'alice',
       genre: 'rocketchat',
+      // `Site_Url` ne vient pas du login : l'écran de connexion le complète
+      // depuis son sondage avant de persister.
+      siteUrl: null,
     });
     assert.deepEqual(recues[0].corps, { user: 'alice', password: 'secret' });
   });
@@ -170,6 +173,7 @@ describe('auth', () => {
       userId: 'u',
       username: 'alice',
       genre: 'rocketchat',
+      siteUrl: null,
     });
     assert.deepEqual(c.identifiants, { authToken: 't', userId: 'u' });
   });

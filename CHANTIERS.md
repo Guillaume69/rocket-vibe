@@ -39,7 +39,7 @@ chantiers sont notées ; hors d'elles, on peut piocher.
 | 12 | Filet de test là où le code n'est pas atteignable | 🟡 | nul | jour | ✅ 5/5 |
 | 13 | Une seule source par concept : i18n, couleurs, formats, tables MIME | 🟡 | faible | jour | ✅ 6/6 |
 | 14 | Duplication structurelle et découpage de l'écran salon | 🟡 | moyen | plusieurs-jours | ✅ 7/7 |
-| 15 | La façade Fournisseur : ce qui nomme Rocket.Chat doit passer par elle | 🟡 | moyen | jour | ☐ 0/4 |
+| 15 | La façade Fournisseur : ce qui nomme Rocket.Chat doit passer par elle | 🟡 | moyen | jour | ✅ 4/4 |
 | 16 | Remettre la documentation d'accord avec le code | 🟡 | nul | heures | ☐ 0/2 |
 
 ---
@@ -396,11 +396,11 @@ chantiers sont notées ; hors d'elles, on peut piocher.
 
 **Ordre.** Prolongement du chantier 5 et du découpage 14.
 
-- [ ] 🟡 L'interface `Fournisseur` n'a pas de couture pour les abonnements PAR SALON — `lib/fournisseur.ts:208` *(non passé au réfuteur)*
-- [ ] 🟡 L'écran salon contourne la façade en appelant l'implémentation Rocket.Chat en direct — `app/salon/[rid].tsx:44` *(non passé au réfuteur)*
-- [ ] 🟡 Le permalien de citation est bâti sur `client.baseUrl` alors que le serveur n'accepte que `Site_Url` — `lib/citation.ts:21` *(non passé au réfuteur)*
-- [ ] ⚪ `lib/`, déclaré « cœur non-UI », pilote la navigation — `lib/profilPreload.ts:22` *(non passé au réfuteur)*
-- [ ] **Sortie du chantier** : `tsc` propre, suite verte, et lancement réel sur le Pixel
+- [x] 🟡 L'interface `Fournisseur` n'a pas de couture pour les abonnements PAR SALON — `lib/fournisseur.ts:208` *(non passé au réfuteur)* — fait 2026-07-31 : `souscriptionsSalon(rid)` sur l'interface, implémentée dans `fournisseurs/rocketchat/index.ts` ; les deux écrans (salon, fil) bouclent sur son résultat, plus aucun import de nom de stream dans `app/`. Écart consigné : le fil arme désormais AUSSI `user-activity` qu'il n'affiche pas — refcount (fil empilé sur son salon : zéro `sub` de plus) ; par lien direct à froid, ces battements sont classés « silence » par le traducteur.
+- [x] 🟡 L'écran salon contourne la façade en appelant l'implémentation Rocket.Chat en direct — `app/salon/[rid].tsx:44` *(non passé au réfuteur)* — fait 2026-07-31 : `chargerHistorique(moteur, rid, type, latest)` ET `chargerFil(moteur, filId, estAbandonne)` sur l'interface (le second couvre `chat.getMessage`/`chat.getThreadMessages` du fil, cités par le constat), implémentés dans `fournisseurs/rocketchat/historique.ts` (naissance du curseur comprise) ; le rattrapage de l'écran passe par `fournisseur.rattraperSalon`. L'état `pret` de `ui/synchro.tsx` expose `fournisseur` en entier.
+- [x] 🟡 Le permalien de citation est bâti sur `client.baseUrl` alors que le serveur n'accepte que `Site_Url` — `lib/citation.ts:21` *(non passé au réfuteur)* — fait 2026-07-31 : `Session.siteUrl` (persisté ; migration à la lecture → null ; complété au login depuis le sondage, `app/connexion.tsx`), `permalienMessage` consomme `siteUrl ?? baseUrl`. Test `baseUrl ≠ siteUrl` (cas du banc émulateur) dans `lib/citation.test.ts`.
+- [x] ⚪ `lib/`, déclaré « cœur non-UI », pilote la navigation — `lib/profilPreload.ts:22` *(non passé au réfuteur)* — fait 2026-07-31 : plus d'expo-router NI de `ui/i18n.ts` dans le module (l'audit n'avait relevé que le router ; l'i18n bloquait tout autant le chargement sous Node) : navigation injectée (`definirNavigateurProfil`, posé par `app/_layout.tsx`, modèle `definirClientProfil`), erreur en clé `{cle}` traduite à l'affichage (`app/profil.tsx`). Le module charge sous Node → `lib/profilPreload.test.ts`, 5 tests : la course `users.info`/sonde d'appel/plafond 2 s, l'indicateur différé, l'anti-flash, la réentrance par cible. Piège documenté : `mock.timers.tick(n)` pose `Date.now()` à la cible AVANT les callbacks en route — ticker par échéance, jamais d'un bloc.
+- [x] **Sortie du chantier** : `tsc` propre (0 erreur), suite verte (790 tests, 147 suites — 784 + 6 nouveaux), parité eslint (28 problèmes, tous préexistants), `assembleRelease` OK (APK 99 738 689 o), install Success sur le Pixel, démarrage à froid pid 20498 stable, dropbox 0 crash — 2026-07-31. Vérification visuelle reportée (écran verrouillé par empreinte) : citer un message et vérifier que la citation tient après l'écho serveur.
 
 ## 16. Remettre la documentation d'accord avec le code
 

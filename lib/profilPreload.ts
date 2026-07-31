@@ -13,23 +13,29 @@
  * refait l'appel et réécrit l'entrée, donc la fiche affichée est toujours celle
  * qu'on vient de chercher.
  *
- * `client` en singleton (posé par `SessionProvider`) et non passé en paramètre :
- * une mention `@user` dans un corps de message est rendue par de simples
- * fonctions (`ui/markdown.tsx`), sans client sous la main — même raison que le
- * `router` singleton qu'elles utilisent déjà.
+ * `client` et navigation en singletons (posés depuis `ui/` — `SessionProvider`
+ * pour le client, le layout racine pour le navigateur) et non passés en
+ * paramètre : une mention `@user` dans un corps de message est rendue par de
+ * simples fonctions (`ui/markdown.tsx`), sans rien sous la main. C'est aussi ce
+ * qui garde ce module CHARGEABLE SOUS NODE : ni `expo-router` ni i18n ici — la
+ * navigation est injectée, l'erreur voyage en clé à traduire à l'affichage.
  */
 
-import { router } from 'expo-router';
-
-import { traduireCourant } from '../ui/i18n.ts';
+import type { CleTraduction } from '../ui/messages.ts'; // import type seul : consigné, comme lib/messagesSysteme.ts
 import { sonderAppelDisponible } from './appel.ts';
 import type { ClientRest } from './rest.ts';
 
 /** Une des deux formes acceptées par `users.info` (jamais les deux à la fois). */
-type ParamsProfil = { username?: string; uid?: string };
+export type ParamsProfil = { username?: string; uid?: string };
 
-/** Brut `users.info` mis en cache : `user` absent ⇒ échec, message dans `erreur`. */
-export type ProfilBrut = { user: Record<string, unknown> | undefined; erreur: string | null };
+/**
+ * Pourquoi `user` manque : une clé du catalogue — traduite à l'AFFICHAGE, ce
+ * module est du lib/ pur — ou le message d'une `ErreurRest`, déjà en langue.
+ */
+export type ErreurProfil = { cle: CleTraduction } | { message: string };
+
+/** Brut `users.info` mis en cache : `user` absent ⇒ échec décrit par `erreur`. */
+export type ProfilBrut = { user: Record<string, unknown> | undefined; erreur: ErreurProfil | null };
 
 /**
  * Plafond d'attente avant d'ouvrir malgré tout. Sur réseau normal, `users.info`
@@ -59,6 +65,18 @@ let clientActif: ClientRest | null = null;
 /** Posé par `SessionProvider` à chaque changement de session. */
 export function definirClientProfil(client: ClientRest | null): void {
   clientActif = client;
+}
+
+let navigateurActif: ((p: ParamsProfil) => void) | null = null;
+
+/**
+ * Posé par le layout racine (`app/_layout.tsx`) : c'est LUI qui sait pousser
+ * `/profil` — ce module, du lib/ pur, ne connaît pas expo-router. Même modèle
+ * que `definirClientProfil`. Sans navigateur posé (jamais le cas une fois
+ * l'app montée), l'ouverture est un no-op silencieux.
+ */
+export function definirNavigateurProfil(nav: ((p: ParamsProfil) => void) | null): void {
+  navigateurActif = nav;
 }
 
 // --- Indicateur d'ouverture (différé) --------------------------------------
@@ -156,7 +174,7 @@ async function prechargerPuisOuvrir(p: ParamsProfil): Promise<void> {
   // précédente pour ne pas servir du périmé.
   if (client === null) {
     cache.delete(k);
-    router.push({ pathname: '/profil', params: p });
+    navigateurActif?.(p);
     return;
   }
 
@@ -170,11 +188,11 @@ async function prechargerPuisOuvrir(p: ParamsProfil): Promise<void> {
     .get<{ user?: Record<string, unknown> }>('users.info', { params: rest })
     .then<ProfilBrut>((r) => ({
       user: r.user,
-      erreur: r.user ? null : traduireCourant('profil.profilIllisible'),
+      erreur: r.user ? null : { cle: 'profil.profilIllisible' },
     }))
     .catch<ProfilBrut>((e: unknown) => ({
       user: undefined,
-      erreur: e instanceof Error ? e.message : traduireCourant('profil.profilIntrouvable'),
+      erreur: e instanceof Error ? { message: e.message } : { cle: 'profil.profilIntrouvable' },
     }));
 
   // Indicateur différé : ne s'affiche QUE si l'attente dépasse le seuil, et
@@ -210,5 +228,5 @@ async function prechargerPuisOuvrir(p: ParamsProfil): Promise<void> {
     // relira un miss et fera son propre chargement async.
     cache.delete(k);
   }
-  router.push({ pathname: '/profil', params: p });
+  navigateurActif?.(p);
 }

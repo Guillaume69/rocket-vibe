@@ -29,15 +29,13 @@ import { abonnements, messages, salons, sortie, televersements } from '../../db/
 import type { MoteurActivite } from '../../lib/activite.ts';
 import type {
   ActionsFournisseur,
+  Fournisseur,
   Listener,
   Outbox,
   OutboxFichiers,
 } from '../../lib/fournisseur.ts';
-import { versEpoch } from '../../lib/normaliser.ts';
-import { rattraperSalon } from '../../lib/rattrapage.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSaisie, resumerSaisie } from '../../lib/saisie.ts';
-import { cheminHistorique } from '../../fournisseurs/rocketchat/historique.ts';
 import { useBrouillon } from '../../ui/brouillons.ts';
 import { useProgressionFichiers } from '../../ui/progressionFichiers.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
@@ -52,7 +50,7 @@ import { garderAuChaud, salonCouvert } from '../../ui/salonChaud.ts';
 import { marquerSalonCharge, salonChargeSous } from '../../ui/salonsCharges.ts';
 import { BoutonPrincipal, IndicateurSaisie } from '../../ui/kit.tsx';
 import { memeOrigine, origineDe } from '../../lib/origine.ts';
-import { MoteurSynchro, STREAM_MESSAGES, STREAM_NOTIFY_ROOM } from '../../lib/sync.ts';
+import { MoteurSynchro } from '../../lib/sync.ts';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
 import { usePresence } from '../../ui/presence.ts';
 import { useT } from '../../ui/i18n.ts';
@@ -159,6 +157,7 @@ export default function EcranSalon() {
       envoi={synchro.envoi}
       fichiers={synchro.fichiers}
       ddp={synchro.ddp}
+      fournisseur={synchro.fournisseur}
       actions={synchro.actions}
       client={etat.client}
       moi={etat.session.username}
@@ -236,6 +235,7 @@ function Salon({
   envoi,
   fichiers,
   ddp,
+  fournisseur,
   actions,
   client,
   moi,
@@ -251,6 +251,7 @@ function Salon({
   envoi: Outbox;
   fichiers: OutboxFichiers;
   ddp: Listener;
+  fournisseur: Fournisseur;
   actions: ActionsFournisseur;
   client: ClientRest;
   /** Mon username — ma propre saisie ne s'affiche pas chez moi. */
@@ -459,11 +460,11 @@ function Salon({
     // écran — son cleanup court en premier — et les relâcheurs pointeraient
     // alors sur un client déjà rangé. Voir `ui/jetonSession.ts`.
     const jeton = jetonSession();
-    const relachers = [
-      ddp.souscrire(STREAM_MESSAGES, rid),
-      ddp.souscrire(STREAM_NOTIFY_ROOM, `${rid}/deleteMessage`),
-      ddp.souscrire(STREAM_NOTIFY_ROOM, `${rid}/user-activity`),
-    ];
+    // Les streams et leurs clés sont l'affaire du fournisseur — on arme ce
+    // qu'il déclare, sans en connaître le format.
+    const relachers = fournisseur
+      .souscriptionsSalon(rid)
+      .map(([nom, cle]) => ddp.souscrire(nom, cle));
     // Le rattrapage (`chat.syncMessages`, un salon à la fois) vise le salon
     // que l'utilisateur regarde : on se déclare, et on rend la déclaration en
     // partant — jamais un `null` global, qui effacerait l'écran salon resté
@@ -473,7 +474,7 @@ function Salon({
       rendreDeclaration();
       garderAuChaud(rid, generationRef.current, relachers, jeton);
     };
-  }, [ddp, rid, declarerSalonOuvert]);
+  }, [ddp, fournisseur, rid, declarerSalonOuvert]);
 
   // Indicateur de saisie (8.6) : volatil, propre à l'écran — écoute seule,
   // voir lib/saisie.ts pour l'écart consigné sur l'émission.
@@ -507,50 +508,12 @@ function Salon({
   // composer reçoit la liste toute prête, comme le brouillon.
   const candidatsMention = useCandidatsMention(base, rid);
 
+  // Le chargement lui-même (endpoint, quirks de pagination, naissance du
+  // curseur de rattrapage) vit chez le fournisseur — l'écran ne garde que le
+  // critère de recul (`plusAncien`) pour sa pagination.
   const chargerHistorique = useCallback(
-    async (type: string, latest?: string): Promise<{ plusAncien: number | null }> => {
-      const reponse = await client.get<{ messages?: Record<string, unknown>[] }>(
-        cheminHistorique(type),
-        {
-          // `inclusive` : deux messages peuvent partager la même milliseconde.
-          // Sans lui, le jumeau du message-borne serait un trou permanent dans
-          // l'historique. Les upserts idempotents absorbent le recouvrement.
-          // `showThreadMessages: false` — EXPLICITE bien que ce soit le défaut
-          // vérifié sur 8.5 : le filtre serveur (tmid absent OU tshow) doit
-          // rester identique au filtre local du flux, sinon une page entière
-          // de réponses masquées ferait boucler la pagination keyset sur
-          // place (le `latest` vient de la liste FILTRÉE).
-          params: { roomId: rid, count: PAGE, latest, inclusive: true, showThreadMessages: false },
-        },
-      );
-      const lot = reponse.messages ?? [];
-      const recent = await moteur.ingererMessages(lot);
-      // Le plus ancien `ts` de la page : c'est LUI qui dit à `chargerPlus` si
-      // la page a vraiment reculé dans le passé (voir le critère là-bas).
-      let plusAncien: number | null = null;
-      for (const brut of lot) {
-        const ts = versEpoch((brut as { ts?: unknown }).ts);
-        if (ts !== null && (plusAncien === null || ts < plusAncien)) plusAncien = ts;
-      }
-      // Le curseur de rattrapage du salon NAÎT ici — et RIEN DE PLUS. Sans lui,
-      // `rattraperSalon` no-ope à vie (`depuis === null`) ; avec, il reprend la
-      // pagination par curseur là où elle en est.
-      //
-      // Il ne se RÉ-ANCRE plus à chaque ouverture. Ce saut en avant n'existait
-      // que pour garder minuscule la fenêtre d'un `chat.syncMessages?lastUpdate=`
-      // non borné, au prix des éditions et suppressions de l'intervalle sauté.
-      // Depuis que le rattrapage pagine par curseur et se plafonne lui-même
-      // (`lib/rattrapage.ts`), la fenêtre n'a plus besoin d'être petite : le
-      // curseur peut redevenir honnête.
-      if (recent !== null) {
-        const existant = await moteur.depotSynchro.lireCurseur(rid, 'messages');
-        if (existant === null) {
-          await moteur.depotSynchro.ecrireCurseur(rid, 'messages', recent);
-        }
-      }
-      return { plusAncien };
-    },
-    [client, moteur, rid],
+    (type: string, latest?: string) => fournisseur.chargerHistorique(moteur, rid, type, latest),
+    [fournisseur, moteur, rid],
   );
 
   // Ouverture du salon. Deux travaux de nature différente, et un seul est
@@ -585,7 +548,7 @@ function Salon({
     // document sur un gros salon.
     if (!salonCouvert(rid, generation)) {
       void activite
-        .suivre(rid, rattraperSalon(client, moteur, rid, () => annule))
+        .suivre(rid, fournisseur.rattraperSalon(moteur, rid, () => annule))
         .catch((e: unknown) => console.warn('rattraperSalon (ouverture): échec ignoré', e));
     }
 
@@ -615,7 +578,7 @@ function Salon({
     return () => {
       annule = true;
     };
-  }, [type, chargerHistorique, generation, activite, rid, client, moteur]);
+  }, [type, chargerHistorique, generation, activite, rid, fournisseur, moteur]);
 
   // Remonter vers le passé : élargir la fenêtre locale, et si elle est déjà
   // épuisée, demander la page plus ancienne au serveur (pagination keyset sur

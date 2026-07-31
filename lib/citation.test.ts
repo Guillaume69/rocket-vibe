@@ -17,24 +17,41 @@ import { texteDe } from './markdown.ts';
 describe('permalienMessage', () => {
   test('chemin canonique selon le type du salon', () => {
     assert.equal(
-      permalienMessage({ baseUrl: 'https://s', type: 'c', nom: 'general', rid: 'GENERAL', msgId: 'm1' }),
+      permalienMessage({ baseUrl: 'https://s', siteUrl: null, type: 'c', nom: 'general', rid: 'GENERAL', msgId: 'm1' }),
       'https://s/channel/general?msg=m1',
     );
     assert.equal(
-      permalienMessage({ baseUrl: 'https://s', type: 'p', nom: 'prive', rid: 'r2', msgId: 'm2' }),
+      permalienMessage({ baseUrl: 'https://s', siteUrl: null, type: 'p', nom: 'prive', rid: 'r2', msgId: 'm2' }),
       'https://s/group/prive?msg=m2',
     );
     // Un DM n'a pas de `name` : on vise par rid, comme les clients officiels.
     assert.equal(
-      permalienMessage({ baseUrl: 'https://s', type: 'd', nom: null, rid: 'aXbY', msgId: 'm3' }),
+      permalienMessage({ baseUrl: 'https://s', siteUrl: null, type: 'd', nom: null, rid: 'aXbY', msgId: 'm3' }),
       'https://s/direct/aXbY?msg=m3',
     );
   });
 
-  test('barre finale de baseUrl retirée, nom encodé', () => {
+  test('barre finale retirée, nom encodé', () => {
     assert.equal(
-      permalienMessage({ baseUrl: 'https://s/', type: 'c', nom: 'été 2026', rid: 'r', msgId: 'm' }),
+      permalienMessage({ baseUrl: 'https://s/', siteUrl: null, type: 'c', nom: 'été 2026', rid: 'r', msgId: 'm' }),
       'https://s/channel/%C3%A9t%C3%A9%202026?msg=m',
+    );
+  });
+
+  test('Site_Url GAGNE sur baseUrl — seule URL que le serveur reconnaît', () => {
+    // Le cas du banc émulateur : on joint le serveur par 10.0.2.2, mais son
+    // `Site_Url` dit localhost. Le hook BeforeSaveJumpToMessage ne reconnaît la
+    // citation que si le lien commence par Site_Url.
+    assert.equal(
+      permalienMessage({
+        baseUrl: 'http://10.0.2.2:3300',
+        siteUrl: 'http://localhost:3300/',
+        type: 'c',
+        nom: 'general',
+        rid: 'GENERAL',
+        msgId: 'm1',
+      }),
+      'http://localhost:3300/channel/general?msg=m1',
     );
   });
 });

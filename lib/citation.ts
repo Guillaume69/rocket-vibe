@@ -17,9 +17,18 @@ import type { Paragraph, Root } from '@rocket.chat/message-parser';
  * `/channel/<nom>` (public), `/group/<nom>` (privé), `/direct/<rid>` (DM).
  * Le serveur ne regarde que « commence par Site_Url et porte `?msg= »`, mais le
  * chemin canonique garde le lien navigable dans les autres clients.
+ *
+ * D'où `siteUrl` : bâti sur la seule `baseUrl`, le lien n'était pas reconnu dès
+ * qu'elle différait du réglage serveur (alias de proxy, IP, port — cas du banc
+ * émulateur, `10.0.2.2:3300` vs `localhost:3300`). Pire qu'une citation
+ * absente : l'affichage optimiste la MONTRAIT, puis l'écho serveur écrasait
+ * `piecesJointes` et le rendu retirait le lien brut du corps — le message final
+ * ne portait plus aucune trace de ce à quoi il répondait.
  */
 export function permalienMessage(options: {
   baseUrl: string;
+  /** `Site_Url` de la session — null (réglage ou session d'avant) : repli `baseUrl`. */
+  siteUrl: string | null;
   /** Type Rocket.Chat du salon : `c`, `p` ou `d`. */
   type: string;
   /** `name` du salon — null pour un DM. */
@@ -27,7 +36,7 @@ export function permalienMessage(options: {
   rid: string;
   msgId: string;
 }): string {
-  const base = options.baseUrl.replace(/\/+$/, '');
+  const base = (options.siteUrl ?? options.baseUrl).replace(/\/+$/, '');
   const chemin =
     options.type === 'c'
       ? `channel/${encodeURIComponent(options.nom ?? options.rid)}`

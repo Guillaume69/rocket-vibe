@@ -8,7 +8,7 @@
  * secondes de barre de synchro pour zéro document.
  *
  * Pourquoi cette requête partait : en quittant l'écran on relâchait les
- * souscriptions du salon (`stream-room-messages`, `deleteMessage`), donc son
+ * souscriptions du salon (celles de `Fournisseur.souscriptionsSalon`), donc son
  * cache n'était plus tenu à jour par le temps réel, et seule une lecture pouvait
  * garantir qu'on n'avait rien manqué. La réponse n'est pas d'attendre moins,
  * c'est de ne pas créer le trou : on GARDE l'écoute ouverte en sortant. Rien

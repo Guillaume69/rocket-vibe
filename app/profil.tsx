@@ -18,7 +18,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 
 import { appelDisponibleMemo, demarrerConference, sonderAppelDisponible } from '../lib/appel.ts';
 import type { StatutPresence } from '../lib/presence.ts';
-import { lireProfilPrecharge } from '../lib/profilPreload.ts';
+import { lireProfilPrecharge, type ErreurProfil } from '../lib/profilPreload.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar } from '../lib/upload.ts';
 import { traduireCourant, useT } from '../ui/i18n.ts';
@@ -69,6 +69,13 @@ function profilDe(brut: Record<string, unknown> | undefined): Profil | null {
   };
 }
 
+/** L'erreur du préchargement, en langue : la clé se traduit ICI — le module
+ *  `lib/profilPreload.ts` est du lib/ pur, il ne porte que la clé. */
+function texteErreurProfil(e: ErreurProfil | null): string | null {
+  if (e === null) return null;
+  return 'message' in e ? e.message : traduireCourant(e.cle);
+}
+
 /** `14:07 (UTC+2)` — l'heure qu'il est CHEZ LUI, calculée du décalage serveur. */
 function heureLocale(utcOffset: number): string {
   const la = new Date(Date.now() + utcOffset * 3_600_000);
@@ -109,7 +116,9 @@ export default function EcranProfil() {
     precharge !== undefined ? profilDe(precharge.user) : null,
   );
   const [erreur, setErreur] = useState<string | null>(() =>
-    precharge !== undefined && precharge.user === undefined ? precharge.erreur : null,
+    precharge !== undefined && precharge.user === undefined
+      ? texteErreurProfil(precharge.erreur)
+      : null,
   );
   const [appelDispo, setAppelDispo] = useState(() =>
     client !== null ? appelDisponibleMemo(client) : false,

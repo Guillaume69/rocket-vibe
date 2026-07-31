@@ -46,6 +46,7 @@ import { idDepuisOctets } from '../lib/envoi.ts';
 import type {
   ActionsFournisseur,
   Capacites,
+  Fournisseur,
   Listener,
   Outbox,
   OutboxFichiers,
@@ -91,6 +92,13 @@ export type EtatSynchro =
       envoi: Outbox;
       fichiers: OutboxFichiers;
       ddp: Listener;
+      /**
+       * La façade complète du serveur courant. C'est par elle que les écrans
+       * chargent l'historique, un fil, et arment les souscriptions d'un salon —
+       * jamais en nommant un endpoint ou un stream Rocket.Chat en direct.
+       * `actions`/`capacites`/`ddp` ci-contre n'en sont que des raccourcis.
+       */
+      fournisseur: Fournisseur;
       /** Actions unitaires sur les messages, routées vers le bon serveur. */
       actions: ActionsFournisseur;
       /** Ce que le serveur courant sait faire — les écrans masquent le reste. */
@@ -300,6 +308,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         envoi,
         fichiers,
         ddp,
+        fournisseur,
         actions: fournisseur.actions,
         capacites: fournisseur.capacites,
         declarerSalonOuvert: salonsOuverts.declarer,

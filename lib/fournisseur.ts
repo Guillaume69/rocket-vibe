@@ -222,6 +222,31 @@ export interface Fournisseur {
   readonly actions: ActionsFournisseur;
   /** Souscriptions désirées `[nom, cle]`, déclarées avant la 1re connexion (rejouées à chaque reconnexion). */
   souscriptionsInitiales(): readonly (readonly [nom: string, cle: string])[];
+  /**
+   * Souscriptions PAR SALON — celles que l'écran salon (et un fil) arme à
+   * l'ouverture, symétriques de `souscriptionsInitiales`. Le format des clés
+   * (`rid`, `rid/sujet`…) appartient au fournisseur : les écrans bouclent sur
+   * le résultat sans le connaître. Refcountées par le `Listener` : plusieurs
+   * écrans sur le même salon ne coûtent qu'un `sub`.
+   */
+  souscriptionsSalon(rid: string): readonly (readonly [nom: string, cle: string])[];
+  /**
+   * Une page d'historique du salon (les plus récents d'abord), ingérée dans le
+   * moteur. `type` : le type du salon tel que stocké (`salons.type`) ; `latest` :
+   * borne keyset ISO — absente, la page part du présent. Rend le plus ancien
+   * horodatage de la page : le critère de recul de la pagination de l'écran.
+   */
+  chargerHistorique(
+    moteur: MoteurSynchro,
+    rid: string,
+    type: string,
+    latest?: string,
+  ): Promise<{ plusAncien: number | null }>;
+  /**
+   * Le fil `filId` en entier (racine comprise), ingéré dans le moteur.
+   * Rejouable — mêmes upserts idempotents que le reste de la synchro.
+   */
+  chargerFil(moteur: MoteurSynchro, filId: string, estAbandonne: () => boolean): Promise<void>;
   creerEnvoi(depot: DepotEnvoi, ingerer: Ingerer): Outbox;
   creerTeleversement(
     depot: DepotTeleversements,

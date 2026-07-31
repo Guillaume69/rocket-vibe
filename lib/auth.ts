@@ -23,6 +23,15 @@ export type Session = {
   username: string;
   /** Type de serveur : décide quel driver instancier. Ici toujours `rocketchat`. */
   genre: Genre;
+  /**
+   * `Site_Url` du serveur, relevé au sondage de connexion. C'est la SEULE URL
+   * que le serveur reconnaît en tête d'un permalien de citation
+   * (`lib/citation.ts`) — `baseUrl` peut en différer (alias de proxy, IP, port,
+   * http/https : cas du banc émulateur, `10.0.2.2:3300` vs `localhost:3300`).
+   * `null` pour une session d'avant le champ ou un réglage absent : on retombe
+   * alors sur `baseUrl`, le comportement historique.
+   */
+  siteUrl: string | null;
 };
 
 /** SHA-256 hexadécimal, en minuscules. */
@@ -113,6 +122,11 @@ function sessionDepuis(baseUrl: string, reponse: ReponseLogin | undefined): Sess
     userId: donnees.userId,
     username: donnees.me?.username ?? '',
     genre: 'rocketchat',
+    // `/login` ne connaît pas `Site_Url` : c'est l'écran de connexion qui le
+    // complète depuis son sondage (`ProfilServeur.siteUrl`) avant de persister.
+    // La validation de reprise (`ui/session.tsx`) ne lit que `username` de ce
+    // retour — le `siteUrl` persisté n'est jamais écrasé par ce null.
+    siteUrl: null,
   };
 }
 

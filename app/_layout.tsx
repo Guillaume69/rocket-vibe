@@ -1,5 +1,5 @@
 import { ShareIntentProvider, useShareIntentContext } from 'expo-share-intent';
-import { Stack, useRouter } from 'expo-router';
+import { router, Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef } from 'react';
 import { StyleSheet } from 'react-native';
@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { definirNavigateurProfil } from '../lib/profilPreload.ts';
 import { SuiviIdentites } from '../ui/identites.tsx';
 import { IndicateurOuvertureProfil } from '../ui/indicateurOuverture.tsx';
 import { GestionNotifications } from '../ui/notifications.tsx';
@@ -27,6 +28,14 @@ import { VisionneuseImageProvider } from '../ui/visionneuse.tsx';
  * entière.
  */
 export default function RootLayout() {
+  // Le préchargement de fiche (`lib/profilPreload.ts`, du lib/ pur, chargeable
+  // sous Node) ne connaît pas expo-router : on lui prête la navigation d'ici,
+  // sur le modèle de `definirClientProfil` posé par `SessionProvider`.
+  useEffect(() => {
+    definirNavigateurProfil((p) => router.push({ pathname: '/profil', params: p }));
+    return () => definirNavigateurProfil(null);
+  }, []);
+
   return (
     // Racine des gestes (pincer/déplacer de la visionneuse). La Modal, fenêtre
     // native séparée, a le sien en propre — celui-ci couvre la pile.

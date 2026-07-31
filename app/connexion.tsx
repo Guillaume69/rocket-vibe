@@ -151,7 +151,9 @@ export default function EcranConnexion() {
           { utilisateur: utilisateur.trim(), motDePasse },
           deuxFacteurs,
         );
-        await connecter(session);
+        // `Site_Url` vient du sondage, pas du login : c'est ICI qu'il entre
+        // dans la session persistée — voir `Session.siteUrl` (lib/auth.ts).
+        await connecter({ ...session, siteUrl: phase.profil.siteUrl });
         // Navigation explicite : le <Redirect> en tête de rendu couvre la
         // reprise de session, mais il est neutralisé quand on est venu par
         // « changer de serveur » (`?changer=1`) — sans ceci, un login réussi

@@ -117,6 +117,7 @@ export default function EcranActionsMessage() {
   const actionneur = synchro.phase === 'pret' ? synchro.actions : null;
   const client = etat.phase === 'connecte' ? etat.client : null;
   const moi = etat.phase === 'connecte' ? etat.session.userId : null;
+  const siteUrl = etat.phase === 'connecte' ? etat.session.siteUrl : null;
   // Les réactions se jugent au USERNAME (le serveur ne stocke que les pseudos),
   // là où `actionsPossibles` raisonne par uid — les deux identités servent.
   const monUsername = etat.phase === 'connecte' ? etat.session.username : null;
@@ -235,6 +236,7 @@ export default function EcranActionsMessage() {
     void Haptics.selectionAsync();
     const permalien = permalienMessage({
       baseUrl: client.baseUrl,
+      siteUrl,
       type: salon.type,
       nom: salon.nom,
       rid: message.rid,

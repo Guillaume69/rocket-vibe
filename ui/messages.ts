@@ -13,6 +13,8 @@
  * (cf. `ui/i18n.tsx`).
  */
 
+import { cleJour } from './separateurJour.ts';
+
 const fr = {
   // ── Commun — réutilisé par plusieurs écrans. Préférer une clé d'écran
   //    quand la formulation est propre à un contexte.
@@ -111,6 +113,8 @@ const fr = {
 
   // ── Salon (écran d'un salon : liste + composer + en-tête)
   'salon.nouveauxMessages': '✦ nouveaux messages',
+  'separateurJour.aujourdhui': "Aujourd'hui",
+  'separateurJour.hier': 'Hier',
   'salon.aucunMessage': 'Aucun message.',
   // Le « … » final est un contrat : `IndicateurSaisie` (ui/kit.tsx) le retire
   // pour le remplacer par ses points animés.
@@ -471,6 +475,8 @@ const en: Record<CleTraduction, string> = {
   'connexion.renvoyerCode': 'Resend the code',
 
   'salon.nouveauxMessages': '✦ new messages',
+  'separateurJour.aujourdhui': 'Today',
+  'separateurJour.hier': 'Yesterday',
   'salon.aucunMessage': 'No messages.',
   'salon.saisieUn': '{nom} is typing…',
   'salon.saisieDeux': '{a} and {b} are typing…',
@@ -758,6 +764,31 @@ export function formateurHeure(langue: Langue): (ms: number) => string {
     minute: '2-digit',
   });
   return (ms) => format.format(new Date(ms));
+}
+
+/**
+ * Libellé d'un séparateur de jour (ui/separateurJour) : « Aujourd'hui »,
+ * « Hier », sinon la date — avec le jour de semaine dans l'année courante
+ * (« jeudi 31 juillet »), avec l'année au-delà (« 31 juillet 2025 », le jour
+ * de semaine n'aide plus à se situer si loin). Même fabrique à mémoïser que
+ * `formateurHeure`. `maintenantMs` est lu à CHAQUE appel (une liste ouverte à
+ * travers minuit re-rend « Aujourd'hui » juste) ; injectable pour les tests.
+ */
+export function formateurJour(langue: Langue): (ms: number, maintenantMs?: number) => string {
+  const locale = langue === 'fr' ? 'fr-FR' : 'en-US';
+  const memeAnnee = new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'long' });
+  const autreAnnee = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', year: 'numeric' });
+  return (ms, maintenantMs = Date.now()) => {
+    const maintenant = new Date(maintenantMs);
+    const jour = cleJour(ms);
+    if (jour === cleJour(maintenantMs)) return traduire(langue, 'separateurJour.aujourdhui');
+    const hier = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() - 1);
+    if (jour === cleJour(hier.getTime())) return traduire(langue, 'separateurJour.hier');
+    const date = new Date(ms);
+    return date.getFullYear() === maintenant.getFullYear()
+      ? memeAnnee.format(date)
+      : autreAnnee.format(date);
+  };
 }
 
 /**

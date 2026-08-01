@@ -125,6 +125,8 @@ function RechercheMessages({
               // Même raison pour les réactions : lecture seule, rien de marqué.
               moi={null}
               surReagir={null}
+              // Des résultats épars, pas un flux : chacun garde son en-tête.
+              suite={false}
             />
           </View>
         )}

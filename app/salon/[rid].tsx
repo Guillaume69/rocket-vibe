@@ -45,10 +45,12 @@ import { EnTeteSalon } from '../../ui/enTeteSalon.tsx';
 import { jetonSession } from '../../ui/jetonSession.ts';
 import { insererBarreNonLus, type LigneBarre } from '../../ui/barreNonLus.ts';
 import { useDonneesLissees } from '../../ui/donneesLissees.ts';
+import { idsSuites } from '../../ui/groupeMessages.ts';
+import { insererSeparateursJour, type LigneJour } from '../../ui/separateurJour.ts';
 import { avancerBorne, borneImmobile, pageARecule } from '../../ui/paginationSalon.ts';
 import { garderAuChaud, salonCouvert } from '../../ui/salonChaud.ts';
 import { marquerSalonCharge, salonChargeSous } from '../../ui/salonsCharges.ts';
-import { BoutonPrincipal, IndicateurSaisie } from '../../ui/kit.tsx';
+import { BoutonPrincipal, IndicateurSaisie, SeparateurJour } from '../../ui/kit.tsx';
 import { memeOrigine, origineDe } from '../../lib/origine.ts';
 import { MoteurSynchro } from '../../lib/sync.ts';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
@@ -401,13 +403,22 @@ function Salon({
     };
   }, [flusherLu]);
 
-  // Les données de la liste, avec la barre « nouveaux messages » insérée —
-  // la projection vit dans `ui/barreNonLus.ts`, testée sous Node.
-  type LigneListe = LigneDeMessage | LigneBarre;
-  const donneesAvecBarre = useMemo<LigneListe[]>(
+  // Les données de la liste : la barre « nouveaux messages » puis les
+  // séparateurs de jour, insérés par les projections de `ui/` (testées sous
+  // Node). L'ordre compte : les séparateurs se posent au-dessus de la barre.
+  type LigneListe = LigneDeMessage | LigneBarre | LigneJour;
+  const donneesAvecBarre = useMemo(
     () => insererBarreNonLus(donnees, luJusquA, client.identifiants?.userId),
     [donnees, luJusquA, client],
   );
+  const donneesListe = useMemo<LigneListe[]>(
+    () => insererSeparateursJour(donneesAvecBarre, 'recent-en-tete'),
+    [donneesAvecBarre],
+  );
+
+  // Regroupement des rafales d'un même auteur (`ui/groupeMessages`) : calculé
+  // APRÈS les insertions — barre et séparateur rompent les groupes. Données DESC.
+  const suites = useMemo(() => idsSuites(donneesListe, 'recent-en-tete'), [donneesListe]);
 
   // Suivi des entrants (idiome duogo) : à l'offset 0, un nouveau `data[0]`
   // s'affiche tout seul — natif. Légèrement remonté, on snappe au bas si le
@@ -675,6 +686,9 @@ function Salon({
           </View>
         );
       }
+      if ('jour' in item) {
+        return <SeparateurJour c={c} horodatage={item.horodatage} />;
+      }
       const etatEnvoi = sortieParId.get(item.id);
       return (
         <LigneMessage
@@ -691,10 +705,11 @@ function Salon({
           surOuvrirFil={ouvrirFil}
           moi={moi}
           surReagir={etatEnvoi === undefined ? reagir : null}
+          suite={suites.has(item.id)}
         />
       );
     },
-    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, ouvrirFil, t, moi, reagir],
+    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, ouvrirFil, t, moi, reagir, suites],
   );
 
   return (
@@ -712,7 +727,7 @@ function Salon({
         onRetour={() => (routeur.canGoBack() ? routeur.back() : routeur.replace('/'))}
         onRecherche={() => routeur.push({ pathname: '/recherche-messages', params: { rid } })}
       />
-      {donneesAvecBarre.length === 0 ? (
+      {donneesListe.length === 0 ? (
         // Vide : indicateur, puis mention explicite. (L'ancien piège mVCP
         // « viewport sous le contenu » a disparu avec l'inversion ; attendre
         // le premier lot reste la bonne UX — une liste qui clignote non.)
@@ -727,14 +742,23 @@ function Salon({
         <FlashList
           ref={liste}
           inverted
-          data={donneesAvecBarre}
+          data={donneesListe}
           // Coupé : à l'offset 0, un prepend s'affiche de lui-même, et le
           // recalage natif partait avant le snap JS et l'écrasait.
           maintainVisibleContentPosition={{ disabled: true }}
           keyExtractor={(m) => m.id}
-          // Contenu HÉTÉROGÈNE (messages + barre de non-lus) : sans type
-          // d'item, le recyclage de FlashList mélange les gabarits.
-          getItemType={(item) => ('barre' in item ? 'barre' : 'message')}
+          // Contenu HÉTÉROGÈNE (messages, suites sans avatar, barre de
+          // non-lus, séparateurs de jour) : sans type d'item, le recyclage
+          // de FlashList mélange les gabarits.
+          getItemType={(item) =>
+            'barre' in item
+              ? 'barre'
+              : 'jour' in item
+                ? 'jour'
+                : suites.has(item.id)
+                  ? 'suite'
+                  : 'message'
+          }
           renderItem={rendreLigne}
           onScroll={surDefilement}
           scrollEventThrottle={16}

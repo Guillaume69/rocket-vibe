@@ -16,8 +16,10 @@ import { MoteurSynchro } from '../../lib/sync.ts';
 import { useActivite } from '../../ui/activite.ts';
 import { useBrouillon } from '../../ui/brouillons.ts';
 import { filChargeSous, marquerFilCharge } from '../../ui/filsCharges.ts';
+import { idsSuites } from '../../ui/groupeMessages.ts';
+import { insererSeparateursJour, type LigneJour } from '../../ui/separateurJour.ts';
 import { jetonSession } from '../../ui/jetonSession.ts';
-import { BarreSynchro } from '../../ui/kit.tsx';
+import { BarreSynchro, SeparateurJour } from '../../ui/kit.tsx';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
 import { useCandidatsMention } from '../../ui/completionMention.tsx';
 import { Composer } from '../../ui/composer.tsx';
@@ -164,6 +166,15 @@ function Fil({
     return racine === undefined ? reponses : [racine, ...reponses];
   }, [racine, lignesReponses]);
 
+  // Séparateurs de jour puis regroupement des rafales d'un même auteur
+  // (`ui/separateurJour`, `ui/groupeMessages`) — données ASC ici, l'inverse
+  // de l'écran salon.
+  const donneesListe = useMemo<(LigneDeMessage | LigneJour)[]>(
+    () => insererSeparateursJour(donnees, 'ancien-en-tete'),
+    [donnees],
+  );
+  const suites = useMemo(() => idsSuites(donneesListe, 'ancien-en-tete'), [donneesListe]);
+
   // Le fil complet, depuis le serveur : rejouable, mêmes upserts idempotents.
   // `generation` : un fil ouvert hors ligne se remplit au raccordement.
   // Un fil déjà chargé sous cette génération n'a pas de premier passage à
@@ -253,7 +264,10 @@ function Fil({
   );
 
   const rendreLigne = useCallback(
-    ({ item }: { item: LigneDeMessage }) => {
+    ({ item }: { item: LigneDeMessage | LigneJour }) => {
+      if ('jour' in item) {
+        return <SeparateurJour c={c} horodatage={item.horodatage} />;
+      }
       const etatEnvoi = sortieParId.get(item.id);
       return (
         <LigneMessage
@@ -268,13 +282,14 @@ function Fil({
           surOuvrirFil={null}
           moi={moi}
           surReagir={etatEnvoi === undefined ? reagir : null}
+          suite={suites.has(item.id)}
         />
       );
     },
-    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, moi, reagir],
+    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, moi, reagir, suites],
   );
 
-  const liste = useRef<FlashListRef<LigneDeMessage>>(null);
+  const liste = useRef<FlashListRef<LigneDeMessage | LigneJour>>(null);
   // La liste s'ouvre sur la RACINE : sans défilement après envoi, la réponse
   // optimiste naît sous le pli et l'envoi semble n'avoir rien fait. On attend
   // l'`_id` rendu par `envoi.envoyer` DANS les données — c'est le rendu qui
@@ -326,8 +341,13 @@ function Fil({
       ) : (
         <FlashList
           ref={liste}
-          data={donnees}
+          data={donneesListe}
           keyExtractor={(m) => m.id}
+          // Trois gabarits (tête avec avatar / suite sans / séparateur de
+          // jour) : typés pour que le recyclage de FlashList ne les mélange pas.
+          getItemType={(item) =>
+            'jour' in item ? 'jour' : suites.has(item.id) ? 'suite' : 'message'
+          }
           renderItem={rendreLigne}
           contentContainerStyle={styles.contenu}
           // Un fil se LIT depuis sa racine : ouverture en haut — l'idiome

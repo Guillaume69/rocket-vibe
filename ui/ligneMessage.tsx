@@ -66,6 +66,7 @@ export const LigneMessage = memo(function LigneMessage({
   surOuvrirFil,
   moi,
   surReagir,
+  suite,
 }: {
   c: Couleurs;
   message: LigneDeMessage;
@@ -80,6 +81,12 @@ export const LigneMessage = memo(function LigneMessage({
   moi: string | null;
   /** Pose/retire une réaction. `null` : pastilles en lecture seule (recherche). */
   surReagir: ((rid: string, id: string, code: string, mettre: boolean) => void) | null;
+  /**
+   * Continuation du message d'au-dessus (même auteur, sous 5 min — calculé par
+   * `ui/groupeMessages`) : ni avatar ni pseudo/heure, le corps seul sur la
+   * gouttière — les rafales d'un même auteur ne répètent pas son identité.
+   */
+  suite: boolean;
 }) {
   const formatHeure = useHeure();
   const heure = formatHeure(message.horodatage);
@@ -133,12 +140,30 @@ export const LigneMessage = memo(function LigneMessage({
       // TalkBack ne peut plus atteindre « réessayer », « abandonner » ni les
       // pièces jointes individuellement.
       accessible={false}
-      style={[styles.message, statutEnvoi === 'en-attente' && styles.enAttente]}
+      style={[
+        styles.message,
+        suite && styles.messageSuite,
+        statutEnvoi === 'en-attente' && styles.enAttente,
+      ]}
     >
-      {/* La ligne est `accessible={false}` pour que TalkBack atteigne
+      {suite ? (
+        // Une suite garde la GOUTTIÈRE de l'avatar (le corps reste aligné sur
+        // celui du message de tête) et y loge SON heure, en tout petit — le
+        // regroupement ne doit pas coûter l'information. `adjustsFontSizeToFit` :
+        // l'heure anglaise (« 2:05 PM ») déborde 34 px à taille pleine — elle
+        // se resserre plutôt que tronquer.
+        <Text
+          style={[styles.heureGouttiere, { color: c.texteTertiaire }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+        >
+          {heure}
+        </Text>
+      ) : (
+      /* La ligne est `accessible={false}` pour que TalkBack atteigne
           réessayer/abandonner/pièces jointes ; l'initiale décorative ne doit
           pas devenir un nœud de plus, elle double la navigation au balayage.
-          (`importantForAccessibility` n'ôte que le nœud a11y — le tap marche.) */}
+          (`importantForAccessibility` n'ôte que le nœud a11y — le tap marche.) */
       <View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
         <Pressable
           onPress={ouvrirProfil}
@@ -170,24 +195,32 @@ export const LigneMessage = memo(function LigneMessage({
           />
         </Pressable>
       </View>
+      )}
       <View style={styles.corps}>
-        <View style={styles.enTete}>
-          <TexteTappable
-            style={[styles.auteur, { color: teinteAuteur }]}
-            numberOfLines={1}
-            onPress={ouvrirProfil}
-            accessibilityLabel={t('ligneMessage.profilDe', { nom: auteur })}
-          >
-            {auteur}
-          </TexteTappable>
-          <Text style={[styles.heure, { color: c.texteTertiaire }]}>{heure}</Text>
-          {message.modifieLe !== null && (
-            <Text style={[styles.heure, { color: c.texteTertiaire }]}>{t('ligneMessage.modifie')}</Text>
-          )}
-          {statutEnvoi === 'en-attente' && (
-            <Text style={[styles.heure, { color: c.texteTertiaire }]}>{t('ligneMessage.envoiEnCours')}</Text>
-          )}
-        </View>
+        {/* Une suite tait le pseudo et l'heure — mais « modifié » et
+            « envoi… » restent dus au lecteur : leur ligne ne se rend que
+            quand l'un d'eux a quelque chose à dire. */}
+        {(!suite || message.modifieLe !== null || statutEnvoi === 'en-attente') && (
+          <View style={styles.enTete}>
+            {!suite && (
+              <TexteTappable
+                style={[styles.auteur, { color: teinteAuteur }]}
+                numberOfLines={1}
+                onPress={ouvrirProfil}
+                accessibilityLabel={t('ligneMessage.profilDe', { nom: auteur })}
+              >
+                {auteur}
+              </TexteTappable>
+            )}
+            {!suite && <Text style={[styles.heure, { color: c.texteTertiaire }]}>{heure}</Text>}
+            {message.modifieLe !== null && (
+              <Text style={[styles.heure, { color: c.texteTertiaire }]}>{t('ligneMessage.modifie')}</Text>
+            )}
+            {statutEnvoi === 'en-attente' && (
+              <Text style={[styles.heure, { color: c.texteTertiaire }]}>{t('ligneMessage.envoiEnCours')}</Text>
+            )}
+          </View>
+        )}
         {citations.map((jointe, i) => (
           <Citation key={i} c={c} jointe={jointe} client={client} surAppuiLong={appuiLong} />
         ))}
@@ -760,6 +793,18 @@ function JointeFichier({
 
 const styles = StyleSheet.create({
   message: { flexDirection: 'row', gap: 10, paddingVertical: 6 },
+  // Suite d'un même auteur : collée au message de tête (l'écart intra-groupe
+  // se réduit au paddingBottom du dessus), gouttière = largeur de la tuile,
+  // occupée par l'heure du message. `lineHeight` = celle du corps : l'heure
+  // s'aligne sur la première ligne de texte.
+  messageSuite: { paddingTop: 0 },
+  heureGouttiere: {
+    width: 34,
+    fontFamily: POLICES.corps,
+    fontSize: 9,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
   corps: { flex: 1, gap: 2 },
   enAttente: { opacity: 0.55 },
   enTete: { flexDirection: 'row', alignItems: 'baseline', gap: 7 },

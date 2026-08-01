@@ -24,6 +24,7 @@ import {
   type PreferenceLangue,
   type Traducteur,
   formateurHeure,
+  formateurJour,
   langueAppareil,
   traduire,
 } from './messages.ts';
@@ -101,6 +102,12 @@ export function useT(): Traducteur {
 export function useHeure(): (ms: number) => string {
   const langue = useLangue();
   return useMemo(() => formateurHeure(langue), [langue]);
+}
+
+/** Le libellé des séparateurs de jour (« Aujourd'hui », « Hier », la date). */
+export function useJour(): (ms: number) => string {
+  const langue = useLangue();
+  return useMemo(() => formateurJour(langue), [langue]);
 }
 
 /**

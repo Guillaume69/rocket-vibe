@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { CATALOGUES, LANGUES, formateurHeure, langueAppareil, traduire } from './messages.ts';
+import {
+  CATALOGUES,
+  LANGUES,
+  formateurHeure,
+  formateurJour,
+  langueAppareil,
+  traduire,
+} from './messages.ts';
 
 describe('traduire', () => {
   test('substitue les {param}', () => {
@@ -52,6 +59,26 @@ describe('formateurHeure', () => {
     const ms = Date.UTC(2026, 0, 15, 14, 5, 0);
     assert.match(formateurHeure('fr')(ms), /^\d{2}:\d{2}$/u);
     assert.match(formateurHeure('en')(ms), /^\d{1,2}:\d{2}\s[AP]M$/u);
+  });
+});
+
+describe('formateurJour', () => {
+  // Dates construites en HEURE LOCALE (midi : loin des bords de jour) et
+  // `maintenant` injecté : rien ne dépend du fuseau ni de l'horloge du runner.
+  const maintenant = new Date(2026, 7, 1, 12).getTime(); // samedi 1ᵉʳ août 2026
+
+  test("aujourd'hui et hier passent par le catalogue, pas par la date", () => {
+    assert.equal(formateurJour('fr')(maintenant, maintenant), "Aujourd'hui");
+    assert.equal(formateurJour('fr')(new Date(2026, 6, 31, 9).getTime(), maintenant), 'Hier');
+    assert.equal(formateurJour('en')(maintenant, maintenant), 'Today');
+    assert.equal(formateurJour('en')(new Date(2026, 6, 31, 9).getTime(), maintenant), 'Yesterday');
+  });
+
+  test("l'année courante porte le jour de semaine, une autre année porte l'année", () => {
+    assert.equal(formateurJour('fr')(new Date(2026, 6, 30, 12).getTime(), maintenant), 'jeudi 30 juillet');
+    assert.equal(formateurJour('fr')(new Date(2025, 6, 30, 12).getTime(), maintenant), '30 juillet 2025');
+    assert.equal(formateurJour('en')(new Date(2026, 6, 30, 12).getTime(), maintenant), 'Thursday, July 30');
+    assert.equal(formateurJour('en')(new Date(2025, 6, 30, 12).getTime(), maintenant), 'July 30, 2025');
   });
 });
 

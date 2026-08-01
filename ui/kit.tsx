@@ -35,6 +35,7 @@ import Animated, {
 import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar } from '../lib/upload.ts';
 import { useEtagsAvatars } from './identites.tsx';
+import { useJour } from './i18n.ts';
 import { type Couleurs, degradeAvatar, type Degrade, POLICES } from './theme.ts';
 
 const DEBUT = { x: 0, y: 0 } as const;
@@ -446,6 +447,23 @@ export function BadgeNonLus({ c, n }: { c: Couleurs; n: number }) {
   );
 }
 
+/**
+ * Séparateur de jour des listes de messages (salon et fil) : le libellé
+ * (« Aujourd'hui », « Hier », la date — `useJour`) entre deux traits. Même
+ * silhouette que la barre « nouveaux messages » du salon, mais aux couleurs
+ * discrètes : c'est un repère, pas une alerte.
+ */
+export function SeparateurJour({ c, horodatage }: { c: Couleurs; horodatage: number }) {
+  const formatJour = useJour();
+  return (
+    <View style={styles.separateurJour}>
+      <View style={[styles.traitJour, { backgroundColor: c.bordure }]} />
+      <Text style={[styles.texteJour, { color: c.attenue }]}>{formatJour(horodatage)}</Text>
+      <View style={[styles.traitJour, { backgroundColor: c.bordure }]} />
+    </View>
+  );
+}
+
 export type PropsChampPilule = {
   c: Couleurs;
   etiquette: string;
@@ -556,6 +574,9 @@ const styles = StyleSheet.create({
   // `lineHeight` explicite : sans lui, Android ajoute au Text le padding de
   // police de Nunito, asymétrique, et le chiffre se pose bas dans la capsule.
   badgeNonLusTexte: { fontFamily: POLICES.corpsFort, fontSize: 12, lineHeight: 14 },
+  separateurJour: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
+  traitJour: { flex: 1, height: 1, borderRadius: 1 },
+  texteJour: { fontFamily: POLICES.corpsSemi, fontSize: 11.5 },
   groupeChamp: { gap: 6 },
   champEtiquette: { fontFamily: POLICES.corpsGras, fontSize: 12.5, paddingLeft: 4 },
   pilule: {

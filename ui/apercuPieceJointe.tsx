@@ -21,6 +21,7 @@ import { useT } from './i18n.ts';
 import { LecteurAudio } from './lecteurAudio.tsx';
 import type { Traducteur } from './messages.ts';
 import { emojiFichier, estImage } from './mime.ts';
+import type { QualiteEnvoi } from './qualitePieceJointe.ts';
 import { type Couleurs, POLICES } from './theme.ts';
 
 export type FichierEnAttente = {
@@ -45,12 +46,21 @@ export function ApercuPieceJointe({
   occupe = false,
   retraitHorizontal = 12,
   retraitVertical,
+  qualite = null,
+  surQualite,
 }: {
   c: Couleurs;
   fichier: FichierEnAttente;
   onRetirer: () => void;
   /** Envoi en cours : le retrait est gelé (le fichier est déjà en vol). */
   occupe?: boolean;
+  /**
+   * Choix de qualité (pastilles Réduite/Originale) — `null` quand il n'y a
+   * rien à choisir (audio, document, image légère, ou écran sans réduction).
+   * La réduction elle-même se fait à l'ENVOI, chez l'appelant.
+   */
+  qualite?: QualiteEnvoi | null;
+  surQualite?: (qualite: QualiteEnvoi) => void;
   /**
    * Retrait horizontal de la carte. 12 par défaut : dans le composeur du salon,
    * le parent n'a pas de padding, la carte s'inset donc elle-même. Quand
@@ -111,11 +121,75 @@ export function ApercuPieceJointe({
               {enImage ? t('apercuPieceJointe.image') : fichier.type || t('apercuPieceJointe.fichier')}
               {taille !== null ? ` · ${taille}` : ''}
             </Text>
+            {qualite !== null && surQualite !== undefined && (
+              <View style={styles.qualites}>
+                {(['reduite', 'originale'] as const).map((q) => (
+                  <PastilleQualite
+                    key={q}
+                    c={c}
+                    quelle={q}
+                    choisie={qualite === q}
+                    occupe={occupe}
+                    surChoisir={surQualite}
+                  />
+                ))}
+              </View>
+            )}
           </View>
           <BoutonRetirer c={c} onRetirer={onRetirer} occupe={occupe} />
         </View>
       )}
     </Animated.View>
+  );
+}
+
+/**
+ * Une des deux pastilles du choix de qualité. Gelée pendant l'envoi (`occupe`) :
+ * la version qui part est déjà en cours de préparation, changer d'avis ici ne
+ * serait qu'un mensonge d'affichage.
+ */
+function PastilleQualite({
+  c,
+  quelle,
+  choisie,
+  occupe,
+  surChoisir,
+}: {
+  c: Couleurs;
+  quelle: QualiteEnvoi;
+  choisie: boolean;
+  occupe: boolean;
+  surChoisir: (qualite: QualiteEnvoi) => void;
+}) {
+  const t = useT();
+  return (
+    <Pressable
+      onPress={() => surChoisir(quelle)}
+      disabled={occupe}
+      hitSlop={6}
+      accessibilityRole="button"
+      accessibilityState={{ selected: choisie }}
+      accessibilityLabel={t(
+        quelle === 'reduite'
+          ? 'apercuPieceJointe.envoyerReduite'
+          : 'apercuPieceJointe.envoyerOriginale',
+      )}
+      style={[
+        styles.pastille,
+        {
+          borderColor: choisie ? c.accent : c.bordure,
+          backgroundColor: choisie ? c.surfaceActive : 'transparent',
+          opacity: occupe ? 0.5 : 1,
+        },
+      ]}
+    >
+      <Text
+        style={[styles.pastilleTexte, { color: choisie ? c.texte : c.attenue }]}
+        numberOfLines={1}
+      >
+        {t(quelle === 'reduite' ? 'apercuPieceJointe.reduite' : 'apercuPieceJointe.originale')}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -174,6 +248,14 @@ const styles = StyleSheet.create({
   infos: { flex: 1, minWidth: 0, gap: 2 },
   nom: { fontFamily: POLICES.corpsGras, fontSize: 13.5 },
   meta: { fontFamily: POLICES.corps, fontSize: 11 },
+  qualites: { flexDirection: 'row', gap: 6, marginTop: 3 },
+  pastille: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 2,
+  },
+  pastilleTexte: { fontFamily: POLICES.corpsSemi, fontSize: 11 },
   retirer: {
     width: 30,
     height: 30,

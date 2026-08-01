@@ -49,7 +49,8 @@ import { useT } from './i18n.ts';
 import { TuileAvatar } from './kit.tsx';
 import { estRejetArbreDeVues, lancerSelecteurAvecReprise } from './lancerSelecteur.ts';
 import { NavigateurEmoji, usePanneauEmoji } from './navigateurEmoji.tsx';
-import { compresserImageSiUtile } from './preparerPieceJointe.ts';
+import { reduirePieceJointe } from './preparerPieceJointe.ts';
+import { reductionProposable, type QualiteEnvoi } from './qualitePieceJointe.ts';
 import { annulerReponse, useReponse } from './reponse.ts';
 import { useRetourMateriel } from './retourMateriel.ts';
 import { demanderSource, feuilleEstMontee } from './sourcePieceJointe.ts';
@@ -124,6 +125,11 @@ export function Composer({
   // pose au-dessus du composer, on lui ajoute une légende, puis on l'envoie —
   // au lieu de partir dès le choix (7.x). Une seule à la fois.
   const [enAttente, setEnAttente] = useState<FichierEnAttente | null>(null);
+  // Qualité d'envoi d'un média réductible (photo lourde, vidéo) : « réduite »
+  // par défaut, basculable sur les pastilles de l'aperçu. La réduction se fait
+  // À L'ENVOI (voir `envoyer`) — pas au choix du fichier, où elle ferait payer
+  // un transcodage à qui retire la pièce ou veut l'original.
+  const [qualite, setQualite] = useState<QualiteEnvoi>('reduite');
   // `.m4a` AAC (préréglage HIGH_QUALITY) — le MIME attendu est `audio/mp4`.
   const enregistreur = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const routeur = useRouter();
@@ -187,15 +193,26 @@ export function Composer({
     if (enAttente !== null && fichiers !== null) {
       setErreurFichier(null);
       setEnvoiFichier(true);
+      const originale = enAttente;
       // `fichiers.envoyer` valide (taille/type), persiste l'intention puis
       // téléverse ; il ne REJETTE que sur un refus de validation. Tout le
       // reste — refus serveur ET réseau injoignable — devient une ligne du
       // bandeau de l'écran, désormais affichée QUEL QUE SOIT son statut : un
       // envoi hors ligne reste `en-attente` et n'aurait été visible nulle part.
       // On ne vide donc l'aperçu qu'au succès, sinon le fichier serait perdu.
-      fichiers
-        .envoyer(rid, enAttente, texteAEnvoyer || undefined)
-        .then(() => {
+      void (async () => {
+        // La réduction promise par les pastilles se paie ICI (photo → JPEG
+        // 1920 px, vidéo → MP4 H.264 720p via le module natif Media3) : le
+        // spinner du 📎 couvre le transcodage puis le téléversement.
+        const pret =
+          qualite === 'reduite' && reductionProposable(originale)
+            ? await reduirePieceJointe(originale)
+            : originale;
+        try {
+          await fichiers.envoyer(rid, pret, texteAEnvoyer || undefined);
+          // L'original du sélecteur ne sert plus : la version réduite est
+          // partie (la file effacera SON fichier au solde de la ligne).
+          if (pret.uri !== originale.uri) void supprimerSiTemporaire(originale.uri);
           setEnAttente(null);
           // La citation, elle, a été CONSOMMÉE par le message qui vient de
           // partir — son permalien est dans `texteAEnvoyer`, calculé avant
@@ -214,14 +231,19 @@ export function Composer({
             reinitialiser();
             effacerBrouillon();
           }
-        })
-        .catch((e: unknown) =>
+        } catch (e) {
+          // Refus de validation : l'aperçu (l'original) reste en place ; la
+          // version réduite orpheline s'efface — elle se recalculera si on
+          // réessaie.
+          if (pret.uri !== originale.uri) void supprimerSiTemporaire(pret.uri);
           setErreurFichier(
             phraseValidation(e, t) ??
               (e instanceof Error ? e.message : t('salon.televersementImpossible')),
-          ),
-        )
-        .finally(() => setEnvoiFichier(false));
+          );
+        } finally {
+          setEnvoiFichier(false);
+        }
+      })();
       return;
     }
     if (legende === '') return;
@@ -244,6 +266,7 @@ export function Composer({
   }, [
     brouillon,
     enAttente,
+    qualite,
     envoi,
     fichiers,
     rid,
@@ -291,29 +314,19 @@ export function Composer({
     }
   }, [enregistrement, enregistreur, t]);
 
-  // Normalise un média/fichier choisi en pièce en attente : compression (7.3)
-  // DÈS le choix — l'aperçu montre déjà ce qui partira (une photo repart en
-  // JPEG raisonnable, inutile de pousser 12 Mpx pour un chat ; logique partagée
-  // avec l'écran de partage) — puis on la pose au-dessus du composer, en
-  // attente d'une légende. Validation (taille/type) et envoi arrivent au clic
-  // sur « envoyer » (voir `envoyer`).
-  const poserPieceJointe = useCallback(async (brut: FichierEnAttente) => {
-    setEnvoiFichier(true);
-    try {
-      const pret = await compresserImageSiUtile(brut);
-      // La compression a écrit un JPEG neuf : l'original copié par le picker
-      // ne sert plus à rien. Et choisir une SECONDE pièce sans envoyer la
-      // première abandonnait la sienne de la même façon.
-      if (pret.uri !== brut.uri) void supprimerSiTemporaire(brut.uri);
-      // Choisir une SECONDE pièce sans envoyer la première abandonnait la
-      // sienne : aucune ligne SQL ne l'avait jamais connue.
-      if (enAttente !== null && enAttente.uri !== pret.uri) {
-        void supprimerSiTemporaire(enAttente.uri);
-      }
-      setEnAttente(pret);
-    } finally {
-      setEnvoiFichier(false);
+  // Pose un média/fichier choisi au-dessus du composer, en attente d'une
+  // légende. La pièce reste l'ORIGINAL : la réduction éventuelle (7.3) se paie
+  // à l'envoi, selon les pastilles de qualité de l'aperçu — « réduite » est
+  // réarmé à chaque pose, le choix vaut pour UNE pièce, pas pour la session.
+  // Validation (taille/type) et envoi arrivent au clic sur ➤ (voir `envoyer`).
+  const poserPieceJointe = useCallback((piece: FichierEnAttente) => {
+    // Choisir une SECONDE pièce sans envoyer la première abandonnait la
+    // sienne : aucune ligne SQL ne l'avait jamais connue.
+    if (enAttente !== null && enAttente.uri !== piece.uri) {
+      void supprimerSiTemporaire(enAttente.uri);
     }
+    setEnAttente(piece);
+    setQualite('reduite');
   }, [enAttente]);
 
   // Referme la feuille « joindre », restée ouverte pendant le sélecteur. Le
@@ -340,10 +353,8 @@ export function Composer({
           quality: 1,
         }),
       );
-      // On referme DÈS le retour du sélecteur, avant la compression : sinon la
-      // feuille resterait affichée le temps de traiter une grosse photo.
       fermerFeuilleJoindre();
-      if (!res.canceled) await poserPieceJointe(assetVersFichier(res.assets[0]));
+      if (!res.canceled) poserPieceJointe(assetVersFichier(res.assets[0]));
     },
     [poserPieceJointe, fermerFeuilleJoindre, t],
   );
@@ -356,7 +367,7 @@ export function Composer({
       }),
     );
     fermerFeuilleJoindre();
-    if (!res.canceled) await poserPieceJointe(assetVersFichier(res.assets[0]));
+    if (!res.canceled) poserPieceJointe(assetVersFichier(res.assets[0]));
   }, [poserPieceJointe, fermerFeuilleJoindre]);
 
   const depuisFichier = useCallback(async () => {
@@ -366,7 +377,7 @@ export function Composer({
     fermerFeuilleJoindre();
     if (choix.canceled || choix.assets.length === 0) return;
     const brut = choix.assets[0];
-    await poserPieceJointe({
+    poserPieceJointe({
       uri: brut.uri,
       nom: brut.name,
       type: brut.mimeType ?? 'application/octet-stream',
@@ -445,7 +456,11 @@ export function Composer({
           c={c}
           fichier={enAttente}
           occupe={envoiFichier}
-          onRetirer={() => setEnAttente(null)}
+          // Le même geste que le retour matériel : l'aperçu part ET son
+          // fichier temporaire aussi — le ✕ seul laissait fuir le cache.
+          onRetirer={retirerEnAttente}
+          qualite={reductionProposable(enAttente) ? qualite : null}
+          surQualite={setQualite}
         />
       )}
       {reponse !== null && (

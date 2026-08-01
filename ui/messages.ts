@@ -309,6 +309,12 @@ const fr = {
   'apercuPieceJointe.octets': '{taille} o',
   'apercuPieceJointe.kilooctets': '{taille} Ko',
   'apercuPieceJointe.megaoctets': '{taille} Mo',
+  // Pastilles du choix de qualité d'un média (photo lourde, vidéo) — la
+  // réduction se fait à l'envoi (ui/preparerPieceJointe.ts).
+  'apercuPieceJointe.reduite': 'Réduite',
+  'apercuPieceJointe.originale': 'Originale',
+  'apercuPieceJointe.envoyerReduite': 'Envoyer en qualité réduite',
+  'apercuPieceJointe.envoyerOriginale': "Envoyer en qualité d'origine",
 
   // ── Cartes (aperçus de liens / embeds)
   'carteLien.imageAgrandir': 'Image, toucher pour agrandir',
@@ -647,6 +653,10 @@ const en: Record<CleTraduction, string> = {
   'apercuPieceJointe.octets': '{taille} B',
   'apercuPieceJointe.kilooctets': '{taille} KB',
   'apercuPieceJointe.megaoctets': '{taille} MB',
+  'apercuPieceJointe.reduite': 'Reduced',
+  'apercuPieceJointe.originale': 'Original',
+  'apercuPieceJointe.envoyerReduite': 'Send in reduced quality',
+  'apercuPieceJointe.envoyerOriginale': 'Send in original quality',
 
   'carteLien.imageAgrandir': 'Image, tap to enlarge',
   'carteLien.lienDefaut': 'Link',

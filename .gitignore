@@ -9,6 +9,9 @@ google-services.json
 # Toute personnalisation native passe par un config plugin.
 /android/
 /ios/
+# Les modules Expo locaux (modules/) sont DU SOURCE, versionné — mais pas
+# leurs artefacts de build gradle.
+modules/*/android/build/
 
 # Node
 node_modules/

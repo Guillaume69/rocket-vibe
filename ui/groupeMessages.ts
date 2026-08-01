@@ -53,6 +53,43 @@ export function idsSuites(
   return suites;
 }
 
+/**
+ * Parmi les `suites`, les lignes dont l'heure AFFICHÉE (heure:minute) est celle
+ * du message d'au-dessus : leur gouttière reste vide — même logique que pour
+ * l'avatar et le pseudo, une information déjà à l'écran ne se répète pas. Au
+ * sein d'une chaîne de même minute, comparer chaque ligne à son prédécesseur
+ * DIRECT suffit : la dernière heure rendue au-dessus est forcément celle de la
+ * chaîne (« même minute » est transitive).
+ */
+export function idsHeuresRepetees(
+  lignes: readonly (Groupable | { id: string })[],
+  ordre: 'recent-en-tete' | 'ancien-en-tete',
+  suites: ReadonlySet<string>,
+): Set<string> {
+  const repetees = new Set<string>();
+  for (let i = 0; i < lignes.length; i++) {
+    const courant = lignes[i];
+    if (!suites.has(courant.id)) continue;
+    const precedent = lignes[ordre === 'recent-en-tete' ? i + 1 : i - 1];
+    if (precedent === undefined || !estMessage(courant) || !estMessage(precedent)) continue;
+    if (minuteAffichee(courant.horodatage) === minuteAffichee(precedent.horodatage)) {
+      repetees.add(courant.id);
+    }
+  }
+  return repetees;
+}
+
+/**
+ * Deux horodatages dans la même minute EPOCH s'affichent avec la même
+ * heure:minute quel que soit le fuseau : tous les décalages (Inde +5:30,
+ * Népal +5:45 compris) sont des multiples entiers de la minute, une frontière
+ * de minute epoch reste donc une frontière de minute locale. Comparer cette
+ * valeur équivaut à comparer la chaîne rendue, sans dépendre du formateur.
+ */
+function minuteAffichee(ms: number): number {
+  return Math.floor(ms / 60_000);
+}
+
 function seGroupe(m: Groupable): boolean {
   return m.typeSysteme === null || m.typeSysteme === 'e2e';
 }

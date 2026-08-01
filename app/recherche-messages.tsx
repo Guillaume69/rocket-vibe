@@ -127,6 +127,7 @@ function RechercheMessages({
               surReagir={null}
               // Des résultats épars, pas un flux : chacun garde son en-tête.
               suite={false}
+              heureRepetee={false}
             />
           </View>
         )}

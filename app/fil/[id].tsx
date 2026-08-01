@@ -16,7 +16,7 @@ import { MoteurSynchro } from '../../lib/sync.ts';
 import { useActivite } from '../../ui/activite.ts';
 import { useBrouillon } from '../../ui/brouillons.ts';
 import { filChargeSous, marquerFilCharge } from '../../ui/filsCharges.ts';
-import { idsSuites } from '../../ui/groupeMessages.ts';
+import { idsHeuresRepetees, idsSuites } from '../../ui/groupeMessages.ts';
 import { insererSeparateursJour, type LigneJour } from '../../ui/separateurJour.ts';
 import { jetonSession } from '../../ui/jetonSession.ts';
 import { BarreSynchro, SeparateurJour } from '../../ui/kit.tsx';
@@ -174,6 +174,10 @@ function Fil({
     [donnees],
   );
   const suites = useMemo(() => idsSuites(donneesListe, 'ancien-en-tete'), [donneesListe]);
+  const heuresRepetees = useMemo(
+    () => idsHeuresRepetees(donneesListe, 'ancien-en-tete', suites),
+    [donneesListe, suites],
+  );
 
   // Le fil complet, depuis le serveur : rejouable, mêmes upserts idempotents.
   // `generation` : un fil ouvert hors ligne se remplit au raccordement.
@@ -283,10 +287,11 @@ function Fil({
           moi={moi}
           surReagir={etatEnvoi === undefined ? reagir : null}
           suite={suites.has(item.id)}
+          heureRepetee={heuresRepetees.has(item.id)}
         />
       );
     },
-    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, moi, reagir, suites],
+    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, moi, reagir, suites, heuresRepetees],
   );
 
   const liste = useRef<FlashListRef<LigneDeMessage | LigneJour>>(null);

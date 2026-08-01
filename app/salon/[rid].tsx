@@ -45,7 +45,7 @@ import { EnTeteSalon } from '../../ui/enTeteSalon.tsx';
 import { jetonSession } from '../../ui/jetonSession.ts';
 import { insererBarreNonLus, type LigneBarre } from '../../ui/barreNonLus.ts';
 import { useDonneesLissees } from '../../ui/donneesLissees.ts';
-import { idsSuites } from '../../ui/groupeMessages.ts';
+import { idsHeuresRepetees, idsSuites } from '../../ui/groupeMessages.ts';
 import { insererSeparateursJour, type LigneJour } from '../../ui/separateurJour.ts';
 import { avancerBorne, borneImmobile, pageARecule } from '../../ui/paginationSalon.ts';
 import { garderAuChaud, salonCouvert } from '../../ui/salonChaud.ts';
@@ -419,6 +419,10 @@ function Salon({
   // Regroupement des rafales d'un même auteur (`ui/groupeMessages`) : calculé
   // APRÈS les insertions — barre et séparateur rompent les groupes. Données DESC.
   const suites = useMemo(() => idsSuites(donneesListe, 'recent-en-tete'), [donneesListe]);
+  const heuresRepetees = useMemo(
+    () => idsHeuresRepetees(donneesListe, 'recent-en-tete', suites),
+    [donneesListe, suites],
+  );
 
   // Suivi des entrants (idiome duogo) : à l'offset 0, un nouveau `data[0]`
   // s'affiche tout seul — natif. Légèrement remonté, on snappe au bas si le
@@ -706,10 +710,11 @@ function Salon({
           moi={moi}
           surReagir={etatEnvoi === undefined ? reagir : null}
           suite={suites.has(item.id)}
+          heureRepetee={heuresRepetees.has(item.id)}
         />
       );
     },
-    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, ouvrirFil, t, moi, reagir, suites],
+    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, ouvrirFil, t, moi, reagir, suites, heuresRepetees],
   );
 
   return (

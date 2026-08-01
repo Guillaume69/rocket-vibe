@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { FENETRE_GROUPE_MS, idsSuites } from './groupeMessages.ts';
+import { FENETRE_GROUPE_MS, idsHeuresRepetees, idsSuites } from './groupeMessages.ts';
 
 /** Un message minimal, ordinaire par défaut (`typeSysteme: null`). */
 const m = (id: string, horodatage: number, auteurId: string, typeSysteme: string | null = null) => ({
@@ -66,5 +66,47 @@ describe('idsSuites', () => {
   test('les bords : liste vide, message seul — jamais de suite', () => {
     assert.deepEqual(idsSuites([], 'recent-en-tete'), new Set());
     assert.deepEqual(idsSuites([m('m1', 0, 'bob')], 'ancien-en-tete'), new Set());
+  });
+});
+
+describe('idsHeuresRepetees', () => {
+  /** Projette comme les écrans : les suites d'abord, puis les heures répétées. */
+  const projeter = (
+    lignes: Parameters<typeof idsSuites>[0],
+    ordre: 'recent-en-tete' | 'ancien-en-tete',
+  ) => idsHeuresRepetees(lignes, ordre, idsSuites(lignes, ordre));
+
+  test("une suite dans la MÊME minute que le message d'au-dessus tait son heure — dans les deux ordres", () => {
+    // 0 ms et 59 999 ms : même minute affichée, l'heure de m2 est redondante.
+    const desc = [m('m2', 59_999, 'bob'), m('m1', 0, 'bob')];
+    assert.deepEqual(projeter(desc, 'recent-en-tete'), new Set(['m2']));
+    const asc = [m('m1', 0, 'bob'), m('m2', 59_999, 'bob')];
+    assert.deepEqual(projeter(asc, 'ancien-en-tete'), new Set(['m2']));
+  });
+
+  test('une suite dans la minute SUIVANTE garde son heure, même à une seconde près', () => {
+    // 59 999 ms puis 60 000 ms : 1 ms d'écart mais deux minutes affichées.
+    const desc = [m('m2', 60_000, 'bob'), m('m1', 59_999, 'bob')];
+    assert.deepEqual(projeter(desc, 'recent-en-tete'), new Set());
+  });
+
+  test("une chaîne : chaque rupture de minute réaffiche l'heure, les répétitions se taisent", () => {
+    // 11:03, 11:03, 11:04, 11:04 (en minutes epoch 3, 3, 4, 4) : la tête porte
+    // son heure d'en-tête, m2 se tait (même minute), m3 réaffiche (nouvelle
+    // minute), m4 se tait (même minute que m3, dont l'heure est rendue).
+    const desc = [
+      m('m4', 4 * 60_000 + 30_000, 'bob'),
+      m('m3', 4 * 60_000, 'bob'),
+      m('m2', 3 * 60_000 + 40_000, 'bob'),
+      m('m1', 3 * 60_000, 'bob'),
+    ];
+    assert.deepEqual(projeter(desc, 'recent-en-tete'), new Set(['m2', 'm4']));
+  });
+
+  test("une NON-suite n'est jamais concernée : l'en-tête réaffiché porte déjà l'heure", () => {
+    // Même minute mais auteurs différents : m2 n'est pas une suite, son
+    // en-tête (pseudo + heure) se rend entier — rien à taire.
+    const desc = [m('m2', 30_000, 'alice'), m('m1', 0, 'bob')];
+    assert.deepEqual(projeter(desc, 'recent-en-tete'), new Set());
   });
 });

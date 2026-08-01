@@ -67,6 +67,7 @@ export const LigneMessage = memo(function LigneMessage({
   moi,
   surReagir,
   suite,
+  heureRepetee,
 }: {
   c: Couleurs;
   message: LigneDeMessage;
@@ -87,6 +88,12 @@ export const LigneMessage = memo(function LigneMessage({
    * gouttière — les rafales d'un même auteur ne répètent pas son identité.
    */
   suite: boolean;
+  /**
+   * Suite dont l'heure affichée (à la minute) est déjà rendue au-dessus
+   * (`ui/groupeMessages`, `idsHeuresRepetees`) : la gouttière reste vide —
+   * même logique que pour l'avatar, on ne réécrit pas ce qui est à l'écran.
+   */
+  heureRepetee: boolean;
 }) {
   const formatHeure = useHeure();
   const heure = formatHeure(message.horodatage);
@@ -146,7 +153,11 @@ export const LigneMessage = memo(function LigneMessage({
         statutEnvoi === 'en-attente' && styles.enAttente,
       ]}
     >
-      {suite ? (
+      {suite && heureRepetee ? (
+        // L'heure de cette suite est déjà affichée au-dessus (même minute) :
+        // la gouttière garde sa largeur pour l'alignement, mais reste vide.
+        <View style={styles.heureGouttiere} />
+      ) : suite ? (
         // Une suite garde la GOUTTIÈRE de l'avatar (le corps reste aligné sur
         // celui du message de tête) et y loge SON heure, en tout petit — le
         // regroupement ne doit pas coûter l'information. `adjustsFontSizeToFit` :

@@ -4,6 +4,7 @@ mod login;
 mod secrets;
 mod smoke;
 mod style;
+mod widgets;
 mod window;
 
 use std::future::Future;

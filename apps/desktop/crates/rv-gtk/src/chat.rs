@@ -12,6 +12,7 @@ use rv_core::sync::HISTORY_PAGE;
 use serde_json::Value;
 
 use crate::runtime;
+use crate::widgets::{self, TileSize};
 
 const GROUPING_GAP_MS: i64 = 5 * 60 * 1000;
 
@@ -20,6 +21,9 @@ struct Display {
     row: MessageRow,
     show_header: bool,
     show_day: bool,
+    /// A continuation row whose minute differs from the row above: the time
+    /// goes in the avatar gutter.
+    gutter_time: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -28,14 +32,20 @@ struct OpenRoom {
     kind: String,
     name: String,
     read_only: bool,
+    encrypted: bool,
 }
 
 type Callback<T> = RefCell<Vec<Box<dyn Fn(T)>>>;
 
 pub struct ChatPage {
     split: adw::NavigationSplitView,
-    sidebar_title: adw::WindowTitle,
+    account_name: gtk::Label,
+    account_host: gtk::Label,
+    account_tile: gtk::Box,
     status_dot: gtk::Box,
+    comets: Vec<gtk::Box>,
+    connection: Cell<Connection>,
+    room_title: gtk::Box,
     rooms_store: gio::ListStore,
     rooms_selection: gtk::SingleSelection,
     rooms: RefCell<Vec<RoomRow>>,
@@ -130,6 +140,8 @@ fn body_of(row: &MessageRow) -> String {
 fn group(rows: Vec<MessageRow>) -> Vec<Display> {
     let mut out: Vec<Display> = Vec::with_capacity(rows.len());
     for row in rows {
+        let minute = |ts: i64| local(ts).format("%Y%m%d%H%M").to_string();
+        let gutter_time = out.last().is_some_and(|prev| minute(prev.row.ts) != minute(row.ts));
         let (show_header, show_day) = match out.last() {
             None => (true, true),
             Some(prev) => {
@@ -142,7 +154,7 @@ fn group(rows: Vec<MessageRow>) -> Vec<Display> {
                 (header, new_day)
             }
         };
-        out.push(Display { row, show_header, show_day });
+        out.push(Display { gutter_time: gutter_time && !show_header, row, show_header, show_day });
     }
     out
 }
@@ -151,29 +163,32 @@ fn label(text: &str, classes: &[&str]) -> gtk::Label {
     gtk::Label::builder().label(text).xalign(0.0).css_classes(classes.to_vec()).build()
 }
 
+fn room_tile(name: &str, kind: &str, encrypted: bool, size: TileSize) -> gtk::Widget {
+    if encrypted {
+        return widgets::tile(name, "🔒", size, true);
+    }
+    let glyph = if kind == "d" { widgets::initial(name) } else { "#".to_owned() };
+    widgets::tile(name, &glyph, size, false)
+}
+
 fn room_widget(r: &RoomRow) -> gtk::Widget {
-    let unread = r.unread > 0;
-    let prefix = match r.kind.as_str() {
-        "c" => "# ",
-        "p" => "🔒 ",
-        _ => "",
-    };
-    let name = label(&format!("{prefix}{}", r.name), &["room-name"]);
+    let unread = r.unread > 0 || r.alert;
+    let name = label(&r.name, &["room-name"]);
     name.set_hexpand(true);
     name.set_ellipsize(pango::EllipsizeMode::End);
-    let time = label(&short_time(r.last_ts), &["dim-label", "caption", "room-time"]);
-    let preview_text = match (&r.last_message, r.encrypted) {
-        (Some(m), _) => m.clone(),
-        (None, true) => "Encrypted message".to_owned(),
-        (None, false) => String::new(),
+    let time = label(&short_time(r.last_ts), &["room-time"]);
+    let preview = match (&r.last_message, r.encrypted) {
+        (Some(m), _) => label(m, &["room-preview"]),
+        (None, true) => label("Encrypted message", &["room-preview", "encrypted"]),
+        (None, false) => label("", &["room-preview"]),
     };
-    let preview = label(&preview_text, &["dim-label"]);
     preview.set_hexpand(true);
     preview.set_ellipsize(pango::EllipsizeMode::End);
     preview.set_single_line_mode(true);
     if unread {
-        name.add_css_class("unread");
-        time.add_css_class("unread");
+        for l in [&name, &time, &preview] {
+            l.add_css_class("unread");
+        }
     }
 
     let top = gtk::Box::new(gtk::Orientation::Horizontal, 6);
@@ -181,14 +196,8 @@ fn room_widget(r: &RoomRow) -> gtk::Widget {
     top.append(&time);
     let bottom = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     bottom.append(&preview);
-    if unread {
-        let text = if r.mentions > 0 { format!("@{}", r.unread) } else { r.unread.to_string() };
-        let badge = label(&text, &["badge"]);
-        if r.mentions > 0 {
-            badge.add_css_class("mention");
-        }
-        badge.set_valign(gtk::Align::Center);
-        bottom.append(&badge);
+    if r.unread > 0 {
+        bottom.append(&widgets::unread_badge(r.unread, r.mentions));
     }
 
     let column = gtk::Box::new(gtk::Orientation::Vertical, 2);
@@ -197,10 +206,22 @@ fn room_widget(r: &RoomRow) -> gtk::Widget {
     column.append(&top);
     column.append(&bottom);
 
-    let row = gtk::Box::builder().spacing(12).margin_top(8).margin_bottom(8).margin_start(6).margin_end(6).build();
-    row.append(&adw::Avatar::new(40, Some(&r.name), true));
+    let row = gtk::Box::builder().spacing(12).margin_top(9).margin_bottom(9).margin_start(10).margin_end(10).build();
+    let tile = room_tile(&r.name, &r.kind, r.encrypted, TileSize::Room);
+    tile.set_valign(gtk::Align::Center);
+    row.append(&tile);
     row.append(&column);
     row.upcast()
+}
+
+fn day_label(ts: i64) -> String {
+    let day = local(ts).date_naive();
+    let today = Local::now().date_naive();
+    match (today - day).num_days() {
+        0 => "Today".to_owned(),
+        1 => "Yesterday".to_owned(),
+        _ => local(ts).format("%A %-d %B %Y").to_string(),
+    }
 }
 
 fn message_widget(d: &Display, my_id: &str, on_retry: impl Fn(String) + 'static) -> gtk::Widget {
@@ -210,20 +231,20 @@ fn message_widget(d: &Display, my_id: &str, on_retry: impl Fn(String) + 'static)
         .spacing(2)
         .margin_start(16)
         .margin_end(16)
-        .margin_top(if d.show_header { 10 } else { 1 })
+        .margin_top(if d.show_header { 12 } else { 0 })
         .build();
 
     if d.show_day {
-        let day = gtk::Box::builder().spacing(10).margin_top(8).margin_bottom(6).build();
-        let left = gtk::Separator::new(gtk::Orientation::Horizontal);
-        left.set_hexpand(true);
-        left.set_valign(gtk::Align::Center);
-        let right = gtk::Separator::new(gtk::Orientation::Horizontal);
-        right.set_hexpand(true);
-        right.set_valign(gtk::Align::Center);
-        day.append(&left);
-        day.append(&label(&local(row.ts).format("%A %-d %B %Y").to_string(), &["dim-label", "caption"]));
-        day.append(&right);
+        let day = gtk::Box::builder().spacing(10).margin_top(10).margin_bottom(6).build();
+        for part in 0..3 {
+            if part == 1 {
+                day.append(&label(&day_label(row.ts), &["day-label"]));
+            } else {
+                let line =
+                    gtk::Box::builder().css_classes(["day-line"]).hexpand(true).valign(gtk::Align::Center).build();
+                day.append(&line);
+            }
+        }
         outer.append(&day);
     }
 
@@ -231,31 +252,40 @@ fn message_widget(d: &Display, my_id: &str, on_retry: impl Fn(String) + 'static)
     if row.system_type.is_some() {
         let system = label(&body_text, &["system-message"]);
         system.set_wrap(true);
-        system.set_margin_start(48);
+        system.set_margin_start(44);
+        system.set_margin_top(2);
+        system.set_margin_bottom(2);
         outer.append(&system);
         return outer.upcast();
     }
 
     let author = row.author.clone().unwrap_or_default();
-    let line = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let line = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     if d.show_header {
-        let avatar = adw::Avatar::new(36, Some(&author), true);
-        avatar.set_valign(gtk::Align::Start);
-        line.append(&avatar);
+        line.append(&widgets::tile(&author, &widgets::initial(&author), TileSize::Message, false));
     } else {
-        line.append(&gtk::Box::builder().width_request(36).build());
+        let gutter = gtk::Label::builder()
+            .label(if d.gutter_time { local(row.ts).format("%H:%M").to_string() } else { String::new() })
+            .css_classes(["gutter-time"])
+            .width_request(34)
+            .valign(gtk::Align::Start)
+            .margin_top(4)
+            .build();
+        line.append(&gutter);
     }
 
     let column = gtk::Box::new(gtk::Orientation::Vertical, 2);
     column.set_hexpand(true);
     if d.show_header {
-        let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        let header = gtk::Box::new(gtk::Orientation::Horizontal, 7);
         let name = label(&author, &["author"]);
         if row.author_id == my_id {
             name.add_css_class("mine");
         }
         header.append(&name);
-        header.append(&label(&local(row.ts).format("%H:%M").to_string(), &["dim-label", "caption"]));
+        let time = label(&local(row.ts).format("%H:%M").to_string(), &["message-time"]);
+        time.set_valign(gtk::Align::Baseline);
+        header.append(&time);
         column.append(&header);
     }
 
@@ -273,19 +303,22 @@ fn message_widget(d: &Display, my_id: &str, on_retry: impl Fn(String) + 'static)
     }
     column.append(&body);
 
-    if row.edited || failed || row.thread_count > 0 {
+    if row.edited || pending || failed || row.thread_count > 0 {
         let footer = gtk::Box::new(gtk::Orientation::Horizontal, 10);
-        if row.edited {
-            footer.append(&label("(edited)", &["dim-label", "caption"]));
-        }
         if row.thread_count > 0 {
             let n = row.thread_count;
-            footer
-                .append(&label(&format!("{n} {}", if n == 1 { "reply" } else { "replies" }), &["replies", "caption"]));
+            let chip = label(&format!("💬 {n} {}", if n == 1 { "reply" } else { "replies" }), &["thread-chip"]);
+            chip.set_margin_top(3);
+            footer.append(&chip);
+        }
+        if row.edited {
+            footer.append(&label("(edited)", &["message-note"]));
+        }
+        if pending {
+            footer.append(&label("⏳ sending…", &["message-note"]));
         }
         if failed {
-            let retry =
-                gtk::Button::builder().label("Not sent. Retry").css_classes(["flat", "error", "caption"]).build();
+            let retry = gtk::Button::builder().label("⚠️ Failed, retry").css_classes(["flat", "retry"]).build();
             let id = row.id.clone();
             retry.connect_clicked(move |_| on_retry(id.clone()));
             footer.append(&retry);
@@ -311,26 +344,55 @@ impl ChatPage {
             item.set_child(Some(&room_widget(&object.borrow::<RoomRow>())));
         });
         let rooms_view = gtk::ListView::new(Some(rooms_selection.clone()), Some(room_factory));
-        rooms_view.add_css_class("navigation-sidebar");
+        rooms_view.add_css_class("rooms");
 
-        let sidebar_title = adw::WindowTitle::new("", "");
-        let status_dot = gtk::Box::builder().css_classes(["status-dot", "offline"]).valign(gtk::Align::Center).build();
+        let status_dot = gtk::Box::builder()
+            .css_classes(["status-dot", "offline"])
+            .valign(gtk::Align::Center)
+            .halign(gtk::Align::Center)
+            .build();
         let status_button = gtk::Button::builder()
             .child(&status_dot)
             .css_classes(["flat"])
             .tooltip_text("Offline, click to reconnect")
             .build();
-        let logout = gtk::Button::builder().icon_name("system-log-out-symbolic").tooltip_text("Sign out").build();
-        let sidebar_header = adw::HeaderBar::new();
-        sidebar_header.set_title_widget(Some(&sidebar_title));
+        let logout = gtk::Button::builder()
+            .icon_name("system-log-out-symbolic")
+            .css_classes(["flat"])
+            .tooltip_text("Sign out")
+            .build();
+        let brand = gtk::Box::builder().spacing(8).build();
+        brand.append(&gtk::Label::builder().label("🦄").css_classes(["unicorn-header"]).build());
+        brand.append(&widgets::brand("brand-header"));
+        let sidebar_header = adw::HeaderBar::builder().show_end_title_buttons(false).build();
+        sidebar_header.set_title_widget(Some(&brand));
         sidebar_header.pack_start(&status_button);
         sidebar_header.pack_end(&logout);
+        let sidebar_comet = widgets::comet();
+
+        let account_tile = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        let account_name = label("", &["account-name"]);
+        let account_host = label("", &["account-host"]);
+        let account_text =
+            gtk::Box::builder().orientation(gtk::Orientation::Vertical).valign(gtk::Align::Center).build();
+        account_text.append(&account_name);
+        account_text.append(&account_host);
+        let account = gtk::Box::builder().spacing(10).css_classes(["account"]).build();
+        account.append(&account_tile);
+        account.append(&account_text);
+
         let sidebar_toolbar = adw::ToolbarView::new();
         sidebar_toolbar.add_top_bar(&sidebar_header);
+        sidebar_toolbar.add_top_bar(&sidebar_comet);
         sidebar_toolbar.set_content(Some(
-            &gtk::ScrolledWindow::builder().hscrollbar_policy(gtk::PolicyType::Never).child(&rooms_view).build(),
+            &gtk::ScrolledWindow::builder()
+                .hscrollbar_policy(gtk::PolicyType::Never)
+                .child(&rooms_view)
+                .margin_top(6)
+                .build(),
         ));
-        let sidebar_page = adw::NavigationPage::new(&sidebar_toolbar, "Rooms");
+        sidebar_toolbar.add_bottom_bar(&account);
+        let sidebar_page = adw::NavigationPage::new(&sidebar_toolbar, "rocket-vibe");
 
         let messages_store = gio::ListStore::new::<glib::BoxedAnyObject>();
         let messages_view =
@@ -341,25 +403,36 @@ impl ChatPage {
             .child(&messages_view)
             .build();
 
-        let composer =
-            gtk::TextView::builder().wrap_mode(gtk::WrapMode::WordChar).accepts_tab(false).hexpand(true).build();
+        let composer = gtk::TextView::builder()
+            .wrap_mode(gtk::WrapMode::WordChar)
+            .accepts_tab(false)
+            .hexpand(true)
+            .valign(gtk::Align::Center)
+            .top_margin(0)
+            .bottom_margin(0)
+            .build();
+        // `External`: still scrolls past 160 px, but without a scrollbar whose
+        // minimum height would make a one-line composer twice as tall.
         let composer_scroll = gtk::ScrolledWindow::builder()
             .hscrollbar_policy(gtk::PolicyType::Never)
+            .vscrollbar_policy(gtk::PolicyType::External)
             .propagate_natural_height(true)
             .max_content_height(160)
             .child(&composer)
-            .css_classes(["composer"])
             .hexpand(true)
             .build();
+        let composer_pill =
+            gtk::Box::builder().css_classes(["composer-pill"]).hexpand(true).valign(gtk::Align::End).build();
+        composer_pill.append(&composer_scroll);
         let send = gtk::Button::builder()
             .icon_name("mail-send-symbolic")
             .tooltip_text("Send")
-            .css_classes(["circular", "suggested-action"])
+            .css_classes(["send"])
             .valign(gtk::Align::End)
             .build();
         let composer_bar =
-            gtk::Box::builder().spacing(8).margin_top(10).margin_bottom(10).margin_start(12).margin_end(12).build();
-        composer_bar.append(&composer_scroll);
+            gtk::Box::builder().spacing(10).margin_top(10).margin_bottom(12).margin_start(14).margin_end(14).build();
+        composer_bar.append(&composer_pill);
         composer_bar.append(&send);
         let read_only_label = gtk::Label::builder()
             .label("This room is read-only.")
@@ -369,8 +442,13 @@ impl ChatPage {
             .visible(false)
             .build();
 
+        let room_title = gtk::Box::builder().spacing(10).build();
+        let room_header = adw::HeaderBar::new();
+        room_header.set_title_widget(Some(&room_title));
+        let room_comet = widgets::comet();
         let room_view = adw::ToolbarView::new();
-        room_view.add_top_bar(&adw::HeaderBar::new());
+        room_view.add_top_bar(&room_header);
+        room_view.add_top_bar(&room_comet);
         room_view.set_content(Some(&messages_scroll));
         let bottom = gtk::Box::new(gtk::Orientation::Vertical, 0);
         bottom.append(&composer_bar);
@@ -379,9 +457,18 @@ impl ChatPage {
 
         let empty = adw::ToolbarView::new();
         empty.add_top_bar(&adw::HeaderBar::builder().show_title(false).build());
-        empty.set_content(Some(
-            &adw::StatusPage::builder().title("Pick a conversation").icon_name("user-available-symbolic").build(),
-        ));
+        let empty_content = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(6)
+            .valign(gtk::Align::Center)
+            .halign(gtk::Align::Center)
+            .build();
+        empty_content.append(&gtk::Label::builder().label("🦄").css_classes(["unicorn-hero"]).build());
+        empty_content.append(&gtk::Label::builder().label("Pick a conversation").css_classes(["empty-title"]).build());
+        empty_content.append(
+            &gtk::Label::builder().label("Everything is synced and sparkling ✨").css_classes(["empty-hint"]).build(),
+        );
+        empty.set_content(Some(&empty_content));
         let content_stack = gtk::Stack::new();
         content_stack.add_named(&empty, Some("empty"));
         content_stack.add_named(&room_view, Some("room"));
@@ -395,8 +482,13 @@ impl ChatPage {
 
         let this = Rc::new(ChatPage {
             split,
-            sidebar_title,
+            account_name,
+            account_host,
+            account_tile,
             status_dot,
+            comets: vec![sidebar_comet, room_comet],
+            connection: Cell::new(Connection::Offline),
+            room_title,
             rooms_store,
             rooms_selection,
             rooms: RefCell::default(),
@@ -544,8 +636,13 @@ impl ChatPage {
     pub fn set_session(&self, session: Option<Arc<Session>>) {
         if let Some(s) = &session {
             let host = url::Url::parse(&s.info.base_url).ok().and_then(|u| u.host_str().map(str::to_owned));
-            self.sidebar_title.set_title(&s.info.username);
-            self.sidebar_title.set_subtitle(&host.unwrap_or_default());
+            self.account_name.set_label(&s.info.username);
+            self.account_host.set_label(&host.unwrap_or_default());
+            while let Some(child) = self.account_tile.first_child() {
+                self.account_tile.remove(&child);
+            }
+            let tile = widgets::tile(&s.info.username, &widgets::initial(&s.info.username), TileSize::Message, false);
+            self.account_tile.append(&tile);
         }
         self.session.replace(session);
         self.current.replace(None);
@@ -569,6 +666,24 @@ impl ChatPage {
         self.status_dot.set_css_classes(&["status-dot", class]);
         if let Some(button) = self.status_dot.parent() {
             button.set_tooltip_text(Some(tip));
+        }
+        self.connection.set(c);
+        self.update_comets();
+    }
+
+    fn set_loading(&self, loading: bool) {
+        self.loading.set(loading);
+        self.update_comets();
+    }
+
+    fn update_comets(&self) {
+        let active = self.loading.get() || self.connection.get() != Connection::Online;
+        for comet in &self.comets {
+            if active {
+                comet.add_css_class("active");
+            } else {
+                comet.remove_css_class("active");
+            }
         }
     }
 
@@ -617,6 +732,11 @@ impl ChatPage {
     fn refresh_room_header(&self) {
         let Some(open) = self.current.borrow().clone() else { return };
         self.content_page.set_title(&open.name);
+        while let Some(child) = self.room_title.first_child() {
+            self.room_title.remove(&child);
+        }
+        self.room_title.append(&room_tile(&open.name, &open.kind, open.encrypted, TileSize::Header));
+        self.room_title.append(&label(&open.name, &["room-title"]));
         self.composer_bar.set_visible(!open.read_only);
         self.read_only_label.set_visible(open.read_only);
     }
@@ -674,6 +794,7 @@ impl ChatPage {
             kind: room.kind.clone(),
             name: room.name.clone(),
             read_only: room.read_only,
+            encrypted: room.encrypted,
         }));
         let index = self.rooms.borrow().iter().position(|r| r.rid == rid);
         if let Some(i) = index
@@ -698,7 +819,7 @@ impl ChatPage {
         self.reload_messages();
         self.composer.grab_focus();
 
-        self.loading.set(true);
+        self.set_loading(true);
         let weak = Rc::downgrade(self);
         let (rid, kind) = (room.rid, room.kind);
         glib::spawn_future_local(async move {
@@ -712,7 +833,7 @@ impl ChatPage {
                 if let Ok(page) = page {
                     this.has_older.set(page.count as i64 >= HISTORY_PAGE);
                 }
-                this.loading.set(false);
+                this.set_loading(false);
                 this.scroll_to_bottom();
             }
         });
@@ -725,7 +846,7 @@ impl ChatPage {
         let Some(open) = self.current.borrow().clone() else { return };
         let Some(session) = self.session.borrow().clone() else { return };
         let Some(oldest) = self.messages.borrow().first().map(|d| d.row.ts) else { return };
-        self.loading.set(true);
+        self.set_loading(true);
         let weak = Rc::downgrade(self);
         glib::spawn_future_local(async move {
             let (rid, kind) = (open.rid.clone(), open.kind.clone());
@@ -741,7 +862,7 @@ impl ChatPage {
                 this.limit.set(this.limit.get() + HISTORY_PAGE);
                 this.reload_messages();
             }
-            this.loading.set(false);
+            this.set_loading(false);
         });
     }
 

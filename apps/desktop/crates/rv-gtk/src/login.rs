@@ -1,79 +1,140 @@
 use adw::prelude::*;
 use gtk::glib;
 
+use crate::widgets;
+
+type Rgba = (f64, f64, f64, f64);
+
+/// Decorative starry sky, as fractions of the page: (x, y, radius px, colour).
+const STARS: [(f64, f64, f64, Rgba); 12] = [
+    (0.08, 0.12, 5.0, (1.0, 1.0, 1.0, 0.5)),
+    (0.83, 0.18, 6.0, (1.0, 0.83, 0.31, 0.7)),
+    (0.16, 0.33, 4.5, (0.20, 0.88, 0.82, 0.6)),
+    (0.90, 0.43, 5.5, (1.0, 1.0, 1.0, 0.4)),
+    (0.07, 0.62, 5.0, (0.65, 0.55, 0.98, 0.55)),
+    (0.77, 0.74, 4.5, (0.20, 0.88, 0.82, 0.4)),
+    (0.30, 0.85, 4.0, (1.0, 1.0, 1.0, 0.35)),
+    (0.62, 0.08, 4.5, (0.65, 0.55, 0.98, 0.5)),
+    (0.40, 0.22, 3.5, (1.0, 1.0, 1.0, 0.35)),
+    (0.95, 0.88, 5.0, (1.0, 0.83, 0.31, 0.6)),
+    (0.22, 0.95, 4.5, (0.65, 0.55, 0.98, 0.5)),
+    (0.68, 0.55, 3.5, (1.0, 1.0, 1.0, 0.3)),
+];
+
 pub struct LoginPage {
-    pub widget: adw::ToolbarView,
-    subtitle: gtk::Label,
-    credentials: adw::PreferencesGroup,
-    server: adw::EntryRow,
-    user: adw::EntryRow,
-    password: adw::PasswordEntryRow,
-    code_group: adw::PreferencesGroup,
-    code: adw::EntryRow,
+    pub widget: gtk::Overlay,
+    credentials: gtk::Box,
+    server: gtk::Entry,
+    user: gtk::Entry,
+    password: gtk::Entry,
+    code_step: gtk::Box,
+    code_intro: gtk::Label,
+    code_caption: gtk::Label,
+    code: gtk::Entry,
     error: gtk::Label,
     submit: gtk::Button,
     back: gtk::Button,
 }
 
+fn hero() -> gtk::Box {
+    let hero = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(4).margin_bottom(10).build();
+    hero.append(&gtk::Label::builder().label("🦄").css_classes(["unicorn-hero"]).build());
+    let bars = gtk::Box::builder().spacing(5).halign(gtk::Align::Center).margin_top(8).margin_bottom(8).build();
+    for colour in ["rainbow-pink", "rainbow-yellow", "rainbow-cyan", "rainbow-violet"] {
+        bars.append(&gtk::Box::builder().css_classes(["rainbow-bar", colour]).build());
+    }
+    hero.append(&bars);
+    hero.append(&widgets::brand("brand-hero"));
+    hero.append(&gtk::Label::builder().label("Your magical little chat corner ✨").css_classes(["slogan"]).build());
+    hero
+}
+
+/// Four-pointed sparkles drawn with Cairo, so they need no font.
+fn starry(page: &gtk::Widget) -> gtk::Overlay {
+    let sky = gtk::DrawingArea::builder().can_target(false).hexpand(true).vexpand(true).build();
+    sky.set_draw_func(|_, cr, w, h| {
+        for (fx, fy, r, (red, green, blue, alpha)) in STARS {
+            let (x, y) = (fx * w as f64, fy * h as f64);
+            let r = r * 1.4;
+            let k = r * 0.18;
+            cr.move_to(x, y - r);
+            cr.curve_to(x + k, y - k, x + k, y - k, x + r, y);
+            cr.curve_to(x + k, y + k, x + k, y + k, x, y + r);
+            cr.curve_to(x - k, y + k, x - k, y + k, x - r, y);
+            cr.curve_to(x - k, y - k, x - k, y - k, x, y - r);
+            cr.close_path();
+            cr.set_source_rgba(red, green, blue, alpha);
+            let _ = cr.fill();
+        }
+    });
+    let overlay = gtk::Overlay::new();
+    overlay.set_child(Some(&sky));
+    overlay.add_overlay(page);
+    overlay
+}
+
 impl LoginPage {
     pub fn new() -> Self {
-        let brand = gtk::Label::builder().label("rocket-vibe").css_classes(["brand"]).build();
-        let subtitle = gtk::Label::builder()
-            .label("Sign in to your Rocket.Chat server.")
-            .css_classes(["dim-label"])
-            .wrap(true)
-            .justify(gtk::Justification::Center)
-            .build();
+        let (server_group, server) = widgets::pill_field("Server address", "chat.example.com", false);
+        let (user_group, user) = widgets::pill_field("Username or email", "jane.doe", false);
+        let (password_group, password) = widgets::pill_field("Password", "••••••••", true);
+        let credentials = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(14).build();
+        credentials.append(&hero());
+        credentials.append(&server_group);
+        credentials.append(&user_group);
+        credentials.append(&password_group);
 
-        let server = adw::EntryRow::builder().title("Server").build();
-        let user = adw::EntryRow::builder().title("Username or email").build();
-        let password = adw::PasswordEntryRow::builder().title("Password").build();
-        let credentials = adw::PreferencesGroup::new();
-        credentials.add(&server);
-        credentials.add(&user);
-        credentials.add(&password);
+        let back = gtk::Button::builder().css_classes(["flat", "back-link"]).halign(gtk::Align::Start).build();
+        let back_content = gtk::Box::builder().spacing(8).build();
+        back_content.append(&gtk::Label::builder().label("‹").css_classes(["chevron"]).build());
+        back_content.append(&gtk::Label::new(Some("Sign in")));
+        back.set_child(Some(&back_content));
 
-        let code = adw::EntryRow::builder().title("Code").build();
-        let code_group = adw::PreferencesGroup::builder().visible(false).build();
-        code_group.add(&code);
+        let code_intro =
+            gtk::Label::builder().css_classes(["step-intro"]).justify(gtk::Justification::Center).wrap(true).build();
+        let (code_group, code) = widgets::pill_field("Authenticator app code", "123456", false);
+        code.add_css_class("code");
+        EditableExt::set_alignment(&code, 0.5);
+        code.set_input_purpose(gtk::InputPurpose::Digits);
+        let code_caption = code_group.first_child().and_downcast::<gtk::Label>().expect("caption");
+        let code_step = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(6).visible(false).build();
+        code_step.append(&back);
+        code_step.append(&gtk::Label::builder().label("🛡️").css_classes(["shield"]).margin_top(6).build());
+        code_step.append(&gtk::Label::builder().label("Magic verification").css_classes(["step-title"]).build());
+        code_step.append(&code_intro);
+        code_group.set_margin_top(14);
+        code_step.append(&code_group);
 
-        let error = gtk::Label::builder().css_classes(["error"]).wrap(true).visible(false).build();
-        let submit = gtk::Button::builder().label("Sign in").css_classes(["suggested-action", "pill"]).build();
-        let back = gtk::Button::builder().label("Back").css_classes(["flat"]).visible(false).build();
+        let error = gtk::Label::builder().css_classes(["login-error"]).wrap(true).xalign(0.0).visible(false).build();
+        let submit = widgets::cta("Sign in");
 
         let column = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
-            .spacing(18)
+            .spacing(16)
             .valign(gtk::Align::Center)
-            .margin_top(24)
-            .margin_bottom(24)
-            .margin_start(16)
-            .margin_end(16)
+            .margin_top(32)
+            .margin_bottom(32)
+            .margin_start(26)
+            .margin_end(26)
             .build();
-        for w in [
-            brand.upcast_ref::<gtk::Widget>(),
-            subtitle.upcast_ref(),
-            credentials.upcast_ref(),
-            code_group.upcast_ref(),
-            error.upcast_ref(),
-            submit.upcast_ref(),
-            back.upcast_ref(),
-        ] {
-            column.append(w);
-        }
-        let clamp = adw::Clamp::builder().maximum_size(420).child(&column).build();
-        let widget = adw::ToolbarView::new();
-        widget.add_top_bar(&adw::HeaderBar::builder().show_title(false).build());
-        widget.set_content(Some(&clamp));
+        column.append(&credentials);
+        column.append(&code_step);
+        column.append(&error);
+        column.append(&submit);
+        let clamp = adw::Clamp::builder().maximum_size(400).child(&column).build();
+        let scroller = gtk::ScrolledWindow::builder().hscrollbar_policy(gtk::PolicyType::Never).child(&clamp).build();
+        let page = adw::ToolbarView::new();
+        page.add_top_bar(&adw::HeaderBar::builder().show_title(false).build());
+        page.set_content(Some(&scroller));
 
-        server.connect_entry_activated(glib::clone!(
+        server.connect_activate(glib::clone!(
             #[weak]
             user,
             move |_| {
                 user.grab_focus();
             }
         ));
-        user.connect_entry_activated(glib::clone!(
+        user.connect_activate(glib::clone!(
             #[weak]
             password,
             move |_| {
@@ -81,15 +142,28 @@ impl LoginPage {
             }
         ));
 
-        LoginPage { widget, subtitle, credentials, server, user, password, code_group, code, error, submit, back }
+        LoginPage {
+            widget: starry(page.upcast_ref()),
+            credentials,
+            server,
+            user,
+            password,
+            code_step,
+            code_intro,
+            code_caption,
+            code,
+            error,
+            submit,
+            back,
+        }
     }
 
     pub fn connect_submit(&self, f: impl Fn() + Clone + 'static) {
         let g = f.clone();
         self.submit.connect_clicked(move |_| f());
         let h = g.clone();
-        self.password.connect_entry_activated(move |_| g());
-        self.code.connect_entry_activated(move |_| h());
+        self.password.connect_activate(move |_| g());
+        self.code.connect_activate(move |_| h());
     }
 
     pub fn connect_back(&self, f: impl Fn() + 'static) {
@@ -124,10 +198,10 @@ impl LoginPage {
 
     pub fn set_busy(&self, busy: bool) {
         self.submit.set_sensitive(!busy);
-        let asking = self.code_group.is_visible();
+        let asking = self.code_step.is_visible();
         self.submit.set_label(match (busy, asking) {
             (true, _) => "Signing in…",
-            (false, true) => "Verify",
+            (false, true) => "Confirm",
             (false, false) => "Sign in",
         });
     }
@@ -141,15 +215,16 @@ impl LoginPage {
     pub fn ask_code(&self, method: Option<&str>) {
         let asking = method.is_some();
         self.credentials.set_visible(!asking);
-        self.code_group.set_visible(asking);
-        self.back.set_visible(asking);
+        self.code_step.set_visible(asking);
         self.code.set_text("");
-        self.subtitle.set_label(match method {
-            Some("totp") => "Enter the code from your authenticator app.",
-            Some("email") => "Enter the code sent to your email.",
-            Some(_) => "Confirm your password.",
-            None => "Sign in to your Rocket.Chat server.",
-        });
+        let (caption, intro, secret) = match method {
+            Some("email") => ("Code received by email", "This account is protected by a code sent via email.", false),
+            Some("password") => ("Confirm your password", "Re-enter your password to confirm.", true),
+            _ => ("Authenticator app code", "Enter the code from your\nauthenticator app ✨", false),
+        };
+        self.code_caption.set_label(caption);
+        self.code_intro.set_label(intro);
+        self.code.set_visibility(!secret);
         self.set_busy(false);
         if asking {
             self.code.grab_focus();

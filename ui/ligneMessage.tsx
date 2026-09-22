@@ -7,9 +7,8 @@
  */
 
 import { useRouter } from 'expo-router';
-import { memo, useMemo, useState } from 'react';
+import { memo, useMemo } from 'react';
 import {
-  ActivityIndicator,
   Image,
   Pressable,
   StyleSheet,
@@ -36,7 +35,8 @@ import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar, urlFichierProtege } from '../lib/upload.ts';
 import { LiensEmbed } from './carteEmbed.tsx';
 import { ApercusLien } from './carteLien.tsx';
-import { ouvrirJointeProtegee } from './fichierJoint.ts';
+import { proposerTelechargerOuPartager } from './actionsJointe.ts';
+import { BarreTransfert } from './barreTransfert.tsx';
 import { useEtagsAvatars, useIdentites } from './identites.tsx';
 import { useHeure, useT } from './i18n.ts';
 import { TuileAvatar } from './kit.tsx';
@@ -50,6 +50,7 @@ import {
   degradeAvatar,
   largeurDispoCorps,
   POLICES,
+  useCouleurs,
 } from './theme.ts';
 import { useVisionneuse } from './visionneuse.tsx';
 
@@ -560,6 +561,7 @@ function ImageJointe({
 }) {
   const visionneuse = useVisionneuse();
   const t = useT();
+  const c = useCouleurs();
   if (typeof jointe.image_url !== 'string') return null;
   const source = typeof jointe.title_link === 'string' ? jointe.title_link : jointe.image_url;
   const url = urlFichierProtege(client, source);
@@ -577,6 +579,7 @@ function ImageJointe({
           hauteur: reelHauteur,
           titre: jointe.title ?? null,
           type: jointe.image_type ?? null,
+          cle: source,
         })
       }
       onLongPress={surAppuiLong}
@@ -589,6 +592,7 @@ function ImageJointe({
         style={[style, { width: largeur, height: hauteur }]}
         resizeMode="cover"
       />
+      <BarreTransfert cle={source} c={c} rayon={10} />
     </Pressable>
   );
 }
@@ -718,6 +722,9 @@ function PiecesJointes({
               url={url}
               titre={jointe.title ?? null}
               surAppuiLong={surAppuiLong}
+              superposition={
+                <BarreTransfert cle={jointe.title_link ?? jointe.video_url} c={c} rayon={14} />
+              }
             />
           );
         }
@@ -740,18 +747,13 @@ function PiecesJointes({
 }
 
 /**
- * Pièce jointe « fichier » (PDF, archive, tableur…) : on TÉLÉCHARGE puis on
- * ouvre la feuille de partage sur la copie locale.
+ * Pièce jointe « fichier » (PDF, archive, tableur, APK…) : au toucher, le choix
+ * — télécharger ou partager — vient AVANT tout téléchargement ; celui-ci suit
+ * en fond, sa progression sous le nom (\`ui/actionsJointe.ts\`).
  *
- * Cette branche remettait l'URL protégée — `rc_uid` et `rc_token` en query — à
- * `Linking.openURL`, donc à Chrome, à son historique et à sa synchronisation
- * vers le compte Google, et à toute application déclarant gérer https. Un
- * `rc_token` vaut le compte entier. L'image et la vidéo, elles, respectaient
- * déjà l'invariant posé en tête de `ui/visionneuse.tsx` en gardant l'URL en
- * mémoire ; seule celle-ci sortait.
- *
- * Un composant, et pas une ligne dans la boucle : il lui faut un état (le
- * téléchargement dure) et on ne peut pas appeler de hook dans un `map`.
+ * L'URL protégée (\`rc_uid\` et \`rc_token\` en query) ne quitte jamais le
+ * processus : elle était remise à \`Linking.openURL\`, donc à Chrome, à son
+ * historique et à sa synchronisation, et un \`rc_token\` vaut le compte entier.
  */
 function JointeFichier({
   c,
@@ -767,39 +769,20 @@ function JointeFichier({
   surAppuiLong: (() => void) | undefined;
 }) {
   const t = useT();
-  const [enCours, setEnCours] = useState(false);
-  const [echec, setEchec] = useState(false);
-
-  const ouvrir = () => {
-    // Un second appui pendant le téléchargement ne relance rien : deux
-    // `downloadAsync` sur la même destination s'écraseraient l'un l'autre.
-    if (enCours) return;
-    setEnCours(true);
-    setEchec(false);
-    // Pas de MIME à passer : `attachments` n'en porte pas (son `type` vaut
-    // « file », ce n'est pas un type de média). C'est l'extension du nom, via le
-    // FileProvider, qui oriente la feuille de partage.
-    ouvrirJointeProtegee({ url: urlFichierProtege(client, chemin), titre, type: null })
-      .then(
-        () => setEchec(false),
-        () => setEchec(true),
-      )
-      .finally(() => setEnCours(false));
-  };
+  // Pas de MIME : \`attachments\` n'en porte pas pour un fichier (son \`type\`
+  // vaut « file »). C'est l'extension du nom qui oriente le système.
+  const choisir = () =>
+    proposerTelechargerOuPartager(
+      { cle: chemin, url: urlFichierProtege(client, chemin), titre, type: null },
+      t,
+    );
 
   return (
-    <Pressable onPress={ouvrir} onLongPress={surAppuiLong} delayLongPress={350}>
-      <View style={styles.ligneFichier}>
-        <Text style={[styles.texte, { color: c.accent }]} numberOfLines={2}>
-          📄 {titre ?? t('ligneMessage.fichier')}
-        </Text>
-        {enCours && <ActivityIndicator size="small" color={c.accent} />}
-      </View>
-      {echec && (
-        <Text style={[styles.texte, styles.italique, { color: c.texteErreur }]}>
-          {t('ligneMessage.fichierOuvertureEchouee')}
-        </Text>
-      )}
+    <Pressable onPress={choisir} onLongPress={surAppuiLong} delayLongPress={350}>
+      <Text style={[styles.texte, { color: c.accent }]} numberOfLines={2}>
+        📄 {titre ?? t('ligneMessage.fichier')}
+      </Text>
+      <BarreTransfert cle={chemin} c={c} />
     </Pressable>
   );
 }
@@ -860,7 +843,6 @@ const styles = StyleSheet.create({
   reactionImage: { width: 16, height: 16 },
   reactionCode: { fontFamily: POLICES.corps, fontSize: 11, maxWidth: 90 },
   reactionTotal: { fontFamily: POLICES.corpsGras, fontSize: 12 },
-  ligneFichier: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   imageJointe: { borderRadius: 10, backgroundColor: '#00000010' },
   puceFil: {
     alignSelf: 'flex-start',

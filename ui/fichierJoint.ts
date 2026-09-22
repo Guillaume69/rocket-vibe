@@ -14,12 +14,13 @@
  * hors appareil. Même patron que `ui/transportUpload.ts`.
  */
 
-import { Directory, File } from 'expo-file-system';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Asset, requestPermissionsAsync } from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 
-import { ouvrirFichierJoint, telechargerFichierJoint, versGalerie } from '../lib/fichierJoint.ts';
+import { telechargerFichierJoint, versGalerie } from '../lib/fichierJoint.ts';
+import { Telechargements } from '../modules/telechargements/index.ts';
+import type { Progression } from './transferts.ts';
 
 /** Levée quand rien ne peut ouvrir le fichier : l'appelant en informe l'écran. */
 export class ErreurOuvertureFichier extends Error {
@@ -29,71 +30,72 @@ export class ErreurOuvertureFichier extends Error {
   }
 }
 
-/**
- * Télécharge la pièce jointe protégée puis propose de l'ouvrir. L'URL
- * authentifiée ne sort pas du processus : seul le `file://` local est confié au
- * système.
- */
-export async function ouvrirJointeProtegee(options: {
+type OptionsJointe = {
   url: string;
   titre: string | null | undefined;
   type: string | null | undefined;
-}): Promise<void> {
+  surProgression?: (p: Progression) => void;
+};
+
+/**
+ * Télécharge dans le cache, ou y retrouve le fichier : l'écriture passe par un
+ * `.part` renommé à la fin, donc un fichier présent sous son vrai nom est
+ * COMPLET. Partager après avoir enregistré ne retélécharge rien.
+ */
+async function versLeCache(options: OptionsJointe): Promise<string> {
   const dossier = FileSystem.cacheDirectory;
   if (dossier === null) {
     throw new ErreurOuvertureFichier('Aucun dossier de cache disponible.');
   }
+  const { surProgression } = options;
+  return telechargerFichierJoint({
+    ...options,
+    dossier,
+    creerDossier: async (chemin) => {
+      await FileSystem.makeDirectoryAsync(chemin, { intermediates: true });
+    },
+    telecharger: async (url, destination) => {
+      if ((await FileSystem.getInfoAsync(destination)).exists) return;
+      const partiel = `${destination}.part`;
+      const tache = FileSystem.createDownloadResumable(url, partiel, {}, (e) => {
+        surProgression?.(
+          e.totalBytesExpectedToWrite > 0 ? e.totalBytesWritten / e.totalBytesExpectedToWrite : null,
+        );
+      });
+      const res = await tache.downloadAsync();
+      // Un 401/403/404 s'écrit quand même sur le disque : sans ce contrôle, on
+      // partagerait ou enregistrerait le corps JSON de l'erreur.
+      if (res === undefined || res.status !== 200) {
+        await FileSystem.deleteAsync(partiel, { idempotent: true });
+        throw new ErreurOuvertureFichier(`Téléchargement refusé (HTTP ${res?.status ?? 0}).`);
+      }
+      await FileSystem.moveAsync({ from: partiel, to: destination });
+    },
+  });
+}
+
+/**
+ * Télécharge la pièce jointe protégée puis ouvre la feuille de partage dessus.
+ * L'URL authentifiée ne sort pas du processus : seul le `file://` local est
+ * confié au système.
+ */
+export async function ouvrirJointeProtegee(options: OptionsJointe): Promise<void> {
   if (!(await Sharing.isAvailableAsync())) {
     throw new ErreurOuvertureFichier('Le partage de fichiers est indisponible.');
   }
-
-  await ouvrirFichierJoint({
-    ...options,
-    dossier,
-    creerDossier: async (chemin) => {
-      await FileSystem.makeDirectoryAsync(chemin, { intermediates: true });
-    },
-    telecharger: telechargerDansLeCache,
-    partager: async (fichierLocal, type) => {
-      await Sharing.shareAsync(fichierLocal, type === null ? {} : { mimeType: type });
-    },
-  });
+  const local = await versLeCache(options);
+  await Sharing.shareAsync(local, options.type ? { mimeType: options.type } : {});
 }
 
-// Un 401/403/404 s'écrit quand même sur le disque : sans ce contrôle, on
-// partagerait ou enregistrerait le corps JSON de l'erreur en croyant tenir le fichier.
-async function telechargerDansLeCache(url: string, destination: string): Promise<void> {
-  const res = await FileSystem.downloadAsync(url, destination);
-  if (res.status !== 200) {
-    throw new ErreurOuvertureFichier(`Téléchargement refusé (HTTP ${res.status}).`);
-  }
-}
-
-/** `galerie`, `dossier`, ou `null` quand l'utilisateur a refermé le sélecteur de dossier. */
-export type LieuEnregistrement = 'galerie' | 'dossier' | null;
+export type LieuEnregistrement = 'galerie' | 'telechargements';
 
 /**
  * Télécharge la pièce jointe protégée puis l'ENREGISTRE sur l'appareil : photo,
- * vidéo et son dans la galerie (MediaStore, sans permission depuis Android 10),
- * tout autre fichier dans un dossier choisi par l'utilisateur.
+ * vidéo et son dans la galerie, tout autre fichier dans Téléchargements — les
+ * deux par MediaStore, sans permission depuis Android 10.
  */
-export async function enregistrerJointeProtegee(options: {
-  url: string;
-  titre: string | null | undefined;
-  type: string | null | undefined;
-}): Promise<LieuEnregistrement> {
-  const dossier = FileSystem.cacheDirectory;
-  if (dossier === null) {
-    throw new ErreurOuvertureFichier('Aucun dossier de cache disponible.');
-  }
-  const local = await telechargerFichierJoint({
-    ...options,
-    dossier,
-    creerDossier: async (chemin) => {
-      await FileSystem.makeDirectoryAsync(chemin, { intermediates: true });
-    },
-    telecharger: telechargerDansLeCache,
-  });
+export async function enregistrerJointeProtegee(options: OptionsJointe): Promise<LieuEnregistrement> {
+  const local = await versLeCache(options);
   const nom = local.slice(local.lastIndexOf('/') + 1);
 
   if (versGalerie(nom, options.type)) {
@@ -109,13 +111,6 @@ export async function enregistrerJointeProtegee(options: {
     return 'galerie';
   }
 
-  let cible: Directory;
-  try {
-    cible = await Directory.pickDirectoryAsync();
-  } catch {
-    return null;
-  }
-  const fichier = cible.createFile(nom, options.type ?? 'application/octet-stream');
-  fichier.write(await new File(local).bytes());
-  return 'dossier';
+  await Telechargements.enregistrer(local, nom, options.type ?? null);
+  return 'telechargements';
 }

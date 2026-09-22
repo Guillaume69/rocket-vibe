@@ -31,11 +31,14 @@ export function LecteurVideo({
   url,
   titre,
   surAppuiLong,
+  superposition,
 }: {
   c: Couleurs;
   url: string;
   titre?: string | null;
   surAppuiLong?: (() => void) | undefined;
+  /** Rendue par-dessus la carte (progression d'un téléchargement). */
+  superposition?: React.ReactNode;
 }) {
   const t = useT();
   const [ouvert, setOuvert] = useState(false);
@@ -75,6 +78,7 @@ export function LecteurVideo({
             {titre ?? t('lecteurVideo.video')}
           </Text>
         </View>
+        {superposition}
       </Pressable>
 
       {ouvert && <ModaleVideo c={c} url={url} titre={titre ?? null} onFermer={() => setOuvert(false)} />}

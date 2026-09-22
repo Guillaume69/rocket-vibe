@@ -25,7 +25,6 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  ToastAndroid,
   View,
 } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -37,9 +36,10 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { enregistrerJointeProtegee } from './fichierJoint.ts';
+import { enregistrerEnFond } from './actionsJointe.ts';
 import { useT } from './i18n.ts';
 import { POLICES, useCouleurs } from './theme.ts';
+import { libelleProgression, useProgression } from './transferts.ts';
 
 export type CibleImage = {
   /** URL absolue déjà authentifiée (rc_uid/rc_token inclus). */
@@ -49,6 +49,8 @@ export type CibleImage = {
   titre?: string | null;
   /** MIME de l'image, quand le message le porte : nomme le fichier enregistré. */
   type?: string | null;
+  /** Chemin serveur, sans jeton : la clé du transfert, partagée avec la ligne du message. */
+  cle?: string | null;
 };
 
 type ContexteVisionneuse = {
@@ -95,30 +97,22 @@ function ModaleImage({ cible, onFermer }: { cible: CibleImage | null; onFermer: 
   const c = useCouleurs();
   const insets = useSafeAreaInsets();
   const [charge, setCharge] = useState(false);
-  const [enregistrement, setEnregistrement] = useState(false);
+  const cleTransfert = cible === null ? null : (cible.cle ?? cible.uri);
+  const progression = useProgression(cleTransfert);
 
   const enregistrer = () => {
-    if (cible === null || enregistrement) return;
-    setEnregistrement(true);
-    enregistrerJointeProtegee({
-      url: cible.uri,
-      titre: cible.titre,
-      // Une visionneuse ne montre que des images : faute de MIME, le fichier
-      // part quand même vers la galerie.
-      type: cible.type ?? 'image/jpeg',
-    })
-      .then(
-        (lieu) => {
-          if (lieu !== null) {
-            ToastAndroid.show(
-              t(lieu === 'galerie' ? 'enregistrement.galerie' : 'enregistrement.dossier'),
-              ToastAndroid.SHORT,
-            );
-          }
-        },
-        () => ToastAndroid.show(t('enregistrement.echec'), ToastAndroid.SHORT),
-      )
-      .finally(() => setEnregistrement(false));
+    if (cible === null || cleTransfert === null) return;
+    enregistrerEnFond(
+      {
+        cle: cleTransfert,
+        url: cible.uri,
+        titre: cible.titre ?? null,
+        // Une visionneuse ne montre que des images : faute de MIME, le fichier
+        // part quand même vers la galerie.
+        type: cible.type ?? 'image/jpeg',
+      },
+      t,
+    );
   };
 
   const echelle = useSharedValue(1);
@@ -257,16 +251,16 @@ function ModaleImage({ cible, onFermer }: { cible: CibleImage | null; onFermer: 
 
         <Pressable
           onPress={enregistrer}
-          disabled={enregistrement}
+          disabled={progression !== undefined}
           hitSlop={12}
           style={[styles.enregistrer, { top: insets.top + 8, backgroundColor: c.carte + 'D9' }]}
           accessibilityRole="button"
           accessibilityLabel={t('actionsMessage.enregistrer')}
         >
-          {enregistrement ? (
-            <ActivityIndicator size="small" color={c.texte} />
-          ) : (
+          {progression === undefined ? (
             <Text style={[styles.croix, { color: c.texte }]}>⤓</Text>
+          ) : (
+            <Text style={[styles.pourcentage, { color: c.texte }]}>{libelleProgression(progression)}</Text>
           )}
         </Pressable>
 
@@ -310,6 +304,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  pourcentage: { fontFamily: POLICES.corpsSemi, fontSize: 11 },
   croix: { fontFamily: POLICES.corpsFort, fontSize: 17, lineHeight: 20 },
   legende: {
     position: 'absolute',

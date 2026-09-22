@@ -10,7 +10,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  ToastAndroid,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -36,7 +35,7 @@ import { jointeAPartager } from '../lib/fichierJoint.ts';
 import { listeReactions } from '../lib/reactions.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { urlFichierProtege } from '../lib/upload.ts';
-import { enregistrerJointeProtegee, ouvrirJointeProtegee } from '../ui/fichierJoint.ts';
+import { enregistrerEnFond, partagerEnFond } from '../ui/actionsJointe.ts';
 import { useT } from '../ui/i18n.ts';
 import { demanderReponse } from '../ui/reponse.ts';
 import { useSession } from '../ui/session.tsx';
@@ -119,8 +118,6 @@ export default function EcranActionsMessage() {
   const [edition, setEdition] = useState<string | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
   const [occupe, setOccupe] = useState(false);
-  const [partageEnCours, setPartageEnCours] = useState(false);
-  const [enregistrementEnCours, setEnregistrementEnCours] = useState(false);
 
   const pret = synchro.phase === 'pret' && etat.phase === 'connecte' && typeof id === 'string';
   const base = synchro.phase === 'pret' ? synchro.base : null;
@@ -272,50 +269,28 @@ export default function EcranActionsMessage() {
     routeur.back();
   };
 
-  // Un fichier joint part COMME fichier (téléchargé puis confié à la feuille de
-  // partage) ; sinon le texte. La légende d'une image reste à « Copier ».
+  // Un fichier joint part COMME fichier ; sinon le texte. La légende d'une
+  // image reste à « Copier ». Le fichier se télécharge EN FOND : la feuille se
+  // referme tout de suite, la progression s'affiche sur le message.
+  const jointe = jointeAPartager(message.piecesJointes);
+  const aTransferer =
+    jointe === null
+      ? null
+      : {
+          cle: jointe.chemin,
+          url: urlFichierProtege(client, jointe.chemin),
+          titre: jointe.titre,
+          type: jointe.type,
+        };
   const partager = async () => {
-    const jointe = jointeAPartager(message.piecesJointes);
-    if (jointe === null) {
+    if (aTransferer === null) {
       await Share.share({ message: texteACopier(message.texte) ?? '' });
       return;
     }
-    setPartageEnCours(true);
-    try {
-      await ouvrirJointeProtegee({
-        url: urlFichierProtege(client, jointe.chemin),
-        titre: jointe.titre,
-        type: jointe.type,
-      });
-    } catch {
-      throw new Error(t('ligneMessage.fichierOuvertureEchouee'));
-    } finally {
-      setPartageEnCours(false);
-    }
+    partagerEnFond(aTransferer, t);
   };
-
   const enregistrer = async () => {
-    const jointe = jointeAPartager(message.piecesJointes);
-    if (jointe === null) return;
-    setEnregistrementEnCours(true);
-    let lieu;
-    try {
-      lieu = await enregistrerJointeProtegee({
-        url: urlFichierProtege(client, jointe.chemin),
-        titre: jointe.titre,
-        type: jointe.type,
-      });
-    } catch {
-      throw new Error(t('enregistrement.echec'));
-    } finally {
-      setEnregistrementEnCours(false);
-    }
-    if (lieu !== null) {
-      ToastAndroid.show(
-        t(lieu === 'galerie' ? 'enregistrement.galerie' : 'enregistrement.dossier'),
-        ToastAndroid.SHORT,
-      );
-    }
+    if (aTransferer !== null) enregistrerEnFond(aTransferer, t);
   };
 
   return (
@@ -432,7 +407,6 @@ export default function EcranActionsMessage() {
               disabled={occupe}
               icone="📤"
               libelle={t('actionsMessage.partager')}
-              enCours={partageEnCours}
               onPress={() => void agir(partager)}
             />
           )}
@@ -442,7 +416,6 @@ export default function EcranActionsMessage() {
               disabled={occupe}
               icone="⬇️"
               libelle={t('actionsMessage.enregistrer')}
-              enCours={enregistrementEnCours}
               onPress={() => void agir(enregistrer)}
             />
           )}
@@ -509,7 +482,6 @@ function ActionLigne({
   onPress,
   disabled,
   destructif = false,
-  enCours = false,
 }: {
   c: ReturnType<typeof useCouleurs>;
   icone: string;
@@ -517,7 +489,6 @@ function ActionLigne({
   onPress: () => void;
   disabled: boolean;
   destructif?: boolean;
-  enCours?: boolean;
 }) {
   return (
     // Le clip de l'enveloppe (`overflow`) découpe l'ondulation en coins
@@ -534,7 +505,6 @@ function ActionLigne({
         <Text style={[styles.ligneTexte, { color: destructif ? c.texteErreur : c.texte }]}>
           {libelle}
         </Text>
-        {enCours && <ActivityIndicator size="small" color={c.accent} />}
       </Pressable>
     </View>
   );
@@ -575,7 +545,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   ligneIcone: { fontSize: 19, width: 24, textAlign: 'center' },
-  ligneTexte: { flex: 1, fontFamily: POLICES.corpsGras, fontSize: 15.5 },
+  ligneTexte: { fontFamily: POLICES.corpsGras, fontSize: 15.5 },
   blocEdition: { gap: 12 },
   champ: {
     borderRadius: 14,

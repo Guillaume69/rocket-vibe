@@ -997,6 +997,10 @@ impl ChatPage {
         self.messages.borrow().len()
     }
 
+    pub fn message_texts(&self) -> Vec<String> {
+        self.messages.borrow().iter().map(|d| d.row.text.clone().unwrap_or_default()).collect()
+    }
+
     pub fn room_count(&self) -> usize {
         self.rooms.borrow().len()
     }

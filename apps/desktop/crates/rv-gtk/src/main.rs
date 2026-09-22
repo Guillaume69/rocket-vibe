@@ -45,5 +45,6 @@ fn main() -> glib::ExitCode {
         smoke::install(&window);
         window.start();
     });
-    app.run_with_args::<&str>(&[])
+    let code = app.run_with_args::<&str>(&[]);
+    if smoke::failed() { glib::ExitCode::FAILURE } else { code }
 }

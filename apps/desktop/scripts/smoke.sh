@@ -14,4 +14,5 @@ docker run --rm --network host -u "$(id -u):$(id -g)" -v "$PWD:/src" -v "$out:/o
   -e RV_SMOKE_DELAY_MS="${RV_SMOKE_DELAY_MS:-15000}" \
   -e RV_SMOKE_LOGIN="$server|$user|$password" -e RV_SMOKE_ROOM="$room" -e RV_SMOKE_SEND="$message" \
   -e RV_SMOKE_SHOT="/out/$(basename "$shot")" \
+  -e RV_SMOKE_EXPECT="${RV_SMOKE_EXPECT:-}" -e RV_SMOKE_EXPECT_ABSENT="${RV_SMOKE_EXPECT_ABSENT:-}" \
   rocket-vibe-rs-build bash -c 'Xvfb :99 -screen 0 1280x800x24 >/dev/null 2>&1 & sleep 1; ./target/debug/rocket-vibe-gtk'

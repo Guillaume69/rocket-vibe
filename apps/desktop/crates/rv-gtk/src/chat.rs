@@ -425,7 +425,7 @@ impl ChatPage {
             gtk::Box::builder().css_classes(["composer-pill"]).hexpand(true).valign(gtk::Align::End).build();
         composer_pill.append(&composer_scroll);
         let send = gtk::Button::builder()
-            .icon_name("mail-send-symbolic")
+            .icon_name("go-up-symbolic")
             .tooltip_text("Send")
             .css_classes(["send"])
             .valign(gtk::Align::End)

@@ -1,6 +1,7 @@
 mod chat;
 mod login;
 mod secrets;
+mod smoke;
 mod style;
 mod window;
 
@@ -38,6 +39,7 @@ fn main() -> glib::ExitCode {
             return;
         }
         let window = window::AppWindow::new(app);
+        smoke::install(&window);
         window.start();
     });
     app.run_with_args::<&str>(&[])

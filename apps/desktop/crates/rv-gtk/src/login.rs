@@ -116,6 +116,12 @@ impl LoginPage {
         self.code.text().into()
     }
 
+    pub fn fill(&self, server: &str, user: &str, password: &str) {
+        self.server.set_text(server);
+        self.user.set_text(user);
+        self.password.set_text(password);
+    }
+
     pub fn set_busy(&self, busy: bool) {
         self.submit.set_sensitive(!busy);
         let asking = self.code_group.is_visible();

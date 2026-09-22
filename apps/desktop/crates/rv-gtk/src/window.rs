@@ -39,6 +39,7 @@ pub struct AppWindow {
     db_path: RefCell<Option<PathBuf>>,
     forward: RefCell<Option<tokio::task::JoinHandle<()>>>,
     pending: RefCell<Option<PendingLogin>>,
+    login_shown: RefCell<Vec<Box<dyn Fn()>>>,
 }
 
 fn data_dir() -> PathBuf {
@@ -101,6 +102,7 @@ impl AppWindow {
             db_path: RefCell::default(),
             forward: RefCell::default(),
             pending: RefCell::default(),
+            login_shown: RefCell::default(),
         });
 
         let weak = Rc::downgrade(&this);
@@ -141,6 +143,10 @@ impl AppWindow {
         this
     }
 
+    pub fn connect_login_shown(&self, f: impl Fn() + 'static) {
+        self.login_shown.borrow_mut().push(Box::new(f));
+    }
+
     pub fn start(self: &Rc<Self>) {
         let this = self.clone();
         glib::spawn_future_local(async move {
@@ -159,9 +165,12 @@ impl AppWindow {
         self.login.set_error(error);
         self.login.ask_code(None);
         self.stack.set_visible_child_name("login");
+        for f in self.login_shown.borrow().iter() {
+            f();
+        }
     }
 
-    fn submit_login(self: &Rc<Self>) {
+    pub fn submit_login(self: &Rc<Self>) {
         let asking = self.pending.borrow().as_ref().is_some_and(|p| p.method.is_some());
         if !asking {
             let Some(server) = session::normalize_server(&self.login.server()) else {

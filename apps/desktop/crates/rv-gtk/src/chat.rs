@@ -59,6 +59,7 @@ pub struct ChatPage {
     settling: Rc<Cell<u32>>,
     on_logout: Callback<()>,
     on_room_changed: Callback<Option<String>>,
+    on_rooms_loaded: Callback<()>,
 }
 
 fn local(ts: i64) -> DateTime<Local> {
@@ -418,6 +419,7 @@ impl ChatPage {
             settling: Rc::new(Cell::new(0)),
             on_logout: RefCell::default(),
             on_room_changed: RefCell::default(),
+            on_rooms_loaded: RefCell::default(),
         });
         this.wire(&status_button, &logout, &send);
         this
@@ -535,6 +537,10 @@ impl ChatPage {
         self.on_room_changed.borrow_mut().push(Box::new(f));
     }
 
+    pub fn connect_rooms_loaded(&self, f: impl Fn() + 'static) {
+        self.on_rooms_loaded.borrow_mut().push(Box::new(move |()| f()));
+    }
+
     pub fn set_session(&self, session: Option<Arc<Session>>) {
         if let Some(s) = &session {
             let host = url::Url::parse(&s.info.base_url).ok().and_then(|u| u.host_str().map(str::to_owned));
@@ -600,6 +606,11 @@ impl ChatPage {
             }
             self.rooms.replace(rows);
             self.refresh_room_header();
+        }
+        if !self.rooms.borrow().is_empty() {
+            for f in self.on_rooms_loaded.borrow().iter() {
+                f(());
+            }
         }
     }
 
@@ -755,5 +766,17 @@ impl ChatPage {
         if let Some(session) = self.session.borrow().clone() {
             runtime().spawn(async move { session.retry(&id).await });
         }
+    }
+
+    pub fn room_named(&self, name: &str) -> Option<String> {
+        self.rooms.borrow().iter().find(|r| r.name == name).map(|r| r.rid.clone())
+    }
+
+    pub fn message_count(&self) -> usize {
+        self.messages.borrow().len()
+    }
+
+    pub fn room_count(&self) -> usize {
+        self.rooms.borrow().len()
     }
 }

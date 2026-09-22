@@ -51,6 +51,8 @@ export type CibleImage = {
   type?: string | null;
   /** Chemin serveur, sans jeton : la clé du transfert, partagée avec la ligne du message. */
   cle?: string | null;
+  /** Poids du fichier annoncé par le message, en octets. */
+  taille?: number | null;
 };
 
 type ContexteVisionneuse = {
@@ -110,6 +112,7 @@ function ModaleImage({ cible, onFermer }: { cible: CibleImage | null; onFermer: 
         // Une visionneuse ne montre que des images : faute de MIME, le fichier
         // part quand même vers la galerie.
         type: cible.type ?? 'image/jpeg',
+        taille: cible.taille ?? null,
       },
       t,
     );

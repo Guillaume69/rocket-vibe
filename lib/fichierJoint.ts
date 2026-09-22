@@ -225,6 +225,8 @@ export type JointePartageable = {
   chemin: string;
   titre: string | null;
   type: string | null;
+  /** Poids annoncé par le message, en octets : la progression s'y rapporte quand le serveur tait le sien. */
+  taille: number | null;
 };
 
 type JointeBrute = {
@@ -236,7 +238,15 @@ type JointeBrute = {
   image_type?: unknown;
   video_type?: unknown;
   audio_type?: unknown;
+  size?: unknown;
+  image_size?: unknown;
+  video_size?: unknown;
+  audio_size?: unknown;
 };
+
+function octets(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null;
+}
 
 function chaine(v: unknown): string | null {
   return typeof v === 'string' && v !== '' ? v : null;
@@ -265,7 +275,22 @@ export function jointeAPartager(piecesJointes: string | null): JointePartageable
       chemin,
       titre: chaine(j.title),
       type: chaine(j.image_type) ?? chaine(j.video_type) ?? chaine(j.audio_type),
+      taille: octets(j.size) ?? octets(j.image_size) ?? octets(j.video_size) ?? octets(j.audio_size),
     };
   }
   return null;
+}
+
+/**
+ * Fraction téléchargée. Le serveur de fichiers ne répond pas toujours avec sa
+ * taille (réponse en `chunked`) : on se rapporte alors au poids annoncé par le
+ * message, plafonné à 1. `null` si on ne sait rien du tout.
+ */
+export function fractionTelechargee(
+  ecrits: number,
+  attendus: number,
+  taille: number | null | undefined,
+): number | null {
+  const total = attendus > 0 ? attendus : (taille ?? 0);
+  return total > 0 ? Math.min(ecrits / total, 1) : null;
 }

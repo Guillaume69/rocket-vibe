@@ -18,7 +18,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Asset, requestPermissionsAsync } from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 
-import { telechargerFichierJoint, versGalerie } from '../lib/fichierJoint.ts';
+import { fractionTelechargee, telechargerFichierJoint, versGalerie } from '../lib/fichierJoint.ts';
 import { Telechargements } from '../modules/telechargements/index.ts';
 import type { Progression } from './transferts.ts';
 
@@ -34,6 +34,8 @@ type OptionsJointe = {
   url: string;
   titre: string | null | undefined;
   type: string | null | undefined;
+  /** Poids annoncé par le message, en octets. */
+  taille?: number | null;
   surProgression?: (p: Progression) => void;
 };
 
@@ -47,7 +49,6 @@ async function versLeCache(options: OptionsJointe): Promise<string> {
   if (dossier === null) {
     throw new ErreurOuvertureFichier('Aucun dossier de cache disponible.');
   }
-  const { surProgression } = options;
   return telechargerFichierJoint({
     ...options,
     dossier,
@@ -58,8 +59,8 @@ async function versLeCache(options: OptionsJointe): Promise<string> {
       if ((await FileSystem.getInfoAsync(destination)).exists) return;
       const partiel = `${destination}.part`;
       const tache = FileSystem.createDownloadResumable(url, partiel, {}, (e) => {
-        surProgression?.(
-          e.totalBytesExpectedToWrite > 0 ? e.totalBytesWritten / e.totalBytesExpectedToWrite : null,
+        options.surProgression?.(
+          fractionTelechargee(e.totalBytesWritten, e.totalBytesExpectedToWrite, options.taille),
         );
       });
       const res = await tache.downloadAsync();

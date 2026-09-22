@@ -281,6 +281,7 @@ export default function EcranActionsMessage() {
           url: urlFichierProtege(client, jointe.chemin),
           titre: jointe.titre,
           type: jointe.type,
+          taille: jointe.taille,
         };
   const partager = async () => {
     if (aTransferer === null) {

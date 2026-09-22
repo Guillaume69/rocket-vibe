@@ -18,6 +18,8 @@ export type JointeATransferer = {
   url: string;
   titre: string | null;
   type: string | null;
+  /** Poids annoncé par le message, en octets. */
+  taille: number | null;
 };
 
 function toast(message: string): void {

@@ -4,6 +4,7 @@ import { describe, test } from 'node:test';
 import {
   cleDeFichier,
   avecExtension,
+  fractionTelechargee,
   jointeAPartager,
   telechargerFichierJoint,
   versGalerie,
@@ -272,15 +273,19 @@ describe('jointeAPartager', () => {
       chemin: '/file-upload/orig/photo.jpg',
       titre: 'photo.jpg',
       type: 'image/jpeg',
+      taille: null,
     });
   });
 
   test('vidéo sans `title_link` : repli sur `video_url`', () => {
-    const jointes = JSON.stringify([{ video_url: '/file-upload/v1/clip.mp4', video_type: 'video/mp4' }]);
+    const jointes = JSON.stringify([
+      { video_url: '/file-upload/v1/clip.mp4', video_type: 'video/mp4', video_size: 5_000_000 },
+    ]);
     assert.deepEqual(jointeAPartager(jointes), {
       chemin: '/file-upload/v1/clip.mp4',
       titre: null,
       type: 'video/mp4',
+      taille: 5_000_000,
     });
   });
 
@@ -345,5 +350,21 @@ describe('telechargerFichierJoint', () => {
       telecharger: async () => {},
     });
     assert.equal(destination, 'file:///cache/jointes/ab12/photo.jpg');
+  });
+});
+
+describe('fractionTelechargee', () => {
+  test('la taille annoncée par la réponse d’abord', () => {
+    assert.equal(fractionTelechargee(50, 200, 1000), 0.25);
+  });
+
+  test('réponse sans taille (chunked) : le poids du message prend le relais', () => {
+    assert.equal(fractionTelechargee(250, -1, 1000), 0.25);
+    assert.equal(fractionTelechargee(250, 0, 1000), 0.25);
+  });
+
+  test('plafonnée à 1, et null quand on ne sait rien', () => {
+    assert.equal(fractionTelechargee(1500, -1, 1000), 1);
+    assert.equal(fractionTelechargee(10, -1, null), null);
   });
 });

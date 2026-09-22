@@ -580,6 +580,7 @@ function ImageJointe({
           titre: jointe.title ?? null,
           type: jointe.image_type ?? null,
           cle: source,
+          taille: jointe.image_size ?? null,
         })
       }
       onLongPress={surAppuiLong}
@@ -633,6 +634,9 @@ type PieceJointe = {
   title_link?: string;
   image_url?: string;
   image_type?: string;
+  image_size?: number;
+  /** Poids d'une pièce « fichier », en octets. */
+  size?: number;
   audio_url?: string;
   video_url?: string;
   video_type?: string;
@@ -736,6 +740,7 @@ function PiecesJointes({
               client={client}
               chemin={jointe.title_link}
               titre={jointe.title ?? null}
+              taille={jointe.size ?? null}
               surAppuiLong={surAppuiLong}
             />
           );
@@ -760,12 +765,14 @@ function JointeFichier({
   client,
   chemin,
   titre,
+  taille,
   surAppuiLong,
 }: {
   c: Couleurs;
   client: ClientRest;
   chemin: string;
   titre: string | null;
+  taille: number | null;
   surAppuiLong: (() => void) | undefined;
 }) {
   const t = useT();
@@ -773,7 +780,7 @@ function JointeFichier({
   // vaut « file »). C'est l'extension du nom qui oriente le système.
   const choisir = () =>
     proposerTelechargerOuPartager(
-      { cle: chemin, url: urlFichierProtege(client, chemin), titre, type: null },
+      { cle: chemin, url: urlFichierProtege(client, chemin), titre, type: null, taille },
       t,
     );
 

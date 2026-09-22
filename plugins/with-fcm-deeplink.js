@@ -94,6 +94,7 @@ const ANDROIDX_WORK = 'androidx.work:work-runtime:2.10.1';
  */
 
 const SERVICE_CLASS = 'RocketVibeMessagingService';
+const RECEPTEUR_CLASS = 'ReponseNotifReceiver';
 
 /**
  * Les trois chaînes vues par l'utilisateur sur la voie native. `en` est la
@@ -104,6 +105,8 @@ const CHAINES = {
   rv_push_message_chiffre: { en: 'Encrypted message', fr: 'Message chiffré' },
   rv_push_moi: { en: 'You', fr: 'Vous' },
   rv_push_nouveau_message: { en: 'New message', fr: 'Nouveau message' },
+  rv_push_repondre: { en: 'Reply', fr: 'Répondre' },
+  rv_push_reponse_echec: { en: 'Reply not sent', fr: 'Réponse non envoyée' },
 };
 
 function kotlinSource(pkg) {
@@ -111,6 +114,7 @@ function kotlinSource(pkg) {
 
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
@@ -122,6 +126,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
+import androidx.core.app.RemoteInput
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.Data
@@ -665,6 +670,40 @@ private fun afficherNotifSalon(
     Person.Builder().setName(nomExpediteur).build(),
   )
 
+  // Pas de réponse depuis la notification sur un message chiffré : le serveur
+  // refuserait le clair (\`error-not-allowed\`). Un message de fil y répond
+  // dans le fil.
+  publierNotifSalon(
+    ctx,
+    rid,
+    host,
+    style,
+    silencieux,
+    reponse = ejson.optString("messageType") != "e2e",
+    tmid = ejson.optString("tmid").ifEmpty { null },
+  )
+  if (BuildConfig.DEBUG) {
+    Log.d(TAG, "notif salon postée (rid=" + rid + ", id=" + notifId + ")")
+  }
+  return true
+}
+
+/**
+ * Poste la notification de conversation d'un salon à partir d'un style déjà
+ * garni. Partagé par l'affichage d'un push et par la mise à jour qui suit une
+ * réponse tapée dans la notification.
+ */
+private fun publierNotifSalon(
+  ctx: Context,
+  rid: String,
+  host: String,
+  style: NotificationCompat.MessagingStyle,
+  silencieux: Boolean,
+  reponse: Boolean,
+  tmid: String?,
+  sousTexte: String? = null,
+) {
+  val notifId = rid.hashCode()
   // Le tap ouvre le salon par deep-link expo-router. MainActivity est
   // \`singleTask\` : avec le SEUL flag NEW_TASK, un VIEW est délivré à l'Activity
   // vivante par onNewIntent (app en marche/fond, PAS de recréation), et démarre
@@ -700,7 +739,7 @@ private fun afficherNotifSalon(
   )
 
   val icone = ctx.resources.getIdentifier("notification_icon", "drawable", ctx.packageName)
-  val notification = NotificationCompat.Builder(ctx, "default")
+  val constructeur = NotificationCompat.Builder(ctx, "default")
     .setSmallIcon(if (icone != 0) icone else android.R.drawable.ic_dialog_email)
     .setColor(COULEUR_ACCENT)
     .setStyle(style)
@@ -709,13 +748,43 @@ private fun afficherNotifSalon(
     .setPriority(NotificationCompat.PRIORITY_HIGH)
     .setCategory(NotificationCompat.CATEGORY_MESSAGE)
     .setSilent(silencieux)
-    .build()
-  NotificationManagerCompat.from(ctx).notify(notifId, notification)
-  if (BuildConfig.DEBUG) {
-    Log.d(TAG, "notif salon postée (rid=" + rid + ", id=" + notifId + ")")
-  }
-  return true
+  if (sousTexte != null) constructeur.setSubText(sousTexte)
+  if (reponse && host.isNotEmpty()) constructeur.addAction(actionRepondre(ctx, rid, host, tmid))
+  NotificationManagerCompat.from(ctx).notify(notifId, constructeur.build())
 }
+
+/**
+ * L'action « Répondre » : un champ de saisie dans la notification, livré à
+ * \`ReponseNotifReceiver\`. Le PendingIntent est MUTABLE, c'est obligatoire :
+ * le système y dépose le texte saisi. Il est explicite (classe nommée), ce qui
+ * empêche toute autre application de le détourner.
+ */
+private fun actionRepondre(
+  ctx: Context,
+  rid: String,
+  host: String,
+  tmid: String?,
+): NotificationCompat.Action {
+  val libelle = chaine(ctx, R.string.rv_push_repondre, "Reply")
+  val intent = Intent(ctx, ${RECEPTEUR_CLASS}::class.java)
+    .putExtra(EXTRA_RID, rid)
+    .putExtra(EXTRA_HOST, host)
+  if (tmid != null) intent.putExtra(EXTRA_TMID, tmid)
+  val pending = PendingIntent.getBroadcast(
+    ctx,
+    rid.hashCode(),
+    intent,
+    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+  )
+  val saisie = RemoteInput.Builder(CLE_REPONSE).setLabel(libelle).build()
+  return NotificationCompat.Action.Builder(0, libelle, pending)
+    .addRemoteInput(saisie)
+    .setAllowGeneratedReplies(true)
+    .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
+    .setShowsUserInterface(false)
+    .build()
+}
+
 
 /**
  * Repli quand le contenu n'a pas pu être récupéré : sans rid on ne peut ni
@@ -898,6 +967,127 @@ private fun dechiffrerSecureStore(enveloppe: String): String? {
   }
 }
 
+/** Clé du texte saisi dans la notification (RemoteInput). */
+private const val CLE_REPONSE = "rv_reponse"
+private const val EXTRA_RID = "rid"
+private const val EXTRA_HOST = "host"
+private const val EXTRA_TMID = "tmid"
+
+/**
+ * Budget d'une réponse envoyée depuis la notification. \`goAsync\` laisse une
+ * dizaine de secondes au récepteur : 4 + 4 tient dedans, marge comprise.
+ */
+private const val TIMEOUT_REPONSE_MS = 4000
+
+/**
+ * Reçoit le texte tapé dans l'action « Répondre » et le poste par
+ * \`chat.sendMessage\`, avec la session du serveur lue comme pour push.get
+ * (même garde d'origine). La notification est toujours reposée ensuite : tant
+ * qu'on ne le fait pas, Android laisse tourner l'indicateur d'envoi.
+ */
+class ${RECEPTEUR_CLASS} : BroadcastReceiver() {
+  override fun onReceive(ctx: Context, intent: Intent) {
+    val texte = RemoteInput.getResultsFromIntent(intent)
+      ?.getCharSequence(CLE_REPONSE)
+      ?.toString()
+      ?.trim()
+      .orEmpty()
+    val rid = intent.getStringExtra(EXTRA_RID).orEmpty()
+    val host = intent.getStringExtra(EXTRA_HOST).orEmpty()
+    val tmid = intent.getStringExtra(EXTRA_TMID)
+    if (rid.isEmpty() || host.isEmpty()) return
+    val appContext = ctx.applicationContext
+    val fin = goAsync()
+    Thread {
+      try {
+        val envoye = texte.isNotEmpty() && lireSession(appContext, host)?.let {
+          envoyerReponse(appContext, it, rid, tmid, texte)
+        } == true
+        journal(appContext, "réponse depuis la notif (rid=" + rid + ") : " + (if (envoye) "OK" else "ÉCHEC"))
+        reposerApresReponse(appContext, rid, host, tmid, texte, envoye)
+      } catch (e: Exception) {
+        Log.w(TAG, "${RECEPTEUR_CLASS}", e)
+      } finally {
+        fin.finish()
+      }
+    }.start()
+  }
+}
+
+/** POST <baseUrl>/api/v1/chat.sendMessage — \`true\` si le serveur l'a accepté. */
+private fun envoyerReponse(
+  ctx: Context,
+  session: JSONObject,
+  rid: String,
+  tmid: String?,
+  texte: String,
+): Boolean {
+  var conn: HttpURLConnection? = null
+  return try {
+    val message = JSONObject().put("rid", rid).put("msg", texte)
+    if (tmid != null) message.put("tmid", tmid)
+    val corps = JSONObject().put("message", message).toString().toByteArray(Charsets.UTF_8)
+    val url = URL(sansSlashFinal(session.optString("baseUrl")) + "/api/v1/chat.sendMessage")
+    conn = (url.openConnection() as HttpURLConnection).apply {
+      requestMethod = "POST"
+      doOutput = true
+      setRequestProperty("X-User-Id", session.optString("userId"))
+      setRequestProperty("X-Auth-Token", session.optString("authToken"))
+      setRequestProperty("Content-Type", "application/json; charset=utf-8")
+      setRequestProperty("Accept", "application/json")
+      connectTimeout = TIMEOUT_REPONSE_MS
+      readTimeout = TIMEOUT_REPONSE_MS
+    }
+    conn.outputStream.use { it.write(corps) }
+    val code = conn.responseCode
+    if (code != 200) {
+      journal(ctx, "chat.sendMessage HTTP " + code + " (rid=" + rid + ")")
+      return false
+    }
+    val reponse = conn.inputStream.bufferedReader().use { it.readText() }
+    JSONObject(reponse).optBoolean("success", false)
+  } catch (e: Exception) {
+    Log.w(TAG, "envoyerReponse: échec", e)
+    journal(ctx, "chat.sendMessage " + e.javaClass.simpleName + " (rid=" + rid + ")")
+    false
+  } finally {
+    conn?.disconnect()
+  }
+}
+
+/**
+ * Repose la notification du salon après une réponse : la réponse s'ajoute à la
+ * conversation (au nom de « Vous ») si elle est partie, sinon un sous-titre dit
+ * qu'elle n'est pas partie et le champ reste là pour réessayer.
+ */
+private fun reposerApresReponse(
+  ctx: Context,
+  rid: String,
+  host: String,
+  tmid: String?,
+  texte: String,
+  envoye: Boolean,
+) {
+  val manager = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+  val active = manager.activeNotifications.firstOrNull { it.id == rid.hashCode() }
+  val style = active?.let {
+    NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(it.notification)
+  } ?: NotificationCompat.MessagingStyle(
+    Person.Builder().setName(chaine(ctx, R.string.rv_push_moi, "You")).build(),
+  )
+  if (envoye) style.addMessage(texte, System.currentTimeMillis(), null as Person?)
+  publierNotifSalon(
+    ctx,
+    rid,
+    host,
+    style,
+    silencieux = true,
+    reponse = true,
+    tmid = tmid,
+    sousTexte = if (envoye) null else chaine(ctx, R.string.rv_push_reponse_echec, "Reply not sent"),
+  )
+}
+
 /**
  * L'issue d'un push.get. \`null\` disait seulement « ça n'a pas marché » : le
  * chemin d'échec programmait donc huit tentatives WorkManager sur un jeton
@@ -1071,6 +1261,19 @@ function ajouterService(application, nomService = `.${SERVICE_CLASS}`) {
   return application;
 }
 
+/**
+ * Déclare le récepteur de l'action « Répondre ». Non exporté : seul notre
+ * PendingIntent, explicite, peut l'atteindre.
+ */
+function ajouterRecepteur(application, nom = `.${RECEPTEUR_CLASS}`) {
+  application.receiver = application.receiver || [];
+  const deja = application.receiver.some((r) => r.$?.['android:name'] === nom);
+  if (!deja) {
+    application.receiver.push({ $: { 'android:name': nom, 'android:exported': 'false' } });
+  }
+  return application;
+}
+
 /** Le `strings.xml` d'une langue donnée, tel qu'écrit dans `res/values-<lg>/`. */
 function stringsXml(langue) {
   const lignes = Object.entries(CHAINES).map(
@@ -1119,6 +1322,7 @@ function withServiceManifest(config) {
       throw new Error('with-fcm-deeplink : <application> introuvable dans le manifeste');
     }
     ajouterService(application);
+    ajouterRecepteur(application);
     return config;
   });
 }
@@ -1174,7 +1378,9 @@ module.exports = function withFcmDeeplink(config) {
 // Pour les tests (`plugins/with-fcm-deeplink.test.mjs`) — pas pour l'app.
 module.exports.chirurgie = {
   SERVICE_CLASS,
+  RECEPTEUR_CLASS,
   ajouterDependances,
+  ajouterRecepteur,
   ajouterService,
   echapperXml,
   stringsXml,

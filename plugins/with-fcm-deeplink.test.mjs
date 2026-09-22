@@ -22,8 +22,16 @@ import { describe, it } from 'node:test';
 
 import plugin from './with-fcm-deeplink.js';
 
-const { ajouterDependances, ajouterService, echapperXml, stringsXml, CHAINES, SERVICE_CLASS } =
-  plugin.chirurgie;
+const {
+  ajouterDependances,
+  ajouterRecepteur,
+  ajouterService,
+  echapperXml,
+  stringsXml,
+  CHAINES,
+  RECEPTEUR_CLASS,
+  SERVICE_CLASS,
+} = plugin.chirurgie;
 
 const DEPS = ['com.google.firebase:firebase-messaging:25.0.1', 'androidx.work:work-runtime:2.10.1'];
 
@@ -124,6 +132,19 @@ describe('ajouterService', () => {
     ajouterService(application);
     assert.equal(application.service.length, 2);
     assert.equal(application.service[0], expo);
+  });
+});
+
+describe('ajouterRecepteur', () => {
+  it('déclare le récepteur de « Répondre », non exporté, une seule fois', () => {
+    const autre = { $: { 'android:name': 'expo.Autre' } };
+    const application = { receiver: [autre] };
+    ajouterRecepteur(application);
+    ajouterRecepteur(application);
+    assert.equal(application.receiver.length, 2);
+    assert.equal(application.receiver[0], autre);
+    assert.equal(application.receiver[1].$['android:name'], `.${RECEPTEUR_CLASS}`);
+    assert.equal(application.receiver[1].$['android:exported'], 'false');
   });
 });
 

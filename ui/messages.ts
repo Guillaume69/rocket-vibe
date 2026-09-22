@@ -252,6 +252,10 @@ const fr = {
   'actionsMessage.repondreFil': 'Répondre dans un fil',
   'actionsMessage.copier': 'Copier',
   'actionsMessage.partager': 'Partager',
+  'actionsMessage.enregistrer': 'Enregistrer',
+  'enregistrement.galerie': 'Enregistré dans la galerie',
+  'enregistrement.dossier': 'Fichier enregistré',
+  'enregistrement.echec': "Impossible d'enregistrer ce fichier.",
   'actionsMessage.modifier': 'Modifier',
   'actionsMessage.epingler': 'Épingler',
 
@@ -605,6 +609,10 @@ const en: Record<CleTraduction, string> = {
   'actionsMessage.repondreFil': 'Reply in thread',
   'actionsMessage.copier': 'Copy',
   'actionsMessage.partager': 'Share',
+  'actionsMessage.enregistrer': 'Save',
+  'enregistrement.galerie': 'Saved to gallery',
+  'enregistrement.dossier': 'File saved',
+  'enregistrement.echec': "Couldn't save this file.",
   'actionsMessage.modifier': 'Edit',
   'actionsMessage.epingler': 'Pin',
 

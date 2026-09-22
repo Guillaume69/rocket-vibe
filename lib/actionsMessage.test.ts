@@ -135,7 +135,7 @@ describe('actionsPossibles', () => {
     assert.ok(enLectureSeule.includes('partager'));
   });
 
-  test('image sans légende : partager (le fichier), mais rien à copier', () => {
+  test('image sans légende : partager et enregistrer le fichier, mais rien à copier', () => {
     const image = JSON.stringify([
       { title: 'photo.jpg', title_link: '/file-upload/f1/photo.jpg', image_url: '/file-upload/t1/photo.jpg' },
     ]);
@@ -144,6 +144,7 @@ describe('actionsPossibles', () => {
       message: { ...base.message, texte: '', piecesJointes: image },
     });
     assert.ok(actions.includes('partager'));
+    assert.ok(actions.includes('enregistrer'));
     assert.ok(!actions.includes('copier'));
   });
 

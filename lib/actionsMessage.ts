@@ -52,6 +52,7 @@ export type ActionMessage =
   | 'repondreFil'
   | 'copier'
   | 'partager'
+  | 'enregistrer'
   | 'modifier'
   | 'supprimer'
   | 'epingler';
@@ -85,7 +86,9 @@ export function actionsPossibles(contexte: ContexteAction): ActionMessage[] {
   if (!lectureSeule && !chiffre && !dansUnFil) actions.push('repondreFil');
   const texte = texteACopier(message.texte) !== null;
   if (texte) actions.push('copier');
-  if (texte || jointeAPartager(message.piecesJointes) !== null) actions.push('partager');
+  const fichier = jointeAPartager(message.piecesJointes) !== null;
+  if (texte || fichier) actions.push('partager');
+  if (fichier) actions.push('enregistrer');
 
   const mien = message.auteurId === moi;
   // Noms RÉELS des permissions Rocket.Chat : `bypass-time-limit-edit-and-delete`

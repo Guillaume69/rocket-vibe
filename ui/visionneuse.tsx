@@ -18,7 +18,16 @@
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Image,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  ToastAndroid,
+  View,
+} from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
   runOnJS,
@@ -28,6 +37,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { enregistrerJointeProtegee } from './fichierJoint.ts';
 import { useT } from './i18n.ts';
 import { POLICES, useCouleurs } from './theme.ts';
 
@@ -37,6 +47,8 @@ export type CibleImage = {
   largeur?: number | null;
   hauteur?: number | null;
   titre?: string | null;
+  /** MIME de l'image, quand le message le porte : nomme le fichier enregistré. */
+  type?: string | null;
 };
 
 type ContexteVisionneuse = {
@@ -83,6 +95,31 @@ function ModaleImage({ cible, onFermer }: { cible: CibleImage | null; onFermer: 
   const c = useCouleurs();
   const insets = useSafeAreaInsets();
   const [charge, setCharge] = useState(false);
+  const [enregistrement, setEnregistrement] = useState(false);
+
+  const enregistrer = () => {
+    if (cible === null || enregistrement) return;
+    setEnregistrement(true);
+    enregistrerJointeProtegee({
+      url: cible.uri,
+      titre: cible.titre,
+      // Une visionneuse ne montre que des images : faute de MIME, le fichier
+      // part quand même vers la galerie.
+      type: cible.type ?? 'image/jpeg',
+    })
+      .then(
+        (lieu) => {
+          if (lieu !== null) {
+            ToastAndroid.show(
+              t(lieu === 'galerie' ? 'enregistrement.galerie' : 'enregistrement.dossier'),
+              ToastAndroid.SHORT,
+            );
+          }
+        },
+        () => ToastAndroid.show(t('enregistrement.echec'), ToastAndroid.SHORT),
+      )
+      .finally(() => setEnregistrement(false));
+  };
 
   const echelle = useSharedValue(1);
   const echelleMem = useSharedValue(1);
@@ -218,6 +255,21 @@ function ModaleImage({ cible, onFermer }: { cible: CibleImage | null; onFermer: 
           <Text style={[styles.croix, { color: c.texte }]}>✕</Text>
         </Pressable>
 
+        <Pressable
+          onPress={enregistrer}
+          disabled={enregistrement}
+          hitSlop={12}
+          style={[styles.enregistrer, { top: insets.top + 8, backgroundColor: c.carte + 'D9' }]}
+          accessibilityRole="button"
+          accessibilityLabel={t('actionsMessage.enregistrer')}
+        >
+          {enregistrement ? (
+            <ActivityIndicator size="small" color={c.texte} />
+          ) : (
+            <Text style={[styles.croix, { color: c.texte }]}>⤓</Text>
+          )}
+        </Pressable>
+
         {cible?.titre != null && cible.titre !== '' && (
           <View style={[styles.legende, { bottom: insets.bottom + 12 }]} pointerEvents="none">
             <Text style={[styles.legendeTexte, { color: c.texte }]} numberOfLines={2}>
@@ -243,6 +295,15 @@ const styles = StyleSheet.create({
   fermer: {
     position: 'absolute',
     right: 12,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  enregistrer: {
+    position: 'absolute',
+    right: 62,
     width: 38,
     height: 38,
     borderRadius: 19,

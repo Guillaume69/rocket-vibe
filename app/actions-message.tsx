@@ -10,6 +10,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  ToastAndroid,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -35,7 +36,7 @@ import { jointeAPartager } from '../lib/fichierJoint.ts';
 import { listeReactions } from '../lib/reactions.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { urlFichierProtege } from '../lib/upload.ts';
-import { ouvrirJointeProtegee } from '../ui/fichierJoint.ts';
+import { enregistrerJointeProtegee, ouvrirJointeProtegee } from '../ui/fichierJoint.ts';
 import { useT } from '../ui/i18n.ts';
 import { demanderReponse } from '../ui/reponse.ts';
 import { useSession } from '../ui/session.tsx';
@@ -119,6 +120,7 @@ export default function EcranActionsMessage() {
   const [erreur, setErreur] = useState<string | null>(null);
   const [occupe, setOccupe] = useState(false);
   const [partageEnCours, setPartageEnCours] = useState(false);
+  const [enregistrementEnCours, setEnregistrementEnCours] = useState(false);
 
   const pret = synchro.phase === 'pret' && etat.phase === 'connecte' && typeof id === 'string';
   const base = synchro.phase === 'pret' ? synchro.base : null;
@@ -292,6 +294,30 @@ export default function EcranActionsMessage() {
     }
   };
 
+  const enregistrer = async () => {
+    const jointe = jointeAPartager(message.piecesJointes);
+    if (jointe === null) return;
+    setEnregistrementEnCours(true);
+    let lieu;
+    try {
+      lieu = await enregistrerJointeProtegee({
+        url: urlFichierProtege(client, jointe.chemin),
+        titre: jointe.titre,
+        type: jointe.type,
+      });
+    } catch {
+      throw new Error(t('enregistrement.echec'));
+    } finally {
+      setEnregistrementEnCours(false);
+    }
+    if (lieu !== null) {
+      ToastAndroid.show(
+        t(lieu === 'galerie' ? 'enregistrement.galerie' : 'enregistrement.dossier'),
+        ToastAndroid.SHORT,
+      );
+    }
+  };
+
   return (
     <View style={[styles.feuille, { maxHeight: hauteurMax, paddingBottom: bas }]}>
       {!enEdition && actions.includes('reagir') && (
@@ -408,6 +434,16 @@ export default function EcranActionsMessage() {
               libelle={t('actionsMessage.partager')}
               enCours={partageEnCours}
               onPress={() => void agir(partager)}
+            />
+          )}
+          {actions.includes('enregistrer') && (
+            <ActionLigne
+              c={c}
+              disabled={occupe}
+              icone="⬇️"
+              libelle={t('actionsMessage.enregistrer')}
+              enCours={enregistrementEnCours}
+              onPress={() => void agir(enregistrer)}
             />
           )}
           {actions.includes('modifier') && (

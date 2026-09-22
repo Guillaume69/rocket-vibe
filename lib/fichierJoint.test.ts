@@ -3,7 +3,10 @@ import { describe, test } from 'node:test';
 
 import {
   cleDeFichier,
+  avecExtension,
   jointeAPartager,
+  telechargerFichierJoint,
+  versGalerie,
   nomDeFichierSur,
   ouvrirFichierJoint,
   type CreerDossier,
@@ -296,5 +299,51 @@ describe('jointeAPartager', () => {
     assert.equal(jointeAPartager('pas du json'), null);
     assert.equal(jointeAPartager('{}'), null);
     assert.equal(jointeAPartager(JSON.stringify([{ text: 'embed' }])), null);
+  });
+});
+
+describe('avecExtension', () => {
+  test('garde un nom qui a déjà son extension', () => {
+    assert.equal(avecExtension('photo.png', 'image/jpeg'), 'photo.png');
+  });
+
+  test('complète d’après le MIME, table puis sous-type', () => {
+    assert.equal(avecExtension('photo', 'image/jpeg'), 'photo.jpg');
+    assert.equal(avecExtension('clip', 'video/quicktime'), 'clip.mov');
+    assert.equal(avecExtension('son', 'audio/x-wav'), 'son');
+    assert.equal(avecExtension('doc', 'application/zip'), 'doc.zip');
+  });
+
+  test('sans MIME : inchangé', () => {
+    assert.equal(avecExtension('fichier', null), 'fichier');
+  });
+});
+
+describe('versGalerie', () => {
+  test('photo, vidéo, son : par le MIME ou par l’extension', () => {
+    assert.equal(versGalerie('x', 'image/png'), true);
+    assert.equal(versGalerie('x', 'video/mp4'), true);
+    assert.equal(versGalerie('IMG_1.JPG', null), true);
+    assert.equal(versGalerie('note.m4a', null), true);
+  });
+
+  test('le reste va dans un dossier', () => {
+    assert.equal(versGalerie('rapport.pdf', 'application/pdf'), false);
+    assert.equal(versGalerie('archive.zip', null), false);
+    assert.equal(versGalerie('sans-extension', null), false);
+  });
+});
+
+describe('telechargerFichierJoint', () => {
+  test('nom sans extension : complété d’après le MIME', async () => {
+    const destination = await telechargerFichierJoint({
+      url: 'https://chat.example/file-upload/ab12/photo?rc_token=t',
+      titre: null,
+      type: 'image/jpeg',
+      dossier: 'file:///cache',
+      creerDossier: async () => {},
+      telecharger: async () => {},
+    });
+    assert.equal(destination, 'file:///cache/jointes/ab12/photo.jpg');
   });
 });

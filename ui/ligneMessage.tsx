@@ -576,6 +576,7 @@ function ImageJointe({
           largeur: reelLargeur,
           hauteur: reelHauteur,
           titre: jointe.title ?? null,
+          type: jointe.image_type ?? null,
         })
       }
       onLongPress={surAppuiLong}
@@ -627,6 +628,7 @@ type PieceJointe = {
   title?: string;
   title_link?: string;
   image_url?: string;
+  image_type?: string;
   audio_url?: string;
   video_url?: string;
   video_type?: string;

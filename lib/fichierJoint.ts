@@ -107,28 +107,75 @@ export function cleDeFichier(url: string): string {
   return propre === '' ? CLE_REPLI : propre.slice(0, 64);
 }
 
+const EXTENSIONS_PAR_TYPE: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'image/heic': 'heic',
+  'video/mp4': 'mp4',
+  'video/quicktime': 'mov',
+  'video/webm': 'webm',
+  'video/3gpp': '3gp',
+  'audio/mpeg': 'mp3',
+  'audio/mp4': 'm4a',
+  'audio/aac': 'aac',
+  'audio/ogg': 'ogg',
+  'audio/webm': 'webm',
+  'application/pdf': 'pdf',
+};
+
+const A_UNE_EXTENSION = /\.[A-Za-z0-9]{1,8}$/;
+
 /**
- * Télécharge la pièce jointe et ouvre la feuille de partage dessus. Rend le
- * chemin local, pour que l'appelant puisse le journaliser ou le rouvrir.
+ * Complète un nom sans extension d'après le MIME. C'est l'extension qui décide
+ * de l'application qui ouvrira le fichier, et de l'endroit où la galerie le
+ * range : un `photo` nu y serait classé comme une image quelconque.
+ */
+export function avecExtension(nom: string, type: string | null | undefined): string {
+  if (A_UNE_EXTENSION.test(nom) || typeof type !== 'string') return nom;
+  const mime = type.toLowerCase().split(';')[0]!.trim();
+  const connue = EXTENSIONS_PAR_TYPE[mime];
+  if (connue !== undefined) return `${nom}.${connue}`;
+  const sousType = mime.split('/')[1] ?? '';
+  return /^[a-z0-9]{1,8}$/.test(sousType) ? `${nom}.${sousType}` : nom;
+}
+
+const EXTENSIONS_MEDIA = new Set([
+  'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif', 'bmp',
+  'mp4', 'mov', 'webm', 'mkv', '3gp', 'm4v',
+  'mp3', 'm4a', 'aac', 'ogg', 'opus', 'wav', 'flac',
+]);
+
+/**
+ * Photo, vidéo ou son : la galerie (MediaStore) sait les ranger. Tout le
+ * reste (PDF, archive…) va dans un dossier choisi par l'utilisateur.
+ */
+export function versGalerie(nom: string, type: string | null | undefined): boolean {
+  if (typeof type === 'string' && /^(image|video|audio)\//i.test(type)) return true;
+  const ext = nom.slice(nom.lastIndexOf('.') + 1).toLowerCase();
+  return nom.includes('.') && EXTENSIONS_MEDIA.has(ext);
+}
+
+/**
+ * Télécharge la pièce jointe dans le cache et rend son chemin local.
  *
  * `url` porte le jeton et ne quitte JAMAIS cette fonction : elle n'est passée
  * qu'à `telecharger`, dont l'implémentation fait une requête HTTP interne.
- * `partager` ne reçoit que le chemin local.
  */
-export async function ouvrirFichierJoint(options: {
+export async function telechargerFichierJoint(options: {
   /** URL protégée, jeton compris. */
   url: string;
   /** `title` du message — proposé par autrui, donc assaini. */
   titre: string | null | undefined;
-  /** MIME annoncé, passé tel quel à la feuille de partage. */
+  /** MIME annoncé : complète l'extension quand le nom n'en a pas. */
   type: string | null | undefined;
   /** Dossier de cache de l'app (`file:///…/cache/`). */
   dossier: string;
   creerDossier: CreerDossier;
   telecharger: TelechargerFichier;
-  partager: PartagerFichier;
 }): Promise<string> {
-  const { url, titre, type, dossier, creerDossier, telecharger, partager } = options;
+  const { url, titre, type, dossier, creerDossier, telecharger } = options;
 
   const racine = dossier.endsWith('/') ? dossier : `${dossier}/`;
   const sousDossier = `${racine}jointes/${cleDeFichier(url)}/`;
@@ -136,18 +183,40 @@ export async function ouvrirFichierJoint(options: {
   // segment de l'URL en repli — décodé, sans quoi `mon%20rapport.pdf`
   // s'écrirait avec son `%20`.
   const depuisUrl = segments(url).at(-1);
-  const nom = nomDeFichierSur(
-    typeof titre === 'string' && titre.trim() !== ''
-      ? titre
-      : depuisUrl === undefined
-        ? null
-        : decoder(depuisUrl),
+  const nom = avecExtension(
+    nomDeFichierSur(
+      typeof titre === 'string' && titre.trim() !== ''
+        ? titre
+        : depuisUrl === undefined
+          ? null
+          : decoder(depuisUrl),
+    ),
+    type,
   );
   const destination = `${sousDossier}${nom}`;
 
   await creerDossier(sousDossier);
   await telecharger(url, destination);
-  await partager(destination, typeof type === 'string' && type !== '' ? type : null);
+  return destination;
+}
+
+/**
+ * Télécharge la pièce jointe et ouvre la feuille de partage dessus. Rend le
+ * chemin local ; `partager` ne reçoit que lui, jamais l'URL.
+ */
+export async function ouvrirFichierJoint(options: {
+  url: string;
+  titre: string | null | undefined;
+  /** MIME annoncé, passé tel quel à la feuille de partage. */
+  type: string | null | undefined;
+  dossier: string;
+  creerDossier: CreerDossier;
+  telecharger: TelechargerFichier;
+  partager: PartagerFichier;
+}): Promise<string> {
+  const { partager, ...reste } = options;
+  const destination = await telechargerFichierJoint(reste);
+  await partager(destination, typeof options.type === 'string' && options.type !== '' ? options.type : null);
   return destination;
 }
 

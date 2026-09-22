@@ -81,6 +81,8 @@ type Charge = {
   message: {
     id: string;
     rid: string;
+    /** `tmid` : la racine du fil si ce message en est déjà une réponse. */
+    filId: string | null;
     texte: string | null;
     auteurNom: string | null;
     piecesJointes: string | null;
@@ -149,6 +151,7 @@ export default function EcranActionsMessage() {
         message: {
           id: brut.id,
           rid: brut.rid,
+          filId: brut.filId,
           texte: brut.texte,
           auteurNom: brut.auteurNom,
           piecesJointes: brut.piecesJointes,
@@ -169,6 +172,7 @@ export default function EcranActionsMessage() {
           permissions: [],
           lectureSeule: lignesSalon[0]?.lectureSeule === true,
           chiffre: lignesSalon[0]?.chiffre === true,
+          dansUnFil: typeof fil === 'string',
           maintenant: Date.now(),
         }),
       });
@@ -178,7 +182,7 @@ export default function EcranActionsMessage() {
     return () => {
       annule = true;
     };
-  }, [pret, id, base, client, moi, t]);
+  }, [pret, id, fil, base, client, moi, t]);
 
   // Mes réactions déjà posées sur ce message : contour accentué, et le tap
   // RETIRE au lieu d'ajouter — `chat.react` sait faire les deux, le câblage en
@@ -345,6 +349,19 @@ export default function EcranActionsMessage() {
               icone="↩️"
               libelle={t('actionsMessage.repondre')}
               onPress={repondre}
+            />
+          )}
+          {actions.includes('repondreFil') && (
+            <ActionLigne
+              c={c}
+              disabled={occupe}
+              icone="🧵"
+              libelle={t('actionsMessage.repondreFil')}
+              onPress={() => {
+                void Haptics.selectionAsync();
+                routeur.back();
+                routeur.push({ pathname: '/fil/[id]', params: { id: message.filId ?? message.id } });
+              }}
             />
           )}
           {actions.includes('copier') && (

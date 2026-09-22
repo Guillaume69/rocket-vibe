@@ -24,6 +24,7 @@ const base = {
   permissions: [] as string[],
   lectureSeule: false,
   chiffre: false,
+  dansUnFil: false,
   maintenant: 1_000_000 + 60_000, // une minute plus tard
 };
 
@@ -32,6 +33,7 @@ describe('actionsPossibles', () => {
     assert.deepEqual(actionsPossibles(base), [
       'reagir',
       'repondre',
+      'repondreFil',
       'copier',
       'partager',
       'modifier',
@@ -44,7 +46,7 @@ describe('actionsPossibles', () => {
     // 6 minutes après, avec BlockEditInMinutes = 5 : plus d'édition —
     // mais la suppression (délai 0 = illimité) reste.
     const tard = { ...base, maintenant: base.message.horodatage + 6 * 60_000 };
-    assert.deepEqual(actionsPossibles(tard), ['reagir', 'repondre', 'copier', 'partager', 'supprimer', 'epingler']);
+    assert.deepEqual(actionsPossibles(tard), ['reagir', 'repondre', 'repondreFil', 'copier', 'partager', 'supprimer', 'epingler']);
   });
 
   test('`bypass-time-limit-edit-and-delete` rouvre l’édition après le délai', () => {
@@ -67,13 +69,14 @@ describe('actionsPossibles', () => {
 
   test('le message d’AUTRUI ne se modifie ni ne se supprime (sans permission)', () => {
     const autrui = { ...base, message: { ...base.message, auteurId: 'lui' } };
-    assert.deepEqual(actionsPossibles(autrui), ['reagir', 'repondre', 'copier', 'partager', 'epingler']);
+    assert.deepEqual(actionsPossibles(autrui), ['reagir', 'repondre', 'repondreFil', 'copier', 'partager', 'epingler']);
   });
 
   test('lecture seule : ni réaction ni réponse ; message système : rien du tout', () => {
     const enLectureSeule = actionsPossibles({ ...base, lectureSeule: true });
     assert.ok(!enLectureSeule.includes('reagir'));
     assert.ok(!enLectureSeule.includes('repondre'));
+    assert.ok(!enLectureSeule.includes('repondreFil'));
     assert.deepEqual(
       actionsPossibles({ ...base, message: { ...base.message, typeSysteme: 'uj' } }),
       [],
@@ -96,6 +99,7 @@ describe('actionsPossibles', () => {
     // (`error-not-allowed`) ; `repondre` est fermé par `chiffre`.
     assert.ok(!lisible.includes('modifier'));
     assert.ok(!lisible.includes('repondre'));
+    assert.ok(!lisible.includes('repondreFil'));
   });
 
   test('salon chiffré, message ENCORE OPAQUE : aucune action', () => {
@@ -117,6 +121,12 @@ describe('actionsPossibles', () => {
       }),
       [],
     );
+  });
+
+  test('depuis l’écran d’un fil : répondre, mais pas ouvrir un fil', () => {
+    const actions = actionsPossibles({ ...base, dansUnFil: true });
+    assert.ok(actions.includes('repondre'));
+    assert.ok(!actions.includes('repondreFil'));
   });
 
   test('lecture seule : copier et partager restent', () => {

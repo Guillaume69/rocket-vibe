@@ -34,12 +34,15 @@ export type ContexteAction = {
   lectureSeule: boolean;
   /** Salon chiffré : on ne peut pas y ENVOYER (donc pas répondre) — réagir, si. */
   chiffre: boolean;
+  /** Feuille ouverte depuis l'écran d'un fil : on y répond déjà. */
+  dansUnFil: boolean;
   maintenant: number;
 };
 
 export type ActionMessage =
   | 'reagir'
   | 'repondre'
+  | 'repondreFil'
   | 'copier'
   | 'partager'
   | 'modifier'
@@ -53,7 +56,7 @@ function dansLeDelai(contexte: ContexteAction, minutes: number): boolean {
 
 export function actionsPossibles(contexte: ContexteAction): ActionMessage[] {
   const actions: ActionMessage[] = [];
-  const { message, moi, regles, permissions, lectureSeule, chiffre } = contexte;
+  const { message, moi, regles, permissions, lectureSeule, chiffre, dansUnFil } = contexte;
 
   // Un message système ne se modifie pas, ne s'épingle pas, ne se commente
   // pas d'un emoji.
@@ -72,6 +75,7 @@ export function actionsPossibles(contexte: ContexteAction): ActionMessage[] {
   // Répondre en citant (`lib/citation.ts`) : n'importe quel message d'autrui ou
   // de soi, tant qu'on PEUT poster dans le salon.
   if (!lectureSeule && !chiffre) actions.push('repondre');
+  if (!lectureSeule && !chiffre && !dansUnFil) actions.push('repondreFil');
   if (texteACopier(message.texte) !== null) actions.push('copier', 'partager');
 
   const mien = message.auteurId === moi;

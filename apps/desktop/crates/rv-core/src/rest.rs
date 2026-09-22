@@ -128,6 +128,39 @@ impl RestClient {
         self.call(reqwest::Method::POST, path, options).await
     }
 
+    /// GET a protected file (avatar, upload). Returns its bytes and content type.
+    pub async fn fetch_protected(&self, path_or_url: &str) -> Result<(Vec<u8>, String), RestError> {
+        let credentials = self.credentials();
+        let Some(url) = crate::media::protected_url(&self.base, credentials.as_ref(), path_or_url) else {
+            return Err(RestError::network(format!("{path_or_url}: not a URL.")));
+        };
+        let response = self
+            .http
+            .get(url)
+            .send()
+            .await
+            .map_err(|_| RestError::network(format!("{path_or_url}: server unreachable.")))?;
+        let status = response.status().as_u16();
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_owned();
+        if !(200..300).contains(&status) {
+            return Err(RestError {
+                status,
+                message: format!("{path_or_url}: HTTP {status}."),
+                ..RestError::network(String::new())
+            });
+        }
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|_| RestError::network(format!("{path_or_url}: connection lost while reading.")))?;
+        Ok((bytes.to_vec(), content_type))
+    }
+
     fn url_for(&self, path: &str, options: &CallOptions) -> Url {
         let mut url = self.base.clone();
         let prefix = if options.outside_api_v1 { "/" } else { "/api/v1/" };

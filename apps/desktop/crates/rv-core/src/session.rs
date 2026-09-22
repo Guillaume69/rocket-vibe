@@ -12,6 +12,7 @@ use tokio::task::JoinHandle;
 use url::Url;
 
 use crate::ddp::{self, DdpEvent, DdpHandle, State, Timeouts};
+use crate::media::MediaCache;
 use crate::outbox::Outbox;
 use crate::rest::{CallOptions, Credentials, RestClient, RestError, TwoFactorCode};
 use crate::store::Store;
@@ -113,6 +114,7 @@ pub struct Session {
     pub rest: RestClient,
     pub sync: Arc<SyncEngine>,
     pub outbox: Arc<Outbox>,
+    pub media: Arc<MediaCache>,
     ddp: DdpHandle,
     events: broadcast::Sender<SessionEvent>,
     current_room: Mutex<Option<(String, String)>>,
@@ -134,12 +136,14 @@ impl Session {
         ddp.subscribe(STREAM_ROOM_MESSAGES, MY_MESSAGES);
         let (events, _) = broadcast::channel(32);
 
+        let media = Arc::new(MediaCache::new(rest.clone()));
         let session = Arc::new(Session {
             info,
             store,
             rest,
             sync,
             outbox,
+            media,
             ddp,
             events,
             current_room: Mutex::new(None),

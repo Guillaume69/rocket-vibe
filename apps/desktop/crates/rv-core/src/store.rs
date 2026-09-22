@@ -38,6 +38,8 @@ pub struct RoomRow {
     pub favorite: bool,
     pub encrypted: bool,
     pub read_only: bool,
+    pub dm_other_uid: Option<String>,
+    pub avatar_etag: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -199,7 +201,7 @@ impl Store {
             let mut q = c.prepare(
                 "SELECT r.rid, r.type, COALESCE(r.display_name, r.name, r.rid), r.last_message,
                         COALESCE(r.last_message_ts, 0), s.unread, s.mentions + s.group_mentions, s.alert,
-                        s.favorite, r.encrypted, r.read_only
+                        s.favorite, r.encrypted, r.read_only, r.dm_other_uid, r.avatar_etag
                  FROM rooms r JOIN subscriptions s ON s.rid = r.rid
                  WHERE s.open = 1
                  ORDER BY COALESCE(r.last_message_ts, 0) DESC",
@@ -217,6 +219,8 @@ impl Store {
                     favorite: r.get(8)?,
                     encrypted: r.get(9)?,
                     read_only: r.get(10)?,
+                    dm_other_uid: r.get(11)?,
+                    avatar_etag: r.get(12)?,
                 })
             })?
             .collect()

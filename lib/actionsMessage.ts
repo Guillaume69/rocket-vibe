@@ -8,6 +8,7 @@
  * action affichée à tort échoue proprement avec son message d'erreur.
  */
 
+import { sansPrefixeCitation } from './citation.ts';
 import { TYPE_CHIFFRE } from './normaliser.ts';
 import { ErreurRest } from './rest.ts';
 
@@ -36,7 +37,14 @@ export type ContexteAction = {
   maintenant: number;
 };
 
-export type ActionMessage = 'reagir' | 'repondre' | 'modifier' | 'supprimer' | 'epingler';
+export type ActionMessage =
+  | 'reagir'
+  | 'repondre'
+  | 'copier'
+  | 'partager'
+  | 'modifier'
+  | 'supprimer'
+  | 'epingler';
 
 function dansLeDelai(contexte: ContexteAction, minutes: number): boolean {
   if (minutes <= 0) return true; // 0 = illimité
@@ -64,6 +72,7 @@ export function actionsPossibles(contexte: ContexteAction): ActionMessage[] {
   // Répondre en citant (`lib/citation.ts`) : n'importe quel message d'autrui ou
   // de soi, tant qu'on PEUT poster dans le salon.
   if (!lectureSeule && !chiffre) actions.push('repondre');
+  if (texteACopier(message.texte) !== null) actions.push('copier', 'partager');
 
   const mien = message.auteurId === moi;
   // Noms RÉELS des permissions Rocket.Chat : `bypass-time-limit-edit-and-delete`
@@ -90,6 +99,12 @@ export function actionsPossibles(contexte: ContexteAction): ActionMessage[] {
   if (regles.epinglageAutorise) actions.push('epingler');
 
   return actions;
+}
+
+/** Le texte que « Copier » et « Partager » emportent : sans le permalien de citation. */
+export function texteACopier(texte: string | null): string | null {
+  const mots = sansPrefixeCitation(texte ?? '').trim();
+  return mots === '' ? null : mots;
 }
 
 type LecteurMessage = {

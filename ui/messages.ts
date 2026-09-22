@@ -249,6 +249,8 @@ const fr = {
   'actionsMessage.chargementImpossible': 'Chargement impossible.',
   'actionsMessage.actionRefusee': 'Action refusée.',
   'actionsMessage.repondre': 'Répondre',
+  'actionsMessage.copier': 'Copier',
+  'actionsMessage.partager': 'Partager',
   'actionsMessage.modifier': 'Modifier',
   'actionsMessage.epingler': 'Épingler',
 
@@ -599,6 +601,8 @@ const en: Record<CleTraduction, string> = {
   'actionsMessage.chargementImpossible': "Couldn't load.",
   'actionsMessage.actionRefusee': 'Action refused.',
   'actionsMessage.repondre': 'Reply',
+  'actionsMessage.copier': 'Copy',
+  'actionsMessage.partager': 'Share',
   'actionsMessage.modifier': 'Edit',
   'actionsMessage.epingler': 'Pin',
 

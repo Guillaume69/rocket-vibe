@@ -1,10 +1,12 @@
 import { eq } from 'drizzle-orm';
+import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -18,6 +20,7 @@ import {
   actionsPossibles,
   messageDisparuDuServeur,
   reglesDepuisReglages,
+  texteACopier,
   type ActionMessage,
   type ReglesMessages,
 } from '../lib/actionsMessage.ts';
@@ -342,6 +345,24 @@ export default function EcranActionsMessage() {
               icone="↩️"
               libelle={t('actionsMessage.repondre')}
               onPress={repondre}
+            />
+          )}
+          {actions.includes('copier') && (
+            <ActionLigne
+              c={c}
+              disabled={occupe}
+              icone="📋"
+              libelle={t('actionsMessage.copier')}
+              onPress={() => void agir(() => Clipboard.setStringAsync(texteACopier(message.texte) ?? ''))}
+            />
+          )}
+          {actions.includes('partager') && (
+            <ActionLigne
+              c={c}
+              disabled={occupe}
+              icone="📤"
+              libelle={t('actionsMessage.partager')}
+              onPress={() => void agir(() => Share.share({ message: texteACopier(message.texte) ?? '' }))}
             />
           )}
           {actions.includes('modifier') && (

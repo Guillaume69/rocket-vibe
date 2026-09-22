@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { actionsPossibles, messageDisparuDuServeur, reglesDepuisReglages } from './actionsMessage.ts';
+import {
+  actionsPossibles,
+  messageDisparuDuServeur,
+  reglesDepuisReglages,
+  texteACopier,
+} from './actionsMessage.ts';
 import { ErreurRest } from './rest.ts';
 
 const regles = {
@@ -27,6 +32,8 @@ describe('actionsPossibles', () => {
     assert.deepEqual(actionsPossibles(base), [
       'reagir',
       'repondre',
+      'copier',
+      'partager',
       'modifier',
       'supprimer',
       'epingler',
@@ -37,7 +44,7 @@ describe('actionsPossibles', () => {
     // 6 minutes après, avec BlockEditInMinutes = 5 : plus d'édition —
     // mais la suppression (délai 0 = illimité) reste.
     const tard = { ...base, maintenant: base.message.horodatage + 6 * 60_000 };
-    assert.deepEqual(actionsPossibles(tard), ['reagir', 'repondre', 'supprimer', 'epingler']);
+    assert.deepEqual(actionsPossibles(tard), ['reagir', 'repondre', 'copier', 'partager', 'supprimer', 'epingler']);
   });
 
   test('`bypass-time-limit-edit-and-delete` rouvre l’édition après le délai', () => {
@@ -60,7 +67,7 @@ describe('actionsPossibles', () => {
 
   test('le message d’AUTRUI ne se modifie ni ne se supprime (sans permission)', () => {
     const autrui = { ...base, message: { ...base.message, auteurId: 'lui' } };
-    assert.deepEqual(actionsPossibles(autrui), ['reagir', 'repondre', 'epingler']);
+    assert.deepEqual(actionsPossibles(autrui), ['reagir', 'repondre', 'copier', 'partager', 'epingler']);
   });
 
   test('lecture seule : ni réaction ni réponse ; message système : rien du tout', () => {
@@ -84,7 +91,7 @@ describe('actionsPossibles', () => {
       chiffre: true,
       message: { ...base.message, typeSysteme: 'e2e', texte: 'clair' },
     });
-    assert.deepEqual(lisible, ['reagir', 'supprimer', 'epingler']);
+    assert.deepEqual(lisible, ['reagir', 'copier', 'partager', 'supprimer', 'epingler']);
     // `modifier` posterait du clair par `chat.update`, que le serveur rejette
     // (`error-not-allowed`) ; `repondre` est fermé par `chiffre`.
     assert.ok(!lisible.includes('modifier'));
@@ -110,6 +117,35 @@ describe('actionsPossibles', () => {
       }),
       [],
     );
+  });
+
+  test('lecture seule : copier et partager restent', () => {
+    const enLectureSeule = actionsPossibles({ ...base, lectureSeule: true });
+    assert.ok(enLectureSeule.includes('copier'));
+    assert.ok(enLectureSeule.includes('partager'));
+  });
+
+  test('pièce jointe sans texte, ou citation sans un mot : ni copier ni partager', () => {
+    const lien = '[ ](https://chat.example/channel/general?msg=abc)';
+    for (const texte of [null, '', '   ', lien, `${lien}  `]) {
+      const actions = actionsPossibles({ ...base, message: { ...base.message, texte } });
+      assert.ok(!actions.includes('copier'), String(texte));
+      assert.ok(!actions.includes('partager'), String(texte));
+    }
+  });
+});
+
+describe('texteACopier', () => {
+  test('retire le permalien de citation en tête', () => {
+    assert.equal(
+      texteACopier('[ ](https://chat.example/channel/general?msg=abc) oui, **ça** marche'),
+      'oui, **ça** marche',
+    );
+  });
+
+  test('rien à emporter : null', () => {
+    assert.equal(texteACopier(null), null);
+    assert.equal(texteACopier('  '), null);
   });
 });
 

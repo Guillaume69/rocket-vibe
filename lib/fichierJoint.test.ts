@@ -3,6 +3,7 @@ import { describe, test } from 'node:test';
 
 import {
   cleDeFichier,
+  jointeAPartager,
   nomDeFichierSur,
   ouvrirFichierJoint,
   type CreerDossier,
@@ -251,5 +252,49 @@ describe('ouvrirFichierJoint', () => {
       },
     });
     assert.deepEqual(ordre, ['dossier', 'telecharge', 'partage']);
+  });
+});
+
+describe('jointeAPartager', () => {
+  test('image : l’ORIGINAL (`title_link`), pas la vignette, avec son MIME', () => {
+    const jointes = JSON.stringify([
+      {
+        title: 'photo.jpg',
+        title_link: '/file-upload/orig/photo.jpg',
+        image_url: '/file-upload/vignette/photo.jpg',
+        image_type: 'image/jpeg',
+      },
+    ]);
+    assert.deepEqual(jointeAPartager(jointes), {
+      chemin: '/file-upload/orig/photo.jpg',
+      titre: 'photo.jpg',
+      type: 'image/jpeg',
+    });
+  });
+
+  test('vidéo sans `title_link` : repli sur `video_url`', () => {
+    const jointes = JSON.stringify([{ video_url: '/file-upload/v1/clip.mp4', video_type: 'video/mp4' }]);
+    assert.deepEqual(jointeAPartager(jointes), {
+      chemin: '/file-upload/v1/clip.mp4',
+      titre: null,
+      type: 'video/mp4',
+    });
+  });
+
+  test('une citation n’est pas un fichier du message', () => {
+    const citation = {
+      message_link: 'https://chat.example/channel/general?msg=abc',
+      image_url: '/file-upload/x/cite.jpg',
+    };
+    assert.equal(jointeAPartager(JSON.stringify([citation])), null);
+    const apres = JSON.stringify([citation, { title_link: '/file-upload/d1/doc.pdf', title: 'doc.pdf' }]);
+    assert.equal(jointeAPartager(apres)?.chemin, '/file-upload/d1/doc.pdf');
+  });
+
+  test('rien d’exploitable : null', () => {
+    assert.equal(jointeAPartager(null), null);
+    assert.equal(jointeAPartager('pas du json'), null);
+    assert.equal(jointeAPartager('{}'), null);
+    assert.equal(jointeAPartager(JSON.stringify([{ text: 'embed' }])), null);
   });
 });

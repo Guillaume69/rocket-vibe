@@ -19,6 +19,8 @@
  * `TransportUpload` (lib/upload.ts).
  */
 
+import { estJointeCitation } from './citation.ts';
+
 /** Crée un dossier et ses parents. Doit être sans effet s'il existe déjà. */
 export type CreerDossier = (chemin: string) => Promise<void>;
 
@@ -147,4 +149,54 @@ export async function ouvrirFichierJoint(options: {
   await telecharger(url, destination);
   await partager(destination, typeof type === 'string' && type !== '' ? type : null);
   return destination;
+}
+
+export type JointePartageable = {
+  /** Chemin (relatif au serveur) de l'ORIGINAL, sans jeton. */
+  chemin: string;
+  titre: string | null;
+  type: string | null;
+};
+
+type JointeBrute = {
+  title?: unknown;
+  title_link?: unknown;
+  image_url?: unknown;
+  video_url?: unknown;
+  audio_url?: unknown;
+  image_type?: unknown;
+  video_type?: unknown;
+  audio_type?: unknown;
+};
+
+function chaine(v: unknown): string | null {
+  return typeof v === 'string' && v !== '' ? v : null;
+}
+
+/**
+ * La première pièce jointe du message qu'on peut partager comme FICHIER :
+ * `title_link` d'abord, qui désigne l'original là où `image_url` n'est que la
+ * vignette. Les citations sont ignorées : on partage ce que le message porte.
+ */
+export function jointeAPartager(piecesJointes: string | null): JointePartageable | null {
+  let brut: unknown;
+  try {
+    brut = JSON.parse(piecesJointes ?? '[]');
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(brut)) return null;
+  for (const jointe of brut as unknown[]) {
+    if (typeof jointe !== 'object' || jointe === null || estJointeCitation(jointe)) continue;
+    const j = jointe as JointeBrute;
+    const chemin =
+      chaine(j.title_link) ?? chaine(j.image_url) ?? chaine(j.video_url) ?? chaine(j.audio_url);
+    if (chemin === null) continue;
+    return {
+      chemin,
+      titre: chaine(j.title),
+      type: chaine(j.image_type) ?? chaine(j.video_type) ?? chaine(j.audio_type),
+    };
+  }
+  return null;
 }

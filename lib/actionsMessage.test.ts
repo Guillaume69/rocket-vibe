@@ -18,7 +18,7 @@ const regles = {
 };
 
 const base = {
-  message: { auteurId: 'moi', horodatage: 1_000_000, typeSysteme: null, texte: 'coucou' },
+  message: { auteurId: 'moi', horodatage: 1_000_000, typeSysteme: null, texte: 'coucou', piecesJointes: null as string | null },
   moi: 'moi',
   regles,
   permissions: [] as string[],
@@ -135,7 +135,19 @@ describe('actionsPossibles', () => {
     assert.ok(enLectureSeule.includes('partager'));
   });
 
-  test('pièce jointe sans texte, ou citation sans un mot : ni copier ni partager', () => {
+  test('image sans légende : partager (le fichier), mais rien à copier', () => {
+    const image = JSON.stringify([
+      { title: 'photo.jpg', title_link: '/file-upload/f1/photo.jpg', image_url: '/file-upload/t1/photo.jpg' },
+    ]);
+    const actions = actionsPossibles({
+      ...base,
+      message: { ...base.message, texte: '', piecesJointes: image },
+    });
+    assert.ok(actions.includes('partager'));
+    assert.ok(!actions.includes('copier'));
+  });
+
+  test('sans texte ni fichier, ou citation sans un mot : ni copier ni partager', () => {
     const lien = '[ ](https://chat.example/channel/general?msg=abc)';
     for (const texte of [null, '', '   ', lien, `${lien}  `]) {
       const actions = actionsPossibles({ ...base, message: { ...base.message, texte } });

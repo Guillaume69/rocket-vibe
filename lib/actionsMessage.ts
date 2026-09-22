@@ -9,6 +9,7 @@
  */
 
 import { sansPrefixeCitation } from './citation.ts';
+import { jointeAPartager } from './fichierJoint.ts';
 import { TYPE_CHIFFRE } from './normaliser.ts';
 import { ErreurRest } from './rest.ts';
 
@@ -27,7 +28,13 @@ export type ContexteAction = {
    * `deverrouillageE2E`) d'un message encore opaque — voir la garde de
    * `actionsPossibles`.
    */
-  message: { auteurId: string; horodatage: number; typeSysteme: string | null; texte: string | null };
+  message: {
+    auteurId: string;
+    horodatage: number;
+    typeSysteme: string | null;
+    texte: string | null;
+    piecesJointes: string | null;
+  };
   moi: string;
   regles: ReglesMessages;
   permissions: string[];
@@ -76,7 +83,9 @@ export function actionsPossibles(contexte: ContexteAction): ActionMessage[] {
   // de soi, tant qu'on PEUT poster dans le salon.
   if (!lectureSeule && !chiffre) actions.push('repondre');
   if (!lectureSeule && !chiffre && !dansUnFil) actions.push('repondreFil');
-  if (texteACopier(message.texte) !== null) actions.push('copier', 'partager');
+  const texte = texteACopier(message.texte) !== null;
+  if (texte) actions.push('copier');
+  if (texte || jointeAPartager(message.piecesJointes) !== null) actions.push('partager');
 
   const mien = message.auteurId === moi;
   // Noms RÉELS des permissions Rocket.Chat : `bypass-time-limit-edit-and-delete`

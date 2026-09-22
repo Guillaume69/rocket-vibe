@@ -1,6 +1,7 @@
 mod chat;
 mod fonts;
 mod login;
+mod media;
 mod secrets;
 mod smoke;
 mod style;

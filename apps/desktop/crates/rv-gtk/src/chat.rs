@@ -6,13 +6,14 @@ use adw::prelude::*;
 use chrono::{DateTime, Local, TimeZone};
 use gtk::{gdk, gio, glib, pango};
 use rv_core::diff::diff_sorted;
+use rv_core::media::{AvatarTarget, ImageAttachment, avatar_path, display_size, image_attachments};
 use rv_core::session::{Connection, Session};
 use rv_core::store::{Change, MessageRow, RoomRow};
 use rv_core::sync::HISTORY_PAGE;
 use serde_json::Value;
 
-use crate::runtime;
 use crate::widgets::{self, TileSize};
+use crate::{media, runtime};
 
 const GROUPING_GAP_MS: i64 = 5 * 60 * 1000;
 
@@ -33,6 +34,7 @@ struct OpenRoom {
     name: String,
     read_only: bool,
     encrypted: bool,
+    avatar: Option<String>,
 }
 
 type Callback<T> = RefCell<Vec<Box<dyn Fn(T)>>>;
@@ -59,7 +61,7 @@ pub struct ChatPage {
     composer: gtk::TextView,
     composer_bar: gtk::Box,
     read_only_label: gtk::Label,
-    session: RefCell<Option<Arc<Session>>>,
+    session: Rc<RefCell<Option<Arc<Session>>>>,
     current: RefCell<Option<OpenRoom>>,
     limit: Cell<i64>,
     loading: Cell<bool>,
@@ -94,7 +96,8 @@ fn short_time(ts: i64) -> String {
 
 fn attachment_label(json: Option<&str>) -> Option<String> {
     let list: Vec<Value> = serde_json::from_str(json?).ok()?;
-    list.iter().find_map(|a| {
+    // Images are drawn, not labelled: only other files get a 📎 line.
+    list.iter().filter(|a| a.get("image_url").is_none()).find_map(|a| {
         let title = a.get("title").and_then(Value::as_str).filter(|s| !s.is_empty());
         let description = a.get("description").and_then(Value::as_str).filter(|s| !s.is_empty());
         match (title, description) {
@@ -163,6 +166,36 @@ fn label(text: &str, classes: &[&str]) -> gtk::Label {
     gtk::Label::builder().label(text).xalign(0.0).css_classes(classes.to_vec()).build()
 }
 
+/// A gradient tile that receives the real photo once (and if) it loads.
+fn with_photo(tile: gtk::Widget, session: Option<&Arc<Session>>, path: Option<String>) -> gtk::Widget {
+    if let (Some(session), Some(path)) = (session, path) {
+        let weak = tile.downgrade();
+        media::load(session, &path, move |texture| {
+            if let Some(tile) = weak.upgrade() {
+                widgets::set_photo(&tile, texture);
+            }
+        });
+    }
+    tile
+}
+
+/// DM: the other person's photo by uid; channel or group: the room's photo.
+/// A locked encrypted room keeps its grey padlock.
+fn room_avatar_path(r: &RoomRow) -> Option<String> {
+    if r.encrypted {
+        return None;
+    }
+    match (r.kind.as_str(), &r.dm_other_uid) {
+        ("d", Some(uid)) => Some(avatar_path(AvatarTarget::Uid(uid), None)),
+        ("d", None) => None,
+        _ => Some(avatar_path(AvatarTarget::Room(&r.rid), r.avatar_etag.as_deref())),
+    }
+}
+
+fn user_avatar_path(username: &str) -> Option<String> {
+    (!username.is_empty()).then(|| avatar_path(AvatarTarget::User(username), None))
+}
+
 fn room_tile(name: &str, kind: &str, encrypted: bool, size: TileSize) -> gtk::Widget {
     if encrypted {
         return widgets::tile(name, "🔒", size, true);
@@ -171,7 +204,49 @@ fn room_tile(name: &str, kind: &str, encrypted: bool, size: TileSize) -> gtk::Wi
     widgets::tile(name, &glyph, size, false)
 }
 
-fn room_widget(r: &RoomRow) -> gtk::Widget {
+fn open_viewer(parent: &gtk::Widget, texture: &gdk::Texture, title: &str) {
+    let picture = gtk::Picture::builder().paintable(texture).content_fit(gtk::ContentFit::Contain).build();
+    let page = adw::ToolbarView::new();
+    page.add_top_bar(&adw::HeaderBar::new());
+    page.set_content(Some(&picture));
+    let (w, h) = (texture.width().clamp(320, 1100), texture.height().clamp(240, 800) + 48);
+    let dialog = adw::Dialog::builder().title(title).content_width(w).content_height(h).child(&page).build();
+    dialog.present(Some(parent));
+}
+
+fn image_widget(session: &Arc<Session>, image: &ImageAttachment) -> gtk::Widget {
+    let (w, h) = display_size(image.width, image.height, 120, 360, 300);
+    let frame = gtk::Overlay::builder()
+        .css_classes(["image-attachment"])
+        .width_request(w)
+        .height_request(h)
+        .halign(gtk::Align::Start)
+        .overflow(gtk::Overflow::Hidden)
+        .cursor(&gdk::Cursor::from_name("pointer", None).expect("cursor"))
+        .margin_top(4)
+        .build();
+    frame.set_child(Some(&gtk::Box::new(gtk::Orientation::Vertical, 0)));
+    let weak = frame.downgrade();
+    media::load(session, &image.source, move |texture| {
+        if let Some(frame) = weak.upgrade() {
+            let picture =
+                gtk::Picture::builder().paintable(texture).content_fit(gtk::ContentFit::Cover).can_shrink(true).build();
+            frame.add_overlay(&picture);
+        }
+    });
+    let click = gtk::GestureClick::new();
+    let (session, source) = (session.clone(), image.source.clone());
+    let title = image.title.clone().unwrap_or_else(|| "Image".to_owned());
+    click.connect_released(move |gesture, _, _, _| {
+        let Some(widget) = gesture.widget() else { return };
+        let title = title.clone();
+        media::load(&session, &source, move |texture| open_viewer(&widget, texture, &title));
+    });
+    frame.add_controller(click);
+    frame.upcast()
+}
+
+fn room_widget(r: &RoomRow, session: Option<&Arc<Session>>) -> gtk::Widget {
     let unread = r.unread > 0 || r.alert;
     let name = label(&r.name, &["room-name"]);
     name.set_hexpand(true);
@@ -207,7 +282,7 @@ fn room_widget(r: &RoomRow) -> gtk::Widget {
     column.append(&bottom);
 
     let row = gtk::Box::builder().spacing(12).margin_top(9).margin_bottom(9).margin_start(10).margin_end(10).build();
-    let tile = room_tile(&r.name, &r.kind, r.encrypted, TileSize::Room);
+    let tile = with_photo(room_tile(&r.name, &r.kind, r.encrypted, TileSize::Room), session, room_avatar_path(r));
     tile.set_valign(gtk::Align::Center);
     row.append(&tile);
     row.append(&column);
@@ -224,7 +299,12 @@ fn day_label(ts: i64) -> String {
     }
 }
 
-fn message_widget(d: &Display, my_id: &str, on_retry: impl Fn(String) + 'static) -> gtk::Widget {
+fn message_widget(
+    d: &Display,
+    my_id: &str,
+    session: Option<&Arc<Session>>,
+    on_retry: impl Fn(String) + 'static,
+) -> gtk::Widget {
     let row = &d.row;
     let outer = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -262,7 +342,8 @@ fn message_widget(d: &Display, my_id: &str, on_retry: impl Fn(String) + 'static)
     let author = row.author.clone().unwrap_or_default();
     let line = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     if d.show_header {
-        line.append(&widgets::tile(&author, &widgets::initial(&author), TileSize::Message, false));
+        let tile = widgets::tile(&author, &widgets::initial(&author), TileSize::Message, false);
+        line.append(&with_photo(tile, session, user_avatar_path(&author)));
     } else {
         let gutter = gtk::Label::builder()
             .label(if d.gutter_time { local(row.ts).format("%H:%M").to_string() } else { String::new() })
@@ -301,7 +382,19 @@ fn message_widget(d: &Display, my_id: &str, on_retry: impl Fn(String) + 'static)
     if failed {
         body.add_css_class("failed");
     }
-    column.append(&body);
+    if !body_text.is_empty() {
+        column.append(&body);
+    }
+    if let Some(session) = session {
+        for image in image_attachments(row.attachments.as_deref()) {
+            column.append(&image_widget(session, &image));
+            if let Some(caption) = &image.description {
+                let caption = label(caption, &["message-body"]);
+                caption.set_wrap(true);
+                column.append(&caption);
+            }
+        }
+    }
 
     if row.edited || pending || failed || row.thread_count > 0 {
         let footer = gtk::Box::new(gtk::Orientation::Horizontal, 10);
@@ -337,11 +430,13 @@ impl ChatPage {
         let rooms_selection = gtk::SingleSelection::new(Some(rooms_store.clone()));
         rooms_selection.set_autoselect(false);
         rooms_selection.set_can_unselect(true);
+        let session: Rc<RefCell<Option<Arc<Session>>>> = Rc::default();
         let room_factory = gtk::SignalListItemFactory::new();
-        room_factory.connect_bind(|_, item| {
+        let shared = session.clone();
+        room_factory.connect_bind(move |_, item| {
             let item = item.downcast_ref::<gtk::ListItem>().expect("list item");
             let object = item.item().and_downcast::<glib::BoxedAnyObject>().expect("room");
-            item.set_child(Some(&room_widget(&object.borrow::<RoomRow>())));
+            item.set_child(Some(&room_widget(&object.borrow::<RoomRow>(), shared.borrow().as_ref())));
         });
         let rooms_view = gtk::ListView::new(Some(rooms_selection.clone()), Some(room_factory));
         rooms_view.add_css_class("rooms");
@@ -502,7 +597,7 @@ impl ChatPage {
             composer,
             composer_bar,
             read_only_label,
-            session: RefCell::default(),
+            session,
             current: RefCell::default(),
             limit: Cell::new(HISTORY_PAGE),
             loading: Cell::new(false),
@@ -531,9 +626,10 @@ impl ChatPage {
             let item = item.downcast_ref::<gtk::ListItem>().expect("list item");
             let object = item.item().and_downcast::<glib::BoxedAnyObject>().expect("message");
             let Some(this) = w.upgrade() else { return };
-            let my_id = this.session.borrow().as_ref().map(|s| s.info.user_id.clone()).unwrap_or_default();
+            let session = this.session.borrow().clone();
+            let my_id = session.as_ref().map(|s| s.info.user_id.clone()).unwrap_or_default();
             let w2 = w.clone();
-            let widget = message_widget(&object.borrow::<Display>(), &my_id, move |id| {
+            let widget = message_widget(&object.borrow::<Display>(), &my_id, session.as_ref(), move |id| {
                 if let Some(this) = w2.upgrade() {
                     this.retry(id);
                 }
@@ -642,6 +738,7 @@ impl ChatPage {
                 self.account_tile.remove(&child);
             }
             let tile = widgets::tile(&s.info.username, &widgets::initial(&s.info.username), TileSize::Message, false);
+            let tile = with_photo(tile, Some(s), user_avatar_path(&s.info.username));
             self.account_tile.append(&tile);
         }
         self.session.replace(session);
@@ -718,6 +815,7 @@ impl ChatPage {
             {
                 open.name = r.name.clone();
                 open.read_only = r.read_only;
+                open.avatar = room_avatar_path(r);
             }
             self.rooms.replace(rows);
             self.refresh_room_header();
@@ -735,7 +833,8 @@ impl ChatPage {
         while let Some(child) = self.room_title.first_child() {
             self.room_title.remove(&child);
         }
-        self.room_title.append(&room_tile(&open.name, &open.kind, open.encrypted, TileSize::Header));
+        let tile = room_tile(&open.name, &open.kind, open.encrypted, TileSize::Header);
+        self.room_title.append(&with_photo(tile, self.session.borrow().as_ref(), open.avatar.clone()));
         self.room_title.append(&label(&open.name, &["room-title"]));
         self.composer_bar.set_visible(!open.read_only);
         self.read_only_label.set_visible(open.read_only);
@@ -795,6 +894,7 @@ impl ChatPage {
             name: room.name.clone(),
             read_only: room.read_only,
             encrypted: room.encrypted,
+            avatar: room_avatar_path(&room),
         }));
         let index = self.rooms.borrow().iter().position(|r| r.rid == rid);
         if let Some(i) = index

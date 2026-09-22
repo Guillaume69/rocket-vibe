@@ -143,6 +143,7 @@ button.cta:active, button.cta:disabled { opacity: 0.75; }
 .system-message { font-style: italic; color: #8F89AB; font-size: 13px; }
 .thread-chip { border: 1px solid #A78BFA; border-radius: 999px; padding: 4px 11px; color: #A78BFA; font-weight: 700; font-size: 12px; }
 button.retry { color: #FF7A8A; font-weight: 700; font-size: 12px; padding: 0 4px; min-height: 0; }
+.image-attachment { background: #171529; border-radius: 10px; }
 .day-line { background: #2C2946; min-height: 1px; border-radius: 1px; }
 .day-label { color: #8F89AB; font-weight: 600; font-size: 11.5px; }
 

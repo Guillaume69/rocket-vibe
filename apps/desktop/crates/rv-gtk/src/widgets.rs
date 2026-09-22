@@ -36,12 +36,10 @@ pub fn tile(key: &str, glyph: &str, size: TileSize, neutral: bool) -> gtk::Widge
         .css_classes(["tile-glyph"])
         .halign(gtk::Align::Center)
         .valign(gtk::Align::Center)
-        .hexpand(true)
-        .vexpand(true)
         .build();
     // Explicitly non-expanding: otherwise the centred glyph's expand flags
     // propagate up and the tile claims half of every row it sits in.
-    let tile = gtk::Box::builder()
+    let tile = gtk::Overlay::builder()
         .css_classes(["tile", class, gradient.as_str()])
         .width_request(px)
         .height_request(px)
@@ -49,9 +47,18 @@ pub fn tile(key: &str, glyph: &str, size: TileSize, neutral: bool) -> gtk::Widge
         .vexpand(false)
         .halign(gtk::Align::Center)
         .valign(gtk::Align::Start)
+        .overflow(gtk::Overflow::Hidden)
+        .child(&label)
         .build();
-    tile.append(&label);
     tile.upcast()
+}
+
+/// Lays the real photo over a tile; the gradient stays as its backdrop.
+pub fn set_photo(tile: &gtk::Widget, texture: &gtk::gdk::Texture) {
+    let Some(overlay) = tile.downcast_ref::<gtk::Overlay>() else { return };
+    let picture =
+        gtk::Picture::builder().paintable(texture).content_fit(gtk::ContentFit::Cover).can_shrink(true).build();
+    overlay.add_overlay(&picture);
 }
 
 pub fn initial(name: &str) -> String {

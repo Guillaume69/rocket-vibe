@@ -293,6 +293,7 @@ impl AppWindow {
             forward.abort();
         }
         self.chat.set_session(None);
+        crate::media::clear();
         if let Some(session) = self.session.take() {
             session.shutdown();
         }

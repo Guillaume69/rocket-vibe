@@ -34,6 +34,22 @@ quits, under Xvfb in the build image:
 scripts/smoke.sh http://localhost:3000 alice alice-dev-2026 test-public /tmp/shot.png "hello"
 ```
 
+## Tests
+
+| Level | What | Command |
+|---|---|---|
+| Unit | Pure logic: normalisation, store SQL, diff, media URLs, avatar hash | `scripts/build.sh` |
+| Integration | REST, DDP and the outbox against fake HTTP and WebSocket servers | `scripts/build.sh` |
+| End-to-end | The real app, headless, against the seeded bench: sends, receives live, sees a deletion; checks the server stored the send once | `scripts/e2e.sh` |
+
+Coverage (cargo-llvm-cov, in the build image):
+
+```sh
+scripts/coverage.sh          # unit + integration (~43% of lines: the UI is out of their reach)
+scripts/coverage.sh --e2e    # plus an instrumented end-to-end run (~88%)
+HTML=1 scripts/coverage.sh --e2e
+```
+
 ## Layout
 
 | Crate / module | Role |
@@ -49,7 +65,12 @@ scripts/smoke.sh http://localhost:3000 alice alice-dev-2026 test-public /tmp/sho
 
 ## Status
 
-Same scope as the Qt port's first milestone: password + TOTP login, session
-resume, rooms and subscriptions via cursors, history paging, live messages and
-edits for every room through `__my_messages__`, live deletions in the open
-room, optimistic send with retry, read marking, reconnection with back-off.
+Password + TOTP login, session resume, rooms and subscriptions via cursors,
+history paging, live messages and edits for every room through
+`__my_messages__`, live deletions in the open room, optimistic send with
+retry, read marking, reconnection with back-off, photo avatars and inline
+images (click to enlarge).
+
+Not yet: live avatar changes (`updateAvatar`; a changed photo shows after a
+restart), markdown, non-image files beyond their name, threads view,
+reactions, typing indicator, notifications, E2EE.

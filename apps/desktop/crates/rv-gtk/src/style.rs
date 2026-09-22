@@ -43,6 +43,7 @@ const CSS: &str = r#"
 "#;
 
 pub fn load() {
+    crate::fonts::register();
     adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
     let provider = gtk::CssProvider::new();
     provider.load_from_string(CSS);

@@ -1842,6 +1842,7 @@ dependencies = [
  "gtk4",
  "libadwaita",
  "oo7",
+ "pango",
  "rv-core",
  "serde_json",
  "tokio",

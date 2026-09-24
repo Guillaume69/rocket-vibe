@@ -25,5 +25,5 @@ docker run --rm --network host -u "$(id -u):$(id -g)" -v "$PWD:/src" -v "$out:/o
   -e RV_SMOKE_LOGIN="$server|$user|$password" -e RV_SMOKE_ROOM="$room" -e RV_SMOKE_SEND="$message" \
   -e RV_SMOKE_SHOT="/out/$(basename "$shot")" \
   -e RV_SMOKE_EXPECT="${RV_SMOKE_EXPECT:-}" -e RV_SMOKE_EXPECT_ABSENT="${RV_SMOKE_EXPECT_ABSENT:-}" \
- -e RV_SMOKE_SIZE="${RV_SMOKE_SIZE:-}" -e RV_SMOKE_REENTER="${RV_SMOKE_REENTER:-}" -e RV_SMOKE_COMPOSER="${RV_SMOKE_COMPOSER:-}" -e RV_SMOKE_ACTIONS="${RV_SMOKE_ACTIONS:-}" -e RV_SMOKE_DRAFTS="${RV_SMOKE_DRAFTS:-}" -e RV_SMOKE_FILES="${RV_SMOKE_FILES:-}" -e RV_SMOKE_UPLOAD="${RV_SMOKE_UPLOAD:-}" -e RV_SMOKE_SPOTLIGHT="${RV_SMOKE_SPOTLIGHT:-}" -e RV_BIN="${RV_BIN:-target/debug/rocket-vibe-gtk}" -e LLVM_PROFILE_FILE="${RV_PROFILE:-/dev/null}" \
+ -e RV_SMOKE_SIZE="${RV_SMOKE_SIZE:-}" -e RV_SMOKE_REENTER="${RV_SMOKE_REENTER:-}" -e RV_SMOKE_COMPOSER="${RV_SMOKE_COMPOSER:-}" -e RV_SMOKE_ACTIONS="${RV_SMOKE_ACTIONS:-}" -e RV_SMOKE_DRAFTS="${RV_SMOKE_DRAFTS:-}" -e RV_SMOKE_FILES="${RV_SMOKE_FILES:-}" -e RV_SMOKE_UPLOAD="${RV_SMOKE_UPLOAD:-}" -e RV_SMOKE_SPOTLIGHT="${RV_SMOKE_SPOTLIGHT:-}" -e RV_SMOKE_DETAILS="${RV_SMOKE_DETAILS:-}" -e RV_BIN="${RV_BIN:-target/debug/rocket-vibe-gtk}" -e LLVM_PROFILE_FILE="${RV_PROFILE:-/dev/null}" \
   rocket-vibe-rs-build bash -c 'Xvfb :99 -screen 0 1280x800x24 >/dev/null 2>&1 & sleep 1; "./$RV_BIN"'

@@ -15,6 +15,7 @@
 //!   RV_SMOKE_FILES=1       fetches every file attached in the room to the local cache
 //!   RV_SMOKE_UPLOAD="<path>|<caption>"  sends the file as the dialog's Send does, images reduced
 //!   RV_SMOKE_SPOTLIGHT=<query>  finds a channel, joins it and opens it
+//!   RV_SMOKE_DETAILS=profile:<user> | room | search:<text>  checks the read and opens the dialog
 //!   RV_SMOKE_REENTER=1     after opening the room: back to the list, tap the same room, expect it open
 //! A failed expectation makes the process exit with status 1.
 
@@ -128,6 +129,15 @@ pub fn install(window: &Rc<AppWindow>) {
                             chat.go_to(room);
                         }
                     });
+                });
+            }
+            if let Ok(what) = std::env::var("RV_SMOKE_DETAILS")
+                && !what.is_empty()
+                && let Some(session) = w.chat.session()
+            {
+                let (chat, rid) = (w.chat.clone(), rid.clone());
+                glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+                    details_checks(chat, session, rid, what)
                 });
             }
             if std::env::var("RV_SMOKE_REENTER").as_deref() == Ok("1") {
@@ -359,6 +369,32 @@ fn file_checks(chat: std::rc::Rc<crate::chat::ChatPage>) {
             let path = crate::cards::local_copy(session.clone(), f.clone()).await;
             let size = path.as_ref().and_then(|p| std::fs::metadata(p).ok()).map(|m| m.len() as i64);
             check(&format!("file {}", f.title), size.is_some() && (f.size.is_none() || size == f.size), size);
+        }
+    });
+}
+
+fn details_checks(
+    chat: std::rc::Rc<crate::chat::ChatPage>,
+    session: std::sync::Arc<rv_core::session::Session>,
+    rid: String,
+    what: String,
+) {
+    glib::spawn_future_local(async move {
+        if let Some(user) = what.strip_prefix("profile:") {
+            let (s, u) = (session.clone(), user.to_owned());
+            let p = crate::on_tokio(async move { s.profile(&u, false).await }).await;
+            check("profile read", p.as_ref().is_ok_and(|p| p.username == user), p.as_ref().map(|p| &p.username));
+            chat.show_profile(user, false);
+        } else if what == "room" {
+            let (s, r) = (session.clone(), rid.clone());
+            let info = crate::on_tokio(async move { s.room_info(&r).await }).await;
+            check("room info read", info.as_ref().is_ok_and(|i| i.members.is_some()), info.as_ref().map(|i| i.members));
+            chat.show_room_info();
+        } else if let Some(text) = what.strip_prefix("search:") {
+            let (s, r, q) = (session.clone(), rid.clone(), text.to_owned());
+            let hits = crate::on_tokio(async move { s.search(&r, &q).await }).await.unwrap_or_default();
+            check("search finds", hits.iter().any(|m| m.text.as_deref().is_some_and(|t| t.contains(text))), hits.len());
+            crate::details::search(chat.widget(), session, &rid);
         }
     });
 }

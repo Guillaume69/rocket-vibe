@@ -658,7 +658,7 @@ impl ChatPage {
         }
     }
 
-    fn show_room_info(self: &Rc<Self>) {
+    pub fn show_room_info(self: &Rc<Self>) {
         let (Some(session), Some(open)) = (self.session(), self.current.borrow().clone()) else { return };
         match (&open.dm_other_uid, open.kind.as_str()) {
             (Some(uid), "d") => self.show_profile(uid, true),

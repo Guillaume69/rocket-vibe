@@ -29,6 +29,10 @@ What the Android app does and where this one stands: `docs/PARITY.md`.
 
 ## Desktop integration
 
+On Windows, the installer from CI (`rocket-vibe-desktop-<version>-windows-x86_64-setup.exe`,
+built from `data/windows/rocket-vibe.iss`) installs for the current user, adds a Start
+menu entry and registers `rocketvibe://` links. On Linux:
+
 ```sh
 PROFILE=release scripts/build.sh
 scripts/install-desktop.sh        # launcher entry, rocketvibe:// links

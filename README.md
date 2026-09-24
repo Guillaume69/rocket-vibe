@@ -32,8 +32,10 @@ Deux workflows GitHub Actions, chacun ne tournant que si son app (ou lui-même) 
   Gradle sur le runner, jamais EAS). Il lit `google-services.json` dans le secret
   `GOOGLE_SERVICES_JSON`.
 - **`desktop`** — Linux (même Fedora que le build local : fmt, clippy, tous les tests,
-  une archive), Windows (MSYS2, un zip autonome) et macOS (Homebrew, une archive qui
-  demande `brew install gtk4 libadwaita gstreamer`).
+  une archive), Windows (MSYS2 : un installeur par utilisateur, sans droits
+  administrateur, qui pose un raccourci et enregistre les liens `rocketvibe://`, testé
+  en CI par une installation, un lancement et une désinstallation ; plus un zip) et
+  macOS (Homebrew, une archive qui demande `brew install gtk4 libadwaita gstreamer`).
 
 `node scripts/version.mjs mobile|desktop` donne la version d'une app et vérifie sa
 cohérence. Pour publier : monter la version, puis pousser un tag `mobile-vX.Y.Z` ou

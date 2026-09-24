@@ -20,6 +20,11 @@ post() {
     -d "{\"channel\":\"#test-public\",\"text\":\"$3\"}" "$server/api/v1/chat.postMessage" |
     python3 -c "import json,sys; print(json.load(sys.stdin)['message']['_id'])"
 }
+# A thread of its own: a seeded one may have scrolled out of the loaded history.
+root=$(post "$bob_token" "$bob_id" "$tag thread root")
+api -H "X-Auth-Token: $bob_token" -H "X-User-Id: $bob_id" -H 'Content-Type: application/json' \
+  -d "{\"message\":{\"rid\":\"$(api -H "X-Auth-Token: $bob_token" -H "X-User-Id: $bob_id" "$server/api/v1/channels.info?roomName=test-public" | python3 -c "import json,sys; print(json.load(sys.stdin)['channel']['_id'])")\",\"msg\":\"$tag first reply\",\"tmid\":\"$root\"}}" \
+  "$server/api/v1/chat.sendMessage" >/dev/null
 target=$(post "$bob_token" "$bob_id" "$tag target")
 mine=$(post "$alice_token" "$alice_id" "$tag mine")
 

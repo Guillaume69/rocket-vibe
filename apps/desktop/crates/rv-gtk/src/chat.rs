@@ -462,7 +462,7 @@ impl ChatPage {
         let brand = gtk::Box::builder().spacing(8).build();
         brand.append(&gtk::Label::builder().label("🦄").css_classes(["unicorn-header"]).build());
         brand.append(&widgets::brand("brand-header"));
-        let sidebar_header = adw::HeaderBar::builder().show_end_title_buttons(false).build();
+        let sidebar_header = adw::HeaderBar::new();
         sidebar_header.set_title_widget(Some(&brand));
         sidebar_header.pack_start(&status_button);
         sidebar_header.pack_end(&logout);
@@ -521,7 +521,20 @@ impl ChatPage {
             .build();
         let composer_pill =
             gtk::Box::builder().css_classes(["composer-pill"]).hexpand(true).valign(gtk::Align::End).build();
-        composer_pill.append(&composer_scroll);
+        let placeholder = gtk::Label::builder()
+            .label("Message")
+            .css_classes(["composer-placeholder"])
+            .xalign(0.0)
+            .can_target(false)
+            .build();
+        let composer_stack = gtk::Overlay::builder().child(&composer_scroll).hexpand(true).build();
+        composer_stack.add_overlay(&placeholder);
+        composer.buffer().connect_changed(glib::clone!(
+            #[weak]
+            placeholder,
+            move |buffer| placeholder.set_visible(buffer.char_count() == 0)
+        ));
+        composer_pill.append(&composer_stack);
         let send = gtk::Button::builder()
             .child(&widgets::send_arrow())
             .tooltip_text("Send")

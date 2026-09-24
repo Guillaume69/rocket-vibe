@@ -93,6 +93,12 @@ impl AppWindow {
             .content(&stack)
             .build();
 
+        // Below this width, one pane at a time: the room list, then the room
+        // with a back button.
+        let narrow = adw::Breakpoint::new(adw::BreakpointCondition::parse("max-width: 640sp").expect("condition"));
+        narrow.add_setter(chat.widget(), "collapsed", Some(&true.to_value()));
+        window.add_breakpoint(narrow);
+
         let this = Rc::new(AppWindow {
             window,
             stack,

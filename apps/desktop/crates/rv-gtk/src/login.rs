@@ -77,7 +77,7 @@ impl LoginPage {
     pub fn new() -> Self {
         let (server_group, server) = widgets::pill_field("Server address", "chat.example.com", false);
         let (user_group, user) = widgets::pill_field("Username or email", "jane.doe", false);
-        let (password_group, password) = widgets::pill_field("Password", "••••••••", true);
+        let (password_group, password) = widgets::pill_field("Password", "", true);
         let credentials = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(14).build();
         credentials.append(&hero());
         credentials.append(&server_group);

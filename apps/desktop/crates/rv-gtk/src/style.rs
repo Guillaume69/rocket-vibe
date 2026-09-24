@@ -157,6 +157,7 @@ button.retry { color: #FF7A8A; font-weight: 700; font-size: 12px; padding: 0 4px
 }
 .composer-pill:focus-within { border-color: #34E1D0; box-shadow: 0 0 0 3px rgba(52, 225, 208, 0.14); }
 .composer-pill scrolledwindow, .composer-pill textview, .composer-pill text { background: transparent; color: #F3F0FF; font-size: 14.5px; min-height: 0; }
+.composer-placeholder { color: #6E6890; font-size: 14.5px; }
 button.send {
   background-image: linear-gradient(135deg, #FF5FA2, #A78BFA);
   color: #0B0913;

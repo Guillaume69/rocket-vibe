@@ -306,6 +306,24 @@ impl Session {
         actions::pin(&self.rest, msg_id).await
     }
 
+    /// Writes a server file to `dest`, through a temporary name so a failed
+    /// transfer never leaves a truncated file where a complete one is expected.
+    pub async fn download_to(&self, path_or_url: &str, dest: &std::path::Path) -> Result<(), RestError> {
+        let (bytes, _) = self.rest.fetch_protected(path_or_url).await?;
+        let partial = dest.with_extension("part");
+        let written = std::fs::write(&partial, &bytes).and_then(|()| std::fs::rename(&partial, dest));
+        written.map_err(|e| RestError::incomplete(&format!("{}: {e}", dest.display())))
+    }
+
+    pub async fn start_call(&self, rid: &str) -> Result<String, RestError> {
+        let call_id = actions::start_call(&self.rest, rid).await?;
+        actions::join_call(&self.rest, &call_id).await
+    }
+
+    pub async fn join_call(&self, call_id: &str) -> Result<String, RestError> {
+        actions::join_call(&self.rest, call_id).await
+    }
+
     /// The root (`chat.getThreadMessages` never returns it) then every reply,
     /// by full pages: `count: 0` depends on `API_Allow_Infinite_Count`.
     pub async fn load_thread(&self, root_id: &str) -> Result<(), RestError> {

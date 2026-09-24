@@ -54,6 +54,18 @@ impl RestError {
     fn network(message: String) -> Self {
         RestError { status: 0, message, error: None, error_type: None, understood: false, two_factor: None }
     }
+
+    /// A success whose body lacks what the call exists for.
+    pub fn incomplete(message: &str) -> Self {
+        RestError {
+            status: 200,
+            message: message.to_owned(),
+            error: None,
+            error_type: None,
+            understood: true,
+            two_factor: None,
+        }
+    }
 }
 
 /// The only predicate allowed to trigger an automatic logout. On 8.5 a 401

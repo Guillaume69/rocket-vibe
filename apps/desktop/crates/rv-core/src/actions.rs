@@ -195,6 +195,22 @@ pub async fn edit(rest: &RestClient, rid: &str, msg_id: &str, text: &str) -> Res
     Ok(response.get("message").cloned().unwrap_or(Value::Null))
 }
 
+/// Starts a call in the room; every member sees its message. Returns the `callId`.
+pub async fn start_call(rest: &RestClient, rid: &str) -> Result<String, RestError> {
+    let response = rest.post("video-conference.start", CallOptions::body(json!({"roomId": rid}))).await?;
+    response
+        .pointer("/data/callId")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| RestError::incomplete("no callId"))
+}
+
+/// The provider's URL to join the call, token included when the server signs it.
+pub async fn join_call(rest: &RestClient, call_id: &str) -> Result<String, RestError> {
+    let response = rest.post("video-conference.join", CallOptions::body(json!({"callId": call_id}))).await?;
+    response.get("url").and_then(Value::as_str).map(str::to_owned).ok_or_else(|| RestError::incomplete("no url"))
+}
+
 pub async fn delete(rest: &RestClient, rid: &str, msg_id: &str) -> Result<(), RestError> {
     rest.post("chat.delete", CallOptions::body(json!({"roomId": rid, "msgId": msg_id}))).await.map(|_| ())
 }

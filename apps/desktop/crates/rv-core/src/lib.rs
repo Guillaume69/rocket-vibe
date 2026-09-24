@@ -3,6 +3,7 @@
 
 pub mod actions;
 pub mod completion;
+pub mod content;
 pub mod ddp;
 pub mod diff;
 pub mod emoji;

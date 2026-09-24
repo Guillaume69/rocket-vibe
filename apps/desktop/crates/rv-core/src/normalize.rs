@@ -66,6 +66,10 @@ pub struct Message {
     pub updated_at: i64,
     /// The server's pre-parsed markdown tree (message-parser), serialized.
     pub md: Option<String>,
+    /// Link metadata the server fetched (`urls`), serialized.
+    pub urls: Option<String>,
+    /// A call message's `callId`, from its `video_conf` block (not its `_id`).
+    pub call_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -79,6 +83,7 @@ pub struct Room {
     pub dm_other_uid: Option<String>,
     pub last_message: Option<String>,
     pub last_message_type: Option<String>,
+    pub last_message_author: Option<String>,
     pub last_message_ts: Option<i64>,
     pub avatar_etag: Option<String>,
     pub updated_at: i64,
@@ -125,6 +130,12 @@ pub fn to_message(raw: &Value) -> Option<Message> {
         reactions: json_or_none(raw.get("reactions")),
         encrypted_raw: if encrypted { json_or_none(raw.get("content")) } else { None },
         md: if encrypted { None } else { json_or_none(raw.get("md")) },
+        urls: if encrypted { None } else { json_or_none(raw.get("urls")) },
+        call_id: raw
+            .get("blocks")
+            .and_then(Value::as_array)
+            .and_then(|blocks| blocks.iter().find(|b| b.get("type").and_then(Value::as_str) == Some("video_conf")))
+            .and_then(|b| string(b.get("callId"))),
         updated_at: raw.get("_updatedAt").and_then(to_epoch).unwrap_or(ts),
         system_type,
     })
@@ -191,6 +202,7 @@ pub fn to_room(raw: &Value, me: &str, me_uid: &str) -> Option<Room> {
         // `lastMessage` means the last message was deleted: None clears it.
         last_message: if encrypted { None } else { preview_of(last) },
         last_message_type: if encrypted { None } else { string(last.and_then(|l| l.get("t"))) },
+        last_message_author: string(last.and_then(|l| l.pointer("/u/username"))),
         last_message_ts: last.and_then(|l| l.get("ts")).and_then(to_epoch).or_else(|| raw.get("lm").and_then(to_epoch)),
         avatar_etag: string(raw.get("avatarETag")),
         updated_at: raw.get("_updatedAt").and_then(to_epoch).unwrap_or(0),
@@ -253,6 +265,16 @@ mod tests {
     }
 
     #[test]
+    fn call_id_comes_from_the_block() {
+        let m = to_message(&json!({"_id":"m","rid":"r","ts":1,"u":{"_id":"u"},"t":"videoconf",
+            "blocks":[{"type":"section"},{"type":"video_conf","callId":"call-1","appId":"videoconf-core"}],
+            "urls":[{"url":"https://example.com"}]}))
+        .unwrap();
+        assert_eq!(m.call_id.as_deref(), Some("call-1"));
+        assert_eq!(m.urls.as_deref(), Some(r#"[{"url":"https://example.com"}]"#));
+    }
+
+    #[test]
     fn updated_at_falls_back_on_ts() {
         let m = to_message(&json!({"_id":"m","rid":"r","ts":10,"u":{"_id":"u"}})).unwrap();
         assert_eq!(m.updated_at, 10);
@@ -312,6 +334,18 @@ mod tests {
         .unwrap();
         assert_eq!(r.last_message.as_deref(), Some("my cat"));
         assert_eq!(r.last_message_ts, Some(5));
+    }
+
+    #[test]
+    fn system_last_message_keeps_type_and_author() {
+        let r = to_room(
+            &json!({"_id":"c1","t":"c","lastMessage":{"msg":"bob","t":"uj","u":{"username":"bob"},"ts":{"$date":5}}}),
+            "",
+            "",
+        )
+        .unwrap();
+        assert_eq!(r.last_message_type.as_deref(), Some("uj"));
+        assert_eq!(r.last_message_author.as_deref(), Some("bob"));
     }
 
     #[test]

@@ -42,6 +42,9 @@ pub struct RoomRow {
     pub avatar_etag: Option<String>,
     /// The room's `name` (its URL slug), unlike `name` above which is for display.
     pub slug: Option<String>,
+    /// The last message's system type (`uj`, `videoconf`…), None for a plain message.
+    pub last_type: Option<String>,
+    pub last_author: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,6 +62,8 @@ pub struct MessageRow {
     pub md: Option<String>,
     pub reactions: Option<String>,
     pub thread_id: Option<String>,
+    pub urls: Option<String>,
+    pub call_id: Option<String>,
 }
 
 const SCHEMA: &str = r#"
@@ -128,8 +133,12 @@ CREATE TABLE IF NOT EXISTS cursors (
 
 /// Applied in order, once each: `PRAGMA user_version` counts those already run.
 /// Append only; never edit a shipped step.
-const MIGRATIONS: &[&str] =
-    &["ALTER TABLE messages ADD COLUMN md TEXT", "CREATE TABLE drafts (key TEXT PRIMARY KEY, text TEXT NOT NULL)"];
+const MIGRATIONS: &[&str] = &[
+    "ALTER TABLE messages ADD COLUMN md TEXT",
+    "CREATE TABLE drafts (key TEXT PRIMARY KEY, text TEXT NOT NULL)",
+    "ALTER TABLE messages ADD COLUMN urls TEXT; ALTER TABLE messages ADD COLUMN call_id TEXT",
+    "ALTER TABLE rooms ADD COLUMN last_message_author TEXT",
+];
 
 pub struct Store {
     conn: Mutex<Connection>,
@@ -235,7 +244,8 @@ impl Store {
             let mut q = c.prepare(
                 "SELECT r.rid, r.type, COALESCE(r.display_name, r.name, r.rid), r.last_message,
                         COALESCE(r.last_message_ts, 0), s.unread, s.mentions + s.group_mentions, s.alert,
-                        s.favorite, r.encrypted, r.read_only, r.dm_other_uid, r.avatar_etag, r.name
+                        s.favorite, r.encrypted, r.read_only, r.dm_other_uid, r.avatar_etag, r.name,
+                        r.last_message_type, r.last_message_author
                  FROM rooms r JOIN subscriptions s ON s.rid = r.rid
                  WHERE s.open = 1
                  ORDER BY COALESCE(r.last_message_ts, 0) DESC",
@@ -256,6 +266,8 @@ impl Store {
                     dm_other_uid: r.get(11)?,
                     avatar_etag: r.get(12)?,
                     slug: r.get(13)?,
+                    last_type: r.get(14)?,
+                    last_author: r.get(15)?,
                 })
             })?
             .collect()
@@ -277,7 +289,7 @@ impl Store {
     fn message_rows(&self, filter: &str, key: &str, limit: i64) -> Vec<MessageRow> {
         let sql = format!(
             "SELECT m.id, m.ts, m.text, m.author_name, m.author_id, m.system_type, m.edited_at IS NOT NULL,
-                    m.attachments, m.thread_count, o.status, m.md, m.reactions, m.thread_id
+                    m.attachments, m.thread_count, o.status, m.md, m.reactions, m.thread_id, m.urls, m.call_id
              FROM messages m LEFT JOIN outbox o ON o.id = m.id
              WHERE {filter}
              ORDER BY m.ts DESC, m.id DESC LIMIT ?2"
@@ -300,6 +312,8 @@ impl Store {
                         md: r.get(10)?,
                         reactions: r.get(11)?,
                         thread_id: r.get(12)?,
+                        urls: r.get(13)?,
+                        call_id: r.get(14)?,
                     })
                 })?
                 .collect()
@@ -330,8 +344,8 @@ impl Writer<'_> {
         self.conn
             .execute(
                 "INSERT INTO messages (id, rid, text, ts, author_id, author_name, system_type, thread_id,
-                   thread_count, thread_last, thread_shown, edited_at, attachments, reactions, encrypted_raw, updated_at, md)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+                   thread_count, thread_last, thread_shown, edited_at, attachments, reactions, encrypted_raw, updated_at, md, urls, call_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
                  ON CONFLICT(id) DO UPDATE SET
                    text = CASE WHEN excluded.system_type = 'e2e' THEN COALESCE(excluded.text, messages.text) ELSE excluded.text END,
                    ts = excluded.ts,
@@ -346,12 +360,14 @@ impl Writer<'_> {
                    reactions = excluded.reactions,
                    encrypted_raw = COALESCE(excluded.encrypted_raw, messages.encrypted_raw),
                    updated_at = excluded.updated_at,
-                   md = excluded.md
+                   md = excluded.md,
+                   urls = excluded.urls,
+                   call_id = excluded.call_id
                  WHERE excluded.updated_at >= messages.updated_at",
                 params![
                     m.id, m.rid, m.text, m.ts, m.author_id, m.author_name, m.system_type, m.thread_id,
                     m.thread_count, m.thread_last, m.thread_shown, m.edited_at, m.attachments, m.reactions,
-                    m.encrypted_raw, m.updated_at, m.md
+                    m.encrypted_raw, m.updated_at, m.md, m.urls, m.call_id
                 ],
             )
             .expect("upsert message");
@@ -366,8 +382,8 @@ impl Writer<'_> {
         self.conn
             .execute(
                 "INSERT INTO rooms (rid, type, name, display_name, encrypted, read_only, dm_other_uid,
-                   last_message, last_message_type, last_message_ts, avatar_etag, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                   last_message, last_message_type, last_message_ts, avatar_etag, updated_at, last_message_author)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
                  ON CONFLICT(rid) DO UPDATE SET
                    type = excluded.type,
                    name = COALESCE(excluded.name, rooms.name),
@@ -379,11 +395,13 @@ impl Writer<'_> {
                    last_message_type = CASE WHEN excluded.encrypted = 1 THEN rooms.last_message_type ELSE excluded.last_message_type END,
                    last_message_ts = COALESCE(excluded.last_message_ts, rooms.last_message_ts),
                    avatar_etag = COALESCE(excluded.avatar_etag, rooms.avatar_etag),
-                   updated_at = excluded.updated_at
+                   updated_at = excluded.updated_at,
+                   last_message_author = COALESCE(excluded.last_message_author, rooms.last_message_author)
                  WHERE excluded.updated_at >= rooms.updated_at",
                 params![
                     r.rid, r.kind, r.name, r.display_name, r.encrypted, r.read_only, r.dm_other_uid,
-                    r.last_message, r.last_message_type, r.last_message_ts, r.avatar_etag, r.updated_at
+                    r.last_message, r.last_message_type, r.last_message_ts, r.avatar_etag, r.updated_at,
+                    r.last_message_author
                 ],
             )
             .expect("upsert room");

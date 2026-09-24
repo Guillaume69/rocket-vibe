@@ -9,6 +9,7 @@
     "scheme": "rocketvibe",
     "android": {
       "package": "com.rocketvibe.app",
+      "versionCode": 100,
       "adaptiveIcon": {
         "backgroundColor": "#0C0B16",
         "foregroundImage": "./assets/android-icon-foreground.png",

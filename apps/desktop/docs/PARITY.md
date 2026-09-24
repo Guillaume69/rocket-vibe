@@ -55,7 +55,7 @@ rather than dropped.
 - [x] Video-call message card with Join
 - [x] Reactions row, click to toggle (`chat.react`)
 - [x] Thread chip opens the thread
-- [ ] Upload strip: progress, waiting, failed with retry/discard
+- [x] Upload strip: progress, waiting, failed with retry/discard
 - [ ] Encrypted rooms: locked state, "Unlock to read"
 
 ## 4. Composer
@@ -67,10 +67,10 @@ rather than dropped.
 - [x] `:` emoji completion
 - [x] Emoji picker (search, categories)
 - [x] Reply with quote (permalink prefix)
-- [ ] Attach files (file chooser; desktop: drag-and-drop and paste replace the Android share sheet)
-- [ ] Pre-send preview: captions, reduced/original quality
-- [ ] Checks against `FileUpload_MaxFileSize` and `FileUpload_MediaTypeWhiteList`
-- [ ] Upload in two steps (`rooms.media`, `rooms.mediaConfirm`) with progress
+- [x] Attach files (file chooser; desktop: drag-and-drop and paste replace the Android share sheet)
+- [x] Pre-send preview: captions, reduced/original quality
+- [x] Checks against `FileUpload_MaxFileSize` and `FileUpload_MediaTypeWhiteList`
+- [x] Upload in two steps (`rooms.media`, `rooms.mediaConfirm`) with progress
 - [ ] Voice recording
 
 ## 5. Message actions
@@ -115,12 +115,12 @@ rather than dropped.
 
 ## 12. Calls
 
-- [ ] Start (`video-conference.start`) and join (`video-conference.join`) a Jitsi call (desktop: in the browser)
+- [x] Start (`video-conference.start`) and join (`video-conference.join`) a Jitsi call (desktop: in the browser)
 
 ## 13. Sharing and links
 
 - [ ] `rocketvibe://salon/<rid>?host=` links open the room (desktop entry registered as URL handler)
-- [ ] Drop or paste files and text from other apps into a room (desktop equivalent of the share intent)
+- [x] Drop or paste files and text from other apps into a room (desktop equivalent of the share intent)
 
 ## 14. Offline and resilience
 

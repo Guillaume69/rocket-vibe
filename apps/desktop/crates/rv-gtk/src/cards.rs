@@ -1,0 +1,292 @@
+//! What a message carries beside its text, as cards: quoted messages, files,
+//! audio and video, link previews, video links and calls.
+
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use adw::prelude::*;
+use gtk::{gdk, gio, glib, pango};
+use rv_core::content::{FileAttachment, FileKind, LinkPreview, Quote, VideoLink, human_size};
+use rv_core::markdown;
+use rv_core::session::Session;
+use sha2::{Digest, Sha256};
+
+use crate::i18n::t;
+use crate::rows::{OnRowEvent, RowEvent, image_widget};
+use crate::{markdown_view, media, on_tokio};
+
+fn label(text: &str, classes: &[&str]) -> gtk::Label {
+    gtk::Label::builder()
+        .label(text)
+        .xalign(0.0)
+        .wrap(true)
+        .wrap_mode(pango::WrapMode::WordChar)
+        .css_classes(classes)
+        .build()
+}
+
+fn pointer() -> gdk::Cursor {
+    gdk::Cursor::from_name("pointer", None).expect("cursor")
+}
+
+pub fn open_uri(widget: &impl IsA<gtk::Widget>, uri: &str) {
+    let window = widget.root().and_downcast::<gtk::Window>();
+    gtk::UriLauncher::new(uri).launch(window.as_ref(), None::<&gio::Cancellable>, |_| {});
+}
+
+fn on_click(widget: &impl IsA<gtk::Widget>, f: impl Fn(&gtk::Widget) + 'static) {
+    let click = gtk::GestureClick::new();
+    click.connect_released(move |gesture, _, _, _| {
+        if let Some(w) = gesture.widget() {
+            f(&w);
+        }
+    });
+    widget.as_ref().set_cursor(Some(&pointer()));
+    widget.as_ref().add_controller(click);
+}
+
+/// The quoted message: author, words, images, and the message it quoted in turn.
+pub fn quote(session: &Arc<Session>, q: &Quote, me: &str) -> gtk::Widget {
+    let card =
+        gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(3).css_classes(["quote-card"]).build();
+    if let Some(author) = &q.author {
+        card.append(&label(author, &["quote-author"]));
+    }
+    for nested in &q.quotes {
+        card.append(&quote(session, nested, me));
+    }
+    if !q.text.trim().is_empty() {
+        let blocks = markdown::render(q.md.as_deref(), Some(&q.text), &markdown::Context { me });
+        card.append(&markdown_view::view(&blocks, &["quote-text"]));
+    }
+    for image in &q.images {
+        card.append(&image_widget(session, image));
+    }
+    card.upcast()
+}
+
+/// Where a server file is kept once fetched, so it opens again without a download.
+fn cache_path(file: &FileAttachment) -> PathBuf {
+    let dir = glib::user_cache_dir().join("rocket-vibe-rs").join("files");
+    let _ = std::fs::create_dir_all(&dir);
+    let digest: String = Sha256::digest(file.url.as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect();
+    let safe: String = file.title.chars().map(|c| if c == '/' || c == '\0' { '_' } else { c }).collect();
+    dir.join(format!("{digest}-{safe}"))
+}
+
+/// The file on disk, fetched the first time.
+pub async fn local_copy(session: Arc<Session>, file: FileAttachment) -> Option<PathBuf> {
+    let path = cache_path(&file);
+    if path.exists() {
+        return Some(path);
+    }
+    let dest = path.clone();
+    on_tokio(async move { session.download_to(&file.url, &dest).await.ok() }).await?;
+    Some(path)
+}
+
+fn player(path: &std::path::Path, kind: FileKind) -> gtk::Widget {
+    let stream = gtk::MediaFile::for_filename(path);
+    if kind == FileKind::Video {
+        let video = gtk::Video::builder().media_stream(&stream).autoplay(true).height_request(240).build();
+        video.add_css_class("video-player");
+        video.upcast()
+    } else {
+        stream.play();
+        gtk::MediaControls::new(Some(&stream)).upcast()
+    }
+}
+
+/// A file: its name and size, and what can be done with it. Audio and video
+/// play in place; anything else opens in the desktop's default application.
+pub fn file(session: &Arc<Session>, f: &FileAttachment) -> gtk::Widget {
+    let card =
+        gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(6).css_classes(["file-card"]).build();
+    let top = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    let icon = match f.kind {
+        FileKind::Audio => "🎵",
+        FileKind::Video => "🎬",
+        FileKind::Other => "📄",
+    };
+    top.append(&gtk::Label::builder().label(icon).css_classes(["file-icon"]).build());
+    let names = gtk::Box::new(gtk::Orientation::Vertical, 1);
+    names.set_hexpand(true);
+    let title = label(&f.title, &["file-title"]);
+    title.set_wrap(false);
+    title.set_ellipsize(pango::EllipsizeMode::Middle);
+    names.append(&title);
+    let detail = [f.size.map(human_size), f.mime.clone()].into_iter().flatten().collect::<Vec<_>>().join(" · ");
+    let status = label(&detail, &["file-detail"]);
+    names.append(&status);
+    top.append(&names);
+    let action = gtk::Button::builder()
+        .label(if f.kind == FileKind::Other { t("file.open") } else { t("file.play") })
+        .css_classes(["file-action"])
+        .valign(gtk::Align::Center)
+        .build();
+    top.append(&action);
+    card.append(&top);
+    if let Some(description) = &f.description {
+        card.append(&label(description, &["message-body"]));
+    }
+    let (session, f) = (session.clone(), f.clone());
+    let weak = card.downgrade();
+    action.connect_clicked(move |button| {
+        button.set_sensitive(false);
+        status.set_label(t("file.loading"));
+        let (session, f, button, status, detail, weak) =
+            (session.clone(), f.clone(), button.clone(), status.clone(), detail.clone(), weak.clone());
+        glib::spawn_future_local(async move {
+            let kind = f.kind;
+            let path = local_copy(session, f).await;
+            button.set_sensitive(true);
+            let Some(path) = path else {
+                status.set_label(t("file.failed"));
+                return;
+            };
+            status.set_label(&detail);
+            match (kind, weak.upgrade()) {
+                (FileKind::Other, _) => {
+                    let window = button.root().and_downcast::<gtk::Window>();
+                    gtk::FileLauncher::new(Some(&gio::File::for_path(&path))).launch(
+                        window.as_ref(),
+                        None::<&gio::Cancellable>,
+                        |_| {},
+                    );
+                }
+                (_, Some(card)) => {
+                    button.set_visible(false);
+                    card.append(&player(&path, kind));
+                }
+                _ => {}
+            }
+        });
+    });
+    card.upcast()
+}
+
+fn external_image(session: &Arc<Session>, url: &str, width: i32, height: i32) -> gtk::Overlay {
+    let frame = gtk::Overlay::builder()
+        .width_request(width)
+        .height_request(height)
+        .overflow(gtk::Overflow::Hidden)
+        .css_classes(["preview-image"])
+        .build();
+    frame.set_child(Some(&gtk::Box::new(gtk::Orientation::Vertical, 0)));
+    let weak = frame.downgrade();
+    media::load(session, url, move |texture| {
+        if let Some(frame) = weak.upgrade() {
+            let picture =
+                gtk::Picture::builder().paintable(texture).content_fit(gtk::ContentFit::Cover).can_shrink(true).build();
+            // An overlay does not count in the frame's size, a child would:
+            // the picture's own size would then stretch the card.
+            let above: Vec<gtk::Widget> = std::iter::successors(frame.first_child(), |w| w.next_sibling())
+                .filter(|w| Some(w) != frame.child().as_ref())
+                .collect();
+            frame.add_overlay(&picture);
+            for widget in above {
+                frame.remove_overlay(&widget);
+                frame.add_overlay(&widget);
+            }
+        }
+    });
+    frame
+}
+
+/// A link the server fetched: an image shown as such, or a card with the
+/// page's title, description and picture.
+pub fn link_preview(session: &Arc<Session>, preview: &LinkPreview) -> gtk::Widget {
+    match preview {
+        LinkPreview::Image { url } => {
+            let image = external_image(session, url, 280, 180);
+            image.set_halign(gtk::Align::Start);
+            image.set_margin_top(4);
+            let url = url.clone();
+            on_click(&image, move |w| open_uri(w, &url));
+            image.upcast()
+        }
+        LinkPreview::Card { url, title, description, image, site } => {
+            let card = gtk::Box::builder()
+                .orientation(gtk::Orientation::Vertical)
+                .spacing(3)
+                .css_classes(["link-card"])
+                .halign(gtk::Align::Start)
+                .width_request(320)
+                .build();
+            if let Some(site) = site {
+                card.append(&label(site, &["link-site"]));
+            }
+            if let Some(title) = title {
+                card.append(&label(title, &["link-title"]));
+            }
+            if let Some(description) = description {
+                let text = label(description, &["link-description"]);
+                text.set_lines(3);
+                text.set_ellipsize(pango::EllipsizeMode::End);
+                card.append(&text);
+            }
+            if let Some(image) = image {
+                let picture = external_image(session, image, 300, 160);
+                picture.set_margin_top(4);
+                card.append(&picture);
+            }
+            card.set_tooltip_text(Some(url));
+            let url = url.clone();
+            on_click(&card, move |w| open_uri(w, &url));
+            card.upcast()
+        }
+    }
+}
+
+/// A YouTube, Dailymotion or Vimeo link: thumbnail and title, opened in the browser.
+pub fn video_link(session: &Arc<Session>, video: &VideoLink) -> gtk::Widget {
+    let card = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(3)
+        .css_classes(["link-card"])
+        .halign(gtk::Align::Start)
+        .width_request(320)
+        .build();
+    card.append(&label(video.provider, &["link-site"]));
+    if let Some(title) = &video.title {
+        card.append(&label(title, &["link-title"]));
+    }
+    if let Some(author) = &video.author {
+        card.append(&label(author, &["link-description"]));
+    }
+    let frame = match &video.thumbnail {
+        Some(thumbnail) => external_image(session, thumbnail, 300, 169),
+        None => {
+            let frame =
+                gtk::Overlay::builder().width_request(300).height_request(169).css_classes(["preview-image"]).build();
+            frame.set_child(Some(&gtk::Box::new(gtk::Orientation::Vertical, 0)));
+            frame
+        }
+    };
+    let play = gtk::Label::builder()
+        .label("▶")
+        .css_classes(["video-play"])
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
+        .build();
+    frame.add_overlay(&play);
+    frame.set_margin_top(4);
+    card.append(&frame);
+    card.set_tooltip_text(Some(&video.url));
+    let url = video.url.clone();
+    on_click(&card, move |w| open_uri(w, &url));
+    card.upcast()
+}
+
+/// A call message: "Video call" and, when the call is known, Join.
+pub fn call(call_id: Option<&str>, on_event: OnRowEvent) -> gtk::Widget {
+    let card = gtk::Box::builder().spacing(12).css_classes(["call-card"]).halign(gtk::Align::Start).build();
+    card.append(&gtk::Label::builder().label(format!("📹 {}", t("message.call"))).css_classes(["call-title"]).build());
+    if let Some(call_id) = call_id {
+        let join = gtk::Button::builder().label(t("message.join")).css_classes(["call-join"]).build();
+        let call_id = call_id.to_owned();
+        join.connect_clicked(move |_| on_event(RowEvent::JoinCall(call_id.clone())));
+        card.append(&join);
+    }
+    card.upcast()
+}

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=rocket-vibe
+GenericName=Rocket.Chat client
+Comment=Your magical little chat corner
+Exec=rocket-vibe-gtk %u
+Icon=user-available
+Terminal=false
+Categories=Network;InstantMessaging;Chat;
+MimeType=x-scheme-handler/rocketvibe;
+StartupNotify=true
+StartupWMClass=me.barrut.RocketVibe

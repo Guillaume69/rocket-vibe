@@ -1,0 +1,26 @@
+[package]
+name = "rocket-vibe-gtk"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "rocket-vibe-gtk"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+adw = { version = "0.9.2", package = "libadwaita", features = ["v1_6"] }
+async-channel = "2.5.0"
+chrono = { version = "0.4.45", features = ["unstable-locales"] }
+gtk = { version = "0.11.5", package = "gtk4", features = ["v4_12"] }
+gstreamer = "0.24"
+oo7 = "0.6.0"
+pango = { version = "0.22", features = ["v1_56"] }
+rv-core = { path = "../rv-core" }
+serde_json = "1.0.151"
+sha2 = "0.11.0"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "time", "sync", "macros"] }
+url = "2.5.8"

@@ -1,0 +1,120 @@
+mod common;
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use common::{FakeHttp, Request, Response, dropped, respond};
+use rv_core::outbox::Outbox;
+use rv_core::rest::{Credentials, RestClient};
+use rv_core::store::Store;
+use rv_core::sync::SyncEngine;
+use serde_json::json;
+
+const ID: &str = "aaaaaaaaaaaaaaaaaaaaaaaa";
+
+fn server_message(id: &str) -> String {
+    json!({"success": true, "message": {"_id": id, "rid": "r", "msg": "hello", "ts": {"$date": 1000},
+        "_updatedAt": {"$date": 1001}, "u": {"_id": "me", "username": "me"}}})
+    .to_string()
+}
+
+struct Fixture {
+    server: FakeHttp,
+    store: Arc<Store>,
+    outbox: Outbox,
+}
+
+async fn fixture(handler: impl Fn(&Request) -> Response + Send + Sync + 'static) -> Fixture {
+    let server = FakeHttp::start(handler).await;
+    let store = Arc::new(Store::in_memory().unwrap());
+    let rest = RestClient::new(server.url.clone());
+    rest.set_credentials(Some(Credentials { auth_token: "tok".into(), user_id: "me".into() }));
+    let sync = Arc::new(SyncEngine::new(store.clone(), rest.clone(), "me", "me"));
+    let outbox = Outbox::new(store.clone(), rest, sync, "me", "me");
+    outbox.set_id_generator(|| ID.to_owned());
+    Fixture { server, store, outbox }
+}
+
+fn scalar(store: &Store, sql: &str) -> Option<String> {
+    store.read(|c| c.query_row(sql, [], |r| r.get::<_, Option<String>>(0))).ok().flatten()
+}
+
+fn count(store: &Store, sql: &str) -> i64 {
+    store.read(|c| c.query_row(sql, [], |r| r.get(0))).unwrap()
+}
+
+fn sends(server: &FakeHttp) -> usize {
+    server.requests().iter().filter(|r| r.path().ends_with("chat.sendMessage")).count()
+}
+
+#[tokio::test]
+async fn send_shows_optimistic_row_then_reconciles() {
+    let f = fixture(|_| respond(200, &server_message(ID))).await;
+    f.outbox.enqueue("r", "hello", None);
+    assert_eq!(count(&f.store, "SELECT updated_at FROM messages"), 0);
+    f.outbox.process().await;
+    assert_eq!(count(&f.store, "SELECT COUNT(*) FROM outbox"), 0);
+    assert_eq!(count(&f.store, "SELECT updated_at FROM messages"), 1001);
+    let body: serde_json::Value = serde_json::from_str(&f.server.requests()[0].body).unwrap();
+    assert_eq!(body["message"]["_id"], ID);
+}
+
+#[tokio::test]
+async fn refusal_that_was_delivered_is_not_a_failure() {
+    let f = fixture(|r| {
+        if r.path().ends_with("chat.sendMessage") {
+            respond(400, r#"{"success":false,"error":"Cannot read properties of undefined (reading 'starred')"}"#)
+        } else {
+            respond(200, &server_message(ID))
+        }
+    })
+    .await;
+    f.outbox.enqueue("r", "hello", None);
+    f.outbox.process().await;
+    assert_eq!(count(&f.store, "SELECT COUNT(*) FROM outbox"), 0);
+    assert_eq!(count(&f.store, "SELECT updated_at FROM messages"), 1001);
+}
+
+#[tokio::test]
+async fn refusal_that_was_not_delivered_fails() {
+    let f = fixture(|_| respond(400, r#"{"success":false,"error":"error-not-allowed"}"#)).await;
+    f.outbox.enqueue("r", "hello", None);
+    f.outbox.process().await;
+    assert_eq!(scalar(&f.store, "SELECT status FROM outbox").as_deref(), Some("failed"));
+}
+
+#[tokio::test]
+async fn unreachable_keeps_pending_and_retry_resends() {
+    let online = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = online.clone();
+    let f = fixture(move |_| {
+        if flag.load(std::sync::atomic::Ordering::SeqCst) { respond(200, &server_message(ID)) } else { dropped() }
+    })
+    .await;
+    f.outbox.enqueue("r", "hello", None);
+    f.outbox.process().await;
+    assert_eq!(scalar(&f.store, "SELECT status FROM outbox").as_deref(), Some("pending"));
+
+    online.store(true, std::sync::atomic::Ordering::SeqCst);
+    f.outbox.process().await;
+    assert_eq!(count(&f.store, "SELECT COUNT(*) FROM outbox"), 0);
+}
+
+#[tokio::test]
+async fn unknown_verdict_stops_the_pass() {
+    let f = fixture(|r| {
+        if r.path().ends_with("chat.sendMessage") {
+            respond(400, r#"{"success":false,"error":"x"}"#)
+        } else {
+            dropped()
+        }
+    })
+    .await;
+    let n = std::sync::atomic::AtomicUsize::new(0);
+    f.outbox.set_id_generator(move || format!("{:024}", n.fetch_add(1, std::sync::atomic::Ordering::SeqCst)));
+    f.outbox.enqueue("r", "one", None);
+    f.outbox.enqueue("r", "two", None);
+    tokio::time::timeout(Duration::from_secs(10), f.outbox.process()).await.unwrap();
+    assert_eq!(sends(&f.server), 1);
+    assert_eq!(count(&f.store, "SELECT COUNT(*) FROM outbox WHERE status = 'pending'"), 2);
+}

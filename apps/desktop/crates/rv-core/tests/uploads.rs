@@ -1,0 +1,131 @@
+mod common;
+
+use std::sync::Arc;
+
+use common::{FakeHttp, Request, Response, dropped, respond};
+use rv_core::rest::{Credentials, RestClient};
+use rv_core::store::Store;
+use rv_core::sync::SyncEngine;
+use rv_core::uploads::Uploads;
+use serde_json::json;
+
+const FILE_ID: &str = "file123";
+
+fn confirmed() -> String {
+    json!({"success": true, "message": {"_id": "m1", "rid": "r", "msg": "", "ts": {"$date": 1000},
+        "_updatedAt": {"$date": 1001}, "u": {"_id": "me", "username": "me"},
+        "attachments": [{"title": "a.txt", "title_link": format!("/file-upload/{FILE_ID}/a.txt")}]}})
+    .to_string()
+}
+
+struct Fixture {
+    server: FakeHttp,
+    store: Arc<Store>,
+    uploads: Arc<Uploads>,
+    _dir: std::path::PathBuf,
+    path: String,
+}
+
+async fn fixture(handler: impl Fn(&Request) -> Response + Send + Sync + 'static) -> Fixture {
+    let server = FakeHttp::start(handler).await;
+    let store = Arc::new(Store::in_memory().unwrap());
+    let rest = RestClient::new(server.url.clone());
+    rest.set_credentials(Some(Credentials { auth_token: "tok".into(), user_id: "me".into() }));
+    let sync = Arc::new(SyncEngine::new(store.clone(), rest.clone(), "me", "me"));
+    let uploads = Arc::new(Uploads::new(store.clone(), rest, sync));
+    let dir = std::env::temp_dir().join(format!("rv-uploads-{:x}", fastrand::u64(..)));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("a.txt");
+    std::fs::write(&path, b"hello upload").unwrap();
+    Fixture { server, store, uploads, _dir: dir, path: path.to_string_lossy().into_owned() }
+}
+
+fn calls(server: &FakeHttp, suffix: &str) -> Vec<Request> {
+    server.requests().into_iter().filter(|r| r.path().contains(suffix)).collect()
+}
+
+fn media_then_confirm(r: &Request) -> Response {
+    if r.path().contains("rooms.media/") {
+        respond(200, &json!({"success": true, "file": {"_id": FILE_ID, "url": "/x"}}).to_string())
+    } else if r.path().contains("rooms.mediaConfirm/") {
+        respond(200, &confirmed())
+    } else {
+        respond(404, "{}")
+    }
+}
+
+#[tokio::test]
+async fn two_steps_then_the_message() {
+    let f = fixture(media_then_confirm).await;
+    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", Some(" a caption "), false);
+    f.uploads.process().await;
+    let media = calls(&f.server, "rooms.media/r");
+    assert_eq!(media.len(), 1);
+    assert!(media[0].body.contains("hello upload"));
+    assert!(media[0].headers["content-type"].starts_with("multipart/form-data"));
+    let confirm = calls(&f.server, &format!("rooms.mediaConfirm/r/{FILE_ID}"));
+    assert_eq!(confirm.len(), 1);
+    assert_eq!(serde_json::from_str::<serde_json::Value>(&confirm[0].body).unwrap(), json!({"msg": "a caption"}));
+    assert!(f.store.uploads("r").is_empty());
+    assert!(f.store.file_posted("r", FILE_ID));
+    assert!(std::path::Path::new(&f.path).exists(), "a file the user picked is never deleted");
+}
+
+#[tokio::test]
+async fn a_known_file_id_already_posted_is_not_confirmed_again() {
+    let f = fixture(|r| {
+        if r.path().contains("channels.history") {
+            respond(200, &json!({"success": true, "messages": [serde_json::from_str::<serde_json::Value>(&confirmed()).unwrap()["message"]]}).to_string())
+        } else {
+            respond(500, "{}")
+        }
+    })
+    .await;
+    f.store.write(|w| {
+        w.upsert_room(&rv_core::normalize::Room {
+            rid: "r".into(),
+            kind: "c".into(),
+            updated_at: 1,
+            ..Default::default()
+        })
+    });
+    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", None, true);
+    let id = f.store.uploads("r")[0].id.clone();
+    f.store.write(|w| w.set_upload_file_id(&id, FILE_ID));
+    f.uploads.process().await;
+    assert!(calls(&f.server, "rooms.mediaConfirm").is_empty());
+    assert_eq!(calls(&f.server, "channels.history").len(), 1, "the room is refreshed once to find out");
+    assert!(f.store.uploads("r").is_empty());
+    assert!(!std::path::Path::new(&f.path).exists(), "our temporary copy goes once settled");
+}
+
+#[tokio::test]
+async fn refused_fails_and_offline_waits() {
+    let f = fixture(|r| {
+        if r.path().contains("rooms.media/") {
+            respond(400, &json!({"success": false, "error": "error-file-too-large"}).to_string())
+        } else {
+            dropped()
+        }
+    })
+    .await;
+    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", None, false);
+    f.uploads.process().await;
+    assert_eq!(f.store.uploads("r")[0].status, "failed");
+
+    let g = fixture(|_| dropped()).await;
+    g.uploads.enqueue("r", &g.path, "a.txt", "text/plain", None, false);
+    g.uploads.process().await;
+    assert_eq!(g.store.uploads("r")[0].status, "pending");
+}
+
+#[tokio::test]
+async fn discard_removes_the_row() {
+    let f = fixture(media_then_confirm).await;
+    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", None, false);
+    let id = f.store.uploads("r")[0].id.clone();
+    f.uploads.discard(&id);
+    f.uploads.process().await;
+    assert!(f.store.uploads("r").is_empty());
+    assert!(f.server.requests().is_empty());
+}

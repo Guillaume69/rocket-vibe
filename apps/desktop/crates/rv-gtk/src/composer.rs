@@ -1,0 +1,600 @@
+//! The message field: grows to `MAX_HEIGHT`, then scrolls; Enter sends,
+//! Shift+Enter breaks the line.
+
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
+use std::sync::Arc;
+
+use gtk::prelude::*;
+use gtk::{gdk, glib};
+use rv_core::session::Session;
+
+use crate::attach::Picked;
+use crate::i18n::{t, tf};
+use crate::widgets::{self, Handler};
+
+const MAX_HEIGHT: i32 = 160;
+
+pub struct Composer {
+    pub root: gtk::Box,
+    text: gtk::TextView,
+    on_submit: Handler<String>,
+    reply_bar: gtk::Box,
+    reply_title: gtk::Label,
+    reply_preview: gtk::Label,
+    /// The quoted message's permalink, put before the text on send.
+    reply_link: RefCell<Option<String>>,
+    on_changed: Handler<String>,
+    completion: gtk::Popover,
+    choices: gtk::ListBox,
+    /// (trigger start, text inserted) of each offered choice.
+    offered: RefCell<Vec<(usize, String)>>,
+    mentions: RefCell<Option<MentionSource>>,
+    on_files: Handler<Vec<Picked>>,
+    custom_emoji: RefCell<Option<MentionSource>>,
+    field: gtk::Box,
+    record_bar: gtk::Box,
+    record_time: gtk::Label,
+    recorder: RefCell<Option<crate::recorder::Recorder>>,
+    on_voice: Handler<std::path::PathBuf>,
+    on_error: Handler<String>,
+}
+
+type MentionSource = Rc<dyn Fn(&str) -> Vec<String>>;
+
+impl Composer {
+    pub fn new() -> Rc<Self> {
+        let text = gtk::TextView::builder()
+            .wrap_mode(gtk::WrapMode::WordChar)
+            .accepts_tab(false)
+            .hexpand(true)
+            .valign(gtk::Align::Center)
+            .top_margin(0)
+            .bottom_margin(0)
+            .build();
+        let scroll = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vscrollbar_policy(gtk::PolicyType::External)
+            .overlay_scrolling(false)
+            .propagate_natural_height(true)
+            .max_content_height(MAX_HEIGHT)
+            .child(&text)
+            .hexpand(true)
+            .build();
+        // A scrollbar only when the draft is taller than the cap, decided from
+        // the text's measured height: a visible scrollbar adds its minimum
+        // length to the composer's height, and deciding from the scroll range
+        // caught it mid-layout, one line short, and left it scrolled.
+        let fit = glib::clone!(
+            #[weak]
+            text,
+            #[weak]
+            scroll,
+            move || {
+                let width = scroll.width();
+                if width <= 0 {
+                    return;
+                }
+                let (_, natural, _, _) = text.measure(gtk::Orientation::Vertical, width);
+                let overflows = natural > MAX_HEIGHT;
+                let policy = if overflows { gtk::PolicyType::Automatic } else { gtk::PolicyType::External };
+                if scroll.vscrollbar_policy() != policy {
+                    scroll.set_vscrollbar_policy(policy);
+                }
+                if !overflows {
+                    scroll.vadjustment().set_value(0.0);
+                }
+            }
+        );
+        let on_edit = fit.clone();
+        text.buffer().connect_changed(move |_| {
+            let fit = on_edit.clone();
+            glib::idle_add_local_once(fit);
+        });
+        scroll.hadjustment().connect_changed(move |_| fit());
+
+        let pill = gtk::Box::builder().css_classes(["composer-pill"]).hexpand(true).valign(gtk::Align::End).build();
+        let placeholder = gtk::Label::builder()
+            .label(t("composer.placeholder"))
+            .css_classes(["composer-placeholder"])
+            .xalign(0.0)
+            .can_target(false)
+            .build();
+        let stack = gtk::Overlay::builder().child(&scroll).hexpand(true).build();
+        stack.add_overlay(&placeholder);
+        text.buffer().connect_changed(glib::clone!(
+            #[weak]
+            placeholder,
+            move |buffer| placeholder.set_visible(buffer.char_count() == 0)
+        ));
+        let attach = gtk::Button::builder()
+            .icon_name("mail-attachment-symbolic")
+            .tooltip_text(t("attach.choose"))
+            .css_classes(["flat", "attach-button"])
+            .valign(gtk::Align::End)
+            .build();
+        pill.append(&attach);
+        pill.append(&stack);
+        let text_for_picker = text.clone();
+        pill.append(&crate::emoji_picker::button(move |glyph| {
+            text_for_picker.buffer().insert_at_cursor(glyph);
+            text_for_picker.grab_focus();
+        }));
+        let choices =
+            gtk::ListBox::builder().selection_mode(gtk::SelectionMode::Single).css_classes(["completion"]).build();
+        let completion = gtk::Popover::builder()
+            .child(&choices)
+            .autohide(false)
+            .has_arrow(false)
+            .position(gtk::PositionType::Top)
+            .halign(gtk::Align::Start)
+            .can_focus(false)
+            .build();
+        completion.set_parent(&pill);
+        let send = gtk::Button::builder()
+            .child(&widgets::send_arrow())
+            .tooltip_text(t("composer.send"))
+            .css_classes(["send"])
+            .valign(gtk::Align::End)
+            .build();
+        let mic = gtk::Button::builder()
+            .icon_name("audio-input-microphone-symbolic")
+            .tooltip_text(t("voice.record"))
+            .css_classes(["flat", "attach-button"])
+            .valign(gtk::Align::End)
+            .build();
+        pill.append(&mic);
+        let field = gtk::Box::builder().spacing(10).build();
+        field.append(&pill);
+        field.append(&send);
+
+        let record_time =
+            gtk::Label::builder().label("0:00").css_classes(["record-time"]).hexpand(true).xalign(0.0).build();
+        let record_cancel = gtk::Button::builder().label(t("voice.cancel")).css_classes(["flat"]).build();
+        let record_send = gtk::Button::builder()
+            .child(&widgets::send_arrow())
+            .tooltip_text(t("voice.send"))
+            .css_classes(["send"])
+            .build();
+        let record_bar = gtk::Box::builder().spacing(10).css_classes(["record-bar"]).visible(false).build();
+        record_bar.append(&gtk::Box::builder().css_classes(["record-dot"]).valign(gtk::Align::Center).build());
+        record_bar.append(&record_time);
+        record_bar.append(&record_cancel);
+        record_bar.append(&record_send);
+
+        let reply_title = gtk::Label::builder().xalign(0.0).css_classes(["reply-title"]).build();
+        let reply_preview = gtk::Label::builder()
+            .xalign(0.0)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .single_line_mode(true)
+            .css_classes(["reply-preview"])
+            .build();
+        let reply_text = gtk::Box::builder().orientation(gtk::Orientation::Vertical).hexpand(true).build();
+        reply_text.append(&reply_title);
+        reply_text.append(&reply_preview);
+        let reply_close =
+            gtk::Button::builder().label("✕").css_classes(["flat", "circular"]).valign(gtk::Align::Center).build();
+        let reply_bar = gtk::Box::builder().spacing(8).css_classes(["reply-bar"]).visible(false).build();
+        reply_bar.append(&reply_text);
+        reply_bar.append(&reply_close);
+
+        let root = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(6)
+            .margin_top(10)
+            .margin_bottom(12)
+            .margin_start(14)
+            .margin_end(14)
+            .build();
+        root.append(&reply_bar);
+        root.append(&field);
+        root.append(&record_bar);
+
+        let this = Rc::new(Composer {
+            root,
+            text,
+            on_submit: RefCell::default(),
+            reply_bar,
+            reply_title,
+            reply_preview,
+            reply_link: RefCell::default(),
+            on_changed: RefCell::default(),
+            completion,
+            choices,
+            offered: RefCell::default(),
+            mentions: RefCell::default(),
+            on_files: RefCell::default(),
+            custom_emoji: RefCell::default(),
+            field,
+            record_bar,
+            record_time,
+            recorder: RefCell::default(),
+            on_voice: RefCell::default(),
+            on_error: RefCell::default(),
+        });
+        let weak = Rc::downgrade(&this);
+        mic.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.start_recording();
+            }
+        });
+        let weak = Rc::downgrade(&this);
+        record_cancel.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.stop_recording(false);
+            }
+        });
+        let weak = Rc::downgrade(&this);
+        record_send.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.stop_recording(true);
+            }
+        });
+        let weak = Rc::downgrade(&this);
+        attach.connect_clicked(move |button| {
+            let weak = weak.clone();
+            crate::attach::choose(button, move |picked| {
+                if let Some(this) = weak.upgrade() {
+                    this.emit_files(picked);
+                }
+            });
+        });
+        // Files or a picture on the clipboard become an attachment, not text.
+        let weak = Rc::downgrade(&this);
+        this.text.connect_paste_clipboard(move |view| {
+            let clipboard = view.clipboard();
+            let formats = clipboard.formats();
+            let files = formats.contains_type(gdk::FileList::static_type());
+            let picture = !files
+                && !formats.contain_mime_type("text/plain")
+                && formats.contains_type(gdk::Texture::static_type());
+            if !files && !picture {
+                return;
+            }
+            view.stop_signal_emission_by_name("paste-clipboard");
+            let weak = weak.clone();
+            glib::spawn_future_local(async move {
+                let picked = if files {
+                    let value =
+                        clipboard.read_value_future(gdk::FileList::static_type(), glib::Priority::DEFAULT).await;
+                    value
+                        .ok()
+                        .and_then(|v| v.get::<gdk::FileList>().ok())
+                        .map(|l| crate::attach::from_files(&l.files()))
+                } else {
+                    let texture = clipboard.read_texture_future().await.ok().flatten();
+                    texture.and_then(|t| crate::attach::save_texture(&t)).map(|p| vec![p])
+                };
+                if let (Some(this), Some(picked)) = (weak.upgrade(), picked.filter(|p| !p.is_empty())) {
+                    this.emit_files(picked);
+                }
+            });
+        });
+        let weak = Rc::downgrade(&this);
+        this.text.buffer().connect_changed(move |buffer| {
+            let Some(this) = weak.upgrade() else { return };
+            let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string();
+            if let Some(changed) = this.on_changed.borrow().clone() {
+                changed(text);
+            }
+            this.update_completion();
+        });
+        let weak = Rc::downgrade(&this);
+        this.choices.connect_row_activated(move |_, row| {
+            if let Some(this) = weak.upgrade() {
+                this.accept(row.index());
+            }
+        });
+        // Capture phase: while choices show, arrows, Enter, Tab and Escape
+        // drive them instead of the text.
+        let navigation = gtk::EventControllerKey::builder().propagation_phase(gtk::PropagationPhase::Capture).build();
+        let weak = Rc::downgrade(&this);
+        navigation.connect_key_pressed(move |_, key, _, _| {
+            let Some(this) = weak.upgrade() else { return glib::Propagation::Proceed };
+            if !this.completion.is_visible() {
+                return glib::Propagation::Proceed;
+            }
+            let selected = this.choices.selected_row().map_or(0, |r| r.index());
+            let count = this.offered.borrow().len() as i32;
+            match key {
+                gdk::Key::Down => this.select((selected + 1) % count.max(1)),
+                gdk::Key::Up => this.select((selected - 1).rem_euclid(count.max(1))),
+                gdk::Key::Return | gdk::Key::KP_Enter | gdk::Key::Tab => this.accept(selected),
+                gdk::Key::Escape => this.completion.popdown(),
+                _ => return glib::Propagation::Proceed,
+            }
+            glib::Propagation::Stop
+        });
+        this.text.add_controller(navigation);
+        let weak = Rc::downgrade(&this);
+        reply_close.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.clear_reply();
+            }
+        });
+        let weak = Rc::downgrade(&this);
+        send.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.submit();
+            }
+        });
+        let keys = gtk::EventControllerKey::new();
+        let weak = Rc::downgrade(&this);
+        keys.connect_key_pressed(move |_, key, _, state| {
+            let enter = key == gdk::Key::Return || key == gdk::Key::KP_Enter;
+            if !enter || state.contains(gdk::ModifierType::SHIFT_MASK) {
+                return glib::Propagation::Proceed;
+            }
+            if let Some(this) = weak.upgrade() {
+                this.submit();
+            }
+            glib::Propagation::Stop
+        });
+        this.text.add_controller(keys);
+        this
+    }
+
+    /// Called on every edit, with the whole text: drafts are saved from here.
+    pub fn connect_changed(&self, f: impl Fn(String) + 'static) {
+        self.on_changed.replace(Some(Rc::new(f)));
+    }
+
+    /// A finished voice message, ready to upload.
+    pub fn connect_voice(&self, f: impl Fn(std::path::PathBuf) + 'static) {
+        self.on_voice.replace(Some(Rc::new(f)));
+    }
+
+    pub fn connect_error(&self, f: impl Fn(String) + 'static) {
+        self.on_error.replace(Some(Rc::new(f)));
+    }
+
+    fn report(&self, text: String) {
+        if let Some(f) = self.on_error.borrow().clone() {
+            f(text);
+        }
+    }
+
+    pub fn start_recording(self: &Rc<Self>) {
+        if self.recorder.borrow().is_some() {
+            return;
+        }
+        match crate::recorder::Recorder::start() {
+            Ok(recorder) => {
+                self.recorder.replace(Some(recorder));
+                self.field.set_visible(false);
+                self.record_bar.set_visible(true);
+                self.record_time.set_label("0:00");
+                let weak = Rc::downgrade(self);
+                glib::timeout_add_local(std::time::Duration::from_millis(250), move || {
+                    let Some(this) = weak.upgrade() else { return glib::ControlFlow::Break };
+                    let failure = this.recorder.borrow().as_ref().and_then(|r| r.failure());
+                    if let Some(failure) = failure {
+                        this.stop_recording(false);
+                        this.report(tf("voice.failed", &[("error", &failure)]));
+                        return glib::ControlFlow::Break;
+                    }
+                    let Some(seconds) = this.recorder.borrow().as_ref().map(|r| r.elapsed().as_secs()) else {
+                        return glib::ControlFlow::Break;
+                    };
+                    this.record_time.set_label(&format!("{}:{:02}", seconds / 60, seconds % 60));
+                    glib::ControlFlow::Continue
+                });
+            }
+            Err(e) => self.report(tf("voice.failed", &[("error", &e)])),
+        }
+    }
+
+    pub fn recording(&self) -> bool {
+        self.record_bar.is_visible()
+    }
+
+    /// `send`: the recording goes out; otherwise it is thrown away.
+    pub fn stop_recording(&self, send: bool) {
+        let Some(recorder) = self.recorder.take() else { return };
+        self.record_bar.set_visible(false);
+        self.field.set_visible(true);
+        if !send {
+            recorder.cancel();
+            return;
+        }
+        match (recorder.finish(), self.on_voice.borrow().clone()) {
+            (Some(path), Some(f)) => f(path),
+            (Some(path), None) => {
+                let _ = std::fs::remove_file(path);
+            }
+            (None, _) => self.report(t("voice.empty").to_owned()),
+        }
+    }
+
+    /// Files to attach: chosen, pasted, or dropped on the page.
+    pub fn connect_files(&self, f: impl Fn(Vec<Picked>) + 'static) {
+        self.on_files.replace(Some(Rc::new(f)));
+    }
+
+    pub fn emit_files(&self, picked: Vec<Picked>) {
+        if let Some(f) = self.on_files.borrow().clone() {
+            f(picked);
+        }
+    }
+
+    /// Ties the composer to a room (`thread` None) or a thread: restores its
+    /// draft, saves it as it changes, and offers the room's authors after `@`.
+    pub fn bind(&self, session: &Arc<Session>, rid: &str, thread: Option<&str>) {
+        let key = match thread {
+            Some(tmid) => format!("{rid}:{tmid}"),
+            None => rid.to_owned(),
+        };
+        self.on_changed.replace(None);
+        self.set_text(&session.store.draft(&key).unwrap_or_default());
+        self.completion.popdown();
+        let generation = Rc::new(Cell::new(0u64));
+        let store = session.store.clone();
+        self.connect_changed(move |text| {
+            let current = generation.get() + 1;
+            generation.set(current);
+            let (generation, store, key) = (generation.clone(), store.clone(), key.clone());
+            glib::timeout_add_local_once(std::time::Duration::from_millis(400), move || {
+                if generation.get() == current {
+                    store.write(|w| w.set_draft(&key, &text));
+                }
+            });
+        });
+        let (store, rid, me) = (session.store.clone(), rid.to_owned(), session.info.username.clone());
+        self.set_mention_source(move |prefix| {
+            rv_core::completion::mentions(prefix, &store.recent_authors(&rid, 30), &me, 8)
+        });
+        let s = session.clone();
+        self.custom_emoji.replace(Some(Rc::new(move |prefix: &str| s.custom_emoji_codes(prefix))));
+    }
+
+    /// Usernames offered after `@`, given the prefix typed.
+    pub fn set_mention_source(&self, f: impl Fn(&str) -> Vec<String> + 'static) {
+        self.mentions.replace(Some(Rc::new(f)));
+    }
+
+    fn cursor_offset(&self) -> usize {
+        let buffer = self.text.buffer();
+        buffer.iter_at_mark(&buffer.get_insert()).offset().max(0) as usize
+    }
+
+    fn update_completion(&self) {
+        let buffer = self.text.buffer();
+        let cursor = buffer.iter_at_mark(&buffer.get_insert());
+        let before = buffer.text(&buffer.start_iter(), &cursor, false).to_string();
+        let offered: Vec<(String, usize, String)> = match rv_core::completion::query(&before) {
+            Some(q) if q.trigger == rv_core::completion::Trigger::Mention => {
+                let source = self.mentions.borrow().clone();
+                source
+                    .map(|f| f(&q.prefix))
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|name| (format!("@{name}"), q.start, format!("@{name} ")))
+                    .collect()
+            }
+            Some(q) => {
+                let custom = self.custom_emoji.borrow().clone().map(|f| f(&q.prefix)).unwrap_or_default();
+                custom
+                    .into_iter()
+                    .map(|code| (format!(":{code}:"), q.start, format!(":{code}: ")))
+                    .chain(
+                        rv_core::emoji::complete(&q.prefix, 8)
+                            .into_iter()
+                            .map(|(code, glyph)| (format!("{glyph}  :{code}:"), q.start, format!("{glyph} "))),
+                    )
+                    .take(8)
+                    .collect()
+            }
+            None => Vec::new(),
+        };
+        while let Some(row) = self.choices.first_child() {
+            self.choices.remove(&row);
+        }
+        if offered.is_empty() {
+            self.offered.replace(Vec::new());
+            self.completion.popdown();
+            return;
+        }
+        for (label, _, _) in &offered {
+            self.choices
+                .append(&gtk::Label::builder().label(label).xalign(0.0).css_classes(["completion-item"]).build());
+        }
+        self.offered.replace(offered.into_iter().map(|(_, start, insert)| (start, insert)).collect());
+        self.select(0);
+        self.completion.popup();
+    }
+
+    fn select(&self, index: i32) {
+        if let Some(row) = self.choices.row_at_index(index) {
+            self.choices.select_row(Some(&row));
+        }
+    }
+
+    fn accept(&self, index: i32) {
+        let Some((start, insert)) = self.offered.borrow().get(index as usize).cloned() else { return };
+        self.completion.popdown();
+        let buffer = self.text.buffer();
+        let mut from = buffer.iter_at_offset(start as i32);
+        let mut to = buffer.iter_at_offset(self.cursor_offset() as i32);
+        buffer.delete(&mut from, &mut to);
+        buffer.insert(&mut from, &insert);
+        self.text.grab_focus();
+    }
+
+    /// The completion choices on offer, as shown.
+    pub fn offered(&self) -> Vec<String> {
+        self.offered.borrow().iter().map(|(_, insert)| insert.trim_end().to_owned()).collect()
+    }
+
+    pub fn accept_first(&self) {
+        self.accept(0);
+    }
+
+    pub fn connect_submit(&self, f: impl Fn(String) + 'static) {
+        self.on_submit.replace(Some(Rc::new(f)));
+    }
+
+    /// Arms a reply: the bar shows who and what, the send carries the quote.
+    pub fn set_reply(&self, name: &str, preview: &str, permalink: String) {
+        self.reply_title.set_label(&tf("composer.replying", &[("name", name)]));
+        self.reply_preview.set_label(preview);
+        self.reply_link.replace(Some(permalink));
+        self.reply_bar.set_visible(true);
+        self.grab_focus();
+    }
+
+    pub fn clear_reply(&self) {
+        self.reply_link.replace(None);
+        self.reply_bar.set_visible(false);
+    }
+
+    /// Sends as the Enter key would.
+    pub fn submit_now(&self) {
+        self.submit();
+    }
+
+    fn submit(&self) {
+        let mut text = self.text();
+        if text.trim().is_empty() {
+            return;
+        }
+        self.completion.popdown();
+        self.text.buffer().set_text("");
+        if let Some(link) = self.reply_link.take() {
+            text = rv_core::actions::quote(&link, text.trim());
+            self.reply_bar.set_visible(false);
+        }
+        if let Some(submit) = self.on_submit.borrow().clone() {
+            submit(text);
+        }
+    }
+
+    pub fn grab_focus(&self) {
+        self.text.grab_focus();
+    }
+
+    pub fn text(&self) -> String {
+        let buffer = self.text.buffer();
+        buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string()
+    }
+
+    pub fn set_text(&self, text: &str) {
+        self.text.buffer().set_text(text);
+    }
+
+    /// Types at the cursor, as the keyboard would.
+    pub fn type_text(&self, text: &str) {
+        self.text.buffer().insert_at_cursor(text);
+    }
+
+    /// A composer inside a `GtkWindowHandle` turns a double click into "maximize".
+    pub fn in_window_handle(&self) -> bool {
+        self.text.ancestor(gtk::WindowHandle::static_type()).is_some()
+    }
+
+    /// (height of the scroller, its vertical scrollbar shown, scroll offset)
+    pub fn scroll_state(&self) -> (i32, bool, f64) {
+        let scroller = self.text.parent().and_downcast::<gtk::ScrolledWindow>().expect("composer scroller");
+        let bar = scroller.vscrollbar();
+        (scroller.height(), bar.is_visible() && bar.is_child_visible(), scroller.vadjustment().value())
+    }
+}

@@ -173,8 +173,15 @@ globalement (voir `docs/DEV.md`).
 | `npm run seed` | (Re)pose les données de test sur le serveur de dev. |
 | `npm run db:generate` | Génère les migrations Drizzle depuis le schéma. |
 
-Pour une **release** signée : `source scripts/env.sh && cd android && ./gradlew assembleRelease`,
+Pour une **release** : `source scripts/env.sh && cd android && ./gradlew assembleRelease`,
 puis `adb install -r app/build/outputs/apk/release/app-release.apk`.
+
+Une release est signée avec **la clé de l'app**, la même en local et en CI : Android
+refuse une mise à jour signée d'une autre clé. Elle vit hors du dépôt, dans
+`~/.config/rocket-vibe/` (`release.keystore` et `signature.env`, que `scripts/env.sh`
+lit) ; la CI la tient des secrets `ANDROID_KEYSTORE_BASE64` et
+`ANDROID_KEYSTORE_PASSWORD`. Sans elle, un build release échoue au lieu de retomber sur
+la clé de debug. **À sauvegarder** : perdue, plus aucune mise à jour ne s'installe.
 
 ---
 

@@ -20,6 +20,7 @@
 //!                          included), and answers the first notification with <reply>
 //!   RV_SMOKE_SECOND="<user>|<password>"  adds a second account on the same server,
 //!                          then switches back to the first
+//!   RV_SMOKE_E2E=<password>  unlocks encrypted rooms (a wrong one first must be refused)
 //!   RV_SMOKE_REENTER=1     after opening the room: back to the list, tap the same room, expect it open
 //! A failed expectation makes the process exit with status 1.
 
@@ -159,6 +160,21 @@ pub fn install(window: &Rc<AppWindow>) {
                 let (chat, rid) = (w.chat.clone(), rid.clone());
                 glib::timeout_add_local_once(Duration::from_millis(1500), move || {
                     details_checks(chat, session, rid, what)
+                });
+            }
+            if let Ok(password) = std::env::var("RV_SMOKE_E2E")
+                && !password.is_empty()
+                && let Some(session) = w.chat.session()
+            {
+                glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+                    glib::spawn_future_local(async move {
+                        let s = session.clone();
+                        let wrong = crate::on_tokio(async move { s.e2e_unlock("not the password").await }).await;
+                        check("wrong E2E password refused", wrong.is_err(), &wrong);
+                        let s = session.clone();
+                        let right = crate::on_tokio(async move { s.e2e_unlock(&password).await }).await;
+                        check("E2E unlocked", right.is_ok(), &right);
+                    });
                 });
             }
             if std::env::var("RV_SMOKE_REENTER").as_deref() == Ok("1") {

@@ -27,6 +27,7 @@ pub struct MessageList {
     on_top: Handler<()>,
     /// (last seen, my uid): the first later message from someone else gets the marker.
     unread_after: RefCell<Option<(i64, String)>>,
+    session: Shared<Arc<Session>>,
 }
 
 impl MessageList {
@@ -45,6 +46,7 @@ impl MessageList {
             on_event: RefCell::default(),
             on_top: RefCell::default(),
             unread_after: RefCell::default(),
+            session: session.clone(),
         });
         this.wire(session);
         this
@@ -195,7 +197,13 @@ impl MessageList {
         self.rows.borrow().len()
     }
 
+    /// What each row reads as, encrypted ones in clear when unlocked.
     pub fn texts(&self) -> Vec<String> {
-        self.rows.borrow().iter().map(|d| d.row.text.clone().unwrap_or_default()).collect()
+        let session = self.session.borrow().clone();
+        let clear = |r: &MessageRow| {
+            let raw = r.encrypted_raw.as_deref()?;
+            session.as_ref()?.decrypt(&r.rid, raw)
+        };
+        self.rows.borrow().iter().map(|d| clear(&d.row).or_else(|| d.row.text.clone()).unwrap_or_default()).collect()
     }
 }

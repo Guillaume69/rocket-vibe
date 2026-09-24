@@ -36,6 +36,24 @@ POST https://fcm.googleapis.com/v1/projects/rocket-vibe/messages:send
 
 Le `rid` du deep link vit dans `data.ejson`, pas à la racine.
 
+## Bundle serveur patché
+
+Le choix gateway / natif est GLOBAL au serveur (`shouldUseGateway()` dans `app/push/server/push.ts`) : gateway coupé, les jetons des applis officielles partent chez notre projet Firebase, FCM répond `SENDER_ID_MISMATCH` et le serveur les **supprime**. Les applis officielles n'ont plus de push sur ce serveur.
+
+`docker/patch-push.mjs` retouche le bundle de l'image (`/app/bundle/programs/server/app/app.js`, lisible, non minifié) :
+
+1. le gateway ne sert plus que les jetons dont `appName` n'est pas `rocket-vibe` : les nôtres partent en natif, les applis officielles gardent le gateway. `Push_enable_gateway` peut revenir à `true`, `Push_google_api_credentials` reste renseigné ;
+2. le message FCM porte un bloc `apns` (`mutable-content: 1`, `thread-id` = `notId`) : un jeton FCM iOS enregistré en `gcm` réveille la Notification Service Extension. Côté Firebase, la clé APNs `.p8` est déposée dans la console ; rien d'APNs côté Rocket.Chat.
+
+```sh
+node docker/patch-push.mjs                  # tag lu dans docker/compose.yml -> docker/patched/app-<tag>.js
+node docker/patch-push.mjs <image:tag>      # image explicite, pour le serveur de prod
+```
+
+Le compose monte `patched/app-${RC_VERSION}.js` avec `create_host_path: false` : après une montée de version, `up` échoue tant que le script n'a pas été relancé. Le script s'arrête si une ancre n'apparaît pas exactement une fois (code changé en amont) et garde le nombre de lignes, donc `app.js.map` reste aligné.
+
+Vérifié sur le banc 8.5.1 : démarrage sain sur le bundle patché, forme du message FCM contrôlée en isolant `getFCMMessagesFromPushData`. **Pas encore vérifié** : l'acceptation du bloc `apns` par FCM (le banc n'a pas de compte de service) et la branche gateway (le banc n'est pas enregistré sur RC Cloud) - à confirmer sur `chat.barrut.me`.
+
 ## Trois pièges vérifiés sur le terrain
 
 ### `Push_UseLegacy` n'existe pas en 8.5

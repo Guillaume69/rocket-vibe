@@ -12,6 +12,7 @@
 //!                          replies in a thread, then opens the actions menu; texts carry <tag>
 //!   RV_SMOKE_DRAFTS=<other room>  completes `@bo` and `:smil`, leaves a draft, opens the
 //!                          other room and comes back: the draft must be restored
+//!   RV_SMOKE_FILES=1       fetches every file attached in the room to the local cache
 //!   RV_SMOKE_REENTER=1     after opening the room: back to the list, tap the same room, expect it open
 //! A failed expectation makes the process exit with status 1.
 
@@ -87,6 +88,10 @@ pub fn install(window: &Rc<AppWindow>) {
                 let chat = w.chat.clone();
                 let back = rid.clone();
                 glib::timeout_add_local_once(Duration::from_millis(2000), move || draft_checks(chat, back, other));
+            }
+            if std::env::var("RV_SMOKE_FILES").as_deref() == Ok("1") {
+                let chat = w.chat.clone();
+                glib::timeout_add_local_once(Duration::from_millis(2000), move || file_checks(chat));
             }
             if std::env::var("RV_SMOKE_REENTER").as_deref() == Ok("1") {
                 let chat = w.chat.clone();
@@ -295,4 +300,22 @@ fn draft_checks(chat: std::rc::Rc<crate::chat::ChatPage>, back: String, other: S
         c.composer().set_text("");
     }));
     in_sequence(chat, steps);
+}
+
+fn file_checks(chat: std::rc::Rc<crate::chat::ChatPage>) {
+    let (Some(session), Some(rid)) = (chat.session(), chat.current_rid()) else { return };
+    let files: Vec<_> = session
+        .store
+        .messages(&rid, 200)
+        .iter()
+        .flat_map(|r| rv_core::content::files(r.attachments.as_deref()))
+        .collect();
+    check("files attached", !files.is_empty(), files.len());
+    glib::spawn_future_local(async move {
+        for f in files {
+            let path = crate::cards::local_copy(session.clone(), f.clone()).await;
+            let size = path.as_ref().and_then(|p| std::fs::metadata(p).ok()).map(|m| m.len() as i64);
+            check(&format!("file {}", f.title), size.is_some() && (f.size.is_none() || size == f.size), size);
+        }
+    });
 }

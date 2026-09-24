@@ -13,6 +13,7 @@ pub mod media;
 pub mod normalize;
 pub mod outbox;
 pub mod rest;
+pub mod rooms;
 pub mod session;
 pub mod store;
 pub mod sync;

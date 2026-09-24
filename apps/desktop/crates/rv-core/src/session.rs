@@ -298,6 +298,30 @@ impl Session {
         }
     }
 
+    pub async fn spotlight(&self, query: &str) -> Result<Vec<crate::rooms::Found>, RestError> {
+        let response = self.rest.get("spotlight", CallOptions::params([("query", query)])).await?;
+        Ok(crate::rooms::spotlight_results(&response))
+    }
+
+    /// The DM with this user, created if needed; returns its rid once the
+    /// store has it, so it can be opened at once.
+    pub async fn open_dm(&self, username: &str) -> Result<String, RestError> {
+        let response = self.rest.post("im.create", CallOptions::body(json!({"username": username}))).await?;
+        let rid = response
+            .pointer("/room/_id")
+            .or_else(|| response.pointer("/room/rid"))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| RestError::incomplete("im.create: no room"))?;
+        self.sync.catch_up_global().await?;
+        Ok(rid)
+    }
+
+    pub async fn join_channel(&self, rid: &str) -> Result<(), RestError> {
+        self.rest.post("channels.join", CallOptions::body(json!({"roomId": rid}))).await?;
+        self.sync.catch_up_global().await
+    }
+
     pub async fn mark_read(&self, rid: &str) {
         let _ = self.rest.post("subscriptions.read", CallOptions::body(json!({"rid": rid}))).await;
     }

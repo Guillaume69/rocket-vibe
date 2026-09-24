@@ -140,7 +140,7 @@ jobs:
               -RedirectStandardError "$env:RUNNER_TEMP\app-stderr.txt" -RedirectStandardOutput "$env:RUNNER_TEMP\app-stdout.txt"
             Start-Sleep -Seconds 10
             if (-not $again.HasExited) { Stop-Process -Id $again.Id -Force }
-            Get-Content "$env:RUNNER_TEMP\app-stderr.txt", "$env:RUNNER_TEMP\app-stdout.txt" -ErrorAction SilentlyContinue
+            Get-Content "$env:LOCALAPPDATA\rocket-vibe-rs\rocket-vibe.log", "$env:RUNNER_TEMP\app-stderr.txt", "$env:RUNNER_TEMP\app-stdout.txt" -ErrorAction SilentlyContinue
             Get-WinEvent -FilterHashtable @{ LogName = "Application"; Id = 1000 } -MaxEvents 1 -ErrorAction SilentlyContinue |
               ForEach-Object { $_.Message }
             throw "the app exited at start with code $($run.ExitCode)"

@@ -40,6 +40,8 @@ pub struct RoomRow {
     pub read_only: bool,
     pub dm_other_uid: Option<String>,
     pub avatar_etag: Option<String>,
+    /// The room's `name` (its URL slug), unlike `name` above which is for display.
+    pub slug: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +57,8 @@ pub struct MessageRow {
     pub thread_count: i64,
     pub outbox_status: Option<String>,
     pub md: Option<String>,
+    pub reactions: Option<String>,
+    pub thread_id: Option<String>,
 }
 
 const SCHEMA: &str = r#"
@@ -211,7 +215,7 @@ impl Store {
             let mut q = c.prepare(
                 "SELECT r.rid, r.type, COALESCE(r.display_name, r.name, r.rid), r.last_message,
                         COALESCE(r.last_message_ts, 0), s.unread, s.mentions + s.group_mentions, s.alert,
-                        s.favorite, r.encrypted, r.read_only, r.dm_other_uid, r.avatar_etag
+                        s.favorite, r.encrypted, r.read_only, r.dm_other_uid, r.avatar_etag, r.name
                  FROM rooms r JOIN subscriptions s ON s.rid = r.rid
                  WHERE s.open = 1
                  ORDER BY COALESCE(r.last_message_ts, 0) DESC",
@@ -231,6 +235,7 @@ impl Store {
                     read_only: r.get(10)?,
                     dm_other_uid: r.get(11)?,
                     avatar_etag: r.get(12)?,
+                    slug: r.get(13)?,
                 })
             })?
             .collect()
@@ -241,16 +246,26 @@ impl Store {
     /// The newest `limit` messages of a room, oldest first. Thread replies
     /// stay in their thread unless also shown in the room (`tshow`).
     pub fn messages(&self, rid: &str, limit: i64) -> Vec<MessageRow> {
+        self.message_rows("m.rid = ?1 AND (m.thread_id IS NULL OR m.thread_shown = 1)", rid, limit)
+    }
+
+    /// A thread: its root, then every reply, oldest first.
+    pub fn thread_messages(&self, root_id: &str) -> Vec<MessageRow> {
+        self.message_rows("(m.id = ?1 OR m.thread_id = ?1)", root_id, i64::MAX)
+    }
+
+    fn message_rows(&self, filter: &str, key: &str, limit: i64) -> Vec<MessageRow> {
+        let sql = format!(
+            "SELECT m.id, m.ts, m.text, m.author_name, m.author_id, m.system_type, m.edited_at IS NOT NULL,
+                    m.attachments, m.thread_count, o.status, m.md, m.reactions, m.thread_id
+             FROM messages m LEFT JOIN outbox o ON o.id = m.id
+             WHERE {filter}
+             ORDER BY m.ts DESC, m.id DESC LIMIT ?2"
+        );
         let mut rows: Vec<MessageRow> = self
             .read(|c| {
-                let mut q = c.prepare(
-                    "SELECT m.id, m.ts, m.text, m.author_name, m.author_id, m.system_type, m.edited_at IS NOT NULL,
-                            m.attachments, m.thread_count, o.status, m.md
-                     FROM messages m LEFT JOIN outbox o ON o.id = m.id
-                     WHERE m.rid = ?1 AND (m.thread_id IS NULL OR m.thread_shown = 1)
-                     ORDER BY m.ts DESC, m.id DESC LIMIT ?2",
-                )?;
-                q.query_map(params![rid, limit], |r| {
+                let mut q = c.prepare(&sql)?;
+                q.query_map(params![key, limit], |r| {
                     Ok(MessageRow {
                         id: r.get(0)?,
                         ts: r.get(1)?,
@@ -263,6 +278,8 @@ impl Store {
                         thread_count: r.get(8)?,
                         outbox_status: r.get(9)?,
                         md: r.get(10)?,
+                        reactions: r.get(11)?,
+                        thread_id: r.get(12)?,
                     })
                 })?
                 .collect()

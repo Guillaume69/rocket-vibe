@@ -11,6 +11,7 @@ use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use url::Url;
 
+use crate::actions::{self, ServerSettings};
 use crate::ddp::{self, DdpEvent, DdpHandle, State, Timeouts};
 use crate::media::MediaCache;
 use crate::outbox::Outbox;
@@ -119,6 +120,7 @@ pub struct Session {
     events: broadcast::Sender<SessionEvent>,
     current_room: Mutex<Option<(String, String)>>,
     tasks: Mutex<Vec<JoinHandle<()>>>,
+    settings: tokio::sync::OnceCell<ServerSettings>,
 }
 
 impl Session {
@@ -148,6 +150,7 @@ impl Session {
             events,
             current_room: Mutex::new(None),
             tasks: Mutex::default(),
+            settings: tokio::sync::OnceCell::new(),
         });
         let listener = tokio::spawn(Self::listen(Arc::downgrade(&session), ddp_events));
         let watcher = tokio::spawn(Self::watch_token(Arc::downgrade(&session), session.rest.token_rejected()));
@@ -268,6 +271,75 @@ impl Session {
     pub async fn logout(&self) {
         self.shutdown();
         let _ = self.rest.post("logout", CallOptions::default()).await;
+    }
+
+    /// The server's public settings, read once per session.
+    pub async fn settings(&self) -> &ServerSettings {
+        self.settings.get_or_init(|| ServerSettings::fetch(&self.rest)).await
+    }
+
+    /// The permalink the server recognises: built on `Site_Url`, else on our base URL.
+    pub async fn permalink(&self, kind: &str, slug: Option<&str>, rid: &str, msg_id: &str) -> String {
+        let base = self.settings().await.site_url.clone().unwrap_or_else(|| self.info.base_url.clone());
+        actions::permalink(&base, kind, slug, rid, msg_id)
+    }
+
+    pub async fn react(&self, msg_id: &str, shortcode: &str, add: bool) -> Result<(), RestError> {
+        actions::react(&self.rest, msg_id, shortcode, add).await
+    }
+
+    pub async fn edit(&self, rid: &str, msg_id: &str, text: &str) -> Result<(), RestError> {
+        let doc = actions::edit(&self.rest, rid, msg_id, text).await?;
+        if doc.is_object() {
+            self.sync.ingest_messages(std::slice::from_ref(&doc));
+        }
+        Ok(())
+    }
+
+    pub async fn delete(&self, rid: &str, msg_id: &str) -> Result<(), RestError> {
+        actions::delete(&self.rest, rid, msg_id).await?;
+        self.store.write(|w| w.delete_message(msg_id));
+        Ok(())
+    }
+
+    pub async fn pin(&self, msg_id: &str) -> Result<(), RestError> {
+        actions::pin(&self.rest, msg_id).await
+    }
+
+    /// The root (`chat.getThreadMessages` never returns it) then every reply,
+    /// by full pages: `count: 0` depends on `API_Allow_Infinite_Count`.
+    pub async fn load_thread(&self, root_id: &str) -> Result<(), RestError> {
+        const PAGE: usize = 100;
+        const MAX_PAGES: usize = 20;
+        if let Ok(root) = self.rest.get("chat.getMessage", CallOptions::params([("msgId", root_id)])).await
+            && let Some(doc) = root.get("message")
+        {
+            self.sync.ingest_messages(std::slice::from_ref(doc));
+        }
+        for page in 0..MAX_PAGES {
+            let options = CallOptions::params([
+                ("tmid", root_id.to_owned()),
+                ("count", PAGE.to_string()),
+                ("offset", (page * PAGE).to_string()),
+            ]);
+            let response = self.rest.get("chat.getThreadMessages", options).await?;
+            let batch = response.get("messages").and_then(Value::as_array).cloned().unwrap_or_default();
+            self.sync.ingest_messages(&batch);
+            if batch.len() < PAGE {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    /// Sends into a thread when `thread_id` is set.
+    pub async fn send_in(&self, rid: &str, text: &str, thread_id: Option<&str>) {
+        let text = text.trim();
+        if text.is_empty() {
+            return;
+        }
+        self.outbox.enqueue(rid, text, thread_id);
+        self.outbox.process().await;
     }
 
     pub fn shutdown(&self) {

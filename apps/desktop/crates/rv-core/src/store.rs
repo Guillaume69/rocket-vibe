@@ -62,11 +62,13 @@ pub struct RoomRow {
     /// The last message's system type (`uj`, `videoconf`…), None for a plain message.
     pub last_type: Option<String>,
     pub last_author: Option<String>,
+    pub last_encrypted: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MessageRow {
     pub id: String,
+    pub rid: String,
     pub ts: i64,
     pub text: Option<String>,
     pub author: Option<String>,
@@ -79,6 +81,7 @@ pub struct MessageRow {
     pub md: Option<String>,
     pub reactions: Option<String>,
     pub thread_id: Option<String>,
+    pub encrypted_raw: Option<String>,
     pub urls: Option<String>,
     pub call_id: Option<String>,
 }
@@ -158,6 +161,7 @@ const MIGRATIONS: &[&str] = &[
     "CREATE TABLE uploads (id TEXT PRIMARY KEY, rid TEXT NOT NULL, path TEXT NOT NULL, name TEXT NOT NULL,
        mime TEXT NOT NULL, caption TEXT, file_id TEXT, status TEXT NOT NULL DEFAULT 'pending',
        temporary INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL)",
+    "ALTER TABLE subscriptions ADD COLUMN e2e_key TEXT; ALTER TABLE rooms ADD COLUMN last_encrypted TEXT",
 ];
 
 pub struct Store {
@@ -306,6 +310,14 @@ impl Store {
         .flatten()
     }
 
+    /// My wrapped copy of the room's key, in an encrypted room.
+    pub fn e2e_key(&self, rid: &str) -> Option<String> {
+        self.read(|c| c.query_row("SELECT e2e_key FROM subscriptions WHERE rid = ?1", [rid], |r| r.get(0)).optional())
+            .ok()
+            .flatten()
+            .flatten()
+    }
+
     /// When I last read the room (`ls`), as the server last told us.
     pub fn last_seen(&self, rid: &str) -> Option<i64> {
         self.read(|c| c.query_row("SELECT last_seen FROM subscriptions WHERE rid = ?1", [rid], |r| r.get(0)).optional())
@@ -352,7 +364,7 @@ impl Store {
                 "SELECT r.rid, r.type, COALESCE(r.display_name, r.name, r.rid), r.last_message,
                         COALESCE(r.last_message_ts, 0), s.unread, s.mentions + s.group_mentions, s.alert,
                         s.favorite, r.encrypted, r.read_only, r.dm_other_uid, r.avatar_etag, r.name,
-                        r.last_message_type, r.last_message_author
+                        r.last_message_type, r.last_message_author, r.last_encrypted
                  FROM rooms r JOIN subscriptions s ON s.rid = r.rid
                  WHERE s.open = 1
                  ORDER BY COALESCE(r.last_message_ts, 0) DESC",
@@ -375,6 +387,7 @@ impl Store {
                     slug: r.get(13)?,
                     last_type: r.get(14)?,
                     last_author: r.get(15)?,
+                    last_encrypted: r.get(16)?,
                 })
             })?
             .collect()
@@ -396,7 +409,7 @@ impl Store {
     fn message_rows(&self, filter: &str, key: &str, limit: i64) -> Vec<MessageRow> {
         let sql = format!(
             "SELECT m.id, m.ts, m.text, m.author_name, m.author_id, m.system_type, m.edited_at IS NOT NULL,
-                    m.attachments, m.thread_count, o.status, m.md, m.reactions, m.thread_id, m.urls, m.call_id
+                    m.attachments, m.thread_count, o.status, m.md, m.reactions, m.thread_id, m.urls, m.call_id, m.encrypted_raw, m.rid
              FROM messages m LEFT JOIN outbox o ON o.id = m.id
              WHERE {filter}
              ORDER BY m.ts DESC, m.id DESC LIMIT ?2"
@@ -421,6 +434,8 @@ impl Store {
                         thread_id: r.get(12)?,
                         urls: r.get(13)?,
                         call_id: r.get(14)?,
+                        encrypted_raw: r.get(15)?,
+                        rid: r.get(16)?,
                     })
                 })?
                 .collect()
@@ -489,8 +504,8 @@ impl Writer<'_> {
         self.conn
             .execute(
                 "INSERT INTO rooms (rid, type, name, display_name, encrypted, read_only, dm_other_uid,
-                   last_message, last_message_type, last_message_ts, avatar_etag, updated_at, last_message_author)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                   last_message, last_message_type, last_message_ts, avatar_etag, updated_at, last_message_author, last_encrypted)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
                  ON CONFLICT(rid) DO UPDATE SET
                    type = excluded.type,
                    name = COALESCE(excluded.name, rooms.name),
@@ -503,12 +518,13 @@ impl Writer<'_> {
                    last_message_ts = COALESCE(excluded.last_message_ts, rooms.last_message_ts),
                    avatar_etag = COALESCE(excluded.avatar_etag, rooms.avatar_etag),
                    updated_at = excluded.updated_at,
-                   last_message_author = COALESCE(excluded.last_message_author, rooms.last_message_author)
+                   last_message_author = COALESCE(excluded.last_message_author, rooms.last_message_author),
+                   last_encrypted = CASE WHEN excluded.encrypted = 1 THEN COALESCE(excluded.last_encrypted, rooms.last_encrypted) ELSE NULL END
                  WHERE excluded.updated_at >= rooms.updated_at",
                 params![
                     r.rid, r.kind, r.name, r.display_name, r.encrypted, r.read_only, r.dm_other_uid,
                     r.last_message, r.last_message_type, r.last_message_ts, r.avatar_etag, r.updated_at,
-                    r.last_message_author
+                    r.last_message_author, r.last_encrypted
                 ],
             )
             .expect("upsert room");
@@ -518,8 +534,8 @@ impl Writer<'_> {
     pub fn upsert_subscription(&mut self, s: &Subscription) {
         self.conn
             .execute(
-                "INSERT INTO subscriptions (rid, sub_id, unread, mentions, group_mentions, alert, open, favorite, last_seen, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                "INSERT INTO subscriptions (rid, sub_id, unread, mentions, group_mentions, alert, open, favorite, last_seen, updated_at, e2e_key)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
                  ON CONFLICT(rid) DO UPDATE SET
                    sub_id = COALESCE(excluded.sub_id, subscriptions.sub_id),
                    unread = excluded.unread,
@@ -529,11 +545,12 @@ impl Writer<'_> {
                    open = excluded.open,
                    favorite = excluded.favorite,
                    last_seen = excluded.last_seen,
-                   updated_at = excluded.updated_at
+                   updated_at = excluded.updated_at,
+                   e2e_key = COALESCE(excluded.e2e_key, subscriptions.e2e_key)
                  WHERE excluded.updated_at >= subscriptions.updated_at",
                 params![
                     s.rid, s.sub_id, s.unread, s.mentions, s.group_mentions, s.alert, s.open, s.favorite,
-                    s.last_seen, s.updated_at
+                    s.last_seen, s.updated_at, s.e2e_key
                 ],
             )
             .expect("upsert subscription");

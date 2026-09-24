@@ -77,6 +77,7 @@ mod tests {
             slug: None,
             last_type: None,
             last_author: None,
+            last_encrypted: None,
         }
     }
 

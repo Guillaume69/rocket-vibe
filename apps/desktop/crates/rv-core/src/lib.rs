@@ -7,6 +7,7 @@ pub mod completion;
 pub mod content;
 pub mod ddp;
 pub mod diff;
+pub mod e2e;
 pub mod emoji;
 pub mod info;
 pub mod live;

@@ -55,6 +55,8 @@ pub enum SessionEvent {
     Upload(String),
     /// Someone changed their photo.
     Avatar,
+    /// Encrypted rooms were unlocked or locked again.
+    E2e,
     /// A new message from someone else that my notification preference wants shown.
     Incoming(Box<crate::notify::Incoming>),
 }
@@ -146,6 +148,19 @@ pub struct Session {
     notification_preference: Mutex<String>,
     /// None until `users.presence` answered once; it only lists who is not offline.
     presence: Mutex<Option<HashMap<String, live::Presence>>>,
+    /// My private key once unlocked, and the room keys unwrapped with it (by key id).
+    e2e: Mutex<Option<E2eUnlocked>>,
+}
+
+struct E2eUnlocked {
+    key: crate::e2e::PrivateKey,
+    rooms: HashMap<String, (String, Vec<u8>)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnlockError {
+    Server(RestError),
+    Key(crate::e2e::E2eError),
 }
 
 impl Session {
@@ -184,6 +199,7 @@ impl Session {
             call_available: Mutex::default(),
             avatars: Mutex::default(),
             notification_preference: Mutex::new("default".to_owned()),
+            e2e: Mutex::default(),
             presence: Mutex::default(),
         });
         let listener = tokio::spawn(Self::listen(Arc::downgrade(&session), ddp_events));
@@ -387,6 +403,39 @@ impl Session {
     pub async fn search(&self, rid: &str, text: &str) -> Result<Vec<crate::normalize::Message>, RestError> {
         let options = CallOptions::params([("roomId", rid), ("searchText", text), ("count", "50")]);
         Ok(info::search_results(&self.rest.get("chat.search", options).await?))
+    }
+
+    /// Opens my private key with the E2E password; it stays in memory only.
+    pub async fn e2e_unlock(&self, password: &str) -> Result<(), UnlockError> {
+        let keys = self.rest.get("e2e.fetchMyKeys", CallOptions::default()).await.map_err(UnlockError::Server)?;
+        let private = keys.get("private_key").and_then(Value::as_str).unwrap_or_default();
+        let key = crate::e2e::unlock_private_key(private, password, &self.info.user_id).map_err(UnlockError::Key)?;
+        self.e2e.lock().unwrap().replace(E2eUnlocked { key, rooms: HashMap::new() });
+        let _ = self.events.send(SessionEvent::E2e);
+        Ok(())
+    }
+
+    pub fn e2e_lock(&self) {
+        if self.e2e.lock().unwrap().take().is_some() {
+            let _ = self.events.send(SessionEvent::E2e);
+        }
+    }
+
+    pub fn e2e_unlocked(&self) -> bool {
+        self.e2e.lock().unwrap().is_some()
+    }
+
+    /// An encrypted `content` of the room in clear, when unlocked and the key fits.
+    pub fn decrypt(&self, rid: &str, content: &str) -> Option<String> {
+        let mut guard = self.e2e.lock().unwrap();
+        let unlocked = guard.as_mut()?;
+        let wrapped = self.store.e2e_key(rid)?;
+        let kid = crate::e2e::key_id(&wrapped).to_owned();
+        if unlocked.rooms.get(rid).is_none_or(|(known, _)| *known != kid) {
+            let key = crate::e2e::room_key(&wrapped, &unlocked.key).ok()?;
+            unlocked.rooms.insert(rid.to_owned(), (kid, key));
+        }
+        crate::e2e::decrypt_message(content, &unlocked.rooms.get(rid)?.1).ok()
     }
 
     pub async fn me(&self) -> Result<crate::account::Me, RestError> {

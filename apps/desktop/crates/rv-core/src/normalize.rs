@@ -84,6 +84,8 @@ pub struct Room {
     pub last_message: Option<String>,
     pub last_message_type: Option<String>,
     pub last_message_author: Option<String>,
+    /// An encrypted room's last message `content`, for a preview once unlocked.
+    pub last_encrypted: Option<String>,
     pub last_message_ts: Option<i64>,
     pub avatar_etag: Option<String>,
     pub updated_at: i64,
@@ -101,6 +103,8 @@ pub struct Subscription {
     pub favorite: bool,
     pub last_seen: Option<i64>,
     pub updated_at: i64,
+    /// The room's AES key wrapped for me (`E2EKey`), in an encrypted room.
+    pub e2e_key: Option<String>,
 }
 
 pub fn to_message(raw: &Value) -> Option<Message> {
@@ -203,6 +207,7 @@ pub fn to_room(raw: &Value, me: &str, me_uid: &str) -> Option<Room> {
         last_message: if encrypted { None } else { preview_of(last) },
         last_message_type: if encrypted { None } else { string(last.and_then(|l| l.get("t"))) },
         last_message_author: string(last.and_then(|l| l.pointer("/u/username"))),
+        last_encrypted: if encrypted { json_or_none(last.and_then(|l| l.get("content"))) } else { None },
         last_message_ts: last.and_then(|l| l.get("ts")).and_then(to_epoch).or_else(|| raw.get("lm").and_then(to_epoch)),
         avatar_etag: string(raw.get("avatarETag")),
         updated_at: raw.get("_updatedAt").and_then(to_epoch).unwrap_or(0),
@@ -221,6 +226,7 @@ pub fn to_subscription(raw: &Value) -> Option<Subscription> {
         favorite: boolean(raw.get("f")),
         last_seen: raw.get("ls").and_then(to_epoch),
         updated_at: raw.get("_updatedAt").and_then(to_epoch).unwrap_or(0),
+        e2e_key: string(raw.get("E2EKey")),
     })
 }
 

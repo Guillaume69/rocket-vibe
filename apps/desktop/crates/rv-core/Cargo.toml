@@ -8,6 +8,8 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+aws-lc-rs = "1.18.1"
+base64 = "0.22.1"
 chrono = "0.4.45"
 fastrand = "2.5.0"
 futures-util = "0.3.34"

@@ -6,6 +6,7 @@ use adw::prelude::*;
 use chrono::{DateTime, Local, TimeZone};
 use gtk::{gdk, gio, glib, pango};
 use rv_core::diff::diff_sorted;
+use rv_core::markdown;
 use rv_core::media::{AvatarTarget, ImageAttachment, avatar_path, display_size, image_attachments};
 use rv_core::session::{Connection, Session};
 use rv_core::store::{Change, MessageRow, RoomRow};
@@ -13,7 +14,7 @@ use rv_core::sync::HISTORY_PAGE;
 use serde_json::Value;
 
 use crate::widgets::{self, TileSize};
-use crate::{media, runtime};
+use crate::{markdown_view, media, runtime};
 
 const GROUPING_GAP_MS: i64 = 5 * 60 * 1000;
 const COMPOSER_MAX_HEIGHT: i32 = 160;
@@ -257,7 +258,7 @@ fn room_widget(r: &RoomRow, session: Option<&Arc<Session>>) -> gtk::Widget {
     name.set_ellipsize(pango::EllipsizeMode::End);
     let time = label(&short_time(r.last_ts), &["room-time"]);
     let preview = match (&r.last_message, r.encrypted) {
-        (Some(m), _) => label(m, &["room-preview"]),
+        (Some(m), _) => label(&rv_core::emoji::replace_shortcodes(m), &["room-preview"]),
         (None, true) => label("Encrypted message", &["room-preview", "encrypted"]),
         (None, false) => label("", &["room-preview"]),
     };
@@ -376,18 +377,18 @@ fn message_widget(
 
     let pending = row.outbox_status.as_deref() == Some("pending");
     let failed = row.outbox_status.as_deref() == Some("failed");
-    let body = label(&body_text, &["message-body"]);
-    body.set_wrap(true);
-    body.set_wrap_mode(pango::WrapMode::WordChar);
-    body.set_selectable(true);
-    if pending {
-        body.add_css_class("pending");
+    let me = session.map(|s| s.info.username.clone()).unwrap_or_default();
+    let mut blocks = markdown::render(row.md.as_deref(), row.text.as_deref(), &markdown::Context { me: &me });
+    if let Some(file) = attachment_label(row.attachments.as_deref()) {
+        blocks.push(markdown::Block::Paragraph(markdown::escape(&file)));
     }
-    if failed {
-        body.add_css_class("failed");
-    }
-    if !body_text.is_empty() {
-        column.append(&body);
+    let state: &[&str] = match (pending, failed) {
+        (true, _) => &["pending"],
+        (_, true) => &["failed"],
+        _ => &[],
+    };
+    if !blocks.is_empty() {
+        column.append(&markdown_view::view(&blocks, state));
     }
     if let Some(session) = session {
         for image in image_attachments(row.attachments.as_deref()) {

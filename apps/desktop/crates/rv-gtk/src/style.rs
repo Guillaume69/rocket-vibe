@@ -138,6 +138,16 @@ button.cta:active, button.cta:disabled { opacity: 0.75; }
 .gutter-time { color: #6E6890; font-size: 9px; }
 .message-body { color: #E7E3F5; font-size: 14px; }
 .message-body.pending { opacity: 0.55; }
+.message-body link, .message-body a { color: #5CC8FF; }
+.md-h1, .md-h2, .md-h3, .md-h4 { font-family: "Baloo 2"; font-weight: 700; color: #F3F0FF; }
+.md-h1 { font-size: 20px; }
+.md-h2 { font-size: 18px; }
+.md-h3 { font-size: 16px; }
+.md-h4 { font-size: 15px; }
+.md-quote { border-left: 3px solid #2C2946; padding-left: 10px; margin: 2px 0; }
+.md-code { background: #171529; border-radius: 8px; padding: 8px 10px; margin: 2px 0; }
+.md-code-text { font-family: monospace; font-size: 13px; color: #E7E3F5; }
+.md-big-emoji { font-size: 36px; }
 .message-body.failed { color: #FF7A8A; }
 .message-note { color: #6E6890; font-size: 11px; }
 .system-message { font-style: italic; color: #8F89AB; font-size: 13px; }

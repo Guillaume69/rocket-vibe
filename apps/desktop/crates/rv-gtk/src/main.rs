@@ -1,6 +1,7 @@
 mod chat;
 mod fonts;
 mod login;
+mod markdown_view;
 mod media;
 mod secrets;
 mod smoke;

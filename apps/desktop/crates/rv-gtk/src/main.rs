@@ -56,6 +56,7 @@ fn main() -> glib::ExitCode {
             window.present();
             return;
         }
+        smoke::install_early();
         let window = window::AppWindow::new(app);
         smoke::install(&window);
         window.window.present();

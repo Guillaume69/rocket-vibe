@@ -16,6 +16,8 @@
 //!   RV_SMOKE_UPLOAD="<path>|<caption>"  sends the file as the dialog's Send does, images reduced
 //!   RV_SMOKE_SPOTLIGHT=<query>  finds a channel, joins it and opens it
 //!   RV_SMOKE_DETAILS=profile:<user> | room | search:<text> | settings  checks the read and opens the dialog
+//!   RV_SMOKE_NOTIFY=<reply>  stands in for the desktop's notification server (inline reply
+//!                          included), and answers the first notification with <reply>
 //!   RV_SMOKE_REENTER=1     after opening the room: back to the list, tap the same room, expect it open
 //! A failed expectation makes the process exit with status 1.
 
@@ -37,6 +39,14 @@ pub fn failed() -> bool {
 
 fn list(var: &str) -> Vec<String> {
     std::env::var(var).unwrap_or_default().split('|').filter(|s| !s.is_empty()).map(str::to_owned).collect()
+}
+
+pub fn install_early() {
+    if let Ok(reply) = std::env::var("RV_SMOKE_NOTIFY")
+        && !reply.is_empty()
+    {
+        fake_notification_server(reply);
+    }
 }
 
 pub fn install(window: &Rc<AppWindow>) {
@@ -417,4 +427,70 @@ fn details_checks(
             crate::details::search(chat.widget(), session, &rid);
         }
     });
+}
+
+const NOTIFICATIONS_XML: &str = r#"<node><interface name="org.freedesktop.Notifications">
+  <method name="GetCapabilities"><arg type="as" direction="out"/></method>
+  <method name="Notify"><arg type="s"/><arg type="u"/><arg type="s"/><arg type="s"/><arg type="s"/>
+    <arg type="as"/><arg type="a{sv}"/><arg type="i"/><arg type="u" direction="out"/></method>
+  <method name="CloseNotification"><arg type="u"/></method>
+</interface></node>"#;
+
+/// Owns `org.freedesktop.Notifications` on the session bus, prints each
+/// notification, and replies inline to the first one.
+fn fake_notification_server(reply: String) {
+    use gtk::gio;
+    let Ok(connection) = gio::bus_get_sync(gio::BusType::Session, None::<&gio::Cancellable>) else {
+        println!("smoke: no session bus");
+        return FAILED.store(true, Ordering::SeqCst);
+    };
+    let info = gio::DBusNodeInfo::for_xml(NOTIFICATIONS_XML).expect("introspection");
+    let interface = info.lookup_interface("org.freedesktop.Notifications").expect("interface");
+    let replied = Cell::new(false);
+    let registration = connection
+        .register_object("/org/freedesktop/Notifications", &interface)
+        .method_call(move |connection, _, _, _, method, parameters, invocation| match method {
+            "GetCapabilities" => {
+                invocation.return_value(Some(&(vec!["body", "actions", "inline-reply"],).to_variant()))
+            }
+            "Notify" => {
+                let summary = parameters.child_value(3).get::<String>().unwrap_or_default();
+                let body = parameters.child_value(4).get::<String>().unwrap_or_default();
+                let actions = parameters.child_value(5).get::<Vec<String>>().unwrap_or_default();
+                println!(
+                    "smoke: notification {summary:?} {body:?} inline-reply={}",
+                    actions.iter().any(|a| a == "inline-reply")
+                );
+                invocation.return_value(Some(&(7u32,).to_variant()));
+                if !replied.replace(true) {
+                    let (connection, reply) = (connection.clone(), reply.clone());
+                    glib::timeout_add_local_once(Duration::from_millis(300), move || {
+                        let _ = connection.emit_signal(
+                            None,
+                            "/org/freedesktop/Notifications",
+                            "org.freedesktop.Notifications",
+                            "NotificationReplied",
+                            Some(&(7u32, reply).to_variant()),
+                        );
+                    });
+                }
+            }
+            _ => invocation.return_value(None),
+        })
+        .build();
+    if registration.is_err() {
+        println!("smoke: could not serve notifications");
+        return FAILED.store(true, Ordering::SeqCst);
+    }
+    let _ = connection.call_sync(
+        Some("org.freedesktop.DBus"),
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus",
+        "RequestName",
+        Some(&("org.freedesktop.Notifications", 4u32).to_variant()),
+        None,
+        gio::DBusCallFlags::NONE,
+        2000,
+        None::<&gio::Cancellable>,
+    );
 }

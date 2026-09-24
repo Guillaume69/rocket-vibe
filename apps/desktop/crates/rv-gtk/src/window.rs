@@ -41,6 +41,7 @@ pub struct AppWindow {
     forward: RefCell<Option<tokio::task::JoinHandle<()>>>,
     pending: RefCell<Option<PendingLogin>>,
     login_shown: RefCell<Vec<Box<dyn Fn()>>>,
+    notifier: RefCell<Option<Rc<crate::notifier::Notifier>>>,
 }
 
 fn data_dir() -> PathBuf {
@@ -112,6 +113,7 @@ impl AppWindow {
             forward: RefCell::default(),
             pending: RefCell::default(),
             login_shown: RefCell::default(),
+            notifier: RefCell::default(),
         });
 
         let weak = Rc::downgrade(&this);
@@ -167,6 +169,27 @@ impl AppWindow {
                 this.chat.window_activated();
             }
         });
+        let (w1, w2) = (Rc::downgrade(&this), Rc::downgrade(&this));
+        let notifier = crate::notifier::Notifier::new(
+            move |rid| {
+                if let Some(this) = w1.upgrade() {
+                    this.window.present();
+                    this.chat.open_room(&rid);
+                }
+            },
+            move |rid, text| {
+                if let Some(session) = w2.upgrade().and_then(|this| this.session.borrow().clone()) {
+                    runtime().spawn(async move { session.send(&rid, &text).await });
+                }
+            },
+        );
+        let weak = Rc::downgrade(&this);
+        this.chat.connect_room_opened(move |rid| {
+            if let Some(notifier) = weak.upgrade().and_then(|this| this.notifier.borrow().clone()) {
+                notifier.withdraw(&rid);
+            }
+        });
+        this.notifier.replace(notifier);
         // Every handler above holds a weak reference: the window's own
         // handler is what keeps the controller alive as long as the window.
         let keep = this.clone();
@@ -311,7 +334,7 @@ impl AppWindow {
                     UiEvent::Session(SessionEvent::Presence) => this.chat.on_presence(),
                     UiEvent::Session(SessionEvent::Upload(rid)) => this.chat.on_upload(&rid),
                     UiEvent::Session(SessionEvent::Avatar) => this.chat.on_avatar(),
-                    UiEvent::Session(SessionEvent::Incoming(_)) => {}
+                    UiEvent::Session(SessionEvent::Incoming(incoming)) => this.notify(&incoming),
                     UiEvent::Session(SessionEvent::Expired) => {
                         runtime().spawn(secrets::clear());
                         this.stop_session(true);
@@ -325,6 +348,16 @@ impl AppWindow {
         self.chat.set_session(Some(session.clone()));
         self.session.replace(Some(session));
         self.stack.set_visible_child_name("chat");
+    }
+
+    /// Unless I am looking at that very room.
+    fn notify(&self, incoming: &rv_core::notify::Incoming) {
+        let watching = self.window.is_active()
+            && self.chat.shows_room()
+            && self.chat.current_rid().as_deref() == Some(incoming.rid.as_str());
+        if !watching && let Some(notifier) = self.notifier.borrow().as_ref() {
+            notifier.show(incoming);
+        }
     }
 
     fn stop_session(&self, delete_cache: bool) {

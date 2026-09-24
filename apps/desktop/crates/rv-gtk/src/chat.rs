@@ -73,6 +73,7 @@ pub struct ChatPage {
     has_older: Cell<bool>,
     on_logout: Callback<()>,
     on_room_changed: Callback<Option<String>>,
+    on_room_opened: Callback<String>,
     on_rooms_loaded: Callback<()>,
 }
 
@@ -272,6 +273,7 @@ impl ChatPage {
             has_older: Cell::new(true),
             on_logout: RefCell::default(),
             on_room_changed: RefCell::default(),
+            on_room_opened: RefCell::default(),
             on_rooms_loaded: RefCell::default(),
         });
         this.wire(&status_button, &logout);
@@ -981,6 +983,9 @@ impl ChatPage {
     pub fn open_room(self: &Rc<Self>, rid: &str) {
         let Some(session) = self.session.borrow().clone() else { return };
         let Some(room) = self.rooms.borrow().iter().find(|r| r.rid == rid).cloned() else { return };
+        for f in self.on_room_opened.borrow().iter() {
+            f(rid.to_owned());
+        }
         if self.current.borrow().as_ref().is_some_and(|c| c.rid == rid) {
             self.split.set_show_content(true);
             return;
@@ -1123,6 +1128,10 @@ impl ChatPage {
 
     pub fn go_back(&self) {
         self.split.set_show_content(false);
+    }
+
+    pub fn connect_room_opened(&self, f: impl Fn(String) + 'static) {
+        self.on_room_opened.borrow_mut().push(Box::new(f));
     }
 
     pub fn shows_room(&self) -> bool {

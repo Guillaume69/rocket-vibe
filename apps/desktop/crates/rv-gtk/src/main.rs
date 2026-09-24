@@ -11,6 +11,7 @@ mod login;
 mod markdown_view;
 mod media;
 mod message_list;
+mod notifier;
 mod rows;
 mod secrets;
 mod settings;

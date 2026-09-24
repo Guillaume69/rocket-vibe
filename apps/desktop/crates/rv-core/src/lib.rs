@@ -4,6 +4,7 @@
 pub mod ddp;
 pub mod diff;
 pub mod emoji;
+pub mod markdown;
 pub mod media;
 pub mod normalize;
 pub mod outbox;

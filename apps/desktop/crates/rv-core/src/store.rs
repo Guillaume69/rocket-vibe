@@ -54,6 +54,7 @@ pub struct MessageRow {
     pub attachments: Option<String>,
     pub thread_count: i64,
     pub outbox_status: Option<String>,
+    pub md: Option<String>,
 }
 
 const SCHEMA: &str = r#"
@@ -121,6 +122,10 @@ CREATE TABLE IF NOT EXISTS cursors (
 );
 "#;
 
+/// Applied in order, once each: `PRAGMA user_version` counts those already run.
+/// Append only; never edit a shipped step.
+const MIGRATIONS: &[&str] = &["ALTER TABLE messages ADD COLUMN md TEXT"];
+
 pub struct Store {
     conn: Mutex<Connection>,
     changes: broadcast::Sender<Change>,
@@ -144,6 +149,11 @@ impl Store {
     fn from_connection(conn: Connection) -> rusqlite::Result<Store> {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.execute_batch(SCHEMA)?;
+        let applied: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+        for (i, step) in MIGRATIONS.iter().enumerate().skip(applied.max(0) as usize) {
+            conn.execute_batch(step)?;
+            conn.pragma_update(None, "user_version", i as i64 + 1)?;
+        }
         let (changes, _) = broadcast::channel(256);
         Ok(Store { conn: Mutex::new(conn), changes })
     }
@@ -235,7 +245,7 @@ impl Store {
             .read(|c| {
                 let mut q = c.prepare(
                     "SELECT m.id, m.ts, m.text, m.author_name, m.author_id, m.system_type, m.edited_at IS NOT NULL,
-                            m.attachments, m.thread_count, o.status
+                            m.attachments, m.thread_count, o.status, m.md
                      FROM messages m LEFT JOIN outbox o ON o.id = m.id
                      WHERE m.rid = ?1 AND (m.thread_id IS NULL OR m.thread_shown = 1)
                      ORDER BY m.ts DESC, m.id DESC LIMIT ?2",
@@ -252,6 +262,7 @@ impl Store {
                         attachments: r.get(7)?,
                         thread_count: r.get(8)?,
                         outbox_status: r.get(9)?,
+                        md: r.get(10)?,
                     })
                 })?
                 .collect()
@@ -282,8 +293,8 @@ impl Writer<'_> {
         self.conn
             .execute(
                 "INSERT INTO messages (id, rid, text, ts, author_id, author_name, system_type, thread_id,
-                   thread_count, thread_last, thread_shown, edited_at, attachments, reactions, encrypted_raw, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+                   thread_count, thread_last, thread_shown, edited_at, attachments, reactions, encrypted_raw, updated_at, md)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
                  ON CONFLICT(id) DO UPDATE SET
                    text = CASE WHEN excluded.system_type = 'e2e' THEN COALESCE(excluded.text, messages.text) ELSE excluded.text END,
                    ts = excluded.ts,
@@ -297,12 +308,13 @@ impl Writer<'_> {
                    attachments = excluded.attachments,
                    reactions = excluded.reactions,
                    encrypted_raw = COALESCE(excluded.encrypted_raw, messages.encrypted_raw),
-                   updated_at = excluded.updated_at
+                   updated_at = excluded.updated_at,
+                   md = excluded.md
                  WHERE excluded.updated_at >= messages.updated_at",
                 params![
                     m.id, m.rid, m.text, m.ts, m.author_id, m.author_name, m.system_type, m.thread_id,
                     m.thread_count, m.thread_last, m.thread_shown, m.edited_at, m.attachments, m.reactions,
-                    m.encrypted_raw, m.updated_at
+                    m.encrypted_raw, m.updated_at, m.md
                 ],
             )
             .expect("upsert message");
@@ -462,6 +474,27 @@ mod tests {
 
     fn count(store: &Store, table: &str) -> i64 {
         store.read(|c| c.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))).unwrap()
+    }
+
+    #[test]
+    fn migrations_upgrade_an_existing_database() {
+        let dir = std::env::temp_dir().join(format!("rv-migrate-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("old.sqlite");
+        let _ = std::fs::remove_file(&path);
+        {
+            let old = Connection::open(&path).unwrap();
+            old.execute_batch(SCHEMA).unwrap();
+            old.execute("INSERT INTO messages (id, rid, ts, author_id, updated_at) VALUES ('m', 'r', 1, 'u', 1)", [])
+                .unwrap();
+        }
+        let store = Store::open(&path).unwrap();
+        let version: i64 = store.read(|c| c.pragma_query_value(None, "user_version", |r| r.get(0))).unwrap();
+        assert_eq!(version, MIGRATIONS.len() as i64);
+        assert_eq!(store.messages("r", 10)[0].md, None);
+        drop(store);
+        assert!(Store::open(&path).is_ok(), "reopening must not rerun the steps");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

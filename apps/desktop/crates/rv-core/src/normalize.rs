@@ -64,6 +64,8 @@ pub struct Message {
     pub reactions: Option<String>,
     pub encrypted_raw: Option<String>,
     pub updated_at: i64,
+    /// The server's pre-parsed markdown tree (message-parser), serialized.
+    pub md: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -122,6 +124,7 @@ pub fn to_message(raw: &Value) -> Option<Message> {
         attachments: if encrypted { None } else { json_or_none(raw.get("attachments")) },
         reactions: json_or_none(raw.get("reactions")),
         encrypted_raw: if encrypted { json_or_none(raw.get("content")) } else { None },
+        md: if encrypted { None } else { json_or_none(raw.get("md")) },
         updated_at: raw.get("_updatedAt").and_then(to_epoch).unwrap_or(ts),
         system_type,
     })

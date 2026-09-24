@@ -15,6 +15,9 @@ use url::Url;
 use crate::actions::{self, ServerSettings};
 use crate::ddp::{self, DdpEvent, DdpHandle, State, Timeouts};
 use crate::live;
+use crate::{info, media};
+
+const UPDATE_AVATAR: &str = "updateAvatar";
 use crate::media::MediaCache;
 use crate::outbox::Outbox;
 use crate::rest::{CallOptions, Credentials, RestClient, RestError, TwoFactorCode};
@@ -50,6 +53,8 @@ pub enum SessionEvent {
     Presence,
     /// An upload of this room progressed.
     Upload(String),
+    /// Someone changed their photo.
+    Avatar,
 }
 
 pub fn normalize_server(input: &str) -> Option<Url> {
@@ -133,6 +138,8 @@ pub struct Session {
     settings: tokio::sync::OnceCell<ServerSettings>,
     typing: Mutex<live::Typing>,
     call_available: Mutex<Option<bool>>,
+    /// Photo versions learnt from `updateAvatar`, by username.
+    avatars: Mutex<HashMap<String, String>>,
     /// None until `users.presence` answered once; it only lists who is not offline.
     presence: Mutex<Option<HashMap<String, live::Presence>>>,
 }
@@ -151,6 +158,7 @@ impl Session {
         ddp.subscribe(STREAM_NOTIFY_USER, &format!("{}/rooms-changed", info.user_id));
         ddp.subscribe(STREAM_ROOM_MESSAGES, MY_MESSAGES);
         ddp.subscribe(live::STREAM_NOTIFY_LOGGED, live::USER_STATUS);
+        ddp.subscribe(live::STREAM_NOTIFY_LOGGED, UPDATE_AVATAR);
         let (events, _) = broadcast::channel(32);
 
         let media = Arc::new(MediaCache::new(rest.clone()));
@@ -170,6 +178,7 @@ impl Session {
             settings: tokio::sync::OnceCell::new(),
             typing: Mutex::default(),
             call_available: Mutex::default(),
+            avatars: Mutex::default(),
             presence: Mutex::default(),
         });
         let listener = tokio::spawn(Self::listen(Arc::downgrade(&session), ddp_events));
@@ -238,6 +247,21 @@ impl Session {
             }
             return;
         }
+        if collection == live::STREAM_NOTIFY_LOGGED && key == UPDATE_AVATAR {
+            match info::avatar_change(args) {
+                Some(info::AvatarChange::User { username, etag }) => {
+                    let etag = etag.unwrap_or_else(|| media::NO_PHOTO.to_owned());
+                    self.avatars.lock().unwrap().insert(username, etag);
+                    let _ = self.events.send(SessionEvent::Avatar);
+                }
+                Some(info::AvatarChange::Room { rid, etag }) => {
+                    let etag = etag.unwrap_or_else(|| media::NO_PHOTO.to_owned());
+                    self.store.write(|w| w.set_room_avatar(&rid, &etag));
+                }
+                None => {}
+            }
+            return;
+        }
         if collection == STREAM_NOTIFY_ROOM
             && let Some(rid) = key.strip_suffix(&format!("/{}", live::USER_ACTIVITY))
         {
@@ -296,6 +320,39 @@ impl Session {
                 false
             }
         }
+    }
+
+    /// A person's photo, with its version when a change was announced.
+    pub fn user_avatar(&self, username: &str) -> String {
+        let etag = self.avatars.lock().unwrap().get(username).cloned();
+        media::avatar_path(media::AvatarTarget::User(username), etag.as_deref())
+    }
+
+    pub async fn room_info(&self, rid: &str) -> Result<info::RoomInfo, RestError> {
+        let response = self.rest.get("rooms.info", CallOptions::params([("roomId", rid)])).await?;
+        response.get("room").and_then(info::room_info).ok_or_else(|| RestError::incomplete("rooms.info: no room"))
+    }
+
+    pub async fn room_by_name(&self, name: &str) -> Result<info::RoomInfo, RestError> {
+        let response = self.rest.get("rooms.info", CallOptions::params([("roomName", name)])).await?;
+        response.get("room").and_then(info::room_info).ok_or_else(|| RestError::incomplete("rooms.info: no room"))
+    }
+
+    /// By username, or by id when `by_id`.
+    pub async fn profile(&self, key: &str, by_id: bool) -> Result<info::Profile, RestError> {
+        let param = if by_id { "userId" } else { "username" };
+        let response = self.rest.get("users.info", CallOptions::params([(param, key)])).await?;
+        let profile =
+            response.get("user").and_then(info::profile).ok_or_else(|| RestError::incomplete("users.info: no user"))?;
+        if let Some(etag) = &profile.avatar_etag {
+            self.avatars.lock().unwrap().insert(profile.username.clone(), etag.clone());
+        }
+        Ok(profile)
+    }
+
+    pub async fn search(&self, rid: &str, text: &str) -> Result<Vec<crate::normalize::Message>, RestError> {
+        let options = CallOptions::params([("roomId", rid), ("searchText", text), ("count", "50")]);
+        Ok(info::search_results(&self.rest.get("chat.search", options).await?))
     }
 
     pub async fn spotlight(&self, query: &str) -> Result<Vec<crate::rooms::Found>, RestError> {

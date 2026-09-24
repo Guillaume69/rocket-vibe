@@ -113,10 +113,16 @@ fn inline(node: &Value, ctx: &Context) -> String {
             let name = text_of(value);
             let mine = name == ctx.me || name == "all" || name == "here";
             let background = if mine { " background=\"#4A2140\"" } else { "" };
-            format!("<span foreground=\"#FF7AB4\" weight=\"bold\"{background}>@{}</span>", escape(&name))
+            let span = format!("<span foreground=\"#FF7AB4\" weight=\"bold\"{background}>@{}</span>", escape(&name));
+            if name == "all" || name == "here" {
+                span
+            } else {
+                format!("<a href=\"rv-user:{}\">{span}</a>", escape(&name))
+            }
         }
         "MENTION_CHANNEL" => {
-            format!("<span foreground=\"#A78BFA\" weight=\"bold\">#{}</span>", escape(&text_of(value)))
+            let name = escape(&text_of(value));
+            format!("<a href=\"rv-room:{name}\"><span foreground=\"#A78BFA\" weight=\"bold\">#{name}</span></a>")
         }
         "EMOJI" => escape(&emoji_text(node)),
         _ => escape(&text_of(node)),
@@ -283,6 +289,7 @@ mod tests {
         };
         assert!(markup.contains(">@bob</span>") && !markup.split("@bob").next().unwrap().contains("background"));
         assert!(markup.contains("background=\"#4A2140\">@alice</span>"));
+        assert!(markup.contains("<a href=\"rv-user:bob\">"));
     }
 
     #[test]

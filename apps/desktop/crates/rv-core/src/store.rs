@@ -599,6 +599,12 @@ impl Writer<'_> {
         self.conn.execute("UPDATE uploads SET status = 'pending' WHERE status = 'sending'", []).expect("rearm");
     }
 
+    /// A room's photo changed (or went: `NO_PHOTO`).
+    pub fn set_room_avatar(&mut self, rid: &str, etag: &str) {
+        self.conn.execute("UPDATE rooms SET avatar_etag = ?2 WHERE rid = ?1", [rid, etag]).expect("room avatar");
+        self.touch_rooms();
+    }
+
     pub fn set_upload_file_id(&mut self, id: &str, file_id: &str) {
         self.conn.execute("UPDATE uploads SET file_id = ?2 WHERE id = ?1", [id, file_id]).expect("upload file id");
     }

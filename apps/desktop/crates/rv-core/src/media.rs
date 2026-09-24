@@ -64,6 +64,10 @@ pub fn protected_url(base: &Url, credentials: Option<&Credentials>, path_or_url:
     Some(url)
 }
 
+/// The etag of a photo that was removed: the URL must still change, or the
+/// cached old photo would be served under the old one.
+pub const NO_PHOTO: &str = "none";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImageAttachment {
     /// `title_link` first: `image_url` is only a thumbnail, pixelated once shown large.

@@ -625,6 +625,14 @@ impl ChatPage {
             on_rooms_loaded: RefCell::default(),
         });
         this.wire(&status_button, &logout, &send);
+        let weak = Rc::downgrade(&this);
+        rooms_view.connect_activate(move |_, position| {
+            let Some(this) = weak.upgrade() else { return };
+            let rid = this.rooms.borrow().get(position as usize).map(|r| r.rid.clone());
+            if let Some(rid) = rid {
+                this.open_room(&rid);
+            }
+        });
         this
     }
 
@@ -716,6 +724,27 @@ impl ChatPage {
         adjustment.connect_changed(move |adj| {
             if w.upgrade().is_some_and(|this| this.pinned.get()) {
                 adj.set_value(adj.upper() - adj.page_size());
+            }
+        });
+
+        // Collapsed, the list shows alone: a room left selected there could not
+        // be tapped again (no selection change). Back to the list, nothing is
+        // selected; widened again, the open room is highlighted again.
+        let w = weak.clone();
+        self.split.connect_show_content_notify(move |split| {
+            if let Some(this) = w.upgrade()
+                && split.is_collapsed()
+                && !split.shows_content()
+            {
+                this.select_current(false);
+            }
+        });
+        let w = weak.clone();
+        self.split.connect_collapsed_notify(move |split| {
+            if let Some(this) = w.upgrade()
+                && !split.is_collapsed()
+            {
+                this.select_current(true);
             }
         });
 
@@ -821,9 +850,6 @@ impl ChatPage {
             let objects: Vec<glib::BoxedAnyObject> = rows.iter().cloned().map(glib::BoxedAnyObject::new).collect();
             self.suppress_selection.set(true);
             self.rooms_store.splice(0, self.rooms_store.n_items(), &objects);
-            let current = self.current.borrow().as_ref().map(|r| r.rid.clone());
-            let index = current.and_then(|rid| rows.iter().position(|r| r.rid == rid));
-            self.rooms_selection.set_selected(index.map_or(gtk::INVALID_LIST_POSITION, |i| i as u32));
             self.suppress_selection.set(false);
 
             if let Some(open) = self.current.borrow_mut().as_mut()
@@ -834,6 +860,7 @@ impl ChatPage {
                 open.avatar = room_avatar_path(r);
             }
             self.rooms.replace(rows);
+            self.select_current(!(self.split.is_collapsed() && !self.split.shows_content()));
             self.refresh_room_header();
         }
         if !self.rooms.borrow().is_empty() {
@@ -841,6 +868,14 @@ impl ChatPage {
                 f(());
             }
         }
+    }
+
+    fn select_current(&self, highlight: bool) {
+        let current = self.current.borrow().as_ref().map(|r| r.rid.clone());
+        let index = current.filter(|_| highlight).and_then(|rid| self.rooms.borrow().iter().position(|r| r.rid == rid));
+        self.suppress_selection.set(true);
+        self.rooms_selection.set_selected(index.map_or(gtk::INVALID_LIST_POSITION, |i| i as u32));
+        self.suppress_selection.set(false);
     }
 
     fn refresh_room_header(&self) {

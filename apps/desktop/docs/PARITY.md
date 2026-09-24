@@ -24,7 +24,7 @@ rather than dropped.
 - [x] Sync comet while connecting or loading
 - [ ] Sections: Unread, Channels, Direct messages
 - [ ] Presence dot on DMs (`users.presence`, `user-status`)
-- [ ] System and video-call messages translated in previews
+- [~] System and video-call messages translated in previews (system done, call pending)
 - [ ] "New conversation": search users and channels (`spotlight`), open a DM (`im.create`), join a channel (`channels.join`)
 - [ ] Unread total on the app (window title / launcher badge)
 
@@ -51,10 +51,10 @@ rather than dropped.
 - [ ] Audio and voice messages (player)
 - [ ] Other files: download, open
 - [ ] Quotes: the quoted message as a card (nested up to 2)
-- [ ] System messages: the full translated set
+- [x] System messages: the full translated set
 - [ ] Video-call message card with Join
-- [ ] Reactions row, click to toggle (`chat.react`)
-- [ ] Thread chip opens the thread
+- [x] Reactions row, click to toggle (`chat.react`)
+- [x] Thread chip opens the thread
 - [ ] Upload strip: progress, waiting, failed with retry/discard
 - [ ] Encrypted rooms: locked state, "Unlock to read"
 
@@ -62,11 +62,11 @@ rather than dropped.
 
 - [x] Send with the optimistic outbox, retry
 - [x] Enter sends, Shift+Enter new line, grows to 160 px then scrolls
-- [ ] Drafts kept per room and thread
-- [ ] `@` mention completion (recent authors, `@all`, `@here`)
-- [ ] `:` emoji completion
-- [ ] Emoji picker (search, categories)
-- [ ] Reply with quote (permalink prefix)
+- [x] Drafts kept per room and thread
+- [x] `@` mention completion (recent authors, `@all`, `@here`)
+- [x] `:` emoji completion
+- [x] Emoji picker (search, categories)
+- [x] Reply with quote (permalink prefix)
 - [ ] Attach files (file chooser; desktop: drag-and-drop and paste replace the Android share sheet)
 - [ ] Pre-send preview: captions, reduced/original quality
 - [ ] Checks against `FileUpload_MaxFileSize` and `FileUpload_MediaTypeWhiteList`
@@ -75,17 +75,17 @@ rather than dropped.
 
 ## 5. Message actions
 
-- [ ] Quick reactions (👍 ❤️ 😂 🎉 😮 🙏) and removing mine
-- [ ] Reply (quote), reply in thread
-- [ ] Copy text
-- [ ] Download or open an attachment (desktop equivalent of Share)
-- [ ] Edit (`chat.update`) within the server's time limit and permissions
-- [ ] Delete (`chat.delete`)
-- [ ] Pin (`chat.pinMessage`)
+- [x] Quick reactions (👍 ❤️ 😂 🎉 😮 🙏) and removing mine
+- [x] Reply (quote), reply in thread
+- [x] Copy text
+- [x] Download or open an attachment (desktop equivalent of Share)
+- [x] Edit (`chat.update`) within the server's time limit and permissions
+- [x] Delete (`chat.delete`)
+- [x] Pin (`chat.pinMessage`)
 
 ## 6. Threads
 
-- [ ] Thread view: root and replies (`chat.getMessage`, `chat.getThreadMessages`), live, composer targeting the thread
+- [x] Thread view: root and replies (`chat.getMessage`, `chat.getThreadMessages`), live, composer targeting the thread
 
 ## 7. Search
 
@@ -101,7 +101,7 @@ rather than dropped.
 ## 9. Settings
 
 - [ ] Settings page: profile card, notification preference (`users.setPreferences`), language, E2EE status, account, server
-- [ ] Languages: French and English, automatic by default
+- [x] Languages: French and English, automatic by default
 
 ## 10. Notifications (desktop equivalent of Android push)
 

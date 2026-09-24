@@ -207,6 +207,14 @@ impl Store {
         .flatten()
     }
 
+    /// When I last read the room (`ls`), as the server last told us.
+    pub fn last_seen(&self, rid: &str) -> Option<i64> {
+        self.read(|c| c.query_row("SELECT last_seen FROM subscriptions WHERE rid = ?1", [rid], |r| r.get(0)).optional())
+            .ok()
+            .flatten()
+            .flatten()
+    }
+
     /// The draft of a room (`rid`) or a thread (`rid:tmid`).
     pub fn draft(&self, key: &str) -> Option<String> {
         self.read(|c| c.query_row("SELECT text FROM drafts WHERE key = ?1", [key], |r| r.get(0)).optional())

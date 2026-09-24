@@ -1,9 +1,10 @@
 //! A logged-in session: REST, DDP, store, sync and outbox wired together,
 //! plus the reconnection loop. Everything a UI needs, nothing it draws.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -13,6 +14,7 @@ use url::Url;
 
 use crate::actions::{self, ServerSettings};
 use crate::ddp::{self, DdpEvent, DdpHandle, State, Timeouts};
+use crate::live;
 use crate::media::MediaCache;
 use crate::outbox::Outbox;
 use crate::rest::{CallOptions, Credentials, RestClient, RestError, TwoFactorCode};
@@ -41,6 +43,10 @@ pub enum SessionEvent {
     Connection(Connection),
     /// The server refused our token: the session is over.
     Expired,
+    /// Who types in this room changed.
+    Typing(String),
+    /// Someone's presence changed.
+    Presence,
 }
 
 pub fn normalize_server(input: &str) -> Option<Url> {
@@ -121,6 +127,10 @@ pub struct Session {
     current_room: Mutex<Option<(String, String)>>,
     tasks: Mutex<Vec<JoinHandle<()>>>,
     settings: tokio::sync::OnceCell<ServerSettings>,
+    typing: Mutex<live::Typing>,
+    call_available: Mutex<Option<bool>>,
+    /// None until `users.presence` answered once; it only lists who is not offline.
+    presence: Mutex<Option<HashMap<String, live::Presence>>>,
 }
 
 impl Session {
@@ -136,6 +146,7 @@ impl Session {
         ddp.subscribe(STREAM_NOTIFY_USER, &format!("{}/subscriptions-changed", info.user_id));
         ddp.subscribe(STREAM_NOTIFY_USER, &format!("{}/rooms-changed", info.user_id));
         ddp.subscribe(STREAM_ROOM_MESSAGES, MY_MESSAGES);
+        ddp.subscribe(live::STREAM_NOTIFY_LOGGED, live::USER_STATUS);
         let (events, _) = broadcast::channel(32);
 
         let media = Arc::new(MediaCache::new(rest.clone()));
@@ -151,6 +162,9 @@ impl Session {
             current_room: Mutex::new(None),
             tasks: Mutex::default(),
             settings: tokio::sync::OnceCell::new(),
+            typing: Mutex::default(),
+            call_available: Mutex::default(),
+            presence: Mutex::default(),
         });
         let listener = tokio::spawn(Self::listen(Arc::downgrade(&session), ddp_events));
         let watcher = tokio::spawn(Self::watch_token(Arc::downgrade(&session), session.rest.token_rejected()));
@@ -175,7 +189,7 @@ impl Session {
         while let Some(event) = events.recv().await {
             let Some(s) = session.upgrade() else { return };
             match event {
-                DdpEvent::Changed { collection, key, args } => s.sync.apply_event(&collection, &key, &args),
+                DdpEvent::Changed { collection, key, args } => s.apply_live(&collection, &key, &args),
                 DdpEvent::State(state) => {
                     let c = match state {
                         State::Authenticated => Connection::Online,
@@ -209,6 +223,78 @@ impl Session {
         }
     }
 
+    fn apply_live(self: &Arc<Self>, collection: &str, key: &str, args: &[Value]) {
+        if collection == live::STREAM_NOTIFY_LOGGED && key == live::USER_STATUS {
+            if let Some((uid, presence)) = live::presence_event(args) {
+                self.presence.lock().unwrap().get_or_insert_default().insert(uid, presence);
+                let _ = self.events.send(SessionEvent::Presence);
+            }
+            return;
+        }
+        if collection == STREAM_NOTIFY_ROOM
+            && let Some(rid) = key.strip_suffix(&format!("/{}", live::USER_ACTIVITY))
+        {
+            if let Some((user, typing)) = live::activity_event(args) {
+                self.typing.lock().unwrap().apply(rid, &user, typing, Instant::now());
+                let _ = self.events.send(SessionEvent::Typing(rid.to_owned()));
+                if typing {
+                    let (weak, rid) = (Arc::downgrade(self), rid.to_owned());
+                    tokio::spawn(async move {
+                        tokio::time::sleep(live::TYPING_EXPIRY + Duration::from_millis(100)).await;
+                        if let Some(s) = weak.upgrade() {
+                            let _ = s.events.send(SessionEvent::Typing(rid));
+                        }
+                    });
+                }
+            }
+            return;
+        }
+        self.sync.apply_event(collection, key, args);
+    }
+
+    /// Who is typing in the room right now, me left out.
+    pub fn typing(&self, rid: &str) -> Vec<String> {
+        self.typing.lock().unwrap().who(rid, &self.info.username, Instant::now())
+    }
+
+    pub fn presence(&self, uid: &str) -> Option<live::Presence> {
+        let presence = self.presence.lock().unwrap();
+        presence.as_ref().map(|known| known.get(uid).copied().unwrap_or(live::Presence::Offline))
+    }
+
+    /// Everyone's presence at once; the stream then keeps it current.
+    async fn load_presence(&self) {
+        if let Ok(response) = self.rest.get("users.presence", CallOptions::default()).await {
+            let list = live::presence_list(&response);
+            self.presence.lock().unwrap().replace(list.into_iter().collect());
+            let _ = self.events.send(SessionEvent::Presence);
+        }
+    }
+
+    /// Whether the server has a video-conference provider. A "no" is kept for
+    /// the session; a network failure or a refused token says nothing about it.
+    pub async fn call_available(&self) -> bool {
+        if let Some(known) = *self.call_available.lock().unwrap() {
+            return known;
+        }
+        match self.rest.get("video-conference.capabilities", CallOptions::default()).await {
+            Ok(_) => {
+                self.call_available.lock().unwrap().replace(true);
+                true
+            }
+            Err(e) => {
+                if e.status != 0 && e.status != 401 {
+                    self.call_available.lock().unwrap().replace(false);
+                }
+                false
+            }
+        }
+    }
+
+    pub async fn mark_read(&self, rid: &str) {
+        let _ = self.rest.post("subscriptions.read", CallOptions::body(json!({"rid": rid}))).await;
+    }
+
     async fn watch_token(session: std::sync::Weak<Session>, mut rejected: broadcast::Receiver<String>) {
         while let Ok(token) = rejected.recv().await {
             let Some(s) = session.upgrade() else { return };
@@ -228,6 +314,7 @@ impl Session {
         if self.sync.catch_up_global().await.is_ok() {
             self.outbox.process().await;
         }
+        self.load_presence().await;
         if let Some((rid, kind)) = self.current_room() {
             let _ = self.sync.load_history(&rid, &kind, None).await;
         }
@@ -242,9 +329,12 @@ impl Session {
         let previous = self.current_room.lock().unwrap().replace((rid.to_owned(), kind.to_owned()));
         if let Some((old, _)) = previous {
             self.ddp.unsubscribe(STREAM_NOTIFY_ROOM, &format!("{old}/deleteMessage"));
+            self.ddp.unsubscribe(STREAM_NOTIFY_ROOM, &format!("{old}/{}", live::USER_ACTIVITY));
+            self.typing.lock().unwrap().clear(&old);
         }
         // Deletions are not on `__my_messages__`: they stay per room.
         self.ddp.subscribe(STREAM_NOTIFY_ROOM, &format!("{rid}/deleteMessage"));
+        self.ddp.subscribe(STREAM_NOTIFY_ROOM, &format!("{rid}/{}", live::USER_ACTIVITY));
         let rest = self.rest.clone();
         let read = CallOptions::body(json!({"rid": rid}));
         tokio::spawn(async move {

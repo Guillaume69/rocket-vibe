@@ -283,6 +283,7 @@ impl AppWindow {
                     UiEvent::Store(change) => this.chat.on_change(&change),
                     UiEvent::Resync => this.chat.reload_all(),
                     UiEvent::Session(SessionEvent::Connection(c)) => this.chat.set_connection(c),
+                    UiEvent::Session(SessionEvent::Typing(_) | SessionEvent::Presence) => {}
                     UiEvent::Session(SessionEvent::Expired) => {
                         runtime().spawn(secrets::clear());
                         this.stop_session(true);

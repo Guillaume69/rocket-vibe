@@ -15,7 +15,7 @@
 //!   RV_SMOKE_FILES=1       fetches every file attached in the room to the local cache
 //!   RV_SMOKE_UPLOAD="<path>|<caption>"  sends the file as the dialog's Send does, images reduced
 //!   RV_SMOKE_SPOTLIGHT=<query>  finds a channel, joins it and opens it
-//!   RV_SMOKE_DETAILS=profile:<user> | room | search:<text>  checks the read and opens the dialog
+//!   RV_SMOKE_DETAILS=profile:<user> | room | search:<text> | settings  checks the read and opens the dialog
 //!   RV_SMOKE_REENTER=1     after opening the room: back to the list, tap the same room, expect it open
 //! A failed expectation makes the process exit with status 1.
 
@@ -390,6 +390,26 @@ fn details_checks(
             let info = crate::on_tokio(async move { s.room_info(&r).await }).await;
             check("room info read", info.as_ref().is_ok_and(|i| i.members.is_some()), info.as_ref().map(|i| i.members));
             chat.show_room_info();
+        } else if what == "settings" {
+            let s = session.clone();
+            let round = crate::on_tokio(async move {
+                let before = s.me().await?;
+                s.set_status("away", "smoke test").await?;
+                s.set_preference("desktopNotifications", serde_json::json!("mention")).await?;
+                let after = s.me().await?;
+                s.set_status(&before.status, &before.status_text).await?;
+                s.set_preference("desktopNotifications", serde_json::json!(before.desktop_notifications)).await?;
+                Ok::<_, rv_core::rest::RestError>(after)
+            })
+            .await;
+            check(
+                "status and preference saved",
+                round.as_ref().is_ok_and(|m| {
+                    m.status == "away" && m.status_text == "smoke test" && m.desktop_notifications == "mention"
+                }),
+                round.as_ref().map(|m| (m.status.clone(), m.desktop_notifications.clone())),
+            );
+            crate::settings::open(chat.widget(), session, || {});
         } else if let Some(text) = what.strip_prefix("search:") {
             let (s, r, q) = (session.clone(), rid.clone(), text.to_owned());
             let hits = crate::on_tokio(async move { s.search(&r, &q).await }).await.unwrap_or_default();

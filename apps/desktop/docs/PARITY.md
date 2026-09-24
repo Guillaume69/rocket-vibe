@@ -23,8 +23,8 @@ rather than dropped.
 - [x] Encrypted rooms: 🔒 tile, "Encrypted message" preview
 - [x] Sync comet while connecting or loading
 - [ ] Sections: Unread, Channels, Direct messages
-- [ ] Presence dot on DMs (`users.presence`, `user-status`)
-- [~] System and video-call messages translated in previews (system done, call pending)
+- [x] Presence dot on DMs (`users.presence`, `user-status`)
+- [x] System and video-call messages translated in previews
 - [ ] "New conversation": search users and channels (`spotlight`), open a DM (`im.create`), join a channel (`channels.join`)
 - [ ] Unread total on the app (window title / launcher badge)
 
@@ -39,20 +39,20 @@ rather than dropped.
 - [x] Images inline (original, not the thumbnail), viewer on click, protected-file token only to our origin
 - [x] Photo avatars over gradient tiles
 - [x] Read-only rooms: no composer
-- [ ] Header: room info, DM partner's presence, search in room, start a call
-- [ ] "✦ new messages" bar at the first unread
-- [ ] Mark as read while viewing (debounced)
-- [ ] Typing indicator (`user-activity`)
+- [~] Header: room info, DM partner's presence, search in room, start a call (presence and call done)
+- [x] "✦ new messages" bar at the first unread
+- [x] Mark as read while viewing (debounced)
+- [x] Typing indicator (`user-activity`)
 - [ ] Custom emoji images (`emoji-custom.list`)
 - [ ] Mentions open the profile
-- [ ] Link previews from `message.urls` (card, inline image)
-- [ ] YouTube/Dailymotion/Vimeo cards
-- [ ] Video attachments (player)
-- [ ] Audio and voice messages (player)
-- [ ] Other files: download, open
-- [ ] Quotes: the quoted message as a card (nested up to 2)
+- [x] Link previews from `message.urls` (card, inline image)
+- [x] YouTube/Dailymotion/Vimeo cards
+- [x] Video attachments (player)
+- [x] Audio and voice messages (player)
+- [x] Other files: download, open
+- [x] Quotes: the quoted message as a card (nested up to 2)
 - [x] System messages: the full translated set
-- [ ] Video-call message card with Join
+- [x] Video-call message card with Join
 - [x] Reactions row, click to toggle (`chat.react`)
 - [x] Thread chip opens the thread
 - [ ] Upload strip: progress, waiting, failed with retry/discard

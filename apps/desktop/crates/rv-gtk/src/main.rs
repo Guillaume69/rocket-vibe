@@ -13,6 +13,7 @@ mod media;
 mod message_list;
 mod rows;
 mod secrets;
+mod settings;
 mod smoke;
 mod spotlight;
 mod style;

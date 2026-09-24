@@ -142,6 +142,10 @@ impl ChatPage {
         let account = gtk::Box::builder().spacing(10).css_classes(["account"]).build();
         account.append(&account_tile);
         account.append(&account_text);
+        account.set_cursor(gdk::Cursor::from_name("pointer", None).as_ref());
+        account.set_tooltip_text(Some(t("settings.title")));
+        let account_click = gtk::GestureClick::new();
+        account.add_controller(account_click.clone());
 
         let sidebar_toolbar = adw::ToolbarView::new();
         sidebar_toolbar.add_top_bar(&sidebar_header);
@@ -271,6 +275,19 @@ impl ChatPage {
             on_rooms_loaded: RefCell::default(),
         });
         this.wire(&status_button, &logout);
+        let weak = Rc::downgrade(&this);
+        account_click.connect_released(move |_, _, _, _| {
+            let Some(this) = weak.upgrade() else { return };
+            let Some(session) = this.session() else { return };
+            let signer = Rc::downgrade(&this);
+            crate::settings::open(&this.split, session, move || {
+                if let Some(this) = signer.upgrade() {
+                    for f in this.on_logout.borrow().iter() {
+                        f(());
+                    }
+                }
+            });
+        });
         let weak = Rc::downgrade(&this);
         search_button.connect_clicked(move |_| {
             let Some(this) = weak.upgrade() else { return };

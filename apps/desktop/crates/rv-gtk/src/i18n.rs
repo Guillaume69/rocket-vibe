@@ -40,6 +40,14 @@ fn apply(choice: &str) {
     set(lang);
 }
 
+pub fn save_choice(choice: &str) {
+    let file = choice_file();
+    if let Some(dir) = file.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(file, choice);
+}
+
 pub fn init() {
     apply(&saved_choice());
 }
@@ -167,6 +175,36 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("search.placeholder", "Chercher des messages", "Search messages"),
     ("search.none", "Aucun message trouvé", "No messages found"),
     ("search.failed", "Recherche impossible", "Search failed"),
+    ("settings.title", "Paramètres", "Settings"),
+    ("settings.edit_profile", "Mon profil", "My profile"),
+    ("settings.status", "Statut", "Status"),
+    ("settings.presence", "Présence", "Presence"),
+    ("settings.status_text", "Message de statut", "Status message"),
+    ("settings.notifications", "Notifications", "Notifications"),
+    ("settings.desktop_notifications", "Notifications de bureau", "Desktop notifications"),
+    ("settings.notify_default", "Réglage du serveur", "Server default"),
+    ("settings.notify_all", "Tous les messages", "All messages"),
+    ("settings.notify_mention", "Mentions et messages privés", "Mentions and direct messages"),
+    ("settings.notify_nothing", "Aucune", "None"),
+    ("settings.language", "Langue", "Language"),
+    ("settings.lang_auto", "Automatique", "Automatic"),
+    ("settings.lang_fr", "Français", "Français"),
+    ("settings.lang_en", "English", "English"),
+    ("settings.language_restart", "Prend effet au prochain lancement", "Takes effect on next launch"),
+    ("settings.account", "Compte", "Account"),
+    ("settings.server", "Serveur", "Server"),
+    ("settings.photo", "Photo", "Photo"),
+    ("settings.photo_change", "Changer…", "Change…"),
+    ("settings.photo_remove", "Retirer", "Remove"),
+    ("settings.name", "Nom", "Name"),
+    ("settings.username", "Nom d'utilisateur", "Username"),
+    ("settings.email", "E-mail", "Email"),
+    ("settings.current_password", "Mot de passe actuel", "Current password"),
+    ("settings.code", "Code de vérification", "Verification code"),
+    ("settings.code_needed", "Le serveur demande un code de vérification", "The server asks for a verification code"),
+    ("settings.save", "Enregistrer", "Save"),
+    ("settings.saved", "Enregistré", "Saved"),
+    ("settings.save_failed", "Échec de l'enregistrement", "Couldn't save"),
     ("message.call", "Appel vidéo", "Video call"),
     ("message.join", "Rejoindre", "Join"),
     ("call.failed", "Impossible de rejoindre l'appel", "Couldn't join the call"),

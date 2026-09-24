@@ -42,6 +42,8 @@ pub struct AppWindow {
     pending: RefCell<Option<PendingLogin>>,
     login_shown: RefCell<Vec<Box<dyn Fn()>>>,
     notifier: RefCell<Option<Rc<crate::notifier::Notifier>>>,
+    /// The account to go back to while another one is being added.
+    previous: RefCell<Option<SessionInfo>>,
 }
 
 fn data_dir() -> PathBuf {
@@ -114,6 +116,7 @@ impl AppWindow {
             pending: RefCell::default(),
             login_shown: RefCell::default(),
             notifier: RefCell::default(),
+            previous: RefCell::default(),
         });
 
         let weak = Rc::downgrade(&this);
@@ -190,6 +193,25 @@ impl AppWindow {
             }
         });
         this.notifier.replace(notifier);
+        let weak = Rc::downgrade(&this);
+        this.login.connect_cancel(move || {
+            if let Some(this) = weak.upgrade() {
+                this.cancel_add();
+            }
+        });
+        let (w1, w2) = (Rc::downgrade(&this), Rc::downgrade(&this));
+        this.chat.set_account_actions(crate::settings::AccountActions {
+            switch: Box::new(move |info| {
+                if let Some(this) = w1.upgrade() {
+                    this.switch_to(info);
+                }
+            }),
+            add: Box::new(move || {
+                if let Some(this) = w2.upgrade() {
+                    this.add_account();
+                }
+            }),
+        });
         // Every handler above holds a weak reference: the window's own
         // handler is what keeps the controller alive as long as the window.
         let keep = this.clone();
@@ -207,7 +229,7 @@ impl AppWindow {
     pub fn start(self: &Rc<Self>) {
         let this = self.clone();
         glib::spawn_future_local(async move {
-            match on_tokio(secrets::load()).await {
+            match on_tokio(secrets::load_all()).await.into_iter().next() {
                 Some(info) => this.start_session(info),
                 None => this.show_login(None),
             }
@@ -220,6 +242,8 @@ impl AppWindow {
             self.login.set_server(last.trim());
         }
         self.login.set_error(error);
+        self.login.set_known(&secrets::known_servers());
+        self.login.set_cancel(self.previous.borrow().is_some());
         self.login.ask_code(None);
         self.stack.set_visible_child_name("login");
         for f in self.login_shown.borrow().iter() {
@@ -258,7 +282,10 @@ impl AppWindow {
             match result {
                 Ok(info) => {
                     let _ = std::fs::write(last_server_file(), &info.base_url);
+                    secrets::remember_server(&info.base_url);
+                    secrets::set_active(&info);
                     this.pending.replace(None);
+                    this.previous.replace(None);
                     let saved = info.clone();
                     on_tokio(async move { secrets::save(&saved).await }).await;
                     this.start_session(info);
@@ -336,9 +363,16 @@ impl AppWindow {
                     UiEvent::Session(SessionEvent::Avatar) => this.chat.on_avatar(),
                     UiEvent::Session(SessionEvent::Incoming(incoming)) => this.notify(&incoming),
                     UiEvent::Session(SessionEvent::Expired) => {
-                        runtime().spawn(secrets::clear());
+                        let expired = this.session.borrow().as_ref().map(|s| s.info.clone());
                         this.stop_session(true);
-                        this.show_login(Some(t("login.expired")));
+                        let this = this.clone();
+                        glib::spawn_future_local(async move {
+                            if let Some(info) = expired {
+                                on_tokio(async move { secrets::remove(&info).await }).await;
+                            }
+                            this.previous.replace(on_tokio(secrets::load_all()).await.into_iter().next());
+                            this.show_login(Some(t("login.expired")));
+                        });
                         return;
                     }
                 }
@@ -380,13 +414,43 @@ impl AppWindow {
         }
     }
 
+    /// Signs this account out; another one signed in on this machine takes over.
     fn logout(self: &Rc<Self>) {
         let Some(session) = self.session.borrow().clone() else { return };
-        runtime().spawn(async move {
-            secrets::clear().await;
-            session.logout().await;
-        });
         self.stop_session(true);
+        let this = self.clone();
+        glib::spawn_future_local(async move {
+            let info = session.info.clone();
+            on_tokio(async move {
+                secrets::remove(&info).await;
+                session.logout().await;
+            })
+            .await;
+            match on_tokio(secrets::load_all()).await.into_iter().next() {
+                Some(next) => this.switch_to(next),
+                None => this.show_login(None),
+            }
+        });
+    }
+
+    pub fn switch_to(self: &Rc<Self>, info: SessionInfo) {
+        secrets::set_active(&info);
+        self.previous.replace(None);
+        self.start_session(info);
+    }
+
+    /// The login page, with a way back to the account signed in now.
+    pub fn add_account(self: &Rc<Self>) {
+        let current = self.session.borrow().as_ref().map(|s| s.info.clone());
+        self.previous.replace(current);
+        self.stop_session(false);
+        self.login.fill("", "", "");
         self.show_login(None);
+    }
+
+    fn cancel_add(self: &Rc<Self>) {
+        if let Some(previous) = self.previous.take() {
+            self.start_session(previous);
+        }
     }
 }

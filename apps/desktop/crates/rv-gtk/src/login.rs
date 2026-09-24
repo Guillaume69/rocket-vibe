@@ -35,6 +35,8 @@ pub struct LoginPage {
     error: gtk::Label,
     submit: gtk::Button,
     back: gtk::Button,
+    known: gtk::FlowBox,
+    cancel: gtk::Button,
 }
 
 fn hero() -> gtk::Box {
@@ -82,6 +84,17 @@ impl LoginPage {
         let credentials = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(14).build();
         credentials.append(&hero());
         credentials.append(&server_group);
+        let probe =
+            gtk::Label::builder().css_classes(["probe"]).xalign(0.0).wrap(true).visible(false).margin_start(14).build();
+        credentials.append(&probe);
+        let known = gtk::FlowBox::builder()
+            .selection_mode(gtk::SelectionMode::None)
+            .column_spacing(6)
+            .row_spacing(6)
+            .max_children_per_line(3)
+            .visible(false)
+            .build();
+        credentials.append(&known);
         credentials.append(&user_group);
         credentials.append(&password_group);
 
@@ -108,6 +121,7 @@ impl LoginPage {
 
         let error = gtk::Label::builder().css_classes(["login-error"]).wrap(true).xalign(0.0).visible(false).build();
         let submit = widgets::cta(t("login.sign_in"));
+        let cancel = gtk::Button::builder().label(t("login.cancel_add")).css_classes(["flat"]).visible(false).build();
 
         let column = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
@@ -122,6 +136,7 @@ impl LoginPage {
         column.append(&code_step);
         column.append(&error);
         column.append(&submit);
+        column.append(&cancel);
         let clamp = adw::Clamp::builder().maximum_size(400).child(&column).build();
         let scroller = gtk::ScrolledWindow::builder().hscrollbar_policy(gtk::PolicyType::Never).child(&clamp).build();
         let page = adw::ToolbarView::new();
@@ -143,6 +158,55 @@ impl LoginPage {
             }
         ));
 
+        let generation = std::rc::Rc::new(std::cell::Cell::new(0u64));
+        server.connect_changed(glib::clone!(
+            #[weak]
+            probe,
+            move |entry| {
+                let current = generation.get() + 1;
+                generation.set(current);
+                let text = entry.text().to_string();
+                let generation = generation.clone();
+                glib::timeout_add_local_once(std::time::Duration::from_millis(600), move || {
+                    if generation.get() != current {
+                        return;
+                    }
+                    let Some(url) = rv_core::session::normalize_server(&text) else {
+                        probe.set_visible(false);
+                        return;
+                    };
+                    glib::spawn_future_local(async move {
+                        let found = crate::on_tokio(async move { rv_core::server::probe(&url).await }).await;
+                        if generation.get() != current {
+                            return;
+                        }
+                        probe.set_visible(true);
+                        probe.remove_css_class("bad");
+                        match found {
+                            Ok(p) if !p.password_login => {
+                                probe.add_css_class("bad");
+                                probe.set_label(t("login.probe_no_password"));
+                            }
+                            Ok(p) => {
+                                let mut facts = vec![format!("Rocket.Chat {}", p.version)];
+                                if p.two_factor {
+                                    facts.push(t("login.probe_2fa").to_owned());
+                                }
+                                if p.e2e {
+                                    facts.push(t("login.probe_e2e").to_owned());
+                                }
+                                probe.set_label(&facts.join(" · "));
+                            }
+                            Err(_) => {
+                                probe.add_css_class("bad");
+                                probe.set_label(t("login.probe_failed"));
+                            }
+                        }
+                    });
+                });
+            }
+        ));
+
         LoginPage {
             widget: starry(page.upcast_ref()),
             credentials,
@@ -156,7 +220,39 @@ impl LoginPage {
             error,
             submit,
             back,
+            known,
+            cancel,
         }
+    }
+
+    /// Servers signed in to before, most recent first: a click fills the field.
+    pub fn set_known(&self, servers: &[String]) {
+        while let Some(child) = self.known.first_child() {
+            self.known.remove(&child);
+        }
+        for server in servers {
+            let host = url::Url::parse(server)
+                .ok()
+                .and_then(|u| u.host_str().map(str::to_owned))
+                .unwrap_or_else(|| server.clone());
+            let chip = gtk::Button::builder().label(host).css_classes(["known-server"]).tooltip_text(server).build();
+            let (entry, user, server) = (self.server.clone(), self.user.clone(), server.clone());
+            chip.connect_clicked(move |_| {
+                entry.set_text(&server);
+                user.grab_focus();
+            });
+            self.known.insert(&chip, -1);
+        }
+        self.known.set_visible(!servers.is_empty());
+    }
+
+    /// Shown while another account is still signed in: back to it.
+    pub fn set_cancel(&self, visible: bool) {
+        self.cancel.set_visible(visible);
+    }
+
+    pub fn connect_cancel(&self, f: impl Fn() + 'static) {
+        self.cancel.connect_clicked(move |_| f());
     }
 
     pub fn connect_submit(&self, f: impl Fn() + Clone + 'static) {

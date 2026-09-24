@@ -419,7 +419,7 @@ fn details_checks(
                 }),
                 round.as_ref().map(|m| (m.status.clone(), m.desktop_notifications.clone())),
             );
-            crate::settings::open(chat.widget(), session, || {});
+            crate::settings::open(chat.widget(), session, None, || {});
         } else if let Some(text) = what.strip_prefix("search:") {
             let (s, r, q) = (session.clone(), rid.clone(), text.to_owned());
             let hits = crate::on_tokio(async move { s.search(&r, &q).await }).await.unwrap_or_default();

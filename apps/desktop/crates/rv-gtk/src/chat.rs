@@ -74,6 +74,7 @@ pub struct ChatPage {
     on_logout: Callback<()>,
     on_room_changed: Callback<Option<String>>,
     on_room_opened: Callback<String>,
+    account_actions: RefCell<Option<Rc<crate::settings::AccountActions>>>,
     on_rooms_loaded: Callback<()>,
 }
 
@@ -274,6 +275,7 @@ impl ChatPage {
             on_logout: RefCell::default(),
             on_room_changed: RefCell::default(),
             on_room_opened: RefCell::default(),
+            account_actions: RefCell::default(),
             on_rooms_loaded: RefCell::default(),
         });
         this.wire(&status_button, &logout);
@@ -282,7 +284,8 @@ impl ChatPage {
             let Some(this) = weak.upgrade() else { return };
             let Some(session) = this.session() else { return };
             let signer = Rc::downgrade(&this);
-            crate::settings::open(&this.split, session, move || {
+            let accounts = this.account_actions.borrow().clone();
+            crate::settings::open(&this.split, session, accounts, move || {
                 if let Some(this) = signer.upgrade() {
                     for f in this.on_logout.borrow().iter() {
                         f(());
@@ -1128,6 +1131,10 @@ impl ChatPage {
 
     pub fn go_back(&self) {
         self.split.set_show_content(false);
+    }
+
+    pub fn set_account_actions(&self, actions: crate::settings::AccountActions) {
+        self.account_actions.replace(Some(Rc::new(actions)));
     }
 
     pub fn connect_room_opened(&self, f: impl Fn(String) + 'static) {

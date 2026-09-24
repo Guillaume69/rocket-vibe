@@ -29,8 +29,19 @@ fn toast_of(dialog: &adw::PreferencesDialog, text: &str) {
     dialog.add_toast(adw::Toast::new(text));
 }
 
+/// Switching between the accounts signed in on this machine, or adding one.
+pub struct AccountActions {
+    pub switch: Box<dyn Fn(rv_core::session::SessionInfo)>,
+    pub add: Box<dyn Fn()>,
+}
+
 /// `sign_out` ends the session the way the header's button does.
-pub fn open(parent: &impl IsA<gtk::Widget>, session: Arc<Session>, sign_out: impl Fn() + 'static) {
+pub fn open(
+    parent: &impl IsA<gtk::Widget>,
+    session: Arc<Session>,
+    accounts: Option<Rc<AccountActions>>,
+    sign_out: impl Fn() + 'static,
+) {
     let dialog = adw::PreferencesDialog::builder().title(t("settings.title")).build();
     let page = adw::PreferencesPage::builder().title(t("settings.title")).icon_name("emblem-system-symbolic").build();
     dialog.add(&page);
@@ -78,6 +89,10 @@ pub fn open(parent: &impl IsA<gtk::Widget>, session: Arc<Session>, sign_out: imp
     language.set_subtitle(t("settings.language_restart"));
     language_group.add(&language);
     page.add(&language_group);
+
+    if let Some(actions) = accounts {
+        page.add(&accounts_group(&dialog, &session, actions));
+    }
 
     let account = adw::PreferencesGroup::builder().title(t("settings.account")).build();
     let server_row = adw::ActionRow::builder().title(t("settings.server")).subtitle(&session.info.base_url).build();
@@ -150,6 +165,50 @@ pub fn open(parent: &impl IsA<gtk::Widget>, session: Arc<Session>, sign_out: imp
         }
     ));
     dialog.present(Some(parent));
+}
+
+/// Every account in the keychain; the others switch on a click.
+fn accounts_group(
+    dialog: &adw::PreferencesDialog,
+    session: &Arc<Session>,
+    actions: Rc<AccountActions>,
+) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder().title(t("settings.accounts")).build();
+    let current = crate::secrets::account_key(&session.info);
+    let list = gtk::ListBox::builder().selection_mode(gtk::SelectionMode::None).css_classes(["boxed-list"]).build();
+    group.add(&list);
+    let add = adw::ButtonRow::builder().title(t("settings.add_account")).start_icon_name("list-add-symbolic").build();
+    let (a, d) = (actions.clone(), dialog.downgrade());
+    add.connect_activated(move |_| {
+        if let Some(d) = d.upgrade() {
+            d.close();
+        }
+        (a.add)();
+    });
+    list.append(&add);
+    let dialog = dialog.downgrade();
+    glib::spawn_future_local(async move {
+        let all = on_tokio(crate::secrets::load_all()).await;
+        for info in all.into_iter().rev() {
+            let host =
+                url::Url::parse(&info.base_url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
+            let row = adw::ActionRow::builder().title(format!("@{}", info.username)).subtitle(host).build();
+            if crate::secrets::account_key(&info) == current {
+                row.add_suffix(&gtk::Label::builder().label(t("settings.current")).css_classes(["dim-label"]).build());
+            } else {
+                row.set_activatable(true);
+                let (a, d) = (actions.clone(), dialog.clone());
+                row.connect_activated(move |_| {
+                    if let Some(d) = d.upgrade() {
+                        d.close();
+                    }
+                    (a.switch)(info.clone());
+                });
+            }
+            list.prepend(&row);
+        }
+    });
+    group
 }
 
 fn host(session: &Session) -> String {

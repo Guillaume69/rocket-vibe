@@ -143,6 +143,9 @@ button.attach-button { min-width: 28px; min-height: 24px; padding: 0 2px; color:
 .section-header { font-size: 11.5px; font-weight: 800; color: #8F89AB; letter-spacing: 0.6px; margin: 12px 14px 2px 14px; }
 .spotlight { padding: 6px 14px 14px 14px; }
 .spotlight-row { padding: 6px 4px; }
+.probe { font-size: 12.5px; color: #3ED67F; }
+.probe.bad { color: #FF7A8A; }
+button.known-server { background: #171529; border: 1px solid #2C2946; border-radius: 999px; padding: 2px 12px; min-height: 26px; font-size: 12.5px; }
 .new-marker { color: #FF5FA2; font-weight: 800; font-size: 12px; }
 .new-line { background: #FF5FA2; min-height: 1px; opacity: 0.6; }
 .typing { color: #A78BFA; font-size: 12px; font-style: italic; margin: 0 22px 2px 22px; }

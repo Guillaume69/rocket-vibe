@@ -53,7 +53,7 @@ pub enum SessionEvent {
     Presence,
     /// An upload of this room progressed.
     Upload(String),
-    /// Someone changed their photo.
+    /// Images changed: someone's photo, or the list of custom emoji.
     Avatar,
     /// Encrypted rooms were unlocked or locked again.
     E2e,
@@ -150,6 +150,8 @@ pub struct Session {
     presence: Mutex<Option<HashMap<String, live::Presence>>>,
     /// My private key once unlocked, and the room keys unwrapped with it (by key id).
     e2e: Mutex<Option<E2eUnlocked>>,
+    /// Custom emoji: shortcode (name or alias) → image path.
+    custom_emoji: Mutex<HashMap<String, String>>,
 }
 
 struct E2eUnlocked {
@@ -200,6 +202,7 @@ impl Session {
             avatars: Mutex::default(),
             notification_preference: Mutex::new("default".to_owned()),
             e2e: Mutex::default(),
+            custom_emoji: Mutex::default(),
             presence: Mutex::default(),
         });
         let listener = tokio::spawn(Self::listen(Arc::downgrade(&session), ddp_events));
@@ -438,6 +441,19 @@ impl Session {
         crate::e2e::decrypt_message(content, &unlocked.rooms.get(rid)?.1).ok()
     }
 
+    /// The server path of a custom emoji's image.
+    pub fn custom_emoji(&self, code: &str) -> Option<String> {
+        self.custom_emoji.lock().unwrap().get(code).cloned()
+    }
+
+    /// Custom shortcodes starting with `prefix`, sorted.
+    pub fn custom_emoji_codes(&self, prefix: &str) -> Vec<String> {
+        let mut codes: Vec<String> =
+            self.custom_emoji.lock().unwrap().keys().filter(|k| k.starts_with(prefix)).cloned().collect();
+        codes.sort();
+        codes
+    }
+
     pub async fn me(&self) -> Result<crate::account::Me, RestError> {
         Ok(crate::account::me(&self.rest.get("me", CallOptions::default()).await?))
     }
@@ -564,6 +580,10 @@ impl Session {
             self.uploads.process().await;
         }
         self.load_presence().await;
+        if let Ok(list) = self.rest.get("emoji-custom.list", CallOptions::default()).await {
+            self.custom_emoji.lock().unwrap().extend(crate::emoji::custom_index(&list));
+            let _ = self.events.send(SessionEvent::Avatar);
+        }
         if let Ok(me) = self.me().await {
             *self.notification_preference.lock().unwrap() = me.desktop_notifications;
         }

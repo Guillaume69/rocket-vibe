@@ -65,12 +65,43 @@ pub fn text_of(node: &Value) -> String {
     }
 }
 
+/// Brackets a shortcode with no Unicode glyph: a custom emoji, which the
+/// view draws as an image, or shows as `:code:` when the server has none.
+pub const CUSTOM_MARK: char = '\u{FFFC}';
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Piece<'a> {
+    Markup(&'a str),
+    Custom(&'a str),
+}
+
+/// Markup and the custom emoji between its marks, in order.
+pub fn pieces(markup: &str) -> Vec<Piece<'_>> {
+    markup
+        .split(CUSTOM_MARK)
+        .enumerate()
+        .filter(|(_, s)| !s.is_empty())
+        .map(|(i, s)| if i % 2 == 1 { Piece::Custom(s) } else { Piece::Markup(s) })
+        .collect()
+}
+
+/// The markup with custom emoji as plain `:code:`.
+pub fn without_custom(markup: &str) -> String {
+    pieces(markup)
+        .into_iter()
+        .map(|p| match p {
+            Piece::Markup(m) => m.to_owned(),
+            Piece::Custom(code) => format!(":{code}:"),
+        })
+        .collect()
+}
+
 fn emoji_text(node: &Value) -> String {
     if let Some(u) = node.get("unicode").and_then(Value::as_str) {
         return u.to_owned();
     }
     match node.pointer("/shortCode").and_then(Value::as_str) {
-        Some(code) => emoji::unicode(code).map_or_else(|| format!(":{code}:"), str::to_owned),
+        Some(code) => emoji::unicode(code).map_or_else(|| format!("{CUSTOM_MARK}{code}{CUSTOM_MARK}"), str::to_owned),
         None => text_of(node.get("value").unwrap_or(&Value::Null)),
     }
 }
@@ -240,6 +271,16 @@ pub fn render(md: Option<&str>, text: Option<&str>, ctx: &Context) -> Vec<Block>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn custom_emoji_are_marked() {
+        let md = json!([{"type":"PARAGRAPH","value":[{"type":"PLAIN_TEXT","value":"a "},
+            {"type":"EMOJI","value":{"type":"PLAIN_TEXT","value":"vibe"},"shortCode":"vibe"},
+            {"type":"EMOJI","value":{"type":"PLAIN_TEXT","value":"smile"},"shortCode":"smile"}]}]);
+        let Block::Paragraph(markup) = &one(md)[0] else { panic!() };
+        assert_eq!(pieces(markup), [Piece::Markup("a "), Piece::Custom("vibe"), Piece::Markup("😄")]);
+        assert_eq!(without_custom(markup), "a :vibe:😄");
+    }
     use serde_json::json;
 
     const CTX: Context = Context { me: "alice" };
@@ -299,7 +340,8 @@ mod tests {
             {"type": "EMOJI", "shortCode": "party_parrot", "value": plain("party_parrot")},
             {"type": "EMOJI", "unicode": "🎉"},
         ]}]);
-        assert_eq!(one(md), [Block::Paragraph("😄:party_parrot:🎉".into())]);
+        let Block::Paragraph(markup) = &one(md)[0] else { panic!() };
+        assert_eq!(without_custom(markup), "😄:party_parrot:🎉");
     }
 
     #[test]
@@ -309,10 +351,9 @@ mod tests {
             one(json!([{"type": "BIG_EMOJI", "value": [e("smile"), e("tada")]}])),
             [Block::BigEmoji("😄 🎉".into())]
         );
-        assert_eq!(
-            one(json!([{"type": "BIG_EMOJI", "value": [e("custom_one")]}])),
-            [Block::Paragraph(":custom_one:".into())]
-        );
+        let blocks = one(json!([{"type": "BIG_EMOJI", "value": [e("custom_one")]}]));
+        let [Block::Paragraph(markup)] = &blocks[..] else { panic!("{blocks:?}") };
+        assert_eq!(without_custom(markup), ":custom_one:");
     }
 
     #[test]

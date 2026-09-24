@@ -89,9 +89,63 @@ pub fn complete(prefix: &str, limit: usize) -> Vec<(&'static str, &'static str)>
     hits
 }
 
+/// `emoji-custom.list`: each name and alias → the image's path on the server.
+pub fn custom_index(response: &serde_json::Value) -> Vec<(String, String)> {
+    use serde_json::Value;
+    let list = response.pointer("/emojis/update").and_then(Value::as_array).cloned().unwrap_or_default();
+    let mut index: Vec<(String, String)> = Vec::new();
+    let valid: Vec<(String, String, Vec<String>)> = list
+        .iter()
+        .filter_map(|e| {
+            let name = e.get("name")?.as_str()?.to_owned();
+            let extension = e.get("extension")?.as_str()?.to_owned();
+            let aliases = e
+                .get("aliases")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .unwrap_or_default();
+            Some((name, extension, aliases))
+        })
+        .collect();
+    let path = |name: &str, ext: &str| {
+        let encode = |s: &str| url::form_urlencoded::byte_serialize(s.as_bytes()).collect::<String>();
+        format!("/emoji-custom/{}.{}", encode(name), encode(ext))
+    };
+    // Names first: an alias never hides another emoji's own name.
+    for (name, ext, _) in &valid {
+        if !index.iter().any(|(k, _)| k == name) {
+            index.push((name.clone(), path(name, ext)));
+        }
+    }
+    for (name, ext, aliases) in &valid {
+        for alias in aliases {
+            if !index.iter().any(|(k, _)| k == alias) {
+                index.push((alias.clone(), path(name, ext)));
+            }
+        }
+    }
+    index
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn custom_emoji_index() {
+        let index = custom_index(&serde_json::json!({"emojis":{"update":[
+            {"name":"party_parrot","aliases":["parrot"],"extension":"gif"},
+            {"name":"parrot","aliases":[],"extension":"png"},
+            {"name":"broken"}
+        ]}}));
+        assert_eq!(
+            index,
+            [
+                ("party_parrot".to_owned(), "/emoji-custom/party_parrot.gif".to_owned()),
+                ("parrot".to_owned(), "/emoji-custom/parrot.png".to_owned())
+            ]
+        );
+    }
 
     #[test]
     fn resolves_shortcodes() {

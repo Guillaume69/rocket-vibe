@@ -16,6 +16,7 @@ use crate::widgets::{self, TileSize};
 use crate::{media, runtime};
 
 const GROUPING_GAP_MS: i64 = 5 * 60 * 1000;
+const COMPOSER_MAX_HEIGHT: i32 = 160;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Display {
@@ -512,28 +513,43 @@ impl ChatPage {
         let composer_scroll = gtk::ScrolledWindow::builder()
             .hscrollbar_policy(gtk::PolicyType::Never)
             .vscrollbar_policy(gtk::PolicyType::External)
-            .propagate_natural_height(true)
-            .max_content_height(160)
             .overlay_scrolling(false)
+            .propagate_natural_height(true)
+            .max_content_height(COMPOSER_MAX_HEIGHT)
             .child(&composer)
             .hexpand(true)
             .build();
-        // A scrollbar only once the draft overflows: shown on a short draft, its
-        // minimum length made a one-line composer twice as tall.
-        composer_scroll.vadjustment().connect_changed(glib::clone!(
+        // A scrollbar only when the draft is taller than the cap, decided from
+        // the text's measured height: a visible scrollbar adds its minimum
+        // length to the composer's height, and deciding from the scroll range
+        // caught it mid-layout, one line short, and left it scrolled.
+        let fit = glib::clone!(
+            #[weak]
+            composer,
             #[weak]
             composer_scroll,
-            move |adj| {
-                let policy = if adj.upper() > adj.page_size() + 1.0 {
-                    gtk::PolicyType::Automatic
-                } else {
-                    gtk::PolicyType::External
-                };
+            move || {
+                let width = composer_scroll.width();
+                if width <= 0 {
+                    return;
+                }
+                let (_, natural, _, _) = composer.measure(gtk::Orientation::Vertical, width);
+                let overflows = natural > COMPOSER_MAX_HEIGHT;
+                let policy = if overflows { gtk::PolicyType::Automatic } else { gtk::PolicyType::External };
                 if composer_scroll.vscrollbar_policy() != policy {
                     composer_scroll.set_vscrollbar_policy(policy);
                 }
+                if !overflows {
+                    composer_scroll.vadjustment().set_value(0.0);
+                }
             }
-        ));
+        );
+        let on_edit = fit.clone();
+        composer.buffer().connect_changed(move |_| {
+            let fit = on_edit.clone();
+            glib::idle_add_local_once(fit);
+        });
+        composer_scroll.hadjustment().connect_changed(move |_| fit());
         let composer_pill =
             gtk::Box::builder().css_classes(["composer-pill"]).hexpand(true).valign(gtk::Align::End).build();
         let placeholder = gtk::Label::builder()

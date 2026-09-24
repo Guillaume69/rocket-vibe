@@ -140,12 +140,13 @@ impl RestClient {
         self.call(reqwest::Method::POST, path, options).await
     }
 
-    /// POSTs a file as `multipart/form-data` field `file`, reporting
+    /// POSTs a file as a `multipart/form-data` field, reporting
     /// `(sent, total)` bytes as the body streams out. The client's 15 s cap
     /// would cut any real upload: the timeout here grows with the size.
     pub async fn upload(
         &self,
         path: &str,
+        field: &str,
         bytes: Vec<u8>,
         name: &str,
         mime: &str,
@@ -165,7 +166,7 @@ impl RestClient {
             .file_name(name.to_owned())
             .mime_str(mime)
             .map_err(|_| RestError::incomplete(&format!("{mime}: not a media type")))?;
-        let form = reqwest::multipart::Form::new().part("file", part);
+        let form = reqwest::multipart::Form::new().part(field.to_owned(), part);
         let mut request = self
             .http
             .post(self.url_for(path, &CallOptions::default()))

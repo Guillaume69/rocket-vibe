@@ -217,6 +217,7 @@ impl Uploads {
             this.rest
                 .upload(
                     &format!("rooms.media/{}", task_row.rid),
+                    "file",
                     bytes,
                     &task_row.name,
                     &task_row.mime,

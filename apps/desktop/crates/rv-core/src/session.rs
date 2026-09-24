@@ -355,6 +355,46 @@ impl Session {
         Ok(info::search_results(&self.rest.get("chat.search", options).await?))
     }
 
+    pub async fn me(&self) -> Result<crate::account::Me, RestError> {
+        Ok(crate::account::me(&self.rest.get("me", CallOptions::default()).await?))
+    }
+
+    /// Both at once: `users.setStatus` clears whichever one is left out.
+    pub async fn set_status(&self, status: &str, message: &str) -> Result<(), RestError> {
+        let body = json!({"status": status, "message": message});
+        self.rest.post("users.setStatus", CallOptions::body(body)).await.map(|_| ())
+    }
+
+    /// `password` is the plain current password (hashed here) when username
+    /// or email change; a 2FA challenge comes back as the error's `two_factor`.
+    pub async fn update_basic_info(
+        &self,
+        mut data: serde_json::Map<String, Value>,
+        password: Option<&str>,
+        two_factor: Option<TwoFactorCode>,
+    ) -> Result<(), RestError> {
+        if let Some(password) = password {
+            data.insert("currentPassword".into(), json!(two_factor_code("password", password).code));
+        }
+        let options = CallOptions { body: Some(json!({"data": data})), two_factor, ..Default::default() };
+        self.rest.post("users.updateOwnBasicInfo", options).await.map(|_| ())
+    }
+
+    pub async fn set_avatar(&self, file: &Path, mime: &str) -> Result<(), RestError> {
+        let bytes = tokio::fs::read(file).await.map_err(|e| RestError::incomplete(&e.to_string()))?;
+        let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "avatar".into());
+        self.rest.upload("users.setAvatar", "image", bytes, &name, mime, |_, _| {}).await.map(|_| ())
+    }
+
+    pub async fn reset_avatar(&self) -> Result<(), RestError> {
+        self.rest.post("users.resetAvatar", CallOptions::body(json!({}))).await.map(|_| ())
+    }
+
+    pub async fn set_preference(&self, key: &str, value: Value) -> Result<(), RestError> {
+        let body = json!({"data": {key: value}});
+        self.rest.post("users.setPreferences", CallOptions::body(body)).await.map(|_| ())
+    }
+
     pub async fn spotlight(&self, query: &str) -> Result<Vec<crate::rooms::Found>, RestError> {
         let response = self.rest.get("spotlight", CallOptions::params([("query", query)])).await?;
         Ok(crate::rooms::spotlight_results(&response))

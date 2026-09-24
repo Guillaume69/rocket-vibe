@@ -1,6 +1,7 @@
 //! Rocket.Chat client core: protocol, local store and sync, no UI.
 //! Port of the Android app's `lib/`, whose tests are the spec.
 
+pub mod account;
 pub mod actions;
 pub mod completion;
 pub mod content;

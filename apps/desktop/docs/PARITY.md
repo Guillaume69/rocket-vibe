@@ -1,6 +1,6 @@
 # Parity with the Android app
 
-What the mobile app (`../rocket-vibe`) lets a user do, and where the desktop
+What the mobile app (`apps/mobile`) lets a user do, and where the desktop
 app stands. Mobile-only mechanisms are mapped to their desktop equivalent
 rather than dropped.
 

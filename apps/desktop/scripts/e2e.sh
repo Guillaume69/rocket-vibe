@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end test against a live Rocket.Chat seeded by ../rocket-vibe/scripts/seed.mjs.
+# End-to-end test against a live Rocket.Chat seeded by the repository's scripts/seed.mjs.
 # The real app (headless, in the build image) logs in as alice and opens
 # test-public; it sends a message while bob posts one, and posts then deletes
 # another, over REST. It passes when the app shows alice's and bob's messages

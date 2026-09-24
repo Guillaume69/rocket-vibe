@@ -130,9 +130,16 @@ jobs:
           if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\rocket-vibe\rocket-vibe.lnk")) { throw "no Start menu shortcut" }
           $command = (Get-ItemProperty "HKCU:\Software\Classes\rocketvibe\shell\open\command").'(default)'
           if ($command -notlike "*rocket-vibe-gtk.exe*%1*") { throw "rocketvibe:// is not registered: $command" }
-          $run = Start-Process $exe -ArgumentList "rocketvibe://salon/smoke" -WorkingDirectory "$app\bin" -PassThru
+          $env:RUST_BACKTRACE = "1"
+          $run = Start-Process $exe -ArgumentList "rocketvibe://salon/smoke" -WorkingDirectory "$app\bin" -PassThru `
+            -RedirectStandardError "$env:RUNNER_TEMP\app-stderr.txt" -RedirectStandardOutput "$env:RUNNER_TEMP\app-stdout.txt"
           Start-Sleep -Seconds 10
-          if ($run.HasExited) { throw "the app exited at start with code $($run.ExitCode)" }
+          if ($run.HasExited) {
+            Get-Content "$env:RUNNER_TEMP\app-stderr.txt", "$env:RUNNER_TEMP\app-stdout.txt" -ErrorAction SilentlyContinue
+            Get-WinEvent -FilterHashtable @{ LogName = "Application"; Id = 1000 } -MaxEvents 1 -ErrorAction SilentlyContinue |
+              ForEach-Object { $_.Message }
+            throw "the app exited at start with code $($run.ExitCode)"
+          }
           Stop-Process -Id $run.Id -Force
           Start-Sleep -Seconds 2
           Start-Process "$app\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES" -Wait
@@ -140,6 +147,7 @@ jobs:
           if (Test-Path "HKCU:\Software\Classes\rocketvibe") { throw "the link registration outlived the uninstall" }
           if (Test-Path $exe) { throw "the app outlived the uninstall" }
       - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
         with:
           name: desktop-windows
           path: |

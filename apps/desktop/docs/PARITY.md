@@ -71,7 +71,7 @@ rather than dropped.
 - [x] Pre-send preview: captions, reduced/original quality
 - [x] Checks against `FileUpload_MaxFileSize` and `FileUpload_MediaTypeWhiteList`
 - [x] Upload in two steps (`rooms.media`, `rooms.mediaConfirm`) with progress
-- [ ] Voice recording
+- [x] Voice recording
 
 ## 5. Message actions
 
@@ -119,7 +119,7 @@ rather than dropped.
 
 ## 13. Sharing and links
 
-- [ ] `rocketvibe://salon/<rid>?host=` links open the room (desktop entry registered as URL handler)
+- [x] `rocketvibe://salon/<rid>?host=` links open the room (desktop entry registered as URL handler)
 - [x] Drop or paste files and text from other apps into a room (desktop equivalent of the share intent)
 
 ## 14. Offline and resilience

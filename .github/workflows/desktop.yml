@@ -108,10 +108,43 @@ jobs:
       - run: cargo test --locked -p rv-core
       - run: cargo build --locked --release -p rocket-vibe-gtk
       - run: scripts/package-windows.sh "${{ needs.version.outputs.version }}"
+      - name: Installer
+        shell: pwsh
+        run: |
+          choco install innosetup --yes --no-progress | Out-Null
+          $version = "${{ needs.version.outputs.version }}"
+          $package = Resolve-Path "dist/rocket-vibe-desktop-$version-windows-x86_64"
+          $out = Resolve-Path dist
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=$version" "/DSourceDir=$package" "/O$out" data/windows/rocket-vibe.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      # Installs, starts the app from a link, uninstalls: the zip's DLLs and
+      # the link registration are only proven on a real Windows.
+      - name: Installer round trip
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem dist/*-setup.exe | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
+          $app = "$env:LOCALAPPDATA\Programs\rocket-vibe"
+          $exe = "$app\bin\rocket-vibe-gtk.exe"
+          if (-not (Test-Path $exe)) { throw "not installed at $exe" }
+          if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\rocket-vibe\rocket-vibe.lnk")) { throw "no Start menu shortcut" }
+          $command = (Get-ItemProperty "HKCU:\Software\Classes\rocketvibe\shell\open\command").'(default)'
+          if ($command -notlike "*rocket-vibe-gtk.exe*%1*") { throw "rocketvibe:// is not registered: $command" }
+          $run = Start-Process $exe -ArgumentList "rocketvibe://salon/smoke" -WorkingDirectory "$app\bin" -PassThru
+          Start-Sleep -Seconds 10
+          if ($run.HasExited) { throw "the app exited at start with code $($run.ExitCode)" }
+          Stop-Process -Id $run.Id -Force
+          Start-Sleep -Seconds 2
+          Start-Process "$app\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES" -Wait
+          Start-Sleep -Seconds 3
+          if (Test-Path "HKCU:\Software\Classes\rocketvibe") { throw "the link registration outlived the uninstall" }
+          if (Test-Path $exe) { throw "the app outlived the uninstall" }
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-windows
-          path: apps/desktop/dist/*.zip
+          path: |
+            apps/desktop/dist/*.zip
+            apps/desktop/dist/*-setup.exe
 
   macos:
     needs: version
@@ -161,3 +194,4 @@ jobs:
           files: |
             *.tar.gz
             *.zip
+            *-setup.exe

@@ -26,6 +26,23 @@ pub struct OutboxEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UploadRow {
+    pub id: String,
+    pub rid: String,
+    pub path: String,
+    pub name: String,
+    pub mime: String,
+    pub caption: Option<String>,
+    /// Set once the bytes are on the server, BEFORE the confirm: a confirm
+    /// replayed on the same file posts a second message (see uploads.rs).
+    pub file_id: Option<String>,
+    /// `pending`, `sending` or `failed`.
+    pub status: String,
+    /// The file is our own copy (a reduced image, a pasted picture): deleted once settled.
+    pub temporary: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoomRow {
     pub rid: String,
     pub kind: String,
@@ -138,6 +155,9 @@ const MIGRATIONS: &[&str] = &[
     "CREATE TABLE drafts (key TEXT PRIMARY KEY, text TEXT NOT NULL)",
     "ALTER TABLE messages ADD COLUMN urls TEXT; ALTER TABLE messages ADD COLUMN call_id TEXT",
     "ALTER TABLE rooms ADD COLUMN last_message_author TEXT",
+    "CREATE TABLE uploads (id TEXT PRIMARY KEY, rid TEXT NOT NULL, path TEXT NOT NULL, name TEXT NOT NULL,
+       mime TEXT NOT NULL, caption TEXT, file_id TEXT, status TEXT NOT NULL DEFAULT 'pending',
+       temporary INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL)",
 ];
 
 pub struct Store {
@@ -205,6 +225,66 @@ impl Store {
         })
         .ok()
         .flatten()
+    }
+
+    fn upload_rows(&self, filter: &str, key: &str) -> Vec<UploadRow> {
+        let sql = format!(
+            "SELECT id, rid, path, name, mime, caption, file_id, status, temporary FROM uploads
+             WHERE {filter} ORDER BY created_at, id"
+        );
+        self.read(|c| {
+            let mut q = c.prepare(&sql)?;
+            q.query_map([key], |r| {
+                Ok(UploadRow {
+                    id: r.get(0)?,
+                    rid: r.get(1)?,
+                    path: r.get(2)?,
+                    name: r.get(3)?,
+                    mime: r.get(4)?,
+                    caption: r.get(5)?,
+                    file_id: r.get(6)?,
+                    status: r.get(7)?,
+                    temporary: r.get(8)?,
+                })
+            })?
+            .collect()
+        })
+        .unwrap_or_default()
+    }
+
+    /// Every upload of the room not settled yet, in order.
+    pub fn uploads(&self, rid: &str) -> Vec<UploadRow> {
+        self.upload_rows("rid = ?1", rid)
+    }
+
+    pub fn pending_uploads(&self) -> Vec<UploadRow> {
+        self.upload_rows("status = ?1", "pending")
+    }
+
+    pub fn upload(&self, id: &str) -> Option<UploadRow> {
+        self.upload_rows("id = ?1", id).into_iter().next()
+    }
+
+    /// Whether a message of the room already carries this uploaded file.
+    pub fn file_posted(&self, rid: &str, file_id: &str) -> bool {
+        let pattern = format!("%/file-upload/{file_id}/%");
+        self.read(|c| {
+            c.query_row(
+                "SELECT 1 FROM messages WHERE rid = ?1 AND attachments LIKE ?2 LIMIT 1",
+                params![rid, pattern],
+                |_| Ok(()),
+            )
+            .optional()
+        })
+        .ok()
+        .flatten()
+        .is_some()
+    }
+
+    pub fn room_kind(&self, rid: &str) -> Option<String> {
+        self.read(|c| c.query_row("SELECT type FROM rooms WHERE rid = ?1", [rid], |r| r.get(0)).optional())
+            .ok()
+            .flatten()
     }
 
     /// When I last read the room (`ls`), as the server last told us.
@@ -480,6 +560,52 @@ impl Writer<'_> {
             .optional()
             .ok()
             .flatten()
+    }
+
+    pub fn insert_upload(&mut self, u: &UploadRow, now: i64) {
+        self.conn
+            .execute(
+                "INSERT INTO uploads (id, rid, path, name, mime, caption, file_id, status, temporary, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![u.id, u.rid, u.path, u.name, u.mime, u.caption, u.file_id, u.status, u.temporary, now],
+            )
+            .expect("insert upload");
+        self.touch_messages(&u.rid);
+    }
+
+    fn touch_upload(&mut self, id: &str) {
+        if let Some(rid) = self.rid_of("SELECT rid FROM uploads WHERE id = ?1", id) {
+            self.touch_messages(&rid);
+        }
+    }
+
+    /// Takes a pending upload for sending; false if someone else already did.
+    pub fn claim_upload(&mut self, id: &str) -> bool {
+        let n = self
+            .conn
+            .execute("UPDATE uploads SET status = 'sending' WHERE id = ?1 AND status = 'pending'", [id])
+            .expect("claim upload");
+        self.touch_upload(id);
+        n == 1
+    }
+
+    pub fn set_upload_status(&mut self, id: &str, status: &str) {
+        self.conn.execute("UPDATE uploads SET status = ?2 WHERE id = ?1", [id, status]).expect("upload status");
+        self.touch_upload(id);
+    }
+
+    /// Uploads a previous run left half-sent go back in the queue.
+    pub fn rearm_sending_uploads(&mut self) {
+        self.conn.execute("UPDATE uploads SET status = 'pending' WHERE status = 'sending'", []).expect("rearm");
+    }
+
+    pub fn set_upload_file_id(&mut self, id: &str, file_id: &str) {
+        self.conn.execute("UPDATE uploads SET file_id = ?2 WHERE id = ?1", [id, file_id]).expect("upload file id");
+    }
+
+    pub fn delete_upload(&mut self, id: &str) {
+        self.touch_upload(id);
+        self.conn.execute("DELETE FROM uploads WHERE id = ?1", [id]).expect("delete upload");
     }
 
     /// An empty draft is deleted rather than stored.

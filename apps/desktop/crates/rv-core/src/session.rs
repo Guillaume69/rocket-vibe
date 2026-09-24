@@ -20,6 +20,7 @@ use crate::outbox::Outbox;
 use crate::rest::{CallOptions, Credentials, RestClient, RestError, TwoFactorCode};
 use crate::store::Store;
 use crate::sync::{HistoryPage, MY_MESSAGES, STREAM_NOTIFY_ROOM, STREAM_NOTIFY_USER, STREAM_ROOM_MESSAGES, SyncEngine};
+use crate::uploads::{self, Uploads};
 
 const MAX_RECONNECT_DELAY_MS: u64 = 30_000;
 
@@ -47,6 +48,8 @@ pub enum SessionEvent {
     Typing(String),
     /// Someone's presence changed.
     Presence,
+    /// An upload of this room progressed.
+    Upload(String),
 }
 
 pub fn normalize_server(input: &str) -> Option<Url> {
@@ -122,6 +125,7 @@ pub struct Session {
     pub sync: Arc<SyncEngine>,
     pub outbox: Arc<Outbox>,
     pub media: Arc<MediaCache>,
+    pub uploads: Arc<Uploads>,
     ddp: DdpHandle,
     events: broadcast::Sender<SessionEvent>,
     current_room: Mutex<Option<(String, String)>>,
@@ -150,6 +154,7 @@ impl Session {
         let (events, _) = broadcast::channel(32);
 
         let media = Arc::new(MediaCache::new(rest.clone()));
+        let uploads = Arc::new(Uploads::new(store.clone(), rest.clone(), sync.clone()));
         let session = Arc::new(Session {
             info,
             store,
@@ -157,6 +162,7 @@ impl Session {
             sync,
             outbox,
             media,
+            uploads,
             ddp,
             events,
             current_room: Mutex::new(None),
@@ -168,7 +174,8 @@ impl Session {
         });
         let listener = tokio::spawn(Self::listen(Arc::downgrade(&session), ddp_events));
         let watcher = tokio::spawn(Self::watch_token(Arc::downgrade(&session), session.rest.token_rejected()));
-        session.tasks.lock().unwrap().extend([listener, watcher]);
+        let progress = tokio::spawn(Self::forward_uploads(Arc::downgrade(&session), session.uploads.changes()));
+        session.tasks.lock().unwrap().extend([listener, watcher, progress]);
 
         session.ddp.open(&session.info.auth_token);
         // The read the user sees: not sequenced behind the socket negotiation.
@@ -295,6 +302,37 @@ impl Session {
         let _ = self.rest.post("subscriptions.read", CallOptions::body(json!({"rid": rid}))).await;
     }
 
+    async fn forward_uploads(session: std::sync::Weak<Session>, mut changes: broadcast::Receiver<String>) {
+        loop {
+            match changes.recv().await {
+                Ok(rid) => {
+                    let Some(s) = session.upgrade() else { return };
+                    let _ = s.events.send(SessionEvent::Upload(rid));
+                }
+                Err(broadcast::error::RecvError::Lagged(_)) => {}
+                Err(broadcast::error::RecvError::Closed) => return,
+            }
+        }
+    }
+
+    /// Checks the file against the server's rules, queues it and starts sending.
+    pub async fn attach(
+        self: &Arc<Self>,
+        rid: &str,
+        file: &std::path::Path,
+        name: &str,
+        mime: &str,
+        caption: Option<&str>,
+        temporary: bool,
+    ) -> Result<(), uploads::Refusal> {
+        let size = std::fs::metadata(file).map(|m| m.len()).unwrap_or(0);
+        uploads::validate(self.settings().await, size, mime)?;
+        self.uploads.enqueue(rid, &file.to_string_lossy(), name, mime, caption, temporary);
+        let uploads = self.uploads.clone();
+        tokio::spawn(async move { uploads.process().await });
+        Ok(())
+    }
+
     async fn watch_token(session: std::sync::Weak<Session>, mut rejected: broadcast::Receiver<String>) {
         while let Ok(token) = rejected.recv().await {
             let Some(s) = session.upgrade() else { return };
@@ -313,6 +351,7 @@ impl Session {
     async fn catch_up(&self) {
         if self.sync.catch_up_global().await.is_ok() {
             self.outbox.process().await;
+            self.uploads.process().await;
         }
         self.load_presence().await;
         if let Some((rid, kind)) = self.current_room() {

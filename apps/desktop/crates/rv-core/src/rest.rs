@@ -140,6 +140,54 @@ impl RestClient {
         self.call(reqwest::Method::POST, path, options).await
     }
 
+    /// POSTs a file as `multipart/form-data` field `file`, reporting
+    /// `(sent, total)` bytes as the body streams out. The client's 15 s cap
+    /// would cut any real upload: the timeout here grows with the size.
+    pub async fn upload(
+        &self,
+        path: &str,
+        bytes: Vec<u8>,
+        name: &str,
+        mime: &str,
+        progress: impl Fn(u64, u64) + Send + Sync + 'static,
+    ) -> Result<Value, RestError> {
+        const CHUNK: usize = 64 * 1024;
+        let total = bytes.len() as u64;
+        let progress = Arc::new(progress);
+        let chunks: Vec<Vec<u8>> = bytes.chunks(CHUNK).map(<[u8]>::to_vec).collect();
+        let mut sent = 0u64;
+        let stream = futures_util::stream::iter(chunks.into_iter().map(move |chunk| {
+            sent += chunk.len() as u64;
+            progress(sent, total);
+            Ok::<_, std::io::Error>(chunk)
+        }));
+        let part = reqwest::multipart::Part::stream_with_length(reqwest::Body::wrap_stream(stream), total)
+            .file_name(name.to_owned())
+            .mime_str(mime)
+            .map_err(|_| RestError::incomplete(&format!("{mime}: not a media type")))?;
+        let form = reqwest::multipart::Form::new().part("file", part);
+        let mut request = self
+            .http
+            .post(self.url_for(path, &CallOptions::default()))
+            .timeout(Duration::from_secs(60 + total / (32 * 1024)))
+            .multipart(form);
+        let sent_credentials = self.credentials();
+        if let Some(c) = &sent_credentials {
+            request = request.header("X-Auth-Token", &c.auth_token).header("X-User-Id", &c.user_id);
+        }
+        let response = request.send().await.map_err(|_| RestError::network(format!("{path}: upload interrupted.")))?;
+        let status = response.status().as_u16();
+        let text =
+            response.text().await.map_err(|_| RestError::network(format!("{path}: connection lost while reading.")))?;
+        let result = interpret(path, status, &text);
+        if let (Err(e), Some(c)) = (&result, &sent_credentials)
+            && is_token_rejected(e)
+        {
+            let _ = self.token_rejected.send(c.auth_token.clone());
+        }
+        result
+    }
+
     /// GET a protected file (avatar, upload). Returns its bytes and content type.
     pub async fn fetch_protected(&self, path_or_url: &str) -> Result<(Vec<u8>, String), RestError> {
         let credentials = self.credentials();

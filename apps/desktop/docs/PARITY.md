@@ -95,19 +95,19 @@ rather than dropped.
 
 - [x] Room info: type, flags, members count, topic, announcement, description (`rooms.info`)
 - [x] User profile: avatar, name, username, presence, roles, local time, bio (`users.info`); Message and Call buttons
-- [ ] My profile: avatar, status and presence, name, bio, email and username (with password and 2FA)
+- [x] My profile: avatar, status and presence, name, bio, email and username (with password and 2FA)
 - [x] Live avatar changes (`updateAvatar`)
 
 ## 9. Settings
 
-- [ ] Settings page: profile card, notification preference (`users.setPreferences`), language, E2EE status, account, server
+- [~] Settings page: profile card, notification preference (`users.setPreferences`), language, E2EE status, account, server (E2EE status pending)
 - [x] Languages: French and English, automatic by default
 
 ## 10. Notifications (desktop equivalent of Android push)
 
-- [ ] Desktop notifications for DMs and mentions while the app runs (tray or background), click opens the room
-- [ ] Reply from the notification, where the desktop supports it
-- [ ] Nothing for encrypted rooms' content
+- [x] Desktop notifications for DMs and mentions while the app runs, click opens the room
+- [x] Reply from the notification, where the desktop supports it
+- [x] Nothing for encrypted rooms' content
 
 ## 11. End-to-end encryption (read only)
 

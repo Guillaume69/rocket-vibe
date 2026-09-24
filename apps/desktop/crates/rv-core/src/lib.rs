@@ -17,6 +17,7 @@ pub mod notify;
 pub mod outbox;
 pub mod rest;
 pub mod rooms;
+pub mod server;
 pub mod session;
 pub mod store;
 pub mod sync;

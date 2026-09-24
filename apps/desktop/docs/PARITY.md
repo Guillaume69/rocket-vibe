@@ -56,7 +56,7 @@ rather than dropped.
 - [x] Reactions row, click to toggle (`chat.react`)
 - [x] Thread chip opens the thread
 - [x] Upload strip: progress, waiting, failed with retry/discard
-- [ ] Encrypted rooms: locked state, "Unlock to read"
+- [x] Encrypted rooms: locked state, "Unlock to read"
 
 ## 4. Composer
 
@@ -100,7 +100,7 @@ rather than dropped.
 
 ## 9. Settings
 
-- [~] Settings page: profile card, notification preference (`users.setPreferences`), language, E2EE status, account, server (E2EE status pending)
+- [x] Settings page: profile card, notification preference (`users.setPreferences`), language, E2EE status, account, server
 - [x] Languages: French and English, automatic by default
 
 ## 10. Notifications (desktop equivalent of Android push)
@@ -111,7 +111,7 @@ rather than dropped.
 
 ## 11. End-to-end encryption (read only)
 
-- [ ] Unlock with the E2E password (`e2e.fetchMyKeys`), decrypt messages and previews, lock again
+- [x] Unlock with the E2E password (`e2e.fetchMyKeys`), decrypt messages and previews, lock again
 
 ## 12. Calls
 

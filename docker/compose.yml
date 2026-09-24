@@ -57,6 +57,16 @@ services:
         condition: service_healthy
     ports:
       - "${PORT:-3000}:3000"
+    volumes:
+      # Bundle patché pour le push (voir patch-push.mjs), nommé par version :
+      # après un changement de RC_VERSION, le démarrage échoue tant que
+      # `node docker/patch-push.mjs` n'a pas été relancé.
+      - type: bind
+        source: ./patched/app-${RC_VERSION:-8.5.1}.js
+        target: /app/bundle/programs/server/app/app.js
+        read_only: true
+        bind:
+          create_host_path: false
     environment:
       # ROOT_URL porte l'IP LAN, pas 10.0.2.2 : un appareil physique doit
       # joindre le serveur, et ROOT_URL conditionne les payloads push et les

@@ -1,7 +1,7 @@
-//! Sessions live in the Secret Service (KWallet, GNOME Keyring), never on
-//! disk: one item per account, and a small file naming the active one.
+//! Sessions live in the system keychain, never on disk: the Secret Service
+//! (KWallet, GNOME Keyring) on Linux, the Credential Manager on Windows, the
+//! Keychain on macOS. One item per account, and a small file naming the active one.
 
-use std::collections::HashMap;
 use std::time::Duration;
 
 use gtk::glib;
@@ -14,10 +14,6 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 
 pub fn account_key(info: &SessionInfo) -> String {
     format!("{}|{}", info.base_url, info.user_id)
-}
-
-fn attributes() -> HashMap<&'static str, &'static str> {
-    HashMap::from([("application", crate::APP_ID), ("kind", "session")])
 }
 
 fn active_file() -> std::path::PathBuf {
@@ -50,26 +46,17 @@ fn parse(secret: &[u8]) -> Option<SessionInfo> {
 
 /// Every account signed in on this machine, the active one first.
 pub async fn load_all() -> Vec<SessionInfo> {
-    let read = async {
-        let keyring = oo7::Keyring::new().await.ok()?;
-        let items = keyring.search_items(&attributes()).await.ok()?;
-        let mut found = Vec::new();
-        for item in items {
-            if let Some(info) = item.secret().await.ok().and_then(|s| parse(&s))
-                && !found.iter().any(|f: &SessionInfo| account_key(f) == account_key(&info))
-            {
-                found.push(info);
+    let mut found: Vec<SessionInfo> = Vec::new();
+    match tokio::time::timeout(TIMEOUT, keychain::all()).await {
+        Ok(secrets) => {
+            for info in secrets.iter().filter_map(|s| parse(s)) {
+                if !found.iter().any(|f| account_key(f) == account_key(&info)) {
+                    found.push(info);
+                }
             }
         }
-        Some(found)
-    };
-    let mut found = match tokio::time::timeout(TIMEOUT, read).await {
-        Ok(found) => found.unwrap_or_default(),
-        Err(_) => {
-            eprintln!("Keychain did not answer, starting signed out.");
-            Vec::new()
-        }
-    };
+        Err(_) => eprintln!("Keychain did not answer, starting signed out."),
+    }
     if let Some(active) = active() {
         found.sort_by_key(|info| account_key(info) != active);
     }
@@ -77,7 +64,6 @@ pub async fn load_all() -> Vec<SessionInfo> {
 }
 
 pub async fn save(info: &SessionInfo) {
-    let key = account_key(info);
     let secret = json!({
         "baseUrl": info.base_url,
         "userId": info.user_id,
@@ -85,19 +71,7 @@ pub async fn save(info: &SessionInfo) {
         "authToken": info.auth_token,
     })
     .to_string();
-    let write = async {
-        let keyring = oo7::Keyring::new().await?;
-        // Items from before accounts had a key of their own: replaced by keyed ones.
-        for item in keyring.search_items(&attributes()).await? {
-            if item.attributes().await.is_ok_and(|a| !a.contains_key("account")) {
-                let _ = item.delete().await;
-            }
-        }
-        let mut attributes = attributes();
-        attributes.insert("account", &key);
-        keyring.create_item("rocket-vibe session", &attributes, secret.as_bytes(), true).await
-    };
-    match tokio::time::timeout(TIMEOUT, write).await {
+    match tokio::time::timeout(TIMEOUT, keychain::put(&account_key(info), secret.into_bytes())).await {
         Ok(Ok(())) => {}
         Ok(Err(e)) => eprintln!("Keychain write failed: {e}"),
         Err(_) => eprintln!("Keychain write timed out."),
@@ -105,14 +79,112 @@ pub async fn save(info: &SessionInfo) {
 }
 
 pub async fn remove(info: &SessionInfo) {
-    let key = account_key(info);
-    let delete = async {
-        let keyring = oo7::Keyring::new().await?;
+    let _ = tokio::time::timeout(TIMEOUT, keychain::delete(&account_key(info))).await;
+}
+
+#[cfg(target_os = "linux")]
+mod keychain {
+    use std::collections::HashMap;
+
+    fn attributes() -> HashMap<&'static str, &'static str> {
+        HashMap::from([("application", crate::APP_ID), ("kind", "session")])
+    }
+
+    pub async fn all() -> Vec<Vec<u8>> {
+        let Ok(keyring) = oo7::Keyring::new().await else { return Vec::new() };
+        let Ok(items) = keyring.search_items(&attributes()).await else { return Vec::new() };
+        let mut secrets = Vec::new();
+        for item in items {
+            if let Ok(secret) = item.secret().await {
+                secrets.push(secret.to_vec());
+            }
+        }
+        secrets
+    }
+
+    pub async fn put(key: &str, secret: Vec<u8>) -> Result<(), String> {
+        let keyring = oo7::Keyring::new().await.map_err(|e| e.to_string())?;
+        // Items from before accounts had a key of their own: replaced by keyed ones.
+        for item in keyring.search_items(&attributes()).await.map_err(|e| e.to_string())? {
+            if item.attributes().await.is_ok_and(|a| !a.contains_key("account")) {
+                let _ = item.delete().await;
+            }
+        }
         let mut attributes = attributes();
-        attributes.insert("account", &key);
-        keyring.delete(&attributes).await
-    };
-    let _ = tokio::time::timeout(TIMEOUT, delete).await;
+        attributes.insert("account", key);
+        keyring.create_item("rocket-vibe session", &attributes, &secret, true).await.map_err(|e| e.to_string())
+    }
+
+    pub async fn delete(key: &str) {
+        let Ok(keyring) = oo7::Keyring::new().await else { return };
+        let mut attributes = attributes();
+        attributes.insert("account", key);
+        let _ = keyring.delete(&attributes).await;
+    }
+}
+
+/// The system keychain cannot list its entries: a file keeps their keys
+/// (server and user id, nothing secret).
+#[cfg(not(target_os = "linux"))]
+mod keychain {
+    fn index_file() -> std::path::PathBuf {
+        gtk::glib::user_config_dir().join("rocket-vibe-rs").join("accounts")
+    }
+
+    fn keys() -> Vec<String> {
+        std::fs::read_to_string(index_file())
+            .map(|s| s.lines().filter(|l| !l.is_empty()).map(str::to_owned).collect())
+            .unwrap_or_default()
+    }
+
+    fn write_keys(keys: &[String]) {
+        let file = index_file();
+        if let Some(dir) = file.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(file, keys.join("\n"));
+    }
+
+    fn entry(key: &str) -> keyring::Result<keyring::Entry> {
+        keyring::Entry::new(crate::APP_ID, key)
+    }
+
+    pub async fn all() -> Vec<Vec<u8>> {
+        tokio::task::spawn_blocking(|| {
+            keys().iter().filter_map(|k| entry(k).ok()?.get_password().ok()).map(String::into_bytes).collect()
+        })
+        .await
+        .unwrap_or_default()
+    }
+
+    pub async fn put(key: &str, secret: Vec<u8>) -> Result<(), String> {
+        let key = key.to_owned();
+        tokio::task::spawn_blocking(move || {
+            let secret = String::from_utf8(secret).map_err(|e| e.to_string())?;
+            entry(&key).and_then(|e| e.set_password(&secret)).map_err(|e| e.to_string())?;
+            let mut all = keys();
+            if !all.contains(&key) {
+                all.push(key);
+                write_keys(&all);
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+
+    pub async fn delete(key: &str) {
+        let key = key.to_owned();
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Ok(e) = entry(&key) {
+                let _ = e.delete_credential();
+            }
+            let mut all = keys();
+            all.retain(|k| *k != key);
+            write_keys(&all);
+        })
+        .await;
+    }
 }
 
 fn servers_file() -> std::path::PathBuf {

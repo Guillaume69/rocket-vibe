@@ -17,10 +17,16 @@ async-channel = "2.5.0"
 chrono = { version = "0.4.45", features = ["unstable-locales"] }
 gtk = { version = "0.11.5", package = "gtk4", features = ["v4_12"] }
 gstreamer = "0.24"
-oo7 = "0.6.0"
 pango = { version = "0.22", features = ["v1_56"] }
 rv-core = { path = "../rv-core" }
 serde_json = "1.0.151"
 sha2 = "0.11.0"
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "time", "sync", "macros"] }
 url = "2.5.8"
+
+# The session tokens' keychain: the Secret Service on Linux, the system's own elsewhere.
+[target.'cfg(target_os = "linux")'.dependencies]
+oo7 = "0.6.0"
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+keyring = { version = "3.6", features = ["apple-native", "windows-native"] }

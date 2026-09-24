@@ -1,6 +1,8 @@
 //! Desktop notifications through `org.freedesktop.Notifications`: a click
 //! opens the room, and where the server offers `inline-reply` (KDE Plasma)
-//! the answer typed in the notification is sent to the room.
+//! the answer typed in the notification is sent to the room. Without a
+//! session bus (Windows, macOS) GLib's own notifications take over: a click
+//! still opens the room, there is no reply.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -16,7 +18,8 @@ const BUS: &str = "org.freedesktop.Notifications";
 const PATH: &str = "/org/freedesktop/Notifications";
 
 pub struct Notifier {
-    connection: gio::DBusConnection,
+    app: gio::Application,
+    connection: Option<gio::DBusConnection>,
     inline_reply: Cell<bool>,
     /// Notification id → rid, to route clicks and replies.
     shown: RefCell<HashMap<u32, String>>,
@@ -29,19 +32,40 @@ type OnOpen = Rc<dyn Fn(String)>;
 type OnReply = Rc<dyn Fn(String, String)>;
 
 impl Notifier {
-    /// None when there is no session bus (a bare X server, a container).
-    pub fn new(open: impl Fn(String) + 'static, reply: impl Fn(String, String) + 'static) -> Option<Rc<Self>> {
-        let connection = gio::bus_get_sync(gio::BusType::Session, None::<&gio::Cancellable>).ok()?;
+    pub fn new(
+        app: &impl IsA<gio::Application>,
+        open: impl Fn(String) + 'static,
+        reply: impl Fn(String, String) + 'static,
+    ) -> Rc<Self> {
+        let (open, reply): (OnOpen, OnReply) = (Rc::new(open), Rc::new(reply));
+        let app = app.clone().upcast::<gio::Application>();
+        let Ok(connection) = gio::bus_get_sync(gio::BusType::Session, None::<&gio::Cancellable>) else {
+            let action = gio::SimpleAction::new("open-room", Some(glib::VariantTy::STRING));
+            action.connect_activate(move |_, rid| {
+                if let Some(rid) = rid.and_then(|v| v.get::<String>()) {
+                    open(rid);
+                }
+            });
+            app.add_action(&action);
+            return Rc::new(Notifier {
+                app,
+                connection: None,
+                inline_reply: Cell::new(false),
+                shown: RefCell::default(),
+                by_room: RefCell::default(),
+                subscriptions: RefCell::default(),
+            });
+        };
         let this = Rc::new(Notifier {
-            connection,
+            app,
+            connection: Some(connection.clone()),
             inline_reply: Cell::new(false),
             shown: RefCell::default(),
             by_room: RefCell::default(),
             subscriptions: RefCell::default(),
         });
-        let (open, reply): (OnOpen, OnReply) = (Rc::new(open), Rc::new(reply));
         let weak = Rc::downgrade(&this);
-        let invoked = this.connection.subscribe_to_signal(
+        let invoked = connection.subscribe_to_signal(
             Some(BUS),
             Some(BUS),
             Some("ActionInvoked"),
@@ -59,7 +83,7 @@ impl Notifier {
             },
         );
         let weak = Rc::downgrade(&this);
-        let replied = this.connection.subscribe_to_signal(
+        let replied = connection.subscribe_to_signal(
             Some(BUS),
             Some(BUS),
             Some("NotificationReplied"),
@@ -75,7 +99,7 @@ impl Notifier {
             },
         );
         let weak = Rc::downgrade(&this);
-        let closed = this.connection.subscribe_to_signal(
+        let closed = connection.subscribe_to_signal(
             Some(BUS),
             Some(BUS),
             Some("NotificationClosed"),
@@ -92,7 +116,7 @@ impl Notifier {
             },
         );
         this.subscriptions.replace(vec![invoked, replied, closed]);
-        let (weak, connection) = (Rc::downgrade(&this), this.connection.clone());
+        let weak = Rc::downgrade(&this);
         glib::spawn_future_local(async move {
             let capabilities = connection
                 .call_future(Some(BUS), PATH, BUS, "GetCapabilities", None, None, gio::DBusCallFlags::NONE, 2000)
@@ -105,7 +129,7 @@ impl Notifier {
                 this.inline_reply.set(inline);
             }
         });
-        Some(this)
+        this
     }
 
     pub fn show(self: &Rc<Self>, incoming: &Incoming) {
@@ -115,6 +139,13 @@ impl Notifier {
             format!("{} · #{}", incoming.author, incoming.room_name)
         };
         let body = incoming.body.clone().unwrap_or_else(|| t("message.encrypted").to_owned());
+        let Some(connection) = self.connection.clone() else {
+            let notification = gio::Notification::new(&summary);
+            notification.set_body(Some(&body));
+            notification.set_default_action_and_target_value("app.open-room", Some(&incoming.rid.to_variant()));
+            self.app.send_notification(Some(&incoming.rid), &notification);
+            return;
+        };
         let mut actions = vec!["default".to_owned(), t("notify.open").to_owned()];
         let mut hints: HashMap<String, glib::Variant> = HashMap::new();
         hints.insert("category".into(), "im.received".to_variant());
@@ -136,7 +167,6 @@ impl Notifier {
         )
             .to_variant();
         let (weak, rid) = (Rc::downgrade(self), incoming.rid.clone());
-        let connection = self.connection.clone();
         glib::spawn_future_local(async move {
             let sent = connection
                 .call_future(Some(BUS), PATH, BUS, "Notify", Some(&parameters), None, gio::DBusCallFlags::NONE, 5000)
@@ -150,9 +180,12 @@ impl Notifier {
 
     /// Opening a room clears what it had on screen.
     pub fn withdraw(&self, rid: &str) {
+        let Some(connection) = self.connection.clone() else {
+            self.app.withdraw_notification(rid);
+            return;
+        };
         let Some(id) = self.by_room.borrow_mut().remove(rid) else { return };
         self.shown.borrow_mut().remove(&id);
-        let connection = self.connection.clone();
         glib::spawn_future_local(async move {
             let _ = connection
                 .call_future(

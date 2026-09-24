@@ -177,6 +177,7 @@ impl AppWindow {
         });
         let (w1, w2) = (Rc::downgrade(&this), Rc::downgrade(&this));
         let notifier = crate::notifier::Notifier::new(
+            app,
             move |rid| {
                 if let Some(this) = w1.upgrade() {
                     this.window.present();
@@ -195,7 +196,7 @@ impl AppWindow {
                 notifier.withdraw(&rid);
             }
         });
-        this.notifier.replace(notifier);
+        this.notifier.replace(Some(notifier));
         let weak = Rc::downgrade(&this);
         this.chat.connect_rooms_loaded(move || {
             if let Some(this) = weak.upgrade() {

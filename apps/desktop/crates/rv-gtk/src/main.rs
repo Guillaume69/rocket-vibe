@@ -1,5 +1,6 @@
 mod chat;
 mod fonts;
+mod i18n;
 mod login;
 mod markdown_view;
 mod media;
@@ -36,6 +37,7 @@ where
 
 fn main() -> glib::ExitCode {
     let app = adw::Application::builder().application_id(APP_ID).build();
+    i18n::init();
     app.connect_startup(|_| style::load());
     app.connect_activate(|app| {
         if let Some(window) = app.active_window() {

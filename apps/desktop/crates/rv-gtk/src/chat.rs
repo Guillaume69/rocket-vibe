@@ -13,6 +13,7 @@ use rv_core::store::{Change, MessageRow, RoomRow};
 use rv_core::sync::HISTORY_PAGE;
 use serde_json::Value;
 
+use crate::i18n::{self, t, tn};
 use crate::widgets::{self, TileSize};
 use crate::{markdown_view, media, runtime};
 
@@ -90,7 +91,7 @@ fn short_time(ts: i64) -> String {
     if days == 0 {
         t.format("%H:%M").to_string()
     } else if days < 7 {
-        t.format("%a").to_string()
+        t.format_localized("%a", i18n::locale()).to_string()
     } else {
         t.format("%d/%m/%Y").to_string()
     }
@@ -113,32 +114,13 @@ fn attachment_label(json: Option<&str>) -> Option<String> {
     })
 }
 
-fn system_text(kind: &str, author: &str, text: &str) -> String {
-    match kind {
-        "uj" => format!("{author} joined the room"),
-        "ul" => format!("{author} left the room"),
-        "au" => format!("{author} added {text}"),
-        "ru" => format!("{author} removed {text}"),
-        "r" => format!("{author} renamed the room to {text}"),
-        "room_changed_topic" => format!("{author} changed the topic: {text}"),
-        "message_pinned" => format!("{author} pinned a message"),
-        "videoconf" => format!("{author} started a call"),
-        "e2e" => "Encrypted message".to_owned(),
-        _ if text.is_empty() => format!("({kind})"),
-        _ => text.to_owned(),
-    }
-}
-
-fn body_of(row: &MessageRow) -> String {
+/// A system message reads as a sentence after its author's name.
+fn system_line(row: &MessageRow) -> String {
     let author = row.author.as_deref().unwrap_or_default();
-    let text = row.text.as_deref().unwrap_or_default();
-    if let Some(kind) = &row.system_type {
-        return system_text(kind, author, text);
-    }
-    match (text.is_empty(), attachment_label(row.attachments.as_deref())) {
-        (true, attachment) => attachment.unwrap_or_default(),
-        (false, Some(attachment)) => format!("{text}\n{attachment}"),
-        (false, None) => text.to_owned(),
+    match row.system_type.as_deref() {
+        Some("e2e") => t("message.encrypted").to_owned(),
+        Some(kind) => format!("{author} {}", i18n::system_message(kind, row.text.as_deref().unwrap_or_default())),
+        None => String::new(),
     }
 }
 
@@ -241,7 +223,7 @@ fn image_widget(session: &Arc<Session>, image: &ImageAttachment) -> gtk::Widget 
     if let Some(alt) = &image.alt {
         frame.set_tooltip_text(Some(alt));
     }
-    let title = image.alt.clone().or_else(|| image.title.clone()).unwrap_or_else(|| "Image".to_owned());
+    let title = image.alt.clone().or_else(|| image.title.clone()).unwrap_or_else(|| t("message.image").to_owned());
     click.connect_released(move |gesture, _, _, _| {
         let Some(widget) = gesture.widget() else { return };
         let title = title.clone();
@@ -259,7 +241,7 @@ fn room_widget(r: &RoomRow, session: Option<&Arc<Session>>) -> gtk::Widget {
     let time = label(&short_time(r.last_ts), &["room-time"]);
     let preview = match (&r.last_message, r.encrypted) {
         (Some(m), _) => label(&rv_core::emoji::replace_shortcodes(m), &["room-preview"]),
-        (None, true) => label("Encrypted message", &["room-preview", "encrypted"]),
+        (None, true) => label(t("rooms.encrypted"), &["room-preview", "encrypted"]),
         (None, false) => label("", &["room-preview"]),
     };
     preview.set_hexpand(true);
@@ -298,9 +280,9 @@ fn day_label(ts: i64) -> String {
     let day = local(ts).date_naive();
     let today = Local::now().date_naive();
     match (today - day).num_days() {
-        0 => "Today".to_owned(),
-        1 => "Yesterday".to_owned(),
-        _ => local(ts).format("%A %-d %B %Y").to_string(),
+        0 => t("day.today").to_owned(),
+        1 => t("day.yesterday").to_owned(),
+        _ => local(ts).format_localized("%A %-d %B %Y", i18n::locale()).to_string(),
     }
 }
 
@@ -333,9 +315,8 @@ fn message_widget(
         outer.append(&day);
     }
 
-    let body_text = body_of(row);
     if row.system_type.is_some() {
-        let system = label(&body_text, &["system-message"]);
+        let system = label(&system_line(row), &["system-message"]);
         system.set_wrap(true);
         system.set_margin_start(44);
         system.set_margin_top(2);
@@ -405,18 +386,18 @@ fn message_widget(
         let footer = gtk::Box::new(gtk::Orientation::Horizontal, 10);
         if row.thread_count > 0 {
             let n = row.thread_count;
-            let chip = label(&format!("💬 {n} {}", if n == 1 { "reply" } else { "replies" }), &["thread-chip"]);
+            let chip = label(&format!("💬 {}", tn("message.replies", n)), &["thread-chip"]);
             chip.set_margin_top(3);
             footer.append(&chip);
         }
         if row.edited {
-            footer.append(&label("(edited)", &["message-note"]));
+            footer.append(&label(t("message.edited"), &["message-note"]));
         }
         if pending {
-            footer.append(&label("⏳ sending…", &["message-note"]));
+            footer.append(&label(t("message.sending"), &["message-note"]));
         }
         if failed {
-            let retry = gtk::Button::builder().label("⚠️ Failed, retry").css_classes(["flat", "retry"]).build();
+            let retry = gtk::Button::builder().label(t("message.failed")).css_classes(["flat", "retry"]).build();
             let id = row.id.clone();
             retry.connect_clicked(move |_| on_retry(id.clone()));
             footer.append(&retry);
@@ -451,15 +432,12 @@ impl ChatPage {
             .valign(gtk::Align::Center)
             .halign(gtk::Align::Center)
             .build();
-        let status_button = gtk::Button::builder()
-            .child(&status_dot)
-            .css_classes(["flat"])
-            .tooltip_text("Offline, click to reconnect")
-            .build();
+        let status_button =
+            gtk::Button::builder().child(&status_dot).css_classes(["flat"]).tooltip_text(t("rooms.offline")).build();
         let logout = gtk::Button::builder()
             .icon_name("system-log-out-symbolic")
             .css_classes(["flat"])
-            .tooltip_text("Sign out")
+            .tooltip_text(t("rooms.sign_out"))
             .build();
         let brand = gtk::Box::builder().spacing(8).build();
         brand.append(&gtk::Label::builder().label("🦄").css_classes(["unicorn-header"]).build());
@@ -554,7 +532,7 @@ impl ChatPage {
         let composer_pill =
             gtk::Box::builder().css_classes(["composer-pill"]).hexpand(true).valign(gtk::Align::End).build();
         let placeholder = gtk::Label::builder()
-            .label("Message")
+            .label(t("composer.placeholder"))
             .css_classes(["composer-placeholder"])
             .xalign(0.0)
             .can_target(false)
@@ -569,7 +547,7 @@ impl ChatPage {
         composer_pill.append(&composer_stack);
         let send = gtk::Button::builder()
             .child(&widgets::send_arrow())
-            .tooltip_text("Send")
+            .tooltip_text(t("composer.send"))
             .css_classes(["send"])
             .valign(gtk::Align::End)
             .build();
@@ -578,7 +556,7 @@ impl ChatPage {
         composer_bar.append(&composer_pill);
         composer_bar.append(&send);
         let read_only_label = gtk::Label::builder()
-            .label("This room is read-only.")
+            .label(t("room.read_only"))
             .css_classes(["dim-label"])
             .margin_top(14)
             .margin_bottom(14)
@@ -609,10 +587,8 @@ impl ChatPage {
             .halign(gtk::Align::Center)
             .build();
         empty_content.append(&gtk::Label::builder().label("🦄").css_classes(["unicorn-hero"]).build());
-        empty_content.append(&gtk::Label::builder().label("Pick a conversation").css_classes(["empty-title"]).build());
-        empty_content.append(
-            &gtk::Label::builder().label("Everything is synced and sparkling ✨").css_classes(["empty-hint"]).build(),
-        );
+        empty_content.append(&gtk::Label::builder().label(t("room.pick")).css_classes(["empty-title"]).build());
+        empty_content.append(&gtk::Label::builder().label(t("room.synced")).css_classes(["empty-hint"]).build());
         empty.set_content(Some(&empty_content));
         let content_stack = gtk::Stack::new();
         content_stack.add_named(&empty, Some("empty"));
@@ -835,9 +811,9 @@ impl ChatPage {
 
     pub fn set_connection(&self, c: Connection) {
         let (class, tip) = match c {
-            Connection::Online => ("online", "Connected"),
-            Connection::Connecting => ("connecting", "Connecting…"),
-            Connection::Offline => ("offline", "Offline, click to reconnect"),
+            Connection::Online => ("online", t("rooms.online")),
+            Connection::Connecting => ("connecting", t("rooms.connecting")),
+            Connection::Offline => ("offline", t("rooms.offline")),
         };
         self.status_dot.set_css_classes(&["status-dot", class]);
         if let Some(button) = self.status_dot.parent() {

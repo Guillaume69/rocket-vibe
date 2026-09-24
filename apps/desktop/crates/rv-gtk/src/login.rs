@@ -1,6 +1,7 @@
 use adw::prelude::*;
 use gtk::glib;
 
+use crate::i18n::t;
 use crate::widgets;
 
 type Rgba = (f64, f64, f64, f64);
@@ -45,7 +46,7 @@ fn hero() -> gtk::Box {
     }
     hero.append(&bars);
     hero.append(&widgets::brand("brand-hero"));
-    hero.append(&gtk::Label::builder().label("Your magical little chat corner ✨").css_classes(["slogan"]).build());
+    hero.append(&gtk::Label::builder().label(t("login.slogan")).css_classes(["slogan"]).build());
     hero
 }
 
@@ -75,9 +76,9 @@ fn starry(page: &gtk::Widget) -> gtk::Overlay {
 
 impl LoginPage {
     pub fn new() -> Self {
-        let (server_group, server) = widgets::pill_field("Server address", "chat.example.com", false);
-        let (user_group, user) = widgets::pill_field("Username or email", "jane.doe", false);
-        let (password_group, password) = widgets::pill_field("Password", "", true);
+        let (server_group, server) = widgets::pill_field(t("login.server"), "chat.example.com", false);
+        let (user_group, user) = widgets::pill_field(t("login.user"), "jane.doe", false);
+        let (password_group, password) = widgets::pill_field(t("login.password"), "", true);
         let credentials = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(14).build();
         credentials.append(&hero());
         credentials.append(&server_group);
@@ -87,12 +88,12 @@ impl LoginPage {
         let back = gtk::Button::builder().css_classes(["flat", "back-link"]).halign(gtk::Align::Start).build();
         let back_content = gtk::Box::builder().spacing(8).build();
         back_content.append(&gtk::Label::builder().label("‹").css_classes(["chevron"]).build());
-        back_content.append(&gtk::Label::new(Some("Sign in")));
+        back_content.append(&gtk::Label::new(Some(t("login.sign_in"))));
         back.set_child(Some(&back_content));
 
         let code_intro =
             gtk::Label::builder().css_classes(["step-intro"]).justify(gtk::Justification::Center).wrap(true).build();
-        let (code_group, code) = widgets::pill_field("Authenticator app code", "123456", false);
+        let (code_group, code) = widgets::pill_field(t("login.code_totp"), "123456", false);
         code.add_css_class("code");
         EditableExt::set_alignment(&code, 0.5);
         code.set_input_purpose(gtk::InputPurpose::Digits);
@@ -100,13 +101,13 @@ impl LoginPage {
         let code_step = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(6).visible(false).build();
         code_step.append(&back);
         code_step.append(&gtk::Label::builder().label("🛡️").css_classes(["shield"]).margin_top(6).build());
-        code_step.append(&gtk::Label::builder().label("Magic verification").css_classes(["step-title"]).build());
+        code_step.append(&gtk::Label::builder().label(t("login.magic")).css_classes(["step-title"]).build());
         code_step.append(&code_intro);
         code_group.set_margin_top(14);
         code_step.append(&code_group);
 
         let error = gtk::Label::builder().css_classes(["login-error"]).wrap(true).xalign(0.0).visible(false).build();
-        let submit = widgets::cta("Sign in");
+        let submit = widgets::cta(t("login.sign_in"));
 
         let column = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
@@ -200,9 +201,9 @@ impl LoginPage {
         self.submit.set_sensitive(!busy);
         let asking = self.code_step.is_visible();
         self.submit.set_label(match (busy, asking) {
-            (true, _) => "Signing in…",
-            (false, true) => "Confirm",
-            (false, false) => "Sign in",
+            (true, _) => t("login.signing_in"),
+            (false, true) => t("login.confirm"),
+            (false, false) => t("login.sign_in"),
         });
     }
 
@@ -218,9 +219,9 @@ impl LoginPage {
         self.code_step.set_visible(asking);
         self.code.set_text("");
         let (caption, intro, secret) = match method {
-            Some("email") => ("Code received by email", "This account is protected by a code sent via email.", false),
-            Some("password") => ("Confirm your password", "Re-enter your password to confirm.", true),
-            _ => ("Authenticator app code", "Enter the code from your\nauthenticator app ✨", false),
+            Some("email") => (t("login.code_email"), t("login.intro_email"), false),
+            Some("password") => (t("login.code_password"), t("login.intro_password"), true),
+            _ => (t("login.code_totp"), t("login.intro_totp"), false),
         };
         self.code_caption.set_label(caption);
         self.code_intro.set_label(intro);

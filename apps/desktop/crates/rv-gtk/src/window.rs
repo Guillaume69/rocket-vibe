@@ -11,6 +11,7 @@ use rv_core::store::Change;
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::chat::ChatPage;
+use crate::i18n::{t, tf};
 use crate::login::LoginPage;
 use crate::{on_tokio, runtime, secrets};
 
@@ -65,10 +66,10 @@ fn database_path(info: &SessionInfo) -> PathBuf {
 
 fn describe(e: &RestError, asking_code: bool) -> String {
     match e.status {
-        0 => "Server unreachable. Check the address and your connection.".into(),
-        401 if asking_code => "Invalid code.".into(),
-        401 => "Wrong username or password.".into(),
-        429 => "Too many attempts. Wait a minute and try again.".into(),
+        0 => t("login.unreachable").into(),
+        401 if asking_code => t("login.bad_code").into(),
+        401 => t("login.rejected").into(),
+        429 => t("login.too_many").into(),
         _ => e.message.clone(),
     }
 }
@@ -179,7 +180,7 @@ impl AppWindow {
         let asking = self.pending.borrow().as_ref().is_some_and(|p| p.method.is_some());
         if !asking {
             let Some(server) = session::normalize_server(&self.login.server()) else {
-                self.login.set_error(Some("Invalid server address."));
+                self.login.set_error(Some(t("login.bad_server")));
                 return;
             };
             self.pending.replace(Some(PendingLogin {
@@ -219,7 +220,7 @@ impl AppWindow {
                     }
                     this.login.ask_code(Some(&challenge.method));
                     if was_asked {
-                        this.login.set_error(Some("Invalid code."));
+                        this.login.set_error(Some(t("login.bad_code")));
                     }
                     if challenge.method == "email" && !challenge.code_generated {
                         runtime().spawn(async move { session::request_email_code(&server, &user).await });
@@ -240,7 +241,7 @@ impl AppWindow {
         let session = match started {
             Ok(s) => s,
             Err(e) => {
-                self.show_login(Some(&format!("Cannot open the local database: {e}")));
+                self.show_login(Some(&tf("login.no_database", &[("error", &e.to_string())])));
                 return;
             }
         };
@@ -281,7 +282,7 @@ impl AppWindow {
                     UiEvent::Session(SessionEvent::Expired) => {
                         runtime().spawn(secrets::clear());
                         this.stop_session(true);
-                        this.show_login(Some("Your session has expired. Please sign in again."));
+                        this.show_login(Some(t("login.expired")));
                         return;
                     }
                 }

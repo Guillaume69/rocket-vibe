@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -136,12 +136,28 @@ impl AppWindow {
                 this.logout();
             }
         });
-        let weak = Rc::downgrade(&this);
-        this.chat.connect_room_changed(move |name| {
-            if let Some(this) = weak.upgrade() {
-                let title = name.map_or("rocket-vibe".to_owned(), |n| format!("{n} - rocket-vibe"));
-                this.window.set_title(Some(&title));
+        // "(unread rooms) room - rocket-vibe": the desktop's view of the unread total.
+        let title: Rc<(RefCell<Option<String>>, Cell<usize>)> = Rc::default();
+        let retitle = {
+            let (weak, title) = (Rc::downgrade(&this), title.clone());
+            move || {
+                let Some(this) = weak.upgrade() else { return };
+                let name = title.0.borrow().clone().map_or("rocket-vibe".to_owned(), |n| format!("{n} - rocket-vibe"));
+                let text = match title.1.get() {
+                    0 => name,
+                    n => format!("({n}) {name}"),
+                };
+                this.window.set_title(Some(&text));
             }
+        };
+        let (again, state) = (retitle.clone(), title.clone());
+        this.chat.connect_room_changed(move |name| {
+            state.0.replace(name);
+            again();
+        });
+        this.chat.connect_unread_changed(move |n| {
+            title.1.set(n);
+            retitle();
         });
         let weak = Rc::downgrade(&this);
         this.window.connect_is_active_notify(move |window| {

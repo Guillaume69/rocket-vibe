@@ -32,6 +32,12 @@ struct OpenRoom {
 
 type Callback<T> = RefCell<Vec<Box<dyn Fn(T)>>>;
 
+/// A row of the room list: a section title, or a room.
+enum RoomItem {
+    Header(&'static str),
+    Room(Box<RoomRow>),
+}
+
 pub struct ChatPage {
     split: adw::NavigationSplitView,
     account_name: gtk::Label,
@@ -48,6 +54,9 @@ pub struct ChatPage {
     rooms_store: gio::ListStore,
     rooms_selection: gtk::SingleSelection,
     rooms: RefCell<Vec<RoomRow>>,
+    /// The rid shown at each position of the list; None for a section title.
+    slots: RefCell<Vec<Option<String>>>,
+    on_unread: Callback<usize>,
     suppress_selection: Cell<bool>,
     content_page: adw::NavigationPage,
     content_stack: gtk::Stack,
@@ -79,7 +88,19 @@ impl ChatPage {
         room_factory.connect_bind(move |_, item| {
             let item = item.downcast_ref::<gtk::ListItem>().expect("list item");
             let object = item.item().and_downcast::<glib::BoxedAnyObject>().expect("room");
-            item.set_child(Some(&room_widget(&object.borrow::<RoomRow>(), shared.borrow().as_ref())));
+            let entry = object.borrow::<RoomItem>();
+            match &*entry {
+                RoomItem::Header(title) => {
+                    item.set_selectable(false);
+                    item.set_activatable(false);
+                    item.set_child(Some(&label(title, &["section-header"])));
+                }
+                RoomItem::Room(room) => {
+                    item.set_selectable(true);
+                    item.set_activatable(true);
+                    item.set_child(Some(&room_widget(room, shared.borrow().as_ref())));
+                }
+            }
         });
         let rooms_view = gtk::ListView::new(Some(rooms_selection.clone()), Some(room_factory));
         rooms_view.add_css_class("rooms");
@@ -103,6 +124,12 @@ impl ChatPage {
         sidebar_header.set_title_widget(Some(&brand));
         sidebar_header.pack_start(&status_button);
         sidebar_header.pack_end(&logout);
+        let new_conversation = gtk::Button::builder()
+            .icon_name("list-add-symbolic")
+            .css_classes(["flat"])
+            .tooltip_text(t("rooms.new"))
+            .build();
+        sidebar_header.pack_end(&new_conversation);
         let sidebar_comet = widgets::comet();
 
         let account_tile = gtk::Box::new(gtk::Orientation::Horizontal, 0);
@@ -213,6 +240,8 @@ impl ChatPage {
             rooms_store,
             rooms_selection,
             rooms: RefCell::default(),
+            slots: RefCell::default(),
+            on_unread: RefCell::default(),
             suppress_selection: Cell::new(false),
             content_page,
             content_stack,
@@ -232,6 +261,12 @@ impl ChatPage {
             on_rooms_loaded: RefCell::default(),
         });
         this.wire(&status_button, &logout);
+        let weak = Rc::downgrade(&this);
+        new_conversation.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.new_conversation();
+            }
+        });
         let weak = Rc::downgrade(&this);
         drop.connect_drop(move |_, value, _, _| {
             let (Some(this), Ok(list)) = (weak.upgrade(), value.get::<gdk::FileList>()) else { return false };
@@ -309,7 +344,7 @@ impl ChatPage {
                 return;
             }
             let index = selection.selected();
-            let rid = this.rooms.borrow().get(index as usize).map(|r| r.rid.clone());
+            let rid = this.slots.borrow().get(index as usize).cloned().flatten();
             if let Some(rid) = rid {
                 this.open_room(&rid);
             }
@@ -586,6 +621,51 @@ impl ChatPage {
         }
     }
 
+    fn new_conversation(self: &Rc<Self>) {
+        let Some(session) = self.session() else { return };
+        let (w1, w2) = (Rc::downgrade(self), Rc::downgrade(self));
+        crate::spotlight::open(
+            &self.split,
+            session,
+            move |rid| w1.upgrade().is_some_and(|this| this.rooms.borrow().iter().any(|r| r.rid == rid)),
+            move |found| {
+                if let Some(this) = w2.upgrade() {
+                    this.go_to(found);
+                }
+            },
+        );
+    }
+
+    /// A person: their DM, created if needed. A channel: joined if needed. Then opened.
+    pub fn go_to(self: &Rc<Self>, found: rv_core::rooms::Found) {
+        use rv_core::rooms::Found;
+        let Some(session) = self.session() else { return };
+        let joined = |rid: &str| self.rooms.borrow().iter().any(|r| r.rid == rid);
+        let known = match &found {
+            Found::Room { id, .. } => joined(id),
+            Found::User { .. } => false,
+        };
+        let weak = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            let rid = match found {
+                Found::User { username, .. } => on_tokio(async move { session.open_dm(&username).await }).await,
+                Found::Room { id, .. } if known => Ok(id),
+                Found::Room { id, .. } => {
+                    let rid = id.clone();
+                    on_tokio(async move { session.join_channel(&id).await }).await.map(|()| rid)
+                }
+            };
+            let Some(this) = weak.upgrade() else { return };
+            match rid {
+                Ok(rid) => {
+                    this.reload_rooms();
+                    this.open_room(&rid);
+                }
+                Err(_) => this.toast(t("spotlight.open_failed").to_owned()),
+            }
+        });
+    }
+
     fn attach_files(self: &Rc<Self>, picked: Vec<crate::attach::Picked>) {
         let (Some(session), Some(rid)) = (self.session(), self.current_rid()) else { return };
         let weak = Rc::downgrade(self);
@@ -684,7 +764,30 @@ impl ChatPage {
     fn reload_rooms(&self) {
         let rows = self.session.borrow().as_ref().map(|s| s.store.rooms()).unwrap_or_default();
         if *self.rooms.borrow() != rows {
-            let objects: Vec<glib::BoxedAnyObject> = rows.iter().cloned().map(glib::BoxedAnyObject::new).collect();
+            let sections = rv_core::rooms::sections(&rows);
+            let titled = sections.len() > 1;
+            let mut objects = Vec::new();
+            let mut slots = Vec::new();
+            for (section, members) in sections {
+                if titled {
+                    let title = match section {
+                        rv_core::rooms::Section::Unread => t("rooms.section_unread"),
+                        rv_core::rooms::Section::Channels => t("rooms.section_channels"),
+                        rv_core::rooms::Section::Direct => t("rooms.section_direct"),
+                    };
+                    objects.push(glib::BoxedAnyObject::new(RoomItem::Header(title)));
+                    slots.push(None);
+                }
+                for room in members {
+                    slots.push(Some(room.rid.clone()));
+                    objects.push(glib::BoxedAnyObject::new(RoomItem::Room(Box::new(room))));
+                }
+            }
+            self.slots.replace(slots);
+            let unread = rv_core::rooms::unread_rooms(&rows);
+            for f in self.on_unread.borrow().iter() {
+                f(unread);
+            }
             self.suppress_selection.set(true);
             self.rooms_store.splice(0, self.rooms_store.n_items(), &objects);
             self.suppress_selection.set(false);
@@ -709,7 +812,7 @@ impl ChatPage {
 
     fn select_current(&self, highlight: bool) {
         let current = self.current.borrow().as_ref().map(|r| r.rid.clone());
-        let index = current.filter(|_| highlight).and_then(|rid| self.rooms.borrow().iter().position(|r| r.rid == rid));
+        let index = current.filter(|_| highlight).and_then(|rid| self.position_of(&rid));
         self.suppress_selection.set(true);
         self.rooms_selection.set_selected(index.map_or(gtk::INVALID_LIST_POSITION, |i| i as u32));
         self.suppress_selection.set(false);
@@ -779,7 +882,7 @@ impl ChatPage {
                 }
             });
         }
-        let index = self.rooms.borrow().iter().position(|r| r.rid == rid);
+        let index = self.position_of(rid);
         if let Some(i) = index
             && self.rooms_selection.selected() != i as u32
         {
@@ -865,6 +968,14 @@ impl ChatPage {
         }
     }
 
+    fn position_of(&self, rid: &str) -> Option<usize> {
+        self.slots.borrow().iter().position(|slot| slot.as_deref() == Some(rid))
+    }
+
+    pub fn connect_unread_changed(&self, f: impl Fn(usize) + 'static) {
+        self.on_unread.borrow_mut().push(Box::new(f));
+    }
+
     pub fn room_named(&self, name: &str) -> Option<String> {
         self.rooms.borrow().iter().find(|r| r.name == name).map(|r| r.rid.clone())
     }
@@ -875,7 +986,7 @@ impl ChatPage {
 
     /// What a tap on the room's row does: select it in the list.
     pub fn tap_room(&self, rid: &str) {
-        let index = self.rooms.borrow().iter().position(|r| r.rid == rid);
+        let index = self.position_of(rid);
         if let Some(i) = index {
             self.rooms_selection.set_selected(i as u32);
         }

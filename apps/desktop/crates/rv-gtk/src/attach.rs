@@ -205,7 +205,7 @@ pub fn confirm(
     caption.grab_focus();
 }
 
-fn send_all(
+pub fn send_all(
     session: Arc<Session>,
     rid: String,
     items: Vec<(Picked, String)>,

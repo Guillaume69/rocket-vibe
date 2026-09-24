@@ -13,6 +13,7 @@
 //!   RV_SMOKE_DRAFTS=<other room>  completes `@bo` and `:smil`, leaves a draft, opens the
 //!                          other room and comes back: the draft must be restored
 //!   RV_SMOKE_FILES=1       fetches every file attached in the room to the local cache
+//!   RV_SMOKE_UPLOAD="<path>|<caption>"  sends the file as the dialog's Send does, images reduced
 //!   RV_SMOKE_REENTER=1     after opening the room: back to the list, tap the same room, expect it open
 //! A failed expectation makes the process exit with status 1.
 
@@ -92,6 +93,21 @@ pub fn install(window: &Rc<AppWindow>) {
             if std::env::var("RV_SMOKE_FILES").as_deref() == Ok("1") {
                 let chat = w.chat.clone();
                 glib::timeout_add_local_once(Duration::from_millis(2000), move || file_checks(chat));
+            }
+            if let Ok(spec) = std::env::var("RV_SMOKE_UPLOAD")
+                && let Some((path, caption)) = spec.split_once('|')
+                && let Some(session) = w.chat.session()
+            {
+                let item = crate::attach::Picked { path: path.into(), name: "stripes.png".into(), temporary: false };
+                let mime = crate::attach::mime_of(&item.path);
+                let (rid, caption) = (rid.clone(), caption.to_owned());
+                let toast: std::rc::Rc<dyn Fn(String)> = std::rc::Rc::new(|text| {
+                    println!("smoke: upload refused: {text}");
+                    FAILED.store(true, Ordering::SeqCst);
+                });
+                glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+                    crate::attach::send_all(session, rid, vec![(item, mime)], caption, true, toast)
+                });
             }
             if std::env::var("RV_SMOKE_REENTER").as_deref() == Ok("1") {
                 let chat = w.chat.clone();

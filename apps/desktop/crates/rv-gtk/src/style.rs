@@ -164,7 +164,6 @@ button.send {
   min-width: 44px;
   min-height: 44px;
   padding: 0;
-  -gtk-icon-size: 18px;
   box-shadow: 0 6px 16px -6px rgba(255, 95, 162, 0.7);
 }
 "#;

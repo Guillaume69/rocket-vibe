@@ -123,6 +123,32 @@ pub fn unread_badge(unread: i64, mentions: i64) -> gtk::Label {
     gtk::Label::builder().label(text).css_classes(["badge", class]).valign(gtk::Align::Center).build()
 }
 
+/// Send glyph drawn with Cairo, centred on the button whatever the icon theme:
+/// themed arrows (Papirus, Breeze) sit off-centre in their own canvas.
+pub fn send_arrow() -> gtk::DrawingArea {
+    let area = gtk::DrawingArea::builder()
+        .content_width(20)
+        .content_height(20)
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
+        .can_target(false)
+        .build();
+    area.set_draw_func(|_, cr, w, h| {
+        let (cx, cy) = (w as f64 / 2.0, h as f64 / 2.0);
+        cr.set_source_rgb(0.043, 0.035, 0.075);
+        cr.set_line_width(2.4);
+        cr.set_line_cap(gtk::cairo::LineCap::Round);
+        cr.set_line_join(gtk::cairo::LineJoin::Round);
+        cr.move_to(cx, cy + 6.5);
+        cr.line_to(cx, cy - 6.5);
+        cr.move_to(cx - 5.5, cy - 1.0);
+        cr.line_to(cx, cy - 6.5);
+        cr.line_to(cx + 5.5, cy - 1.0);
+        let _ = cr.stroke();
+    });
+    area
+}
+
 /// Thin brand-gradient comet sweeping a header's bottom edge while syncing.
 pub fn comet() -> gtk::Box {
     gtk::Box::builder().css_classes(["comet"]).height_request(3).hexpand(true).build()

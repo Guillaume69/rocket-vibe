@@ -3,6 +3,7 @@
 Clients **Rocket.Chat** tiers, en monorepo. Ce fichier est rechargé à chaque session. Il porte ce qui coûte cher à redécouvrir.
 
 - `apps/mobile/` — l'app mobile, Android d'abord, en Expo / React Native. **Ses commandes (`npm`, `npx`) se lancent depuis `apps/mobile/`.**
+- `apps/desktop/` — l'app bureau, en Rust (cœur sans UI `rv-core`, interface GTK 4 + libadwaita `rv-gtk`). **Tout build dans le conteneur Fedora de `apps/desktop/docker/`** via `apps/desktop/scripts/build.sh` (fmt, clippy `-D warnings`, tests) ; `scripts/smoke.sh` et `scripts/e2e*.sh` la font tourner sous Xvfb contre le serveur de test. Sa parité avec le mobile : `apps/desktop/docs/PARITY.md`.
 - `docker/`, `scripts/` — le serveur Rocket.Chat de test et ses données, partagés par les apps.
 
 - `ROADMAP.md` — les décisions et leur justification. Bouge rarement.

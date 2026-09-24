@@ -6,6 +6,8 @@
 //!   RV_SMOKE_EXPECT        `|`-separated texts the open room must show by then
 //!   RV_SMOKE_EXPECT_ABSENT `|`-separated texts it must NOT show
 //!   RV_SMOKE_SIZE          `WIDTHxHEIGHT` of the window
+//!   RV_SMOKE_COMPOSER=1    checks the composer: no window handle around it, a scrollbar
+//!                          only once it overflows, one line high when short
 //!   RV_SMOKE_REENTER=1     after opening the room: back to the list, tap the same room, expect it open
 //! A failed expectation makes the process exit with status 1.
 
@@ -65,6 +67,27 @@ pub fn install(window: &Rc<AppWindow>) {
             let Some(rid) = w.chat.room_named(&room) else { return };
             opened.set(true);
             w.chat.open_room(&rid);
+            if std::env::var("RV_SMOKE_COMPOSER").as_deref() == Ok("1") {
+                let chat = w.chat.clone();
+                glib::timeout_add_local_once(Duration::from_millis(2000), move || {
+                    let handle = chat.composer_in_window_handle();
+                    println!("smoke: composer in window handle: {handle}");
+                    chat.set_composer_text(&"a long draft line\n".repeat(30));
+                    glib::timeout_add_local_once(Duration::from_millis(600), move || {
+                        let (tall, tall_bar) = chat.composer_scroll_state();
+                        chat.set_composer_text("hi");
+                        glib::timeout_add_local_once(Duration::from_millis(600), move || {
+                            let (short, short_bar) = chat.composer_scroll_state();
+                            println!("smoke: composer overflowing: {tall}px scrollbar={tall_bar}");
+                            println!("smoke: composer one line: {short}px scrollbar={short_bar}");
+                            if handle || !tall_bar || short_bar || short > 40 || tall > 170 {
+                                FAILED.store(true, Ordering::SeqCst);
+                            }
+                            chat.set_composer_text(&"a long draft line\n".repeat(30));
+                        });
+                    });
+                });
+            }
             if std::env::var("RV_SMOKE_REENTER").as_deref() == Ok("1") {
                 let chat = w.chat.clone();
                 glib::timeout_add_local_once(Duration::from_millis(2500), move || {

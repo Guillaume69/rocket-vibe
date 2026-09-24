@@ -1081,6 +1081,22 @@ impl ChatPage {
         !self.split.is_collapsed() || self.split.shows_content()
     }
 
+    /// A composer inside a `GtkWindowHandle` turns a double click into "maximize".
+    pub fn composer_in_window_handle(&self) -> bool {
+        self.composer.ancestor(gtk::WindowHandle::static_type()).is_some()
+    }
+
+    pub fn set_composer_text(&self, text: &str) {
+        self.composer.buffer().set_text(text);
+    }
+
+    /// (height of the composer's scroller, its vertical scrollbar shown)
+    pub fn composer_scroll_state(&self) -> (i32, bool) {
+        let scroller = self.composer.parent().and_downcast::<gtk::ScrolledWindow>().expect("composer scroller");
+        let bar = scroller.vscrollbar();
+        (scroller.height(), bar.is_visible() && bar.is_child_visible())
+    }
+
     pub fn composer_text(&self) -> String {
         let buffer = self.composer.buffer();
         buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string()

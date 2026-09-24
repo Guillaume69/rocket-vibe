@@ -25,6 +25,18 @@ so the binary runs natively:
 The session token lives in the Secret Service (KWallet or GNOME Keyring),
 never on disk.
 
+What the Android app does and where this one stands: `docs/PARITY.md`.
+
+## Desktop integration
+
+```sh
+PROFILE=release scripts/build.sh
+scripts/install-desktop.sh        # launcher entry, rocketvibe:// links
+```
+
+Voice messages record through GStreamer: the host needs its Opus, Ogg and
+PulseAudio or PipeWire plugins (Fedora ships them with a desktop install).
+
 ## Headless smoke run
 
 Logs in, opens a room, optionally sends a message, saves a screenshot and

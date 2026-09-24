@@ -1106,11 +1106,16 @@ impl ChatPage {
         self.composer.buffer().set_text(text);
     }
 
-    /// (height of the composer's scroller, its vertical scrollbar shown)
-    pub fn composer_scroll_state(&self) -> (i32, bool) {
+    /// Types at the cursor, as the keyboard would.
+    pub fn type_in_composer(&self, text: &str) {
+        self.composer.buffer().insert_at_cursor(text);
+    }
+
+    /// (height of the composer's scroller, its vertical scrollbar shown, scroll offset)
+    pub fn composer_scroll_state(&self) -> (i32, bool, f64) {
         let scroller = self.composer.parent().and_downcast::<gtk::ScrolledWindow>().expect("composer scroller");
         let bar = scroller.vscrollbar();
-        (scroller.height(), bar.is_visible() && bar.is_child_visible())
+        (scroller.height(), bar.is_visible() && bar.is_child_visible(), scroller.vadjustment().value())
     }
 
     pub fn composer_text(&self) -> String {

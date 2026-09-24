@@ -69,24 +69,7 @@ pub fn install(window: &Rc<AppWindow>) {
             w.chat.open_room(&rid);
             if std::env::var("RV_SMOKE_COMPOSER").as_deref() == Ok("1") {
                 let chat = w.chat.clone();
-                glib::timeout_add_local_once(Duration::from_millis(2000), move || {
-                    let handle = chat.composer_in_window_handle();
-                    println!("smoke: composer in window handle: {handle}");
-                    chat.set_composer_text(&"a long draft line\n".repeat(30));
-                    glib::timeout_add_local_once(Duration::from_millis(600), move || {
-                        let (tall, tall_bar) = chat.composer_scroll_state();
-                        chat.set_composer_text("hi");
-                        glib::timeout_add_local_once(Duration::from_millis(600), move || {
-                            let (short, short_bar) = chat.composer_scroll_state();
-                            println!("smoke: composer overflowing: {tall}px scrollbar={tall_bar}");
-                            println!("smoke: composer one line: {short}px scrollbar={short_bar}");
-                            if handle || !tall_bar || short_bar || short > 40 || tall > 170 {
-                                FAILED.store(true, Ordering::SeqCst);
-                            }
-                            chat.set_composer_text(&"a long draft line\n".repeat(30));
-                        });
-                    });
-                });
+                glib::timeout_add_local_once(Duration::from_millis(2000), move || composer_checks(chat));
             }
             if std::env::var("RV_SMOKE_REENTER").as_deref() == Ok("1") {
                 let chat = w.chat.clone();
@@ -148,4 +131,59 @@ pub fn install(window: &Rc<AppWindow>) {
         println!("smoke: screenshot saved {}", saved.unwrap_or(false));
         w.window.application().expect("application").quit();
     });
+}
+
+type Check = Box<dyn FnOnce(&crate::chat::ChatPage)>;
+
+/// Runs the steps one after another, a beat apart, so the view relayouts between them.
+fn in_sequence(chat: std::rc::Rc<crate::chat::ChatPage>, mut steps: std::collections::VecDeque<Check>) {
+    let Some(step) = steps.pop_front() else { return };
+    step(&chat);
+    glib::timeout_add_local_once(Duration::from_millis(40), move || in_sequence(chat, steps));
+}
+
+fn composer_state(label: &str, chat: &crate::chat::ChatPage, want_bar: bool, max_height: i32) {
+    let (height, bar, offset) = chat.composer_scroll_state();
+    let ok = bar == want_bar && height <= max_height && (want_bar || offset == 0.0);
+    println!(
+        "smoke: composer {label}: {height}px scrollbar={bar} offset={offset} {}",
+        if ok { "ok" } else { "FAILED" }
+    );
+    if !ok {
+        FAILED.store(true, Ordering::SeqCst);
+    }
+}
+
+/// The composer: no window handle around it; typed text that wraps grows it
+/// without scrolling; past 160 px it scrolls, with a scrollbar; back to one line.
+fn composer_checks(chat: std::rc::Rc<crate::chat::ChatPage>) {
+    let handle = chat.composer_in_window_handle();
+    println!("smoke: composer in window handle: {handle}");
+    if handle {
+        FAILED.store(true, Ordering::SeqCst);
+    }
+    let mut steps: std::collections::VecDeque<Check> = std::collections::VecDeque::new();
+    steps.push_back(Box::new(|c| c.set_composer_text("")));
+    for i in 0..132 {
+        let key = if i % 11 == 10 { " " } else { "a" };
+        steps.push_back(Box::new(move |c| c.type_in_composer(key)));
+    }
+    for _ in 0..5 {
+        steps.push_back(Box::new(|_| {}));
+    }
+    steps.push_back(Box::new(|c| composer_state("two lines typed", c, false, 44)));
+    for _ in 0..12 {
+        steps.push_back(Box::new(|c| c.type_in_composer("\nanother line")));
+    }
+    for _ in 0..5 {
+        steps.push_back(Box::new(|_| {}));
+    }
+    steps.push_back(Box::new(|c| composer_state("overflowing", c, true, 170)));
+    steps.push_back(Box::new(|c| c.set_composer_text("hi")));
+    for _ in 0..5 {
+        steps.push_back(Box::new(|_| {}));
+    }
+    steps.push_back(Box::new(|c| composer_state("one line", c, false, 40)));
+    steps.push_back(Box::new(|c| c.set_composer_text(&"aaaaaaaaaa ".repeat(12))));
+    in_sequence(chat, steps);
 }

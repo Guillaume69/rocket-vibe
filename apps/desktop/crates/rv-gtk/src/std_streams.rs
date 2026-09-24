@@ -21,7 +21,11 @@ unsafe extern "C" {
 
 unsafe extern "system" {
     fn SetStdHandle(which: u32, handle: *mut c_void) -> i32;
+    fn GetStdHandle(which: u32) -> *mut c_void;
+    fn GetFileType(handle: *mut c_void) -> u32;
 }
+
+const FILE_TYPE_UNKNOWN: u32 = 0;
 
 fn wide(s: &std::ffi::OsStr) -> Vec<u16> {
     s.encode_wide().chain(std::iter::once(0)).collect()
@@ -31,10 +35,12 @@ fn reopen(index: u32, which: u32, path: &std::ffi::OsStr) {
     // SAFETY: CRT calls on the process's own standard FILE objects, with
     // NUL-terminated wide strings that outlive the calls.
     unsafe {
-        let stream = __acrt_iob_func(index);
-        if _fileno(stream) >= 0 {
+        // Started from a shell or a link, the handles may be missing or
+        // inherited without anything behind them: both read as unknown.
+        if GetFileType(GetStdHandle(which)) != FILE_TYPE_UNKNOWN {
             return;
         }
+        let stream = __acrt_iob_func(index);
         let mode = wide(std::ffi::OsStr::new("w"));
         if _wfreopen(wide(path).as_ptr(), mode.as_ptr(), stream).is_null() {
             return;
@@ -51,4 +57,5 @@ pub fn ensure() {
     let _ = std::fs::create_dir_all(&dir);
     reopen(1, STD_OUTPUT_HANDLE, std::ffi::OsStr::new("NUL"));
     reopen(2, STD_ERROR_HANDLE, dir.join("rocket-vibe.log").as_os_str());
+    eprintln!("rocket-vibe {} started", env!("CARGO_PKG_VERSION"));
 }

@@ -236,7 +236,10 @@ fn image_widget(session: &Arc<Session>, image: &ImageAttachment) -> gtk::Widget 
     });
     let click = gtk::GestureClick::new();
     let (session, source) = (session.clone(), image.source.clone());
-    let title = image.title.clone().unwrap_or_else(|| "Image".to_owned());
+    if let Some(alt) = &image.alt {
+        frame.set_tooltip_text(Some(alt));
+    }
+    let title = image.alt.clone().or_else(|| image.title.clone()).unwrap_or_else(|| "Image".to_owned());
     click.connect_released(move |gesture, _, _, _| {
         let Some(widget) = gesture.widget() else { return };
         let title = title.clone();

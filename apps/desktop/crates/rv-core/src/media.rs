@@ -72,6 +72,8 @@ pub struct ImageAttachment {
     pub height: Option<i64>,
     pub title: Option<String>,
     pub description: Option<String>,
+    /// 8.5 stores the text typed with an upload here, as the image's alt text.
+    pub alt: Option<String>,
 }
 
 pub fn image_attachments(json: Option<&str>) -> Vec<ImageAttachment> {
@@ -86,6 +88,7 @@ pub fn image_attachments(json: Option<&str>) -> Vec<ImageAttachment> {
                 height: a.pointer("/image_dimensions/height").and_then(Value::as_i64),
                 title: text(a, "title"),
                 description: text(a, "description"),
+                alt: text(a, "image_alt"),
             })
         })
         .collect()
@@ -173,7 +176,7 @@ mod tests {
     #[test]
     fn image_attachments_prefer_the_original() {
         let json = r#"[{"title":"cat.png","title_link":"/file-upload/1/cat.png","image_url":"/file-upload/2/thumb-cat.png",
-            "image_dimensions":{"width":480,"height":360},"description":"my cat"},
+            "image_dimensions":{"width":480,"height":360},"description":"my cat","image_alt":"a cat"},
             {"title":"doc.pdf","title_link":"/file-upload/3/doc.pdf"},
             {"image_url":"/file-upload/4/only.png"}]"#;
         let images = image_attachments(Some(json));
@@ -181,6 +184,7 @@ mod tests {
         assert_eq!(images[0].source, "/file-upload/1/cat.png");
         assert_eq!((images[0].width, images[0].height), (Some(480), Some(360)));
         assert_eq!(images[0].description.as_deref(), Some("my cat"));
+        assert_eq!(images[0].alt.as_deref(), Some("a cat"));
         assert_eq!(images[1].source, "/file-upload/4/only.png");
         assert!(image_attachments(None).is_empty());
         assert!(image_attachments(Some("not json")).is_empty());

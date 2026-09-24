@@ -509,16 +509,31 @@ impl ChatPage {
             .top_margin(0)
             .bottom_margin(0)
             .build();
-        // `External`: still scrolls past 160 px, but without a scrollbar whose
-        // minimum height would make a one-line composer twice as tall.
         let composer_scroll = gtk::ScrolledWindow::builder()
             .hscrollbar_policy(gtk::PolicyType::Never)
             .vscrollbar_policy(gtk::PolicyType::External)
             .propagate_natural_height(true)
             .max_content_height(160)
+            .overlay_scrolling(false)
             .child(&composer)
             .hexpand(true)
             .build();
+        // A scrollbar only once the draft overflows: shown on a short draft, its
+        // minimum length made a one-line composer twice as tall.
+        composer_scroll.vadjustment().connect_changed(glib::clone!(
+            #[weak]
+            composer_scroll,
+            move |adj| {
+                let policy = if adj.upper() > adj.page_size() + 1.0 {
+                    gtk::PolicyType::Automatic
+                } else {
+                    gtk::PolicyType::External
+                };
+                if composer_scroll.vscrollbar_policy() != policy {
+                    composer_scroll.set_vscrollbar_policy(policy);
+                }
+            }
+        ));
         let composer_pill =
             gtk::Box::builder().css_classes(["composer-pill"]).hexpand(true).valign(gtk::Align::End).build();
         let placeholder = gtk::Label::builder()
@@ -560,11 +575,13 @@ impl ChatPage {
         let room_view = adw::ToolbarView::new();
         room_view.add_top_bar(&room_header);
         room_view.add_top_bar(&room_comet);
-        room_view.set_content(Some(&messages_scroll));
-        let bottom = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        bottom.append(&composer_bar);
-        bottom.append(&read_only_label);
-        room_view.add_bottom_bar(&bottom);
+        // The composer is content, not a bottom bar: libadwaita wraps bars in a
+        // GtkWindowHandle, where a double click maximizes the window.
+        let room_content = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        room_content.append(&messages_scroll);
+        room_content.append(&composer_bar);
+        room_content.append(&read_only_label);
+        room_view.set_content(Some(&room_content));
 
         let empty = adw::ToolbarView::new();
         empty.add_top_bar(&adw::HeaderBar::builder().show_title(false).build());

@@ -24,6 +24,22 @@ bureau avec le mobile est suivie dans [`apps/desktop/docs/PARITY.md`](apps/deskt
   node ../scripts/seed.mjs                              # alice, bob, salons de test, idempotent
   ```
 
+## CI, versions et releases
+
+Deux workflows GitHub Actions, chacun ne tournant que si son app (ou lui-même) change :
+
+- **`mobile`** — typecheck, lint, tests, puis un APK Android de release (`expo prebuild` +
+  Gradle sur le runner, jamais EAS). Il lit `google-services.json` dans le secret
+  `GOOGLE_SERVICES_JSON`.
+- **`desktop`** — Linux (même Fedora que le build local : fmt, clippy, tous les tests,
+  une archive), Windows (MSYS2, un zip autonome) et macOS (Homebrew, une archive qui
+  demande `brew install gtk4 libadwaita gstreamer`).
+
+`node scripts/version.mjs mobile|desktop` donne la version d'une app et vérifie sa
+cohérence. Pour publier : monter la version, puis pousser un tag `mobile-vX.Y.Z` ou
+`desktop-vX.Y.Z` — le workflow vérifie qu'il correspond et crée la release GitHub avec
+ses binaires.
+
 ## Licence & statut
 
 Projet personnel, en développement actif. Branche principale : **`master`**.

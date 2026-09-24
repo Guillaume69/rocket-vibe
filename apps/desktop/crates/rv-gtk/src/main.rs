@@ -1,9 +1,12 @@
 mod chat;
+mod composer;
 mod fonts;
 mod i18n;
 mod login;
 mod markdown_view;
 mod media;
+mod message_list;
+mod rows;
 mod secrets;
 mod smoke;
 mod style;

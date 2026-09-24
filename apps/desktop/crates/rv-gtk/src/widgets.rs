@@ -2,7 +2,13 @@
 //! the gradient logotype, the glowing call-to-action, pill fields, the yellow
 //! unread capsule and the sync comet.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use gtk::prelude::*;
+
+/// A replaceable callback slot on a component.
+pub type Handler<T> = RefCell<Option<Rc<dyn Fn(T)>>>;
 
 const BRAND_STOPS: [(u8, u8, u8); 3] = [(0xFF, 0x5F, 0xA2), (0xA7, 0x8B, 0xFA), (0x34, 0xE1, 0xD0)];
 const AVATAR_GRADIENTS: usize = 7;

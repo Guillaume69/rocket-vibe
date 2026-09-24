@@ -100,7 +100,7 @@ pub fn install(window: &Rc<AppWindow>) {
     glib::timeout_add_local_once(Duration::from_millis(delay), move || {
         let Some(w) = weak.upgrade() else { return };
         println!("smoke: rooms {} messages {}", w.chat.room_count(), w.chat.message_count());
-        println!("smoke: composer {:?}", w.chat.composer_text());
+        println!("smoke: composer {:?}", w.chat.composer().text());
         let texts = w.chat.message_texts();
         for wanted in list("RV_SMOKE_EXPECT") {
             let found = texts.iter().filter(|t| t.contains(&wanted)).count();
@@ -143,7 +143,7 @@ fn in_sequence(chat: std::rc::Rc<crate::chat::ChatPage>, mut steps: std::collect
 }
 
 fn composer_state(label: &str, chat: &crate::chat::ChatPage, want_bar: bool, max_height: i32) {
-    let (height, bar, offset) = chat.composer_scroll_state();
+    let (height, bar, offset) = chat.composer().scroll_state();
     let ok = bar == want_bar && height <= max_height && (want_bar || offset == 0.0);
     println!(
         "smoke: composer {label}: {height}px scrollbar={bar} offset={offset} {}",
@@ -157,33 +157,33 @@ fn composer_state(label: &str, chat: &crate::chat::ChatPage, want_bar: bool, max
 /// The composer: no window handle around it; typed text that wraps grows it
 /// without scrolling; past 160 px it scrolls, with a scrollbar; back to one line.
 fn composer_checks(chat: std::rc::Rc<crate::chat::ChatPage>) {
-    let handle = chat.composer_in_window_handle();
+    let handle = chat.composer().in_window_handle();
     println!("smoke: composer in window handle: {handle}");
     if handle {
         FAILED.store(true, Ordering::SeqCst);
     }
     let mut steps: std::collections::VecDeque<Check> = std::collections::VecDeque::new();
-    steps.push_back(Box::new(|c| c.set_composer_text("")));
+    steps.push_back(Box::new(|c| c.composer().set_text("")));
     for i in 0..132 {
         let key = if i % 11 == 10 { " " } else { "a" };
-        steps.push_back(Box::new(move |c| c.type_in_composer(key)));
+        steps.push_back(Box::new(move |c| c.composer().type_text(key)));
     }
     for _ in 0..5 {
         steps.push_back(Box::new(|_| {}));
     }
     steps.push_back(Box::new(|c| composer_state("two lines typed", c, false, 44)));
     for _ in 0..12 {
-        steps.push_back(Box::new(|c| c.type_in_composer("\nanother line")));
+        steps.push_back(Box::new(|c| c.composer().type_text("\nanother line")));
     }
     for _ in 0..5 {
         steps.push_back(Box::new(|_| {}));
     }
     steps.push_back(Box::new(|c| composer_state("overflowing", c, true, 170)));
-    steps.push_back(Box::new(|c| c.set_composer_text("hi")));
+    steps.push_back(Box::new(|c| c.composer().set_text("hi")));
     for _ in 0..5 {
         steps.push_back(Box::new(|_| {}));
     }
     steps.push_back(Box::new(|c| composer_state("one line", c, false, 40)));
-    steps.push_back(Box::new(|c| c.set_composer_text(&"aaaaaaaaaa ".repeat(12))));
+    steps.push_back(Box::new(|c| c.composer().set_text(&"aaaaaaaaaa ".repeat(12))));
     in_sequence(chat, steps);
 }

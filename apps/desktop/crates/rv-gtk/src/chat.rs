@@ -327,6 +327,32 @@ impl ChatPage {
             }
         });
         let weak = Rc::downgrade(&this);
+        crate::markdown_view::set_custom_emoji(move |code| {
+            let session = weak.upgrade()?.session()?;
+            let path = session.custom_emoji(code)?;
+            let frame = gtk::Overlay::builder()
+                .width_request(22)
+                .height_request(22)
+                .valign(gtk::Align::Center)
+                .css_classes(["custom-emoji"])
+                .tooltip_text(format!(":{code}:"))
+                .build();
+            frame.set_child(Some(&gtk::Box::new(gtk::Orientation::Vertical, 0)));
+            let target = frame.downgrade();
+            crate::media::load(&session, &path, move |texture| {
+                if let Some(frame) = target.upgrade() {
+                    frame.add_overlay(
+                        &gtk::Picture::builder()
+                            .paintable(texture)
+                            .content_fit(gtk::ContentFit::Contain)
+                            .can_shrink(true)
+                            .build(),
+                    );
+                }
+            });
+            Some(frame.upcast())
+        });
+        let weak = Rc::downgrade(&this);
         crate::markdown_view::set_link_handler(move |uri| {
             let Some(this) = weak.upgrade() else { return false };
             if let Some(username) = uri.strip_prefix("rv-user:") {

@@ -5,9 +5,48 @@ use gtk::{glib, pango};
 use rv_core::markdown::Block;
 
 type LinkHandler = std::rc::Rc<dyn Fn(&str) -> bool>;
+type EmojiImage = std::rc::Rc<dyn Fn(&str) -> Option<gtk::Widget>>;
 
 thread_local! {
     static LINKS: std::cell::RefCell<Option<LinkHandler>> = const { std::cell::RefCell::new(None) };
+    static CUSTOM_EMOJI: std::cell::RefCell<Option<EmojiImage>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The image of a custom emoji, by shortcode; None when the server has no such emoji.
+pub fn set_custom_emoji(f: impl Fn(&str) -> Option<gtk::Widget> + 'static) {
+    CUSTOM_EMOJI.with_borrow_mut(|h| *h = Some(std::rc::Rc::new(f)));
+}
+
+pub fn custom_emoji(code: &str) -> Option<gtk::Widget> {
+    CUSTOM_EMOJI.with_borrow(Clone::clone).and_then(|f| f(code))
+}
+
+/// Text with custom emoji drawn inline: a label cannot hold pictures, a
+/// read-only text view can.
+fn with_images(markup: &str, classes: &[&str]) -> gtk::Widget {
+    let view = gtk::TextView::builder()
+        .editable(false)
+        .cursor_visible(false)
+        .wrap_mode(gtk::WrapMode::WordChar)
+        .focusable(false)
+        .css_classes(classes.to_vec())
+        .build();
+    view.add_css_class("inline-images");
+    let buffer = view.buffer();
+    for piece in rv_core::markdown::pieces(markup) {
+        let mut end = buffer.end_iter();
+        match piece {
+            rv_core::markdown::Piece::Markup(m) => buffer.insert_markup(&mut end, m),
+            rv_core::markdown::Piece::Custom(code) => match custom_emoji(code) {
+                Some(image) => {
+                    let anchor = buffer.create_child_anchor(&mut end);
+                    view.add_child_at_anchor(&image, &anchor);
+                }
+                None => buffer.insert(&mut end, &format!(":{code}:")),
+            },
+        }
+    }
+    view.upcast()
 }
 
 /// Our own links (`rv-user:`, `rv-room:`): the handler says whether it took one.
@@ -39,6 +78,9 @@ fn with<'a>(base: &'a str, extra: &[&'a str]) -> Vec<&'a str> {
 
 fn block(b: &Block, extra: &[&str]) -> gtk::Widget {
     match b {
+        Block::Paragraph(markup) if markup.contains(rv_core::markdown::CUSTOM_MARK) => {
+            with_images(markup, &with("message-body", extra))
+        }
         Block::Paragraph(markup) => text(markup, &with("message-body", extra)).upcast(),
         Block::Heading { level, markup } => text(markup, &with(&format!("md-h{level}"), extra)).upcast(),
         Block::Quote(inner) => {

@@ -427,12 +427,22 @@ pub fn message_widget(d: &Display, my_id: &str, session: Option<&Arc<Session>>, 
             .margin_top(4)
             .build();
         for reaction in reactions {
-            let glyph =
-                rv_core::emoji::unicode(&reaction.shortcode).map_or_else(|| reaction.shortcode.clone(), str::to_owned);
             let chip = gtk::Button::builder()
-                .label(format!("{glyph} {}", reaction.count))
                 .css_classes(if reaction.mine { vec!["reaction", "mine"] } else { vec!["reaction"] })
                 .build();
+            let code = reaction.shortcode.trim_matches(':');
+            match rv_core::emoji::unicode(&reaction.shortcode).map(str::to_owned) {
+                Some(glyph) => chip.set_label(&format!("{glyph} {}", reaction.count)),
+                None => {
+                    let content = gtk::Box::builder().spacing(4).build();
+                    match markdown_view::custom_emoji(code) {
+                        Some(image) => content.append(&image),
+                        None => content.append(&gtk::Label::new(Some(&reaction.shortcode))),
+                    }
+                    content.append(&gtk::Label::new(Some(&reaction.count.to_string())));
+                    chip.set_child(Some(&content));
+                }
+            }
             let (on_event, id) = (on_event.clone(), row.id.clone());
             chip.connect_clicked(move |_| {
                 on_event(RowEvent::React { id: id.clone(), shortcode: reaction.shortcode.clone(), add: !reaction.mine })

@@ -147,6 +147,8 @@ button.attach-button { min-width: 28px; min-height: 24px; padding: 0 2px; color:
 .probe.bad { color: #FF7A8A; }
 button.known-server { background: #171529; border: 1px solid #2C2946; border-radius: 999px; padding: 2px 12px; min-height: 26px; font-size: 12.5px; }
 .e2e-banner { background: #171529; border: 1px solid #2C2946; border-radius: 12px; padding: 8px 12px; margin: 8px 16px 0 16px; }
+textview.inline-images, textview.inline-images text { background: transparent; color: #E7E3F5; }
+.custom-emoji { min-width: 22px; min-height: 22px; }
 .new-marker { color: #FF5FA2; font-weight: 800; font-size: 12px; }
 .new-line { background: #FF5FA2; min-height: 1px; opacity: 0.6; }
 .typing { color: #A78BFA; font-size: 12px; font-style: italic; margin: 0 22px 2px 22px; }

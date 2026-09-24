@@ -31,6 +31,7 @@ pub struct Composer {
     offered: RefCell<Vec<(usize, String)>>,
     mentions: RefCell<Option<MentionSource>>,
     on_files: Handler<Vec<Picked>>,
+    custom_emoji: RefCell<Option<MentionSource>>,
 }
 
 type MentionSource = Rc<dyn Fn(&str) -> Vec<String>>;
@@ -175,6 +176,7 @@ impl Composer {
             offered: RefCell::default(),
             mentions: RefCell::default(),
             on_files: RefCell::default(),
+            custom_emoji: RefCell::default(),
         });
         let weak = Rc::downgrade(&this);
         attach.connect_clicked(move |button| {
@@ -322,6 +324,8 @@ impl Composer {
         self.set_mention_source(move |prefix| {
             rv_core::completion::mentions(prefix, &store.recent_authors(&rid, 30), &me, 8)
         });
+        let s = session.clone();
+        self.custom_emoji.replace(Some(Rc::new(move |prefix: &str| s.custom_emoji_codes(prefix))));
     }
 
     /// Usernames offered after `@`, given the prefix typed.
@@ -348,10 +352,19 @@ impl Composer {
                     .map(|name| (format!("@{name}"), q.start, format!("@{name} ")))
                     .collect()
             }
-            Some(q) => rv_core::emoji::complete(&q.prefix, 8)
-                .into_iter()
-                .map(|(code, glyph)| (format!("{glyph}  :{code}:"), q.start, format!("{glyph} ")))
-                .collect(),
+            Some(q) => {
+                let custom = self.custom_emoji.borrow().clone().map(|f| f(&q.prefix)).unwrap_or_default();
+                custom
+                    .into_iter()
+                    .map(|code| (format!(":{code}:"), q.start, format!(":{code}: ")))
+                    .chain(
+                        rv_core::emoji::complete(&q.prefix, 8)
+                            .into_iter()
+                            .map(|(code, glyph)| (format!("{glyph}  :{code}:"), q.start, format!("{glyph} "))),
+                    )
+                    .take(8)
+                    .collect()
+            }
             None => Vec::new(),
         };
         while let Some(row) = self.choices.first_child() {

@@ -15,6 +15,7 @@ pub const STREAM_NOTIFY_ROOM: &str = "stream-notify-room";
 /// One key on `stream-room-messages` covers new messages and edits of EVERY
 /// room of the user. Deletions are not on it: they stay per room.
 pub const MY_MESSAGES: &str = "__my_messages__";
+const DELETED_CURSOR: &str = "messages-deleted";
 pub const HISTORY_PAGE: i64 = 50;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -150,6 +151,81 @@ impl SyncEngine {
                 w.write_cursor("*", "subscriptions", c);
             }
         });
+        Ok(())
+    }
+
+    /// Rooms I left or that were deleted while nothing listened: whatever
+    /// the full subscription list no longer has goes. An empty list is not
+    /// trusted to mean "no rooms".
+    pub async fn reconcile_rooms(&self) -> Result<(), RestError> {
+        let response = self.rest.get("subscriptions.get", CallOptions::default()).await?;
+        let live: Vec<String> = response
+            .get("update")
+            .and_then(Value::as_array)
+            .map(|list| list.iter().filter_map(|s| s.get("rid")?.as_str().map(str::to_owned)).collect())
+            .unwrap_or_default();
+        if !live.is_empty() {
+            self.store.write(|w| w.purge_rooms_except(&live));
+        }
+        Ok(())
+    }
+
+    /// Edits and deletions in the room since its cursor, which the stream
+    /// may have missed. `chat.syncMessages` takes one room and one kind per
+    /// call; two pages at most per kind, the cursor keeps the rest for later.
+    pub async fn catch_up_room(&self, rid: &str) -> Result<(), RestError> {
+        let Some(since) = self.store.cursor(rid, "messages") else { return Ok(()) };
+        self.sync_pages(rid, "UPDATED", "messages", since).await?;
+        match self.store.cursor(rid, DELETED_CURSOR) {
+            Some(deleted_since) => self.sync_pages(rid, "DELETED", DELETED_CURSOR, deleted_since).await,
+            None => {
+                self.store.write(|w| w.write_cursor(rid, DELETED_CURSOR, since));
+                Ok(())
+            }
+        }
+    }
+
+    async fn sync_pages(&self, rid: &str, kind: &str, stream: &str, since: i64) -> Result<(), RestError> {
+        const PAGE: usize = 50;
+        const MAX_PAGES: usize = 2;
+        let mut cursor = since;
+        for _ in 0..MAX_PAGES {
+            let options = CallOptions::params([
+                ("roomId", rid.to_owned()),
+                ("type", kind.to_owned()),
+                ("next", cursor.to_string()),
+                ("count", PAGE.to_string()),
+            ]);
+            let response = self.rest.get("chat.syncMessages", options).await?;
+            let result = response.get("result").cloned().unwrap_or(Value::Null);
+            let list = |key: &str| result.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
+            let next = result.pointer("/cursor/next").and_then(Value::as_str).and_then(|n| n.parse::<i64>().ok());
+            self.store.write(|w| {
+                let newest = if kind == "DELETED" {
+                    let deleted = list("deleted");
+                    for d in &deleted {
+                        if let Some(id) = d.get("_id").and_then(Value::as_str) {
+                            w.delete_message(id);
+                        }
+                    }
+                    deleted.iter().filter_map(|d| d.get("_deletedAt").and_then(to_epoch)).max()
+                } else {
+                    ingest_into(w, &list("updated"))
+                };
+                match next {
+                    Some(n) if n > cursor => w.write_cursor(rid, stream, n),
+                    _ => {
+                        if let Some(n) = newest.filter(|n| *n > cursor) {
+                            w.write_cursor(rid, stream, n);
+                        }
+                    }
+                }
+            });
+            match next {
+                Some(n) if n > cursor => cursor = n,
+                _ => return Ok(()),
+            }
+        }
         Ok(())
     }
 

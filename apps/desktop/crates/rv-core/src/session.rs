@@ -152,6 +152,9 @@ pub struct Session {
     e2e: Mutex<Option<E2eUnlocked>>,
     /// Custom emoji: shortcode (name or alias) → image path.
     custom_emoji: Mutex<HashMap<String, String>>,
+    once: tokio::sync::OnceCell<()>,
+    /// Rooms whose edits and deletions were caught up this session.
+    synced: Arc<Mutex<std::collections::HashSet<String>>>,
 }
 
 struct E2eUnlocked {
@@ -203,6 +206,8 @@ impl Session {
             notification_preference: Mutex::new("default".to_owned()),
             e2e: Mutex::default(),
             custom_emoji: Mutex::default(),
+            once: tokio::sync::OnceCell::new(),
+            synced: Arc::default(),
             presence: Mutex::default(),
         });
         let listener = tokio::spawn(Self::listen(Arc::downgrade(&session), ddp_events));
@@ -580,6 +585,18 @@ impl Session {
             self.uploads.process().await;
         }
         self.load_presence().await;
+        self.once.get_or_init(|| self.once_per_session()).await;
+        if let Some((rid, kind)) = self.current_room() {
+            let _ = self.sync.load_history(&rid, &kind, None).await;
+            if self.sync.catch_up_room(&rid).await.is_ok() {
+                self.synced.lock().unwrap().insert(rid);
+            }
+        }
+    }
+
+    /// What does not change from one reconnection to the next: read once,
+    /// the REST budget being ten calls a minute.
+    async fn once_per_session(&self) {
         if let Ok(list) = self.rest.get("emoji-custom.list", CallOptions::default()).await {
             self.custom_emoji.lock().unwrap().extend(crate::emoji::custom_index(&list));
             let _ = self.events.send(SessionEvent::Avatar);
@@ -587,9 +604,7 @@ impl Session {
         if let Ok(me) = self.me().await {
             *self.notification_preference.lock().unwrap() = me.desktop_notifications;
         }
-        if let Some((rid, kind)) = self.current_room() {
-            let _ = self.sync.load_history(&rid, &kind, None).await;
-        }
+        let _ = self.sync.reconcile_rooms().await;
     }
 
     pub fn reconnect_now(&self) {
@@ -612,7 +627,17 @@ impl Session {
         tokio::spawn(async move {
             let _ = rest.post("subscriptions.read", read).await;
         });
-        self.sync.load_history(rid, kind, None).await
+        let page = self.sync.load_history(rid, kind, None).await;
+        if !self.synced.lock().unwrap().contains(rid) {
+            let (sync, rid) = (self.sync.clone(), rid.to_owned());
+            let synced = self.synced.clone();
+            tokio::spawn(async move {
+                if sync.catch_up_room(&rid).await.is_ok() {
+                    synced.lock().unwrap().insert(rid);
+                }
+            });
+        }
+        page
     }
 
     pub async fn send(&self, rid: &str, text: &str) {

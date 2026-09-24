@@ -563,8 +563,19 @@ impl Writer<'_> {
         self.touch_messages(&rid);
     }
 
+    /// Every room whose rid is not in `live`, with all it holds.
+    pub fn purge_rooms_except(&mut self, live: &[String]) {
+        let known: Vec<String> = {
+            let mut q = self.conn.prepare("SELECT rid FROM rooms UNION SELECT rid FROM subscriptions").expect("rooms");
+            q.query_map([], |r| r.get(0)).expect("rooms").filter_map(Result::ok).collect()
+        };
+        for rid in known.iter().filter(|rid| !live.contains(rid)) {
+            self.delete_room(rid);
+        }
+    }
+
     pub fn delete_room(&mut self, rid: &str) {
-        for table in ["messages", "subscriptions", "rooms", "outbox"] {
+        for table in ["messages", "subscriptions", "rooms", "outbox", "uploads"] {
             self.conn.execute(&format!("DELETE FROM {table} WHERE rid = ?1"), [rid]).expect("delete room");
         }
         self.conn.execute("DELETE FROM cursors WHERE scope = ?1", [rid]).expect("delete cursors");

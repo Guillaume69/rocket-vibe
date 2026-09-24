@@ -168,6 +168,12 @@ impl MessageList {
         self.unread_after.replace(after);
     }
 
+    /// Every row built again, same data.
+    pub fn rebind(&self) {
+        let n = self.store.n_items();
+        self.store.items_changed(0, n, n);
+    }
+
     pub fn is_pinned(&self) -> bool {
         self.pinned.get()
     }

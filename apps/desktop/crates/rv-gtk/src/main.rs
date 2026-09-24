@@ -3,6 +3,7 @@ mod attach;
 mod cards;
 mod chat;
 mod composer;
+mod details;
 mod emoji_picker;
 mod fonts;
 mod i18n;

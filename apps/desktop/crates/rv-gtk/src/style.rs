@@ -78,6 +78,14 @@ button.cta:active, button.cta:disabled { opacity: 0.75; }
 .tile-room { border-radius: 15px; }
 .tile-message { border-radius: 12px; }
 .tile-header { border-radius: 10px; }
+.tile-profile { border-radius: 28px; }
+.tile-profile .tile-glyph { font-size: 38px; }
+.details { padding: 4px 22px 22px 22px; }
+.details-name { font-family: "Baloo 2"; font-size: 24px; font-weight: 800; }
+.details-sub { color: #8F89AB; }
+.details-section { font-size: 11.5px; font-weight: 800; color: #8F89AB; margin-top: 8px; }
+.role-chip { background: #2C2946; border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 700; }
+.search-hit { padding: 8px 6px; }
 .tile-glyph { color: #FFFFFF; font-family: "Baloo 2"; font-weight: 800; }
 .tile-room .tile-glyph { font-size: 17.6px; }
 .tile-message .tile-glyph { font-size: 13.6px; }

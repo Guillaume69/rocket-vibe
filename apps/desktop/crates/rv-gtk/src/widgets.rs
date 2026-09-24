@@ -27,6 +27,7 @@ pub enum TileSize {
     Room,
     Message,
     Header,
+    Profile,
 }
 
 /// Rounded square filled with the person's (or room's) gradient.
@@ -35,6 +36,7 @@ pub fn tile(key: &str, glyph: &str, size: TileSize, neutral: bool) -> gtk::Widge
         TileSize::Room => (44, "tile-room"),
         TileSize::Message => (34, "tile-message"),
         TileSize::Header => (30, "tile-header"),
+        TileSize::Profile => (96, "tile-profile"),
     };
     let gradient = if neutral { "tile-neutral".to_owned() } else { format!("tile-g{}", gradient_index(key)) };
     let label = gtk::Label::builder()

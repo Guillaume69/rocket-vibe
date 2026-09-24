@@ -11,7 +11,7 @@ use rv_core::sync::HISTORY_PAGE;
 use crate::composer::Composer;
 use crate::i18n::{t, tf};
 use crate::message_list::MessageList;
-use crate::rows::{RowEvent, label, room_avatar_path, room_tile, room_widget, user_avatar_path, with_photo};
+use crate::rows::{RowEvent, label, room_avatar_path, room_tile, room_widget, with_photo};
 use crate::runtime;
 use crate::thread::ThreadPage;
 use crate::widgets::Handler;
@@ -176,6 +176,16 @@ impl ChatPage {
             .visible(false)
             .build();
         room_header.pack_end(&call_button);
+        let search_button = gtk::Button::builder()
+            .icon_name("system-search-symbolic")
+            .css_classes(["flat"])
+            .tooltip_text(t("search.title"))
+            .build();
+        room_header.pack_end(&search_button);
+        room_title.set_cursor(gdk::Cursor::from_name("pointer", None).as_ref());
+        room_title.set_tooltip_text(Some(t("info.room")));
+        let title_click = gtk::GestureClick::new();
+        room_title.add_controller(title_click.clone());
         let upload_strip = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
             .spacing(4)
@@ -261,6 +271,32 @@ impl ChatPage {
             on_rooms_loaded: RefCell::default(),
         });
         this.wire(&status_button, &logout);
+        let weak = Rc::downgrade(&this);
+        search_button.connect_clicked(move |_| {
+            let Some(this) = weak.upgrade() else { return };
+            if let (Some(session), Some(rid)) = (this.session(), this.current_rid()) {
+                crate::details::search(&this.split, session, &rid);
+            }
+        });
+        let weak = Rc::downgrade(&this);
+        title_click.connect_released(move |_, _, _, _| {
+            if let Some(this) = weak.upgrade() {
+                this.show_room_info();
+            }
+        });
+        let weak = Rc::downgrade(&this);
+        crate::markdown_view::set_link_handler(move |uri| {
+            let Some(this) = weak.upgrade() else { return false };
+            if let Some(username) = uri.strip_prefix("rv-user:") {
+                this.show_profile(username, false);
+                true
+            } else if let Some(name) = uri.strip_prefix("rv-room:") {
+                this.open_room_named(name);
+                true
+            } else {
+                false
+            }
+        });
         let weak = Rc::downgrade(&this);
         new_conversation.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
@@ -415,6 +451,7 @@ impl ChatPage {
                 });
             }
             RowEvent::OpenThread(root) => self.open_thread(&root),
+            RowEvent::Profile(username) => self.show_profile(&username, false),
             RowEvent::JoinCall(call_id) => {
                 let weak = Rc::downgrade(self);
                 glib::spawn_future_local(async move {
@@ -533,7 +570,7 @@ impl ChatPage {
                 self.account_tile.remove(&child);
             }
             let tile = widgets::tile(&s.info.username, &widgets::initial(&s.info.username), TileSize::Message, false);
-            let tile = with_photo(tile, Some(s), user_avatar_path(&s.info.username));
+            let tile = with_photo(tile, Some(s), Some(s.user_avatar(&s.info.username)));
             self.account_tile.append(&tile);
         }
         self.session.replace(session);
@@ -619,6 +656,81 @@ impl ChatPage {
         if unread == Some(true) {
             self.schedule_read();
         }
+    }
+
+    fn show_room_info(self: &Rc<Self>) {
+        let (Some(session), Some(open)) = (self.session(), self.current.borrow().clone()) else { return };
+        match (&open.dm_other_uid, open.kind.as_str()) {
+            (Some(uid), "d") => self.show_profile(uid, true),
+            _ => {
+                crate::details::room_info(&self.split, session, &open.rid, &open.name, &open.kind, open.avatar.clone())
+            }
+        }
+    }
+
+    pub fn show_profile(self: &Rc<Self>, key: &str, by_id: bool) {
+        let Some(session) = self.session() else { return };
+        let (w1, w2) = (Rc::downgrade(self), Rc::downgrade(self));
+        let actions = crate::details::ProfileActions {
+            message: Box::new(move |username| {
+                if let Some(this) = w1.upgrade() {
+                    this.go_to(rv_core::rooms::Found::User { id: String::new(), username, name: None });
+                }
+            }),
+            call: Box::new(move |username| {
+                let Some(this) = w2.upgrade() else { return };
+                let Some(session) = this.session() else { return };
+                let weak = Rc::downgrade(&this);
+                glib::spawn_future_local(async move {
+                    let url = on_tokio(async move {
+                        let rid = session.open_dm(&username).await?;
+                        session.start_call(&rid).await
+                    })
+                    .await;
+                    let Some(this) = weak.upgrade() else { return };
+                    match url {
+                        Ok(url) => crate::cards::open_uri(&this.split, &url),
+                        Err(_) => this.toast(t("call.failed").to_owned()),
+                    }
+                });
+            }),
+        };
+        crate::details::profile(&self.split, session, key, by_id, actions);
+    }
+
+    /// A `#channel` in a message: open it, joining first if I am not in it.
+    fn open_room_named(self: &Rc<Self>, name: &str) {
+        let known = self
+            .rooms
+            .borrow()
+            .iter()
+            .find(|r| r.slug.as_deref() == Some(name) || r.name == name)
+            .map(|r| r.rid.clone());
+        if let Some(rid) = known {
+            self.open_room(&rid);
+            return;
+        }
+        let Some(session) = self.session() else { return };
+        let (weak, name) = (Rc::downgrade(self), name.to_owned());
+        glib::spawn_future_local(async move {
+            let info = on_tokio(async move { session.room_by_name(&name).await }).await;
+            let Some(this) = weak.upgrade() else { return };
+            match info {
+                Ok(info) => this.go_to(rv_core::rooms::Found::Room { id: info.id, name: info.name, kind: info.kind }),
+                Err(_) => this.toast(t("spotlight.open_failed").to_owned()),
+            }
+        });
+    }
+
+    /// A photo changed: rows are rebuilt so they ask for the new one.
+    pub fn on_avatar(&self) {
+        let n = self.rooms_store.n_items();
+        self.rooms_store.items_changed(0, n, n);
+        self.list.rebind();
+        if let Some(thread) = self.thread.borrow().as_ref() {
+            thread.list.rebind();
+        }
+        self.refresh_room_header();
     }
 
     fn new_conversation(self: &Rc<Self>) {

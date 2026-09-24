@@ -1,8 +1,19 @@
 //! Widgets for rv-core's markdown blocks.
 
-use gtk::pango;
 use gtk::prelude::*;
+use gtk::{glib, pango};
 use rv_core::markdown::Block;
+
+type LinkHandler = std::rc::Rc<dyn Fn(&str) -> bool>;
+
+thread_local! {
+    static LINKS: std::cell::RefCell<Option<LinkHandler>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Our own links (`rv-user:`, `rv-room:`): the handler says whether it took one.
+pub fn set_link_handler(f: impl Fn(&str) -> bool + 'static) {
+    LINKS.with_borrow_mut(|h| *h = Some(std::rc::Rc::new(f)));
+}
 
 fn text(markup: &str, classes: &[&str]) -> gtk::Label {
     let label = gtk::Label::builder()
@@ -15,6 +26,10 @@ fn text(markup: &str, classes: &[&str]) -> gtk::Label {
         .css_classes(classes.to_vec())
         .build();
     label.set_focusable(false);
+    label.connect_activate_link(|_, uri| {
+        let handler = LINKS.with_borrow(Clone::clone);
+        if handler.is_some_and(|h| h(uri)) { glib::Propagation::Stop } else { glib::Propagation::Proceed }
+    });
     label
 }
 

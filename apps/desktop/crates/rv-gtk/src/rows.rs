@@ -27,6 +27,8 @@ pub enum RowEvent {
         y: f64,
     },
     JoinCall(String),
+    /// Someone's profile, by username.
+    Profile(String),
     React {
         id: String,
         shortcode: String,
@@ -144,8 +146,13 @@ pub fn room_avatar_path(r: &RoomRow) -> Option<String> {
     }
 }
 
-pub fn user_avatar_path(username: &str) -> Option<String> {
-    (!username.is_empty()).then(|| avatar_path(AvatarTarget::User(username), None))
+/// A click on an author's photo or name opens their profile.
+fn opens_profile(widget: &impl IsA<gtk::Widget>, on_event: OnRowEvent, username: &str) {
+    let click = gtk::GestureClick::new();
+    let username = username.to_owned();
+    click.connect_released(move |_, _, _, _| on_event(RowEvent::Profile(username.clone())));
+    widget.as_ref().set_cursor(gdk::Cursor::from_name("pointer", None).as_ref());
+    widget.as_ref().add_controller(click);
 }
 
 pub fn room_tile(name: &str, kind: &str, encrypted: bool, size: TileSize) -> gtk::Widget {
@@ -318,7 +325,9 @@ pub fn message_widget(d: &Display, my_id: &str, session: Option<&Arc<Session>>, 
     let line = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     if d.show_header {
         let tile = widgets::tile(&author, &widgets::initial(&author), TileSize::Message, false);
-        line.append(&with_photo(tile, session, user_avatar_path(&author)));
+        let tile = with_photo(tile, session, session.filter(|_| !author.is_empty()).map(|s| s.user_avatar(&author)));
+        opens_profile(&tile, on_event.clone(), &author);
+        line.append(&tile);
     } else {
         let gutter = gtk::Label::builder()
             .label(if d.gutter_time { local(row.ts).format("%H:%M").to_string() } else { String::new() })
@@ -338,6 +347,7 @@ pub fn message_widget(d: &Display, my_id: &str, session: Option<&Arc<Session>>, 
         if row.author_id == my_id {
             name.add_css_class("mine");
         }
+        opens_profile(&name, on_event.clone(), &author);
         header.append(&name);
         let time = label(&local(row.ts).format("%H:%M").to_string(), &["message-time"]);
         time.set_valign(gtk::Align::Baseline);

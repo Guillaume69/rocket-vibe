@@ -11,9 +11,12 @@ use rv_core::sync::HISTORY_PAGE;
 use crate::composer::Composer;
 use crate::i18n::t;
 use crate::message_list::MessageList;
-use crate::rows::{label, room_avatar_path, room_tile, room_widget, user_avatar_path, with_photo};
+use crate::rows::{RowEvent, label, room_avatar_path, room_tile, room_widget, user_avatar_path, with_photo};
 use crate::runtime;
+use crate::thread::ThreadPage;
+use crate::widgets::Handler;
 use crate::widgets::{self, TileSize};
+use crate::{actions_menu, on_tokio};
 
 #[derive(Debug, Clone)]
 struct OpenRoom {
@@ -23,6 +26,7 @@ struct OpenRoom {
     read_only: bool,
     encrypted: bool,
     avatar: Option<String>,
+    slug: Option<String>,
 }
 
 type Callback<T> = RefCell<Vec<Box<dyn Fn(T)>>>;
@@ -42,6 +46,9 @@ pub struct ChatPage {
     suppress_selection: Cell<bool>,
     content_page: adw::NavigationPage,
     content_stack: gtk::Stack,
+    room_nav: adw::NavigationView,
+    thread: RefCell<Option<Rc<ThreadPage>>>,
+    on_toast: Handler<String>,
     list: Rc<MessageList>,
     composer: Rc<Composer>,
     read_only_label: gtk::Label,
@@ -156,7 +163,9 @@ impl ChatPage {
         empty.set_content(Some(&empty_content));
         let content_stack = gtk::Stack::new();
         content_stack.add_named(&empty, Some("empty"));
-        content_stack.add_named(&room_view, Some("room"));
+        let room_nav = adw::NavigationView::new();
+        room_nav.add(&adw::NavigationPage::builder().child(&room_view).title("room").tag("room").build());
+        content_stack.add_named(&room_nav, Some("room"));
         let content_page = adw::NavigationPage::new(&content_stack, "rocket-vibe");
 
         let split = adw::NavigationSplitView::new();
@@ -180,6 +189,9 @@ impl ChatPage {
             suppress_selection: Cell::new(false),
             content_page,
             content_stack,
+            room_nav,
+            thread: RefCell::default(),
+            on_toast: RefCell::default(),
             list,
             composer,
             read_only_label,
@@ -207,9 +219,17 @@ impl ChatPage {
     fn wire(self: &Rc<Self>, status_button: &gtk::Button, logout: &gtk::Button) {
         let weak = Rc::downgrade(self);
         let w = weak.clone();
-        self.list.connect_retry(move |id| {
+        self.list.connect_event(move |event| {
             if let Some(this) = w.upgrade() {
-                this.retry(id);
+                this.handle_event(event, false);
+            }
+        });
+        let w = weak.clone();
+        self.room_nav.connect_popped(move |_, page| {
+            if page.tag().as_deref() == Some("thread")
+                && let Some(this) = w.upgrade()
+            {
+                this.thread.replace(None);
             }
         });
         let w = weak.clone();
@@ -276,6 +296,116 @@ impl ChatPage {
 
     pub fn widget(&self) -> &adw::NavigationSplitView {
         &self.split
+    }
+
+    pub fn connect_toast(&self, f: impl Fn(String) + 'static) {
+        self.on_toast.replace(Some(Rc::new(f)));
+    }
+
+    fn toast(&self, text: String) {
+        if let Some(toast) = self.on_toast.borrow().clone() {
+            toast(text);
+        }
+    }
+
+    fn handle_event(self: &Rc<Self>, event: RowEvent, in_thread: bool) {
+        let Some(session) = self.session.borrow().clone() else { return };
+        match event {
+            RowEvent::Retry(id) => self.retry(id),
+            RowEvent::React { id, shortcode, add } => {
+                let weak = Rc::downgrade(self);
+                glib::spawn_future_local(async move {
+                    if on_tokio(async move { session.react(&id, &shortcode, add).await }).await.is_err()
+                        && let Some(this) = weak.upgrade()
+                    {
+                        this.toast(t("actions.refused").to_owned());
+                    }
+                });
+            }
+            RowEvent::OpenThread(root) => self.open_thread(&root),
+            RowEvent::Menu { row, anchor, x, y } => {
+                let Some(open) = self.current.borrow().clone() else { return };
+                let room = actions_menu::RoomContext {
+                    rid: open.rid.clone(),
+                    read_only: open.read_only,
+                    encrypted: open.encrypted,
+                    in_thread,
+                };
+                let (w1, w2, w3) = (Rc::downgrade(self), Rc::downgrade(self), Rc::downgrade(self));
+                let handlers = Rc::new(actions_menu::Handlers {
+                    reply: Box::new(move |row| {
+                        if let Some(this) = w1.upgrade() {
+                            this.start_reply(row, in_thread);
+                        }
+                    }),
+                    thread: Box::new(move |root| {
+                        if let Some(this) = w2.upgrade() {
+                            this.open_thread(&root);
+                        }
+                    }),
+                    toast: Box::new(move |text| {
+                        if let Some(this) = w3.upgrade() {
+                            this.toast(text);
+                        }
+                    }),
+                });
+                actions_menu::open(&anchor, x, y, session, *row, room, handlers);
+            }
+        }
+    }
+
+    /// Quoting needs the permalink the server recognises, built on `Site_Url`.
+    fn start_reply(self: &Rc<Self>, row: rv_core::store::MessageRow, in_thread: bool) {
+        let Some(session) = self.session.borrow().clone() else { return };
+        let Some(open) = self.current.borrow().clone() else { return };
+        let composer = match (in_thread, self.thread.borrow().as_ref()) {
+            (true, Some(thread)) => thread.composer.clone(),
+            _ => self.composer.clone(),
+        };
+        let name = row.author.clone().unwrap_or_default();
+        let preview = rv_core::actions::copyable_text(row.text.as_deref()).unwrap_or_default().to_owned();
+        glib::spawn_future_local(async move {
+            let link =
+                on_tokio(async move { session.permalink(&open.kind, open.slug.as_deref(), &open.rid, &row.id).await })
+                    .await;
+            composer.set_reply(&name, &preview, link);
+        });
+    }
+
+    fn open_thread(self: &Rc<Self>, root_id: &str) {
+        let Some(session) = self.session.borrow().clone() else { return };
+        let Some(open) = self.current.borrow().clone() else { return };
+        if self.thread.borrow().as_ref().is_some_and(|t| t.root_id == root_id) {
+            return;
+        }
+        self.room_nav.pop_to_tag("room");
+        let thread = ThreadPage::new(self.session.clone(), &open.rid, root_id, open.read_only);
+        let weak = Rc::downgrade(self);
+        thread.list.connect_event(move |event| {
+            if let Some(this) = weak.upgrade() {
+                this.handle_event(event, true);
+            }
+        });
+        let (s, rid, root) = (session.clone(), open.rid.clone(), root_id.to_owned());
+        thread.composer.connect_submit(move |text| {
+            let (s, rid, root) = (s.clone(), rid.clone(), root.clone());
+            runtime().spawn(async move { s.send_in(&rid, &text, Some(&root)).await });
+        });
+        self.room_nav.push(&thread.page);
+        thread.reload();
+        thread.composer.grab_focus();
+        self.thread.replace(Some(thread.clone()));
+        let root = root_id.to_owned();
+        let weak = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            let loaded = on_tokio(async move { session.load_thread(&root).await }).await;
+            if let Some(this) = weak.upgrade() {
+                if loaded.is_err() {
+                    this.toast(t("thread.not_found").to_owned());
+                }
+                thread.reload();
+            }
+        });
     }
 
     pub fn connect_logout(&self, f: impl Fn() + 'static) {
@@ -352,6 +482,12 @@ impl ChatPage {
         if current.is_some_and(|rid| change.rids.contains(&rid)) {
             self.reload_messages();
         }
+        let thread = self.thread.borrow().clone();
+        if let Some(thread) = thread
+            && change.rids.contains(&thread.rid)
+        {
+            thread.reload();
+        }
     }
 
     pub fn reload_all(&self) {
@@ -426,6 +562,7 @@ impl ChatPage {
             read_only: room.read_only,
             encrypted: room.encrypted,
             avatar: room_avatar_path(&room),
+            slug: room.slug.clone(),
         }));
         let index = self.rooms.borrow().iter().position(|r| r.rid == rid);
         if let Some(i) = index
@@ -444,6 +581,9 @@ impl ChatPage {
 
         self.limit.set(HISTORY_PAGE);
         self.has_older.set(true);
+        self.room_nav.pop_to_tag("room");
+        self.thread.replace(None);
+        self.composer.clear_reply();
         self.list.clear();
         self.reload_messages();
         self.composer.grab_focus();

@@ -10,7 +10,7 @@ use rv_core::diff::diff_sorted;
 use rv_core::session::Session;
 use rv_core::store::MessageRow;
 
-use crate::rows::{self, Display};
+use crate::rows::{self, Display, RowEvent};
 use crate::widgets::Handler;
 
 pub type Shared<T> = Rc<RefCell<Option<T>>>;
@@ -23,7 +23,7 @@ pub struct MessageList {
     pinned: Rc<Cell<bool>>,
     /// Refreshes whose scroll adjustments are ours, not the user's.
     settling: Rc<Cell<u32>>,
-    on_retry: Handler<String>,
+    on_event: Handler<RowEvent>,
     on_top: Handler<()>,
 }
 
@@ -40,7 +40,7 @@ impl MessageList {
             rows: RefCell::default(),
             pinned: Rc::new(Cell::new(true)),
             settling: Rc::new(Cell::new(0)),
-            on_retry: RefCell::default(),
+            on_event: RefCell::default(),
             on_top: RefCell::default(),
         });
         this.wire(session);
@@ -63,11 +63,12 @@ impl MessageList {
             let session = session.borrow().clone();
             let my_id = session.as_ref().map(|s| s.info.user_id.clone()).unwrap_or_default();
             let w2 = w.clone();
-            let widget = rows::message_widget(&object.borrow::<Display>(), &my_id, session.as_ref(), move |id| {
-                if let Some(retry) = w2.upgrade().and_then(|this| this.on_retry.borrow().clone()) {
-                    retry(id);
+            let on_event: rows::OnRowEvent = Rc::new(move |event| {
+                if let Some(handler) = w2.upgrade().and_then(|this| this.on_event.borrow().clone()) {
+                    handler(event);
                 }
             });
+            let widget = rows::message_widget(&object.borrow::<Display>(), &my_id, session.as_ref(), on_event);
             item.set_child(Some(&widget));
         });
         self.view.set_factory(Some(&factory));
@@ -99,8 +100,8 @@ impl MessageList {
         });
     }
 
-    pub fn connect_retry(&self, f: impl Fn(String) + 'static) {
-        self.on_retry.replace(Some(Rc::new(f)));
+    pub fn connect_event(&self, f: impl Fn(RowEvent) + 'static) {
+        self.on_event.replace(Some(Rc::new(f)));
     }
 
     pub fn connect_top_reached(&self, f: impl Fn() + 'static) {

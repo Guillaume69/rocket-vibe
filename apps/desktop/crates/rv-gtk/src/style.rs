@@ -154,6 +154,20 @@ button.cta:active, button.cta:disabled { opacity: 0.75; }
 .thread-chip { border: 1px solid #A78BFA; border-radius: 999px; padding: 4px 11px; color: #A78BFA; font-weight: 700; font-size: 12px; }
 button.retry { color: #FF7A8A; font-weight: 700; font-size: 12px; padding: 0 4px; min-height: 0; }
 .image-attachment { background: #171529; border-radius: 10px; }
+.message .row-more { opacity: 0; min-height: 24px; min-width: 28px; padding: 0; color: #8F89AB; transition: opacity 120ms; }
+.message:hover .row-more { opacity: 1; }
+button.reaction { background: #171529; border: 1px solid #2C2946; border-radius: 999px; padding: 2px 9px; min-height: 0; font-size: 12.5px; }
+button.reaction.mine { border-color: #FF5FA2; background: rgba(255, 95, 162, 0.12); }
+button.thread-chip { background: transparent; min-height: 0; }
+.actions-menu contents { padding: 8px; background: #171529; border-radius: 14px; }
+button.quick-reaction { font-size: 20px; min-width: 40px; min-height: 40px; padding: 0; border-radius: 999px; background: transparent; }
+button.quick-reaction.mine { background: rgba(255, 95, 162, 0.18); box-shadow: inset 0 0 0 1.5px #FF5FA2; }
+button.menu-action { padding: 6px 10px; min-height: 0; }
+button.menu-action.destructive { color: #FF7A8A; }
+.edit-field { background: #0C0B16; border-radius: 10px; padding: 8px; }
+.reply-bar { background: #171529; border-left: 3px solid #A78BFA; border-radius: 10px; padding: 6px 10px; }
+.reply-title { color: #A78BFA; font-weight: 700; font-size: 12.5px; }
+.reply-preview { color: #8F89AB; font-size: 12.5px; }
 .day-line { background: #2C2946; min-height: 1px; border-radius: 1px; }
 .day-label { color: #8F89AB; font-weight: 600; font-size: 11.5px; }
 

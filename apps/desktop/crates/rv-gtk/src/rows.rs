@@ -17,6 +17,26 @@ use crate::{markdown_view, media};
 
 const GROUPING_GAP_MS: i64 = 5 * 60 * 1000;
 
+/// What a message row asks of the page showing it.
+pub enum RowEvent {
+    Retry(String),
+    /// The actions menu, at `(x, y)` in `anchor`'s coordinates.
+    Menu {
+        row: Box<MessageRow>,
+        anchor: gtk::Widget,
+        x: f64,
+        y: f64,
+    },
+    React {
+        id: String,
+        shortcode: String,
+        add: bool,
+    },
+    OpenThread(String),
+}
+
+pub type OnRowEvent = std::rc::Rc<dyn Fn(RowEvent)>;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Display {
     pub row: MessageRow,
@@ -190,7 +210,9 @@ pub fn room_widget(r: &RoomRow, session: Option<&Arc<Session>>) -> gtk::Widget {
     name.set_ellipsize(pango::EllipsizeMode::End);
     let time = label(&short_time(r.last_ts), &["room-time"]);
     let preview = match (&r.last_message, r.encrypted) {
-        (Some(m), _) => label(&rv_core::emoji::replace_shortcodes(m), &["room-preview"]),
+        (Some(m), _) => {
+            label(&rv_core::emoji::replace_shortcodes(rv_core::actions::strip_quote_prefix(m)), &["room-preview"])
+        }
         (None, true) => label(t("rooms.encrypted"), &["room-preview", "encrypted"]),
         (None, false) => label("", &["room-preview"]),
     };
@@ -236,12 +258,7 @@ pub fn day_label(ts: i64) -> String {
     }
 }
 
-pub fn message_widget(
-    d: &Display,
-    my_id: &str,
-    session: Option<&Arc<Session>>,
-    on_retry: impl Fn(String) + 'static,
-) -> gtk::Widget {
+pub fn message_widget(d: &Display, my_id: &str, session: Option<&Arc<Session>>, on_event: OnRowEvent) -> gtk::Widget {
     let row = &d.row;
     let outer = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -332,12 +349,44 @@ pub fn message_widget(
         }
     }
 
+    let me = session.map(|s| s.info.username.as_str()).unwrap_or_default();
+    let reactions = rv_core::actions::reactions(row.reactions.as_deref(), me);
+    if !reactions.is_empty() {
+        let chips = gtk::FlowBox::builder()
+            .selection_mode(gtk::SelectionMode::None)
+            .column_spacing(6)
+            .row_spacing(6)
+            .max_children_per_line(24)
+            .halign(gtk::Align::Start)
+            .margin_top(4)
+            .build();
+        for reaction in reactions {
+            let glyph =
+                rv_core::emoji::unicode(&reaction.shortcode).map_or_else(|| reaction.shortcode.clone(), str::to_owned);
+            let chip = gtk::Button::builder()
+                .label(format!("{glyph} {}", reaction.count))
+                .css_classes(if reaction.mine { vec!["reaction", "mine"] } else { vec!["reaction"] })
+                .build();
+            let (on_event, id) = (on_event.clone(), row.id.clone());
+            chip.connect_clicked(move |_| {
+                on_event(RowEvent::React { id: id.clone(), shortcode: reaction.shortcode.clone(), add: !reaction.mine })
+            });
+            chips.insert(&chip, -1);
+        }
+        column.append(&chips);
+    }
+
     if row.edited || pending || failed || row.thread_count > 0 {
         let footer = gtk::Box::new(gtk::Orientation::Horizontal, 10);
         if row.thread_count > 0 {
             let n = row.thread_count;
-            let chip = label(&format!("💬 {}", tn("message.replies", n)), &["thread-chip"]);
-            chip.set_margin_top(3);
+            let chip = gtk::Button::builder()
+                .label(format!("💬 {}", tn("message.replies", n)))
+                .css_classes(["thread-chip"])
+                .margin_top(3)
+                .build();
+            let (on_event, id) = (on_event.clone(), row.id.clone());
+            chip.connect_clicked(move |_| on_event(RowEvent::OpenThread(id.clone())));
             footer.append(&chip);
         }
         if row.edited {
@@ -348,14 +397,34 @@ pub fn message_widget(
         }
         if failed {
             let retry = gtk::Button::builder().label(t("message.failed")).css_classes(["flat", "retry"]).build();
-            let id = row.id.clone();
-            retry.connect_clicked(move |_| on_retry(id.clone()));
+            let (on_event, id) = (on_event.clone(), row.id.clone());
+            retry.connect_clicked(move |_| on_event(RowEvent::Retry(id.clone())));
             footer.append(&retry);
         }
         column.append(&footer);
     }
 
+    let more = gtk::Button::builder()
+        .label("⋯")
+        .css_classes(["flat", "row-more"])
+        .valign(gtk::Align::Start)
+        .tooltip_text(t("actions.more"))
+        .build();
+    let (on_menu, menu_row) = (on_event.clone(), row.clone());
+    more.connect_clicked(move |button| {
+        let (w, h) = (button.width() as f64, button.height() as f64);
+        on_menu(RowEvent::Menu { row: Box::new(menu_row.clone()), anchor: button.clone().upcast(), x: w / 2.0, y: h });
+    });
+    let right_click = gtk::GestureClick::builder().button(gdk::BUTTON_SECONDARY).build();
+    let (on_menu, menu_row, target) = (on_event, row.clone(), outer.clone());
+    right_click.connect_pressed(move |gesture, _, x, y| {
+        gesture.set_state(gtk::EventSequenceState::Claimed);
+        on_menu(RowEvent::Menu { row: Box::new(menu_row.clone()), anchor: target.clone().upcast(), x, y });
+    });
+    outer.add_controller(right_click);
     line.append(&column);
+    line.append(&more);
+    outer.add_css_class("message");
     outer.append(&line);
     outer.upcast()
 }

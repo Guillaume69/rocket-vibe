@@ -82,6 +82,8 @@ impl AppWindow {
         stack.add_named(&adw::Spinner::new(), Some("starting"));
         stack.add_named(&login.widget, Some("login"));
         stack.add_named(chat.widget(), Some("chat"));
+        let toasts = adw::ToastOverlay::new();
+        toasts.set_child(Some(&stack));
         stack.set_visible_child_name("starting");
 
         let window = adw::ApplicationWindow::builder()
@@ -91,7 +93,7 @@ impl AppWindow {
             .default_height(760)
             .width_request(360)
             .height_request(480)
-            .content(&stack)
+            .content(&toasts)
             .build();
 
         // Below this width, one pane at a time: the room list, then the room
@@ -126,6 +128,8 @@ impl AppWindow {
                 this.login.ask_code(None);
             }
         });
+        let overlay = toasts.clone();
+        this.chat.connect_toast(move |text| overlay.add_toast(adw::Toast::builder().title(text).timeout(3).build()));
         let weak = Rc::downgrade(&this);
         this.chat.connect_logout(move || {
             if let Some(this) = weak.upgrade() {

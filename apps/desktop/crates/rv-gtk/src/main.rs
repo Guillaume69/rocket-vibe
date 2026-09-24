@@ -1,3 +1,4 @@
+mod actions_menu;
 mod chat;
 mod composer;
 mod fonts;
@@ -10,6 +11,7 @@ mod rows;
 mod secrets;
 mod smoke;
 mod style;
+mod thread;
 mod widgets;
 mod window;
 

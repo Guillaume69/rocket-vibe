@@ -7,7 +7,7 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk::{gdk, glib};
 
-use crate::i18n::t;
+use crate::i18n::{t, tf};
 use crate::widgets::{self, Handler};
 
 const MAX_HEIGHT: i32 = 160;
@@ -16,6 +16,11 @@ pub struct Composer {
     pub root: gtk::Box,
     text: gtk::TextView,
     on_submit: Handler<String>,
+    reply_bar: gtk::Box,
+    reply_title: gtk::Label,
+    reply_preview: gtk::Label,
+    /// The quoted message's permalink, put before the text on send.
+    reply_link: RefCell<Option<String>>,
 }
 
 impl Composer {
@@ -90,12 +95,52 @@ impl Composer {
             .css_classes(["send"])
             .valign(gtk::Align::End)
             .build();
-        let root =
-            gtk::Box::builder().spacing(10).margin_top(10).margin_bottom(12).margin_start(14).margin_end(14).build();
-        root.append(&pill);
-        root.append(&send);
+        let field = gtk::Box::builder().spacing(10).build();
+        field.append(&pill);
+        field.append(&send);
 
-        let this = Rc::new(Composer { root, text, on_submit: RefCell::default() });
+        let reply_title = gtk::Label::builder().xalign(0.0).css_classes(["reply-title"]).build();
+        let reply_preview = gtk::Label::builder()
+            .xalign(0.0)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .single_line_mode(true)
+            .css_classes(["reply-preview"])
+            .build();
+        let reply_text = gtk::Box::builder().orientation(gtk::Orientation::Vertical).hexpand(true).build();
+        reply_text.append(&reply_title);
+        reply_text.append(&reply_preview);
+        let reply_close =
+            gtk::Button::builder().label("✕").css_classes(["flat", "circular"]).valign(gtk::Align::Center).build();
+        let reply_bar = gtk::Box::builder().spacing(8).css_classes(["reply-bar"]).visible(false).build();
+        reply_bar.append(&reply_text);
+        reply_bar.append(&reply_close);
+
+        let root = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(6)
+            .margin_top(10)
+            .margin_bottom(12)
+            .margin_start(14)
+            .margin_end(14)
+            .build();
+        root.append(&reply_bar);
+        root.append(&field);
+
+        let this = Rc::new(Composer {
+            root,
+            text,
+            on_submit: RefCell::default(),
+            reply_bar,
+            reply_title,
+            reply_preview,
+            reply_link: RefCell::default(),
+        });
+        let weak = Rc::downgrade(&this);
+        reply_close.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.clear_reply();
+            }
+        });
         let weak = Rc::downgrade(&this);
         send.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
@@ -122,12 +167,30 @@ impl Composer {
         self.on_submit.replace(Some(Rc::new(f)));
     }
 
+    /// Arms a reply: the bar shows who and what, the send carries the quote.
+    pub fn set_reply(&self, name: &str, preview: &str, permalink: String) {
+        self.reply_title.set_label(&tf("composer.replying", &[("name", name)]));
+        self.reply_preview.set_label(preview);
+        self.reply_link.replace(Some(permalink));
+        self.reply_bar.set_visible(true);
+        self.grab_focus();
+    }
+
+    pub fn clear_reply(&self) {
+        self.reply_link.replace(None);
+        self.reply_bar.set_visible(false);
+    }
+
     fn submit(&self) {
-        let text = self.text();
+        let mut text = self.text();
         if text.trim().is_empty() {
             return;
         }
         self.text.buffer().set_text("");
+        if let Some(link) = self.reply_link.take() {
+            text = rv_core::actions::quote(&link, text.trim());
+            self.reply_bar.set_visible(false);
+        }
         if let Some(submit) = self.on_submit.borrow().clone() {
             submit(text);
         }

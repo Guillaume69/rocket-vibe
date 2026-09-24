@@ -119,10 +119,17 @@ else
   echo "env.sh: ROOT_URL non défini. Utilise RV_ROOT_URL pour le forcer." >&2
 fi
 
+# La clé de signature release, hors du dépôt (plugins/with-signature-release.js).
+# Le fichier exporte RV_KEYSTORE, RV_KEYSTORE_PASSWORD, RV_KEY_ALIAS, RV_KEY_PASSWORD.
+if [ -f "$HOME/.config/rocket-vibe/signature.env" ]; then
+  . "$HOME/.config/rocket-vibe/signature.env"
+fi
+
 if [ -n "$RV_ENV_VERBOSE" ]; then
   echo "JAVA_HOME    = $JAVA_HOME ($(_rv_java_major "$JAVA_HOME"))"
   echo "ANDROID_HOME = $ANDROID_HOME"
   echo "ROOT_URL     = ${ROOT_URL:-<non défini>}"
+  echo "RV_KEYSTORE  = ${RV_KEYSTORE:-<non défini : pas de build release>}"
 fi
 
 # Ne pas polluer le shell interactif appelant.

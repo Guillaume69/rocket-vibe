@@ -38,6 +38,7 @@
       ],
       "./plugins/with-fcm-deeplink",
       "./plugins/with-architectures-cibles",
+      "./plugins/with-signature-release",
       "expo-audio",
       [
         "expo-font",

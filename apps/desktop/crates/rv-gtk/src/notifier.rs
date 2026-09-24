@@ -118,7 +118,7 @@ impl Notifier {
         let mut actions = vec!["default".to_owned(), t("notify.open").to_owned()];
         let mut hints: HashMap<String, glib::Variant> = HashMap::new();
         hints.insert("category".into(), "im.received".to_variant());
-        hints.insert("desktop-entry".into(), "rocket-vibe".to_variant());
+        hints.insert("desktop-entry".into(), crate::APP_ID.to_variant());
         if self.inline_reply.get() {
             actions.extend(["inline-reply".to_owned(), t("notify.reply").to_owned()]);
             hints.insert("x-kde-reply-placeholder-text".into(), t("notify.reply_placeholder").to_variant());

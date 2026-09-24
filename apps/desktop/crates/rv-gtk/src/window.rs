@@ -44,6 +44,8 @@ pub struct AppWindow {
     notifier: RefCell<Option<Rc<crate::notifier::Notifier>>>,
     /// The account to go back to while another one is being added.
     previous: RefCell<Option<SessionInfo>>,
+    /// A room link waiting for its account's rooms to be loaded.
+    pending_link: RefCell<Option<rv_core::links::RoomLink>>,
 }
 
 fn data_dir() -> PathBuf {
@@ -117,6 +119,7 @@ impl AppWindow {
             login_shown: RefCell::default(),
             notifier: RefCell::default(),
             previous: RefCell::default(),
+            pending_link: RefCell::default(),
         });
 
         let weak = Rc::downgrade(&this);
@@ -193,6 +196,12 @@ impl AppWindow {
             }
         });
         this.notifier.replace(notifier);
+        let weak = Rc::downgrade(&this);
+        this.chat.connect_rooms_loaded(move || {
+            if let Some(this) = weak.upgrade() {
+                this.follow_link();
+            }
+        });
         let weak = Rc::downgrade(&this);
         this.login.connect_cancel(move || {
             if let Some(this) = weak.upgrade() {
@@ -432,6 +441,38 @@ impl AppWindow {
                 None => this.show_login(None),
             }
         });
+    }
+
+    /// A `rocketvibe://salon/<rid>?host=` link: the room, on the account of
+    /// that server (switching to it if another one is open).
+    pub fn open_link(self: &Rc<Self>, uri: &str) {
+        let Some(link) = rv_core::links::parse(uri) else { return };
+        let current = self.session.borrow().as_ref().map(|s| s.info.base_url.clone());
+        if current.as_deref().is_some_and(|base| rv_core::links::fits(&link, base)) {
+            self.pending_link.replace(Some(link));
+            self.follow_link();
+            return;
+        }
+        self.pending_link.replace(Some(link.clone()));
+        let this = self.clone();
+        glib::spawn_future_local(async move {
+            let accounts = on_tokio(secrets::load_all()).await;
+            if let Some(account) = accounts.into_iter().find(|a| rv_core::links::fits(&link, &a.base_url)) {
+                this.switch_to(account);
+            }
+        });
+    }
+
+    /// Opens the waiting link's room once the rooms of its server are there.
+    fn follow_link(&self) {
+        let Some(base) = self.session.borrow().as_ref().map(|s| s.info.base_url.clone()) else { return };
+        let link = self.pending_link.borrow().clone();
+        if let Some(link) = link.filter(|l| rv_core::links::fits(l, &base))
+            && self.chat.has_room(&link.rid)
+        {
+            self.pending_link.replace(None);
+            self.chat.open_room(&link.rid);
+        }
     }
 
     pub fn switch_to(self: &Rc<Self>, info: SessionInfo) {

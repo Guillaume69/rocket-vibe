@@ -1195,6 +1195,10 @@ impl ChatPage {
         self.on_unread.borrow_mut().push(Box::new(f));
     }
 
+    pub fn has_room(&self, rid: &str) -> bool {
+        self.rooms.borrow().iter().any(|r| r.rid == rid)
+    }
+
     pub fn room_named(&self, name: &str) -> Option<String> {
         self.rooms.borrow().iter().find(|r| r.name == name).map(|r| r.rid.clone())
     }

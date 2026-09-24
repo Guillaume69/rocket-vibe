@@ -49,21 +49,40 @@ where
     runtime().spawn(future).await.expect("tokio task")
 }
 
+thread_local! {
+    static WINDOW: std::cell::RefCell<Option<std::rc::Rc<window::AppWindow>>> = const { std::cell::RefCell::new(None) };
+}
+
+fn window_of(app: &adw::Application) -> std::rc::Rc<window::AppWindow> {
+    if let Some(window) = WINDOW.with_borrow(Clone::clone) {
+        window.window.present();
+        return window;
+    }
+    smoke::install_early();
+    let window = window::AppWindow::new(app);
+    smoke::install(&window);
+    window.window.present();
+    window.start();
+    WINDOW.with_borrow_mut(|w| *w = Some(window.clone()));
+    window
+}
+
 fn main() -> glib::ExitCode {
-    let app = adw::Application::builder().application_id(APP_ID).build();
+    // One instance: a `rocketvibe://` link clicked elsewhere reaches the running app.
+    let app =
+        adw::Application::builder().application_id(APP_ID).flags(gtk::gio::ApplicationFlags::HANDLES_OPEN).build();
     i18n::init();
     app.connect_startup(|_| style::load());
     app.connect_activate(|app| {
-        if let Some(window) = app.active_window() {
-            window.present();
-            return;
-        }
-        smoke::install_early();
-        let window = window::AppWindow::new(app);
-        smoke::install(&window);
-        window.window.present();
-        window.start();
+        window_of(app);
     });
-    let code = app.run_with_args::<&str>(&[]);
+    app.connect_open(|app, files, _| {
+        let window = window_of(app);
+        for file in files {
+            window.open_link(&file.uri());
+        }
+    });
+    let args: Vec<String> = std::env::args().collect();
+    let code = app.run_with_args(&args);
     if smoke::failed() { glib::ExitCode::FAILURE } else { code }
 }

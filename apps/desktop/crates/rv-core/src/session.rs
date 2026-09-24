@@ -55,6 +55,8 @@ pub enum SessionEvent {
     Upload(String),
     /// Someone changed their photo.
     Avatar,
+    /// A new message from someone else that my notification preference wants shown.
+    Incoming(Box<crate::notify::Incoming>),
 }
 
 pub fn normalize_server(input: &str) -> Option<Url> {
@@ -140,6 +142,8 @@ pub struct Session {
     call_available: Mutex<Option<bool>>,
     /// Photo versions learnt from `updateAvatar`, by username.
     avatars: Mutex<HashMap<String, String>>,
+    /// `desktopNotifications` from `me`, kept current by set_preference.
+    notification_preference: Mutex<String>,
     /// None until `users.presence` answered once; it only lists who is not offline.
     presence: Mutex<Option<HashMap<String, live::Presence>>>,
 }
@@ -179,6 +183,7 @@ impl Session {
             typing: Mutex::default(),
             call_available: Mutex::default(),
             avatars: Mutex::default(),
+            notification_preference: Mutex::new("default".to_owned()),
             presence: Mutex::default(),
         });
         let listener = tokio::spawn(Self::listen(Arc::downgrade(&session), ddp_events));
@@ -280,7 +285,36 @@ impl Session {
             }
             return;
         }
+        let incoming = (collection == STREAM_ROOM_MESSAGES).then(|| self.incoming(args)).flatten();
         self.sync.apply_event(collection, key, args);
+        if let Some(incoming) = incoming {
+            let _ = self.events.send(SessionEvent::Incoming(Box::new(incoming)));
+        }
+    }
+
+    /// A message nobody showed us yet, from someone else, that the preference wants.
+    fn incoming(&self, args: &[Value]) -> Option<crate::notify::Incoming> {
+        let m = crate::normalize::to_message(args.first()?)?;
+        if m.author_id == self.info.user_id
+            || m.edited_at.is_some()
+            || (m.system_type.is_some() && m.system_type.as_deref() != Some("e2e"))
+            || self.store.has_message(&m.id)
+        {
+            return None;
+        }
+        let (room_name, kind) = self.store.room_name(&m.rid)?;
+        let encrypted = m.system_type.as_deref() == Some("e2e");
+        let incoming = crate::notify::Incoming {
+            rid: m.rid.clone(),
+            id: m.id.clone(),
+            author: m.author_name.clone().unwrap_or_default(),
+            room_name,
+            direct: kind == "d",
+            body: (!encrypted).then(|| crate::notify::body_of(&m)),
+            mentions_me: crate::notify::mentions_me(&m, &self.info.username),
+        };
+        let preference = self.notification_preference.lock().unwrap().clone();
+        crate::notify::wanted(&preference, &incoming).then_some(incoming)
     }
 
     /// Who is typing in the room right now, me left out.
@@ -392,7 +426,13 @@ impl Session {
 
     pub async fn set_preference(&self, key: &str, value: Value) -> Result<(), RestError> {
         let body = json!({"data": {key: value}});
-        self.rest.post("users.setPreferences", CallOptions::body(body)).await.map(|_| ())
+        self.rest.post("users.setPreferences", CallOptions::body(body)).await?;
+        if key == "desktopNotifications"
+            && let Some(v) = value.as_str()
+        {
+            *self.notification_preference.lock().unwrap() = v.to_owned();
+        }
+        Ok(())
     }
 
     pub async fn spotlight(&self, query: &str) -> Result<Vec<crate::rooms::Found>, RestError> {
@@ -475,6 +515,9 @@ impl Session {
             self.uploads.process().await;
         }
         self.load_presence().await;
+        if let Ok(me) = self.me().await {
+            *self.notification_preference.lock().unwrap() = me.desktop_notifications;
+        }
         if let Some((rid, kind)) = self.current_room() {
             let _ = self.sync.load_history(&rid, &kind, None).await;
         }

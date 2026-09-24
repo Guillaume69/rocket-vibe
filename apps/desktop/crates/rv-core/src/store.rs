@@ -287,6 +287,25 @@ impl Store {
             .flatten()
     }
 
+    pub fn has_message(&self, id: &str) -> bool {
+        self.read(|c| c.query_row("SELECT 1 FROM messages WHERE id = ?1", [id], |_| Ok(())).optional())
+            .ok()
+            .flatten()
+            .is_some()
+    }
+
+    /// The room's display name and type.
+    pub fn room_name(&self, rid: &str) -> Option<(String, String)> {
+        self.read(|c| {
+            c.query_row("SELECT COALESCE(display_name, name, rid), type FROM rooms WHERE rid = ?1", [rid], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .optional()
+        })
+        .ok()
+        .flatten()
+    }
+
     /// When I last read the room (`ls`), as the server last told us.
     pub fn last_seen(&self, rid: &str) -> Option<i64> {
         self.read(|c| c.query_row("SELECT last_seen FROM subscriptions WHERE rid = ?1", [rid], |r| r.get(0)).optional())

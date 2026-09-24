@@ -311,6 +311,7 @@ impl AppWindow {
                     UiEvent::Session(SessionEvent::Presence) => this.chat.on_presence(),
                     UiEvent::Session(SessionEvent::Upload(rid)) => this.chat.on_upload(&rid),
                     UiEvent::Session(SessionEvent::Avatar) => this.chat.on_avatar(),
+                    UiEvent::Session(SessionEvent::Incoming(_)) => {}
                     UiEvent::Session(SessionEvent::Expired) => {
                         runtime().spawn(secrets::clear());
                         this.stop_session(true);

@@ -13,6 +13,7 @@ pub mod live;
 pub mod markdown;
 pub mod media;
 pub mod normalize;
+pub mod notify;
 pub mod outbox;
 pub mod rest;
 pub mod rooms;

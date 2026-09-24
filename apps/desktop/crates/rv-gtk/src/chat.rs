@@ -1048,6 +1048,27 @@ impl ChatPage {
         self.messages.borrow().len()
     }
 
+    /// What a tap on the room's row does: select it in the list.
+    pub fn tap_room(&self, rid: &str) {
+        let index = self.rooms.borrow().iter().position(|r| r.rid == rid);
+        if let Some(i) = index {
+            self.rooms_selection.set_selected(i as u32);
+        }
+    }
+
+    pub fn go_back(&self) {
+        self.split.set_show_content(false);
+    }
+
+    pub fn shows_room(&self) -> bool {
+        !self.split.is_collapsed() || self.split.shows_content()
+    }
+
+    pub fn composer_text(&self) -> String {
+        let buffer = self.composer.buffer();
+        buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string()
+    }
+
     pub fn message_texts(&self) -> Vec<String> {
         self.messages.borrow().iter().map(|d| d.row.text.clone().unwrap_or_default()).collect()
     }

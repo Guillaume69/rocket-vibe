@@ -6,6 +6,7 @@
 //!   RV_SMOKE_EXPECT        `|`-separated texts the open room must show by then
 //!   RV_SMOKE_EXPECT_ABSENT `|`-separated texts it must NOT show
 //!   RV_SMOKE_SIZE          `WIDTHxHEIGHT` of the window
+//!   RV_SMOKE_REENTER=1     after opening the room: back to the list, tap the same room, expect it open
 //! A failed expectation makes the process exit with status 1.
 
 use std::cell::Cell;
@@ -64,6 +65,19 @@ pub fn install(window: &Rc<AppWindow>) {
             let Some(rid) = w.chat.room_named(&room) else { return };
             opened.set(true);
             w.chat.open_room(&rid);
+            if std::env::var("RV_SMOKE_REENTER").as_deref() == Ok("1") {
+                let chat = w.chat.clone();
+                glib::timeout_add_local_once(Duration::from_millis(2500), move || {
+                    chat.go_back();
+                    let shown_after_back = chat.shows_room();
+                    chat.tap_room(&rid);
+                    let reopened = chat.shows_room();
+                    println!("smoke: reenter back={shown_after_back} reopened={reopened}");
+                    if shown_after_back || !reopened {
+                        FAILED.store(true, Ordering::SeqCst);
+                    }
+                });
+            }
             if !text.is_empty() {
                 let text = text.clone();
                 let chat = w.chat.clone();
@@ -80,6 +94,7 @@ pub fn install(window: &Rc<AppWindow>) {
     glib::timeout_add_local_once(Duration::from_millis(delay), move || {
         let Some(w) = weak.upgrade() else { return };
         println!("smoke: rooms {} messages {}", w.chat.room_count(), w.chat.message_count());
+        println!("smoke: composer {:?}", w.chat.composer_text());
         let texts = w.chat.message_texts();
         for wanted in list("RV_SMOKE_EXPECT") {
             let found = texts.iter().filter(|t| t.contains(&wanted)).count();

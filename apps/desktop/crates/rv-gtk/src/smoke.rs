@@ -14,6 +14,7 @@
 //!                          other room and comes back: the draft must be restored
 //!   RV_SMOKE_FILES=1       fetches every file attached in the room to the local cache
 //!   RV_SMOKE_UPLOAD="<path>|<caption>"  sends the file as the dialog's Send does, images reduced
+//!   RV_SMOKE_SPOTLIGHT=<query>  finds a channel, joins it and opens it
 //!   RV_SMOKE_REENTER=1     after opening the room: back to the list, tap the same room, expect it open
 //! A failed expectation makes the process exit with status 1.
 
@@ -107,6 +108,26 @@ pub fn install(window: &Rc<AppWindow>) {
                 });
                 glib::timeout_add_local_once(Duration::from_millis(1500), move || {
                     crate::attach::send_all(session, rid, vec![(item, mime)], caption, true, toast)
+                });
+            }
+            if let Ok(query) = std::env::var("RV_SMOKE_SPOTLIGHT")
+                && !query.is_empty()
+                && let Some(session) = w.chat.session()
+            {
+                let chat = w.chat.clone();
+                glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+                    glib::spawn_future_local(async move {
+                        let q = query.clone();
+                        let found =
+                            crate::on_tokio(async move { session.spotlight(&q).await }).await.unwrap_or_default();
+                        let room = found
+                            .into_iter()
+                            .find(|f| matches!(f, rv_core::rooms::Found::Room { name, .. } if *name == query));
+                        check("spotlight finds the channel", room.is_some(), &room);
+                        if let Some(room) = room {
+                            chat.go_to(room);
+                        }
+                    });
                 });
             }
             if std::env::var("RV_SMOKE_REENTER").as_deref() == Ok("1") {

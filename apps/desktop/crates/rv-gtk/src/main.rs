@@ -19,6 +19,8 @@ mod secrets;
 mod settings;
 mod smoke;
 mod spotlight;
+#[cfg(windows)]
+mod std_streams;
 mod style;
 mod thread;
 mod unlock;
@@ -69,6 +71,8 @@ fn window_of(app: &adw::Application) -> std::rc::Rc<window::AppWindow> {
 }
 
 fn main() -> glib::ExitCode {
+    #[cfg(windows)]
+    std_streams::ensure();
     // One instance: a `rocketvibe://` link clicked elsewhere reaches the running app.
     let app =
         adw::Application::builder().application_id(APP_ID).flags(gtk::gio::ApplicationFlags::HANDLES_OPEN).build();

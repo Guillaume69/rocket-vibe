@@ -10,6 +10,8 @@
 //!                          only once it overflows, one line high when short
 //!   RV_SMOKE_ACTIONS=<tag>  reacts to bob's last message, quotes it, edits my last one,
 //!                          replies in a thread, then opens the actions menu; texts carry <tag>
+//!   RV_SMOKE_DRAFTS=<other room>  completes `@bo` and `:smil`, leaves a draft, opens the
+//!                          other room and comes back: the draft must be restored
 //!   RV_SMOKE_REENTER=1     after opening the room: back to the list, tap the same room, expect it open
 //! A failed expectation makes the process exit with status 1.
 
@@ -79,6 +81,13 @@ pub fn install(window: &Rc<AppWindow>) {
                 let chat = w.chat.clone();
                 glib::timeout_add_local_once(Duration::from_millis(3000), move || action_checks(chat, tag));
             }
+            if let Ok(other) = std::env::var("RV_SMOKE_DRAFTS")
+                && let Some(other) = w.chat.room_named(&other)
+            {
+                let chat = w.chat.clone();
+                let back = rid.clone();
+                glib::timeout_add_local_once(Duration::from_millis(2000), move || draft_checks(chat, back, other));
+            }
             if std::env::var("RV_SMOKE_REENTER").as_deref() == Ok("1") {
                 let chat = w.chat.clone();
                 glib::timeout_add_local_once(Duration::from_millis(2500), move || {
@@ -141,7 +150,7 @@ pub fn install(window: &Rc<AppWindow>) {
     });
 }
 
-type Check = Box<dyn FnOnce(&crate::chat::ChatPage)>;
+type Check = Box<dyn FnOnce(&Rc<crate::chat::ChatPage>)>;
 
 /// Runs the steps one after another, a beat apart, so the view relayouts between them.
 fn in_sequence(chat: std::rc::Rc<crate::chat::ChatPage>, mut steps: std::collections::VecDeque<Check>) {
@@ -243,4 +252,47 @@ fn action_checks(chat: std::rc::Rc<crate::chat::ChatPage>, tag: String) {
             println!("smoke: thread shows {} message(s): {:?}", thread.list.len(), thread.list.texts().last());
         }
     });
+}
+
+fn check(label: &str, ok: bool, detail: impl std::fmt::Debug) {
+    println!("smoke: {label}: {detail:?} {}", if ok { "ok" } else { "FAILED" });
+    if !ok {
+        FAILED.store(true, Ordering::SeqCst);
+    }
+}
+
+/// Completion, then a draft kept across a room switch.
+fn draft_checks(chat: std::rc::Rc<crate::chat::ChatPage>, back: String, other: String) {
+    let mut steps: std::collections::VecDeque<Check> = std::collections::VecDeque::new();
+    steps.push_back(Box::new(|c| {
+        c.composer().set_text("");
+        c.composer().type_text("hi @bo");
+    }));
+    steps.push_back(Box::new(|c| {
+        let offered = c.composer().offered();
+        check("mention offered", offered.first().is_some_and(|o| o == "@bob"), &offered);
+        c.composer().accept_first();
+        check("mention inserted", c.composer().text() == "hi @bob ", c.composer().text());
+        c.composer().type_text(":smil");
+    }));
+    steps.push_back(Box::new(|c| {
+        let offered = c.composer().offered();
+        check("emoji offered", !offered.is_empty(), &offered);
+        c.composer().accept_first();
+        let text = c.composer().text();
+        check("emoji inserted", !text.contains(':') && text.len() > "hi @bob ".len(), &text);
+        c.composer().type_text("draft kept");
+    }));
+    for _ in 0..15 {
+        steps.push_back(Box::new(|_| {}));
+    }
+    steps.push_back(Box::new(move |c| {
+        let kept = c.composer().text();
+        c.open_room(&other);
+        check("other room starts empty", c.composer().text().is_empty(), c.composer().text());
+        c.open_room(&back);
+        check("draft restored", c.composer().text() == kept, c.composer().text());
+        c.composer().set_text("");
+    }));
+    in_sequence(chat, steps);
 }

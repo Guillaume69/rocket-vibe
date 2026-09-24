@@ -327,6 +327,15 @@ impl Composer {
         self.text.grab_focus();
     }
 
+    /// The completion choices on offer, as shown.
+    pub fn offered(&self) -> Vec<String> {
+        self.offered.borrow().iter().map(|(_, insert)| insert.trim_end().to_owned()).collect()
+    }
+
+    pub fn accept_first(&self) {
+        self.accept(0);
+    }
+
     pub fn connect_submit(&self, f: impl Fn(String) + 'static) {
         self.on_submit.replace(Some(Rc::new(f)));
     }

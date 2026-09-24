@@ -18,6 +18,8 @@
 //!   RV_SMOKE_DETAILS=profile:<user> | room | search:<text> | settings  checks the read and opens the dialog
 //!   RV_SMOKE_NOTIFY=<reply>  stands in for the desktop's notification server (inline reply
 //!                          included), and answers the first notification with <reply>
+//!   RV_SMOKE_SECOND="<user>|<password>"  adds a second account on the same server,
+//!                          then switches back to the first
 //!   RV_SMOKE_REENTER=1     after opening the room: back to the list, tap the same room, expect it open
 //! A failed expectation makes the process exit with status 1.
 
@@ -55,6 +57,7 @@ pub fn install(window: &Rc<AppWindow>) {
     let text = std::env::var("RV_SMOKE_SEND").unwrap_or_default();
     let shot = std::env::var("RV_SMOKE_SHOT").unwrap_or_default();
     let parts: Vec<String> = login.split('|').map(str::to_owned).collect();
+    let server = parts.first().cloned().unwrap_or_default();
     if let Some((w, h)) = std::env::var("RV_SMOKE_SIZE").ok().and_then(|s| {
         let (w, h) = s.split_once('x')?;
         Some((w.parse().ok()?, h.parse().ok()?))
@@ -72,6 +75,14 @@ pub fn install(window: &Rc<AppWindow>) {
                 glib::idle_add_local_once(move || w.submit_login());
             }
         });
+    }
+
+    if let Some((user, password)) = std::env::var("RV_SMOKE_SECOND").ok().and_then(|s| {
+        let (u, p) = s.split_once('|')?;
+        Some((u.to_owned(), p.to_owned()))
+    }) && !server.is_empty()
+    {
+        second_account(window, server, user, password);
     }
 
     if !room.is_empty() {
@@ -493,4 +504,42 @@ fn fake_notification_server(reply: String) {
         2000,
         None::<&gio::Cancellable>,
     );
+}
+
+/// First account loaded → add the second → it loads → back to the first.
+fn second_account(window: &Rc<AppWindow>, server: String, user: String, password: String) {
+    let step = Rc::new(Cell::new(0u8));
+    let first: Rc<std::cell::RefCell<Option<rv_core::session::SessionInfo>>> = Rc::default();
+    let weak = Rc::downgrade(window);
+    window.chat.connect_rooms_loaded(move || {
+        let Some(w) = weak.upgrade() else { return };
+        let Some(session) = w.chat.session() else { return };
+        match step.get() {
+            0 => {
+                step.set(1);
+                first.replace(Some(session.info.clone()));
+                let (w, server, user, password) = (w.clone(), server.clone(), user.clone(), password.clone());
+                glib::timeout_add_local_once(Duration::from_millis(1000), move || {
+                    w.add_account();
+                    w.login.fill(&server, &user, &password);
+                    w.submit_login();
+                });
+            }
+            1 if session.info.username == user => {
+                step.set(2);
+                check("second account signed in", true, &session.info.username);
+                let (w, first) = (w.clone(), first.borrow().clone());
+                glib::timeout_add_local_once(Duration::from_millis(1000), move || {
+                    if let Some(first) = first {
+                        w.switch_to(first);
+                    }
+                });
+            }
+            2 if Some(&session.info.username) == first.borrow().as_ref().map(|f| &f.username) => {
+                step.set(3);
+                check("switched back", w.chat.room_count() > 0, &session.info.username);
+            }
+            _ => {}
+        }
+    });
 }

@@ -66,6 +66,7 @@ pub struct ChatPage {
     list: Rc<MessageList>,
     composer: Rc<Composer>,
     read_only_label: gtk::Label,
+    e2e_banner: gtk::Box,
     session: Rc<RefCell<Option<Arc<Session>>>>,
     current: RefCell<Option<OpenRoom>>,
     limit: Cell<i64>,
@@ -206,6 +207,16 @@ impl ChatPage {
         // The composer is content, not a bottom bar: libadwaita wraps bars in a
         // GtkWindowHandle, where a double click maximizes the window.
         let room_content = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let e2e_banner = gtk::Box::builder().spacing(10).css_classes(["e2e-banner"]).visible(false).build();
+        e2e_banner.append(&gtk::Label::builder().label("🔒").build());
+        e2e_banner.append(&gtk::Label::builder().label(t("e2e.banner")).hexpand(true).xalign(0.0).wrap(true).build());
+        let unlock_button = gtk::Button::builder()
+            .label(t("e2e.unlock"))
+            .css_classes(["file-action"])
+            .valign(gtk::Align::Center)
+            .build();
+        e2e_banner.append(&unlock_button);
+        room_content.append(&e2e_banner);
         room_content.append(&list.scroll);
         room_content.append(&upload_strip);
         room_content.append(&typing_label);
@@ -267,6 +278,7 @@ impl ChatPage {
             list,
             composer,
             read_only_label,
+            e2e_banner,
             session,
             current: RefCell::default(),
             limit: Cell::new(HISTORY_PAGE),
@@ -279,6 +291,14 @@ impl ChatPage {
             on_rooms_loaded: RefCell::default(),
         });
         this.wire(&status_button, &logout);
+        let weak = Rc::downgrade(&this);
+        unlock_button.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade()
+                && let Some(session) = this.session()
+            {
+                crate::unlock::ask(&this.split, session);
+            }
+        });
         let weak = Rc::downgrade(&this);
         account_click.connect_released(move |_, _, _, _| {
             let Some(this) = weak.upgrade() else { return };
@@ -744,10 +764,14 @@ impl ChatPage {
         });
     }
 
+    /// Unlocked or locked: encrypted rows and previews are built again.
+    pub fn on_e2e(&self) {
+        self.on_avatar();
+    }
+
     /// A photo changed: rows are rebuilt so they ask for the new one.
     pub fn on_avatar(&self) {
-        let n = self.rooms_store.n_items();
-        self.rooms_store.items_changed(0, n, n);
+        self.load_rooms(true);
         self.list.rebind();
         if let Some(thread) = self.thread.borrow().as_ref() {
             thread.list.rebind();
@@ -885,8 +909,7 @@ impl ChatPage {
     }
 
     pub fn on_presence(&self) {
-        let n = self.rooms_store.n_items();
-        self.rooms_store.items_changed(0, n, n);
+        self.load_rooms(true);
         self.refresh_room_header();
     }
 
@@ -896,8 +919,14 @@ impl ChatPage {
     }
 
     fn reload_rooms(&self) {
+        self.load_rooms(false);
+    }
+
+    /// `force` builds every row again even when the data did not change:
+    /// what they show also depends on presence, photos and the E2E lock.
+    fn load_rooms(&self, force: bool) {
         let rows = self.session.borrow().as_ref().map(|s| s.store.rooms()).unwrap_or_default();
-        if *self.rooms.borrow() != rows {
+        if force || *self.rooms.borrow() != rows {
             let sections = rv_core::rooms::sections(&rows);
             let titled = sections.len() > 1;
             let mut objects = Vec::new();
@@ -973,8 +1002,13 @@ impl ChatPage {
             names.append(&line);
         }
         self.room_title.append(&names);
-        self.composer.root.set_visible(!open.read_only);
-        self.read_only_label.set_visible(open.read_only);
+        let unlocked = self.session.borrow().as_ref().is_some_and(|s| s.e2e_unlocked());
+        self.e2e_banner.set_visible(open.encrypted && !unlocked);
+        // Encrypted rooms are read here, not written: the server refuses clear text in them.
+        let writable = !open.read_only && !open.encrypted;
+        self.composer.root.set_visible(writable);
+        self.read_only_label.set_label(t(if open.encrypted { "e2e.read_only" } else { "room.read_only" }));
+        self.read_only_label.set_visible(!writable);
     }
 
     fn reload_messages(&self) {

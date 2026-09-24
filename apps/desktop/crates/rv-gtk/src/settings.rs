@@ -90,6 +90,38 @@ pub fn open(
     language_group.add(&language);
     page.add(&language_group);
 
+    let e2e_group = adw::PreferencesGroup::new();
+    let unlocked = session.e2e_unlocked();
+    let e2e_row = adw::ActionRow::builder()
+        .title(t("e2e.status"))
+        .subtitle(t(if unlocked { "e2e.unlocked" } else { "e2e.locked" }))
+        .build();
+    let e2e_button = gtk::Button::builder()
+        .label(t(if unlocked { "e2e.lock" } else { "e2e.unlock" }))
+        .valign(gtk::Align::Center)
+        .css_classes(["flat"])
+        .build();
+    e2e_row.add_suffix(&e2e_button);
+    e2e_group.add(&e2e_row);
+    page.add(&e2e_group);
+    let s = session.clone();
+    e2e_button.connect_clicked(glib::clone!(
+        #[weak]
+        dialog,
+        move |_| {
+            if s.e2e_unlocked() {
+                s.e2e_lock();
+                e2e_row.set_subtitle(t("e2e.locked"));
+                return;
+            }
+            let parent = dialog.parent();
+            dialog.close();
+            if let Some(parent) = parent {
+                crate::unlock::ask(&parent, s.clone());
+            }
+        }
+    ));
+
     if let Some(actions) = accounts {
         page.add(&accounts_group(&dialog, &session, actions));
     }

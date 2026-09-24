@@ -81,6 +81,11 @@ pub fn system_line(row: &MessageRow) -> String {
     }
 }
 
+/// A message with a system type other than `e2e`, which is someone's words.
+fn is_system(row: &MessageRow) -> bool {
+    row.system_type.as_deref().is_some_and(|kind| kind != "e2e")
+}
+
 pub fn group(rows: Vec<MessageRow>) -> Vec<Display> {
     let mut out: Vec<Display> = Vec::with_capacity(rows.len());
     for row in rows {
@@ -91,8 +96,8 @@ pub fn group(rows: Vec<MessageRow>) -> Vec<Display> {
             Some(prev) => {
                 let new_day = local(prev.row.ts).date_naive() != local(row.ts).date_naive();
                 let header = new_day
-                    || row.system_type.is_some()
-                    || prev.row.system_type.is_some()
+                    || is_system(&row)
+                    || is_system(&prev.row)
                     || prev.row.author_id != row.author_id
                     || row.ts - prev.row.ts > GROUPING_GAP_MS;
                 (header, new_day)
@@ -215,7 +220,9 @@ pub fn room_widget(r: &RoomRow, session: Option<&Arc<Session>>) -> gtk::Widget {
     name.set_ellipsize(pango::EllipsizeMode::End);
     let time = label(&short_time(r.last_ts), &["room-time"]);
     let system = r.last_type.as_deref().filter(|kind| *kind != "e2e");
+    let clear = r.last_encrypted.as_deref().zip(session).and_then(|(raw, s)| s.decrypt(&r.rid, raw));
     let preview = match (&r.last_message, r.encrypted) {
+        _ if let Some(text) = &clear => label(&rv_core::emoji::replace_shortcodes(text), &["room-preview"]),
         _ if let Some(kind) = system => {
             let param = r.last_message.as_deref().unwrap_or_default();
             let author = r.last_author.as_deref().unwrap_or_default();
@@ -311,7 +318,7 @@ pub fn message_widget(d: &Display, my_id: &str, session: Option<&Arc<Session>>, 
         outer.append(&marker);
     }
 
-    if row.system_type.is_some() && !is_call {
+    if is_system(row) && !is_call {
         let system = label(&system_line(row), &["system-message"]);
         system.set_wrap(true);
         system.set_margin_start(44);
@@ -358,8 +365,17 @@ pub fn message_widget(d: &Display, my_id: &str, session: Option<&Arc<Session>>, 
     let pending = row.outbox_status.as_deref() == Some("pending");
     let failed = row.outbox_status.as_deref() == Some("failed");
     let me = session.map(|s| s.info.username.clone()).unwrap_or_default();
+    let encrypted = row.system_type.as_deref() == Some("e2e");
     let blocks = if is_call {
         Vec::new()
+    } else if encrypted {
+        let clear = session.zip(row.encrypted_raw.as_deref()).and_then(|(s, raw)| s.decrypt(&row.rid, raw));
+        match clear {
+            Some(text) => markdown::render(None, Some(&text), &markdown::Context { me: &me }),
+            None => {
+                vec![markdown::Block::Paragraph(format!("<i>{}</i>", markdown::escape(t("message.encrypted_locked"))))]
+            }
+        }
     } else {
         markdown::render(row.md.as_deref(), row.text.as_deref(), &markdown::Context { me: &me })
     };

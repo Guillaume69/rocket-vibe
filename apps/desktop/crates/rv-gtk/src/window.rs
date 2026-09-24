@@ -362,7 +362,7 @@ impl AppWindow {
                     UiEvent::Session(SessionEvent::Upload(rid)) => this.chat.on_upload(&rid),
                     UiEvent::Session(SessionEvent::Avatar) => this.chat.on_avatar(),
                     UiEvent::Session(SessionEvent::Incoming(incoming)) => this.notify(&incoming),
-                    UiEvent::Session(SessionEvent::E2e) => {}
+                    UiEvent::Session(SessionEvent::E2e) => this.chat.on_e2e(),
                     UiEvent::Session(SessionEvent::Expired) => {
                         let expired = this.session.borrow().as_ref().map(|s| s.info.clone());
                         this.stop_session(true);

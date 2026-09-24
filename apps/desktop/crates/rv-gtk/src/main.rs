@@ -19,6 +19,7 @@ mod smoke;
 mod spotlight;
 mod style;
 mod thread;
+mod unlock;
 mod widgets;
 mod window;
 

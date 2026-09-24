@@ -168,10 +168,15 @@ impl MessageList {
         self.unread_after.replace(after);
     }
 
-    /// Every row built again, same data.
+    /// Every row built again, same data: a list view only rebuilds rows
+    /// for items it has not seen, so they are all replaced.
     pub fn rebind(&self) {
-        let n = self.store.n_items();
-        self.store.items_changed(0, n, n);
+        let objects: Vec<glib::BoxedAnyObject> =
+            self.rows.borrow().iter().cloned().map(glib::BoxedAnyObject::new).collect();
+        self.store.splice(0, self.store.n_items(), &objects);
+        if self.pinned.get() {
+            self.scroll_to_bottom();
+        }
     }
 
     pub fn is_pinned(&self) -> bool {

@@ -15,7 +15,8 @@
 //!   RV_SMOKE_FILES=1       fetches every file attached in the room to the local cache
 //!   RV_SMOKE_UPLOAD="<path>|<caption>"  sends the file as the dialog's Send does, images reduced
 //!   RV_SMOKE_SPOTLIGHT=<query>  finds a channel, joins it and opens it
-//!   RV_SMOKE_DETAILS=profile:<user> | room | search:<text> | settings  checks the read and opens the dialog
+//!   RV_SMOKE_DETAILS=profile:<user> | room | search:<text> | settings | emoji:<code>
+//!                          checks the read and opens the dialog; emoji: a custom one completes
 //!   RV_SMOKE_NOTIFY=<reply>  stands in for the desktop's notification server (inline reply
 //!                          included), and answers the first notification with <reply>
 //!   RV_SMOKE_SECOND="<user>|<password>"  adds a second account on the same server,
@@ -427,6 +428,13 @@ fn details_checks(
             let info = crate::on_tokio(async move { s.room_info(&r).await }).await;
             check("room info read", info.as_ref().is_ok_and(|i| i.members.is_some()), info.as_ref().map(|i| i.members));
             chat.show_room_info();
+        } else if let Some(code) = what.strip_prefix("emoji:") {
+            check("custom emoji known", session.custom_emoji(code).is_some(), session.custom_emoji(code));
+            chat.composer().set_text("");
+            chat.composer().type_text(&format!("see :{}", &code[..code.len().min(3)]));
+            let offered = chat.composer().offered();
+            check("custom emoji offered", offered.iter().any(|o| *o == format!(":{code}:")), &offered);
+            chat.composer().set_text("");
         } else if what == "settings" {
             let s = session.clone();
             let round = crate::on_tokio(async move {

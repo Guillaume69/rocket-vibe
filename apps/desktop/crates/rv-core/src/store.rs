@@ -128,7 +128,8 @@ CREATE TABLE IF NOT EXISTS cursors (
 
 /// Applied in order, once each: `PRAGMA user_version` counts those already run.
 /// Append only; never edit a shipped step.
-const MIGRATIONS: &[&str] = &["ALTER TABLE messages ADD COLUMN md TEXT"];
+const MIGRATIONS: &[&str] =
+    &["ALTER TABLE messages ADD COLUMN md TEXT", "CREATE TABLE drafts (key TEXT PRIMARY KEY, text TEXT NOT NULL)"];
 
 pub struct Store {
     conn: Mutex<Connection>,
@@ -195,6 +196,25 @@ impl Store {
         })
         .ok()
         .flatten()
+    }
+
+    /// The draft of a room (`rid`) or a thread (`rid:tmid`).
+    pub fn draft(&self, key: &str) -> Option<String> {
+        self.read(|c| c.query_row("SELECT text FROM drafts WHERE key = ?1", [key], |r| r.get(0)).optional())
+            .ok()
+            .flatten()
+    }
+
+    /// Usernames of the room's recent authors, most recent first.
+    pub fn recent_authors(&self, rid: &str, limit: i64) -> Vec<String> {
+        self.read(|c| {
+            let mut q = c.prepare(
+                "SELECT author_name FROM messages WHERE rid = ?1 AND author_name IS NOT NULL AND system_type IS NULL
+                 GROUP BY author_name ORDER BY MAX(ts) DESC LIMIT ?2",
+            )?;
+            q.query_map(params![rid, limit], |r| r.get(0))?.collect()
+        })
+        .unwrap_or_default()
     }
 
     pub fn pending_outbox(&self) -> Vec<OutboxEntry> {
@@ -436,6 +456,20 @@ impl Writer<'_> {
             .flatten()
     }
 
+    /// An empty draft is deleted rather than stored.
+    pub fn set_draft(&mut self, key: &str, text: &str) {
+        if text.trim().is_empty() {
+            self.conn.execute("DELETE FROM drafts WHERE key = ?1", [key]).expect("delete draft");
+        } else {
+            self.conn
+                .execute(
+                    "INSERT INTO drafts (key, text) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET text = excluded.text",
+                    params![key, text],
+                )
+                .expect("set draft");
+        }
+    }
+
     pub fn insert_outbox(&mut self, id: &str, rid: &str, text: &str, thread_id: Option<&str>) {
         self.conn
             .execute(
@@ -605,6 +639,33 @@ mod tests {
         let change = changes.try_recv().unwrap();
         assert_eq!(change.rids, BTreeSet::from(["other".to_owned(), "r".to_owned()]));
         assert!(changes.try_recv().is_err());
+    }
+
+    #[test]
+    fn drafts_are_kept_per_key_and_cleared_when_empty() {
+        let store = Store::in_memory().unwrap();
+        let mut changes = store.changes();
+        store.write(|w| w.set_draft("r", "hello"));
+        store.write(|w| w.set_draft("r:t", "in thread"));
+        assert_eq!(store.draft("r").as_deref(), Some("hello"));
+        assert_eq!(store.draft("r:t").as_deref(), Some("in thread"));
+        store.write(|w| w.set_draft("r", "  "));
+        assert_eq!(store.draft("r"), None);
+        assert!(changes.try_recv().is_err(), "drafts do not refresh the lists");
+    }
+
+    #[test]
+    fn recent_authors_most_recent_first() {
+        let store = Store::in_memory().unwrap();
+        store.write(|w| {
+            for (id, author, ts) in [("a", "bob", 10), ("b", "carol", 20), ("c", "bob", 30)] {
+                let mut m = message(id, Some("x"), 1, "r");
+                m.ts = ts;
+                m.author_name = Some(author.into());
+                w.upsert_message(&m);
+            }
+        });
+        assert_eq!(store.recent_authors("r", 10), ["bob", "carol"]);
     }
 
     #[test]

@@ -2,6 +2,7 @@
 //! Port of the Android app's `lib/`, whose tests are the spec.
 
 pub mod actions;
+pub mod completion;
 pub mod ddp;
 pub mod diff;
 pub mod emoji;

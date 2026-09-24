@@ -22,11 +22,11 @@ rather than dropped.
 - [x] Avatar (room photo, DM partner photo), name, preview, time, yellow unread badge (`@n` on mentions)
 - [x] Encrypted rooms: 🔒 tile, "Encrypted message" preview
 - [x] Sync comet while connecting or loading
-- [ ] Sections: Unread, Channels, Direct messages
+- [x] Sections: Unread, Channels, Direct messages
 - [x] Presence dot on DMs (`users.presence`, `user-status`)
 - [x] System and video-call messages translated in previews
-- [ ] "New conversation": search users and channels (`spotlight`), open a DM (`im.create`), join a channel (`channels.join`)
-- [ ] Unread total on the app (window title / launcher badge)
+- [x] "New conversation": search users and channels (`spotlight`), open a DM (`im.create`), join a channel (`channels.join`)
+- [x] Unread total on the app (window title)
 
 ## 3. Room view
 
@@ -39,12 +39,12 @@ rather than dropped.
 - [x] Images inline (original, not the thumbnail), viewer on click, protected-file token only to our origin
 - [x] Photo avatars over gradient tiles
 - [x] Read-only rooms: no composer
-- [~] Header: room info, DM partner's presence, search in room, start a call (presence and call done)
+- [x] Header: room info, DM partner's presence, search in room, start a call
 - [x] "✦ new messages" bar at the first unread
 - [x] Mark as read while viewing (debounced)
 - [x] Typing indicator (`user-activity`)
 - [ ] Custom emoji images (`emoji-custom.list`)
-- [ ] Mentions open the profile
+- [x] Mentions open the profile
 - [x] Link previews from `message.urls` (card, inline image)
 - [x] YouTube/Dailymotion/Vimeo cards
 - [x] Video attachments (player)
@@ -89,14 +89,14 @@ rather than dropped.
 
 ## 7. Search
 
-- [ ] Search messages in the room (`chat.search`)
+- [x] Search messages in the room (`chat.search`)
 
 ## 8. Room info and profiles
 
-- [ ] Room info: type, flags, members count, topic, announcement, description (`rooms.info`)
-- [ ] User profile: avatar, name, username, presence, roles, local time, bio (`users.info`); Message and Call buttons
+- [x] Room info: type, flags, members count, topic, announcement, description (`rooms.info`)
+- [x] User profile: avatar, name, username, presence, roles, local time, bio (`users.info`); Message and Call buttons
 - [ ] My profile: avatar, status and presence, name, bio, email and username (with password and 2FA)
-- [ ] Live avatar changes (`updateAvatar`)
+- [x] Live avatar changes (`updateAvatar`)
 
 ## 9. Settings
 

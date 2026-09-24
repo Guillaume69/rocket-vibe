@@ -77,6 +77,16 @@ jobs:
             exit 1
           fi
           printf '%s' "$GOOGLE_SERVICES_JSON" > google-services.json
+      - name: Release key
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "::error::The ANDROID_KEYSTORE_BASE64 secret is missing: without the app's key, the APK would not install over the previous one."
+            exit 1
+          fi
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "RV_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
       - uses: actions/cache@v4
         with:
           path: |
@@ -90,6 +100,13 @@ jobs:
           CI: 1
       - run: ./gradlew assembleRelease --no-daemon
         working-directory: apps/mobile/android
+        env:
+          RV_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          RV_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          RV_KEY_ALIAS: rocket-vibe
+      - name: Signed with the app's key
+        run: '"$ANDROID_HOME"/build-tools/36.0.0/apksigner verify --print-certs android/app/build/outputs/apk/release/app-release.apk | grep -E "Signer #1 certificate (DN|SHA-256)"'
+
       - run: cp android/app/build/outputs/apk/release/app-release.apk "rocket-vibe-mobile-${{ needs.check.outputs.version }}.apk"
       - uses: actions/upload-artifact@v4
         with:

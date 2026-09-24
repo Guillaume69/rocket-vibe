@@ -5,6 +5,7 @@
 //!   RV_SMOKE_SHOT   PNG path; the window is rendered after RV_SMOKE_DELAY_MS, then the app quits
 //!   RV_SMOKE_EXPECT        `|`-separated texts the open room must show by then
 //!   RV_SMOKE_EXPECT_ABSENT `|`-separated texts it must NOT show
+//!   RV_SMOKE_SIZE          `WIDTHxHEIGHT` of the window
 //! A failed expectation makes the process exit with status 1.
 
 use std::cell::Cell;
@@ -33,6 +34,12 @@ pub fn install(window: &Rc<AppWindow>) {
     let text = std::env::var("RV_SMOKE_SEND").unwrap_or_default();
     let shot = std::env::var("RV_SMOKE_SHOT").unwrap_or_default();
     let parts: Vec<String> = login.split('|').map(str::to_owned).collect();
+    if let Some((w, h)) = std::env::var("RV_SMOKE_SIZE").ok().and_then(|s| {
+        let (w, h) = s.split_once('x')?;
+        Some((w.parse().ok()?, h.parse().ok()?))
+    }) {
+        window.window.set_default_size(w, h);
+    }
 
     if parts.len() == 3 {
         let weak = Rc::downgrade(window);

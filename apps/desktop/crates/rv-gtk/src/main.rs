@@ -43,6 +43,7 @@ fn main() -> glib::ExitCode {
         }
         let window = window::AppWindow::new(app);
         smoke::install(&window);
+        window.window.present();
         window.start();
     });
     let code = app.run_with_args::<&str>(&[]);

@@ -145,7 +145,6 @@ impl AppWindow {
             keep.stop_session(false);
             glib::Propagation::Proceed
         });
-        this.window.present();
         this
     }
 

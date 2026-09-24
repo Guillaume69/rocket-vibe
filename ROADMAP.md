@@ -152,13 +152,13 @@ C'est ce qu'on utilisera pour la feuille d'actions sur un message, le sélecteur
 > **L'exception WebView : l'écran d'appel, et rien d'autre** (consignée au chantier 16, livrée
 > le 2026-07-12, `61fc7d4`). La visioconférence Jitsi est une **web-app** : l'alternative native,
 > `@jitsi/react-native-sdk`, vise RN ~0.79 et embarque `react-native-webrtc` — un pari New
-> Architecture fragile contre notre RN 0.86. `app/appel/[callId].tsx` charge donc l'URL rendue
+> Architecture fragile contre notre RN 0.86. `apps/mobile/app/appel/[callId].tsx` charge donc l'URL rendue
 > par `video-conference.join` (JWT inclus) dans une WebView plein écran. Les bornes, et elles ne
 > se négocient pas : **une seule route** ; **origine verrouillée** sur celle que le serveur a
-> désignée (`originWhitelist` + `onShouldStartLoadWithRequest`, primitives de `lib/origine.ts`) —
+> désignée (`originWhitelist` + `onShouldStartLoadWithRequest`, primitives de `apps/mobile/lib/origine.ts`) —
 > parce que l'app détient caméra et micro pendant l'appel et qu'Android ne sait pas arbitrer ces
 > permissions par origine, la navigation est le seul verrou. Partout ailleurs, l'interdit tient :
-> la lecture intégrée des liens vidéo, par exemple, reste une carte native (`ui/carteEmbed.tsx`).
+> la lecture intégrée des liens vidéo, par exemple, reste une carte native (`apps/mobile/ui/carteEmbed.tsx`).
 
 > **Piège transverse, et il est inévitable** : `react-native-reanimated` augmente la RAM de 25 à 30 % depuis RN 0.85 (changement Hermes), même inutilisé. Vérifié après installation : **`expo-router@57.0.4` en dépend directement**, ainsi que de `react-native-worklets`. Aucun choix de template ne l'évite. S'en passer supposerait d'abandonner `expo-router` pour `react-navigation` nu — probablement pas rentable. À surveiller au profilage plutôt qu'à combattre.
 

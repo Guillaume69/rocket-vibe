@@ -69,7 +69,7 @@
     "prebuild": "expo prebuild --platform android --clean",
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
-    "seed": "node scripts/seed.mjs",
+    "seed": "node ../../scripts/seed.mjs",
     "emojis:generer": "node scripts/generer-emojis.mjs",
     "test": "node --test \"lib/**/*.test.ts\" \"db/**/*.test.ts\" \"ui/**/*.test.ts\" \"fournisseurs/**/*.test.ts\" \"plugins/**/*.test.mjs\"",
     "db:generate": "drizzle-kit generate"

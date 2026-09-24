@@ -3,7 +3,7 @@
 ## Démarrage
 
 ```sh
-source scripts/env.sh          # RV_ENV_VERBOSE=1 pour voir ce qui est exporté
+source apps/mobile/scripts/env.sh   # RV_ENV_VERBOSE=1 pour voir ce qui est exporté
 java -version                  # 17.0.19
 adb devices
 ```
@@ -121,6 +121,7 @@ Le script est **idempotent y compris après une interruption**. Chaque message s
 ## L'application
 
 ```sh
+cd apps/mobile
 npm run typecheck     # tsc --noEmit, strict
 npm run lint          # expo lint
 npm run prebuild      # expo prebuild --platform android --clean

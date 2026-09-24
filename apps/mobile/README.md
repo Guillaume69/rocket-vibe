@@ -4,10 +4,11 @@ Client mobile **Rocket.Chat** tiers — **Android d'abord**, en Expo / React Nat
 Objectif : un client **plus rapide et plus fiable** que l'application officielle, pour
 un usage personnel sur un serveur Rocket.Chat auto-hébergé.
 
-> Ce README explique le projet et comment le faire tourner en local. Les **décisions**
-> et leur justification vivent dans [`ROADMAP.md`](ROADMAP.md) ; l'**état d'avancement**
-> détaillé dans [`EXECUTION.md`](EXECUTION.md) ; l'**environnement de build** dans
-> [`docs/DEV.md`](docs/DEV.md).
+> Ce README explique l'app mobile et comment la faire tourner en local ; **toutes les
+> commandes se lancent depuis `apps/mobile/`**. Les **décisions** et leur justification
+> vivent dans [`ROADMAP.md`](../../ROADMAP.md) ; l'**état d'avancement** détaillé dans
+> [`EXECUTION.md`](EXECUTION.md) ; l'**environnement de build** dans
+> [`docs/DEV.md`](../../docs/DEV.md).
 
 ---
 
@@ -41,7 +42,7 @@ Push FCM direct (expo-notifications) — réveille l'app même tuée
 Le WebSocket et le REST écrivent dans SQLite ; l'UI **observe** SQLite. Le flux temps
 réel n'est jamais gardé dans un store mémoire. C'est le remède direct aux griefs
 documentés contre l'app officielle (souscriptions empilées, messages dupliqués, envois
-figés). Détails et justifications dans [`ROADMAP.md`](ROADMAP.md).
+figés). Détails et justifications dans [`ROADMAP.md`](../../ROADMAP.md).
 
 **Contraintes fermes** (voir `ROADMAP.md` §4.2) : primitives React Native **natives par
 défaut**, **aucun kit UI** (NativeBase, Tamagui, RN Paper…), **aucune WebView**, builds
@@ -95,7 +96,7 @@ Deux options selon l'usage.
 **a. Serveur de développement local (recommandé pour développer)**
 
 ```sh
-cd docker
+cd ../../docker
 cp .env.example .env && chmod 600 .env    # puis renseigner ADMIN_PASS
 docker compose up -d                       # Rocket.Chat 8.5.1 + MongoDB 8.0 (replica set)
 curl -sf "$ROOT_URL/api/info"              # attendu : {"version":"8.5",...}
@@ -104,7 +105,7 @@ curl -sf "$ROOT_URL/api/info"              # attendu : {"version":"8.5",...}
 Puis les données de test (idempotent, rejouable même après interruption) :
 
 ```sh
-cd .. && node scripts/seed.mjs             # crée alice, bob, test-public, test-prive, un DM…
+cd - && npm run seed                       # crée alice, bob, test-public, test-prive, un DM…
 ```
 
 > `docker compose up` **échoue volontairement** sans `.env` renseigné, plutôt que de
@@ -115,13 +116,13 @@ connexion de l'app (ex. `https://chat.barrut.me`).
 
 ### 4. Firebase (pour le push)
 
-Le build attend un `google-services.json` à la racine (référencé par `app.json`, et
+Le build attend un `google-services.json` dans `apps/mobile/` (référencé par `app.json`, et
 **gitignoré** — c'est un secret). Fournis le tien :
 
 1. Crée un projet Firebase (gratuit) et une app Android dont le `package_name`
    correspond **exactement** à `android.package` de `app.json` (actuellement
    `com.rocketvibe.app`) — sinon le plugin Gradle GMS refuse de builder.
-2. Télécharge `google-services.json` et pose-le à la racine du dépôt.
+2. Télécharge `google-services.json` et pose-le dans `apps/mobile/`.
 
 Côté serveur, le push direct FCM v1 suppose `Push_enable_gateway=false`,
 `Push_UseLegacy=false`, et le JSON d'un **compte de service** Firebase dans
@@ -177,7 +178,7 @@ puis `adb install -r app/build/outputs/apk/release/app-release.apk`.
 
 ---
 
-## Structure du dépôt
+## Structure de l'app
 
 ```
 app/            Routes expo-router (index, connexion, salon/[rid], fil/[id], recherche…)
@@ -187,12 +188,15 @@ ui/             Composants et thème « Nuit Étoilée » (theme.ts, kit.tsx, li
 lib/            Cœur non-UI : ddp.ts (client DDP), rest.ts, auth.ts, envoi.ts, upload.ts,
                 sync.ts, rattrapage.ts, reconnexion.ts, presence.ts, push.ts, apercuLien.ts…
 db/             SQLite + Drizzle : schema.ts, upserts.ts, depot.ts, migrations/
-scripts/        env.sh, seed.mjs, spike-ddp.mjs, génération d'emojis
+scripts/        env.sh, génération d'emojis
 plugins/        Config plugins CNG (with-fcm-deeplink : deep-link au tap d'un push)
-docker/         Rocket.Chat 8.5.1 + MongoDB 8.0 (compose.yml, .env.example)
-docs/           DEV.md (environnement, réseau, relevé du serveur cible)
 assets/         Icônes de l'app (lanceur, adaptative, notif « fusée » monochrome)
+e2e/            Parcours Maestro et leur harnais
 ```
+
+À la racine du dépôt, partagés avec l'app bureau : `docker/` (Rocket.Chat 8.5.1 +
+MongoDB 8.0), `scripts/` (seed.mjs, spike-ddp.mjs) et `docs/` (DEV.md : environnement,
+réseau, relevé du serveur cible).
 
 Les modules de `lib/` et `db/` sont accompagnés de tests (`*.test.ts`).
 
@@ -225,7 +229,7 @@ Ils ne surfacent que par `e.message`, en dernier recours.
 
 Sont **gitignorés** et à fournir localement : `.env`, `.env.local`,
 `google-services.json`, tout JSON de compte de service Firebase
-(`*firebase-adminsdk*.json`, `*-service-account*.json`). Seul `docker/.env.example`
+(`*firebase-adminsdk*.json`, `*-service-account*.json`). Seul `docker/.env.example` (à la racine)
 documente les variables attendues côté serveur de dev.
 
 ---

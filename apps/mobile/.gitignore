@@ -41,6 +41,3 @@ web-build/
 
 expo-env.d.ts
 # @end expo-cli
-
-# Bundle Rocket.Chat patché, régénéré par docker/patch-push.mjs.
-/docker/patched/

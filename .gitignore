@@ -1,0 +1,11 @@
+# Secrets — jamais dans le dépôt, à la racine comme dans chaque app.
+.env
+.env.local
+*-service-account*.json
+*firebase-adminsdk*.json
+
+# Bundle Rocket.Chat patché, régénéré par docker/patch-push.mjs.
+/docker/patched/
+
+# Système
+.DS_Store

@@ -168,6 +168,14 @@ button.menu-action.destructive { color: #FF7A8A; }
 .reply-bar { background: #171529; border-left: 3px solid #A78BFA; border-radius: 10px; padding: 6px 10px; }
 .reply-title { color: #A78BFA; font-weight: 700; font-size: 12.5px; }
 .reply-preview { color: #8F89AB; font-size: 12.5px; }
+.completion { background: #171529; border-radius: 12px; padding: 4px; }
+.completion row { border-radius: 8px; padding: 4px 10px; }
+.completion row:selected { background: #2C2946; }
+.completion-item { font-size: 14px; }
+button.emoji-button, menubutton.emoji-button > button { min-width: 28px; min-height: 24px; padding: 0 2px; font-size: 18px; background: transparent; }
+button.picker-emoji { font-size: 22px; min-width: 36px; min-height: 36px; padding: 0; background: transparent; border-radius: 8px; }
+button.picker-emoji:hover { background: #2C2946; }
+button.picker-tab { font-size: 18px; min-height: 30px; padding: 0; }
 .day-line { background: #2C2946; min-height: 1px; border-radius: 1px; }
 .day-label { color: #8F89AB; font-weight: 600; font-size: 11.5px; }
 

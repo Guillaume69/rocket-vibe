@@ -391,6 +391,7 @@ impl ChatPage {
             let (s, rid, root) = (s.clone(), rid.clone(), root.clone());
             runtime().spawn(async move { s.send_in(&rid, &text, Some(&root)).await });
         });
+        thread.composer.bind(&session, &open.rid, Some(root_id));
         self.room_nav.push(&thread.page);
         thread.reload();
         thread.composer.grab_focus();
@@ -584,6 +585,7 @@ impl ChatPage {
         self.room_nav.pop_to_tag("room");
         self.thread.replace(None);
         self.composer.clear_reply();
+        self.composer.bind(&session, rid, None);
         self.list.clear();
         self.reload_messages();
         self.composer.grab_focus();

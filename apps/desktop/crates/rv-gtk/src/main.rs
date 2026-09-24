@@ -1,6 +1,7 @@
 mod actions_menu;
 mod chat;
 mod composer;
+mod emoji_picker;
 mod fonts;
 mod i18n;
 mod login;

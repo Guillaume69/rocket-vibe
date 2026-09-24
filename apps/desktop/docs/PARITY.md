@@ -43,7 +43,7 @@ rather than dropped.
 - [x] "✦ new messages" bar at the first unread
 - [x] Mark as read while viewing (debounced)
 - [x] Typing indicator (`user-activity`)
-- [ ] Custom emoji images (`emoji-custom.list`)
+- [x] Custom emoji images (`emoji-custom.list`)
 - [x] Mentions open the profile
 - [x] Link previews from `message.urls` (card, inline image)
 - [x] YouTube/Dailymotion/Vimeo cards
@@ -127,5 +127,5 @@ rather than dropped.
 - [x] Local SQLite per server and account, screens from the database
 - [x] Text outbox surviving restarts, retry on reconnection
 - [x] Reconnection with back-off, dead-socket probe, catch-up after the subscriptions are armed
-- [ ] Rooms deleted server-side purged locally (reconciliation)
-- [ ] `chat.syncMessages` catch-up of edits and deletions in the open room
+- [x] Rooms deleted server-side purged locally (reconciliation)
+- [x] `chat.syncMessages` catch-up of edits and deletions in the open room

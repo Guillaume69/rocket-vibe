@@ -10,6 +10,7 @@ pub mod diff;
 pub mod e2e;
 pub mod emoji;
 pub mod info;
+pub mod links;
 pub mod live;
 pub mod markdown;
 pub mod media;

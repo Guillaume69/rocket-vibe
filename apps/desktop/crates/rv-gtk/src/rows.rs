@@ -45,6 +45,8 @@ pub struct Display {
     /// A continuation row whose minute differs from the row above: the time
     /// goes in the avatar gutter.
     pub gutter_time: bool,
+    /// The first message I have not read: "✦ New messages" above it.
+    pub new_marker: bool,
 }
 
 pub fn local(ts: i64) -> DateTime<Local> {
@@ -94,9 +96,22 @@ pub fn group(rows: Vec<MessageRow>) -> Vec<Display> {
                 (header, new_day)
             }
         };
-        out.push(Display { gutter_time: gutter_time && !show_header, row, show_header, show_day });
+        out.push(Display { gutter_time: gutter_time && !show_header, row, show_header, show_day, new_marker: false });
     }
     out
+}
+
+pub fn presence_dot(p: rv_core::live::Presence, classes: &[&str]) -> gtk::Widget {
+    let dot = gtk::Box::builder()
+        .css_classes(["presence", p.as_str()])
+        .halign(gtk::Align::End)
+        .valign(gtk::Align::End)
+        .tooltip_text(t(&format!("presence.{}", p.as_str())))
+        .build();
+    for class in classes {
+        dot.add_css_class(class);
+    }
+    dot.upcast()
 }
 
 pub fn label(text: &str, classes: &[&str]) -> gtk::Label {
@@ -231,6 +246,15 @@ pub fn room_widget(r: &RoomRow, session: Option<&Arc<Session>>) -> gtk::Widget {
 
     let row = gtk::Box::builder().spacing(12).margin_top(9).margin_bottom(9).margin_start(10).margin_end(10).build();
     let tile = with_photo(room_tile(&r.name, &r.kind, r.encrypted, TileSize::Room), session, room_avatar_path(r));
+    let presence = r.dm_other_uid.as_deref().zip(session).and_then(|(uid, s)| s.presence(uid));
+    let tile = match presence {
+        Some(p) => {
+            let holder = gtk::Overlay::builder().child(&tile).build();
+            holder.add_overlay(&presence_dot(p, &["presence-badge"]));
+            holder.upcast()
+        }
+        None => tile,
+    };
     tile.set_valign(gtk::Align::Center);
     row.append(&tile);
     row.append(&column);
@@ -272,6 +296,14 @@ pub fn message_widget(d: &Display, my_id: &str, session: Option<&Arc<Session>>, 
     }
 
     let is_call = row.system_type.as_deref() == Some("videoconf");
+    if d.new_marker {
+        let marker = gtk::Box::builder().spacing(6).margin_top(8).margin_bottom(4).build();
+        marker.append(&widgets::sparkle());
+        marker.append(&label(t("room.new_messages"), &["new-marker"]));
+        marker.append(&gtk::Box::builder().css_classes(["new-line"]).hexpand(true).valign(gtk::Align::Center).build());
+        outer.append(&marker);
+    }
+
     if row.system_type.is_some() && !is_call {
         let system = label(&system_line(row), &["system-message"]);
         system.set_wrap(true);

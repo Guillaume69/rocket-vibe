@@ -25,6 +25,8 @@ pub struct MessageList {
     settling: Rc<Cell<u32>>,
     on_event: Handler<RowEvent>,
     on_top: Handler<()>,
+    /// (last seen, my uid): the first later message from someone else gets the marker.
+    unread_after: RefCell<Option<(i64, String)>>,
 }
 
 impl MessageList {
@@ -42,6 +44,7 @@ impl MessageList {
             settling: Rc::new(Cell::new(0)),
             on_event: RefCell::default(),
             on_top: RefCell::default(),
+            unread_after: RefCell::default(),
         });
         this.wire(session);
         this
@@ -124,7 +127,13 @@ impl MessageList {
 
     /// Applies the new rows as splices, keeping the scroll position.
     pub fn set_rows(&self, fresh: Vec<MessageRow>) {
-        let fresh = rows::group(fresh);
+        let mut fresh = rows::group(fresh);
+        if let Some((seen, me)) = self.unread_after.borrow().as_ref()
+            && let Some(first) =
+                fresh.iter_mut().find(|d| d.row.ts > *seen && d.row.author_id != *me && d.row.outbox_status.is_none())
+        {
+            first.new_marker = true;
+        }
         let old = self.rows.replace(fresh.clone());
         let splices = diff_sorted(
             &old,
@@ -153,6 +162,14 @@ impl MessageList {
             }
             settling.set(settling.get() - 1);
         });
+    }
+
+    pub fn set_unread_after(&self, after: Option<(i64, String)>) {
+        self.unread_after.replace(after);
+    }
+
+    pub fn is_pinned(&self) -> bool {
+        self.pinned.get()
     }
 
     pub fn oldest_ts(&self) -> Option<i64> {

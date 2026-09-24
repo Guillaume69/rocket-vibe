@@ -143,6 +143,14 @@ impl AppWindow {
                 this.window.set_title(Some(&title));
             }
         });
+        let weak = Rc::downgrade(&this);
+        this.window.connect_is_active_notify(move |window| {
+            if window.is_active()
+                && let Some(this) = weak.upgrade()
+            {
+                this.chat.window_activated();
+            }
+        });
         // Every handler above holds a weak reference: the window's own
         // handler is what keeps the controller alive as long as the window.
         let keep = this.clone();
@@ -283,7 +291,8 @@ impl AppWindow {
                     UiEvent::Store(change) => this.chat.on_change(&change),
                     UiEvent::Resync => this.chat.reload_all(),
                     UiEvent::Session(SessionEvent::Connection(c)) => this.chat.set_connection(c),
-                    UiEvent::Session(SessionEvent::Typing(_) | SessionEvent::Presence) => {}
+                    UiEvent::Session(SessionEvent::Typing(rid)) => this.chat.on_typing(&rid),
+                    UiEvent::Session(SessionEvent::Presence) => this.chat.on_presence(),
                     UiEvent::Session(SessionEvent::Expired) => {
                         runtime().spawn(secrets::clear());
                         this.stop_session(true);

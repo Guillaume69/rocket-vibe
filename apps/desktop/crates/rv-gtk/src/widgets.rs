@@ -155,6 +155,28 @@ pub fn send_arrow() -> gtk::DrawingArea {
     area
 }
 
+/// The four-point star of "✦ New messages": few fonts carry U+2726.
+pub fn sparkle() -> gtk::DrawingArea {
+    let area = gtk::DrawingArea::builder()
+        .content_width(12)
+        .content_height(12)
+        .valign(gtk::Align::Center)
+        .can_target(false)
+        .build();
+    area.set_draw_func(|_, cr, w, h| {
+        let (cx, cy, r) = (w as f64 / 2.0, h as f64 / 2.0, w.min(h) as f64 / 2.0);
+        let waist = r * 0.28;
+        cr.set_source_rgb(1.0, 0.373, 0.635);
+        cr.move_to(cx, cy - r);
+        cr.curve_to(cx + waist * 0.4, cy - waist, cx + waist, cy - waist * 0.4, cx + r, cy);
+        cr.curve_to(cx + waist, cy + waist * 0.4, cx + waist * 0.4, cy + waist, cx, cy + r);
+        cr.curve_to(cx - waist * 0.4, cy + waist, cx - waist, cy + waist * 0.4, cx - r, cy);
+        cr.curve_to(cx - waist, cy - waist * 0.4, cx - waist * 0.4, cy - waist, cx, cy - r);
+        let _ = cr.fill();
+    });
+    area
+}
+
 /// Thin brand-gradient comet sweeping a header's bottom edge while syncing.
 pub fn comet() -> gtk::Box {
     gtk::Box::builder().css_classes(["comet"]).height_request(3).hexpand(true).build()

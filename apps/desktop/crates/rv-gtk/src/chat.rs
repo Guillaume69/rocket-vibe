@@ -9,7 +9,7 @@ use rv_core::store::{Change, RoomRow};
 use rv_core::sync::HISTORY_PAGE;
 
 use crate::composer::Composer;
-use crate::i18n::t;
+use crate::i18n::{t, tf};
 use crate::message_list::MessageList;
 use crate::rows::{RowEvent, label, room_avatar_path, room_tile, room_widget, user_avatar_path, with_photo};
 use crate::runtime;
@@ -27,6 +27,7 @@ struct OpenRoom {
     encrypted: bool,
     avatar: Option<String>,
     slug: Option<String>,
+    dm_other_uid: Option<String>,
 }
 
 type Callback<T> = RefCell<Vec<Box<dyn Fn(T)>>>;
@@ -40,6 +41,9 @@ pub struct ChatPage {
     comets: Vec<gtk::Box>,
     connection: Cell<Connection>,
     room_title: gtk::Box,
+    typing_label: gtk::Label,
+    call_button: gtk::Button,
+    read_generation: Rc<Cell<u64>>,
     rooms_store: gio::ListStore,
     rooms_selection: gtk::SingleSelection,
     rooms: RefCell<Vec<RoomRow>>,
@@ -137,6 +141,14 @@ impl ChatPage {
         let room_title = gtk::Box::builder().spacing(10).build();
         let room_header = adw::HeaderBar::new();
         room_header.set_title_widget(Some(&room_title));
+        let call_button = gtk::Button::builder()
+            .icon_name("camera-video-symbolic")
+            .css_classes(["flat"])
+            .tooltip_text(t("room.call"))
+            .visible(false)
+            .build();
+        room_header.pack_end(&call_button);
+        let typing_label = gtk::Label::builder().xalign(0.0).css_classes(["typing"]).visible(false).build();
         let room_comet = widgets::comet();
         let room_view = adw::ToolbarView::new();
         room_view.add_top_bar(&room_header);
@@ -145,6 +157,7 @@ impl ChatPage {
         // GtkWindowHandle, where a double click maximizes the window.
         let room_content = gtk::Box::new(gtk::Orientation::Vertical, 0);
         room_content.append(&list.scroll);
+        room_content.append(&typing_label);
         room_content.append(&composer.root);
         room_content.append(&read_only_label);
         room_view.set_content(Some(&room_content));
@@ -183,6 +196,9 @@ impl ChatPage {
             comets: vec![sidebar_comet, room_comet],
             connection: Cell::new(Connection::Offline),
             room_title,
+            typing_label,
+            call_button,
+            read_generation: Rc::default(),
             rooms_store,
             rooms_selection,
             rooms: RefCell::default(),
@@ -237,6 +253,20 @@ impl ChatPage {
             if let Some(this) = w.upgrade() {
                 this.load_older();
             }
+        });
+        let w = weak.clone();
+        self.call_button.connect_clicked(move |_| {
+            let Some(this) = w.upgrade() else { return };
+            let (Some(session), Some(rid)) = (this.session(), this.current_rid()) else { return };
+            let weak = Rc::downgrade(&this);
+            glib::spawn_future_local(async move {
+                let url = on_tokio(async move { session.start_call(&rid).await }).await;
+                let Some(this) = weak.upgrade() else { return };
+                match url {
+                    Ok(url) => crate::cards::open_uri(&this.split, &url),
+                    Err(_) => this.toast(t("call.failed").to_owned()),
+                }
+            });
         });
         let w = weak.clone();
         self.composer.connect_submit(move |text| {
@@ -493,6 +523,7 @@ impl ChatPage {
         let current = self.current.borrow().as_ref().map(|r| r.rid.clone());
         if current.is_some_and(|rid| change.rids.contains(&rid)) {
             self.reload_messages();
+            self.schedule_read();
         }
         let thread = self.thread.borrow().clone();
         if let Some(thread) = thread
@@ -500,6 +531,53 @@ impl ChatPage {
         {
             thread.reload();
         }
+    }
+
+    /// Marks the open room read a moment after new messages, if I am looking at them.
+    fn schedule_read(&self) {
+        let generation = self.read_generation.get() + 1;
+        self.read_generation.set(generation);
+        let (counter, list, split) = (self.read_generation.clone(), self.list.clone(), self.split.clone());
+        let (Some(session), Some(rid)) = (self.session.borrow().clone(), self.current_rid()) else { return };
+        glib::timeout_add_local_once(std::time::Duration::from_millis(1500), move || {
+            let active = split.root().and_downcast::<gtk::Window>().is_some_and(|w| w.is_active());
+            let visible = split.shows_content() || !split.is_collapsed();
+            if counter.get() == generation && active && visible && list.is_pinned() {
+                crate::runtime().spawn(async move { session.mark_read(&rid).await });
+            }
+        });
+    }
+
+    /// Back to the window: what arrived meanwhile in the open room is now seen.
+    pub fn window_activated(&self) {
+        let unread = self
+            .current_rid()
+            .and_then(|rid| self.rooms.borrow().iter().find(|r| r.rid == rid).map(|r| r.unread > 0 || r.alert));
+        if unread == Some(true) {
+            self.schedule_read();
+        }
+    }
+
+    pub fn on_typing(&self, rid: &str) {
+        if self.current_rid().as_deref() != Some(rid) {
+            return;
+        }
+        let Some(session) = self.session.borrow().clone() else { return };
+        let names = session.typing(rid);
+        let text = match names.as_slice() {
+            [] => String::new(),
+            [a] => tf("typing.one", &[("a", a)]),
+            [a, b] => tf("typing.two", &[("a", a), ("b", b)]),
+            _ => tf("typing.many", &[("n", &names.len().to_string())]),
+        };
+        self.typing_label.set_visible(!text.is_empty());
+        self.typing_label.set_label(&text);
+    }
+
+    pub fn on_presence(&self) {
+        let n = self.rooms_store.n_items();
+        self.rooms_store.items_changed(0, n, n);
+        self.refresh_room_header();
     }
 
     pub fn reload_all(&self) {
@@ -549,7 +627,19 @@ impl ChatPage {
         }
         let tile = room_tile(&open.name, &open.kind, open.encrypted, TileSize::Header);
         self.room_title.append(&with_photo(tile, self.session.borrow().as_ref(), open.avatar.clone()));
-        self.room_title.append(&label(&open.name, &["room-title"]));
+        let names = gtk::Box::builder().orientation(gtk::Orientation::Vertical).valign(gtk::Align::Center).build();
+        names.append(&label(&open.name, &["room-title"]));
+        let presence =
+            open.dm_other_uid.as_deref().zip(self.session.borrow().clone()).and_then(|(uid, s)| s.presence(uid));
+        if let Some(p) = presence {
+            let line = gtk::Box::builder().spacing(5).build();
+            let dot = crate::rows::presence_dot(p, &[]);
+            dot.set_valign(gtk::Align::Center);
+            line.append(&dot);
+            line.append(&label(t(&format!("presence.{}", p.as_str())), &["room-subtitle"]));
+            names.append(&line);
+        }
+        self.room_title.append(&names);
         self.composer.root.set_visible(!open.read_only);
         self.read_only_label.set_visible(open.read_only);
     }
@@ -575,7 +665,24 @@ impl ChatPage {
             encrypted: room.encrypted,
             avatar: room_avatar_path(&room),
             slug: room.slug.clone(),
+            dm_other_uid: room.dm_other_uid.clone(),
         }));
+        let unread = room.unread > 0 || room.alert;
+        let seen = session.store.last_seen(rid).filter(|_| unread);
+        self.list.set_unread_after(seen.map(|ls| (ls, session.info.user_id.clone())));
+        self.typing_label.set_visible(false);
+        self.call_button.set_visible(false);
+        if !room.read_only {
+            let (weak, s, rid) = (Rc::downgrade(self), session.clone(), rid.to_owned());
+            glib::spawn_future_local(async move {
+                let available = on_tokio(async move { s.call_available().await }).await;
+                if let Some(this) = weak.upgrade()
+                    && this.current_rid().as_deref() == Some(rid.as_str())
+                {
+                    this.call_button.set_visible(available);
+                }
+            });
+        }
         let index = self.rooms.borrow().iter().position(|r| r.rid == rid);
         if let Some(i) = index
             && self.rooms_selection.selected() != i as u32

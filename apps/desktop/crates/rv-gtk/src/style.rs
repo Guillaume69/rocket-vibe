@@ -124,6 +124,16 @@ button.cta:active, button.cta:disabled { opacity: 0.75; }
 .account { border-top: 1px solid #1E1B33; padding: 10px 14px; }
 .account-name { font-weight: 800; font-size: 13.5px; }
 .account-host { color: #6E6890; font-size: 11.5px; }
+.new-marker { color: #FF5FA2; font-weight: 800; font-size: 12px; }
+.new-line { background: #FF5FA2; min-height: 1px; opacity: 0.6; }
+.typing { color: #A78BFA; font-size: 12px; font-style: italic; margin: 0 22px 2px 22px; }
+.presence { border-radius: 999px; min-width: 9px; min-height: 9px; }
+.presence-badge { min-width: 12px; min-height: 12px; border: 2px solid #0D0B1A; }
+.presence.online { background: #3ED67F; }
+.presence.away { background: #FFC24B; }
+.presence.busy { background: #FF5F6D; }
+.presence.offline { background: #5A5573; }
+.room-subtitle { font-size: 11.5px; color: #8F89AB; }
 .status-dot { border-radius: 5px; min-width: 10px; min-height: 10px; }
 .status-dot.online { background: #3ED67F; }
 .status-dot.connecting { background: #FFC24B; }

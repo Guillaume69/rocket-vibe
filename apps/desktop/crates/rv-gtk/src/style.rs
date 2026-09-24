@@ -149,6 +149,9 @@ button.known-server { background: #171529; border: 1px solid #2C2946; border-rad
 .e2e-banner { background: #171529; border: 1px solid #2C2946; border-radius: 12px; padding: 8px 12px; margin: 8px 16px 0 16px; }
 textview.inline-images, textview.inline-images text { background: transparent; color: #E7E3F5; }
 .custom-emoji { min-width: 22px; min-height: 22px; }
+.record-bar { background: #171529; border: 2px solid #FF5FA2; border-radius: 999px; padding: 6px 8px 6px 16px; }
+.record-dot { background: #FF5F6D; border-radius: 999px; min-width: 10px; min-height: 10px; }
+.record-time { font-weight: 800; font-feature-settings: "tnum"; }
 .new-marker { color: #FF5FA2; font-weight: 800; font-size: 12px; }
 .new-line { background: #FF5FA2; min-height: 1px; opacity: 0.6; }
 .typing { color: #A78BFA; font-size: 12px; font-style: italic; margin: 0 22px 2px 22px; }

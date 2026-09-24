@@ -32,6 +32,12 @@ pub struct Composer {
     mentions: RefCell<Option<MentionSource>>,
     on_files: Handler<Vec<Picked>>,
     custom_emoji: RefCell<Option<MentionSource>>,
+    field: gtk::Box,
+    record_bar: gtk::Box,
+    record_time: gtk::Label,
+    recorder: RefCell<Option<crate::recorder::Recorder>>,
+    on_voice: Handler<std::path::PathBuf>,
+    on_error: Handler<String>,
 }
 
 type MentionSource = Rc<dyn Fn(&str) -> Vec<String>>;
@@ -131,9 +137,30 @@ impl Composer {
             .css_classes(["send"])
             .valign(gtk::Align::End)
             .build();
+        let mic = gtk::Button::builder()
+            .icon_name("audio-input-microphone-symbolic")
+            .tooltip_text(t("voice.record"))
+            .css_classes(["flat", "attach-button"])
+            .valign(gtk::Align::End)
+            .build();
+        pill.append(&mic);
         let field = gtk::Box::builder().spacing(10).build();
         field.append(&pill);
         field.append(&send);
+
+        let record_time =
+            gtk::Label::builder().label("0:00").css_classes(["record-time"]).hexpand(true).xalign(0.0).build();
+        let record_cancel = gtk::Button::builder().label(t("voice.cancel")).css_classes(["flat"]).build();
+        let record_send = gtk::Button::builder()
+            .child(&widgets::send_arrow())
+            .tooltip_text(t("voice.send"))
+            .css_classes(["send"])
+            .build();
+        let record_bar = gtk::Box::builder().spacing(10).css_classes(["record-bar"]).visible(false).build();
+        record_bar.append(&gtk::Box::builder().css_classes(["record-dot"]).valign(gtk::Align::Center).build());
+        record_bar.append(&record_time);
+        record_bar.append(&record_cancel);
+        record_bar.append(&record_send);
 
         let reply_title = gtk::Label::builder().xalign(0.0).css_classes(["reply-title"]).build();
         let reply_preview = gtk::Label::builder()
@@ -161,6 +188,7 @@ impl Composer {
             .build();
         root.append(&reply_bar);
         root.append(&field);
+        root.append(&record_bar);
 
         let this = Rc::new(Composer {
             root,
@@ -177,6 +205,30 @@ impl Composer {
             mentions: RefCell::default(),
             on_files: RefCell::default(),
             custom_emoji: RefCell::default(),
+            field,
+            record_bar,
+            record_time,
+            recorder: RefCell::default(),
+            on_voice: RefCell::default(),
+            on_error: RefCell::default(),
+        });
+        let weak = Rc::downgrade(&this);
+        mic.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.start_recording();
+            }
+        });
+        let weak = Rc::downgrade(&this);
+        record_cancel.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.stop_recording(false);
+            }
+        });
+        let weak = Rc::downgrade(&this);
+        record_send.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.stop_recording(true);
+            }
         });
         let weak = Rc::downgrade(&this);
         attach.connect_clicked(move |button| {
@@ -285,6 +337,69 @@ impl Composer {
     /// Called on every edit, with the whole text: drafts are saved from here.
     pub fn connect_changed(&self, f: impl Fn(String) + 'static) {
         self.on_changed.replace(Some(Rc::new(f)));
+    }
+
+    /// A finished voice message, ready to upload.
+    pub fn connect_voice(&self, f: impl Fn(std::path::PathBuf) + 'static) {
+        self.on_voice.replace(Some(Rc::new(f)));
+    }
+
+    pub fn connect_error(&self, f: impl Fn(String) + 'static) {
+        self.on_error.replace(Some(Rc::new(f)));
+    }
+
+    fn report(&self, text: String) {
+        if let Some(f) = self.on_error.borrow().clone() {
+            f(text);
+        }
+    }
+
+    pub fn start_recording(self: &Rc<Self>) {
+        if self.recorder.borrow().is_some() {
+            return;
+        }
+        match crate::recorder::Recorder::start() {
+            Ok(recorder) => {
+                self.recorder.replace(Some(recorder));
+                self.field.set_visible(false);
+                self.record_bar.set_visible(true);
+                self.record_time.set_label("0:00");
+                let weak = Rc::downgrade(self);
+                glib::timeout_add_local(std::time::Duration::from_millis(250), move || {
+                    let Some(this) = weak.upgrade() else { return glib::ControlFlow::Break };
+                    let failure = this.recorder.borrow().as_ref().and_then(|r| r.failure());
+                    if let Some(failure) = failure {
+                        this.stop_recording(false);
+                        this.report(tf("voice.failed", &[("error", &failure)]));
+                        return glib::ControlFlow::Break;
+                    }
+                    let Some(seconds) = this.recorder.borrow().as_ref().map(|r| r.elapsed().as_secs()) else {
+                        return glib::ControlFlow::Break;
+                    };
+                    this.record_time.set_label(&format!("{}:{:02}", seconds / 60, seconds % 60));
+                    glib::ControlFlow::Continue
+                });
+            }
+            Err(e) => self.report(tf("voice.failed", &[("error", &e)])),
+        }
+    }
+
+    /// `send`: the recording goes out; otherwise it is thrown away.
+    pub fn stop_recording(&self, send: bool) {
+        let Some(recorder) = self.recorder.take() else { return };
+        self.record_bar.set_visible(false);
+        self.field.set_visible(true);
+        if !send {
+            recorder.cancel();
+            return;
+        }
+        match (recorder.finish(), self.on_voice.borrow().clone()) {
+            (Some(path), Some(f)) => f(path),
+            (Some(path), None) => {
+                let _ = std::fs::remove_file(path);
+            }
+            (None, _) => self.report(t("voice.empty").to_owned()),
+        }
     }
 
     /// Files to attach: chosen, pasted, or dropped on the page.

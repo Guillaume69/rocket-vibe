@@ -429,6 +429,28 @@ impl ChatPage {
             });
         });
         let w = weak.clone();
+        self.composer.connect_voice(move |path| {
+            let Some(this) = w.upgrade() else { return };
+            let (Some(session), Some(rid)) = (this.session(), this.current_rid()) else { return };
+            let name = format!("{}-{}.ogg", t("voice.file_name"), chrono::Local::now().format("%Y%m%d-%H%M%S"));
+            let weak = Rc::downgrade(&this);
+            glib::spawn_future_local(async move {
+                let sent =
+                    on_tokio(async move { session.attach(&rid, &path, &name, "audio/ogg", None, true).await }).await;
+                if sent.is_err()
+                    && let Some(this) = weak.upgrade()
+                {
+                    this.toast(t("voice.refused").to_owned());
+                }
+            });
+        });
+        let w = weak.clone();
+        self.composer.connect_error(move |text| {
+            if let Some(this) = w.upgrade() {
+                this.toast(text);
+            }
+        });
+        let w = weak.clone();
         self.composer.connect_files(move |picked| {
             if let Some(this) = w.upgrade() {
                 this.attach_files(picked);

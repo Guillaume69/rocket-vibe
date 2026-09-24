@@ -12,6 +12,7 @@ mod markdown_view;
 mod media;
 mod message_list;
 mod notifier;
+mod recorder;
 mod rows;
 mod secrets;
 mod settings;

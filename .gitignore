@@ -1,6 +1,8 @@
 # Secrets — jamais dans le dépôt, à la racine comme dans chaque app.
 .env
 .env.local
+google-services.json
+GoogleService-Info.plist
 *-service-account*.json
 *firebase-adminsdk*.json
 

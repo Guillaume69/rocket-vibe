@@ -146,7 +146,7 @@ jobs:
             throw "the app exited at start with code $($run.ExitCode)"
           }
           $log = "$env:LOCALAPPDATA\rocket-vibe-rs\rocket-vibe.log"
-          if (-not (Test-Path $log)) { throw "no log file at $log: standard error was not redirected" }
+          if (-not (Test-Path $log)) { throw "no log file at ${log}, standard error was not redirected" }
           Get-Content $log -Tail 20
           Stop-Process -Id $run.Id -Force
           Start-Sleep -Seconds 2

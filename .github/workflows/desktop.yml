@@ -1,0 +1,163 @@
+name: desktop
+
+on:
+  push:
+    branches: [master]
+    tags: ['desktop-v*']
+    paths:
+      - 'apps/desktop/**'
+      - 'scripts/version.mjs'
+      - '.github/workflows/desktop.yml'
+  pull_request:
+    paths:
+      - 'apps/desktop/**'
+      - 'scripts/version.mjs'
+      - '.github/workflows/desktop.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: version
+        run: |
+          if [ "${{ github.ref_type }}" = tag ]; then
+            version=$(node scripts/version.mjs desktop --tag "${{ github.ref_name }}")
+          else
+            version=$(node scripts/version.mjs desktop)
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  # The same Fedora as scripts/build.sh: GTK 4 and libadwaita recent enough
+  # for the features the app asks for, which Ubuntu 24.04 does not ship.
+  linux:
+    needs: version
+    runs-on: ubuntu-24.04
+    container: fedora:44
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - name: Toolchain and libraries
+        working-directory: /
+        run: >
+          dnf install -y --setopt=install_weak_deps=False
+          git tar rust cargo clippy rustfmt gcc pkgconf-pkg-config
+          gtk4-devel libadwaita-devel gstreamer1-devel gstreamer1-plugins-base-devel
+      - uses: actions/checkout@v5
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            apps/desktop/target
+          key: desktop-linux-${{ hashFiles('apps/desktop/Cargo.lock') }}
+          restore-keys: desktop-linux-
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: cargo test --locked --workspace
+      - run: cargo build --locked --release -p rocket-vibe-gtk
+      - name: Package
+        run: |
+          name="rocket-vibe-desktop-${{ needs.version.outputs.version }}-linux-x86_64"
+          mkdir -p "dist/$name"
+          cp target/release/rocket-vibe-gtk data/me.barrut.RocketVibe.desktop README.md "dist/$name/"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux
+          path: apps/desktop/dist/*.tar.gz
+
+  windows:
+    needs: version
+    runs-on: windows-2025
+    defaults:
+      run:
+        shell: msys2 {0}
+        working-directory: apps/desktop
+    steps:
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git zip
+            mingw-w64-ucrt-x86_64-rust
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-nasm
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-libadwaita
+            mingw-w64-ucrt-x86_64-gstreamer
+            mingw-w64-ucrt-x86_64-gst-plugins-base
+            mingw-w64-ucrt-x86_64-gst-plugins-good
+            mingw-w64-ucrt-x86_64-gst-plugins-bad
+      - uses: actions/checkout@v5
+      - uses: actions/cache@v4
+        with:
+          path: apps/desktop/target
+          key: desktop-windows-${{ hashFiles('apps/desktop/Cargo.lock') }}
+          restore-keys: desktop-windows-
+      - run: cargo test --locked -p rv-core
+      - run: cargo build --locked --release -p rocket-vibe-gtk
+      - run: scripts/package-windows.sh "${{ needs.version.outputs.version }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows
+          path: apps/desktop/dist/*.zip
+
+  macos:
+    needs: version
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v5
+      - run: brew install gtk4 libadwaita gstreamer pkgconf
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            apps/desktop/target
+          key: desktop-macos-${{ hashFiles('apps/desktop/Cargo.lock') }}
+          restore-keys: desktop-macos-
+      - run: cargo test --locked -p rv-core
+      - run: cargo build --locked --release -p rocket-vibe-gtk
+      - name: Package
+        run: |
+          name="rocket-vibe-desktop-${{ needs.version.outputs.version }}-macos-arm64"
+          mkdir -p "dist/$name"
+          cp target/release/rocket-vibe-gtk README.md "dist/$name/"
+          printf 'Needs Homebrew: brew install gtk4 libadwaita gstreamer\n' > "dist/$name/REQUIREMENTS.txt"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos
+          path: apps/desktop/dist/*.tar.gz
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [version, linux, windows, macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Desktop ${{ needs.version.outputs.version }}
+          files: |
+            *.tar.gz
+            *.zip

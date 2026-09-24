@@ -1,0 +1,115 @@
+name: mobile
+
+on:
+  push:
+    branches: [master]
+    tags: ['mobile-v*']
+    paths:
+      - 'apps/mobile/**'
+      - 'scripts/version.mjs'
+      - '.github/workflows/mobile.yml'
+  pull_request:
+    paths:
+      - 'apps/mobile/**'
+      - 'scripts/version.mjs'
+      - '.github/workflows/mobile.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: apps/mobile
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - id: version
+        run: |
+          if [ "${{ github.ref_type }}" = tag ]; then
+            version=$(node ../../scripts/version.mjs mobile --tag "${{ github.ref_name }}")
+          else
+            version=$(node ../../scripts/version.mjs mobile)
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run lint
+      - run: npm test
+
+  # expo prebuild + Gradle on the runner: a local build, never EAS.
+  android:
+    needs: check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Android SDK pieces the RN 0.86 template requires
+        working-directory: /
+        run: >
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install
+          "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006" > /dev/null
+      - name: google-services.json
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -z "$GOOGLE_SERVICES_JSON" ]; then
+            echo "::error::The GOOGLE_SERVICES_JSON secret is missing: the Android build needs Firebase's google-services.json."
+            exit 1
+          fi
+          printf '%s' "$GOOGLE_SERVICES_JSON" > google-services.json
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('apps/mobile/package-lock.json') }}
+          restore-keys: gradle-
+      - run: npm ci
+      - run: npx expo prebuild --platform android --clean
+        env:
+          CI: 1
+      - run: ./gradlew assembleRelease --no-daemon
+        working-directory: apps/mobile/android
+      - run: cp android/app/build/outputs/apk/release/app-release.apk "rocket-vibe-mobile-${{ needs.check.outputs.version }}.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobile-android
+          path: apps/mobile/rocket-vibe-mobile-*.apk
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [check, android]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: mobile-android
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Mobile ${{ needs.check.outputs.version }}
+          files: '*.apk'

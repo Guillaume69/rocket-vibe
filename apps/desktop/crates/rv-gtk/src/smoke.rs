@@ -22,6 +22,7 @@
 //!   RV_SMOKE_SECOND="<user>|<password>"  adds a second account on the same server,
 //!                          then switches back to the first
 //!   RV_SMOKE_E2E=<password>  unlocks encrypted rooms (a wrong one first must be refused)
+//!   RV_SMOKE_VOICE=1       records two seconds (RV_AUDIO_SOURCE picks the source) and sends them
 //!   RV_SMOKE_REENTER=1     after opening the room: back to the list, tap the same room, expect it open
 //! A failed expectation makes the process exit with status 1.
 
@@ -175,6 +176,17 @@ pub fn install(window: &Rc<AppWindow>) {
                         let s = session.clone();
                         let right = crate::on_tokio(async move { s.e2e_unlock(&password).await }).await;
                         check("E2E unlocked", right.is_ok(), &right);
+                    });
+                });
+            }
+            if std::env::var("RV_SMOKE_VOICE").as_deref() == Ok("1") {
+                let chat = w.chat.clone();
+                glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+                    let composer = chat.composer_rc();
+                    composer.start_recording();
+                    glib::timeout_add_local_once(Duration::from_millis(2000), move || {
+                        println!("smoke: voice recording shown {}", composer.recording());
+                        composer.stop_recording(true);
                     });
                 });
             }

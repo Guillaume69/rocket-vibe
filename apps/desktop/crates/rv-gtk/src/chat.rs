@@ -1252,6 +1252,10 @@ impl ChatPage {
         self.current.borrow().as_ref().map(|o| o.rid.clone())
     }
 
+    pub fn composer_rc(&self) -> Rc<Composer> {
+        self.composer.clone()
+    }
+
     pub fn composer(&self) -> &Composer {
         &self.composer
     }

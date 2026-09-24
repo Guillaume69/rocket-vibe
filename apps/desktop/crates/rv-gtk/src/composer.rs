@@ -384,6 +384,10 @@ impl Composer {
         }
     }
 
+    pub fn recording(&self) -> bool {
+        self.record_bar.is_visible()
+    }
+
     /// `send`: the recording goes out; otherwise it is thrown away.
     pub fn stop_recording(&self, send: bool) {
         let Some(recorder) = self.recorder.take() else { return };

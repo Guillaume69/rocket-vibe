@@ -821,6 +821,20 @@ impl ChatPage {
         &self.composer
     }
 
+    pub fn typing_text(&self) -> Option<String> {
+        self.typing_label.is_visible().then(|| self.typing_label.label().to_string())
+    }
+
+    pub fn header_presence(&self) -> Option<String> {
+        let open = self.current.borrow().clone()?;
+        let session = self.session.borrow().clone()?;
+        session.presence(open.dm_other_uid.as_deref()?).map(|p| p.as_str().to_owned())
+    }
+
+    pub fn has_new_marker(&self) -> bool {
+        self.list.has_new_marker()
+    }
+
     pub fn message_texts(&self) -> Vec<String> {
         self.list.texts()
     }

@@ -172,6 +172,10 @@ impl MessageList {
         self.pinned.get()
     }
 
+    pub fn has_new_marker(&self) -> bool {
+        self.rows.borrow().iter().any(|d| d.new_marker)
+    }
+
     pub fn oldest_ts(&self) -> Option<i64> {
         self.rows.borrow().first().map(|d| d.row.ts)
     }

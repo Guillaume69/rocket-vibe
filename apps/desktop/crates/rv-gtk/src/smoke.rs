@@ -123,6 +123,12 @@ pub fn install(window: &Rc<AppWindow>) {
         let Some(w) = weak.upgrade() else { return };
         println!("smoke: rooms {} messages {}", w.chat.room_count(), w.chat.message_count());
         println!("smoke: composer {:?}", w.chat.composer().text());
+        println!(
+            "smoke: typing {:?} presence {:?} new-marker {}",
+            w.chat.typing_text(),
+            w.chat.header_presence(),
+            w.chat.has_new_marker()
+        );
         let texts = w.chat.message_texts();
         for wanted in list("RV_SMOKE_EXPECT") {
             let found = texts.iter().filter(|t| t.contains(&wanted)).count();

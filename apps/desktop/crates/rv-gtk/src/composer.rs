@@ -181,6 +181,11 @@ impl Composer {
         self.reply_bar.set_visible(false);
     }
 
+    /// Sends as the Enter key would.
+    pub fn submit_now(&self) {
+        self.submit();
+    }
+
     fn submit(&self) {
         let mut text = self.text();
         if text.trim().is_empty() {

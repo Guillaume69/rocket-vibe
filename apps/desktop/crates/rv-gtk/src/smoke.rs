@@ -8,6 +8,8 @@
 //!   RV_SMOKE_SIZE          `WIDTHxHEIGHT` of the window
 //!   RV_SMOKE_COMPOSER=1    checks the composer: no window handle around it, a scrollbar
 //!                          only once it overflows, one line high when short
+//!   RV_SMOKE_ACTIONS=<tag>  reacts to bob's last message, quotes it, edits my last one,
+//!                          replies in a thread, then opens the actions menu; texts carry <tag>
 //!   RV_SMOKE_REENTER=1     after opening the room: back to the list, tap the same room, expect it open
 //! A failed expectation makes the process exit with status 1.
 
@@ -70,6 +72,12 @@ pub fn install(window: &Rc<AppWindow>) {
             if std::env::var("RV_SMOKE_COMPOSER").as_deref() == Ok("1") {
                 let chat = w.chat.clone();
                 glib::timeout_add_local_once(Duration::from_millis(2000), move || composer_checks(chat));
+            }
+            if let Ok(tag) = std::env::var("RV_SMOKE_ACTIONS")
+                && !tag.is_empty()
+            {
+                let chat = w.chat.clone();
+                glib::timeout_add_local_once(Duration::from_millis(3000), move || action_checks(chat, tag));
             }
             if std::env::var("RV_SMOKE_REENTER").as_deref() == Ok("1") {
                 let chat = w.chat.clone();
@@ -186,4 +194,53 @@ fn composer_checks(chat: std::rc::Rc<crate::chat::ChatPage>) {
     steps.push_back(Box::new(|c| composer_state("one line", c, false, 40)));
     steps.push_back(Box::new(|c| c.composer().set_text(&"aaaaaaaaaa ".repeat(12))));
     in_sequence(chat, steps);
+}
+
+/// Plays the message actions the way clicks would, on the latest messages.
+fn action_checks(chat: std::rc::Rc<crate::chat::ChatPage>, tag: String) {
+    use crate::rows::RowEvent;
+    let (Some(session), Some(rid)) = (chat.session(), chat.current_rid()) else { return };
+    let rows = session.store.messages(&rid, 200);
+    let theirs = rows.iter().rev().find(|r| r.author.as_deref() == Some("bob") && r.system_type.is_none()).cloned();
+    let mine = rows.iter().rev().find(|r| r.author_id == session.info.user_id && r.system_type.is_none()).cloned();
+    let root = rows.iter().rev().find(|r| r.thread_count > 0).cloned();
+    println!(
+        "smoke: actions on bob={:?} mine={:?} thread={:?}",
+        theirs.as_ref().map(|r| &r.id),
+        mine.as_ref().map(|r| &r.id),
+        root.as_ref().map(|r| &r.id)
+    );
+    let Some(theirs) = theirs else { return FAILED.store(true, Ordering::SeqCst) };
+    chat.play(RowEvent::React { id: theirs.id.clone(), shortcode: ":+1:".into(), add: true }, false);
+    chat.start_quote(theirs.clone());
+    let quoted = chat.clone();
+    let reply = format!("{tag} reply");
+    glib::timeout_add_local_once(Duration::from_millis(800), move || {
+        quoted.composer().set_text(&reply);
+        quoted.composer().submit_now();
+    });
+    if let Some(mine) = mine {
+        let (s, rid, text) = (session.clone(), rid.clone(), format!("{tag} edited"));
+        crate::runtime().spawn(async move {
+            let _ = s.edit(&rid, &mine.id, &text).await;
+        });
+    }
+    if let Some(root) = root {
+        let (threaded, text) = (chat.clone(), format!("{tag} in thread"));
+        glib::timeout_add_local_once(Duration::from_millis(1600), move || {
+            threaded.open_thread_of(&root.id);
+            glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+                if let Some(thread) = threaded.thread() {
+                    thread.composer.set_text(&text);
+                    thread.composer.submit_now();
+                }
+            });
+        });
+    }
+    let menu = chat.clone();
+    glib::timeout_add_local_once(Duration::from_millis(6500), move || {
+        if let Some(thread) = menu.thread() {
+            println!("smoke: thread shows {} message(s): {:?}", thread.list.len(), thread.list.texts().last());
+        }
+    });
 }

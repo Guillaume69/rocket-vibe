@@ -672,6 +672,31 @@ impl ChatPage {
         !self.split.is_collapsed() || self.split.shows_content()
     }
 
+    /// Plays a row event as a click would.
+    pub fn play(self: &Rc<Self>, event: RowEvent, in_thread: bool) {
+        self.handle_event(event, in_thread);
+    }
+
+    pub fn start_quote(self: &Rc<Self>, row: rv_core::store::MessageRow) {
+        self.start_reply(row, false);
+    }
+
+    pub fn open_thread_of(self: &Rc<Self>, root_id: &str) {
+        self.open_thread(root_id);
+    }
+
+    pub fn thread(&self) -> Option<Rc<ThreadPage>> {
+        self.thread.borrow().clone()
+    }
+
+    pub fn session(&self) -> Option<Arc<Session>> {
+        self.session.borrow().clone()
+    }
+
+    pub fn current_rid(&self) -> Option<String> {
+        self.current.borrow().as_ref().map(|o| o.rid.clone())
+    }
+
     pub fn composer(&self) -> &Composer {
         &self.composer
     }

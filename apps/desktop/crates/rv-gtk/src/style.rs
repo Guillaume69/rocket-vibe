@@ -124,6 +124,14 @@ button.cta:active, button.cta:disabled { opacity: 0.75; }
 .account { border-top: 1px solid #1E1B33; padding: 10px 14px; }
 .account-name { font-weight: 800; font-size: 13.5px; }
 .account-host { color: #6E6890; font-size: 11.5px; }
+.attach-dialog { padding: 6px 18px 18px 18px; }
+.attach-thumb { background: #171529; border-radius: 10px; }
+button.attach-button { min-width: 28px; min-height: 24px; padding: 0 2px; color: #8F89AB; }
+.upload-strip { margin: 0 16px 4px 16px; }
+.upload-row { background: #171529; border: 1px solid #2C2946; border-radius: 12px; padding: 6px 10px; }
+.upload-row.failed { border-color: #FF7A8A; }
+.upload-row progressbar trough { min-height: 4px; border-radius: 2px; background: #2C2946; }
+.upload-row progressbar progress { min-height: 4px; border-radius: 2px; background: linear-gradient(90deg, #FF5FA2, #A78BFA); }
 .new-marker { color: #FF5FA2; font-weight: 800; font-size: 12px; }
 .new-line { background: #FF5FA2; min-height: 1px; opacity: 0.6; }
 .typing { color: #A78BFA; font-size: 12px; font-style: italic; margin: 0 22px 2px 22px; }

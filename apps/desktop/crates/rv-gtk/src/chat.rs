@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use adw::prelude::*;
-use gtk::{gio, glib};
+use gtk::{gdk, gio, glib};
 use rv_core::session::{Connection, Session};
 use rv_core::store::{Change, RoomRow};
 use rv_core::sync::HISTORY_PAGE;
@@ -42,6 +42,7 @@ pub struct ChatPage {
     connection: Cell<Connection>,
     room_title: gtk::Box,
     typing_label: gtk::Label,
+    upload_strip: gtk::Box,
     call_button: gtk::Button,
     read_generation: Rc<Cell<u64>>,
     rooms_store: gio::ListStore,
@@ -148,6 +149,12 @@ impl ChatPage {
             .visible(false)
             .build();
         room_header.pack_end(&call_button);
+        let upload_strip = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(4)
+            .css_classes(["upload-strip"])
+            .visible(false)
+            .build();
         let typing_label = gtk::Label::builder().xalign(0.0).css_classes(["typing"]).visible(false).build();
         let room_comet = widgets::comet();
         let room_view = adw::ToolbarView::new();
@@ -157,7 +164,10 @@ impl ChatPage {
         // GtkWindowHandle, where a double click maximizes the window.
         let room_content = gtk::Box::new(gtk::Orientation::Vertical, 0);
         room_content.append(&list.scroll);
+        room_content.append(&upload_strip);
         room_content.append(&typing_label);
+        let drop = gtk::DropTarget::new(gdk::FileList::static_type(), gdk::DragAction::COPY);
+        room_content.add_controller(drop.clone());
         room_content.append(&composer.root);
         room_content.append(&read_only_label);
         room_view.set_content(Some(&room_content));
@@ -197,6 +207,7 @@ impl ChatPage {
             connection: Cell::new(Connection::Offline),
             room_title,
             typing_label,
+            upload_strip,
             call_button,
             read_generation: Rc::default(),
             rooms_store,
@@ -221,6 +232,16 @@ impl ChatPage {
             on_rooms_loaded: RefCell::default(),
         });
         this.wire(&status_button, &logout);
+        let weak = Rc::downgrade(&this);
+        drop.connect_drop(move |_, value, _, _| {
+            let (Some(this), Ok(list)) = (weak.upgrade(), value.get::<gdk::FileList>()) else { return false };
+            let picked = crate::attach::from_files(&list.files());
+            let droppable = !picked.is_empty() && this.current.borrow().as_ref().is_some_and(|o| !o.read_only);
+            if droppable {
+                this.attach_files(picked);
+            }
+            droppable
+        });
         let weak = Rc::downgrade(&this);
         rooms_view.connect_activate(move |_, position| {
             let Some(this) = weak.upgrade() else { return };
@@ -267,6 +288,12 @@ impl ChatPage {
                     Err(_) => this.toast(t("call.failed").to_owned()),
                 }
             });
+        });
+        let w = weak.clone();
+        self.composer.connect_files(move |picked| {
+            if let Some(this) = w.upgrade() {
+                this.attach_files(picked);
+            }
         });
         let w = weak.clone();
         self.composer.connect_submit(move |text| {
@@ -523,6 +550,7 @@ impl ChatPage {
         let current = self.current.borrow().as_ref().map(|r| r.rid.clone());
         if current.is_some_and(|rid| change.rids.contains(&rid)) {
             self.reload_messages();
+            self.refresh_uploads();
             self.schedule_read();
         }
         let thread = self.thread.borrow().clone();
@@ -555,6 +583,74 @@ impl ChatPage {
             .and_then(|rid| self.rooms.borrow().iter().find(|r| r.rid == rid).map(|r| r.unread > 0 || r.alert));
         if unread == Some(true) {
             self.schedule_read();
+        }
+    }
+
+    fn attach_files(self: &Rc<Self>, picked: Vec<crate::attach::Picked>) {
+        let (Some(session), Some(rid)) = (self.session(), self.current_rid()) else { return };
+        let weak = Rc::downgrade(self);
+        let toast: Rc<dyn Fn(String)> = Rc::new(move |text| {
+            if let Some(this) = weak.upgrade() {
+                this.toast(text);
+            }
+        });
+        crate::attach::confirm(&self.split, session, rid, picked, toast);
+    }
+
+    /// Uploads of the open room not settled yet: progress, or Retry and Discard.
+    pub fn refresh_uploads(&self) {
+        while let Some(child) = self.upload_strip.first_child() {
+            self.upload_strip.remove(&child);
+        }
+        let (Some(session), Some(rid)) = (self.session(), self.current_rid()) else { return };
+        let uploads = session.store.uploads(&rid);
+        self.upload_strip.set_visible(!uploads.is_empty());
+        for upload in uploads {
+            let failed = upload.status == "failed";
+            let row = gtk::Box::builder().spacing(10).css_classes(["upload-row"]).build();
+            if failed {
+                row.add_css_class("failed");
+            }
+            let column = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(4).hexpand(true).build();
+            let name = label(&upload.name, &["file-title"]);
+            name.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+            column.append(&name);
+            match session.uploads.progress(&upload.id) {
+                Some(fraction) => column.append(&gtk::ProgressBar::builder().fraction(fraction).build()),
+                None => {
+                    column.append(&label(t(if failed { "upload.failed" } else { "upload.waiting" }), &["file-detail"]))
+                }
+            }
+            row.append(&column);
+            if failed {
+                let retry = gtk::Button::builder()
+                    .label(t("upload.retry"))
+                    .css_classes(["file-action"])
+                    .valign(gtk::Align::Center)
+                    .build();
+                let (s, id) = (session.clone(), upload.id.clone());
+                retry.connect_clicked(move |_| {
+                    let (s, id) = (s.clone(), id.clone());
+                    crate::runtime().spawn(async move { s.uploads.retry(&id).await });
+                });
+                row.append(&retry);
+            }
+            let discard = gtk::Button::builder()
+                .icon_name("window-close-symbolic")
+                .tooltip_text(t("upload.discard"))
+                .css_classes(["flat", "circular"])
+                .valign(gtk::Align::Center)
+                .build();
+            let (s, id) = (session.clone(), upload.id.clone());
+            discard.connect_clicked(move |_| s.uploads.discard(&id));
+            row.append(&discard);
+            self.upload_strip.append(&row);
+        }
+    }
+
+    pub fn on_upload(&self, rid: &str) {
+        if self.current_rid().as_deref() == Some(rid) {
+            self.refresh_uploads();
         }
     }
 
@@ -706,6 +802,7 @@ impl ChatPage {
         self.composer.bind(&session, rid, None);
         self.list.clear();
         self.reload_messages();
+        self.refresh_uploads();
         self.composer.grab_focus();
 
         self.set_loading(true);

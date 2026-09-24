@@ -178,7 +178,16 @@ fn external_image(session: &Arc<Session>, url: &str, width: i32, height: i32) ->
         if let Some(frame) = weak.upgrade() {
             let picture =
                 gtk::Picture::builder().paintable(texture).content_fit(gtk::ContentFit::Cover).can_shrink(true).build();
-            frame.set_child(Some(&picture));
+            // An overlay does not count in the frame's size, a child would:
+            // the picture's own size would then stretch the card.
+            let above: Vec<gtk::Widget> = std::iter::successors(frame.first_child(), |w| w.next_sibling())
+                .filter(|w| Some(w) != frame.child().as_ref())
+                .collect();
+            frame.add_overlay(&picture);
+            for widget in above {
+                frame.remove_overlay(&widget);
+                frame.add_overlay(&widget);
+            }
         }
     });
     frame

@@ -9,6 +9,7 @@ use gtk::prelude::*;
 use gtk::{gdk, glib};
 use rv_core::session::Session;
 
+use crate::attach::Picked;
 use crate::i18n::{t, tf};
 use crate::widgets::{self, Handler};
 
@@ -29,6 +30,7 @@ pub struct Composer {
     /// (trigger start, text inserted) of each offered choice.
     offered: RefCell<Vec<(usize, String)>>,
     mentions: RefCell<Option<MentionSource>>,
+    on_files: Handler<Vec<Picked>>,
 }
 
 type MentionSource = Rc<dyn Fn(&str) -> Vec<String>>;
@@ -98,6 +100,13 @@ impl Composer {
             placeholder,
             move |buffer| placeholder.set_visible(buffer.char_count() == 0)
         ));
+        let attach = gtk::Button::builder()
+            .icon_name("mail-attachment-symbolic")
+            .tooltip_text(t("attach.choose"))
+            .css_classes(["flat", "attach-button"])
+            .valign(gtk::Align::End)
+            .build();
+        pill.append(&attach);
         pill.append(&stack);
         let text_for_picker = text.clone();
         pill.append(&crate::emoji_picker::button(move |glyph| {
@@ -165,6 +174,47 @@ impl Composer {
             choices,
             offered: RefCell::default(),
             mentions: RefCell::default(),
+            on_files: RefCell::default(),
+        });
+        let weak = Rc::downgrade(&this);
+        attach.connect_clicked(move |button| {
+            let weak = weak.clone();
+            crate::attach::choose(button, move |picked| {
+                if let Some(this) = weak.upgrade() {
+                    this.emit_files(picked);
+                }
+            });
+        });
+        // Files or a picture on the clipboard become an attachment, not text.
+        let weak = Rc::downgrade(&this);
+        this.text.connect_paste_clipboard(move |view| {
+            let clipboard = view.clipboard();
+            let formats = clipboard.formats();
+            let files = formats.contains_type(gdk::FileList::static_type());
+            let picture = !files
+                && !formats.contain_mime_type("text/plain")
+                && formats.contains_type(gdk::Texture::static_type());
+            if !files && !picture {
+                return;
+            }
+            view.stop_signal_emission_by_name("paste-clipboard");
+            let weak = weak.clone();
+            glib::spawn_future_local(async move {
+                let picked = if files {
+                    let value =
+                        clipboard.read_value_future(gdk::FileList::static_type(), glib::Priority::DEFAULT).await;
+                    value
+                        .ok()
+                        .and_then(|v| v.get::<gdk::FileList>().ok())
+                        .map(|l| crate::attach::from_files(&l.files()))
+                } else {
+                    let texture = clipboard.read_texture_future().await.ok().flatten();
+                    texture.and_then(|t| crate::attach::save_texture(&t)).map(|p| vec![p])
+                };
+                if let (Some(this), Some(picked)) = (weak.upgrade(), picked.filter(|p| !p.is_empty())) {
+                    this.emit_files(picked);
+                }
+            });
         });
         let weak = Rc::downgrade(&this);
         this.text.buffer().connect_changed(move |buffer| {
@@ -233,6 +283,17 @@ impl Composer {
     /// Called on every edit, with the whole text: drafts are saved from here.
     pub fn connect_changed(&self, f: impl Fn(String) + 'static) {
         self.on_changed.replace(Some(Rc::new(f)));
+    }
+
+    /// Files to attach: chosen, pasted, or dropped on the page.
+    pub fn connect_files(&self, f: impl Fn(Vec<Picked>) + 'static) {
+        self.on_files.replace(Some(Rc::new(f)));
+    }
+
+    pub fn emit_files(&self, picked: Vec<Picked>) {
+        if let Some(f) = self.on_files.borrow().clone() {
+            f(picked);
+        }
     }
 
     /// Ties the composer to a room (`thread` None) or a thread: restores its

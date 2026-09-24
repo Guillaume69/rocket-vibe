@@ -1,4 +1,5 @@
 mod actions_menu;
+mod attach;
 mod cards;
 mod chat;
 mod composer;

@@ -5,15 +5,14 @@ use std::sync::Arc;
 use adw::prelude::*;
 use chrono::{DateTime, Local, TimeZone};
 use gtk::{gdk, pango};
-use rv_core::markdown;
 use rv_core::media::{AvatarTarget, ImageAttachment, avatar_path, display_size, image_attachments};
 use rv_core::session::Session;
 use rv_core::store::{MessageRow, RoomRow};
-use serde_json::Value;
+use rv_core::{content, markdown};
 
 use crate::i18n::{self, t, tn};
 use crate::widgets::{self, TileSize};
-use crate::{markdown_view, media};
+use crate::{cards, markdown_view, media};
 
 const GROUPING_GAP_MS: i64 = 5 * 60 * 1000;
 
@@ -27,6 +26,7 @@ pub enum RowEvent {
         x: f64,
         y: f64,
     },
+    JoinCall(String),
     React {
         id: String,
         shortcode: String,
@@ -65,23 +65,6 @@ pub fn short_time(ts: i64) -> String {
     } else {
         t.format("%d/%m/%Y").to_string()
     }
-}
-
-pub fn attachment_label(json: Option<&str>) -> Option<String> {
-    let list: Vec<Value> = serde_json::from_str(json?).ok()?;
-    // Images are drawn, not labelled: only other files get a 📎 line.
-    list.iter().filter(|a| a.get("image_url").is_none()).find_map(|a| {
-        let title = a.get("title").and_then(Value::as_str).filter(|s| !s.is_empty());
-        let description = a.get("description").and_then(Value::as_str).filter(|s| !s.is_empty());
-        match (title, description) {
-            (Some(t), Some(d)) => Some(format!("📎 {t} - {d}")),
-            (Some(t), None) => Some(format!("📎 {t}")),
-            _ if a.get("message_link").is_some() => {
-                Some(format!("❝ {}", a.get("text").and_then(Value::as_str).unwrap_or_default()))
-            }
-            _ => None,
-        }
-    })
 }
 
 /// A system message reads as a sentence after its author's name.
@@ -209,7 +192,13 @@ pub fn room_widget(r: &RoomRow, session: Option<&Arc<Session>>) -> gtk::Widget {
     name.set_hexpand(true);
     name.set_ellipsize(pango::EllipsizeMode::End);
     let time = label(&short_time(r.last_ts), &["room-time"]);
+    let system = r.last_type.as_deref().filter(|kind| *kind != "e2e");
     let preview = match (&r.last_message, r.encrypted) {
+        _ if let Some(kind) = system => {
+            let param = r.last_message.as_deref().unwrap_or_default();
+            let author = r.last_author.as_deref().unwrap_or_default();
+            label(format!("{author} {}", i18n::system_message(kind, param)).trim(), &["room-preview"])
+        }
         (Some(m), _) => {
             label(&rv_core::emoji::replace_shortcodes(rv_core::actions::strip_quote_prefix(m)), &["room-preview"])
         }
@@ -282,7 +271,8 @@ pub fn message_widget(d: &Display, my_id: &str, session: Option<&Arc<Session>>, 
         outer.append(&day);
     }
 
-    if row.system_type.is_some() {
+    let is_call = row.system_type.as_deref() == Some("videoconf");
+    if row.system_type.is_some() && !is_call {
         let system = label(&system_line(row), &["system-message"]);
         system.set_wrap(true);
         system.set_margin_start(44);
@@ -326,9 +316,15 @@ pub fn message_widget(d: &Display, my_id: &str, session: Option<&Arc<Session>>, 
     let pending = row.outbox_status.as_deref() == Some("pending");
     let failed = row.outbox_status.as_deref() == Some("failed");
     let me = session.map(|s| s.info.username.clone()).unwrap_or_default();
-    let mut blocks = markdown::render(row.md.as_deref(), row.text.as_deref(), &markdown::Context { me: &me });
-    if let Some(file) = attachment_label(row.attachments.as_deref()) {
-        blocks.push(markdown::Block::Paragraph(markdown::escape(&file)));
+    let blocks = if is_call {
+        Vec::new()
+    } else {
+        markdown::render(row.md.as_deref(), row.text.as_deref(), &markdown::Context { me: &me })
+    };
+    if let Some(session) = session {
+        for q in content::quotes(row.attachments.as_deref()) {
+            column.append(&cards::quote(session, &q, &me));
+        }
     }
     let state: &[&str] = match (pending, failed) {
         (true, _) => &["pending"],
@@ -347,6 +343,18 @@ pub fn message_widget(d: &Display, my_id: &str, session: Option<&Arc<Session>>, 
                 column.append(&caption);
             }
         }
+        for f in content::files(row.attachments.as_deref()) {
+            column.append(&cards::file(session, &f));
+        }
+        for video in content::video_links(row.text.as_deref().unwrap_or_default(), row.urls.as_deref(), 3) {
+            column.append(&cards::video_link(session, &video));
+        }
+        for preview in content::link_previews(row.urls.as_deref(), 3) {
+            column.append(&cards::link_preview(session, &preview));
+        }
+    }
+    if is_call {
+        column.append(&cards::call(row.call_id.as_deref(), on_event.clone()));
     }
 
     let me = session.map(|s| s.info.username.as_str()).unwrap_or_default();

@@ -323,6 +323,17 @@ impl ChatPage {
                 });
             }
             RowEvent::OpenThread(root) => self.open_thread(&root),
+            RowEvent::JoinCall(call_id) => {
+                let weak = Rc::downgrade(self);
+                glib::spawn_future_local(async move {
+                    let url = on_tokio(async move { session.join_call(&call_id).await }).await;
+                    let Some(this) = weak.upgrade() else { return };
+                    match url {
+                        Ok(url) => crate::cards::open_uri(&this.split, &url),
+                        Err(_) => this.toast(t("call.failed").to_owned()),
+                    }
+                });
+            }
             RowEvent::Menu { row, anchor, x, y } => {
                 let Some(open) = self.current.borrow().clone() else { return };
                 let room = actions_menu::RoomContext {

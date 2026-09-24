@@ -153,6 +153,21 @@ button.cta:active, button.cta:disabled { opacity: 0.75; }
 .system-message { font-style: italic; color: #8F89AB; font-size: 13px; }
 .thread-chip { border: 1px solid #A78BFA; border-radius: 999px; padding: 4px 11px; color: #A78BFA; font-weight: 700; font-size: 12px; }
 button.retry { color: #FF7A8A; font-weight: 700; font-size: 12px; padding: 0 4px; min-height: 0; }
+.quote-card { border-left: 3px solid #A78BFA; background: #171529; border-radius: 4px 10px 10px 4px; padding: 6px 10px; margin: 3px 0; }
+.quote-card .quote-card { background: #1E1B33; }
+.quote-author { font-weight: 800; font-size: 12.5px; color: #A78BFA; }
+.file-card, .link-card, .call-card { background: #171529; border: 1px solid #2C2946; border-radius: 12px; padding: 10px 12px; margin-top: 4px; }
+.file-card { min-width: 280px; }
+.file-icon { font-size: 26px; }
+.file-title { font-weight: 700; }
+.file-detail, .link-site { font-size: 12px; color: #8F89AB; }
+button.file-action, button.call-join { background: linear-gradient(135deg, #FF5FA2, #A78BFA); color: #0D0B1A; font-weight: 800; border-radius: 999px; padding: 2px 14px; min-height: 28px; }
+.link-title { font-weight: 800; color: #E7E3F5; }
+.link-description { font-size: 13px; color: #BDB7D6; }
+.preview-image { background: #0D0B1A; border-radius: 10px; }
+.video-play { font-size: 30px; color: white; background: rgba(0,0,0,0.55); border-radius: 999px; padding: 6px 14px; }
+.call-title { font-weight: 800; }
+.video-player { border-radius: 10px; }
 .image-attachment { background: #171529; border-radius: 10px; }
 .message .row-more { opacity: 0; min-height: 24px; min-width: 28px; padding: 0; color: #8F89AB; transition: opacity 120ms; }
 .message:hover .row-more { opacity: 1; }

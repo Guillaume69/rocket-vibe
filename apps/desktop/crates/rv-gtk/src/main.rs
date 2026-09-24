@@ -1,4 +1,5 @@
 mod actions_menu;
+mod cards;
 mod chat;
 mod composer;
 mod emoji_picker;

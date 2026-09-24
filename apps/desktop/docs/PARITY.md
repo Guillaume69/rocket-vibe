@@ -11,10 +11,10 @@ rather than dropped.
 - [x] Server + username/email + password login (`POST login`)
 - [x] 2FA: TOTP, email (send and resend code), password (SHA-256)
 - [x] Session kept in the system keychain, resumed at launch; a 401 on an authenticated call signs out
-- [ ] Server probe before login (`/api/info`, `settings.public`): version, password login available
-- [ ] Known servers offered on the login screen
-- [ ] Several servers side by side, switch without signing out (one database per server and account)
-- [~] Sign out: `logout` sent, keychain and cache wiped (no push token to remove on desktop)
+- [x] Server probe before login (`/api/info`, `settings.public`): version, password login available
+- [x] Known servers offered on the login screen
+- [x] Several servers side by side, switch without signing out (one database per server and account)
+- [x] Sign out: `logout` sent, keychain and cache wiped (no push token to remove on desktop)
 
 ## 2. Room list
 

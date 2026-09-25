@@ -218,7 +218,7 @@ jobs:
         run: |
           sudo mv /opt/homebrew /opt/homebrew-aside
           app="$PWD/dist/rocket-vibe.app"
-          "$app/Contents/MacOS/rocket-vibe" rocketvibe://salon/smoke > "$RUNNER_TEMP/app.log" 2>&1 &
+          "$app/Contents/MacOS/rocket-vibe-gtk" rocketvibe://salon/smoke > "$RUNNER_TEMP/app.log" 2>&1 &
           pid=$!
           sleep 10
           alive=0

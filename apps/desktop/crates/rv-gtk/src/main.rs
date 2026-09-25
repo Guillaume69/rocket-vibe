@@ -9,6 +9,8 @@ mod emoji_picker;
 mod fonts;
 mod i18n;
 mod login;
+#[cfg(target_os = "macos")]
+mod macos;
 mod markdown_view;
 mod media;
 mod message_list;
@@ -78,6 +80,8 @@ fn application_flags() -> gtk::gio::ApplicationFlags {
 }
 
 fn main() -> glib::ExitCode {
+    #[cfg(target_os = "macos")]
+    macos::bundle_environment();
     #[cfg(windows)]
     windows::std_streams();
     #[cfg(windows)]

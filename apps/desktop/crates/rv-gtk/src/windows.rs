@@ -2,8 +2,8 @@
 //! runtime aborts the process (0xC0000409) on an invalid one. Standard input
 //! and output go to NUL, standard error to a log file, unbuffered as standard
 //! error always is: an abort flushes nothing. For the C runtime and Rust alike.
-// The only unsafe code of the workspace: C runtime and Win32 calls with no
-// safe wrapper in the dependencies.
+// Unsafe code is denied elsewhere: C runtime and Win32 calls with no safe
+// wrapper in the dependencies.
 #![allow(unsafe_code)]
 
 use std::ffi::c_void;

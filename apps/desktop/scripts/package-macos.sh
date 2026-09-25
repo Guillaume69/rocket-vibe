@@ -14,7 +14,6 @@ rm -rf "$app" dist/dmg
 mkdir -p "$contents/MacOS" "$contents/Frameworks" "$res/lib/gstreamer-1.0" "$res/share/glib-2.0/schemas" "$res/share/icons"
 
 sed "s/@VERSION@/$version/g" data/macos/Info.plist > "$contents/Info.plist"
-cp data/macos/launcher.sh "$contents/MacOS/rocket-vibe"
 cp target/release/rocket-vibe-gtk "$contents/MacOS/"
 scanner="$brew/libexec/gstreamer-1.0/gst-plugin-scanner"
 if [ -f "$scanner" ]; then cp "$scanner" "$contents/MacOS/"; fi

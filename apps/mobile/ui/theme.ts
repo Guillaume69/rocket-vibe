@@ -20,6 +20,8 @@
  * sur un média, pas sur le fond du thème).
  */
 
+import { Platform } from 'react-native';
+
 /** Un dégradé linéaire : au moins deux arrêts de couleur. */
 export type Degrade = readonly [string, string, ...string[]];
 
@@ -223,21 +225,27 @@ export const couleursClaires: Couleurs = {
 
 /**
  * Familles de police EMBARQUÉES (config plugin `expo-font`, cf. app.json).
- * Une famille PAR GRAISSE, nommée d'après le fichier : sur Android, `fontFamily`
- * + `fontWeight` sur une police custom est capricieux (faux-gras synthétique) ;
- * une famille par graisse rend toujours le bon dessin. Ne jamais y adjoindre de
- * `fontWeight`.
+ * Une famille PAR GRAISSE : sur Android, `fontFamily` + `fontWeight` sur une
+ * police custom est capricieux (faux-gras synthétique) ; une famille par graisse
+ * rend toujours le bon dessin. Ne jamais y adjoindre de `fontWeight`.
+ *
+ * Android nomme la police d'après son FICHIER, iOS d'après son nom PostScript
+ * (table `name` du .ttf) : un nom de fichier sous iOS retombe sans bruit sur la
+ * police système.
  *
  * `titre*` = Baloo 2 (arrondie, pour les titres) ; le reste = Nunito (corps).
  */
+const police = (fichier: string, postScript: string): string =>
+  Platform.OS === 'ios' ? postScript : fichier;
+
 export const POLICES = {
-  titreSemi: 'Baloo2_600SemiBold',
-  titre: 'Baloo2_700Bold',
-  titreFort: 'Baloo2_800ExtraBold',
-  corps: 'Nunito_400Regular',
-  corpsSemi: 'Nunito_600SemiBold',
-  corpsGras: 'Nunito_700Bold',
-  corpsFort: 'Nunito_800ExtraBold',
+  titreSemi: police('Baloo2_600SemiBold', 'Baloo2-SemiBold'),
+  titre: police('Baloo2_700Bold', 'Baloo2-Bold'),
+  titreFort: police('Baloo2_800ExtraBold', 'Baloo2-ExtraBold'),
+  corps: police('Nunito_400Regular', 'Nunito-Regular'),
+  corpsSemi: police('Nunito_600SemiBold', 'Nunito-SemiBold'),
+  corpsGras: police('Nunito_700Bold', 'Nunito-Bold'),
+  corpsFort: police('Nunito_800ExtraBold', 'Nunito-ExtraBold'),
 } as const;
 
 /**

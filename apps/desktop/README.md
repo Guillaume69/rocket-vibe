@@ -35,7 +35,16 @@ menu entry and registers `rocketvibe://` links. On Windows the app is not
 single-instance (that goes through D-Bus), so a link opens a second window;
 text goes through fontconfig, which avoids a cairo abort and keeps the bundled
 fonts; warnings go to `%LOCALAPPDATA%\rocket-vibe-rs\rocket-vibe.log` when the
-app has no console. On Linux:
+app has no console.
+
+On macOS, the DMG from CI holds `rocket-vibe.app` (Apple Silicon, macOS 15 or later),
+built by `scripts/package-macos.sh`: GTK, libadwaita, GStreamer and their libraries
+inside, ad-hoc signed, `rocketvibe://` declared. Text goes through fontconfig, which
+loads the bundled fonts, and drawing through GTK's software renderer, which draws
+emoji where its OpenGL renderer did not (`GSK_RENDERER=gl` to compare). Unsigned by
+Apple, it needs one "Open Anyway" in Privacy & Security the first time.
+
+On Linux:
 
 ```sh
 PROFILE=release scripts/build.sh

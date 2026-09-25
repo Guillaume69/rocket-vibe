@@ -19,13 +19,13 @@ mod secrets;
 mod settings;
 mod smoke;
 mod spotlight;
-#[cfg(windows)]
-mod std_streams;
 mod style;
 mod thread;
 mod unlock;
 mod widgets;
 mod window;
+#[cfg(windows)]
+mod windows;
 
 use std::future::Future;
 use std::sync::OnceLock;
@@ -79,7 +79,7 @@ fn application_flags() -> gtk::gio::ApplicationFlags {
 
 fn main() -> glib::ExitCode {
     #[cfg(windows)]
-    std_streams::ensure();
+    windows::std_streams();
     // One instance, except on Windows: a `rocketvibe://` link clicked elsewhere reaches the running app.
     let app = adw::Application::builder().application_id(APP_ID).flags(application_flags()).build();
     i18n::init();

@@ -57,7 +57,7 @@ fn reopen(index: u32, which: u32, path: &std::ffi::OsStr, mode: &str) {
     }
 }
 
-pub fn ensure() {
+pub fn std_streams() {
     let dir = gtk::glib::user_cache_dir().join("rocket-vibe-rs");
     let _ = std::fs::create_dir_all(&dir);
     reopen(0, STD_INPUT_HANDLE, std::ffi::OsStr::new("NUL"), "r");

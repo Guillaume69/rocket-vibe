@@ -199,6 +199,9 @@ jobs:
     defaults:
       run:
         working-directory: apps/desktop
+    env:
+      APPLE_SIGNING: ${{ secrets.MACOS_CERTIFICATE_P12 != '' }}
+      APPLE_NOTARY: ${{ secrets.APPLE_API_KEY_P8 != '' }}
     steps:
       - uses: actions/checkout@v5
       - run: brew install gtk4 libadwaita gstreamer adwaita-icon-theme pkgconf dylibbundler
@@ -212,7 +215,67 @@ jobs:
           restore-keys: desktop-macos-
       - run: cargo test --locked -p rv-core
       - run: cargo build --locked --release -p rocket-vibe-gtk
+      - name: Developer ID certificate
+        if: env.APPLE_SIGNING == 'true'
+        env:
+          CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password=$(openssl rand -hex 16)
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" > /dev/null
+          existing=()
+          while IFS= read -r line; do existing+=("$(echo "$line" | tr -d '" ')"); done < <(security list-keychains -d user)
+          security list-keychains -d user -s "$keychain" "${existing[@]}"
+          identity=$(security find-identity -v -p codesigning "$keychain" | awk -F'"' '/Developer ID Application/ {print $2; exit}')
+          if [ -z "$identity" ]; then echo "::error::no Developer ID Application identity in the certificate"; exit 1; fi
+          echo "MACOS_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
       - run: scripts/package-macos.sh "${{ needs.version.outputs.version }}"
+      # Apple's notary checks the signed DMG; the ticket stapled to it lets
+      # the app open offline without any prompt.
+      - name: Notarization
+        if: env.APPLE_SIGNING == 'true' && env.APPLE_NOTARY == 'true'
+        env:
+          API_KEY: ${{ secrets.APPLE_API_KEY_P8 }}
+          API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          printf '%s' "$API_KEY" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          dmg=$(ls dist/*.dmg)
+          xcrun notarytool submit "$dmg" --key "$RUNNER_TEMP/notary.p8" --key-id "$API_KEY_ID" --issuer "$API_ISSUER_ID" --wait --timeout 60m \
+            --output-format json > "$RUNNER_TEMP/notary.json" || true
+          cat "$RUNNER_TEMP/notary.json"
+          field() { python3 -c 'import json,sys
+          try: print(json.load(open(sys.argv[1])).get(sys.argv[2], ""))
+          except ValueError: print("")' "$RUNNER_TEMP/notary.json" "$1"; }
+          id=$(field id)
+          status=$(field status)
+          if [ "$status" != Accepted ]; then
+            if [ -z "$status" ]; then
+              echo "::error::Apple has not finished notarizing submission $id yet: run the job again later"
+            else
+              xcrun notarytool log "$id" --key "$RUNNER_TEMP/notary.p8" --key-id "$API_KEY_ID" --issuer "$API_ISSUER_ID"
+              echo "::error::notarization: $status"
+            fi
+            exit 1
+          fi
+          xcrun stapler staple "$dmg"
+          rm "$RUNNER_TEMP/notary.p8"
+      - name: What Gatekeeper will say
+        if: env.APPLE_SIGNING == 'true'
+        run: |
+          codesign -dv --verbose=2 dist/rocket-vibe.app 2>&1 | grep -E "Authority|TeamIdentifier|Runtime|flags"
+          spctl --assess --type execute -vv dist/rocket-vibe.app
+          if [ "$APPLE_NOTARY" = true ]; then
+            spctl --assess --type open --context context:primary-signature -vv dist/*.dmg
+            xcrun stapler validate dist/*.dmg
+          fi
       # Homebrew moved aside: a library the bundle still took from it fails here.
       - name: The bundle starts on its own
         run: |

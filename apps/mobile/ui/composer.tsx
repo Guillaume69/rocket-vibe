@@ -370,6 +370,9 @@ export function Composer({
       ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images', 'videos'],
         quality: 1,
+        // iOS : la photothèque rendrait du HEIC/HEVC, que la plupart des
+        // navigateurs (donc Rocket.Chat web) n'affichent pas. Sans effet Android.
+        preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
       }),
     );
     fermerFeuilleJoindre();

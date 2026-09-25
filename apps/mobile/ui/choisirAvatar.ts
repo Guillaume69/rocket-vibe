@@ -21,6 +21,7 @@ export async function choisirAvatar(): Promise<FichierAEnvoyer | null> {
       aspect: [1, 1],
       // 0.7 : un avatar est affiché petit ; inutile de téléverser du plein format.
       quality: 0.7,
+      preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
     }),
   );
   if (res.canceled || res.assets.length === 0) return null;

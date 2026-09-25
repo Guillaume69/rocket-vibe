@@ -20,7 +20,7 @@
  * `demanderSource`) — aucun lien avec le moteur de liste des écrans.
  */
 
-import { AudioModule, RecordingPresets, useAudioRecorder } from 'expo-audio';
+import { AudioModule, RecordingPresets, setAudioModeAsync, useAudioRecorder } from 'expo-audio';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
@@ -289,6 +289,9 @@ export function Composer({
           setErreurFichier(t('salon.microRefuse'));
           return;
         }
+        // iOS refuse d'enregistrer tant que la session audio ne l'autorise pas,
+        // et la rend à la lecture ensuite : sinon le son part dans l'écouteur.
+        await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
         await enregistreur.prepareToRecordAsync();
         enregistreur.record();
         setEnregistrement(true);
@@ -296,6 +299,7 @@ export function Composer({
       }
       setEnregistrement(false);
       await enregistreur.stop();
+      void setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => {});
       const uri = enregistreur.uri;
       if (uri === null) {
         setErreurFichier(t('salon.enregistrementVide'));
@@ -311,6 +315,7 @@ export function Composer({
       });
     } catch (e) {
       setEnregistrement(false);
+      void setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => {});
       setErreurFichier(e instanceof Error ? e.message : t('salon.enregistrementImpossible'));
     }
   }, [enregistrement, enregistreur, t]);

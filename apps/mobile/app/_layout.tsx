@@ -1,3 +1,4 @@
+import { setAudioModeAsync } from 'expo-audio';
 import { ShareIntentProvider, useShareIntentContext } from 'expo-share-intent';
 import { router, Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -34,6 +35,12 @@ export default function RootLayout() {
   useEffect(() => {
     definirNavigateurProfil((p) => router.push({ pathname: '/profil', params: p }));
     return () => definirNavigateurProfil(null);
+  }, []);
+
+  // iOS coupe par défaut le son d'une app au bouton silencieux : un vocal
+  // resterait muet. Sans effet sous Android.
+  useEffect(() => {
+    setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
   }, []);
 
   return (

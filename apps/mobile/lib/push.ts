@@ -1,14 +1,20 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
+import { JetonFcm } from '../modules/jeton-fcm/index.ts';
+
 /**
  * Obtention du jeton FCM **natif** — pas le jeton Expo Push.
  *
- * `getDevicePushTokenAsync()` renvoie le jeton FCM brut, exploitable par un
+ * Sous Android, `getDevicePushTokenAsync()` renvoie le jeton FCM brut, exploitable par un
  * serveur tiers : c'est lui que Rocket.Chat attend dans `POST /api/v1/push.token`
  * (`type: 'gcm'`, nommage historique, la valeur est bien un jeton FCM v1).
  * `getExpoPushTokenAsync()` passerait par le service Expo Push — exclu, on veut
  * l'autonomie complète.
+ *
+ * Sous iOS, `getDevicePushTokenAsync()` rend le jeton APNs, que FCM refuse :
+ * `modules/jeton-fcm` le remet à Firebase et rend le jeton FCM. Rocket.Chat le
+ * reçoit en `gcm` comme sous Android ; FCM relaie vers APNs.
  *
  * L'ordre importe : le canal de notification doit exister **avant** la demande
  * de permission, sinon le prompt `POST_NOTIFICATIONS` (Android 13+) ne
@@ -31,6 +37,21 @@ export type ResultatJeton =
  * rien.
  */
 export function surRotationJeton(quand: (jeton: string) => void): () => void {
+  if (Platform.OS === 'ios') {
+    // Deux sources : Firebase annonce un nouveau jeton FCM, et un nouveau jeton
+    // APNs doit lui être remis pour qu'il en produise un.
+    const fcm = JetonFcm?.addListener('jetonRenouvele', ({ jeton }) => {
+      if (jeton !== '') quand(jeton);
+    });
+    const apns = Notifications.addPushTokenListener((jeton) => {
+      if (typeof jeton.data !== 'string' || jeton.data === '' || JetonFcm === null) return;
+      JetonFcm.obtenir(jeton.data).then(quand, () => {});
+    });
+    return () => {
+      fcm?.remove();
+      apns.remove();
+    };
+  }
   const abonnement = Notifications.addPushTokenListener((jeton) => {
     if (typeof jeton.data === 'string' && jeton.data !== '') quand(jeton.data);
   });
@@ -55,6 +76,10 @@ export async function obtenirJetonFcm(): Promise<ResultatJeton> {
     const { data, type } = await Notifications.getDevicePushTokenAsync();
     if (typeof data !== 'string' || data === '') {
       return { ok: false, raison: 'echec', detail: `jeton vide (type=${type})` };
+    }
+    if (Platform.OS === 'ios') {
+      if (JetonFcm === null) return { ok: false, raison: 'echec', detail: 'module jeton-fcm absent' };
+      return { ok: true, jeton: await JetonFcm.obtenir(data) };
     }
     return { ok: true, jeton: data };
   } catch (e) {

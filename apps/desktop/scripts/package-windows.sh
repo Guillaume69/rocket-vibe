@@ -10,7 +10,7 @@ name="rocket-vibe-desktop-$version-windows-x86_64"
 out="dist/$name"
 prefix=/ucrt64
 rm -rf "$out"
-mkdir -p "$out/bin" "$out/lib/gstreamer-1.0" "$out/share/glib-2.0/schemas" "$out/share/icons"
+mkdir -p "$out/bin" "$out/lib/gstreamer-1.0" "$out/share/glib-2.0/schemas" "$out/share/icons" "$out/etc"
 cp target/release/rocket-vibe-gtk.exe "$out/bin/"
 
 # GStreamer finds its plugins in ../lib/gstreamer-1.0 next to its DLL.
@@ -25,6 +25,8 @@ cp -r "$prefix/lib/gdk-pixbuf-2.0" "$out/lib/"
 ldd "$out/bin/rocket-vibe-gtk.exe" "$out"/lib/gstreamer-1.0/*.dll "$out"/lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll \
   | awk '$3 ~ /^\/ucrt64\// {print $3}' | sort -u | xargs -r cp -t "$out/bin/"
 
+# fontconfig, which the app uses for text on Windows, finds its configuration in ../etc/fonts.
+cp -r "$prefix/etc/fonts" "$out/etc/"
 cp "$prefix"/share/glib-2.0/schemas/*.xml "$out/share/glib-2.0/schemas/"
 glib-compile-schemas "$out/share/glib-2.0/schemas"
 cp -r "$prefix/share/icons/Adwaita" "$prefix/share/icons/hicolor" "$out/share/icons/"

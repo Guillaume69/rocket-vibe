@@ -80,6 +80,8 @@ fn application_flags() -> gtk::gio::ApplicationFlags {
 fn main() -> glib::ExitCode {
     #[cfg(windows)]
     windows::std_streams();
+    #[cfg(windows)]
+    windows::text_backend();
     // One instance, except on Windows: a `rocketvibe://` link clicked elsewhere reaches the running app.
     let app = adw::Application::builder().application_id(APP_ID).flags(application_flags()).build();
     i18n::init();

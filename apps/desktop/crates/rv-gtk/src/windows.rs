@@ -65,3 +65,10 @@ pub fn std_streams() {
     reopen(2, STD_ERROR_HANDLE, dir.join("rocket-vibe.log").as_os_str(), "w");
     eprintln!("rocket-vibe {} started", env!("CARGO_PKG_VERSION"));
 }
+
+/// Text through fontconfig and FreeType, unless set otherwise: cairo 1.18's
+/// DirectWrite path aborts on an internal assertion (cairo-hash.c).
+pub fn text_backend() {
+    // SAFETY: called first thing in main, while the process has one thread.
+    let _ = unsafe { gtk::glib::setenv("PANGOCAIRO_BACKEND", "fc", false) };
+}

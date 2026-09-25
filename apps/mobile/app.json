@@ -9,7 +9,11 @@
     "scheme": "rocketvibe",
     "ios": {
       "bundleIdentifier": "com.rocketvibe.app",
-      "googleServicesFile": "./GoogleService-Info.plist"
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "infoPlist": {
+        "NSPhotoLibraryAddUsageDescription": "Autoriser rocket-vibe à enregistrer les photos et vidéos reçues dans votre photothèque.",
+        "NSLocalNetworkUsageDescription": "Autoriser rocket-vibe à joindre un serveur Rocket.Chat de votre réseau local."
+      }
     },
     "android": {
       "package": "com.rocketvibe.app",
@@ -64,8 +68,8 @@
         "expo-image-picker",
         {
           "photosPermission": "Autoriser rocket-vibe à accéder à vos photos pour les partager dans une conversation.",
-          "cameraPermission": "Autoriser rocket-vibe à utiliser la caméra pour prendre une photo ou une vidéo à partager.",
-          "microphonePermission": "Autoriser rocket-vibe à utiliser le micro pour le son des vidéos."
+          "cameraPermission": "Autoriser rocket-vibe à utiliser la caméra pour les photos et vidéos à partager, et pour les appels vidéo.",
+          "microphonePermission": "Autoriser rocket-vibe à utiliser le micro pour les messages vocaux, les appels et le son des vidéos."
         }
       ],
       [

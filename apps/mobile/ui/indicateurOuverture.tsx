@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 
 import { sabonnerOuvertureProfil } from '../lib/profilPreload.ts';
 import { useCouleurs } from './theme.ts';
@@ -45,6 +45,6 @@ const styles = StyleSheet.create({
   pastille: {
     padding: 18,
     borderRadius: 18,
-    elevation: 8,
+    ...Platform.select({ ios: { boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.45)' }, default: { elevation: 8 } }),
   },
 });

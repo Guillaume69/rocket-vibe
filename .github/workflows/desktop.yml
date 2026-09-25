@@ -201,7 +201,7 @@ jobs:
         working-directory: apps/desktop
     steps:
       - uses: actions/checkout@v5
-      - run: brew install gtk4 libadwaita gstreamer pkgconf
+      - run: brew install gtk4 libadwaita gstreamer adwaita-icon-theme pkgconf dylibbundler
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/cache@v4
         with:
@@ -212,17 +212,38 @@ jobs:
           restore-keys: desktop-macos-
       - run: cargo test --locked -p rv-core
       - run: cargo build --locked --release -p rocket-vibe-gtk
-      - name: Package
+      - run: scripts/package-macos.sh "${{ needs.version.outputs.version }}"
+      # Homebrew moved aside: a library the bundle still took from it fails here.
+      - name: The bundle starts on its own
         run: |
-          name="rocket-vibe-desktop-${{ needs.version.outputs.version }}-macos-arm64"
-          mkdir -p "dist/$name"
-          cp target/release/rocket-vibe-gtk README.md "dist/$name/"
-          printf 'Needs Homebrew: brew install gtk4 libadwaita gstreamer\n' > "dist/$name/REQUIREMENTS.txt"
-          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          sudo mv /opt/homebrew /opt/homebrew-aside
+          app="$PWD/dist/rocket-vibe.app"
+          "$app/Contents/MacOS/rocket-vibe" rocketvibe://salon/smoke > "$RUNNER_TEMP/app.log" 2>&1 &
+          pid=$!
+          sleep 10
+          alive=0
+          if kill -0 "$pid" 2>/dev/null; then alive=1; fi
+          screencapture -x "$RUNNER_TEMP/screenshot.png" || true
+          kill "$pid" 2>/dev/null || true
+          sudo mv /opt/homebrew-aside /opt/homebrew
+          cat "$RUNNER_TEMP/app.log"
+          if [ "$alive" = 0 ]; then
+            for report in ~/Library/Logs/DiagnosticReports/*rocket*; do
+              [ -f "$report" ] && head -120 "$report"
+            done
+            echo "::error::the app exited at start"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: desktop-macos-screenshot
+          path: ${{ runner.temp }}/screenshot.png
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-macos
-          path: apps/desktop/dist/*.tar.gz
+          path: apps/desktop/dist/*.dmg
 
   release:
     if: github.ref_type == 'tag'
@@ -242,3 +263,4 @@ jobs:
             *.tar.gz
             *.zip
             *-setup.exe
+            *.dmg

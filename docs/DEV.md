@@ -157,6 +157,38 @@ grep -c usesCleartextTraffic android/app/src/debug/AndroidManifest.xml  # 1
 
 La forme `$react` référence la version de la dépendance directe `react` : l'alignement se maintient tout seul lors des montées de SDK. Une version figée en dur dériverait en silence, et mélangerait deux versions de React dans le bundle devtools.
 
+## iOS
+
+Jamais compilé à ce jour : tout ce qui suit a été préparé sous Linux. Le push iOS a sa propre section dans `docs/PUSH.md`.
+
+**Build, sur un Mac** (Xcode, CocoaPods, un compte Apple Developer) :
+
+```sh
+cd apps/mobile
+npx expo prebuild --platform ios      # régénère ios/ et lance pod install
+open ios/rocketvibe.xcworkspace
+```
+
+Trois cibles : `rocketvibe`, `NotificationService` (push, `plugins/with-ios-push.js`) et `ShareExtension` (partage vers l'app, expo-share-intent). Sur les trois, Signing & Capabilities → choisir l'équipe, ou poser `ios.appleTeamId` dans `app.json`. La signature automatique enregistre les identifiants des deux extensions et le groupe d'app `group.com.rocketvibe.app` de l'extension de partage.
+
+**Ce qui a été adapté à iOS**, parce que le code ne visait qu'Android :
+
+| Sujet | Correction |
+|---|---|
+| Polices | iOS résout `fontFamily` par nom PostScript (`Baloo2-SemiBold`), Android par nom de fichier : `POLICES` choisit selon la plateforme (`ui/theme.ts`). |
+| Retour au toucher | `android_ripple` est ignoré sous iOS : `ui/appuyable.tsx` atténue l'élément pressé. |
+| Modules natifs Android | `reducteur-video` et `telechargements` valent `null` : vidéo envoyée sans réduction, « Enregistrer » un fichier ouvre la feuille de partage. |
+| Messages vocaux | Session audio : enregistrement autorisé le temps de l'enregistrer, lecture malgré le bouton silencieux (`ui/composer.tsx`, `app/_layout.tsx`). |
+| Toasts | `ToastAndroid` ne fait rien sous iOS : une alerte à la place (`ui/actionsJointe.ts`). |
+| Bottom sheets | Marge basse au-dessus de l'indicateur d'accueil (`ui/margeFeuille.ts`). |
+| Photothèque | Demande du JPEG / H.264 au lieu de HEIC / HEVC, illisibles dans un navigateur. |
+| Partage vers l'app | Extension de partage activée ; `app/+native-intent.tsx` écarte son URL `rocketvibe://dataUrl=…` d'expo-router. |
+| Textes de permission | Caméra et micro couvrent les appels et les vocaux ; photothèque (écriture) et réseau local ajoutés. |
+
+Vérifié sous Linux : `expo prebuild --platform ios --no-install` (cibles, entitlements, Info.plist), `tsc`, les tests, ESLint, et le bundle JS iOS (`expo export --platform ios`).
+
+**Premier passage sur iPhone, à surveiller** : les polices (titres en Baloo 2), un vocal enregistré puis réécouté téléphone en silencieux, le partage d'une photo depuis Photos, un appel Jitsi (caméra et micro), un fichier « Enregistré », et le clavier sous une bottom sheet (le suivi du clavier mesure depuis le bas de la fenêtre).
+
 ## Outils
 
 `docker` et `docker compose` sont disponibles, daemon accessible sans `sudo`. `jq` est absent : les scripts utilisent `node` pour lire du JSON.

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # After a release build, on macOS with Homebrew's gtk4, libadwaita,
 # gstreamer and dylibbundler: rocket-vibe.app, which runs without Homebrew,
-# ad-hoc signed, in a DMG.
+# in a DMG. Signed with MACOS_SIGN_IDENTITY (a Developer ID Application
+# identity in the keychain, hardened runtime) when set, ad-hoc otherwise.
 #   scripts/package-macos.sh <version>
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -67,9 +68,16 @@ if [ -n "$leftovers" ]; then
   exit 1
 fi
 
-# Rewriting a library breaks its signature, and Apple Silicon runs nothing unsigned.
-machos | while IFS= read -r file; do codesign --force --sign - "$file"; done
-codesign --force --sign - "$app"
+# Rewriting a library breaks its signature, and Apple Silicon runs nothing
+# unsigned. Libraries first, the programs (with their entitlements) last.
+identity=${MACOS_SIGN_IDENTITY:--}
+sign=(codesign --force --sign "$identity")
+if [ "$identity" != - ]; then sign+=(--options runtime --timestamp); fi
+machos | grep -v "^$contents/MacOS/" | while IFS= read -r file; do "${sign[@]}" "$file"; done
+for program in "$contents/MacOS/gst-plugin-scanner" "$contents/MacOS/rocket-vibe-gtk"; do
+  if [ -f "$program" ]; then "${sign[@]}" --entitlements data/macos/entitlements.plist "$program"; fi
+done
+"${sign[@]}" --entitlements data/macos/entitlements.plist "$app"
 codesign --verify --deep --strict "$app"
 
 name="rocket-vibe-desktop-$version-macos-arm64"
@@ -79,4 +87,5 @@ ln -s /Applications dist/dmg/Applications
 rm -f "dist/$name.dmg"
 hdiutil create -quiet -volname rocket-vibe -srcfolder dist/dmg -format UDZO "dist/$name.dmg"
 rm -rf dist/dmg
+if [ "$identity" != - ]; then codesign --force --sign "$identity" --timestamp "dist/$name.dmg"; fi
 echo "dist/$name.dmg"

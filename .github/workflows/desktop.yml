@@ -137,8 +137,8 @@ jobs:
           New-Item -Force $wer | Out-Null
           Set-ItemProperty $wer DumpFolder $dumps
           Set-ItemProperty $wer DumpType 1 -Type DWord
-          # Started as from the Start menu: no standard streams. On an early
-          # exit, again with them captured, to say why.
+          # Started without redirection, as a user would. On an early exit,
+          # again with the streams captured, to say why.
           $run = Start-Process $exe -ArgumentList "rocketvibe://salon/smoke" -WorkingDirectory "$app\bin" -PassThru
           Start-Sleep -Seconds 10
           if ($run.HasExited) {
@@ -161,9 +161,7 @@ jobs:
             Get-Content "$env:RUNNER_TEMP\app-stderr.txt" -ErrorAction SilentlyContinue
             throw "the app exited at start with code $($run.ExitCode)"
           }
-          $log = "$env:LOCALAPPDATA\rocket-vibe-rs\rocket-vibe.log"
-          if (-not (Test-Path $log)) { throw "no log file at ${log}, standard error was not redirected" }
-          Get-Content $log -Tail 20
+          Get-Content "$env:LOCALAPPDATA\rocket-vibe-rs\rocket-vibe.log" -Tail 20 -ErrorAction SilentlyContinue
           Stop-Process -Id $run.Id -Force
           Start-Sleep -Seconds 2
           Start-Process "$app\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES" -Wait

@@ -70,12 +70,18 @@ fn window_of(app: &adw::Application) -> std::rc::Rc<window::AppWindow> {
     window
 }
 
+/// Being single-instance goes through the D-Bus session bus, which Windows
+/// lacks: GLib's attempt to start one there aborted the app.
+fn application_flags() -> gtk::gio::ApplicationFlags {
+    let flags = gtk::gio::ApplicationFlags::HANDLES_OPEN;
+    if cfg!(windows) { flags | gtk::gio::ApplicationFlags::NON_UNIQUE } else { flags }
+}
+
 fn main() -> glib::ExitCode {
     #[cfg(windows)]
     std_streams::ensure();
-    // One instance: a `rocketvibe://` link clicked elsewhere reaches the running app.
-    let app =
-        adw::Application::builder().application_id(APP_ID).flags(gtk::gio::ApplicationFlags::HANDLES_OPEN).build();
+    // One instance, except on Windows: a `rocketvibe://` link clicked elsewhere reaches the running app.
+    let app = adw::Application::builder().application_id(APP_ID).flags(application_flags()).build();
     i18n::init();
     app.connect_startup(|_| style::load());
     app.connect_activate(|app| {

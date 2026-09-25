@@ -28,6 +28,14 @@ pub struct Notifier {
     subscriptions: RefCell<Vec<gio::SignalSubscription>>,
 }
 
+/// Windows has no session bus, and GLib's attempt to start one there aborted the app.
+fn session_bus() -> Option<gio::DBusConnection> {
+    if cfg!(windows) {
+        return None;
+    }
+    gio::bus_get_sync(gio::BusType::Session, None::<&gio::Cancellable>).ok()
+}
+
 type OnOpen = Rc<dyn Fn(String)>;
 type OnReply = Rc<dyn Fn(String, String)>;
 
@@ -39,7 +47,7 @@ impl Notifier {
     ) -> Rc<Self> {
         let (open, reply): (OnOpen, OnReply) = (Rc::new(open), Rc::new(reply));
         let app = app.clone().upcast::<gio::Application>();
-        let Ok(connection) = gio::bus_get_sync(gio::BusType::Session, None::<&gio::Cancellable>) else {
+        let Some(connection) = session_bus() else {
             let action = gio::SimpleAction::new("open-room", Some(glib::VariantTy::STRING));
             action.connect_activate(move |_, rid| {
                 if let Some(rid) = rid.and_then(|v| v.get::<String>()) {

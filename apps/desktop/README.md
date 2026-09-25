@@ -31,7 +31,11 @@ What the Android app does and where this one stands: `docs/PARITY.md`.
 
 On Windows, the installer from CI (`rocket-vibe-desktop-<version>-windows-x86_64-setup.exe`,
 built from `data/windows/rocket-vibe.iss`) installs for the current user, adds a Start
-menu entry and registers `rocketvibe://` links. On Linux:
+menu entry and registers `rocketvibe://` links. On Windows the app is not
+single-instance (that goes through D-Bus), so a link opens a second window;
+text goes through fontconfig, which avoids a cairo abort and keeps the bundled
+fonts; warnings go to `%LOCALAPPDATA%\rocket-vibe-rs\rocket-vibe.log` when the
+app has no console. On Linux:
 
 ```sh
 PROFILE=release scripts/build.sh

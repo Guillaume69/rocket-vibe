@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useT } from '../ui/i18n.ts';
@@ -11,6 +11,7 @@ import {
   type SourcePieceJointe,
 } from '../ui/sourcePieceJointe.ts';
 import { DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
+import { Appuyable } from '../ui/appuyable.tsx';
 
 /**
  * Feuille « joindre » : le menu de sources d'une pièce jointe, à la façon de
@@ -64,7 +65,7 @@ export default function EcranJoindre() {
         // Le clip de l'enveloppe (`overflow`) découpe l'ondulation en coins
         // doux : le masque du ripple borné ignore borderRadius sous Fabric.
         <View key={o.source} style={styles.enveloppeLigne}>
-          <Pressable
+          <Appuyable
             onPress={() => choisir(o.source)}
             android_ripple={{ color: c.ondulation }}
             unstable_pressDelay={DELAI_PRESSION_LISTE}
@@ -74,7 +75,7 @@ export default function EcranJoindre() {
           >
             <Text style={styles.ligneIcone}>{o.icone}</Text>
             <Text style={[styles.ligneTexte, { color: c.texte }]}>{t(o.cle)}</Text>
-          </Pressable>
+          </Appuyable>
         </View>
       ))}
     </View>

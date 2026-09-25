@@ -18,7 +18,7 @@
 import { desc, eq, isNotNull, and } from 'drizzle-orm';
 import { useRequeteVive } from './requeteVive.ts';
 import { useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import type { BaseLocale } from '../db/client.ts';
 import { messages } from '../db/schema.ts';
@@ -32,6 +32,7 @@ import { urlAvatar } from '../lib/upload.ts';
 import { useEtagsAvatars } from './identites.tsx';
 import { TuileAvatar } from './kit.tsx';
 import { type Couleurs, DELAI_PRESSION_LISTE } from './theme.ts';
+import { Appuyable } from './appuyable.tsx';
 
 /**
  * Assez de lignes pour couvrir tous les auteurs actifs d'un salon vivant, assez
@@ -111,7 +112,7 @@ export function BandeauCompletionMention({
     >
       {resultat.items.map(({ username, uid }) => (
         <View key={username} style={styles.enveloppePuce}>
-          <Pressable
+          <Appuyable
             onPress={() => surChoisir(`@${username}`, resultat.debut)}
             android_ripple={{ color: c.ondulation, borderless: false }}
             unstable_pressDelay={DELAI_PRESSION_LISTE}
@@ -134,7 +135,7 @@ export function BandeauCompletionMention({
             <Text style={[styles.nom, { color: c.attenue }]} numberOfLines={1}>
               @{username}
             </Text>
-          </Pressable>
+          </Appuyable>
         </View>
       ))}
     </ScrollView>

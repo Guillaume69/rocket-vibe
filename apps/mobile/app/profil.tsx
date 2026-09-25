@@ -14,7 +14,7 @@
 
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { appelDisponibleMemo, demarrerConference, sonderAppelDisponible } from '../lib/appel.ts';
 import type { StatutPresence } from '../lib/presence.ts';
@@ -28,6 +28,7 @@ import { CLES_PRESENCE, couleursPresence } from '../ui/presence.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
+import { Appuyable } from '../ui/appuyable.tsx';
 
 type Profil = {
   uid: string;
@@ -324,7 +325,7 @@ export default function EcranProfil() {
           Masquées si c'est moi, ou si le chargement a échoué avant tout profil. */}
       {!estMoi && !erreurAvantProfil && (
         <View style={styles.actions}>
-          <Pressable
+          <Appuyable
             onPress={() => void ouvrirDm(false)}
             disabled={occupe || profil === null}
             android_ripple={{ color: c.ondulation }}
@@ -342,9 +343,9 @@ export default function EcranProfil() {
             ) : (
               <Text style={styles.boutonTexte}>{t('profil.boutonMessage')}</Text>
             )}
-          </Pressable>
+          </Appuyable>
           {appelDispo && (
-            <Pressable
+            <Appuyable
               onPress={() => void ouvrirDm(true)}
               disabled={occupe || profil === null}
               android_ripple={{ color: c.ondulation }}
@@ -358,7 +359,7 @@ export default function EcranProfil() {
               accessibilityLabel={t('profil.appelerLabel', { nom: usernameAff ?? '' })}
             >
               <Text style={[styles.boutonTexte, { color: c.texte }]}>{t('profil.boutonAppeler')}</Text>
-            </Pressable>
+            </Appuyable>
           )}
         </View>
       )}

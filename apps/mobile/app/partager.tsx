@@ -45,6 +45,7 @@ import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { phraseValidation } from '../ui/validationFichiers.ts';
 import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
+import { Appuyable } from '../ui/appuyable.tsx';
 
 type LigneDeSalon = typeof salons.$inferSelect;
 
@@ -399,7 +400,7 @@ function LigneCible({
 
   return (
     <View style={styles.enveloppeLigne}>
-      <Pressable
+      <Appuyable
         onPress={onChoisir}
         disabled={occupe || bloque}
         android_ripple={bloque ? undefined : { color: c.ondulation }}
@@ -432,7 +433,7 @@ function LigneCible({
         )}
       </View>
         {envoiEnCours && <ActivityIndicator color={c.accent} />}
-      </Pressable>
+      </Appuyable>
     </View>
   );
 }

@@ -23,6 +23,7 @@ import { AvatarSalon, BarreSynchro } from './kit.tsx';
 import { CLES_PRESENCE, couleursPresence } from './presence.ts';
 import { useSynchro } from './synchro.tsx';
 import { type Couleurs, POLICES } from './theme.ts';
+import { Appuyable } from './appuyable.tsx';
 
 type LigneDeSalon = typeof salons.$inferSelect;
 
@@ -96,7 +97,7 @@ export function EnTeteSalon({
           un DM (visé par `dmAutreUid` — le `name` d'un DM est null localement),
           celle du salon sinon. */}
       <View style={styles.enveloppeEntete}>
-        <Pressable
+        <Appuyable
           onPress={() =>
             estDM && salon?.dmAutreUid != null
               ? void ouvrirFicheProfil({ uid: salon.dmAutreUid })
@@ -134,10 +135,10 @@ export function EnTeteSalon({
             </Text>
           )}
           </View>
-        </Pressable>
+        </Appuyable>
       </View>
       {appelDispo && (
-        <Pressable
+        <Appuyable
           onPress={demarrerAppel}
           disabled={demarrage}
           hitSlop={8}
@@ -147,15 +148,15 @@ export function EnTeteSalon({
           style={({ pressed }) => ({ opacity: pressed || demarrage ? 0.5 : 1 })}
         >
           <Text style={styles.iconeEntete}>📞</Text>
-        </Pressable>
+        </Appuyable>
       )}
-      <Pressable
+      <Appuyable
         onPress={onRecherche}
         hitSlop={8}
         android_ripple={{ color: c.ondulation, borderless: true }}
       >
         <Text style={styles.iconeEntete}>🔍</Text>
-      </Pressable>
+      </Appuyable>
       <BarreSynchro c={c} actif={enSynchro} />
     </View>
   );

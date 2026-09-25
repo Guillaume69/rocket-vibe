@@ -53,6 +53,7 @@ import {
   useCouleurs,
 } from './theme.ts';
 import { useVisionneuse } from './visionneuse.tsx';
+import { Appuyable } from './appuyable.tsx';
 
 export type LigneDeMessage = typeof messages.$inferSelect;
 
@@ -611,7 +612,7 @@ function CarteAppel({ c, callId }: { c: Couleurs; callId: string | null }) {
     <View style={[styles.carteAppel, { backgroundColor: c.carte, borderColor: c.bordure }]}>
       <Text style={[styles.carteAppelTitre, { color: c.texte }]}>{t('ligneMessage.appelVideo')}</Text>
       {callId !== null && (
-        <Pressable
+        <Appuyable
           onPress={() => routeur.push({ pathname: '/appel/[callId]', params: { callId } })}
           android_ripple={{ color: c.ondulation }}
           unstable_pressDelay={DELAI_PRESSION_LISTE}
@@ -623,7 +624,7 @@ function CarteAppel({ c, callId }: { c: Couleurs; callId: string | null }) {
           ]}
         >
           <Text style={[styles.rejoindreTexte, { color: c.surAccent }]}>{t('ligneMessage.rejoindre')}</Text>
-        </Pressable>
+        </Appuyable>
       )}
     </View>
   );

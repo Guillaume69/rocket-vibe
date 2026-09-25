@@ -57,6 +57,7 @@ import { demanderSource, feuilleEstMontee } from './sourcePieceJointe.ts';
 import { useSynchro } from './synchro.tsx';
 import { type Couleurs, POLICES } from './theme.ts';
 import { phraseValidation } from './validationFichiers.ts';
+import { Appuyable } from './appuyable.tsx';
 
 /** Média d'`expo-image-picker` → pièce en attente normalisée. */
 function assetVersFichier(a: ImagePicker.ImagePickerAsset): FichierEnAttente {
@@ -482,7 +483,7 @@ export function Composer({
       )}
       <View style={[styles.composer, { borderTopColor: c.bordureDouce }]}>
         {fichiers !== null && (
-          <Pressable
+          <Appuyable
             onPress={() => void joindre()}
             // Une seule pièce jointe à la fois : pour en changer, on retire d'abord.
             disabled={envoiFichier || enregistrement || enAttente !== null}
@@ -499,16 +500,16 @@ export function Composer({
                 📎
               </Text>
             )}
-          </Pressable>
+          </Appuyable>
         )}
-        <Pressable
+        <Appuyable
           onPress={emoji.basculer}
           android_ripple={{ color: c.ondulation, borderless: true }}
           style={styles.boutonEmoji}
           accessibilityLabel={emoji.ouvert ? t('salon.revenirClavier') : t('salon.choisirEmoji')}
         >
           <Text style={styles.attache}>{emoji.ouvert ? '⌨️' : '😀'}</Text>
-        </Pressable>
+        </Appuyable>
         <TextInput
           ref={champRef}
           value={brouillon}
@@ -589,7 +590,7 @@ function ComposerChiffre({ c }: { c: Couleurs }) {
     );
   }
   return (
-    <Pressable
+    <Appuyable
       onPress={() => routeur.push('/deverrouiller-e2e')}
       android_ripple={{ color: c.ondulation }}
       style={[styles.composer, { borderTopColor: c.bordureDouce }]}
@@ -597,7 +598,7 @@ function ComposerChiffre({ c }: { c: Couleurs }) {
       accessibilityLabel={t('salon.chiffreVerrouille')}
     >
       <Text style={[styles.noteComposer, { color: c.accent }]}>{t('salon.chiffreVerrouille')}</Text>
-    </Pressable>
+    </Appuyable>
   );
 }
 

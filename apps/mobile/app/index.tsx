@@ -1,7 +1,7 @@
 import { desc } from 'drizzle-orm';
 import { useRequeteVive } from '../ui/requeteVive.ts';
 import { Redirect, Stack, useRouter } from 'expo-router';
-import { ActivityIndicator, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, SectionList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { BaseLocale } from '../db/client.ts';
@@ -18,6 +18,7 @@ import { useSynchro } from '../ui/synchro.tsx';
 import { useE2EDeverrouille } from '../ui/e2e.ts';
 import type { MoteurE2E } from '../lib/e2e/moteur.ts';
 import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
+import { Appuyable } from '../ui/appuyable.tsx';
 
 /**
  * Portier et liste des salons. Sans session on va se connecter ; avec session,
@@ -64,7 +65,7 @@ function EnTeteListe({ c }: { c: Couleurs }) {
         <Text style={styles.enteteLicorne}>🦄</Text>
         <Marque c={c} taille={23} />
       </View>
-      <Pressable
+      <Appuyable
         onPress={() => routeur.push('/parametres')}
         android_ripple={{ color: c.ondulation, borderless: true, radius: 22 }}
         hitSlop={8}
@@ -73,7 +74,7 @@ function EnTeteListe({ c }: { c: Couleurs }) {
         style={({ pressed }) => [styles.enteteRoue, { opacity: pressed ? 0.55 : 1 }]}
       >
         <Text style={styles.enteteRoueGlyphe}>⚙️</Text>
-      </Pressable>
+      </Appuyable>
       <BarreSynchro c={c} actif={enSynchro} />
     </View>
   );
@@ -216,7 +217,7 @@ function LigneSalon({
     // l'ondulation : le masque du ripple borné ignore borderRadius sous
     // Fabric (vérifié sur l'émulateur), seul le clip d'un PARENT le découpe.
     <View style={styles.enveloppeLigne}>
-      <Pressable
+      <Appuyable
         onPress={() => routeur.push({ pathname: '/salon/[rid]', params: { rid: salon.rid } })}
         android_ripple={{ color: c.ondulation }}
         unstable_pressDelay={DELAI_PRESSION_LISTE}
@@ -265,7 +266,7 @@ function LigneSalon({
       </View>
 
         <BadgeNonLus c={c} n={nonLus} />
-      </Pressable>
+      </Appuyable>
     </View>
   );
 }
@@ -276,7 +277,7 @@ function LigneNouvelleConversation({ c }: { c: Couleurs }) {
   const t = useT();
   return (
     <View style={styles.enveloppeLigne}>
-      <Pressable
+      <Appuyable
         onPress={() => routeur.push('/recherche')}
         android_ripple={{ color: c.ondulation }}
         unstable_pressDelay={DELAI_PRESSION_LISTE}
@@ -290,7 +291,7 @@ function LigneNouvelleConversation({ c }: { c: Couleurs }) {
         <Text style={[styles.nouvelle, { color: c.accent }]}>
           {t('accueil.nouvelleConversation')}
         </Text>
-      </Pressable>
+      </Appuyable>
     </View>
   );
 }

@@ -3,7 +3,6 @@ import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -19,6 +18,7 @@ import { useRechercheDebouncee } from '../ui/rechercheDebouncee.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
+import { Appuyable } from '../ui/appuyable.tsx';
 
 /**
  * Démarrer une conversation (5.4) : sans cet écran, l'app ne fait que lister
@@ -168,7 +168,7 @@ function Recherche({
         renderItem={({ item }) =>
           item.type === 'utilisateur' ? (
             <View style={styles.enveloppeLigne}>
-              <Pressable
+              <Appuyable
                 onPress={() => void demarrerDm(item.utilisateur)}
                 disabled={occupe}
                 android_ripple={{ color: c.ondulation }}
@@ -182,11 +182,11 @@ function Recherche({
                     <Text style={[styles.detail, { color: c.attenue }]}>{item.utilisateur.name}</Text>
                   )}
                 </View>
-              </Pressable>
+              </Appuyable>
             </View>
           ) : (
             <View style={styles.enveloppeLigne}>
-              <Pressable
+              <Appuyable
                 onPress={() => void rejoindreCanal(item.salon)}
                 disabled={occupe}
                 android_ripple={{ color: c.ondulation }}
@@ -195,7 +195,7 @@ function Recherche({
               >
                 <Text style={[styles.prefixe, { color: c.attenue }]}>#</Text>
                 <Text style={[styles.nom, { color: c.texte }]}>{item.salon.name}</Text>
-              </Pressable>
+              </Appuyable>
             </View>
           )
         }

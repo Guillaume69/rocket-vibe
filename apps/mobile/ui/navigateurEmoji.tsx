@@ -57,6 +57,7 @@ import { useT } from './i18n.ts';
 import type { CleTraduction } from './messages.ts';
 import { useRetourMateriel } from './retourMateriel.ts';
 import { type Couleurs, DELAI_PRESSION_LISTE, POLICES } from './theme.ts';
+import { Appuyable } from './appuyable.tsx';
 
 /** Une recherche dans le navigateur ratisse plus large que la bande inline. */
 const LIMITE_RECHERCHE = 300;
@@ -320,7 +321,7 @@ export function NavigateurEmoji({
         renderItem={({ item }) => {
           const { glyphe, uri, insertion, suggestion } = resoudre(item);
           return (
-            <Pressable
+            <Appuyable
               onPress={() => onChoisir(insertion)}
               // Vague CIRCULAIRE. `borderless` + rayon calibré sur la case :
               // le masque du ripple borné ignore borderRadius sous Fabric
@@ -335,7 +336,7 @@ export function NavigateurEmoji({
               ) : (
                 <Text style={styles.glyphe}>{glyphe}</Text>
               )}
-            </Pressable>
+            </Appuyable>
           );
         }}
       />

@@ -1,6 +1,6 @@
 import { Link, Redirect, Stack, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { obtenirJetonFcm } from '../lib/push.ts';
 import type { ClientRest } from '../lib/rest.ts';
@@ -19,6 +19,7 @@ import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { useE2EDeverrouille } from '../ui/e2e.ts';
 import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
+import { Appuyable } from '../ui/appuyable.tsx';
 
 /**
  * Écran « Paramètres » : ce qui traînait en bas de la liste des conversations
@@ -151,7 +152,7 @@ function Parametres({
     >
       <Stack.Screen options={{ title: t('parametres.titre') }} />
 
-      <Pressable
+      <Appuyable
         onPress={() => routeur.push('/mon-profil')}
         android_ripple={{ color: c.ondulation }}
         unstable_pressDelay={DELAI_PRESSION_LISTE}
@@ -175,7 +176,7 @@ function Parametres({
           <Text style={[styles.profilLien, { color: c.cyan }]}>{t('parametres.modifierProfil')}</Text>
         </View>
         <Text style={[styles.chevron, { color: c.attenue }]}>›</Text>
-      </Pressable>
+      </Appuyable>
 
       <Text style={[styles.sectionTitre, { color: c.attenue }]}>{t('parametres.sectionNotifications')}</Text>
       <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
@@ -208,7 +209,7 @@ function Parametres({
         {t('parametres.changerServeur')}
       </Link>
 
-      <Pressable
+      <Appuyable
         onPress={seDeconnecter}
         disabled={deconnexion}
         android_ripple={{ color: c.ondulation }}
@@ -219,7 +220,7 @@ function Parametres({
         ]}
       >
         <Text style={[styles.texteBoutonSecondaire, { color: c.texteErreur }]}>{t('parametres.seDeconnecter')}</Text>
-      </Pressable>
+      </Appuyable>
     </ScrollView>
   );
 }
@@ -247,7 +248,7 @@ function ChoixNotification({
         const libelle = t(o.cle);
         return (
           <View key={o.valeur} style={styles.enveloppeOption}>
-            <Pressable
+            <Appuyable
               onPress={() => void push.definir(o.valeur)}
               disabled={push.valeur === null}
               android_ripple={{ color: c.ondulation }}
@@ -272,7 +273,7 @@ function ChoixNotification({
               >
                 {libelle}
               </Text>
-            </Pressable>
+            </Appuyable>
           </View>
         );
       })}
@@ -298,7 +299,7 @@ function SelecteurLangue({ c, t }: { c: Couleurs; t: Traducteur }) {
         const actif = preference === o.pref;
         return (
           <View key={o.pref} style={styles.enveloppeOption}>
-            <Pressable
+            <Appuyable
               onPress={() => definirLangue(o.pref)}
               android_ripple={{ color: c.ondulation }}
               unstable_pressDelay={DELAI_PRESSION_LISTE}
@@ -327,7 +328,7 @@ function SelecteurLangue({ c, t }: { c: Couleurs; t: Traducteur }) {
                   <Text style={[styles.optionAide, { color: c.texteTertiaire }]}>{o.aide}</Text>
                 )}
               </View>
-            </Pressable>
+            </Appuyable>
           </View>
         );
       })}
@@ -354,7 +355,7 @@ function SectionJetonFcm({ c, t }: { c: Couleurs; t: Traducteur }) {
 
   return (
     <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
-      <Pressable
+      <Appuyable
         onPress={demander}
         // Lien texte : vague ronde `borderless` — le masque du ripple borné
         // ignore borderRadius sous Fabric, un rayon calibré fait le travail.
@@ -362,7 +363,7 @@ function SectionJetonFcm({ c, t }: { c: Couleurs; t: Traducteur }) {
         unstable_pressDelay={DELAI_PRESSION_LISTE}
       >
         <Text style={[styles.action, { color: c.cyan }]}>{t('parametres.obtenirJeton')}</Text>
-      </Pressable>
+      </Appuyable>
       {jeton !== null && (
         <Text style={[styles.aide, { color: c.texte }]} selectable numberOfLines={3}>
           {jeton}
@@ -399,7 +400,7 @@ function SectionE2E({ c, t }: { c: Couleurs; t: Traducteur }) {
           {t(deverrouille ? 'parametres.e2eDeverrouille' : 'parametres.e2eVerrouille')}
         </Text>
         {deverrouille ? (
-          <Pressable
+          <Appuyable
             onPress={verrouiller}
             disabled={occupe}
             android_ripple={{ color: c.ondulation, borderless: true, radius: 24 }}
@@ -410,9 +411,9 @@ function SectionE2E({ c, t }: { c: Couleurs; t: Traducteur }) {
             <Text style={[styles.profilLien, { color: c.texteErreur }]}>
               {t('parametres.e2eVerrouiller')}
             </Text>
-          </Pressable>
+          </Appuyable>
         ) : (
-          <Pressable
+          <Appuyable
             onPress={() => routeur.push('/deverrouiller-e2e')}
             android_ripple={{ color: c.ondulation, borderless: true, radius: 24 }}
             unstable_pressDelay={DELAI_PRESSION_LISTE}
@@ -422,7 +423,7 @@ function SectionE2E({ c, t }: { c: Couleurs; t: Traducteur }) {
             <Text style={[styles.profilLien, { color: c.cyan }]}>
               {t('parametres.e2eDeverrouiller')}
             </Text>
-          </Pressable>
+          </Appuyable>
         )}
       </View>
     </>

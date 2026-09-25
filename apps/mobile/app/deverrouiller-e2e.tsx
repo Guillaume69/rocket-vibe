@@ -8,12 +8,13 @@
 
 import { Stack, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { ErreurE2E } from '../lib/e2e/crypto.ts';
 import { useT } from '../ui/i18n.ts';
 import { useSynchro } from '../ui/synchro.tsx';
 import { DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
+import { Appuyable } from '../ui/appuyable.tsx';
 
 export default function EcranDeverrouillerE2E() {
   const synchro = useSynchro();
@@ -75,7 +76,7 @@ export default function EcranDeverrouillerE2E() {
 
       {erreur !== null && <Text style={[styles.erreur, { color: c.texteErreur }]}>{erreur}</Text>}
 
-      <Pressable
+      <Appuyable
         onPress={soumettre}
         disabled={occupe || motDePasse === '' || deverrouiller === null}
         android_ripple={{ color: c.ondulation }}
@@ -93,7 +94,7 @@ export default function EcranDeverrouillerE2E() {
         ) : (
           <Text style={styles.boutonTexte}>{t('e2e.deverrouiller')}</Text>
         )}
-      </Pressable>
+      </Appuyable>
     </View>
   );
 }

@@ -23,7 +23,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import {
   Image,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -41,6 +40,7 @@ import {
 import { codesEmojiStandard, unicodeDeCodeCourt } from '../lib/emojis.ts';
 import { codesEmojiCustom, urlEmojiCustom } from '../lib/emojisCustom.ts';
 import { type Couleurs, DELAI_PRESSION_LISTE } from './theme.ts';
+import { Appuyable } from './appuyable.tsx';
 
 type Selection = { start: number; end: number };
 
@@ -188,7 +188,7 @@ export function BandeauCompletionEmoji({
     >
       {resultat.items.map(({ suggestion, glyphe, uri, insertion }) => (
         <View key={`${suggestion.type}:${suggestion.code}`} style={styles.enveloppePuce}>
-          <Pressable
+          <Appuyable
             onPress={() => surChoisir(insertion, resultat.debut)}
             android_ripple={{ color: c.ondulation, borderless: false }}
             unstable_pressDelay={DELAI_PRESSION_LISTE}
@@ -203,7 +203,7 @@ export function BandeauCompletionEmoji({
             <Text style={[styles.code, { color: c.attenue }]} numberOfLines={1}>
               :{suggestion.code}:
             </Text>
-          </Pressable>
+          </Appuyable>
         </View>
       ))}
     </ScrollView>

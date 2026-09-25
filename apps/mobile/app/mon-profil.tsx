@@ -45,6 +45,7 @@ import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
 import { transportAvatarExpo } from '../ui/transportUpload.ts';
+import { Appuyable } from '../ui/appuyable.tsx';
 
 /** Les quatre statuts choisissables — couleurs et libellés : ui/presence.ts. */
 const PRESENCES: readonly StatutDefaut[] = ['online', 'away', 'busy', 'offline'];
@@ -303,7 +304,7 @@ function FormMonProfil({
             const libelle = capitaliser(t(CLES_PRESENCE[p]));
             return (
               <View key={p} style={styles.enveloppePresence}>
-                <Pressable
+                <Appuyable
                   onPress={() => {
                     setBandeau(null);
                     setForm((f) => (f === null ? f : { ...f, status: p }));
@@ -334,7 +335,7 @@ function FormMonProfil({
                   <View style={[styles.radio, { borderColor: actif ? c.accent : c.bordure }]}>
                     {actif && <View style={[styles.radioPoint, { backgroundColor: c.accent }]} />}
                   </View>
-                </Pressable>
+                </Appuyable>
               </View>
             );
           })}

@@ -41,6 +41,7 @@ import { demanderReponse } from '../ui/reponse.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
+import { Appuyable } from '../ui/appuyable.tsx';
 
 /**
  * Feuille d'actions d'un message (8.2) — `presentation: 'formSheet'` déclarée
@@ -301,7 +302,7 @@ export default function EcranActionsMessage() {
           {CODES_REACTION.map((code) => {
             const dejaPosee = mesReactions.has(code);
             return (
-              <Pressable
+              <Appuyable
                 key={code}
                 disabled={occupe}
                 android_ripple={{ color: c.ondulation, borderless: true }}
@@ -322,7 +323,7 @@ export default function EcranActionsMessage() {
                 }
               >
                 <Text style={styles.emoji}>{unicodeDeCodeCourt(code) ?? `:${code}:`}</Text>
-              </Pressable>
+              </Appuyable>
             );
           })}
         </View>
@@ -495,7 +496,7 @@ function ActionLigne({
     // Le clip de l'enveloppe (`overflow`) découpe l'ondulation en coins
     // doux : le masque du ripple borné ignore borderRadius sous Fabric.
     <View style={styles.enveloppeLigne}>
-      <Pressable
+      <Appuyable
         disabled={disabled}
         onPress={onPress}
         android_ripple={{ color: c.ondulation }}
@@ -506,7 +507,7 @@ function ActionLigne({
         <Text style={[styles.ligneTexte, { color: destructif ? c.texteErreur : c.texte }]}>
           {libelle}
         </Text>
-      </Pressable>
+      </Appuyable>
     </View>
   );
 }

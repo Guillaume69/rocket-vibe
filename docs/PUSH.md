@@ -54,6 +54,43 @@ Le compose monte `patched/app-${RC_VERSION}.js` avec `create_host_path: false` :
 
 Vérifié sur le banc 8.5.1 : démarrage sain sur le bundle patché, forme du message FCM contrôlée en isolant `getFCMMessagesFromPushData`. **Pas encore vérifié** : l'acceptation du bloc `apns` par FCM (le banc n'a pas de compte de service) et la branche gateway (le banc n'est pas enregistré sur RC Cloud) - à confirmer sur `chat.barrut.me`.
 
+## iOS
+
+Même voie qu'Android : jeton **FCM** enregistré en `gcm`, Rocket.Chat pousse vers FCM, FCM relaie vers APNs avec la clé `.p8` déposée dans la console Firebase (projet `rocket-vibe`, app iOS `com.rocketvibe.app`). Aucun réglage APNs côté Rocket.Chat.
+
+| Pièce | Rôle |
+|---|---|
+| `apps/mobile/modules/jeton-fcm/` | Module Swift : remet le jeton APNs (rendu par `getDevicePushTokenAsync()`) à Firebase et rend le jeton FCM ; émet `jetonRenouvele` à la rotation. |
+| `apps/mobile/plugins/with-ios-push.js` | `FirebaseAppDelegateProxyEnabled = false` (pas de swizzling contre expo-notifications), pods Firebase en `modular_headers`, groupe de trousseau partagé, cible `NotificationService`. |
+| `apps/mobile/plugins/ios-notification-service/NotificationService.swift` | Notification Service Extension, pendant du service Kotlin : lit la session au trousseau, `push.get`, réécrit titre et texte, `threadIdentifier` = rid, range `ejson` (rid, host) dans `userInfo["body"]`, que expo-notifications expose comme `data` au tap. |
+
+Ce qui diffère d'Android, par contrainte iOS :
+
+- l'extension ne peut pas **supprimer** un push (il faudrait l'entitlement de filtrage, sur dossier Apple) : sans session, elle remplace le texte par « Nouveau message » ;
+- pas de rattrapage différé : un `push.get` raté ou trop long (~30 s) laisse « Nouveau message » ;
+- la session et la langue sont écrites `AFTER_FIRST_UNLOCK` (`lib/sessionStore.ts`, `ui/i18n.ts`) : avec le défaut `WHEN_UNLOCKED`, l'extension ne les lirait pas écran verrouillé ;
+- le groupe de trousseau `$(AppIdentifierPrefix)com.rocketvibe.app` est EN TÊTE des groupes de l'app, donc c'est là qu'expo-secure-store écrit par défaut ;
+- pas de « Répondre » depuis la notification ;
+- les modules Android `reducteur-video` et `telechargements` valent `null` : une vidéo part sans réduction, « Enregistrer » un fichier ouvre la feuille de partage.
+
+Vérifié sous Linux : `expo prebuild --platform ios --no-install` (cible, embarquement, réglages, Podfile, entitlements), `swiftc -parse` des deux fichiers Swift, typecheck de l'extension contre des doublures des API Apple, et sa logique exécutée contre le banc 8.5.1 (vrai `push.get`, origine étrangère refusée, repli, E2EE, DM). **Jamais compilé avec Xcode.**
+
+### Premier build sur Mac
+
+```sh
+cd apps/mobile
+npx expo prebuild --platform ios      # régénère ios/ et lance pod install
+open ios/rocketvibe.xcworkspace
+```
+
+1. Xcode, cibles `rocketvibe` **et** `NotificationService` → Signing & Capabilities : choisir l'équipe (ou `ios.appleTeamId` dans `app.json`, repris par le plugin pour les deux cibles).
+2. Build sur un **iPhone réel** (le simulateur n'a pas de push distant fiable).
+3. Se connecter, accepter les notifications ; vérifier dans les logs que `push.token` part avec un jeton FCM (forme `…:APA91b…`), pas 64 caractères hexadécimaux.
+4. App tuée, un DM depuis un autre compte hors ligne : la notification doit montrer le vrai texte (preuve que l'extension a tourné), groupée par salon ; le tap ouvre le salon.
+5. Refaire téléphone verrouillé, puis en mode avion le temps de la réception (« Nouveau message » attendu).
+
+Points à surveiller au premier `pod install` / build : la liste des pods en `modular_headers` si CocoaPods réclame un module de plus, et la version de FirebaseMessaging (non épinglée dans `JetonFcm.podspec`).
+
 ## Trois pièges vérifiés sur le terrain
 
 ### `Push_UseLegacy` n'existe pas en 8.5

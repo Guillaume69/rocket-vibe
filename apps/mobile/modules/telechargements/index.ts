@@ -1,8 +1,8 @@
-import { requireNativeModule } from 'expo-modules-core';
+import { requireOptionalNativeModule } from 'expo-modules-core';
 
 /**
  * Pont du module natif Kotlin, autolinké par Expo depuis `modules/`. Android
- * seulement. Importable QUE dans l'app : sous Node, `requireNativeModule` jette.
+ * seulement : sous iOS le module vaut `null`. Importable QUE dans l'app : sous Node, `requireNativeModule` jette.
  */
 
 type TelechargementsNatif = {
@@ -13,4 +13,4 @@ type TelechargementsNatif = {
   enregistrer(source: string, nom: string, type: string | null): Promise<string>;
 };
 
-export const Telechargements = requireNativeModule<TelechargementsNatif>('Telechargements');
+export const Telechargements = requireOptionalNativeModule<TelechargementsNatif>('Telechargements');

@@ -30,7 +30,9 @@ export function enregistrerEnFond(jointe: JointeATransferer, t: Traducteur): voi
   void transferer(jointe.cle, async (surProgression) => {
     try {
       const lieu = await enregistrerJointeProtegee({ ...jointe, surProgression });
-      toast(t(lieu === 'galerie' ? 'enregistrement.galerie' : 'enregistrement.telechargements'));
+      if (lieu !== 'partage') {
+        toast(t(lieu === 'galerie' ? 'enregistrement.galerie' : 'enregistrement.telechargements'));
+      }
     } catch {
       toast(t('enregistrement.echec'));
     }

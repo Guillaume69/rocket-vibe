@@ -80,7 +80,7 @@ export async function compresserImageSiUtile(
 export async function reduireVideoSiPossible(
   fichier: FichierEnAttente,
 ): Promise<FichierEnAttente> {
-  if (!videoReductible(fichier)) return fichier;
+  if (ReducteurVideo === null || !videoReductible(fichier)) return fichier;
   try {
     const sortie = await ReducteurVideo.reduire(fichier.uri, VIDEO_COTE_COURT_MAX, VIDEO_BITRATE);
     // Une vidéo déjà modeste peut ressortir plus lourde du réencodage : dans

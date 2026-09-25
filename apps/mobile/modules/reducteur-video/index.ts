@@ -1,9 +1,9 @@
-import { requireNativeModule } from 'expo-modules-core';
+import { requireOptionalNativeModule } from 'expo-modules-core';
 
 /**
  * Pont du module natif Kotlin (`android/src/main/java/com/rocketvibe/…`),
- * autolinké par Expo depuis `modules/`. Android seulement, comme le reste du
- * projet à ce stade. Ce fichier n'est importable QUE dans l'app : sous Node
+ * autolinké par Expo depuis `modules/`. Android seulement : sous iOS le module
+ * vaut `null`. Ce fichier n'est importable QUE dans l'app : sous Node
  * (tests), `requireNativeModule` jetterait — la logique décidable vit dans
  * `ui/qualitePieceJointe.ts`, pur.
  */
@@ -19,4 +19,4 @@ type ReducteurVideoNatif = {
   reduire(uri: string, coteCourtMax: number, bitrateVideo: number): Promise<VideoReduite>;
 };
 
-export const ReducteurVideo = requireNativeModule<ReducteurVideoNatif>('ReducteurVideo');
+export const ReducteurVideo = requireOptionalNativeModule<ReducteurVideoNatif>('ReducteurVideo');

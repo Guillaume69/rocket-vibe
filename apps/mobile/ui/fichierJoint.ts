@@ -88,7 +88,7 @@ export async function ouvrirJointeProtegee(options: OptionsJointe): Promise<void
   await Sharing.shareAsync(local, options.type ? { mimeType: options.type } : {});
 }
 
-export type LieuEnregistrement = 'galerie' | 'telechargements';
+export type LieuEnregistrement = 'galerie' | 'telechargements' | 'partage';
 
 /**
  * Télécharge la pièce jointe protégée puis l'ENREGISTRE sur l'appareil : photo,
@@ -112,6 +112,12 @@ export async function enregistrerJointeProtegee(options: OptionsJointe): Promise
     return 'galerie';
   }
 
+  // iOS n'a pas de dossier Téléchargements : la feuille de partage propose
+  // « Enregistrer dans Fichiers ».
+  if (Telechargements === null) {
+    await Sharing.shareAsync(local, options.type ? { mimeType: options.type } : undefined);
+    return 'partage';
+  }
   await Telechargements.enregistrer(local, nom, options.type ?? null);
   return 'telechargements';
 }

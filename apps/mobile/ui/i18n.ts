@@ -63,7 +63,8 @@ export function definirLangue(pref: PreferenceLangue): void {
   preference = pref;
   langueActive = resoudre(pref);
   if (pref === 'auto') void SecureStore.deleteItemAsync(CLE);
-  else void SecureStore.setItemAsync(CLE, pref);
+  // iOS : lue aussi par la Notification Service Extension, écran verrouillé.
+  else void SecureStore.setItemAsync(CLE, pref, { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK });
   for (const e of ecouteurs) e();
 }
 

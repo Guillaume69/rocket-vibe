@@ -18,6 +18,7 @@ import * as Notifications from 'expo-notifications';
 import { useRequeteVive } from './requeteVive.ts';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef } from 'react';
+import { Platform } from 'react-native';
 
 import { salons, abonnements } from '../db/schema.ts';
 import { estSalonChiffre, poserSalonsChiffres } from './etatNotifications.ts';
@@ -78,7 +79,8 @@ export function GestionNotifications() {
   // repli sans bloc `notification`, ou sans `rid` groupable). Les notifications
   // de message natives (`plugins/with-fcm-deeplink.js`) ouvrent le salon par
   // leur propre deep-link `rocketvibe://salon/<rid>`, routé par expo-router,
-  // sans jamais passer par ici.
+  // sans jamais passer par ici. Sous iOS, en revanche, TOUS les taps passent
+  // ici : l'extension de notification range `rid` et `host` dans `ejson`.
   useEffect(() => {
     // Une même réponse peut arriver par LES DEUX voies (le listener ET
     // `getLastNotificationResponse` au démarrage) : on ne route qu'une fois.
@@ -145,6 +147,7 @@ function SuiviBadgeEtChiffre() {
   // un `NotificationManagerCompat.cancel` sur un id inconnu — sans effet.
   const retirees = useRef(new Set<string>());
   useEffect(() => {
+    const aRetirer: string[] = [];
     for (const a of lignesAbonnements ?? []) {
       if (a.nonLus > 0) {
         retirees.current.delete(a.rid);
@@ -152,8 +155,9 @@ function SuiviBadgeEtChiffre() {
       }
       if (retirees.current.has(a.rid)) continue;
       retirees.current.add(a.rid);
-      Notifications.dismissNotificationAsync(identifiantNotifSalon(a.rid)).catch(() => {});
+      aRetirer.push(a.rid);
     }
+    if (aRetirer.length > 0) retirerNotifsSalons(aRetirer);
   }, [lignesAbonnements]);
 
   useEffect(() => {
@@ -161,4 +165,29 @@ function SuiviBadgeEtChiffre() {
   }, [lignesSalons]);
 
   return null;
+}
+
+/**
+ * Android : l'id natif dérive du rid (`lib/notificationId.ts`). iOS : chaque
+ * push est sa propre notification, groupée par `threadIdentifier` ; on retrouve
+ * celles du salon par le `rid` que l'extension a rangé dans `ejson`.
+ */
+function retirerNotifsSalons(rids: string[]): void {
+  if (Platform.OS !== 'ios') {
+    for (const rid of rids) {
+      Notifications.dismissNotificationAsync(identifiantNotifSalon(rid)).catch(() => {});
+    }
+    return;
+  }
+  const cibles = new Set(rids);
+  Notifications.getPresentedNotificationsAsync()
+    .then((presentes) => {
+      for (const n of presentes) {
+        const cible = cibleDeNotification(n.request.content);
+        if (cible !== null && cibles.has(cible.rid)) {
+          Notifications.dismissNotificationAsync(n.request.identifier).catch(() => {});
+        }
+      }
+    })
+    .catch(() => {});
 }

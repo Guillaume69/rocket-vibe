@@ -34,8 +34,18 @@ export function hacher(texte: string): Promise<string> {
  */
 const cle = (baseUrl: string): Promise<string> => cleSession(baseUrl, hacher);
 
+/**
+ * iOS : lisible par la Notification Service Extension, qui tourne aussi
+ * écran verrouillé (plugins/ios-notification-service). Le défaut
+ * `WHEN_UNLOCKED` la cacherait à chaque push reçu téléphone en poche. Sans
+ * effet sous Android.
+ */
+const ACCES_EXTENSION_PUSH: SecureStore.SecureStoreOptions = {
+  keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
+};
+
 export async function enregistrerSession(session: Session): Promise<void> {
-  await SecureStore.setItemAsync(await cle(session.baseUrl), JSON.stringify(session));
+  await SecureStore.setItemAsync(await cle(session.baseUrl), JSON.stringify(session), ACCES_EXTENSION_PUSH);
 }
 
 export async function lireSession(baseUrl: string): Promise<Session | null> {

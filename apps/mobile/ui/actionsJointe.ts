@@ -5,7 +5,7 @@
  * se dit par un toast.
  */
 
-import { Alert, ToastAndroid } from 'react-native';
+import { Alert, Platform, ToastAndroid } from 'react-native';
 
 import { enregistrerJointeProtegee, ouvrirJointeProtegee } from './fichierJoint.ts';
 import type { Traducteur } from './messages.ts';
@@ -22,8 +22,10 @@ export type JointeATransferer = {
   taille: number | null;
 };
 
+/** iOS n'a pas de toast : une alerte, pour ne pas taire le résultat. */
 function toast(message: string): void {
-  ToastAndroid.show(message, ToastAndroid.SHORT);
+  if (Platform.OS === 'android') ToastAndroid.show(message, ToastAndroid.SHORT);
+  else Alert.alert(message);
 }
 
 export function enregistrerEnFond(jointe: JointeATransferer, t: Traducteur): void {

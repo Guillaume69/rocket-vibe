@@ -162,12 +162,23 @@ jobs:
             throw "the app exited at start with code $($run.ExitCode)"
           }
           Get-Content "$env:LOCALAPPDATA\rocket-vibe-rs\rocket-vibe.log" -Tail 20 -ErrorAction SilentlyContinue
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $shot = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
+          [System.Drawing.Graphics]::FromImage($shot).CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
+          $shot.Save("$env:RUNNER_TEMP\screenshot.png")
           Stop-Process -Id $run.Id -Force
           Start-Sleep -Seconds 2
           Start-Process "$app\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES" -Wait
           Start-Sleep -Seconds 3
           if (Test-Path "HKCU:\Software\Classes\rocketvibe") { throw "the link registration outlived the uninstall" }
           if (Test-Path $exe) { throw "the app outlived the uninstall" }
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: desktop-windows-screenshot
+          path: ${{ runner.temp }}/screenshot.png
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: ${{ failure() }}
         with:

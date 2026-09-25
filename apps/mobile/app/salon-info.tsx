@@ -27,6 +27,7 @@ import type { CleTraduction } from '../ui/messages.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { POLICES, useCouleurs } from '../ui/theme.ts';
+import { useMargeBasFeuille } from '../ui/margeFeuille.ts';
 
 type Complement = {
   description: string | null;
@@ -75,6 +76,7 @@ function ContenuSalonInfo({
   e2e: MoteurE2E;
   c: ReturnType<typeof useCouleurs>;
 }) {
+  const margeBas = useMargeBasFeuille();
   const t = useT();
   const deverrouille = useE2EDeverrouille(e2e);
   const { data: lignes } = useRequeteVive(
@@ -123,7 +125,7 @@ function ContenuSalonInfo({
     .join(' · ');
 
   return (
-    <View style={[styles.feuille, { backgroundColor: c.carteProfonde }]}>
+    <View style={[styles.feuille, { backgroundColor: c.carteProfonde, paddingBottom: margeBas }]}>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.entete}>
         <AvatarSalon

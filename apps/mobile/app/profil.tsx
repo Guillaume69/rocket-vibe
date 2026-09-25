@@ -29,6 +29,7 @@ import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
 import { Appuyable } from '../ui/appuyable.tsx';
+import { useMargeBasFeuille } from '../ui/margeFeuille.ts';
 
 type Profil = {
   uid: string;
@@ -90,6 +91,7 @@ function heureLocale(utcOffset: number): string {
 }
 
 export default function EcranProfil() {
+  const margeBas = useMargeBasFeuille();
   // `username` (mentions, lignes de message) OU `uid` (en-tête d'un DM, où
   // seul `dmAutreUid` est connu localement) — `users.info` accepte les deux.
   const { username, uid } = useLocalSearchParams<{ username?: string; uid?: string }>();
@@ -258,7 +260,7 @@ export default function EcranProfil() {
   const erreurAvantProfil = profil === null && erreur !== null;
 
   return (
-    <View style={[styles.feuille, { backgroundColor: c.carteProfonde }]}>
+    <View style={[styles.feuille, { backgroundColor: c.carteProfonde, paddingBottom: margeBas }]}>
       <Stack.Screen options={{ headerShown: false }} />
 
       <View style={styles.entete}>

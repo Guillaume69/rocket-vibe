@@ -15,8 +15,10 @@ import { useT } from '../ui/i18n.ts';
 import { useSynchro } from '../ui/synchro.tsx';
 import { DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
 import { Appuyable } from '../ui/appuyable.tsx';
+import { useMargeBasFeuille } from '../ui/margeFeuille.ts';
 
 export default function EcranDeverrouillerE2E() {
+  const margeBas = useMargeBasFeuille();
   const synchro = useSynchro();
   const c = useCouleurs();
   const routeur = useRouter();
@@ -47,7 +49,7 @@ export default function EcranDeverrouillerE2E() {
   };
 
   return (
-    <View style={[styles.feuille, { backgroundColor: c.carteProfonde }]}>
+    <View style={[styles.feuille, { backgroundColor: c.carteProfonde, paddingBottom: margeBas }]}>
       <Stack.Screen options={{ headerShown: false }} />
       <Text style={[styles.titre, { color: c.texte }]}>{t('e2e.titre')}</Text>
       <Text style={[styles.explication, { color: c.attenue }]}>{t('e2e.explication')}</Text>

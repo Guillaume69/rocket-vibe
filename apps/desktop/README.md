@@ -39,10 +39,15 @@ app has no console.
 
 On macOS, the DMG from CI holds `rocket-vibe.app` (Apple Silicon, macOS 15 or later),
 built by `scripts/package-macos.sh`: GTK, libadwaita, GStreamer and their libraries
-inside, ad-hoc signed, `rocketvibe://` declared. Text goes through fontconfig, which
-loads the bundled fonts, and drawing through GTK's software renderer, which draws
-emoji where its OpenGL renderer did not (`GSK_RENDERER=gl` to compare). Unsigned by
-Apple, it needs one "Open Anyway" in Privacy & Security the first time.
+inside, `rocketvibe://` declared. The binary itself points GTK, GStreamer and
+fontconfig at the bundle (`crates/rv-gtk/src/macos.rs`): under the hardened runtime,
+permissions such as the microphone belong to the signed executable. Text goes through
+fontconfig, which loads the bundled fonts, and drawing through GTK's software
+renderer, which draws emoji where its OpenGL renderer did not (`GSK_RENDERER=gl` to
+compare). With `MACOS_SIGN_IDENTITY` the script signs with that Developer ID
+(hardened runtime, `data/macos/entitlements.plist`); CI then has Apple notarize the DMG
+and staples the ticket, so it opens without any prompt. Without an identity it signs
+ad-hoc, and the app needs one "Open Anyway" in Privacy & Security the first time.
 
 On Linux:
 

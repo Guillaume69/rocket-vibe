@@ -36,9 +36,12 @@ Deux workflows GitHub Actions, chacun ne tournant que si son app (ou lui-même) 
   administrateur, qui pose un raccourci et enregistre les liens `rocketvibe://`, testé
   en CI par une installation, un lancement et une désinstallation ; plus un zip) et
   macOS (Apple Silicon, macOS 15+ : une app dans un DMG, autonome, lancée en CI sans
-  Homebrew). Signée ad hoc, sans compte Apple : au premier lancement, macOS demande
-  d'autoriser l'app dans Réglages → Confidentialité et sécurité → « Ouvrir quand même »,
-  ou `xattr -dr com.apple.quarantine /Applications/rocket-vibe.app`.
+  Homebrew), signée Developer ID et notariée par Apple : elle s'ouvre sans avertissement.
+  Le certificat vient du secret `MACOS_CERTIFICATE_P12` (et son mot de passe), la
+  notarisation d'une clé d'API App Store Connect (`APPLE_API_KEY_P8`, `_KEY_ID`,
+  `_ISSUER_ID`) ; sans eux, la CI signe ad hoc et macOS demande « Ouvrir quand même » au
+  premier lancement. Les originaux vivent dans `~/.config/rocket-vibe/apple/`, **à
+  sauvegarder** : la clé privée du certificat ne se récupère pas.
 
 `node scripts/version.mjs mobile|desktop` donne la version d'une app et vérifie sa
 cohérence. Pour publier : monter la version, puis pousser un tag `mobile-vX.Y.Z` ou

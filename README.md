@@ -44,9 +44,12 @@ Deux workflows GitHub Actions, chacun ne tournant que si son app (ou lui-même) 
   sauvegarder** : la clé privée du certificat ne se récupère pas.
 
 `node scripts/version.mjs mobile|desktop` donne la version d'une app et vérifie sa
-cohérence. Pour publier : monter la version, puis pousser un tag `mobile-vX.Y.Z` ou
-`desktop-vX.Y.Z` — le workflow vérifie qu'il correspond et crée la release GitHub avec
-ses binaires.
+cohérence. Chaque app tient son journal au format Keep a Changelog
+([mobile](apps/mobile/CHANGELOG.md), [bureau](apps/desktop/CHANGELOG.md)). Pour publier :
+passer la section « Non publié » / « Unreleased » sous le numéro de la nouvelle version,
+monter la version, puis pousser un tag `mobile-vX.Y.Z` ou `desktop-vX.Y.Z`. Le workflow
+vérifie que le tag correspond à la version et que le journal a sa section, puis crée la
+release GitHub avec ses binaires et cette section pour notes.
 
 ## Licence & statut
 

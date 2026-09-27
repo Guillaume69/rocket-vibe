@@ -14,9 +14,8 @@ un usage personnel sur un serveur Rocket.Chat auto-hébergé.
 
 ## Ce que c'est
 
-Un client de consommation Rocket.Chat, pas une console d'administration. Il vise un
-serveur précis (`https://chat.barrut.me`, Rocket.Chat **8.5** LTS), mais reste
-générique : l'URL du serveur se saisit à l'écran de connexion.
+Un client de consommation Rocket.Chat, pas une console d'administration, pour
+Rocket.Chat **8** ou plus récent. L'URL du serveur se saisit à l'écran de connexion.
 
 Ce qu'il sait faire aujourd'hui : connexion mot de passe + **2FA** (TOTP ou repli mot
 de passe), liste des salons, fil de messages (liste inversée performante), **rendu
@@ -112,7 +111,7 @@ cd - && npm run seed                       # crée alice, bob, test-public, test
 > créer un compte `admin` sans mot de passe sur un serveur exposé au LAN.
 
 **b. Un serveur réel** — rien à lancer localement : l'URL se saisit à l'écran de
-connexion de l'app (ex. `https://chat.barrut.me`).
+connexion de l'app (ex. `https://chat.example.org`).
 
 ### 4. Firebase (pour le push)
 
@@ -153,7 +152,7 @@ Expo autorise le trafic cleartext **uniquement dans le variant `debug`** (via
 
 - **Serveur local HTTP** → utiliser un build **debug** + Metro. Une **release ne joindra
   pas** `http://…:3000` (elle renverra « serveur injoignable »).
-- **Serveur de production HTTPS** (`chat.barrut.me`) → non concerné, la release marche.
+- **Serveur HTTPS** → non concerné, la release marche.
 
 C'est **voulu** : la release reste sûre par construction. Ne pas activer le cleartext
 globalement (voir `docs/DEV.md`).

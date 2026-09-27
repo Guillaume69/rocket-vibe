@@ -1,7 +1,7 @@
 # rocket-vibe
 
-Clients **Rocket.Chat** tiers, plus rapides et plus fiables que les officiels, pour un
-serveur auto-hébergé (`https://chat.barrut.me`, Rocket.Chat **8.5** LTS).
+Clients **Rocket.Chat** tiers, plus rapides et plus fiables que les officiels, pour les
+serveurs auto-hébergés en Rocket.Chat **8** ou plus récent.
 
 | App | Où | Techno | Version |
 |---|---|---|---|

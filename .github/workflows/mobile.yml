@@ -39,6 +39,7 @@ jobs:
         run: |
           if [ "${{ github.ref_type }}" = tag ]; then
             version=$(node ../../scripts/version.mjs mobile --tag "${{ github.ref_name }}")
+            node ../../scripts/changelog.mjs mobile "$version" > /dev/null
           else
             version=$(node ../../scripts/version.mjs mobile)
           fi
@@ -123,10 +124,13 @@ jobs:
       run:
         working-directory: .
     steps:
+      - uses: actions/checkout@v5
+      - run: node scripts/changelog.mjs mobile "${{ needs.check.outputs.version }}" > "$RUNNER_TEMP/notes.md"
       - uses: actions/download-artifact@v4
         with:
           name: mobile-android
       - uses: softprops/action-gh-release@v2
         with:
           name: Mobile ${{ needs.check.outputs.version }}
+          body_path: ${{ runner.temp }}/notes.md
           files: '*.apk'

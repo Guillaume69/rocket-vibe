@@ -30,6 +30,7 @@ jobs:
         run: |
           if [ "${{ github.ref_type }}" = tag ]; then
             version=$(node scripts/version.mjs desktop --tag "${{ github.ref_name }}")
+            node scripts/changelog.mjs desktop "$version" > /dev/null
           else
             version=$(node scripts/version.mjs desktop)
           fi
@@ -315,6 +316,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v5
+      - run: node scripts/changelog.mjs desktop "${{ needs.version.outputs.version }}" > "$RUNNER_TEMP/notes.md"
       - uses: actions/download-artifact@v4
         with:
           pattern: desktop-*
@@ -322,6 +325,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           name: Desktop ${{ needs.version.outputs.version }}
+          body_path: ${{ runner.temp }}/notes.md
           files: |
             *.tar.gz
             *.zip

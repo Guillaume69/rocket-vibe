@@ -51,6 +51,7 @@ jobs:
 
   # expo prebuild + Gradle on the runner: a local build, never EAS.
   android:
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     needs: check
     runs-on: ubuntu-24.04
     steps:

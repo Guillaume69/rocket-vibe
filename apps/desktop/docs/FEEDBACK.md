@@ -41,7 +41,7 @@ for the Android app too and are fixed there as well.
 ## Desktop integration
 
 - [ ] No app icon (Linux launcher, Windows, macOS)
-- [ ] App id `me.barrut.RocketVibe` differs from mobile's `com.rocketvibe.app`
+- [x] App id `me.barrut.RocketVibe` differs from mobile's `com.rocketvibe.app` (keychain items stay under the old name: nobody is signed out)
 - [ ] No unread count on the dock / taskbar icon
 - [ ] Notifications do not show on Windows and macOS, and nothing in the app tells why
 - [ ] Notifications: a click opens the room, not the message; inline reply only on KDE

@@ -38,7 +38,7 @@ use std::sync::OnceLock;
 use adw::prelude::*;
 use gtk::glib;
 
-pub const APP_ID: &str = "me.barrut.RocketVibe";
+pub const APP_ID: &str = "com.rocketvibe.app";
 
 /// The protocol core runs on tokio; GTK owns the main thread. UI code hops
 /// over with `on_tokio(..).await` from a `glib::spawn_future_local` future.

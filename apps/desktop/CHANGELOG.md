@@ -7,6 +7,12 @@ section here.
 
 ## [Unreleased]
 
+### Changed
+
+- The app id is now `com.rocketvibe.app`, as on mobile (desktop entry, macOS bundle, D-Bus
+  name). Sessions are kept. On Linux, run `scripts/install-desktop.sh` again to replace the
+  launcher entry; on macOS the keychain may ask once to let the renamed app read it.
+
 ### Added
 
 - Mouse back and forward buttons, and Alt+Left / Alt+Right: out of a thread, between the
@@ -43,6 +49,12 @@ section here.
 
 First release: Linux, Windows and macOS, for Rocket.Chat 8 or later, at feature parity with
 the mobile app (see `docs/PARITY.md`).
+
+### Changed
+
+- The app id is now `com.rocketvibe.app`, as on mobile (desktop entry, macOS bundle, D-Bus
+  name). Sessions are kept. On Linux, run `scripts/install-desktop.sh` again to replace the
+  launcher entry; on macOS the keychain may ask once to let the renamed app read it.
 
 ### Added
 

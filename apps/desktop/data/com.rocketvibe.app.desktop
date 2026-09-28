@@ -9,4 +9,4 @@ Terminal=false
 Categories=Network;InstantMessaging;Chat;
 MimeType=x-scheme-handler/rocketvibe;
 StartupNotify=true
-StartupWMClass=me.barrut.RocketVibe
+StartupWMClass=com.rocketvibe.app

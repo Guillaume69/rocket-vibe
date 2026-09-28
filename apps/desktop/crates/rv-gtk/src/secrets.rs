@@ -12,6 +12,10 @@ use serde_json::{Value, json};
 /// not leave the app on its splash screen forever.
 const TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Where the keychain keeps our items: the app's first id, kept when the id
+/// changed so that signed-in sessions survive it.
+const KEYCHAIN_SERVICE: &str = "me.barrut.RocketVibe";
+
 pub fn account_key(info: &SessionInfo) -> String {
     format!("{}|{}", info.base_url, info.user_id)
 }
@@ -87,7 +91,7 @@ mod keychain {
     use std::collections::HashMap;
 
     fn attributes() -> HashMap<&'static str, &'static str> {
-        HashMap::from([("application", crate::APP_ID), ("kind", "session")])
+        HashMap::from([("application", super::KEYCHAIN_SERVICE), ("kind", "session")])
     }
 
     pub async fn all() -> Vec<Vec<u8>> {
@@ -146,7 +150,7 @@ mod keychain {
     }
 
     fn entry(key: &str) -> keyring::Result<keyring::Entry> {
-        keyring::Entry::new(crate::APP_ID, key)
+        keyring::Entry::new(super::KEYCHAIN_SERVICE, key)
     }
 
     pub async fn all() -> Vec<Vec<u8>> {

@@ -9,6 +9,11 @@ import Security
  * d'origine.
  */
 
+/// Catégorie posée par l'extension sur les messages auxquels on peut répondre,
+/// et son action de saisie, enregistrée par ReponseNotifAppDelegate.
+let categorieMessage = "rv-message"
+let actionRepondre = "rv-repondre"
+
 // MARK: - Trousseau (format d'expo-secure-store 57)
 
 /// expo-secure-store range chaque clé en kSecClassGenericPassword, service

@@ -131,6 +131,10 @@ private func appliquer(
   }
   contenu.body = texte
   contenu.threadIdentifier = rid
+  // Le serveur refuserait une réponse en clair dans un salon chiffré.
+  if payload["messageType"] as? String != "e2e" {
+    contenu.categoryIdentifier = categorieMessage
+  }
 
   var ejson = payload
   ejson["rid"] = rid

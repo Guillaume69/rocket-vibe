@@ -1,3 +1,6 @@
 {
-  "platforms": ["apple"]
+  "platforms": ["apple"],
+  "apple": {
+    "appDelegateSubscribers": ["ReponseNotifAppDelegate"]
+  }
 }

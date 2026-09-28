@@ -86,6 +86,10 @@ export function GestionNotifications() {
     // `getLastNotificationResponse` au démarrage) : on ne route qu'une fois.
     let dejaRoute: string | null = null;
     const ouvrir = (reponse: Notifications.NotificationResponse) => {
+      // « Répondre » sous iOS est traité en natif (modules/reponse-notif), app
+      // en arrière-plan : naviguer ici poserait le salon sous les yeux au
+      // prochain retour dans l'app.
+      if (reponse.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;
       const id = reponse.notification.request.identifier;
       if (id === dejaRoute) return;
       dejaRoute = id;

@@ -61,6 +61,16 @@ pub fn tile(key: &str, glyph: &str, size: TileSize, neutral: bool) -> gtk::Widge
     tile.upcast()
 }
 
+/// A frame `width` × `height` when there is room, scaled down in a narrow window.
+pub fn media_frame(width: i32, height: i32, classes: &[&str]) -> gtk::Overlay {
+    gtk::Overlay::builder()
+        .child(&crate::sizer::Sizer::new(width, height))
+        .css_classes(classes.to_vec())
+        .halign(gtk::Align::Start)
+        .overflow(gtk::Overflow::Hidden)
+        .build()
+}
+
 /// Lays the real photo over a tile; the gradient stays as its backdrop.
 pub fn set_photo(tile: &gtk::Widget, texture: &gtk::gdk::Texture) {
     let Some(overlay) = tile.downcast_ref::<gtk::Overlay>() else { return };

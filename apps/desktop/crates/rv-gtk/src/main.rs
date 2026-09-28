@@ -19,6 +19,7 @@ mod recorder;
 mod rows;
 mod secrets;
 mod settings;
+mod sizer;
 mod smoke;
 mod spotlight;
 mod style;

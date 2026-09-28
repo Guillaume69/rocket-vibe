@@ -1038,7 +1038,9 @@ impl ChatPage {
         let tile = room_tile(&open.name, &open.kind, open.encrypted, TileSize::Header);
         self.room_title.append(&with_photo(tile, self.session.borrow().as_ref(), open.avatar.clone()));
         let names = gtk::Box::builder().orientation(gtk::Orientation::Vertical).valign(gtk::Align::Center).build();
-        names.append(&label(&open.name, &["room-title"]));
+        let title = label(&open.name, &["room-title"]);
+        title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        names.append(&title);
         let presence =
             open.dm_other_uid.as_deref().zip(self.session.borrow().clone()).and_then(|(uid, s)| s.presence(uid));
         if let Some(p) = presence {

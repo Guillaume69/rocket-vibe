@@ -180,16 +180,9 @@ pub fn open_viewer(parent: &gtk::Widget, texture: &gdk::Texture, title: &str) {
 
 pub fn image_widget(session: &Arc<Session>, image: &ImageAttachment) -> gtk::Widget {
     let (w, h) = display_size(image.width, image.height, 120, 360, 300);
-    let frame = gtk::Overlay::builder()
-        .css_classes(["image-attachment"])
-        .width_request(w)
-        .height_request(h)
-        .halign(gtk::Align::Start)
-        .overflow(gtk::Overflow::Hidden)
-        .cursor(&gdk::Cursor::from_name("pointer", None).expect("cursor"))
-        .margin_top(4)
-        .build();
-    frame.set_child(Some(&gtk::Box::new(gtk::Orientation::Vertical, 0)));
+    let frame = widgets::media_frame(w, h, &["image-attachment"]);
+    frame.set_cursor(gdk::Cursor::from_name("pointer", None).as_ref());
+    frame.set_margin_top(4);
     let weak = frame.downgrade();
     media::load(session, &image.source, move |texture| {
         if let Some(frame) = weak.upgrade() {

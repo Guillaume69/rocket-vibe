@@ -195,7 +195,6 @@ button.retry { color: #FF7A8A; font-weight: 700; font-size: 12px; padding: 0 4px
 .quote-card .quote-card { background: #1E1B33; }
 .quote-author { font-weight: 800; font-size: 12.5px; color: #A78BFA; }
 .file-card, .link-card, .call-card { background: #171529; border: 1px solid #2C2946; border-radius: 12px; padding: 10px 12px; margin-top: 4px; }
-.file-card { min-width: 280px; }
 .file-icon { font-size: 26px; }
 .file-title { font-weight: 700; }
 .file-detail, .link-site { font-size: 12px; color: #8F89AB; }

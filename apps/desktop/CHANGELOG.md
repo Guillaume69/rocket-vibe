@@ -7,6 +7,11 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- In a narrow window, images, link previews and file cards shrink to fit instead of pushing
+  the messages and the send button past the right edge.
+
 ## [0.1.0] - 2026-09-27
 
 First release: Linux, Windows and macOS, for Rocket.Chat 8 or later, at feature parity with

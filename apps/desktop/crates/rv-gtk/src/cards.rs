@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 
 use crate::i18n::t;
 use crate::rows::{OnRowEvent, RowEvent, image_widget};
-use crate::{markdown_view, media, on_tokio};
+use crate::{markdown_view, media, on_tokio, widgets};
 
 fn label(text: &str, classes: &[&str]) -> gtk::Label {
     gtk::Label::builder()
@@ -21,6 +21,7 @@ fn label(text: &str, classes: &[&str]) -> gtk::Label {
         .xalign(0.0)
         .wrap(true)
         .wrap_mode(pango::WrapMode::WordChar)
+        .max_width_chars(40)
         .css_classes(classes)
         .build()
 }
@@ -166,13 +167,7 @@ pub fn file(session: &Arc<Session>, f: &FileAttachment) -> gtk::Widget {
 }
 
 fn external_image(session: &Arc<Session>, url: &str, width: i32, height: i32) -> gtk::Overlay {
-    let frame = gtk::Overlay::builder()
-        .width_request(width)
-        .height_request(height)
-        .overflow(gtk::Overflow::Hidden)
-        .css_classes(["preview-image"])
-        .build();
-    frame.set_child(Some(&gtk::Box::new(gtk::Orientation::Vertical, 0)));
+    let frame = widgets::media_frame(width, height, &["preview-image"]);
     let weak = frame.downgrade();
     media::load(session, url, move |texture| {
         if let Some(frame) = weak.upgrade() {
@@ -211,7 +206,6 @@ pub fn link_preview(session: &Arc<Session>, preview: &LinkPreview) -> gtk::Widge
                 .spacing(3)
                 .css_classes(["link-card"])
                 .halign(gtk::Align::Start)
-                .width_request(320)
                 .build();
             if let Some(site) = site {
                 card.append(&label(site, &["link-site"]));
@@ -245,7 +239,6 @@ pub fn video_link(session: &Arc<Session>, video: &VideoLink) -> gtk::Widget {
         .spacing(3)
         .css_classes(["link-card"])
         .halign(gtk::Align::Start)
-        .width_request(320)
         .build();
     card.append(&label(video.provider, &["link-site"]));
     if let Some(title) = &video.title {
@@ -256,12 +249,7 @@ pub fn video_link(session: &Arc<Session>, video: &VideoLink) -> gtk::Widget {
     }
     let frame = match &video.thumbnail {
         Some(thumbnail) => external_image(session, thumbnail, 300, 169),
-        None => {
-            let frame =
-                gtk::Overlay::builder().width_request(300).height_request(169).css_classes(["preview-image"]).build();
-            frame.set_child(Some(&gtk::Box::new(gtk::Orientation::Vertical, 0)));
-            frame
-        }
+        None => widgets::media_frame(300, 169, &["preview-image"]),
     };
     let play = gtk::Label::builder()
         .label("▶")

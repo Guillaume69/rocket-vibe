@@ -6,8 +6,8 @@ for the Android app too and are fixed there as well.
 
 ## Layout
 
-- [ ] Small window: messages cropped, the list does not open on the latest one
-- [ ] Small window: no composer
+- [x] Small window: messages cropped (images, cards and files kept a fixed width wider than the window)
+- [x] Small window: no composer (pushed off the right edge by the same widths)
 - [ ] Collapsed (one pane) and on the room list: no way back to the open room
 - [ ] Message times cropped at the top
 - [ ] Emoji not aligned with the text around them

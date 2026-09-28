@@ -44,7 +44,7 @@ for the Android app too and are fixed there as well.
 - [x] App id `me.barrut.RocketVibe` differs from mobile's `com.rocketvibe.app` (keychain items stay under the old name: nobody is signed out)
 - [ ] No unread count on the dock / taskbar icon
 - [ ] Notifications do not show on Windows and macOS, and nothing in the app tells why
-- [ ] Notifications: a click opens the room, not the message; inline reply only on KDE
+- [~] Notifications: a click opens the room, not the message; inline reply only on KDE: a click now opens the message (scrolled to, highlighted); inline reply still where the notification server offers it
 - [~] Random crash on Windows, no crash log to look at: logs kept (previous run too) and panics recorded, shown in Settings; the crash itself needs a log from a tester
 
 ## macOS

@@ -178,10 +178,10 @@ impl AppWindow {
         let (w1, w2) = (Rc::downgrade(&this), Rc::downgrade(&this));
         let notifier = crate::notifier::Notifier::new(
             app,
-            move |rid| {
+            move |rid, message| {
                 if let Some(this) = w1.upgrade() {
                     this.window.present();
-                    this.chat.open_room(&rid);
+                    this.chat.open_message(&rid, &message);
                 }
             },
             move |rid, text| {

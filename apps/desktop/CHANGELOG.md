@@ -33,6 +33,7 @@ section here.
   recorded in `crash.log` with its backtrace; on Windows the previous run's log is kept.
 - The app icon: in the launcher entry (installed by `scripts/install-desktop.sh` and shipped in
   the Linux archive), on the window wherever the app runs from, and in the Windows executable.
+- A click on a notification opens its message: the room scrolls to it and highlights it.
 
 ### Fixed
 

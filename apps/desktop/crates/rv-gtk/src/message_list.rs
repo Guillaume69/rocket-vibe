@@ -34,6 +34,10 @@ pub struct MessageList {
     session: Shared<Arc<Session>>,
     /// The message being edited in place and its draft, kept across row rebuilds.
     editing: RefCell<Option<(String, gtk::TextBuffer)>>,
+    /// A message to scroll to once it is loaded.
+    revealing: RefCell<Option<String>>,
+    /// The message marked by the last reveal.
+    highlighted: RefCell<Option<String>>,
 }
 
 impl MessageList {
@@ -68,6 +72,8 @@ impl MessageList {
             unread_after: RefCell::default(),
             session: session.clone(),
             editing: RefCell::default(),
+            revealing: RefCell::default(),
+            highlighted: RefCell::default(),
         });
         this.wire(session);
         this
@@ -99,6 +105,9 @@ impl MessageList {
                 this.editing.borrow().as_ref().filter(|(id, _)| *id == display.row.id).map(|(_, b)| b.clone())
             });
             let widget = rows::message_widget(&display, &my_id, session.as_ref(), editing.as_ref(), on_event);
+            if w.upgrade().is_some_and(|this| this.highlighted.borrow().as_deref() == Some(display.row.id.as_str())) {
+                widget.add_css_class("revealed");
+            }
             item.set_child(Some(&widget));
         });
         self.view.set_factory(Some(&factory));
@@ -160,7 +169,7 @@ impl MessageList {
     }
 
     /// Applies the new rows as splices, keeping the scroll position.
-    pub fn set_rows(&self, fresh: Vec<MessageRow>) {
+    pub fn set_rows(self: &Rc<Self>, fresh: Vec<MessageRow>) {
         let mut fresh = rows::group(fresh);
         if let Some((seen, me)) = self.unread_after.borrow().as_ref()
             && let Some(first) =
@@ -196,6 +205,10 @@ impl MessageList {
             }
             settling.set(settling.get() - 1);
         });
+        let waiting = self.revealing.borrow().clone();
+        if let Some(id) = waiting.filter(|id| self.rows.borrow().iter().any(|d| d.row.id == *id)) {
+            self.reveal(&id);
+        }
     }
 
     pub fn set_unread_after(&self, after: Option<(i64, String)>) {
@@ -232,6 +245,34 @@ impl MessageList {
         let (id, buffer) = self.editing.take()?;
         self.refresh(&id);
         Some((id, buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string()))
+    }
+
+    /// Scrolls to the message and marks it a moment; if it is not loaded yet,
+    /// as soon as it is.
+    pub fn reveal(self: &Rc<Self>, id: &str) {
+        let Some(at) = self.rows.borrow().iter().position(|d| d.row.id == id) else {
+            self.revealing.replace(Some(id.to_owned()));
+            return;
+        };
+        self.revealing.replace(None);
+        self.pinned.set(false);
+        self.highlighted.replace(Some(id.to_owned()));
+        self.refresh(id);
+        self.view.scroll_to(at as u32, gtk::ListScrollFlags::NONE, None);
+        let (weak, id) = (Rc::downgrade(self), id.to_owned());
+        glib::timeout_add_local_once(std::time::Duration::from_millis(2500), move || {
+            if let Some(this) = weak.upgrade()
+                && this.highlighted.borrow().as_deref() == Some(id.as_str())
+            {
+                this.highlighted.replace(None);
+                this.refresh(&id);
+            }
+        });
+    }
+
+    /// A reveal is under way: the list must not jump to the bottom meanwhile.
+    pub fn holds_reveal(&self) -> bool {
+        self.revealing.borrow().is_some() || self.highlighted.borrow().is_some()
     }
 
     pub fn row(&self, id: &str) -> Option<MessageRow> {

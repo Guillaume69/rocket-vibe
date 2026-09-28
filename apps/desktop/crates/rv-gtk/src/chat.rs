@@ -1371,9 +1371,19 @@ impl ChatPage {
                     this.has_older.set(page.count as i64 >= HISTORY_PAGE);
                 }
                 this.set_loading(false);
-                this.list.scroll_to_bottom();
+                if !this.list.holds_reveal() {
+                    this.list.scroll_to_bottom();
+                }
             }
         });
+    }
+
+    /// The room, scrolled to that message: what a notification opens.
+    pub fn open_message(self: &Rc<Self>, rid: &str, id: &str) {
+        self.open_room(rid);
+        if self.current_rid().as_deref() == Some(rid) {
+            self.list.reveal(id);
+        }
     }
 
     fn load_older(self: &Rc<Self>) {

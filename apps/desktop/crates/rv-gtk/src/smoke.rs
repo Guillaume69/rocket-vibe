@@ -18,7 +18,8 @@
 //!   RV_SMOKE_DETAILS=profile:<user> | room | search:<text> | settings | emoji:<code>
 //!                          checks the read and opens the dialog; emoji: a custom one completes
 //!   RV_SMOKE_NOTIFY=<reply>  stands in for the desktop's notification server (inline reply
-//!                          included), and answers the first notification with <reply>
+//!                          included), answers the first notification with <reply>, then clicks
+//!                          it: its room must open on that message
 //!   RV_SMOKE_SECOND="<user>|<password>"  adds a second account on the same server,
 //!                          then switches back to the first
 //!   RV_SMOKE_E2E=<password>  unlocks encrypted rooms (a wrong one first must be refused)
@@ -47,6 +48,10 @@ use crate::window::AppWindow;
 
 static FAILED: AtomicBool = AtomicBool::new(false);
 
+thread_local! {
+    static SMOKE_WINDOW: std::cell::RefCell<std::rc::Weak<AppWindow>> = std::cell::RefCell::default();
+}
+
 pub fn failed() -> bool {
     FAILED.load(Ordering::SeqCst)
 }
@@ -64,6 +69,7 @@ pub fn install_early() {
 }
 
 pub fn install(window: &Rc<AppWindow>) {
+    SMOKE_WINDOW.with_borrow_mut(|w| *w = Rc::downgrade(window));
     let login = std::env::var("RV_SMOKE_LOGIN").unwrap_or_default();
     let room = std::env::var("RV_SMOKE_ROOM").unwrap_or_default();
     let text = std::env::var("RV_SMOKE_SEND").unwrap_or_default();
@@ -563,6 +569,23 @@ fn fake_notification_server(reply: String) {
                             "NotificationReplied",
                             Some(&(7u32, reply).to_variant()),
                         );
+                        glib::timeout_add_local_once(Duration::from_millis(800), move || {
+                            let _ = connection.emit_signal(
+                                None,
+                                "/org/freedesktop/Notifications",
+                                "org.freedesktop.Notifications",
+                                "ActionInvoked",
+                                Some(&(7u32, "default").to_variant()),
+                            );
+                            glib::timeout_add_local_once(Duration::from_millis(1200), || {
+                                let Some(w) = SMOKE_WINDOW.with_borrow(std::rc::Weak::upgrade) else { return };
+                                let (rid, revealed) = (w.chat.current_rid(), w.chat.room_list().holds_reveal());
+                                println!("smoke: notification click opened {rid:?} revealed={revealed}");
+                                if rid.is_none() || !revealed {
+                                    FAILED.store(true, Ordering::SeqCst);
+                                }
+                            });
+                        });
                     });
                 }
             }

@@ -21,8 +21,8 @@ pub struct Notifier {
     app: gio::Application,
     connection: Option<gio::DBusConnection>,
     inline_reply: Cell<bool>,
-    /// Notification id → rid, to route clicks and replies.
-    shown: RefCell<HashMap<u32, String>>,
+    /// Notification id → (rid, message id), to route clicks and replies.
+    shown: RefCell<HashMap<u32, (String, String)>>,
     /// rid → the notification it has on screen, replaced by the next one.
     by_room: RefCell<HashMap<String, u32>>,
     subscriptions: RefCell<Vec<gio::SignalSubscription>>,
@@ -36,22 +36,22 @@ fn session_bus() -> Option<gio::DBusConnection> {
     gio::bus_get_sync(gio::BusType::Session, None::<&gio::Cancellable>).ok()
 }
 
-type OnOpen = Rc<dyn Fn(String)>;
+type OnOpen = Rc<dyn Fn(String, String)>;
 type OnReply = Rc<dyn Fn(String, String)>;
 
 impl Notifier {
     pub fn new(
         app: &impl IsA<gio::Application>,
-        open: impl Fn(String) + 'static,
+        open: impl Fn(String, String) + 'static,
         reply: impl Fn(String, String) + 'static,
     ) -> Rc<Self> {
         let (open, reply): (OnOpen, OnReply) = (Rc::new(open), Rc::new(reply));
         let app = app.clone().upcast::<gio::Application>();
         let Some(connection) = session_bus() else {
-            let action = gio::SimpleAction::new("open-room", Some(glib::VariantTy::STRING));
-            action.connect_activate(move |_, rid| {
-                if let Some(rid) = rid.and_then(|v| v.get::<String>()) {
-                    open(rid);
+            let action = gio::SimpleAction::new("open-message", Some(&glib::VariantType::new("(ss)").expect("type")));
+            action.connect_activate(move |_, target| {
+                if let Some((rid, id)) = target.and_then(|v| v.get::<(String, String)>()) {
+                    open(rid, id);
                 }
             });
             app.add_action(&action);
@@ -84,11 +84,11 @@ impl Notifier {
                 let Some((id, action)) = signal.parameters.get::<(u32, String)>() else { return };
                 let Some(this) = weak.upgrade() else { return };
                 // Taken out first: opening the room withdraws its notification, which borrows `shown`.
-                let rid = this.shown.borrow().get(&id).cloned();
+                let target = this.shown.borrow().get(&id).cloned();
                 if action == "default"
-                    && let Some(rid) = rid
+                    && let Some((rid, message)) = target
                 {
-                    open(rid);
+                    open(rid, message);
                 }
             },
         );
@@ -103,8 +103,8 @@ impl Notifier {
             move |signal| {
                 let Some((id, text)) = signal.parameters.get::<(u32, String)>() else { return };
                 let Some(this) = weak.upgrade() else { return };
-                let rid = this.shown.borrow().get(&id).cloned();
-                if let Some(rid) = rid {
+                let target = this.shown.borrow().get(&id).cloned();
+                if let Some((rid, _)) = target {
                     reply(rid, text);
                 }
             },
@@ -120,7 +120,7 @@ impl Notifier {
             move |signal| {
                 let Some((id, _)) = signal.parameters.get::<(u32, u32)>() else { return };
                 if let Some(this) = weak.upgrade()
-                    && let Some(rid) = this.shown.borrow_mut().remove(&id)
+                    && let Some((rid, _)) = this.shown.borrow_mut().remove(&id)
                 {
                     this.by_room.borrow_mut().retain(|r, shown| *r != rid || *shown != id);
                 }
@@ -153,7 +153,8 @@ impl Notifier {
         let Some(connection) = self.connection.clone() else {
             let notification = gio::Notification::new(&summary);
             notification.set_body(Some(&body));
-            notification.set_default_action_and_target_value("app.open-room", Some(&incoming.rid.to_variant()));
+            let target = (incoming.rid.as_str(), incoming.id.as_str()).to_variant();
+            notification.set_default_action_and_target_value("app.open-message", Some(&target));
             self.app.send_notification(Some(&incoming.rid), &notification);
             return;
         };
@@ -177,13 +178,13 @@ impl Notifier {
             -1i32,
         )
             .to_variant();
-        let (weak, rid) = (Rc::downgrade(self), incoming.rid.clone());
+        let (weak, rid, message) = (Rc::downgrade(self), incoming.rid.clone(), incoming.id.clone());
         glib::spawn_future_local(async move {
             let sent = connection
                 .call_future(Some(BUS), PATH, BUS, "Notify", Some(&parameters), None, gio::DBusCallFlags::NONE, 5000)
                 .await;
             if let (Some(this), Some((id,))) = (weak.upgrade(), sent.ok().and_then(|v| v.get::<(u32,)>())) {
-                this.shown.borrow_mut().insert(id, rid.clone());
+                this.shown.borrow_mut().insert(id, (rid.clone(), message));
                 this.by_room.borrow_mut().insert(rid, id);
             }
         });

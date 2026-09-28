@@ -212,6 +212,7 @@ button.file-action, button.call-join { background: linear-gradient(135deg, #FF5F
 .video-bar { background: linear-gradient(0deg, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0)); padding: 18px 8px 4px 8px; color: #FFFFFF; }
 .video-bar button { color: #FFFFFF; }
 .image-attachment { background: #171529; border-radius: 10px; }
+.message.revealed { background: rgba(167, 139, 250, 0.16); border-radius: 12px; transition: background 400ms; }
 .message .row-more { opacity: 0; min-height: 24px; min-width: 28px; padding: 0; color: #8F89AB; transition: opacity 120ms; }
 .message:hover .row-more { opacity: 1; }
 button.reaction { background: #171529; border: 1px solid #2C2946; border-radius: 999px; padding: 2px 9px; min-height: 0; font-size: 12.5px; }

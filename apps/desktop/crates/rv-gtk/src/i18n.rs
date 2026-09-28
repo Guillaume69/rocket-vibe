@@ -148,6 +148,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("rooms.section_channels", "Salons", "Channels"),
     ("rooms.section_direct", "Messages privés", "Direct messages"),
     ("rooms.new", "Nouvelle conversation", "New conversation"),
+    ("rooms.back_to_room", "Retour à la conversation", "Back to the conversation"),
     ("spotlight.placeholder", "Chercher des personnes ou des salons", "Search people or channels"),
     ("spotlight.failed", "Recherche impossible", "Search failed"),
     ("spotlight.open_failed", "Impossible d'ouvrir cette conversation", "Couldn't open this conversation"),

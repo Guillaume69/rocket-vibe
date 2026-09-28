@@ -77,6 +77,11 @@ pub struct ChatPage {
     on_room_opened: Callback<String>,
     account_actions: RefCell<Option<Rc<crate::settings::AccountActions>>>,
     on_rooms_loaded: Callback<()>,
+    forward_button: gtk::Button,
+    /// Rooms opened, oldest first, and the position of the open one: mouse back and forward walk it.
+    history: RefCell<Vec<String>>,
+    history_at: Cell<usize>,
+    walking: Cell<bool>,
 }
 
 impl ChatPage {
@@ -125,6 +130,13 @@ impl ChatPage {
         brand.append(&widgets::brand("brand-header"));
         let sidebar_header = adw::HeaderBar::new();
         sidebar_header.set_title_widget(Some(&brand));
+        let forward_button = gtk::Button::builder()
+            .icon_name("go-next-symbolic")
+            .css_classes(["flat"])
+            .tooltip_text(t("rooms.back_to_room"))
+            .visible(false)
+            .build();
+        sidebar_header.pack_start(&forward_button);
         sidebar_header.pack_start(&status_button);
         sidebar_header.pack_end(&logout);
         let new_conversation = gtk::Button::builder()
@@ -290,6 +302,10 @@ impl ChatPage {
             on_room_opened: RefCell::default(),
             account_actions: RefCell::default(),
             on_rooms_loaded: RefCell::default(),
+            forward_button,
+            history: RefCell::default(),
+            history_at: Cell::new(0),
+            walking: Cell::new(false),
         });
         this.wire(&status_button, &logout);
         let weak = Rc::downgrade(&this);
@@ -396,6 +412,37 @@ impl ChatPage {
     fn wire(self: &Rc<Self>, status_button: &gtk::Button, logout: &gtk::Button) {
         let weak = Rc::downgrade(self);
         let w = weak.clone();
+        self.forward_button.connect_clicked(move |_| {
+            if let Some(this) = w.upgrade() {
+                this.split.set_show_content(true);
+            }
+        });
+        let mouse = gtk::GestureClick::builder().button(0).propagation_phase(gtk::PropagationPhase::Capture).build();
+        let w = weak.clone();
+        mouse.connect_pressed(move |gesture, _, _, _| {
+            let Some(this) = w.upgrade() else { return };
+            match gesture.current_button() {
+                8 => this.navigate_back(),
+                9 => this.navigate_forward(),
+                _ => return,
+            }
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+        });
+        self.split.add_controller(mouse);
+        let keys = gtk::ShortcutController::new();
+        keys.set_scope(gtk::ShortcutScope::Global);
+        for (trigger, back) in [("<Alt>Left", true), ("<Alt>Right", false)] {
+            let w = weak.clone();
+            let action = gtk::CallbackAction::new(move |_, _| {
+                if let Some(this) = w.upgrade() {
+                    if back { this.navigate_back() } else { this.navigate_forward() }
+                }
+                glib::Propagation::Stop
+            });
+            keys.add_shortcut(gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string(trigger), Some(action)));
+        }
+        self.split.add_controller(keys);
+        let w = weak.clone();
         self.list.connect_event(move |event| {
             if let Some(this) = w.upgrade() {
                 this.handle_event(event, false);
@@ -496,18 +543,17 @@ impl ChatPage {
         // selected; widened again, the open room is highlighted again.
         let w = weak.clone();
         self.split.connect_show_content_notify(move |split| {
-            if let Some(this) = w.upgrade()
-                && split.is_collapsed()
-                && !split.shows_content()
-            {
+            let Some(this) = w.upgrade() else { return };
+            this.update_forward();
+            if split.is_collapsed() && !split.shows_content() {
                 this.select_current(false);
             }
         });
         let w = weak;
         self.split.connect_collapsed_notify(move |split| {
-            if let Some(this) = w.upgrade()
-                && !split.is_collapsed()
-            {
+            let Some(this) = w.upgrade() else { return };
+            this.update_forward();
+            if !split.is_collapsed() {
                 this.select_current(true);
             }
         });
@@ -666,6 +712,9 @@ impl ChatPage {
         }
         self.session.replace(session);
         self.current.replace(None);
+        self.history.borrow_mut().clear();
+        self.history_at.set(0);
+        self.update_forward();
         self.list.clear();
         self.content_stack.set_visible_child_name("empty");
         self.content_page.set_title("rocket-vibe");
@@ -1078,6 +1127,7 @@ impl ChatPage {
             self.split.set_show_content(true);
             return;
         }
+        self.remember(rid);
         self.current.replace(Some(OpenRoom {
             rid: room.rid.clone(),
             kind: room.kind.clone(),
@@ -1216,6 +1266,60 @@ impl ChatPage {
         if let Some(i) = index {
             self.rooms_selection.set_selected(i as u32);
         }
+    }
+
+    /// Mouse back: out of a thread, then from the room to the list when one
+    /// pane shows, then to the room opened before.
+    pub fn navigate_back(self: &Rc<Self>) {
+        if self.room_nav.visible_page().and_then(|p| p.tag()).as_deref() == Some("thread") {
+            self.room_nav.pop();
+        } else if self.split.is_collapsed() && self.split.shows_content() {
+            self.split.set_show_content(false);
+        } else if self.history_at.get() > 0 {
+            self.walk_to(self.history_at.get() - 1);
+        }
+    }
+
+    /// Mouse forward: back into the open room from the list, then to the room
+    /// left by going back.
+    pub fn navigate_forward(self: &Rc<Self>) {
+        if self.split.is_collapsed() && !self.split.shows_content() && self.current.borrow().is_some() {
+            self.split.set_show_content(true);
+        } else if self.history_at.get() + 1 < self.history.borrow().len() {
+            self.walk_to(self.history_at.get() + 1);
+        }
+    }
+
+    fn walk_to(self: &Rc<Self>, at: usize) {
+        let Some(rid) = self.history.borrow().get(at).cloned() else { return };
+        self.history_at.set(at);
+        self.walking.set(true);
+        self.open_room(&rid);
+        self.walking.set(false);
+    }
+
+    fn remember(&self, rid: &str) {
+        if self.walking.get() {
+            return;
+        }
+        let mut history = self.history.borrow_mut();
+        if history.get(self.history_at.get()).map(String::as_str) == Some(rid) {
+            return;
+        }
+        let keep = if history.is_empty() { 0 } else { self.history_at.get() + 1 };
+        history.truncate(keep);
+        history.push(rid.to_owned());
+        self.history_at.set(history.len() - 1);
+    }
+
+    /// The way back to the open room, on the room list when it shows alone.
+    fn update_forward(&self) {
+        let alone = self.split.is_collapsed() && !self.split.shows_content();
+        self.forward_button.set_visible(alone && self.current.borrow().is_some());
+    }
+
+    pub fn offers_way_back(&self) -> bool {
+        self.forward_button.is_visible()
     }
 
     pub fn go_back(&self) {

@@ -24,6 +24,8 @@
 //!   RV_SMOKE_E2E=<password>  unlocks encrypted rooms (a wrong one first must be refused)
 //!   RV_SMOKE_VOICE=1       records two seconds (RV_AUDIO_SOURCE picks the source) and sends them
 //!   RV_SMOKE_REENTER=1     after opening the room: back to the list, tap the same room, expect it open
+//!   RV_SMOKE_NAV=<other room>  opens the other room, then mouse back and forward between the two;
+//!                          in a narrow window, back to the list and forward into the room again
 //! A failed expectation makes the process exit with status 1.
 
 use std::cell::Cell;
@@ -189,6 +191,12 @@ pub fn install(window: &Rc<AppWindow>) {
                         composer.stop_recording(true);
                     });
                 });
+            }
+            if let Ok(other) = std::env::var("RV_SMOKE_NAV")
+                && let Some(other) = w.chat.room_named(&other)
+            {
+                let (chat, first) = (w.chat.clone(), rid.clone());
+                glib::timeout_add_local_once(Duration::from_millis(2500), move || nav_checks(chat, first, other));
             }
             if std::env::var("RV_SMOKE_REENTER").as_deref() == Ok("1") {
                 let chat = w.chat.clone();
@@ -578,4 +586,28 @@ fn second_account(window: &Rc<AppWindow>, server: String, user: String, password
             _ => {}
         }
     });
+}
+
+fn nav_checks(chat: Rc<crate::chat::ChatPage>, first: String, other: String) {
+    chat.open_room(&other);
+    let narrow = chat.widget().is_collapsed();
+    if narrow {
+        chat.navigate_back();
+        let listed = !chat.shows_room() && chat.offers_way_back();
+        chat.navigate_forward();
+        let back_in = chat.shows_room() && chat.current_rid().as_deref() == Some(other.as_str());
+        println!("smoke: nav narrow listed={listed} back_in={back_in}");
+        if !listed || !back_in {
+            FAILED.store(true, Ordering::SeqCst);
+        }
+        return;
+    }
+    chat.navigate_back();
+    let back = chat.current_rid().as_deref() == Some(first.as_str());
+    chat.navigate_forward();
+    let forward = chat.current_rid().as_deref() == Some(other.as_str());
+    println!("smoke: nav back={back} forward={forward}");
+    if !back || !forward {
+        FAILED.store(true, Ordering::SeqCst);
+    }
 }

@@ -8,7 +8,7 @@ for the Android app too and are fixed there as well.
 
 - [x] Small window: messages cropped (images, cards and files kept a fixed width wider than the window)
 - [x] Small window: no composer (pushed off the right edge by the same widths)
-- [ ] Collapsed (one pane) and on the room list: no way back to the open room
+- [x] Collapsed (one pane) and on the room list: no way back to the open room (forward arrow in the list header)
 - [~] Message times cropped at the top: name and time now share a centred baseline; not reproduced on Linux, to check on Windows and macOS
 - [ ] Emoji not aligned with the text around them: aligned on Linux (Noto Color Emoji), need a Windows / macOS screenshot
 - [x] Emoji button not aligned with the microphone button (now a symbolic icon like its neighbours)
@@ -18,7 +18,7 @@ for the Android app too and are fixed there as well.
 ## Navigation
 
 - [ ] Room list sections cannot be collapsed (*mobile*)
-- [ ] Mouse back / forward buttons do nothing
+- [x] Mouse back / forward buttons do nothing (also Alt+Left / Alt+Right): thread, list, rooms opened before
 - [ ] No button back to the latest message after scrolling up (*mobile*)
 - [ ] Up arrow in an empty composer does not edit my last message
 - [ ] No easy access to pinned and starred messages (*mobile*)
@@ -34,6 +34,7 @@ for the Android app too and are fixed there as well.
 - [ ] Files: no Download button; Open fails on Linux outside GNOME
 - [ ] Files and images dropped on the window are not sent
 - [ ] No spell check
+- [ ] No formatting toolbar: a WYSIWYG composer with bold, italic, strike, heading, link, code, quote and lists
 - [ ] "Nothing to do with this message" menu on system messages
 - [ ] Attachments go out at once: they should wait in the composer as chips (thumbnail, name, size, remove), open a preview on click, and leave with the text (*mobile*)
 

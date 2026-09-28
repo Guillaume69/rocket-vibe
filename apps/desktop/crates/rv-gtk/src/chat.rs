@@ -505,6 +505,12 @@ impl ChatPage {
             }
         });
         let w = weak.clone();
+        self.composer.connect_edit_last(move || {
+            if let Some(this) = w.upgrade() {
+                this.edit_last(false);
+            }
+        });
+        let w = weak.clone();
         self.composer.connect_submit(move |text| {
             if let Some(this) = w.upgrade() {
                 this.send_text(&text);
@@ -587,6 +593,28 @@ impl ChatPage {
                     }
                 });
             }
+            RowEvent::CancelEdit => {
+                self.list_of(in_thread).stop_edit();
+                self.composer_of(in_thread).grab_focus();
+            }
+            RowEvent::SaveEdit => {
+                let list = self.list_of(in_thread);
+                let before = list.editing().and_then(|id| list.row(&id)).and_then(|r| r.text);
+                let Some((id, text)) = list.stop_edit() else { return };
+                self.composer_of(in_thread).grab_focus();
+                let Some(rid) = self.current_rid() else { return };
+                if text.trim().is_empty() || Some(&text) == before.as_ref() {
+                    return;
+                }
+                let weak = Rc::downgrade(self);
+                glib::spawn_future_local(async move {
+                    if on_tokio(async move { session.edit(&rid, &id, &text).await }).await.is_err()
+                        && let Some(this) = weak.upgrade()
+                    {
+                        this.toast(t("actions.refused").to_owned());
+                    }
+                });
+            }
             RowEvent::OpenThread(root) => self.open_thread(&root),
             RowEvent::Profile(username) => self.show_profile(&username, false),
             RowEvent::JoinCall(call_id) => {
@@ -608,7 +636,8 @@ impl ChatPage {
                     encrypted: open.encrypted,
                     in_thread,
                 };
-                let (w1, w2, w3) = (Rc::downgrade(self), Rc::downgrade(self), Rc::downgrade(self));
+                let (w1, w2, w3, w4) =
+                    (Rc::downgrade(self), Rc::downgrade(self), Rc::downgrade(self), Rc::downgrade(self));
                 let handlers = Rc::new(actions_menu::Handlers {
                     reply: Box::new(move |row| {
                         if let Some(this) = w1.upgrade() {
@@ -620,6 +649,11 @@ impl ChatPage {
                             this.open_thread(&root);
                         }
                     }),
+                    edit: Box::new(move |row| {
+                        if let Some(this) = w4.upgrade() {
+                            this.list_of(in_thread).start_edit(&row);
+                        }
+                    }),
                     toast: Box::new(move |text| {
                         if let Some(this) = w3.upgrade() {
                             this.toast(text);
@@ -629,6 +663,42 @@ impl ChatPage {
                 actions_menu::open(&anchor, x, y, session, *row, room, handlers);
             }
         }
+    }
+
+    fn list_of(&self, in_thread: bool) -> Rc<MessageList> {
+        match (in_thread, self.thread.borrow().as_ref()) {
+            (true, Some(thread)) => thread.list.clone(),
+            _ => self.list.clone(),
+        }
+    }
+
+    fn composer_of(&self, in_thread: bool) -> Rc<Composer> {
+        match (in_thread, self.thread.borrow().as_ref()) {
+            (true, Some(thread)) => thread.composer.clone(),
+            _ => self.composer.clone(),
+        }
+    }
+
+    /// Up in an empty composer: my last message, edited in place if the server still allows it.
+    fn edit_last(self: &Rc<Self>, in_thread: bool) {
+        let (Some(session), Some(open)) = (self.session(), self.current.borrow().clone()) else { return };
+        let Some(row) = self.list_of(in_thread).last_mine(&session.info.user_id) else { return };
+        let room = actions_menu::RoomContext {
+            rid: open.rid,
+            read_only: open.read_only,
+            encrypted: open.encrypted,
+            in_thread,
+        };
+        let weak = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            let allowed = actions_menu::allowed(&session, &row, &room).await;
+            let Some(this) = weak.upgrade() else { return };
+            if allowed.contains(&rv_core::actions::Action::Edit) {
+                this.list_of(in_thread).start_edit(&row);
+            } else {
+                this.toast(t("edit.too_late").to_owned());
+            }
+        });
     }
 
     /// Quoting needs the permalink the server recognises, built on `Site_Url`.
@@ -667,6 +737,12 @@ impl ChatPage {
         thread.composer.connect_submit(move |text| {
             let (s, rid, root) = (s.clone(), rid.clone(), root.clone());
             runtime().spawn(async move { s.send_in(&rid, &text, Some(&root)).await });
+        });
+        let weak = Rc::downgrade(self);
+        thread.composer.connect_edit_last(move || {
+            if let Some(this) = weak.upgrade() {
+                this.edit_last(true);
+            }
         });
         thread.composer.bind(&session, &open.rid, Some(root_id));
         self.room_nav.push(&thread.page);
@@ -1316,6 +1392,15 @@ impl ChatPage {
     fn update_forward(&self) {
         let alone = self.split.is_collapsed() && !self.split.shows_content();
         self.forward_button.set_visible(alone && self.current.borrow().is_some());
+    }
+
+    /// Presses Up in the empty composer.
+    pub fn edit_last_mine(self: &Rc<Self>) {
+        self.edit_last(false);
+    }
+
+    pub fn room_list(&self) -> Rc<MessageList> {
+        self.list.clone()
     }
 
     pub fn offers_way_back(&self) -> bool {

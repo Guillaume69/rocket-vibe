@@ -28,6 +28,8 @@ pub struct MessageList {
     /// (last seen, my uid): the first later message from someone else gets the marker.
     unread_after: RefCell<Option<(i64, String)>>,
     session: Shared<Arc<Session>>,
+    /// The message being edited in place and its draft, kept across row rebuilds.
+    editing: RefCell<Option<(String, gtk::TextBuffer)>>,
 }
 
 impl MessageList {
@@ -47,6 +49,7 @@ impl MessageList {
             on_top: RefCell::default(),
             unread_after: RefCell::default(),
             session: session.clone(),
+            editing: RefCell::default(),
         });
         this.wire(session);
         this
@@ -73,7 +76,11 @@ impl MessageList {
                     handler(event);
                 }
             });
-            let widget = rows::message_widget(&object.borrow::<Display>(), &my_id, session.as_ref(), on_event);
+            let display = object.borrow::<Display>();
+            let editing = w.upgrade().and_then(|this| {
+                this.editing.borrow().as_ref().filter(|(id, _)| *id == display.row.id).map(|(_, b)| b.clone())
+            });
+            let widget = rows::message_widget(&display, &my_id, session.as_ref(), editing.as_ref(), on_event);
             item.set_child(Some(&widget));
         });
         self.view.set_factory(Some(&factory));
@@ -179,6 +186,64 @@ impl MessageList {
         if self.pinned.get() {
             self.scroll_to_bottom();
         }
+    }
+
+    /// Turns the message's row into an editor holding its text.
+    pub fn start_edit(&self, row: &MessageRow) {
+        let previous = self.editing.take().map(|(id, _)| id);
+        let buffer = gtk::TextBuffer::new(None);
+        buffer.set_text(row.text.as_deref().unwrap_or_default());
+        self.editing.replace(Some((row.id.clone(), buffer)));
+        if let Some(id) = previous {
+            self.refresh(&id);
+        }
+        if let Some(at) = self.refresh(&row.id) {
+            self.view.scroll_to(at, gtk::ListScrollFlags::NONE, None);
+        }
+    }
+
+    /// Ends the edit: the message id and the text typed.
+    pub fn stop_edit(&self) -> Option<(String, String)> {
+        let (id, buffer) = self.editing.take()?;
+        self.refresh(&id);
+        Some((id, buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string()))
+    }
+
+    pub fn row(&self, id: &str) -> Option<MessageRow> {
+        self.rows.borrow().iter().find(|d| d.row.id == id).map(|d| d.row.clone())
+    }
+
+    pub fn set_edit_text(&self, text: &str) {
+        if let Some((_, buffer)) = self.editing.borrow().as_ref() {
+            buffer.set_text(text);
+        }
+    }
+
+    pub fn editing(&self) -> Option<String> {
+        self.editing.borrow().as_ref().map(|(id, _)| id.clone())
+    }
+
+    /// My latest message still mine to change: sent, and not a system one.
+    pub fn last_mine(&self, my_id: &str) -> Option<MessageRow> {
+        self.rows
+            .borrow()
+            .iter()
+            .rev()
+            .map(|d| &d.row)
+            .find(|r| {
+                r.author_id == my_id
+                    && r.outbox_status.is_none()
+                    && rv_core::actions::has_actions(r.system_type.as_deref(), r.text.as_deref())
+            })
+            .cloned()
+    }
+
+    /// Builds the message's row again; returns its position.
+    fn refresh(&self, id: &str) -> Option<u32> {
+        let at = self.rows.borrow().iter().position(|d| d.row.id == id)?;
+        let object = glib::BoxedAnyObject::new(self.rows.borrow()[at].clone());
+        self.store.splice(at as u32, 1, &[object]);
+        Some(at as u32)
     }
 
     pub fn is_pinned(&self) -> bool {

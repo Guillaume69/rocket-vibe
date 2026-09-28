@@ -268,6 +268,8 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("actions.delete_body", "Il disparaîtra pour tout le monde.", "It will be gone for everyone."),
     ("actions.pin", "Épingler", "Pin"),
     ("actions.save", "Enregistrer", "Save"),
+    ("edit.hint", "Échap pour annuler · Entrée pour enregistrer", "Escape to cancel · Enter to save"),
+    ("edit.too_late", "Ce message ne peut plus être modifié.", "This message can no longer be edited."),
     ("actions.cancel", "Annuler", "Cancel"),
     ("actions.refused", "Action refusée.", "Action refused."),
     ("actions.copied", "Copié", "Copied"),

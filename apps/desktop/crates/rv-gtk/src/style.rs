@@ -215,7 +215,10 @@ button.quick-reaction { font-size: 20px; min-width: 40px; min-height: 40px; padd
 button.quick-reaction.mine { background: rgba(255, 95, 162, 0.18); box-shadow: inset 0 0 0 1.5px #FF5FA2; }
 button.menu-action { padding: 6px 10px; min-height: 0; }
 button.menu-action.destructive { color: #FF7A8A; }
-.edit-field { background: #0C0B16; border-radius: 10px; padding: 8px; }
+.edit-field textview, .edit-field text { background: transparent; color: #F3F0FF; font-size: 14px; }
+.edit-field { background: #171529; border: 1.5px solid #34E1D0; border-radius: 12px; padding: 8px 10px; }
+button.edit-button { min-height: 0; padding: 3px 12px; font-weight: 700; font-size: 12.5px; border-radius: 999px; }
+button.edit-button.save { background: linear-gradient(135deg, #FF5FA2, #A78BFA); color: #0D0B1A; }
 .reply-bar { background: #171529; border-left: 3px solid #A78BFA; border-radius: 10px; padding: 6px 10px; }
 .reply-title { color: #A78BFA; font-weight: 700; font-size: 12.5px; }
 .reply-preview { color: #8F89AB; font-size: 12.5px; }

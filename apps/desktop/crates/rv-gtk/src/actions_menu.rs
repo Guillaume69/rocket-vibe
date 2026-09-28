@@ -24,6 +24,7 @@ pub struct RoomContext {
 pub struct Handlers {
     pub reply: Box<dyn Fn(MessageRow)>,
     pub thread: Box<dyn Fn(String)>,
+    pub edit: Box<dyn Fn(MessageRow)>,
     pub toast: Box<dyn Fn(String)>,
 }
 
@@ -43,6 +44,28 @@ fn menu_button(text: &str) -> gtk::Button {
     button
 }
 
+/// What the server's rules let me do with the message.
+pub async fn allowed(session: &Arc<Session>, row: &MessageRow, room: &RoomContext) -> Vec<Action> {
+    let s = session.clone();
+    let settings = on_tokio(async move { s.settings().await.clone() }).await;
+    let permissions: Vec<String> = Vec::new();
+    let ctx = ActionContext {
+        author_id: &row.author_id,
+        ts: row.ts,
+        system_type: row.system_type.as_deref(),
+        text: row.text.as_deref(),
+        has_file: file_of(row.attachments.as_deref()).is_some(),
+        me: &session.info.user_id,
+        settings: &settings,
+        permissions: &permissions,
+        read_only: room.read_only,
+        encrypted: room.encrypted,
+        in_thread: room.in_thread,
+        now: chrono::Utc::now().timestamp_millis(),
+    };
+    actions::possible_actions(&ctx)
+}
+
 pub fn open(
     anchor: &gtk::Widget,
     x: f64,
@@ -60,27 +83,9 @@ pub fn open(
         glib::idle_add_local_once(move || p.unparent());
     });
 
-    let s = session.clone();
     let popover_ = popover.clone();
     glib::spawn_future_local(async move {
-        let settings = on_tokio(async move { s.settings().await.clone() }).await;
-        let now = chrono::Utc::now().timestamp_millis();
-        let permissions: Vec<String> = Vec::new();
-        let ctx = ActionContext {
-            author_id: &row.author_id,
-            ts: row.ts,
-            system_type: row.system_type.as_deref(),
-            text: row.text.as_deref(),
-            has_file: file_of(row.attachments.as_deref()).is_some(),
-            me: &session.info.user_id,
-            settings: &settings,
-            permissions: &permissions,
-            read_only: room.read_only,
-            encrypted: room.encrypted,
-            in_thread: room.in_thread,
-            now,
-        };
-        let allowed = actions::possible_actions(&ctx);
+        let allowed = allowed(&session, &row, &room).await;
         if allowed.is_empty() {
             popover_.unparent();
             return;
@@ -166,13 +171,8 @@ fn menu(
                 run(t("actions.download"), Box::new(move || download(s.clone(), file.clone(), h.clone())))
             }
             Action::Edit => {
-                let edit = menu_button(t("actions.edit"));
-                let (p, s, r, rid, h) =
-                    (popover.clone(), session.clone(), row.clone(), room.rid.clone(), handlers.clone());
-                edit.connect_clicked(move |_| {
-                    p.set_child(Some(&editor(&p, s.clone(), r.clone(), rid.clone(), h.clone())))
-                });
-                edit
+                let (h, r) = (handlers.clone(), row.clone());
+                run(t("actions.edit"), Box::new(move || (h.edit)(r.clone())))
             }
             Action::Delete => {
                 let (s, rid, id, h) = (session.clone(), room.rid.clone(), row.id.clone(), handlers.clone());
@@ -224,62 +224,6 @@ fn confirm_delete(parent: Option<&gtk::Widget>, delete: impl Fn() + 'static) {
     dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
     dialog.connect_response(Some("delete"), move |_, _| delete());
     dialog.present(parent);
-}
-
-fn editor(
-    popover: &gtk::Popover,
-    session: Arc<Session>,
-    row: MessageRow,
-    rid: String,
-    handlers: Rc<Handlers>,
-) -> gtk::Widget {
-    let text = gtk::TextView::builder().wrap_mode(gtk::WrapMode::WordChar).css_classes(["edit-field"]).build();
-    text.buffer().set_text(row.text.as_deref().unwrap_or_default());
-    let scroll = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .min_content_width(360)
-        .min_content_height(80)
-        .max_content_height(240)
-        .propagate_natural_height(true)
-        .child(&text)
-        .build();
-    let save = gtk::Button::builder().label(t("actions.save")).css_classes(["suggested-action"]).build();
-    let cancel = gtk::Button::builder().label(t("actions.cancel")).css_classes(["flat"]).build();
-    let buttons = gtk::Box::builder().spacing(6).halign(gtk::Align::End).margin_top(6).build();
-    buttons.append(&cancel);
-    buttons.append(&save);
-    let column = gtk::Box::builder().orientation(gtk::Orientation::Vertical).build();
-    column.append(&scroll);
-    column.append(&buttons);
-    let p = popover.clone();
-    cancel.connect_clicked(move |_| p.popdown());
-    let p = popover.clone();
-    save.connect_clicked(glib::clone!(
-        #[weak]
-        text,
-        move |_| {
-            let buffer = text.buffer();
-            let new = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string();
-            p.popdown();
-            if new.trim().is_empty() || Some(new.as_str()) == row.text.as_deref() {
-                return;
-            }
-            let (s, rid, id, h) = (session.clone(), rid.clone(), row.id.clone(), handlers.clone());
-            glib::spawn_future_local(async move {
-                if on_tokio(async move { s.edit(&rid, &id, &new).await }).await.is_err() {
-                    (h.toast)(t("actions.refused").to_owned());
-                }
-            });
-        }
-    ));
-    glib::idle_add_local_once(glib::clone!(
-        #[weak]
-        text,
-        move || {
-            text.grab_focus();
-        }
-    ));
-    column.upcast()
 }
 
 fn download(session: Arc<Session>, file: Option<(String, String)>, handlers: Rc<Handlers>) {

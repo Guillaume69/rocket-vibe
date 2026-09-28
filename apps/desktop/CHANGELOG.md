@@ -13,6 +13,8 @@ section here.
   room list and the room in a narrow window, then through the rooms opened before.
 - In a narrow window, a forward arrow on the room list goes back to the open room.
 - Deleting a message asks for confirmation first.
+- Messages are edited in place, in their own row (Enter saves, Escape cancels), and Up in an
+  empty composer edits my last message.
 
 ### Fixed
 

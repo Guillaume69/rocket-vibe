@@ -38,6 +38,7 @@ pub struct Composer {
     recorder: RefCell<Option<crate::recorder::Recorder>>,
     on_voice: Handler<std::path::PathBuf>,
     on_error: Handler<String>,
+    on_edit_last: Handler<()>,
 }
 
 type MentionSource = Rc<dyn Fn(&str) -> Vec<String>>;
@@ -211,6 +212,7 @@ impl Composer {
             recorder: RefCell::default(),
             on_voice: RefCell::default(),
             on_error: RefCell::default(),
+            on_edit_last: RefCell::default(),
         });
         let weak = Rc::downgrade(&this);
         mic.connect_clicked(move |_| {
@@ -321,6 +323,14 @@ impl Composer {
         let keys = gtk::EventControllerKey::new();
         let weak = Rc::downgrade(&this);
         keys.connect_key_pressed(move |_, key, _, state| {
+            if key == gdk::Key::Up
+                && let Some(this) = weak.upgrade()
+                && this.text().is_empty()
+                && let Some(f) = this.on_edit_last.borrow().clone()
+            {
+                f(());
+                return glib::Propagation::Stop;
+            }
             let enter = key == gdk::Key::Return || key == gdk::Key::KP_Enter;
             if !enter || state.contains(gdk::ModifierType::SHIFT_MASK) {
                 return glib::Propagation::Proceed;
@@ -342,6 +352,11 @@ impl Composer {
     /// A finished voice message, ready to upload.
     pub fn connect_voice(&self, f: impl Fn(std::path::PathBuf) + 'static) {
         self.on_voice.replace(Some(Rc::new(f)));
+    }
+
+    /// Up with nothing typed: the page edits my last message.
+    pub fn connect_edit_last(&self, f: impl Fn() + 'static) {
+        self.on_edit_last.replace(Some(Rc::new(move |()| f())));
     }
 
     pub fn connect_error(&self, f: impl Fn(String) + 'static) {

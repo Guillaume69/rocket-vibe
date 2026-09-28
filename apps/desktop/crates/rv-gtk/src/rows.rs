@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use adw::prelude::*;
 use chrono::{DateTime, Local, TimeZone};
-use gtk::{gdk, pango};
+use gtk::{gdk, glib, pango};
 use rv_core::media::{AvatarTarget, ImageAttachment, avatar_path, display_size, image_attachments};
 use rv_core::session::Session;
 use rv_core::store::{MessageRow, RoomRow};
@@ -35,6 +35,9 @@ pub enum RowEvent {
         add: bool,
     },
     OpenThread(String),
+    /// The in-place editor: Enter saves, Escape gives up.
+    SaveEdit,
+    CancelEdit,
 }
 
 pub type OnRowEvent = std::rc::Rc<dyn Fn(RowEvent)>;
@@ -268,6 +271,76 @@ pub fn room_widget(r: &RoomRow, session: Option<&Arc<Session>>) -> gtk::Widget {
     row.upcast()
 }
 
+fn editor(buffer: &gtk::TextBuffer, on_event: OnRowEvent) -> gtk::Widget {
+    let text = gtk::TextView::builder()
+        .buffer(buffer)
+        .wrap_mode(gtk::WrapMode::WordChar)
+        .accepts_tab(false)
+        .hexpand(true)
+        .build();
+    let keys = gtk::EventControllerKey::new();
+    let on_key = on_event.clone();
+    keys.connect_key_pressed(move |_, key, _, state| match key {
+        gdk::Key::Return | gdk::Key::KP_Enter if !state.contains(gdk::ModifierType::SHIFT_MASK) => {
+            on_key(RowEvent::SaveEdit);
+            glib::Propagation::Stop
+        }
+        gdk::Key::Escape => {
+            on_key(RowEvent::CancelEdit);
+            glib::Propagation::Stop
+        }
+        _ => glib::Propagation::Proceed,
+    });
+    text.add_controller(keys);
+    let cancel = gtk::Button::builder().label(t("actions.cancel")).css_classes(["flat", "edit-button"]).build();
+    let save = gtk::Button::builder().label(t("actions.save")).css_classes(["edit-button", "save"]).build();
+    let on_cancel = on_event.clone();
+    cancel.connect_clicked(move |_| on_cancel(RowEvent::CancelEdit));
+    save.connect_clicked(move |_| on_event(RowEvent::SaveEdit));
+    let hint = label(t("edit.hint"), &["message-note"]);
+    hint.set_hexpand(true);
+    let buttons = gtk::Box::builder().spacing(6).build();
+    buttons.append(&hint);
+    buttons.append(&cancel);
+    buttons.append(&save);
+    let scroll = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&text)
+        .css_classes(["edit-field"])
+        .build();
+    // List rows get their minimum height: the scroller's minimum follows the text, up to a cap.
+    let fit = glib::clone!(
+        #[weak]
+        text,
+        #[weak]
+        scroll,
+        move || {
+            let width = scroll.width();
+            if width > 0 {
+                let (_, natural, _, _) = text.measure(gtk::Orientation::Vertical, width);
+                scroll.set_min_content_height(natural.clamp(24, 200));
+            }
+        }
+    );
+    let on_edit = fit.clone();
+    buffer.connect_changed(move |_| {
+        glib::idle_add_local_once(on_edit.clone());
+    });
+    scroll.hadjustment().connect_changed(move |_| fit());
+    let column = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(6).margin_top(2).build();
+    column.append(&scroll);
+    column.append(&buttons);
+    text.connect_map(|text| {
+        let text = text.clone();
+        glib::idle_add_local_once(move || {
+            text.grab_focus();
+            let buffer = text.buffer();
+            buffer.place_cursor(&buffer.end_iter());
+        });
+    });
+    column.upcast()
+}
+
 pub fn day_label(ts: i64) -> String {
     let day = local(ts).date_naive();
     let today = Local::now().date_naive();
@@ -278,7 +351,13 @@ pub fn day_label(ts: i64) -> String {
     }
 }
 
-pub fn message_widget(d: &Display, my_id: &str, session: Option<&Arc<Session>>, on_event: OnRowEvent) -> gtk::Widget {
+pub fn message_widget(
+    d: &Display,
+    my_id: &str,
+    session: Option<&Arc<Session>>,
+    editing: Option<&gtk::TextBuffer>,
+    on_event: OnRowEvent,
+) -> gtk::Widget {
     let row = &d.row;
     let outer = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -383,8 +462,10 @@ pub fn message_widget(d: &Display, my_id: &str, session: Option<&Arc<Session>>, 
         (_, true) => &["failed"],
         _ => &[],
     };
-    if !blocks.is_empty() {
-        column.append(&markdown_view::view(&blocks, state));
+    match editing {
+        Some(buffer) => column.append(&editor(buffer, on_event.clone())),
+        None if !blocks.is_empty() => column.append(&markdown_view::view(&blocks, state)),
+        None => {}
     }
     if let Some(session) = session {
         for image in image_attachments(row.attachments.as_deref()) {

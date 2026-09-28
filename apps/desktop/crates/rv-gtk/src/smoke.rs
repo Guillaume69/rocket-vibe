@@ -24,6 +24,8 @@
 //!   RV_SMOKE_E2E=<password>  unlocks encrypted rooms (a wrong one first must be refused)
 //!   RV_SMOKE_VOICE=1       records two seconds (RV_AUDIO_SOURCE picks the source) and sends them
 //!   RV_SMOKE_REENTER=1     after opening the room: back to the list, tap the same room, expect it open
+//!   RV_SMOKE_EDIT=<tag>    sends "<tag> before", presses Up, types "<tag> after" in the row
+//!                          and saves after RV_SMOKE_EDIT_SAVE_MS (default 3000)
 //!   RV_SMOKE_NAV=<other room>  opens the other room, then mouse back and forward between the two;
 //!                          in a narrow window, back to the list and forward into the room again
 //! A failed expectation makes the process exit with status 1.
@@ -197,6 +199,12 @@ pub fn install(window: &Rc<AppWindow>) {
             {
                 let (chat, first) = (w.chat.clone(), rid.clone());
                 glib::timeout_add_local_once(Duration::from_millis(2500), move || nav_checks(chat, first, other));
+            }
+            if let Ok(tag) = std::env::var("RV_SMOKE_EDIT")
+                && !tag.is_empty()
+            {
+                let chat = w.chat.clone();
+                glib::timeout_add_local_once(Duration::from_millis(1500), move || edit_checks(chat, tag));
             }
             if std::env::var("RV_SMOKE_REENTER").as_deref() == Ok("1") {
                 let chat = w.chat.clone();
@@ -610,4 +618,25 @@ fn nav_checks(chat: Rc<crate::chat::ChatPage>, first: String, other: String) {
     if !back || !forward {
         FAILED.store(true, Ordering::SeqCst);
     }
+}
+
+fn edit_checks(chat: Rc<crate::chat::ChatPage>, tag: String) {
+    chat.send_text(&format!("{tag} before"));
+    let save_after = std::env::var("RV_SMOKE_EDIT_SAVE_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(3000);
+    glib::timeout_add_local_once(Duration::from_millis(2500), move || {
+        chat.edit_last_mine();
+        glib::timeout_add_local_once(Duration::from_millis(1000), move || {
+            let list = chat.room_list();
+            let editing = list.editing().and_then(|id| list.row(&id)).and_then(|r| r.text);
+            println!("smoke: edit editing={editing:?}");
+            if editing != Some(format!("{tag} before")) {
+                FAILED.store(true, Ordering::SeqCst);
+                return;
+            }
+            list.set_edit_text(&format!("{tag} after"));
+            glib::timeout_add_local_once(Duration::from_millis(save_after), move || {
+                chat.play(crate::rows::RowEvent::SaveEdit, false);
+            });
+        });
+    });
 }

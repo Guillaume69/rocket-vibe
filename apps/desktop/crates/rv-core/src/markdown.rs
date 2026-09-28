@@ -76,6 +76,42 @@ pub enum Piece<'a> {
 }
 
 /// Markup and the custom emoji between its marks, in order.
+/// The link at byte `at` of the text `markup` displays (tags gone, entities
+/// resolved): what a label shows under the pointer.
+pub fn link_at(markup: &str, at: usize) -> Option<String> {
+    let (mut shown, mut href, mut rest) = (0usize, None::<String>, markup);
+    while let Some(c) = rest.chars().next() {
+        if c == '<' {
+            let end = rest.find('>')?;
+            let tag = &rest[1..end];
+            if let Some(attrs) = tag.strip_prefix("a ") {
+                href = attrs.split_once("href=\"").and_then(|(_, v)| v.split_once('"')).map(|(v, _)| unescape(v));
+            } else if tag == "/a" {
+                href = None;
+            }
+            rest = &rest[end + 1..];
+            continue;
+        }
+        let (width, len) = match c {
+            '&' => {
+                let end = rest.find(';').unwrap_or(0);
+                (unescape(&rest[..=end]).len(), end + 1)
+            }
+            _ => (c.len_utf8(), c.len_utf8()),
+        };
+        if at < shown + width {
+            return href;
+        }
+        shown += width;
+        rest = &rest[len..];
+    }
+    None
+}
+
+fn unescape(text: &str) -> String {
+    text.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&")
+}
+
 pub fn pieces(markup: &str) -> Vec<Piece<'_>> {
     markup
         .split(CUSTOM_MARK)
@@ -405,5 +441,17 @@ mod tests {
         assert_eq!(render(Some("[null]"), Some("t"), &CTX), [Block::Paragraph("t".into())]);
         assert_eq!(render(Some("not json"), Some("t"), &CTX), [Block::Paragraph("t".into())]);
         assert!(render(None, Some("  "), &CTX).is_empty());
+    }
+
+    #[test]
+    fn link_at_maps_shown_text_back_to_its_link() {
+        let markup = "Hey <a href=\"rv-user:bob\"><b>@bob</b></a> &amp; <a href=\"rv-room:x&amp;y\">#x&amp;y</a>";
+        let shown = "Hey @bob & #x&y";
+        assert_eq!(link_at(markup, shown.find('@').unwrap()), Some("rv-user:bob".into()));
+        assert_eq!(link_at(markup, shown.find('b').unwrap() + 2), Some("rv-user:bob".into()));
+        assert_eq!(link_at(markup, 0), None);
+        assert_eq!(link_at(markup, shown.find(" & ").unwrap() + 1), None);
+        assert_eq!(link_at(markup, shown.len() - 1), Some("rv-room:x&y".into()));
+        assert_eq!(link_at(markup, shown.len()), None);
     }
 }

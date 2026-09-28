@@ -12,6 +12,8 @@ pub const CATEGORIES: [&str; 8] = ["people", "nature", "food", "activity", "trav
 struct Emojis {
     by_code: HashMap<&'static str, String>,
     by_category: HashMap<&'static str, Vec<&'static str>>,
+    /// Glyph to the first shortcode the table gives it.
+    by_glyph: HashMap<String, &'static str>,
 }
 
 fn emojis() -> &'static Emojis {
@@ -19,6 +21,7 @@ fn emojis() -> &'static Emojis {
     EMOJIS.get_or_init(|| {
         let mut by_code = HashMap::new();
         let mut by_category: HashMap<&'static str, Vec<&'static str>> = HashMap::new();
+        let mut by_glyph: HashMap<String, &'static str> = HashMap::new();
         for line in TABLE.lines() {
             let mut fields = line.split('\t');
             let (Some(code), Some(points), Some(category)) = (fields.next(), fields.next(), fields.next()) else {
@@ -29,9 +32,10 @@ fn emojis() -> &'static Emojis {
             if category != "-" {
                 by_category.entry(category).or_default().push(code);
             }
+            by_glyph.entry(glyph.clone()).or_insert(code);
             by_code.insert(code, glyph);
         }
-        Emojis { by_code, by_category }
+        Emojis { by_code, by_category, by_glyph }
     })
 }
 
@@ -39,6 +43,34 @@ fn emojis() -> &'static Emojis {
 pub fn unicode(shortcode: &str) -> Option<&'static str> {
     let code = shortcode.trim_matches(':');
     emojis().by_code.get(code).map(String::as_str)
+}
+
+/// The shortcode of a glyph, with or without its variation selector.
+pub fn shortcode(glyph: &str) -> Option<&'static str> {
+    let by_glyph = &emojis().by_glyph;
+    by_glyph.get(glyph).or_else(|| by_glyph.get(&glyph.replace('\u{FE0F}', ""))).copied()
+}
+
+/// The emoji covering byte `at` of `text`, the longest the table knows, with
+/// its shortcode.
+pub fn at(text: &str, at: usize) -> Option<(&str, &'static str)> {
+    let starts = text.char_indices().map(|(i, _)| i).filter(|&i| i <= at && at - i < 32);
+    let mut best: Option<(&str, &'static str)> = None;
+    for start in starts {
+        let ends = text[start..].char_indices().skip(1).map(|(i, _)| start + i).chain(std::iter::once(text.len()));
+        for end in ends.take_while(|&end| end - start <= 32) {
+            if end <= at {
+                continue;
+            }
+            let glyph = &text[start..end];
+            if let Some(code) = shortcode(glyph)
+                && best.is_none_or(|(b, _)| glyph.len() > b.len())
+            {
+                best = Some((glyph, code));
+            }
+        }
+    }
+    best
 }
 
 /// `:smile:` in plain text (a room preview) to its glyph; unknown codes stay.
@@ -179,5 +211,17 @@ mod tests {
         assert_eq!(hits[0].0, "smile");
         assert_eq!(hits.len(), 3);
         assert!(complete("", 5).is_empty());
+    }
+
+    #[test]
+    fn glyphs_back_to_shortcodes() {
+        assert_eq!(shortcode("😄"), Some("smile"));
+        assert_eq!(shortcode("nope"), None);
+        let text = "hi 👍🏽 and 🚀!";
+        let thumb = text.find('👍').unwrap();
+        assert_eq!(at(text, thumb).map(|(g, _)| g), Some("👍🏽"));
+        assert_eq!(at(text, thumb + 4).map(|(g, _)| g), Some("👍🏽"));
+        assert_eq!(at(text, text.find('🚀').unwrap()), Some(("🚀", "rocket")));
+        assert_eq!(at(text, 0), None);
     }
 }

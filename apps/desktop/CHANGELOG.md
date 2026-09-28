@@ -36,6 +36,8 @@ section here.
 - A click on a notification opens its message: the room scrolls to it and highlights it.
 - Settings, Notifications: what shows them (and whether it takes replies), a test notification,
   and on Windows and macOS a shortcut to the system's notification settings.
+- On Linux docks that support it (KDE Plasma, Dash to Dock, Plank), the app icon shows the
+  number of unread direct messages and mentions.
 
 ### Fixed
 

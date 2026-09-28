@@ -601,6 +601,20 @@ fn fake_notification_server(reply: String) {
         println!("smoke: could not serve notifications");
         return FAILED.store(true, Ordering::SeqCst);
     }
+    let badge = connection.subscribe_to_signal(
+        None,
+        Some("com.canonical.Unity.LauncherEntry"),
+        Some("Update"),
+        None,
+        None,
+        gio::DBusSignalFlags::NONE,
+        |signal| {
+            let properties = glib::VariantDict::new(Some(&signal.parameters.child_value(1)));
+            let count = properties.lookup::<i64>("count").ok().flatten();
+            println!("smoke: badge {count:?}");
+        },
+    );
+    std::mem::forget(badge);
     let _ = connection.call_sync(
         Some("org.freedesktop.DBus"),
         "/org/freedesktop/DBus",

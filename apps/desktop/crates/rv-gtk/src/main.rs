@@ -1,6 +1,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 mod actions_menu;
 mod attach;
+mod badge;
 mod cards;
 mod chat;
 mod composer;

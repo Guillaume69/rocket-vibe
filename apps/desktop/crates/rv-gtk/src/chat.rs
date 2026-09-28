@@ -1202,6 +1202,7 @@ impl ChatPage {
                 }
             }
             self.slots.replace(slots);
+            crate::badge::set(rv_core::rooms::attention(&rows));
             let unread = rv_core::rooms::unread_rooms(&rows);
             for f in self.on_unread.borrow().iter() {
                 f(unread);

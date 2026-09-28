@@ -31,6 +31,12 @@ pub fn unread_rooms(rooms: &[RoomRow]) -> usize {
     rooms.iter().filter(|r| r.unread > 0 || r.alert).count()
 }
 
+/// What the app icon's badge counts: messages that call for me, mentions and
+/// direct messages. Plain channel chatter only shows in the title.
+pub fn attention(rooms: &[RoomRow]) -> i64 {
+    rooms.iter().map(|r| if r.kind == "d" { r.unread } else { r.mentions }).sum()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Found {
     User { id: String, username: String, name: Option<String> },
@@ -108,5 +114,14 @@ mod tests {
                 Found::Room { id: "r1".into(), name: "general".into(), kind: "c".into() }
             ]
         );
+    }
+
+    #[test]
+    fn attention_counts_direct_messages_and_mentions() {
+        let mut channel = room("c1", "c", 5);
+        channel.mentions = 2;
+        let rooms = vec![channel, room("d1", "d", 3), room("c2", "c", 7)];
+        assert_eq!(attention(&rooms), 5);
+        assert_eq!(attention(&[]), 0);
     }
 }

@@ -228,20 +228,8 @@ fn confirm_delete(parent: Option<&gtk::Widget>, delete: impl Fn() + 'static) {
 
 fn download(session: Arc<Session>, file: Option<(String, String)>, handlers: Rc<Handlers>) {
     let Some((link, name)) = file else { return };
-    let dir = glib::user_special_dir(glib::UserDirectory::Downloads).unwrap_or_else(glib::home_dir);
     glib::spawn_future_local(async move {
-        let saved = on_tokio(async move {
-            let media = session.media.fetch(&link).await.ok()?;
-            let safe: String = name.chars().map(|c| if c == '/' || c == '\0' { '_' } else { c }).collect();
-            let mut path = dir.join(&safe);
-            let mut n = 1;
-            while path.exists() {
-                path = dir.join(format!("{n}-{safe}"));
-                n += 1;
-            }
-            std::fs::write(&path, &media.bytes).ok()
-        })
-        .await;
+        let saved = crate::cards::save_to_downloads(session, link, name).await;
         (handlers.toast)(t(if saved.is_some() { "actions.saved" } else { "actions.save_failed" }).to_owned());
     });
 }

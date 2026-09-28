@@ -258,6 +258,8 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("file.play", "Lire", "Play"),
     ("file.loading", "Téléchargement…", "Downloading…"),
     ("file.failed", "Échec du téléchargement", "Download failed"),
+    ("file.no_app", "Aucune application pour ouvrir ce fichier", "No application to open this file"),
+    ("file.saved", "Enregistré dans Téléchargements : {name}", "Saved to Downloads: {name}"),
     ("actions.more", "Actions", "Actions"),
     ("actions.reply", "Répondre", "Reply"),
     ("actions.reply_thread", "Répondre dans un fil", "Reply in thread"),

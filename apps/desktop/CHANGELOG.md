@@ -19,11 +19,14 @@ section here.
 - A click beside the picture closes the image viewer.
 - Room list sections fold and unfold with a click on their title (or Enter); folded, they show
   how many rooms they hold, and stay folded at the next launch.
+- File cards have a Download button that saves the file to the Downloads folder.
 
 ### Fixed
 
 - Opening a room with Enter or a double click in the room list opened the room one or two
   rows off (the section titles were not counted).
+- Open on a file did nothing on Linux desktops without the GNOME portal: it falls back to the
+  default application, then `xdg-open`, and says so when nothing can open it.
 
 - In a narrow window, images, link previews and file cards shrink to fit instead of pushing
   the messages and the send button past the right edge.

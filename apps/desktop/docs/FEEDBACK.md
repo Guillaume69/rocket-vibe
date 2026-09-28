@@ -31,7 +31,7 @@ for the Android app too and are fixed there as well.
 - [ ] No preview of emoji and mentions on hover
 - [x] The image viewer does not close on a click outside the image
 - [ ] Videos: no poster, no controls, no fullscreen; the player pops in on play
-- [ ] Files: no Download button; Open fails on Linux outside GNOME
+- [x] Files: no Download button; Open fails on Linux outside GNOME (falls back to GIO, then xdg-open)
 - [ ] Files and images dropped on the window are not sent
 - [ ] No spell check
 - [ ] No formatting toolbar: a WYSIWYG composer with bold, italic, strike, heading, link, code, quote and lists

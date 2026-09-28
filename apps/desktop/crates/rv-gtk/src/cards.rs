@@ -11,7 +11,7 @@ use rv_core::markdown;
 use rv_core::session::Session;
 use sha2::{Digest, Sha256};
 
-use crate::i18n::t;
+use crate::i18n::{t, tf};
 use crate::rows::{OnRowEvent, RowEvent, image_widget};
 use crate::{markdown_view, media, on_tokio, widgets};
 
@@ -86,6 +86,51 @@ pub async fn local_copy(session: Arc<Session>, file: FileAttachment) -> Option<P
     Some(path)
 }
 
+/// A free name for `name` in the Downloads folder: `n-name` when taken.
+fn download_path(name: &str) -> PathBuf {
+    let dir = glib::user_special_dir(glib::UserDirectory::Downloads).unwrap_or_else(glib::home_dir);
+    let safe: String = name.chars().map(|c| if c == '/' || c == '\\' || c == '\0' { '_' } else { c }).collect();
+    let mut path = dir.join(&safe);
+    let mut n = 1;
+    while path.exists() {
+        path = dir.join(format!("{n}-{safe}"));
+        n += 1;
+    }
+    path
+}
+
+/// The server file `link` saved to Downloads as `name`.
+pub async fn save_to_downloads(session: Arc<Session>, link: String, name: String) -> Option<PathBuf> {
+    on_tokio(async move {
+        let media = session.media.fetch(&link).await.ok()?;
+        let path = download_path(&name);
+        std::fs::write(&path, &media.bytes).ok()?;
+        Some(path)
+    })
+    .await
+}
+
+/// In the desktop's default application. GTK's launcher goes through a portal
+/// that desktops other than GNOME may lack: GIO's own lookup, then `xdg-open`
+/// on Linux, take over. `failed` runs when nothing could open it.
+pub fn open_file(widget: &impl IsA<gtk::Widget>, path: &std::path::Path, failed: impl FnOnce() + 'static) {
+    let window = widget.as_ref().root().and_downcast::<gtk::Window>();
+    let file = gio::File::for_path(path);
+    let uri = file.uri();
+    #[cfg(target_os = "linux")]
+    let path = path.to_owned();
+    gtk::FileLauncher::new(Some(&file)).launch(window.as_ref(), None::<&gio::Cancellable>, move |launched| {
+        if launched.is_ok() || gio::AppInfo::launch_default_for_uri(&uri, None::<&gio::AppLaunchContext>).is_ok() {
+            return;
+        }
+        #[cfg(target_os = "linux")]
+        if std::process::Command::new("xdg-open").arg(&path).spawn().is_ok() {
+            return;
+        }
+        failed();
+    });
+}
+
 fn player(path: &std::path::Path, kind: FileKind) -> gtk::Widget {
     let stream = gtk::MediaFile::for_filename(path);
     if kind == FileKind::Video {
@@ -125,11 +170,45 @@ pub fn file(session: &Arc<Session>, f: &FileAttachment) -> gtk::Widget {
         .css_classes(["file-action"])
         .valign(gtk::Align::Center)
         .build();
+    let save = gtk::Button::builder()
+        .icon_name("folder-download-symbolic")
+        .tooltip_text(t("actions.download"))
+        .css_classes(["flat", "circular", "file-save"])
+        .valign(gtk::Align::Center)
+        .build();
+    top.append(&save);
     top.append(&action);
     card.append(&top);
     if let Some(description) = &f.description {
         card.append(&label(description, &["message-body"]));
     }
+    let (s, file, status_) = (session.clone(), f.clone(), status.clone());
+    save.connect_clicked(move |button| {
+        button.set_sensitive(false);
+        status_.set_label(t("file.loading"));
+        let (s, file, button, status) = (s.clone(), file.clone(), button.clone(), status_.clone());
+        glib::spawn_future_local(async move {
+            let name = file.title.clone();
+            let saved = match local_copy(s, file).await {
+                Some(cached) => {
+                    on_tokio(async move {
+                        let path = download_path(&name);
+                        std::fs::copy(&cached, &path).ok().map(|_| path)
+                    })
+                    .await
+                }
+                None => None,
+            };
+            button.set_sensitive(true);
+            match saved {
+                Some(path) => {
+                    let shown = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    status.set_label(&tf("file.saved", &[("name", &shown)]));
+                }
+                None => status.set_label(t("actions.save_failed")),
+            }
+        });
+    });
     let (session, f) = (session.clone(), f.clone());
     let weak = card.downgrade();
     action.connect_clicked(move |button| {
@@ -147,14 +226,7 @@ pub fn file(session: &Arc<Session>, f: &FileAttachment) -> gtk::Widget {
             };
             status.set_label(&detail);
             match (kind, weak.upgrade()) {
-                (FileKind::Other, _) => {
-                    let window = button.root().and_downcast::<gtk::Window>();
-                    gtk::FileLauncher::new(Some(&gio::File::for_path(&path))).launch(
-                        window.as_ref(),
-                        None::<&gio::Cancellable>,
-                        |_| {},
-                    );
-                }
+                (FileKind::Other, _) => open_file(&button, &path, move || status.set_label(t("file.no_app"))),
                 (_, Some(card)) => {
                     button.set_visible(false);
                     card.append(&player(&path, kind));

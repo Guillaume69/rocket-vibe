@@ -4,6 +4,7 @@
 pub mod account;
 pub mod actions;
 pub mod completion;
+pub mod compose;
 pub mod content;
 pub mod ddp;
 pub mod diff;

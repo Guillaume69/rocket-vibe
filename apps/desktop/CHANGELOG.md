@@ -33,6 +33,8 @@ section here.
   how many rooms they hold, and stay folded at the next launch.
 - File cards have a Download button that saves the file to the Downloads folder.
 - Message actions: Star and Unstar, and Unpin on a pinned message.
+- A pin button in the room header lists the room's pinned messages and my starred ones; a
+  click goes to the message, loading older history as far as needed.
 - Videos show as a player in place: first image and a play button (files up to 25 MB), then
   playback in the same frame with a controls bar and fullscreen; a format the system cannot
   decode says so and offers another application.

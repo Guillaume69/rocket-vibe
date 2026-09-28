@@ -15,6 +15,7 @@ mod login;
 #[cfg(target_os = "macos")]
 mod macos;
 mod markdown_view;
+mod marked;
 mod media;
 mod message_list;
 mod notifier;

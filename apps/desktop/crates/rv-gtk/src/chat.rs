@@ -250,6 +250,12 @@ impl ChatPage {
             .tooltip_text(t("search.title"))
             .build();
         room_header.pack_end(&search_button);
+        let marked_button = gtk::Button::builder()
+            .icon_name("view-pin-symbolic")
+            .css_classes(["flat"])
+            .tooltip_text(t("marked.title"))
+            .build();
+        room_header.pack_end(&marked_button);
         room_title.set_cursor(gdk::Cursor::from_name("pointer", None).as_ref());
         room_title.set_tooltip_text(Some(t("info.room")));
         let title_click = gtk::GestureClick::new();
@@ -388,6 +394,17 @@ impl ChatPage {
                     for f in this.on_logout.borrow().iter() {
                         f(());
                     }
+                }
+            });
+        });
+        let weak = Rc::downgrade(&this);
+        marked_button.connect_clicked(move |_| {
+            let Some(this) = weak.upgrade() else { return };
+            let (Some(session), Some(rid)) = (this.session(), this.current_rid()) else { return };
+            let target = Rc::downgrade(&this);
+            crate::marked::open(&this.split, session, &rid, move |id| {
+                if let Some(this) = target.upgrade() {
+                    this.jump_to(&id);
                 }
             });
         });
@@ -1430,29 +1447,53 @@ impl ChatPage {
     }
 
     fn load_older(self: &Rc<Self>) {
-        if self.loading.get() || !self.has_older.get() {
-            return;
-        }
-        let Some(open) = self.current.borrow().clone() else { return };
-        let Some(session) = self.session.borrow().clone() else { return };
-        let Some(oldest) = self.list.oldest_ts() else { return };
-        self.set_loading(true);
-        let weak = Rc::downgrade(self);
+        let this = self.clone();
         glib::spawn_future_local(async move {
-            let (rid, kind) = (open.rid.clone(), open.kind.clone());
-            let page = crate::on_tokio(async move { session.sync.load_history(&rid, &kind, Some(oldest)).await }).await;
-            let Some(this) = weak.upgrade() else { return };
-            if this.current.borrow().as_ref().is_some_and(|c| c.rid == open.rid)
-                && let Ok(page) = page
-            {
-                // `inclusive` returns the boundary message again: one row means nothing older.
-                if page.count <= 1 {
-                    this.has_older.set(false);
-                }
-                this.limit.set(this.limit.get() + HISTORY_PAGE);
-                this.reload_messages();
+            this.older_page().await;
+        });
+    }
+
+    /// One more page of history; false when there is none, or one is already coming.
+    async fn older_page(self: &Rc<Self>) -> bool {
+        if self.loading.get() || !self.has_older.get() {
+            return false;
+        }
+        let Some(open) = self.current.borrow().clone() else { return false };
+        let Some(session) = self.session.borrow().clone() else { return false };
+        let Some(oldest) = self.list.oldest_ts() else { return false };
+        self.set_loading(true);
+        let (rid, kind) = (open.rid.clone(), open.kind.clone());
+        let page = crate::on_tokio(async move { session.sync.load_history(&rid, &kind, Some(oldest)).await }).await;
+        let mut loaded = false;
+        if self.current.borrow().as_ref().is_some_and(|c| c.rid == open.rid)
+            && let Ok(page) = page
+        {
+            // `inclusive` returns the boundary message again: one row means nothing older.
+            if page.count <= 1 {
+                self.has_older.set(false);
             }
-            this.set_loading(false);
+            self.limit.set(self.limit.get() + HISTORY_PAGE);
+            self.reload_messages();
+            loaded = true;
+        }
+        self.set_loading(false);
+        loaded
+    }
+
+    /// Scrolls the open room to a message, paging back through history until it is loaded.
+    pub fn jump_to(self: &Rc<Self>, id: &str) {
+        self.list.reveal(id);
+        let (this, id) = (self.clone(), id.to_owned());
+        glib::spawn_future_local(async move {
+            for _ in 0..30 {
+                if this.list.row(&id).is_some() || !this.older_page().await {
+                    break;
+                }
+            }
+            if this.list.row(&id).is_none() {
+                this.list.forget_reveal();
+                this.toast(t("marked.not_loaded").to_owned());
+            }
         });
     }
 

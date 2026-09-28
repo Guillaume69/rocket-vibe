@@ -16,7 +16,8 @@
 //!   RV_SMOKE_UPLOAD="<path>|<caption>"  stages the file in the composer, types the caption and
 //!                          sends (RV_SMOKE_UPLOAD_HOLD=1: left staged, for a screenshot)
 //!   RV_SMOKE_SPOTLIGHT=<query>  finds a channel, joins it and opens it
-//!   RV_SMOKE_DETAILS=profile:<user> | room | search:<text> | settings | emoji:<code>
+//!   RV_SMOKE_DETAILS=profile:<user> | room | search:<text> | settings | emoji:<code> | marked
+//!                          | jump:<message id>
 //!                          checks the read and opens the dialog; emoji: a custom one completes
 //!   RV_SMOKE_NOTIFY=<reply>  stands in for the desktop's notification server (inline reply
 //!                          included), answers the first notification with <reply>, then clicks
@@ -518,6 +519,18 @@ fn details_checks(
                 round.as_ref().map(|m| (m.status.clone(), m.desktop_notifications.clone())),
             );
             crate::settings::open(chat.widget(), session, None, || {});
+        } else if what == "marked" {
+            let (s, r) = (session.clone(), rid.clone());
+            let pinned = crate::on_tokio(async move { s.marked(&r, false).await }).await;
+            check("pinned listed", pinned.as_ref().is_ok_and(|rows| !rows.is_empty()), pinned.map(|rows| rows.len()));
+            crate::marked::open(chat.widget(), session, &rid, |_| {});
+        } else if let Some(id) = what.strip_prefix("jump:") {
+            chat.jump_to(id);
+            let (chat, id) = (chat.clone(), id.to_owned());
+            glib::timeout_add_local_once(Duration::from_millis(6000), move || {
+                let list = chat.room_list();
+                check("jumped to an old message", list.row(&id).is_some(), list.len());
+            });
         } else if let Some(text) = what.strip_prefix("search:") {
             let (s, r, q) = (session.clone(), rid.clone(), text.to_owned());
             let hits = crate::on_tokio(async move { s.search(&r, &q).await }).await.unwrap_or_default();

@@ -1,0 +1,110 @@
+//! The room's pinned messages and the ones I starred, in a dialog with a tab
+//! each; a click on one goes to it in the room.
+
+use std::rc::Rc;
+use std::sync::Arc;
+
+use adw::prelude::*;
+use gtk::{glib, pango};
+use rv_core::session::Session;
+use rv_core::store::MessageRow;
+
+use crate::i18n::t;
+use crate::on_tokio;
+use crate::rows::{label, local};
+
+fn entry(row: &MessageRow) -> gtk::Widget {
+    let column =
+        gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(2).css_classes(["marked-row"]).build();
+    let header = gtk::Box::new(gtk::Orientation::Horizontal, 7);
+    header.append(&label(row.author.as_deref().unwrap_or_default(), &["author"]));
+    header.append(&label(&local(row.ts).format("%d/%m/%Y %H:%M").to_string(), &["message-time"]));
+    column.append(&header);
+    let text = rv_core::actions::copyable_text(row.text.as_deref())
+        .map_or_else(|| t("marked.attachment").to_owned(), rv_core::emoji::replace_shortcodes);
+    let body = label(&text, &["message-body"]);
+    body.set_wrap(true);
+    body.set_wrap_mode(pango::WrapMode::WordChar);
+    body.set_lines(3);
+    body.set_ellipsize(pango::EllipsizeMode::End);
+    column.append(&body);
+    column.upcast()
+}
+
+fn page(session: &Arc<Session>, rid: &str, starred: bool, go: Rc<dyn Fn(String)>) -> gtk::Widget {
+    let stack = gtk::Stack::new();
+    stack.add_named(&adw::Spinner::builder().width_request(32).height_request(32).build(), Some("loading"));
+    let list = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .css_classes(["boxed-list"])
+        .valign(gtk::Align::Start)
+        .build();
+    let scroll =
+        gtk::ScrolledWindow::builder().hscrollbar_policy(gtk::PolicyType::Never).vexpand(true).child(&list).build();
+    stack.add_named(&scroll, Some("list"));
+    let empty = adw::StatusPage::builder()
+        .icon_name(if starred { "starred-symbolic" } else { "view-pin-symbolic" })
+        .title(t(if starred { "marked.no_starred" } else { "marked.no_pinned" }))
+        .build();
+    stack.add_named(&empty, Some("empty"));
+    let failed = adw::StatusPage::builder().icon_name("dialog-warning-symbolic").title(t("info.failed")).build();
+    stack.add_named(&failed, Some("failed"));
+
+    let (s, r) = (session.clone(), rid.to_owned());
+    glib::spawn_future_local(glib::clone!(
+        #[weak]
+        stack,
+        #[weak]
+        list,
+        async move {
+            let rows = on_tokio(async move { s.marked(&r, starred).await }).await;
+            match rows {
+                Ok(rows) if rows.is_empty() => stack.set_visible_child_name("empty"),
+                Ok(rows) => {
+                    for row in &rows {
+                        let item = gtk::ListBoxRow::builder().child(&entry(row)).activatable(true).build();
+                        list.append(&item);
+                    }
+                    let ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
+                    list.connect_row_activated(move |_, item| {
+                        if let Some(id) = ids.get(item.index() as usize) {
+                            go(id.clone());
+                        }
+                    });
+                    stack.set_visible_child_name("list");
+                }
+                Err(_) => stack.set_visible_child_name("failed"),
+            }
+        }
+    ));
+    stack.upcast()
+}
+
+pub fn open(parent: &impl IsA<gtk::Widget>, session: Arc<Session>, rid: &str, go: impl Fn(String) + 'static) {
+    let dialog = adw::Dialog::builder().title(t("marked.title")).content_width(440).content_height(560).build();
+    let weak = dialog.downgrade();
+    let go: Rc<dyn Fn(String)> = Rc::new(move |id| {
+        if let Some(dialog) = weak.upgrade() {
+            dialog.close();
+        }
+        go(id);
+    });
+    let tabs = adw::ViewStack::new();
+    tabs.add_titled_with_icon(
+        &page(&session, rid, false, go.clone()),
+        Some("pinned"),
+        t("marked.pinned"),
+        "view-pin-symbolic",
+    );
+    tabs.add_titled_with_icon(&page(&session, rid, true, go), Some("starred"), t("marked.starred"), "starred-symbolic");
+    let switcher = adw::ViewSwitcher::builder().stack(&tabs).policy(adw::ViewSwitcherPolicy::Wide).build();
+    let header = adw::HeaderBar::new();
+    header.set_title_widget(Some(&switcher));
+    let view = adw::ToolbarView::new();
+    view.add_top_bar(&header);
+    let content = gtk::Box::builder().orientation(gtk::Orientation::Vertical).css_classes(["marked"]).build();
+    content.append(&tabs);
+    view.set_content(Some(&content));
+    dialog.set_child(Some(&view));
+    dialog.present(Some(parent));
+}

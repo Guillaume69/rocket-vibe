@@ -236,6 +236,8 @@ button.edit-button.save { background: linear-gradient(135deg, #FF5FA2, #A78BFA);
 .reply-title { color: #A78BFA; font-weight: 700; font-size: 12.5px; }
 .reply-preview { color: #8F89AB; font-size: 12.5px; }
 .mention-card { padding: 4px 2px; }
+.marked { padding: 6px 14px 14px 14px; }
+.marked-row { padding: 8px 10px; }
 .completion { background: #171529; border-radius: 12px; padding: 4px; }
 .completion row { border-radius: 8px; padding: 4px 10px; }
 .completion row:selected { background: #2C2946; }

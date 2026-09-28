@@ -270,6 +270,10 @@ impl MessageList {
         });
     }
 
+    pub fn forget_reveal(&self) {
+        self.revealing.replace(None);
+    }
+
     /// A reveal is under way: the list must not jump to the bottom meanwhile.
     pub fn holds_reveal(&self) -> bool {
         self.revealing.borrow().is_some() || self.highlighted.borrow().is_some()

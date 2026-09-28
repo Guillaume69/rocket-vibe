@@ -34,6 +34,7 @@ for the Android app too and are fixed there as well.
 - [ ] Files and images dropped on the window are not sent
 - [ ] No spell check
 - [ ] "Nothing to do with this message" menu on system messages
+- [ ] Attachments go out at once: they should wait in the composer as chips (thumbnail, name, size, remove), open a preview on click, and leave with the text (*mobile*)
 
 ## Desktop integration
 
@@ -47,3 +48,8 @@ for the Android app too and are fixed there as well.
 ## macOS
 
 - [ ] The app feels laggy: plan a SwiftUI view layer over rv-core (UniFFI)
+
+## Mobile only
+
+- [ ] Sharing to the app from a cold start opens the normal view; the second share works,
+  and every later launch replays the share until the app is force-closed

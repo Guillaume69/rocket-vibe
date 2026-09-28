@@ -25,6 +25,7 @@ mod settings;
 mod sizer;
 mod smoke;
 mod spotlight;
+mod staged;
 mod style;
 mod thread;
 mod unlock;

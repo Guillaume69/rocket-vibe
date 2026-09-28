@@ -132,8 +132,12 @@ button.cta:active, button.cta:disabled { opacity: 0.75; }
 .account { border-top: 1px solid #1E1B33; padding: 10px 14px; }
 .account-name { font-weight: 800; font-size: 13.5px; }
 .account-host { color: #6E6890; font-size: 11.5px; }
-.attach-dialog { padding: 6px 18px 18px 18px; }
-.attach-thumb { background: #171529; border-radius: 10px; }
+.staged { background: #171529; border: 1.5px solid #2C2946; border-radius: 16px; padding: 8px; }
+.staged-chip { background: #0F0E1C; border: 1px solid #2C2946; border-radius: 12px; padding: 6px 4px 6px 6px; }
+.staged-chip:hover { border-color: #A78BFA; }
+.staged-thumb { background: #1E1B33; border-radius: 8px; }
+.staged-icon { font-size: 22px; }
+.staged-quality { font-size: 12.5px; color: #8F89AB; }
 button.attach-button { min-width: 28px; min-height: 24px; padding: 0 2px; color: #8F89AB; }
 .room-content:drop(active) { box-shadow: inset 0 0 0 2px #34E1D0; }
 .upload-strip { margin: 0 16px 4px 16px; }

@@ -13,7 +13,8 @@
 //!   RV_SMOKE_DRAFTS=<other room>  completes `@bo` and `:smil`, leaves a draft, opens the
 //!                          other room and comes back: the draft must be restored
 //!   RV_SMOKE_FILES=1       fetches every file attached in the room to the local cache
-//!   RV_SMOKE_UPLOAD="<path>|<caption>"  sends the file as the dialog's Send does, images reduced
+//!   RV_SMOKE_UPLOAD="<path>|<caption>"  stages the file in the composer, types the caption and
+//!                          sends (RV_SMOKE_UPLOAD_HOLD=1: left staged, for a screenshot)
 //!   RV_SMOKE_SPOTLIGHT=<query>  finds a channel, joins it and opens it
 //!   RV_SMOKE_DETAILS=profile:<user> | room | search:<text> | settings | emoji:<code>
 //!                          checks the read and opens the dialog; emoji: a custom one completes
@@ -137,17 +138,17 @@ pub fn install(window: &Rc<AppWindow>) {
             }
             if let Ok(spec) = std::env::var("RV_SMOKE_UPLOAD")
                 && let Some((path, caption)) = spec.split_once('|')
-                && let Some(session) = w.chat.session()
             {
                 let item = crate::attach::Picked { path: path.into(), name: "stripes.png".into(), temporary: false };
-                let mime = crate::attach::mime_of(&item.path);
-                let (rid, caption) = (rid.clone(), caption.to_owned());
-                let toast: std::rc::Rc<dyn Fn(String)> = std::rc::Rc::new(|text| {
-                    println!("smoke: upload refused: {text}");
-                    FAILED.store(true, Ordering::SeqCst);
-                });
+                let (chat, caption) = (w.chat.clone(), caption.to_owned());
                 glib::timeout_add_local_once(Duration::from_millis(1500), move || {
-                    crate::attach::send_all(session, rid, vec![(item, mime)], caption, true, toast)
+                    let composer = chat.composer_rc();
+                    composer.stage(vec![item]);
+                    composer.set_text(&caption);
+                    println!("smoke: staged {:?}", composer.staged_names());
+                    if std::env::var("RV_SMOKE_UPLOAD_HOLD").as_deref() != Ok("1") {
+                        composer.submit_now();
+                    }
                 });
             }
             if let Ok(query) = std::env::var("RV_SMOKE_SPOTLIGHT")

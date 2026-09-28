@@ -1,5 +1,5 @@
 //! Files on their way into a room: picked, dropped or pasted, then shown in a
-//! dialog (caption, image quality) before they are queued for upload.
+//! staged in the composer (caption, image quality) before they are queued for upload.
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use adw::prelude::*;
 use gtk::{gdk, gdk_pixbuf, gio, glib};
-use rv_core::content::human_size;
 use rv_core::session::Session;
 use rv_core::uploads::Refusal;
 
@@ -100,109 +99,6 @@ fn refusal_text(refusal: &Refusal, name: &str) -> String {
         Refusal::TooLarge { max_mb } => tf("attach.too_large", &[("name", name), ("max", max_mb)]),
         Refusal::TypeNotAllowed { mime } => tf("attach.type_refused", &[("name", name), ("type", mime)]),
     }
-}
-
-fn preview_row(item: &Picked, mime: &str) -> gtk::Widget {
-    let row = gtk::Box::builder().spacing(12).css_classes(["attach-row"]).build();
-    let thumb = gtk::Overlay::builder()
-        .width_request(56)
-        .height_request(56)
-        .overflow(gtk::Overflow::Hidden)
-        .css_classes(["attach-thumb"])
-        .build();
-    let texture = mime.starts_with("image/").then(|| gdk::Texture::from_filename(&item.path).ok()).flatten();
-    thumb.set_child(Some(&gtk::Box::new(gtk::Orientation::Vertical, 0)));
-    match texture {
-        Some(texture) => thumb.add_overlay(
-            &gtk::Picture::builder().paintable(&texture).content_fit(gtk::ContentFit::Cover).can_shrink(true).build(),
-        ),
-        None => thumb.add_overlay(&gtk::Label::builder().label("📄").css_classes(["file-icon"]).build()),
-    }
-    row.append(&thumb);
-    let names = gtk::Box::builder().orientation(gtk::Orientation::Vertical).valign(gtk::Align::Center).build();
-    names.append(&gtk::Label::builder().label(&item.name).xalign(0.0).css_classes(["file-title"]).build());
-    let size = std::fs::metadata(&item.path).map(|m| human_size(m.len() as i64)).unwrap_or_default();
-    names.append(
-        &gtk::Label::builder().label(format!("{size} · {mime}")).xalign(0.0).css_classes(["file-detail"]).build(),
-    );
-    row.append(&names);
-    row.upcast()
-}
-
-/// Asks before sending: what goes, with which caption, at which quality.
-/// Refusals and failures come back through `toast`.
-pub fn confirm(
-    parent: &impl IsA<gtk::Widget>,
-    session: Arc<Session>,
-    rid: String,
-    picked: Vec<Picked>,
-    toast: Rc<dyn Fn(String)>,
-) {
-    let items: Vec<(Picked, String)> = picked
-        .into_iter()
-        .map(|p| {
-            let mime = mime_of(&p.path);
-            (p, mime)
-        })
-        .collect();
-    let column =
-        gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(10).css_classes(["attach-dialog"]).build();
-    let list = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(8).build();
-    for (item, mime) in &items {
-        list.append(&preview_row(item, mime));
-    }
-    column.append(
-        &gtk::ScrolledWindow::builder()
-            .hscrollbar_policy(gtk::PolicyType::Never)
-            .propagate_natural_height(true)
-            .max_content_height(320)
-            .child(&list)
-            .build(),
-    );
-    let caption = gtk::Entry::builder().placeholder_text(t("attach.caption")).activates_default(true).build();
-    column.append(&caption);
-    let any_image = items.iter().any(|(_, mime)| reducible(mime));
-    let reduced = gtk::CheckButton::builder().label(t("attach.reduced")).active(true).visible(any_image).build();
-    column.append(&reduced);
-    let buttons = gtk::Box::builder().spacing(8).halign(gtk::Align::End).margin_top(4).build();
-    let cancel = gtk::Button::builder().label(t("attach.cancel")).css_classes(["flat"]).build();
-    let send = gtk::Button::builder().label(t("attach.send")).css_classes(["file-action"]).build();
-    buttons.append(&cancel);
-    buttons.append(&send);
-    column.append(&buttons);
-
-    let dialog = adw::Dialog::builder()
-        .title(crate::i18n::tn("attach.title", items.len() as i64))
-        .content_width(460)
-        .default_widget(&send)
-        .build();
-    let view = adw::ToolbarView::new();
-    view.add_top_bar(&adw::HeaderBar::new());
-    view.set_content(Some(&column));
-    dialog.set_child(Some(&view));
-    cancel.connect_clicked(glib::clone!(
-        #[weak]
-        dialog,
-        move |_| {
-            dialog.close();
-        }
-    ));
-    send.connect_clicked(glib::clone!(
-        #[weak]
-        dialog,
-        #[weak]
-        caption,
-        #[weak]
-        reduced,
-        move |_| {
-            let caption = caption.text().to_string();
-            let reduce_images = reduced.is_active() && reduced.is_visible();
-            dialog.close();
-            send_all(session.clone(), rid.clone(), items.clone(), caption, reduce_images, toast.clone());
-        }
-    ));
-    dialog.present(Some(parent));
-    caption.grab_focus();
 }
 
 pub fn send_all(

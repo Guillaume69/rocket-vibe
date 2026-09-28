@@ -604,6 +604,12 @@ impl ChatPage {
             }
         });
         let w = weak.clone();
+        self.composer.connect_send_files(move |outgoing| {
+            if let Some(this) = w.upgrade() {
+                this.send_files(outgoing);
+            }
+        });
+        let w = weak.clone();
         self.composer.connect_files(move |picked| {
             if let Some(this) = w.upgrade() {
                 this.attach_files(picked);
@@ -1103,7 +1109,14 @@ impl ChatPage {
         });
     }
 
+    /// Chosen, dropped or pasted: they wait in the composer until sent.
     fn attach_files(self: &Rc<Self>, picked: Vec<crate::attach::Picked>) {
+        if self.current_rid().is_some() {
+            self.composer.stage(picked);
+        }
+    }
+
+    fn send_files(self: &Rc<Self>, outgoing: crate::composer::Outgoing) {
         let (Some(session), Some(rid)) = (self.session(), self.current_rid()) else { return };
         let weak = Rc::downgrade(self);
         let toast: Rc<dyn Fn(String)> = Rc::new(move |text| {
@@ -1111,7 +1124,7 @@ impl ChatPage {
                 this.toast(text);
             }
         });
-        crate::attach::confirm(&self.split, session, rid, picked, toast);
+        crate::attach::send_all(session, rid, outgoing.items, outgoing.caption, !outgoing.original, toast);
     }
 
     /// Uploads of the open room not settled yet: progress, or Retry and Discard.

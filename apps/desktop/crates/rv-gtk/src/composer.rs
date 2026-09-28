@@ -39,9 +39,18 @@ pub struct Composer {
     on_voice: Handler<std::path::PathBuf>,
     on_error: Handler<String>,
     on_edit_last: Handler<()>,
+    staged: Rc<crate::staged::Staged>,
+    on_send_files: Handler<Outgoing>,
 }
 
 type MentionSource = Rc<dyn Fn(&str) -> Vec<String>>;
+
+/// Staged files on their way out: their text, and whether images keep full quality.
+pub struct Outgoing {
+    pub items: Vec<(Picked, String)>,
+    pub caption: String,
+    pub original: bool,
+}
 
 impl Composer {
     pub fn new() -> Rc<Self> {
@@ -179,6 +188,7 @@ impl Composer {
         reply_bar.append(&reply_text);
         reply_bar.append(&reply_close);
 
+        let staged = crate::staged::Staged::new();
         let root = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
             .spacing(6)
@@ -188,6 +198,7 @@ impl Composer {
             .margin_end(14)
             .build();
         root.append(&reply_bar);
+        root.append(&staged.root);
         root.append(&field);
         root.append(&record_bar);
 
@@ -213,6 +224,8 @@ impl Composer {
             on_voice: RefCell::default(),
             on_error: RefCell::default(),
             on_edit_last: RefCell::default(),
+            staged,
+            on_send_files: RefCell::default(),
         });
         let weak = Rc::downgrade(&this);
         mic.connect_clicked(move |_| {
@@ -435,6 +448,7 @@ impl Composer {
     /// Ties the composer to a room (`thread` None) or a thread: restores its
     /// draft, saves it as it changes, and offers the room's authors after `@`.
     pub fn bind(&self, session: &Arc<Session>, rid: &str, thread: Option<&str>) {
+        self.staged.clear();
         let key = match thread {
             Some(tmid) => format!("{rid}:{tmid}"),
             None => rid.to_owned(),
@@ -569,7 +583,8 @@ impl Composer {
 
     fn submit(&self) {
         let mut text = self.text();
-        if text.trim().is_empty() {
+        let files = !self.staged.is_empty();
+        if text.trim().is_empty() && !files {
             return;
         }
         self.completion.popdown();
@@ -578,9 +593,31 @@ impl Composer {
             text = rv_core::actions::quote(&link, text.trim());
             self.reply_bar.set_visible(false);
         }
+        if files {
+            let (items, original) = self.staged.take();
+            if let Some(send) = self.on_send_files.borrow().clone() {
+                send(Outgoing { items, caption: text, original });
+            }
+            return;
+        }
         if let Some(submit) = self.on_submit.borrow().clone() {
             submit(text);
         }
+    }
+
+    /// Files staged in the composer, sent with the text as their caption.
+    pub fn connect_send_files(&self, f: impl Fn(Outgoing) + 'static) {
+        self.on_send_files.replace(Some(Rc::new(f)));
+    }
+
+    /// Adds files to those waiting to be sent.
+    pub fn stage(&self, picked: Vec<Picked>) {
+        self.staged.add(picked);
+        self.grab_focus();
+    }
+
+    pub fn staged_names(&self) -> Vec<String> {
+        self.staged.names()
     }
 
     pub fn grab_focus(&self) {

@@ -9,6 +9,11 @@ section here.
 
 ### Changed
 
+- Files chosen, dropped or pasted wait in the composer as chips (thumbnail, name, type and
+  size, a button to remove them, a click to preview) and leave with the text typed as their
+  caption, instead of going through a dialog. Images are reduced unless "original quality"
+  is ticked.
+
 - The app id is now `com.rocketvibe.app`, as on mobile (desktop entry, macOS bundle, D-Bus
   name). Sessions are kept. On Linux, run `scripts/install-desktop.sh` again to replace the
   launcher entry; on macOS the keychain may ask once to let the renamed app read it.
@@ -66,6 +71,11 @@ First release: Linux, Windows and macOS, for Rocket.Chat 8 or later, at feature 
 the mobile app (see `docs/PARITY.md`).
 
 ### Changed
+
+- Files chosen, dropped or pasted wait in the composer as chips (thumbnail, name, type and
+  size, a button to remove them, a click to preview) and leave with the text typed as their
+  caption, instead of going through a dialog. Images are reduced unless "original quality"
+  is ticked.
 
 - The app id is now `com.rocketvibe.app`, as on mobile (desktop entry, macOS bundle, D-Bus
   name). Sessions are kept. On Linux, run `scripts/install-desktop.sh` again to replace the

@@ -61,6 +61,8 @@ pub async fn allowed(session: &Arc<Session>, row: &MessageRow, room: &RoomContex
         read_only: room.read_only,
         encrypted: room.encrypted,
         in_thread: room.in_thread,
+        pinned: row.pinned,
+        starred: row.starred_by(&session.info.user_id),
         now: chrono::Utc::now().timestamp_millis(),
     };
     actions::possible_actions(&ctx)
@@ -194,15 +196,29 @@ fn menu(
                 button.add_css_class("destructive");
                 button
             }
-            Action::Pin => {
-                let (s, id, h) = (session.clone(), row.id.clone(), handlers.clone());
+            Action::Pin | Action::Unpin | Action::Star | Action::Unstar => {
+                let (label, done_text) = match action {
+                    Action::Pin => ("actions.pin", "actions.pinned"),
+                    Action::Unpin => ("actions.unpin", "actions.unpinned"),
+                    Action::Star => ("actions.star", "actions.starred"),
+                    _ => ("actions.unstar", "actions.unstarred"),
+                };
+                let (s, id, h, action) = (session.clone(), row.id.clone(), handlers.clone(), *action);
                 run(
-                    t("actions.pin"),
+                    t(label),
                     Box::new(move || {
                         let (s, id, h) = (s.clone(), id.clone(), h.clone());
                         glib::spawn_future_local(async move {
-                            let done = on_tokio(async move { s.pin(&id).await }).await;
-                            (h.toast)(t(if done.is_ok() { "actions.pinned" } else { "actions.refused" }).to_owned());
+                            let done = on_tokio(async move {
+                                match action {
+                                    Action::Pin => s.pin(&id).await,
+                                    Action::Unpin => s.unpin(&id).await,
+                                    Action::Star => s.star(&id, true).await,
+                                    _ => s.star(&id, false).await,
+                                }
+                            })
+                            .await;
+                            (h.toast)(t(if done.is_ok() { done_text } else { "actions.refused" }).to_owned());
                         });
                     }),
                 )

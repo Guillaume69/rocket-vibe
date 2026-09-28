@@ -14,6 +14,7 @@ pub struct ServerSettings {
     pub deleting_allowed: bool,
     pub delete_minutes: i64,
     pub pinning_allowed: bool,
+    pub starring_allowed: bool,
     /// `Site_Url`: the only base the server recognises in a quote permalink.
     pub site_url: Option<String>,
     pub max_file_size: Option<i64>,
@@ -32,6 +33,7 @@ impl ServerSettings {
             deleting_allowed: get("Message_AllowDeleting") != Some(&Value::Bool(false)),
             delete_minutes: number("Message_AllowDeleting_BlockDeleteInMinutes"),
             pinning_allowed: get("Message_AllowPinning") != Some(&Value::Bool(false)),
+            starring_allowed: get("Message_AllowStarring") != Some(&Value::Bool(false)),
             site_url: get("Site_Url").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned),
             max_file_size: get("FileUpload_MaxFileSize").and_then(Value::as_i64).filter(|n| *n > 0),
             media_whitelist: get("FileUpload_MediaTypeWhiteList")
@@ -60,6 +62,9 @@ pub enum Action {
     Edit,
     Delete,
     Pin,
+    Unpin,
+    Star,
+    Unstar,
 }
 
 pub struct ActionContext<'a> {
@@ -74,6 +79,9 @@ pub struct ActionContext<'a> {
     pub read_only: bool,
     pub encrypted: bool,
     pub in_thread: bool,
+    pub pinned: bool,
+    /// I starred it.
+    pub starred: bool,
     pub now: i64,
 }
 
@@ -126,7 +134,10 @@ pub fn possible_actions(ctx: &ActionContext) -> Vec<Action> {
         out.push(Action::Delete);
     }
     if ctx.settings.pinning_allowed {
-        out.push(Action::Pin);
+        out.push(if ctx.pinned { Action::Unpin } else { Action::Pin });
+    }
+    if ctx.settings.starring_allowed {
+        out.push(if ctx.starred { Action::Unstar } else { Action::Star });
     }
     out
 }
@@ -228,6 +239,23 @@ pub async fn pin(rest: &RestClient, msg_id: &str) -> Result<(), RestError> {
     rest.post("chat.pinMessage", CallOptions::body(json!({"messageId": msg_id}))).await.map(|_| ())
 }
 
+pub async fn unpin(rest: &RestClient, msg_id: &str) -> Result<(), RestError> {
+    rest.post("chat.unPinMessage", CallOptions::body(json!({"messageId": msg_id}))).await.map(|_| ())
+}
+
+pub async fn star(rest: &RestClient, msg_id: &str, on: bool) -> Result<(), RestError> {
+    let endpoint = if on { "chat.starMessage" } else { "chat.unStarMessage" };
+    rest.post(endpoint, CallOptions::body(json!({"messageId": msg_id}))).await.map(|_| ())
+}
+
+/// A room's pinned messages (`chat.getPinnedMessages`) or my starred ones
+/// (`chat.getStarredMessages`), newest first, as the server sends them.
+pub async fn marked(rest: &RestClient, rid: &str, starred: bool) -> Result<Vec<Value>, RestError> {
+    let endpoint = if starred { "chat.getStarredMessages" } else { "chat.getPinnedMessages" };
+    let response = rest.get(endpoint, CallOptions::params([("roomId", rid), ("count", "50")])).await?;
+    Ok(response.get("messages").and_then(Value::as_array).cloned().unwrap_or_default())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,6 +283,8 @@ mod tests {
             read_only: false,
             encrypted: false,
             in_thread: false,
+            pinned: false,
+            starred: false,
             now: age_min * 60_000,
         }
     }
@@ -262,7 +292,7 @@ mod tests {
     #[test]
     fn settings_default_to_allowed() {
         let s = ServerSettings::from_list(&[]);
-        assert!(s.editing_allowed && s.deleting_allowed && s.pinning_allowed);
+        assert!(s.editing_allowed && s.deleting_allowed && s.pinning_allowed && s.starring_allowed);
         assert_eq!((s.edit_minutes, s.site_url, s.max_file_size), (0, None, None));
         let s = settings();
         assert_eq!(s.edit_minutes, 10);
@@ -284,7 +314,8 @@ mod tests {
                 Action::Copy,
                 Action::Edit,
                 Action::Delete,
-                Action::Pin
+                Action::Pin,
+                Action::Star
             ]
         );
         let old = possible_actions(&ctx(&s, &none, "me", 30));
@@ -356,5 +387,20 @@ mod tests {
         assert_eq!(r[0], Reaction { shortcode: ":+1:".into(), count: 2, mine: true });
         assert!(!r[1].mine);
         assert!(reactions(None, "me").is_empty());
+    }
+
+    #[test]
+    fn pinned_and_starred_offer_the_way_back() {
+        let s = settings();
+        let none: Vec<String> = vec![];
+        let mut c = ctx(&s, &none, "bob", 1);
+        c.pinned = true;
+        c.starred = true;
+        let actions = possible_actions(&c);
+        assert!(actions.contains(&Action::Unpin) && !actions.contains(&Action::Pin));
+        assert!(actions.contains(&Action::Unstar) && !actions.contains(&Action::Star));
+        let off = ServerSettings::from_list(&[json!({"_id": "Message_AllowStarring", "value": false})]);
+        let actions = possible_actions(&ctx(&off, &none, "bob", 1));
+        assert!(!actions.contains(&Action::Star) && !actions.contains(&Action::Unstar));
     }
 }

@@ -84,6 +84,15 @@ pub struct MessageRow {
     pub encrypted_raw: Option<String>,
     pub urls: Option<String>,
     pub call_id: Option<String>,
+    pub pinned: bool,
+    /// The users who starred it, by id, comma-separated.
+    pub starred: Option<String>,
+}
+
+impl MessageRow {
+    pub fn starred_by(&self, uid: &str) -> bool {
+        self.starred.as_deref().is_some_and(|ids| ids.split(',').any(|id| id == uid))
+    }
 }
 
 const SCHEMA: &str = r#"
@@ -162,6 +171,7 @@ const MIGRATIONS: &[&str] = &[
        mime TEXT NOT NULL, caption TEXT, file_id TEXT, status TEXT NOT NULL DEFAULT 'pending',
        temporary INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL)",
     "ALTER TABLE subscriptions ADD COLUMN e2e_key TEXT; ALTER TABLE rooms ADD COLUMN last_encrypted TEXT",
+    "ALTER TABLE messages ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0; ALTER TABLE messages ADD COLUMN starred TEXT",
 ];
 
 pub struct Store {
@@ -401,6 +411,11 @@ impl Store {
         self.message_rows("m.rid = ?1 AND (m.thread_id IS NULL OR m.thread_shown = 1)", rid, limit)
     }
 
+    /// These messages, in this order; the ones not stored are left out.
+    pub fn messages_by_id(&self, ids: &[String]) -> Vec<MessageRow> {
+        ids.iter().filter_map(|id| self.message_rows("m.id = ?1", id, 1).pop()).collect()
+    }
+
     /// A thread: its root, then every reply, oldest first.
     pub fn thread_messages(&self, root_id: &str) -> Vec<MessageRow> {
         self.message_rows("(m.id = ?1 OR m.thread_id = ?1)", root_id, i64::MAX)
@@ -409,7 +424,8 @@ impl Store {
     fn message_rows(&self, filter: &str, key: &str, limit: i64) -> Vec<MessageRow> {
         let sql = format!(
             "SELECT m.id, m.ts, m.text, m.author_name, m.author_id, m.system_type, m.edited_at IS NOT NULL,
-                    m.attachments, m.thread_count, o.status, m.md, m.reactions, m.thread_id, m.urls, m.call_id, m.encrypted_raw, m.rid
+                    m.attachments, m.thread_count, o.status, m.md, m.reactions, m.thread_id, m.urls, m.call_id, m.encrypted_raw, m.rid,
+                    m.pinned, m.starred
              FROM messages m LEFT JOIN outbox o ON o.id = m.id
              WHERE {filter}
              ORDER BY m.ts DESC, m.id DESC LIMIT ?2"
@@ -436,6 +452,8 @@ impl Store {
                         call_id: r.get(14)?,
                         encrypted_raw: r.get(15)?,
                         rid: r.get(16)?,
+                        pinned: r.get(17)?,
+                        starred: r.get(18)?,
                     })
                 })?
                 .collect()
@@ -466,8 +484,9 @@ impl Writer<'_> {
         self.conn
             .execute(
                 "INSERT INTO messages (id, rid, text, ts, author_id, author_name, system_type, thread_id,
-                   thread_count, thread_last, thread_shown, edited_at, attachments, reactions, encrypted_raw, updated_at, md, urls, call_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+                   thread_count, thread_last, thread_shown, edited_at, attachments, reactions, encrypted_raw, updated_at, md, urls, call_id,
+                   pinned, starred)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)
                  ON CONFLICT(id) DO UPDATE SET
                    text = CASE WHEN excluded.system_type = 'e2e' THEN COALESCE(excluded.text, messages.text) ELSE excluded.text END,
                    ts = excluded.ts,
@@ -484,12 +503,14 @@ impl Writer<'_> {
                    updated_at = excluded.updated_at,
                    md = excluded.md,
                    urls = excluded.urls,
-                   call_id = excluded.call_id
+                   call_id = excluded.call_id,
+                   pinned = excluded.pinned,
+                   starred = excluded.starred
                  WHERE excluded.updated_at >= messages.updated_at",
                 params![
                     m.id, m.rid, m.text, m.ts, m.author_id, m.author_name, m.system_type, m.thread_id,
                     m.thread_count, m.thread_last, m.thread_shown, m.edited_at, m.attachments, m.reactions,
-                    m.encrypted_raw, m.updated_at, m.md, m.urls, m.call_id
+                    m.encrypted_raw, m.updated_at, m.md, m.urls, m.call_id, m.pinned, m.starred
                 ],
             )
             .expect("upsert message");

@@ -690,7 +690,40 @@ impl Session {
     }
 
     pub async fn pin(&self, msg_id: &str) -> Result<(), RestError> {
-        actions::pin(&self.rest, msg_id).await
+        actions::pin(&self.rest, msg_id).await?;
+        self.refresh_message(msg_id).await;
+        Ok(())
+    }
+
+    pub async fn unpin(&self, msg_id: &str) -> Result<(), RestError> {
+        actions::unpin(&self.rest, msg_id).await?;
+        self.refresh_message(msg_id).await;
+        Ok(())
+    }
+
+    pub async fn star(&self, msg_id: &str, on: bool) -> Result<(), RestError> {
+        actions::star(&self.rest, msg_id, on).await?;
+        self.refresh_message(msg_id).await;
+        Ok(())
+    }
+
+    /// The server's copy of a message, stored: the stream does not always
+    /// carry a change of its pin or its stars.
+    async fn refresh_message(&self, msg_id: &str) {
+        if let Ok(response) = self.rest.get("chat.getMessage", CallOptions::params([("msgId", msg_id)])).await
+            && let Some(doc) = response.get("message")
+        {
+            self.sync.ingest_messages(std::slice::from_ref(doc));
+        }
+    }
+
+    /// A room's pinned messages, or the ones I starred there, newest first; stored as they come.
+    pub async fn marked(&self, rid: &str, starred: bool) -> Result<Vec<crate::store::MessageRow>, RestError> {
+        let docs = actions::marked(&self.rest, rid, starred).await?;
+        self.sync.ingest_messages(&docs);
+        let ids: Vec<String> =
+            docs.iter().filter_map(|d| d.get("_id").and_then(Value::as_str)).map(str::to_owned).collect();
+        Ok(self.store.messages_by_id(&ids))
     }
 
     /// Writes a server file to `dest`, through a temporary name so a failed

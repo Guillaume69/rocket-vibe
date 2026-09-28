@@ -70,6 +70,9 @@ pub struct Message {
     pub urls: Option<String>,
     /// A call message's `callId`, from its `video_conf` block (not its `_id`).
     pub call_id: Option<String>,
+    pub pinned: bool,
+    /// The users who starred it, by id, comma-separated.
+    pub starred: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -140,6 +143,12 @@ pub fn to_message(raw: &Value) -> Option<Message> {
             .and_then(Value::as_array)
             .and_then(|blocks| blocks.iter().find(|b| b.get("type").and_then(Value::as_str) == Some("video_conf")))
             .and_then(|b| string(b.get("callId"))),
+        pinned: boolean(raw.get("pinned")),
+        starred: raw
+            .get("starred")
+            .and_then(Value::as_array)
+            .map(|users| users.iter().filter_map(|u| string(u.get("_id"))).collect::<Vec<_>>().join(","))
+            .filter(|ids| !ids.is_empty()),
         updated_at: raw.get("_updatedAt").and_then(to_epoch).unwrap_or(ts),
         system_type,
     })
@@ -270,6 +279,17 @@ mod tests {
         assert_eq!(m.attachments.as_deref(), Some(r#"[{"title":"a.png"}]"#));
     }
 
+    #[test]
+    fn pin_and_stars_are_kept() {
+        let raw = json!({"_id": "m", "rid": "r", "ts": {"$date": 1}, "u": {"_id": "u"}, "pinned": true,
+            "starred": [{"_id": "a"}, {"_id": "b"}]});
+        let m = to_message(&raw).unwrap();
+        assert!(m.pinned);
+        assert_eq!(m.starred.as_deref(), Some("a,b"));
+        let bare =
+            to_message(&json!({"_id": "m", "rid": "r", "ts": {"$date": 1}, "u": {"_id": "u"}, "starred": []})).unwrap();
+        assert!(!bare.pinned && bare.starred.is_none());
+    }
     #[test]
     fn call_id_comes_from_the_block() {
         let m = to_message(&json!({"_id":"m","rid":"r","ts":1,"u":{"_id":"u"},"t":"videoconf",

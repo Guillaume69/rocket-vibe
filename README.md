@@ -26,7 +26,10 @@ bureau avec le mobile est suivie dans [`apps/desktop/docs/PARITY.md`](apps/deskt
 
 ## CI, versions et releases
 
-Deux workflows GitHub Actions, chacun ne tournant que si son app (ou lui-même) change :
+Deux workflows GitHub Actions, chacun ne tournant que si son app (ou lui-même) change. Un
+push ne fait que vérifier (typecheck, lint, tests ; fmt, clippy et tests Linux pour le
+bureau) : les paquets ne se construisent que sur un tag de release, ou à la main par
+`workflow_dispatch`.
 
 - **`mobile`** — typecheck, lint, tests, puis un APK Android de release (`expo prebuild` +
   Gradle sur le runner, jamais EAS). Il lit `google-services.json` dans le secret

@@ -19,7 +19,7 @@ for the Android app too and are fixed there as well.
 
 - [ ] Room list sections cannot be collapsed (*mobile*)
 - [x] Mouse back / forward buttons do nothing (also Alt+Left / Alt+Right): thread, list, rooms opened before
-- [ ] No button back to the latest message after scrolling up (*mobile*)
+- [~] No button back to the latest message after scrolling up (*mobile*): desktop done
 - [x] Up arrow in an empty composer does not edit my last message
 - [ ] No easy access to pinned and starred messages (*mobile*)
 

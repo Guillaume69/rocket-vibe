@@ -10,13 +10,17 @@ use rv_core::diff::diff_sorted;
 use rv_core::session::Session;
 use rv_core::store::MessageRow;
 
+use crate::i18n::t;
 use crate::rows::{self, Display, RowEvent};
 use crate::widgets::Handler;
 
 pub type Shared<T> = Rc<RefCell<Option<T>>>;
 
 pub struct MessageList {
-    pub scroll: gtk::ScrolledWindow,
+    /// The scroller, with the button back to the latest message over it.
+    pub root: gtk::Overlay,
+    scroll: gtk::ScrolledWindow,
+    jump: gtk::Button,
     view: gtk::ListView,
     store: gio::ListStore,
     rows: RefCell<Vec<Display>>,
@@ -38,8 +42,22 @@ impl MessageList {
         let view = gtk::ListView::new(Some(gtk::NoSelection::new(Some(store.clone()))), None::<gtk::ListItemFactory>);
         let scroll =
             gtk::ScrolledWindow::builder().hscrollbar_policy(gtk::PolicyType::Never).vexpand(true).child(&view).build();
+        let jump = gtk::Button::builder()
+            .icon_name("go-bottom-symbolic")
+            .tooltip_text(t("room.latest"))
+            .css_classes(["jump-latest", "circular"])
+            .halign(gtk::Align::End)
+            .valign(gtk::Align::End)
+            .margin_end(18)
+            .margin_bottom(12)
+            .visible(false)
+            .build();
+        let root = gtk::Overlay::builder().child(&scroll).build();
+        root.add_overlay(&jump);
         let this = Rc::new(MessageList {
+            root,
             scroll,
+            jump,
             view,
             store,
             rows: RefCell::default(),
@@ -90,16 +108,23 @@ impl MessageList {
         let adjustment = self.scroll.vadjustment();
         let w = weak.clone();
         adjustment.connect_value_changed(move |adj| {
-            if let Some(this) = w.upgrade()
-                && this.settling.get() == 0
-            {
+            let Some(this) = w.upgrade() else { return };
+            if this.settling.get() == 0 {
                 this.pinned.set(adj.value() + adj.page_size() >= adj.upper() - 48.0);
             }
+            this.jump.set_visible(adj.upper() - adj.value() - adj.page_size() > adj.page_size());
         });
         let w = weak.clone();
         adjustment.connect_changed(move |adj| {
             if w.upgrade().is_some_and(|this| this.pinned.get()) {
                 adj.set_value(adj.upper() - adj.page_size());
+            }
+        });
+        let w = weak.clone();
+        self.jump.connect_clicked(move |_| {
+            if let Some(this) = w.upgrade() {
+                this.pinned.set(true);
+                this.scroll_to_bottom();
             }
         });
         let w = weak;
@@ -244,6 +269,19 @@ impl MessageList {
         let object = glib::BoxedAnyObject::new(self.rows.borrow()[at].clone());
         self.store.splice(at as u32, 1, &[object]);
         Some(at as u32)
+    }
+
+    pub fn scroll_to_top(&self) {
+        self.scroll.vadjustment().set_value(0.0);
+    }
+
+    pub fn jump_shown(&self) -> bool {
+        self.jump.is_visible()
+    }
+
+    /// Clicks the button back to the latest message.
+    pub fn jump(&self) {
+        self.jump.emit_clicked();
     }
 
     pub fn is_pinned(&self) -> bool {

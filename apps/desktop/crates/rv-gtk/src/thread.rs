@@ -25,7 +25,7 @@ impl ThreadPage {
         let composer = Composer::new();
         composer.root.set_visible(!read_only);
         let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        content.append(&list.scroll);
+        content.append(&list.root);
         content.append(&composer.root);
         let view = adw::ToolbarView::new();
         view.add_top_bar(&adw::HeaderBar::new());

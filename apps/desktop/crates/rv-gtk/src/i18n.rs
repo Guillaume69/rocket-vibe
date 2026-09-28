@@ -119,6 +119,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("message.encrypted", "🔒 Message chiffré, non pris en charge", "🔒 Encrypted message, not supported"),
     ("message.image", "Image", "Image"),
     ("room.new_messages", "Nouveaux messages", "New messages"),
+    ("room.latest", "Aller aux derniers messages", "Jump to the latest messages"),
     ("room.call", "Lancer un appel vidéo", "Start a video call"),
     ("typing.one", "{a} écrit…", "{a} is typing…"),
     ("typing.two", "{a} et {b} écrivent…", "{a} and {b} are typing…"),

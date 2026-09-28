@@ -230,7 +230,7 @@ impl ChatPage {
             .build();
         e2e_banner.append(&unlock_button);
         room_content.append(&e2e_banner);
-        room_content.append(&list.scroll);
+        room_content.append(&list.root);
         room_content.append(&upload_strip);
         room_content.append(&typing_label);
         let drop = gtk::DropTarget::new(gdk::FileList::static_type(), gdk::DragAction::COPY);

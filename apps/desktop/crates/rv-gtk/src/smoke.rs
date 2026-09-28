@@ -26,6 +26,8 @@
 //!   RV_SMOKE_REENTER=1     after opening the room: back to the list, tap the same room, expect it open
 //!   RV_SMOKE_EDIT=<tag>    sends "<tag> before", presses Up, types "<tag> after" in the row
 //!                          and saves after RV_SMOKE_EDIT_SAVE_MS (default 3000)
+//!   RV_SMOKE_JUMP=1       scrolls to the top: the button back to the latest message shows, and
+//!                          a click on it (after RV_SMOKE_JUMP_CLICK_MS, default 1500) pins the list again
 //!   RV_SMOKE_NAV=<other room>  opens the other room, then mouse back and forward between the two;
 //!                          in a narrow window, back to the list and forward into the room again
 //! A failed expectation makes the process exit with status 1.
@@ -205,6 +207,10 @@ pub fn install(window: &Rc<AppWindow>) {
             {
                 let chat = w.chat.clone();
                 glib::timeout_add_local_once(Duration::from_millis(1500), move || edit_checks(chat, tag));
+            }
+            if std::env::var("RV_SMOKE_JUMP").as_deref() == Ok("1") {
+                let list = w.chat.room_list();
+                glib::timeout_add_local_once(Duration::from_millis(4000), move || jump_checks(list));
             }
             if std::env::var("RV_SMOKE_REENTER").as_deref() == Ok("1") {
                 let chat = w.chat.clone();
@@ -636,6 +642,29 @@ fn edit_checks(chat: Rc<crate::chat::ChatPage>, tag: String) {
             list.set_edit_text(&format!("{tag} after"));
             glib::timeout_add_local_once(Duration::from_millis(save_after), move || {
                 chat.play(crate::rows::RowEvent::SaveEdit, false);
+            });
+        });
+    });
+}
+
+fn jump_checks(list: Rc<crate::message_list::MessageList>) {
+    list.scroll_to_top();
+    let click_after = std::env::var("RV_SMOKE_JUMP_CLICK_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(1500);
+    glib::timeout_add_local_once(Duration::from_millis(500), move || {
+        let shown = list.jump_shown();
+        println!("smoke: jump shown={shown}");
+        if !shown {
+            FAILED.store(true, Ordering::SeqCst);
+            return;
+        }
+        glib::timeout_add_local_once(Duration::from_millis(click_after), move || {
+            list.jump();
+            glib::timeout_add_local_once(Duration::from_millis(800), move || {
+                let back = list.is_pinned() && !list.jump_shown();
+                println!("smoke: jump back={back}");
+                if !back {
+                    FAILED.store(true, Ordering::SeqCst);
+                }
             });
         });
     });

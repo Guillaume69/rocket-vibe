@@ -45,7 +45,7 @@ for the Android app too and are fixed there as well.
 - [ ] No unread count on the dock / taskbar icon
 - [ ] Notifications do not show on Windows and macOS, and nothing in the app tells why
 - [ ] Notifications: a click opens the room, not the message; inline reply only on KDE
-- [ ] Random crash on Windows, no crash log to look at
+- [~] Random crash on Windows, no crash log to look at: logs kept (previous run too) and panics recorded, shown in Settings; the crash itself needs a log from a tester
 
 ## macOS
 

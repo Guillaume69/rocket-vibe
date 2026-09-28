@@ -58,11 +58,11 @@ fn reopen(index: u32, which: u32, path: &std::ffi::OsStr, mode: &str) {
 }
 
 pub fn std_streams() {
-    let dir = gtk::glib::user_cache_dir().join("rocket-vibe-rs");
-    let _ = std::fs::create_dir_all(&dir);
+    let log = crate::crashlog::dir().join("rocket-vibe.log");
+    crate::crashlog::keep_previous(&log);
     reopen(0, STD_INPUT_HANDLE, std::ffi::OsStr::new("NUL"), "r");
     reopen(1, STD_OUTPUT_HANDLE, std::ffi::OsStr::new("NUL"), "w");
-    reopen(2, STD_ERROR_HANDLE, dir.join("rocket-vibe.log").as_os_str(), "w");
+    reopen(2, STD_ERROR_HANDLE, log.as_os_str(), "w");
     eprintln!("rocket-vibe {} started", env!("CARGO_PKG_VERSION"));
 }
 

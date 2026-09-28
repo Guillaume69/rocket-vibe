@@ -133,6 +133,25 @@ pub fn open(
     account.add(&sign_out_row);
     page.add(&account);
 
+    let about = adw::PreferencesGroup::builder().title(t("settings.about")).build();
+    about.add(&adw::ActionRow::builder().title(t("settings.version")).subtitle(env!("CARGO_PKG_VERSION")).build());
+    let logs_dir = crate::crashlog::dir();
+    let logs_row = adw::ActionRow::builder()
+        .title(t("settings.logs"))
+        .subtitle(logs_dir.to_string_lossy())
+        .subtitle_selectable(true)
+        .build();
+    let open_logs = gtk::Button::builder()
+        .icon_name("folder-open-symbolic")
+        .tooltip_text(t("settings.logs_open"))
+        .css_classes(["flat"])
+        .valign(gtk::Align::Center)
+        .build();
+    open_logs.connect_clicked(move |button| crate::cards::open_file(button, &logs_dir, || {}));
+    logs_row.add_suffix(&open_logs);
+    about.add(&logs_row);
+    page.add(&about);
+
     // What `me` says fills the rows; their handlers are connected after, so
     // filling them does not write anything back.
     let me: Rc<RefCell<Option<Me>>> = Rc::default();

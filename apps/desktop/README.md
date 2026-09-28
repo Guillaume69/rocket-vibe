@@ -35,7 +35,9 @@ menu entry and registers `rocketvibe://` links. On Windows the app is not
 single-instance (that goes through D-Bus), so a link opens a second window;
 text goes through fontconfig, which avoids a cairo abort and keeps the bundled
 fonts; warnings go to `%LOCALAPPDATA%\rocket-vibe-rs\rocket-vibe.log` when the
-app has no console.
+app has no console, the previous run's in `rocket-vibe.previous.log` beside it. On every
+system a panic is appended to `crash.log` in the same cache folder, with its backtrace;
+Settings, About shows the folder and opens it.
 
 On macOS, the DMG from CI holds `rocket-vibe.app` (Apple Silicon, macOS 15 or later),
 built by `scripts/package-macos.sh`: GTK, libadwaita, GStreamer and their libraries

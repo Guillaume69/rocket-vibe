@@ -23,6 +23,8 @@ section here.
 - Videos show as a player in place: first image and a play button (files up to 25 MB), then
   playback in the same frame with a controls bar and fullscreen; a format the system cannot
   decode says so and offers another application.
+- Settings, About: the version, and the folder of the logs with a button to open it. A panic is
+  recorded in `crash.log` with its backtrace; on Windows the previous run's log is kept.
 
 ### Fixed
 

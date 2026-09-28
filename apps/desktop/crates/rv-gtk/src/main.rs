@@ -4,6 +4,7 @@ mod attach;
 mod cards;
 mod chat;
 mod composer;
+mod crashlog;
 mod details;
 mod emoji_picker;
 mod fonts;
@@ -82,6 +83,7 @@ fn application_flags() -> gtk::gio::ApplicationFlags {
 }
 
 fn main() -> glib::ExitCode {
+    crashlog::install();
     #[cfg(target_os = "macos")]
     macos::bundle_environment();
     #[cfg(windows)]

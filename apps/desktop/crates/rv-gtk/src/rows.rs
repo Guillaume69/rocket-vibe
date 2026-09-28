@@ -178,6 +178,20 @@ pub fn open_viewer(parent: &gtk::Widget, texture: &gdk::Texture, title: &str) {
     page.set_content(Some(&picture));
     let (w, h) = (texture.width().clamp(320, 1100), texture.height().clamp(240, 800) + 48);
     let dialog = adw::Dialog::builder().title(title).content_width(w).content_height(h).child(&page).build();
+    let click = gtk::GestureClick::new();
+    let (weak, (tw, th)) = (dialog.downgrade(), (texture.width() as f64, texture.height() as f64));
+    click.connect_released(move |gesture, _, x, y| {
+        let Some(picture) = gesture.widget() else { return };
+        let (pw, ph) = (picture.width() as f64, picture.height() as f64);
+        let scale = (pw / tw).min(ph / th);
+        let (iw, ih) = (tw * scale, th * scale);
+        let (left, top) = ((pw - iw) / 2.0, (ph - ih) / 2.0);
+        let inside = x >= left && x <= left + iw && y >= top && y <= top + ih;
+        if !inside && let Some(dialog) = weak.upgrade() {
+            dialog.close();
+        }
+    });
+    picture.add_controller(click);
     dialog.present(Some(parent));
 }
 

@@ -16,6 +16,7 @@ section here.
 - Messages are edited in place, in their own row (Enter saves, Escape cancels), and Up in an
   empty composer edits my last message.
 - A button back to the latest messages shows once scrolled a screen or more above them.
+- A click beside the picture closes the image viewer.
 
 ### Fixed
 

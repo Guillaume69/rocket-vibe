@@ -241,6 +241,55 @@ pub fn spans(text: &str) -> Vec<Span> {
     out
 }
 
+/// The words of a draft worth a spell check, in chars: not in code, not part
+/// of a link, a mention, a channel or a `:shortcode:`, and without digits.
+pub fn words(text: &str) -> Vec<(usize, usize)> {
+    let c = chars(text);
+    let code: Vec<(usize, usize)> = spans(text)
+        .into_iter()
+        .filter(|s| matches!(s.style, Style::Code | Style::CodeBlock))
+        .map(|s| (s.start, s.end))
+        .collect();
+    let in_code = |i: usize| code.iter().any(|&(a, b)| i >= a && i < b);
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < c.len() {
+        if c[i].is_whitespace() {
+            i += 1;
+            continue;
+        }
+        let token_end = (i..c.len()).find(|&j| c[j].is_whitespace()).unwrap_or(c.len());
+        let token: String = c[i..token_end].iter().collect();
+        let skipped = token.contains("://")
+            || token.starts_with("www.")
+            || token.starts_with('@')
+            || token.starts_with('#')
+            || token.matches(':').count() >= 2
+            || token.contains(['/', '\\', '=', '<', '>', '`']);
+        if !skipped {
+            let mut j = i;
+            while j < token_end {
+                while j < token_end && !c[j].is_alphanumeric() {
+                    j += 1;
+                }
+                let start = j;
+                while j < token_end
+                    && (c[j].is_alphanumeric()
+                        || (matches!(c[j], '\'' | '’' | '-') && j + 1 < token_end && c[j + 1].is_alphabetic()))
+                {
+                    j += 1;
+                }
+                let word = &c[start..j];
+                if word.len() > 1 && !word.iter().any(char::is_ascii_digit) && !in_code(start) {
+                    out.push((start, j));
+                }
+            }
+        }
+        i = token_end;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -287,5 +336,12 @@ mod tests {
         assert!(s.contains(&Span { start: 28, end: 33, style: Style::Heading }));
         let s = spans("`*not bold*`");
         assert!(!s.iter().any(|x| x.style == Style::Bold));
+    }
+
+    #[test]
+    fn words_worth_checking() {
+        let text = "Salut l'équipe, voyez https://x.fr @bob #général :smile: `codé` v2 à-propos *gras*";
+        let found: Vec<String> = words(text).iter().map(|&(a, b)| text.chars().skip(a).take(b - a).collect()).collect();
+        assert_eq!(found, ["Salut", "l'équipe", "voyez", "à-propos", "gras"]);
     }
 }

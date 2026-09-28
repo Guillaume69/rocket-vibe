@@ -27,6 +27,9 @@ const path = require('path');
 
 const CIBLE = 'NotificationService';
 const SOURCE_SWIFT = path.join(__dirname, 'ios-notification-service', `${CIBLE}.swift`);
+// Session et langue lues au trousseau : même source que la réponse depuis la
+// notification (modules/reponse-notif), compilée dans les deux cibles.
+const SOURCE_SESSION = path.join(__dirname, '..', 'modules', 'reponse-notif', 'ios', 'SessionPush.swift');
 const CIBLE_IOS_MIN = '16.4';
 
 const PODS_MODULAIRES = [
@@ -119,14 +122,14 @@ function ajouterCible(projet, { bundleId, equipe, version, build }) {
   objets.PBXContainerItemProxy = objets.PBXContainerItemProxy || {};
 
   const groupe = projet.addPbxGroup(
-    [`${CIBLE}.swift`, `${CIBLE}-Info.plist`, `${CIBLE}.entitlements`],
+    [`${CIBLE}.swift`, 'SessionPush.swift', `${CIBLE}-Info.plist`, `${CIBLE}.entitlements`],
     CIBLE,
     CIBLE,
   );
   projet.addToPbxGroup(groupe.uuid, projet.getFirstProject().firstProject.mainGroup);
 
   const cible = projet.addTarget(CIBLE, 'app_extension', CIBLE, `${bundleId}.${CIBLE}`);
-  projet.addBuildPhase([`${CIBLE}.swift`], 'PBXSourcesBuildPhase', 'Sources', cible.uuid);
+  projet.addBuildPhase([`${CIBLE}.swift`, 'SessionPush.swift'], 'PBXSourcesBuildPhase', 'Sources', cible.uuid);
   projet.addBuildPhase([], 'PBXResourcesBuildPhase', 'Resources', cible.uuid);
   projet.addBuildPhase([], 'PBXFrameworksBuildPhase', 'Frameworks', cible.uuid);
 
@@ -181,6 +184,7 @@ function withIosPush(config) {
       const dossier = path.join(config.modRequest.platformProjectRoot, CIBLE);
       fs.mkdirSync(dossier, { recursive: true });
       fs.copyFileSync(SOURCE_SWIFT, path.join(dossier, `${CIBLE}.swift`));
+      fs.copyFileSync(SOURCE_SESSION, path.join(dossier, 'SessionPush.swift'));
       fs.writeFileSync(path.join(dossier, `${CIBLE}-Info.plist`), INFO_PLIST_EXTENSION);
       fs.writeFileSync(
         path.join(dossier, `${CIBLE}.entitlements`),

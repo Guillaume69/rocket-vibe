@@ -1,5 +1,4 @@
 import Foundation
-import Security
 import UserNotifications
 
 /**
@@ -150,85 +149,6 @@ private enum Chaines {
   static func messageChiffre(_ langue: String) -> String { langue == "fr" ? "Message chiffré" : "Encrypted message" }
 }
 
-// MARK: - Trousseau (format d'expo-secure-store 57)
-
-/// expo-secure-store range chaque clé en kSecClassGenericPassword, service
-/// `app:no-auth`, compte = la clé en UTF-8. Le groupe d'accès partagé est posé
-/// par plugins/with-ios-push.js sur l'app ET sur l'extension.
-private let serviceSecureStore = "app:no-auth"
-
-private func lireTrousseau(_ cle: String) -> String? {
-  let requete: [String: Any] = [
-    kSecClass as String: kSecClassGenericPassword,
-    kSecAttrService as String: serviceSecureStore,
-    kSecAttrAccount as String: Data(cle.utf8),
-    kSecMatchLimit as String: kSecMatchLimitOne,
-    kSecReturnData as String: true,
-  ]
-  var resultat: CFTypeRef?
-  guard SecItemCopyMatching(requete as CFDictionary, &resultat) == errSecSuccess,
-    let donnees = resultat as? Data
-  else { return nil }
-  return String(data: donnees, encoding: .utf8)
-}
-
-private func clesTrousseau() -> [String] {
-  let requete: [String: Any] = [
-    kSecClass as String: kSecClassGenericPassword,
-    kSecAttrService as String: serviceSecureStore,
-    kSecMatchLimit as String: kSecMatchLimitAll,
-    kSecReturnAttributes as String: true,
-  ]
-  var resultat: CFTypeRef?
-  guard SecItemCopyMatching(requete as CFDictionary, &resultat) == errSecSuccess,
-    let elements = resultat as? [[String: Any]]
-  else { return [] }
-  return elements.compactMap { element in
-    (element[kSecAttrAccount as String] as? Data).flatMap { String(data: $0, encoding: .utf8) }
-  }
-}
-
-private func languePreferee() -> String {
-  if let choisie = lireTrousseau("langue-preferee"), choisie == "fr" || choisie == "en" {
-    return choisie
-  }
-  return Locale.preferredLanguages.first?.hasPrefix("fr") == true ? "fr" : "en"
-}
-
-private struct Session {
-  let baseUrl: String
-  let userId: String
-  let authToken: String
-}
-
-/// Même règle que `origineDe` du Kotlin et de lib/origine.ts : scheme +
-/// autorité, en minuscules, userinfo compris.
-private func origineDe(_ url: String) -> String? {
-  guard let regex = try? NSRegularExpression(pattern: "^(https?://[^/?#]+)", options: .caseInsensitive),
-    let trouve = regex.firstMatch(in: url, range: NSRange(url.startIndex..., in: url)),
-    let plage = Range(trouve.range(at: 1), in: url)
-  else { return nil }
-  return url[plage].lowercased()
-}
-
-/// La session dont le baseUrl a la MÊME ORIGINE que le host du push. Le host
-/// vient du payload, que quiconque connaît le jeton peut forger : jamais de
-/// repli sur une autre session, sinon le jeton partirait vers son domaine.
-private func lireSession(host: String) -> Session? {
-  guard let attendue = origineDe(host) else { return nil }
-  for cle in clesTrousseau() where cle.hasPrefix("session-") {
-    guard let brut = lireTrousseau(cle),
-      let objet = objetJson(brut),
-      let baseUrl = objet["baseUrl"] as? String,
-      let userId = objet["userId"] as? String, !userId.isEmpty,
-      let authToken = objet["authToken"] as? String, !authToken.isEmpty,
-      origineDe(baseUrl) == attendue
-    else { continue }
-    return Session(baseUrl: baseUrl, userId: userId, authToken: authToken)
-  }
-  return nil
-}
-
 // MARK: - push.get
 
 private func recupererContenu(
@@ -261,17 +181,4 @@ private func recupererContenu(
   }
   tache.resume()
   return tache
-}
-
-private func objetJson(_ texte: String) -> [String: Any]? {
-  guard let donnees = texte.data(using: .utf8) else { return nil }
-  return (try? JSONSerialization.jsonObject(with: donnees)) as? [String: Any]
-}
-
-private extension String {
-  func trimmingSuffix(_ suffixe: Character) -> String {
-    var resultat = self
-    while resultat.last == suffixe { resultat.removeLast() }
-    return resultat
-  }
 }

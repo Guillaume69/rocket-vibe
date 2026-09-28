@@ -19,6 +19,7 @@ section here.
   the messages and the send button past the right edge.
 - The play badge on video cards is a circle, the emoji button lines up with the microphone,
   and message times are no longer cut at the top.
+- System messages, calls and locked encrypted messages no longer open an empty actions menu.
 
 ## [0.1.0] - 2026-09-27
 

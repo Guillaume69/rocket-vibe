@@ -480,18 +480,24 @@ pub fn message_widget(d: &Display, my_id: &str, session: Option<&Arc<Session>>, 
         .valign(gtk::Align::Start)
         .tooltip_text(t("actions.more"))
         .build();
-    let (on_menu, menu_row) = (on_event.clone(), row.clone());
-    more.connect_clicked(move |button| {
-        let (w, h) = (button.width() as f64, button.height() as f64);
-        on_menu(RowEvent::Menu { row: Box::new(menu_row.clone()), anchor: button.clone().upcast(), x: w / 2.0, y: h });
-    });
-    let right_click = gtk::GestureClick::builder().button(gdk::BUTTON_SECONDARY).build();
-    let (on_menu, menu_row, target) = (on_event, row.clone(), outer.clone());
-    right_click.connect_pressed(move |gesture, _, x, y| {
-        gesture.set_state(gtk::EventSequenceState::Claimed);
-        on_menu(RowEvent::Menu { row: Box::new(menu_row.clone()), anchor: target.clone().upcast(), x, y });
-    });
-    outer.add_controller(right_click);
+    if rv_core::actions::has_actions(row.system_type.as_deref(), row.text.as_deref()) {
+        let (on_menu, menu_row) = (on_event.clone(), row.clone());
+        more.connect_clicked(move |button| {
+            let (w, h) = (button.width() as f64, button.height() as f64);
+            let anchor = button.clone().upcast();
+            on_menu(RowEvent::Menu { row: Box::new(menu_row.clone()), anchor, x: w / 2.0, y: h });
+        });
+        let right_click = gtk::GestureClick::builder().button(gdk::BUTTON_SECONDARY).build();
+        let (on_menu, menu_row, target) = (on_event, row.clone(), outer.clone());
+        right_click.connect_pressed(move |gesture, _, x, y| {
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+            on_menu(RowEvent::Menu { row: Box::new(menu_row.clone()), anchor: target.clone().upcast(), x, y });
+        });
+        outer.add_controller(right_click);
+    } else {
+        // Keeps its room, so the column is as wide as its neighbours'.
+        more.set_child_visible(false);
+    }
     line.append(&column);
     line.append(&more);
     outer.add_css_class("message");

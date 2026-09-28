@@ -81,6 +81,10 @@ pub fn open(
             now,
         };
         let allowed = actions::possible_actions(&ctx);
+        if allowed.is_empty() {
+            popover_.unparent();
+            return;
+        }
         popover_.set_child(Some(&menu(&popover_, &allowed, &session, &row, &room, &handlers)));
         popover_.popup();
     });
@@ -95,17 +99,6 @@ fn menu(
     handlers: &Rc<Handlers>,
 ) -> gtk::Widget {
     let column = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(2).build();
-    if allowed.is_empty() {
-        column.append(
-            &gtk::Label::builder()
-                .label(t("actions.none"))
-                .css_classes(["dim-label"])
-                .margin_top(8)
-                .margin_bottom(8)
-                .build(),
-        );
-        return column.upcast();
-    }
     let run = |label: &str, work: Box<dyn Fn()>| {
         let button = menu_button(label);
         let p = popover.clone();

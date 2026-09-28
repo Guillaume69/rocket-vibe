@@ -267,7 +267,6 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("actions.pin", "Épingler", "Pin"),
     ("actions.save", "Enregistrer", "Save"),
     ("actions.cancel", "Annuler", "Cancel"),
-    ("actions.none", "Rien à faire sur ce message.", "Nothing to do with this message."),
     ("actions.refused", "Action refusée.", "Action refused."),
     ("actions.copied", "Copié", "Copied"),
     ("actions.pinned", "Message épinglé", "Message pinned"),

@@ -81,9 +81,18 @@ fn within(ctx: &ActionContext, minutes: i64) -> bool {
     minutes <= 0 || ctx.now - ctx.ts <= minutes * 60_000
 }
 
+/// System messages (joins, calls…) and encrypted ones not read yet offer nothing.
+pub fn has_actions(system_type: Option<&str>, text: Option<&str>) -> bool {
+    match system_type {
+        None => true,
+        Some("e2e") => text.is_some(),
+        Some(_) => false,
+    }
+}
+
 pub fn possible_actions(ctx: &ActionContext) -> Vec<Action> {
     let readable_encrypted = ctx.system_type == Some("e2e") && ctx.text.is_some();
-    if ctx.system_type.is_some() && !readable_encrypted {
+    if !has_actions(ctx.system_type, ctx.text) {
         return Vec::new();
     }
     let mut out = Vec::new();
@@ -282,6 +291,15 @@ mod tests {
         assert!(!old.contains(&Action::Edit) && old.contains(&Action::Delete));
         let bypass = vec!["bypass-time-limit-edit-and-delete".to_owned()];
         assert!(possible_actions(&ctx(&s, &bypass, "me", 30)).contains(&Action::Edit));
+    }
+
+    #[test]
+    fn system_messages_have_no_actions() {
+        assert!(has_actions(None, Some("hi")));
+        assert!(!has_actions(Some("uj"), None));
+        assert!(!has_actions(Some("videoconf"), None));
+        assert!(!has_actions(Some("e2e"), None));
+        assert!(has_actions(Some("e2e"), Some("clear")));
     }
 
     #[test]

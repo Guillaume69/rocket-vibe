@@ -35,7 +35,7 @@ for the Android app too and are fixed there as well.
 - [ ] Files and images dropped on the window are not sent
 - [ ] No spell check
 - [ ] No formatting toolbar: a WYSIWYG composer with bold, italic, strike, heading, link, code, quote and lists
-- [ ] "Nothing to do with this message" menu on system messages
+- [x] "Nothing to do with this message" menu on system messages (no menu where nothing is possible)
 - [ ] Attachments go out at once: they should wait in the composer as chips (thumbnail, name, size, remove), open a preview on click, and leave with the text (*mobile*)
 
 ## Desktop integration

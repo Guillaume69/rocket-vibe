@@ -207,7 +207,9 @@ button.file-action, button.call-join { background: linear-gradient(135deg, #FF5F
 .link-description { font-size: 13px; color: #BDB7D6; }
 .preview-image { background: #0D0B1A; border-radius: 10px; }
 .call-title { font-weight: 800; }
-.video-player { border-radius: 10px; }
+.video-frame { background: #000000; border-radius: 12px; }
+.video-bar { background: linear-gradient(0deg, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0)); padding: 18px 8px 4px 8px; color: #FFFFFF; }
+.video-bar button { color: #FFFFFF; }
 .image-attachment { background: #171529; border-radius: 10px; }
 .message .row-more { opacity: 0; min-height: 24px; min-width: 28px; padding: 0; color: #8F89AB; transition: opacity 120ms; }
 .message:hover .row-more { opacity: 1; }

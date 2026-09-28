@@ -259,6 +259,13 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("file.loading", "Téléchargement…", "Downloading…"),
     ("file.failed", "Échec du téléchargement", "Download failed"),
     ("file.no_app", "Aucune application pour ouvrir ce fichier", "No application to open this file"),
+    ("video.fullscreen", "Plein écran", "Fullscreen"),
+    (
+        "video.unsupported",
+        "Format non lisible ici : ouvre-la dans une autre application",
+        "Can't play this format here: open it in another application",
+    ),
+    ("video.open_elsewhere", "Ouvrir dans une autre application", "Open in another application"),
     ("file.saved", "Enregistré dans Téléchargements : {name}", "Saved to Downloads: {name}"),
     ("actions.more", "Actions", "Actions"),
     ("actions.reply", "Répondre", "Reply"),

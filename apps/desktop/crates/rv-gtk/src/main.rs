@@ -25,6 +25,7 @@ mod spotlight;
 mod style;
 mod thread;
 mod unlock;
+mod video;
 mod widgets;
 mod window;
 #[cfg(windows)]

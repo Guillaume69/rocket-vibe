@@ -131,21 +131,18 @@ pub fn open_file(widget: &impl IsA<gtk::Widget>, path: &std::path::Path, failed:
     });
 }
 
-fn player(path: &std::path::Path, kind: FileKind) -> gtk::Widget {
+fn audio_player(path: &std::path::Path) -> gtk::Widget {
     let stream = gtk::MediaFile::for_filename(path);
-    if kind == FileKind::Video {
-        let video = gtk::Video::builder().media_stream(&stream).autoplay(true).height_request(240).build();
-        video.add_css_class("video-player");
-        video.upcast()
-    } else {
-        stream.play();
-        gtk::MediaControls::new(Some(&stream)).upcast()
-    }
+    stream.play();
+    gtk::MediaControls::new(Some(&stream)).upcast()
 }
 
 /// A file: its name and size, and what can be done with it. Audio and video
 /// play in place; anything else opens in the desktop's default application.
 pub fn file(session: &Arc<Session>, f: &FileAttachment) -> gtk::Widget {
+    if f.kind == FileKind::Video {
+        return crate::video::card(session, f);
+    }
     let card =
         gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(6).css_classes(["file-card"]).build();
     let top = gtk::Box::new(gtk::Orientation::Horizontal, 10);
@@ -229,7 +226,7 @@ pub fn file(session: &Arc<Session>, f: &FileAttachment) -> gtk::Widget {
                 (FileKind::Other, _) => open_file(&button, &path, move || status.set_label(t("file.no_app"))),
                 (_, Some(card)) => {
                     button.set_visible(false);
-                    card.append(&player(&path, kind));
+                    card.append(&audio_player(&path));
                 }
                 _ => {}
             }

@@ -32,7 +32,7 @@ for the Android app too and are fixed there as well.
 - [x] The image viewer does not close on a click outside the image
 - [x] Videos: no poster, no controls, no fullscreen; the player pops in on play
 - [x] Files: no Download button; Open fails on Linux outside GNOME (falls back to GIO, then xdg-open)
-- [ ] Files and images dropped on the window are not sent
+- [~] Files and images dropped on the window are not sent: the composer took dropped files as text, and pictures dragged from a browser were refused; fixed, to confirm by hand (no way to synthesize a drop headless)
 - [ ] No spell check
 - [ ] No formatting toolbar: a WYSIWYG composer with bold, italic, strike, heading, link, code, quote and lists
 - [x] "Nothing to do with this message" menu on system messages (no menu where nothing is possible)

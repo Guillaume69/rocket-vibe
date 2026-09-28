@@ -40,6 +40,9 @@ section here.
   rows off (the section titles were not counted).
 - Open on a file did nothing on Linux desktops without the GNOME portal: it falls back to the
   default application, then `xdg-open`, and says so when nothing can open it.
+- Files dropped on the message field were inserted as text instead of being attached, and
+  pictures dragged from a web page were refused; both are now attached, and the room is
+  outlined while something is dragged over it.
 
 - In a narrow window, images, link previews and file cards shrink to fit instead of pushing
   the messages and the send button past the right edge.

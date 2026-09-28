@@ -281,7 +281,13 @@ impl ChatPage {
         room_content.append(&list.root);
         room_content.append(&upload_strip);
         room_content.append(&typing_label);
-        let drop = gtk::DropTarget::new(gdk::FileList::static_type(), gdk::DragAction::COPY);
+        // Capture phase: the composer's text view would otherwise take dropped files as text.
+        let drop = gtk::DropTarget::builder()
+            .actions(gdk::DragAction::COPY)
+            .propagation_phase(gtk::PropagationPhase::Capture)
+            .build();
+        drop.set_types(&[gdk::FileList::static_type(), gdk::Texture::static_type()]);
+        room_content.add_css_class("room-content");
         room_content.add_controller(drop.clone());
         room_content.append(&composer.root);
         room_content.append(&read_only_label);
@@ -445,8 +451,14 @@ impl ChatPage {
         });
         let weak = Rc::downgrade(&this);
         drop.connect_drop(move |_, value, _, _| {
-            let (Some(this), Ok(list)) = (weak.upgrade(), value.get::<gdk::FileList>()) else { return false };
-            let picked = crate::attach::from_files(&list.files());
+            let Some(this) = weak.upgrade() else { return false };
+            let picked = if let Ok(list) = value.get::<gdk::FileList>() {
+                crate::attach::from_files(&list.files())
+            } else if let Ok(texture) = value.get::<gdk::Texture>() {
+                crate::attach::save_texture(&texture).into_iter().collect()
+            } else {
+                Vec::new()
+            };
             let droppable = !picked.is_empty() && this.current.borrow().as_ref().is_some_and(|o| !o.read_only);
             if droppable {
                 this.attach_files(picked);

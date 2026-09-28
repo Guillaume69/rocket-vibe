@@ -135,6 +135,7 @@ button.cta:active, button.cta:disabled { opacity: 0.75; }
 .attach-dialog { padding: 6px 18px 18px 18px; }
 .attach-thumb { background: #171529; border-radius: 10px; }
 button.attach-button { min-width: 28px; min-height: 24px; padding: 0 2px; color: #8F89AB; }
+.room-content:drop(active) { box-shadow: inset 0 0 0 2px #34E1D0; }
 .upload-strip { margin: 0 16px 4px 16px; }
 .upload-row { background: #171529; border: 1px solid #2C2946; border-radius: 12px; padding: 6px 10px; }
 .upload-row.failed { border-color: #FF7A8A; }

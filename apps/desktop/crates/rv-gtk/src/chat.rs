@@ -401,7 +401,7 @@ impl ChatPage {
         let weak = Rc::downgrade(&this);
         rooms_view.connect_activate(move |_, position| {
             let Some(this) = weak.upgrade() else { return };
-            let rid = this.rooms.borrow().get(position as usize).map(|r| r.rid.clone());
+            let rid = this.slots.borrow().get(position as usize).cloned().flatten();
             if let Some(rid) = rid {
                 this.open_room(&rid);
             }

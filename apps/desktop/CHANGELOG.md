@@ -20,6 +20,9 @@ section here.
 
 ### Fixed
 
+- Opening a room with Enter or a double click in the room list opened the room one or two
+  rows off (the section titles were not counted).
+
 - In a narrow window, images, link previews and file cards shrink to fit instead of pushing
   the messages and the send button past the right edge.
 - The play badge on video cards is a circle, the emoji button lines up with the microphone,

@@ -49,7 +49,7 @@ for the Android app too and are fixed there as well.
 
 ## macOS
 
-- [ ] The app feels laggy: plan a SwiftUI view layer over rv-core (UniFFI)
+- [x] The app feels laggy: plan a SwiftUI view layer over rv-core (UniFFI): `docs/MACOS-SWIFTUI.md` (step 0: measure the GL renderer first; the cairo software renderer is forced today)
 
 ## Mobile only
 

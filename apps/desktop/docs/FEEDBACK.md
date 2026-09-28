@@ -55,3 +55,10 @@ for the Android app too and are fixed there as well.
 
 - [x] Sharing to the app from a cold start opens the normal view; the second share works,
   and every later launch replays the share until the app is force-closed
+
+## Found while fixing
+
+- [x] Enter or double click in the room list opened the wrong room (section titles not counted)
+- [x] Clicking a notification on a freedesktop server aborted the app (RefCell borrow held across the room opening)
+- [ ] The actions menu never loads the user's permissions (`permissions.listAll` and the room's roles): everyone is offered Pin, moderators are not offered Edit or Delete on others' messages; the server refuses and a toast says so
+- [ ] Videos in a format the system cannot decode (H.264 on a Linux without its codec) now say so; the Linux notes could name the packages

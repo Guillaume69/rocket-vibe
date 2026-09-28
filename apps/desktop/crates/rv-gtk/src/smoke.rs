@@ -28,6 +28,8 @@
 //!                          and saves after RV_SMOKE_EDIT_SAVE_MS (default 3000)
 //!   RV_SMOKE_JUMP=1       scrolls to the top: the button back to the latest message shows, and
 //!                          a click on it (after RV_SMOKE_JUMP_CLICK_MS, default 1500) pins the list again
+//!   RV_SMOKE_FOLD=1       folds the channels section: its rooms leave the list, then come back
+//!                          (`keep`: left folded, for a screenshot)
 //!   RV_SMOKE_NAV=<other room>  opens the other room, then mouse back and forward between the two;
 //!                          in a narrow window, back to the list and forward into the room again
 //! A failed expectation makes the process exit with status 1.
@@ -211,6 +213,10 @@ pub fn install(window: &Rc<AppWindow>) {
             if std::env::var("RV_SMOKE_JUMP").as_deref() == Ok("1") {
                 let list = w.chat.room_list();
                 glib::timeout_add_local_once(Duration::from_millis(4000), move || jump_checks(list));
+            }
+            if matches!(std::env::var("RV_SMOKE_FOLD").as_deref(), Ok("1" | "keep")) {
+                let chat = w.chat.clone();
+                glib::timeout_add_local_once(Duration::from_millis(2500), move || fold_checks(chat));
             }
             if std::env::var("RV_SMOKE_REENTER").as_deref() == Ok("1") {
                 let chat = w.chat.clone();
@@ -668,4 +674,19 @@ fn jump_checks(list: Rc<crate::message_list::MessageList>) {
             });
         });
     });
+}
+
+fn fold_checks(chat: Rc<crate::chat::ChatPage>) {
+    let before = chat.listed_rows();
+    chat.toggle_section(rv_core::rooms::Section::Channels);
+    let folded = chat.listed_rows();
+    if std::env::var("RV_SMOKE_FOLD").as_deref() == Ok("keep") {
+        return;
+    }
+    chat.toggle_section(rv_core::rooms::Section::Channels);
+    let back = chat.listed_rows();
+    println!("smoke: fold before={before} folded={folded} back={back}");
+    if folded >= before || back != before {
+        FAILED.store(true, Ordering::SeqCst);
+    }
 }

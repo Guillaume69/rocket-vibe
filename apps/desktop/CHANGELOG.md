@@ -17,6 +17,8 @@ section here.
   empty composer edits my last message.
 - A button back to the latest messages shows once scrolled a screen or more above them.
 - A click beside the picture closes the image viewer.
+- Room list sections fold and unfold with a click on their title (or Enter); folded, they show
+  how many rooms they hold, and stay folded at the next launch.
 
 ### Fixed
 

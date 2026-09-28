@@ -17,7 +17,7 @@ for the Android app too and are fixed there as well.
 
 ## Navigation
 
-- [ ] Room list sections cannot be collapsed (*mobile*)
+- [~] Room list sections cannot be collapsed (*mobile*): desktop done, remembered across launches
 - [x] Mouse back / forward buttons do nothing (also Alt+Left / Alt+Right): thread, list, rooms opened before
 - [~] No button back to the latest message after scrolling up (*mobile*): desktop done
 - [x] Up arrow in an empty composer does not edit my last message

@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use adw::prelude::*;
 use gtk::{gdk, gio, glib};
+use rv_core::rooms::Section;
 use rv_core::session::{Connection, Session};
 use rv_core::store::{Change, RoomRow};
 use rv_core::sync::HISTORY_PAGE;
@@ -34,8 +35,42 @@ type Callback<T> = RefCell<Vec<Box<dyn Fn(T)>>>;
 
 /// A row of the room list: a section title, or a room.
 enum RoomItem {
-    Header(&'static str),
+    Header { section: Section, title: &'static str, collapsed: bool, count: usize },
     Room(Box<RoomRow>),
+}
+
+/// A section title that folds its rooms away; folded, it tells how many there are.
+fn section_header(title: &str, collapsed: bool, count: usize) -> gtk::Box {
+    let header = gtk::Box::builder().spacing(4).css_classes(["section-header"]).build();
+    header.set_cursor(gdk::Cursor::from_name("pointer", None).as_ref());
+    let chevron = gtk::Image::from_icon_name(if collapsed { "pan-end-symbolic" } else { "pan-down-symbolic" });
+    chevron.add_css_class("section-chevron");
+    header.append(&chevron);
+    header.append(&label(title, &["section-title"]));
+    if collapsed {
+        header.append(&label(&count.to_string(), &["section-count"]));
+    }
+    header
+}
+
+fn collapsed_file() -> std::path::PathBuf {
+    glib::user_config_dir().join("rocket-vibe-rs").join("collapsed-sections")
+}
+
+fn section_key(section: Section) -> &'static str {
+    match section {
+        Section::Unread => "unread",
+        Section::Channels => "channels",
+        Section::Direct => "direct",
+    }
+}
+
+fn load_collapsed() -> Vec<Section> {
+    let saved = std::fs::read_to_string(collapsed_file()).unwrap_or_default();
+    [Section::Unread, Section::Channels, Section::Direct]
+        .into_iter()
+        .filter(|s| saved.lines().any(|l| l == section_key(*s)))
+        .collect()
 }
 
 pub struct ChatPage {
@@ -56,6 +91,8 @@ pub struct ChatPage {
     rooms: RefCell<Vec<RoomRow>>,
     /// The rid shown at each position of the list; None for a section title.
     slots: RefCell<Vec<Option<String>>>,
+    /// Sections folded in the room list, remembered across launches.
+    collapsed: RefCell<Vec<Section>>,
     on_unread: Callback<usize>,
     suppress_selection: Cell<bool>,
     content_page: adw::NavigationPage,
@@ -93,15 +130,26 @@ impl ChatPage {
         let session: Rc<RefCell<Option<Arc<Session>>>> = Rc::default();
         let room_factory = gtk::SignalListItemFactory::new();
         let shared = session.clone();
+        let toggle_section: Rc<Handler<Section>> = Rc::default();
+        let toggler = toggle_section.clone();
         room_factory.connect_bind(move |_, item| {
             let item = item.downcast_ref::<gtk::ListItem>().expect("list item");
             let object = item.item().and_downcast::<glib::BoxedAnyObject>().expect("room");
             let entry = object.borrow::<RoomItem>();
             match &*entry {
-                RoomItem::Header(title) => {
+                RoomItem::Header { section, title, collapsed, count } => {
                     item.set_selectable(false);
-                    item.set_activatable(false);
-                    item.set_child(Some(&label(title, &["section-header"])));
+                    item.set_activatable(true);
+                    let header = section_header(title, *collapsed, *count);
+                    let (toggler, section) = (toggler.clone(), *section);
+                    let click = gtk::GestureClick::new();
+                    click.connect_released(move |_, _, _, _| {
+                        if let Some(toggle) = toggler.borrow().clone() {
+                            toggle(section);
+                        }
+                    });
+                    header.add_controller(click);
+                    item.set_child(Some(&header));
                 }
                 RoomItem::Room(room) => {
                     item.set_selectable(true);
@@ -281,6 +329,7 @@ impl ChatPage {
             rooms_selection,
             rooms: RefCell::default(),
             slots: RefCell::default(),
+            collapsed: RefCell::new(load_collapsed()),
             on_unread: RefCell::default(),
             suppress_selection: Cell::new(false),
             content_page,
@@ -307,6 +356,12 @@ impl ChatPage {
             history_at: Cell::new(0),
             walking: Cell::new(false),
         });
+        let weak = Rc::downgrade(&this);
+        toggle_section.replace(Some(Rc::new(move |section| {
+            if let Some(this) = weak.upgrade() {
+                this.toggle_section(section);
+            }
+        })));
         this.wire(&status_button, &logout);
         let weak = Rc::downgrade(&this);
         unlock_button.connect_clicked(move |_| {
@@ -404,6 +459,15 @@ impl ChatPage {
             let rid = this.slots.borrow().get(position as usize).cloned().flatten();
             if let Some(rid) = rid {
                 this.open_room(&rid);
+                return;
+            }
+            let object = this.rooms_store.item(position).and_downcast::<glib::BoxedAnyObject>();
+            let section = object.and_then(|o| match &*o.borrow::<RoomItem>() {
+                RoomItem::Header { section, .. } => Some(*section),
+                RoomItem::Room(_) => None,
+            });
+            if let Some(section) = section {
+                this.toggle_section(section);
             }
         });
         this
@@ -1106,14 +1170,19 @@ impl ChatPage {
             let mut objects = Vec::new();
             let mut slots = Vec::new();
             for (section, members) in sections {
+                let collapsed = titled && self.collapsed.borrow().contains(&section);
                 if titled {
                     let title = match section {
-                        rv_core::rooms::Section::Unread => t("rooms.section_unread"),
-                        rv_core::rooms::Section::Channels => t("rooms.section_channels"),
-                        rv_core::rooms::Section::Direct => t("rooms.section_direct"),
+                        Section::Unread => t("rooms.section_unread"),
+                        Section::Channels => t("rooms.section_channels"),
+                        Section::Direct => t("rooms.section_direct"),
                     };
-                    objects.push(glib::BoxedAnyObject::new(RoomItem::Header(title)));
+                    let count = members.len();
+                    objects.push(glib::BoxedAnyObject::new(RoomItem::Header { section, title, collapsed, count }));
                     slots.push(None);
+                }
+                if collapsed {
+                    continue;
                 }
                 for room in members {
                     slots.push(Some(room.rid.clone()));
@@ -1145,6 +1214,25 @@ impl ChatPage {
                 f(());
             }
         }
+    }
+
+    pub fn toggle_section(&self, section: Section) {
+        {
+            let mut collapsed = self.collapsed.borrow_mut();
+            match collapsed.iter().position(|s| *s == section) {
+                Some(at) => {
+                    collapsed.remove(at);
+                }
+                None => collapsed.push(section),
+            }
+            let saved: Vec<&str> = collapsed.iter().map(|s| section_key(*s)).collect();
+            let file = collapsed_file();
+            if let Some(dir) = file.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = std::fs::write(file, saved.join("\n"));
+        }
+        self.load_rooms(true);
     }
 
     fn select_current(&self, highlight: bool) {
@@ -1472,6 +1560,11 @@ impl ChatPage {
 
     pub fn message_texts(&self) -> Vec<String> {
         self.list.texts()
+    }
+
+    /// Rows the room list shows, section titles included.
+    pub fn listed_rows(&self) -> u32 {
+        self.rooms_store.n_items()
     }
 
     pub fn room_count(&self) -> usize {

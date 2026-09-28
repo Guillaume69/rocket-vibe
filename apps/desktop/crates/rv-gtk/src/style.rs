@@ -140,7 +140,11 @@ button.attach-button { min-width: 28px; min-height: 24px; padding: 0 2px; color:
 .upload-row.failed { border-color: #FF7A8A; }
 .upload-row progressbar trough { min-height: 4px; border-radius: 2px; background: #2C2946; }
 .upload-row progressbar progress { min-height: 4px; border-radius: 2px; background: linear-gradient(90deg, #FF5FA2, #A78BFA); }
-.section-header { font-size: 11.5px; font-weight: 800; color: #8F89AB; letter-spacing: 0.6px; margin: 12px 14px 2px 14px; }
+.section-header { margin: 12px 14px 2px 10px; }
+.section-title { font-size: 11.5px; font-weight: 800; color: #8F89AB; letter-spacing: 0.6px; }
+.section-chevron { color: #6E6890; -gtk-icon-size: 12px; }
+.section-count { font-size: 11px; font-weight: 800; color: #6E6890; margin-left: 4px; }
+.section-header:hover .section-title { color: #C9C3E0; }
 .spotlight { padding: 6px 14px 14px 14px; }
 .spotlight-row { padding: 6px 4px; }
 .probe { font-size: 12.5px; color: #3ED67F; }

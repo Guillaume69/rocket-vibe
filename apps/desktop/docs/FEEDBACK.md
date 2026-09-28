@@ -53,5 +53,5 @@ for the Android app too and are fixed there as well.
 
 ## Mobile only
 
-- [ ] Sharing to the app from a cold start opens the normal view; the second share works,
+- [x] Sharing to the app from a cold start opens the normal view; the second share works,
   and every later launch replays the share until the app is force-closed

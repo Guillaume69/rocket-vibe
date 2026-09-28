@@ -7,6 +7,11 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+### Corrigé
+
+- Un partage vers l’app alors qu’elle n’était pas lancée ouvre bien l’écran de partage, du
+  premier coup ; et un partage n’est plus rejoué à chaque ouverture suivante de l’app.
+
 ## [0.1.0] - 2026-09-27
 
 Première version publiée : Android, pour Rocket.Chat 8 ou plus récent.

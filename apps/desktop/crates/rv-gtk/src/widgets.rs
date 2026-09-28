@@ -167,6 +167,31 @@ pub fn send_arrow() -> gtk::DrawingArea {
     area
 }
 
+/// A round play badge: a font's ▶ comes as a colour emoji on a square tile.
+pub fn play_badge(size: i32) -> gtk::DrawingArea {
+    let area = gtk::DrawingArea::builder()
+        .content_width(size)
+        .content_height(size)
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
+        .can_target(false)
+        .build();
+    area.set_draw_func(|_, cr, w, h| {
+        let (cx, cy, r) = (w as f64 / 2.0, h as f64 / 2.0, w.min(h) as f64 / 2.0);
+        cr.set_source_rgba(0.0, 0.0, 0.0, 0.55);
+        cr.arc(cx, cy, r, 0.0, std::f64::consts::TAU);
+        let _ = cr.fill();
+        let side = r * 0.8;
+        cr.set_source_rgb(1.0, 1.0, 1.0);
+        cr.move_to(cx - side * 0.35, cy - side / 2.0);
+        cr.line_to(cx + side * 0.55, cy);
+        cr.line_to(cx - side * 0.35, cy + side / 2.0);
+        cr.close_path();
+        let _ = cr.fill();
+    });
+    area
+}
+
 /// The four-point star of "✦ New messages": few fonts carry U+2726.
 pub fn sparkle() -> gtk::DrawingArea {
     let area = gtk::DrawingArea::builder()

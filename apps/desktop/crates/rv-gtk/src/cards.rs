@@ -251,13 +251,7 @@ pub fn video_link(session: &Arc<Session>, video: &VideoLink) -> gtk::Widget {
         Some(thumbnail) => external_image(session, thumbnail, 300, 169),
         None => widgets::media_frame(300, 169, &["preview-image"]),
     };
-    let play = gtk::Label::builder()
-        .label("▶")
-        .css_classes(["video-play"])
-        .halign(gtk::Align::Center)
-        .valign(gtk::Align::Center)
-        .build();
-    frame.add_overlay(&play);
+    frame.add_overlay(&widgets::play_badge(56));
     frame.set_margin_top(4);
     card.append(&frame);
     card.set_tooltip_text(Some(&video.url));
@@ -271,7 +265,8 @@ pub fn call(call_id: Option<&str>, on_event: OnRowEvent) -> gtk::Widget {
     let card = gtk::Box::builder().spacing(12).css_classes(["call-card"]).halign(gtk::Align::Start).build();
     card.append(&gtk::Label::builder().label(format!("📹 {}", t("message.call"))).css_classes(["call-title"]).build());
     if let Some(call_id) = call_id {
-        let join = gtk::Button::builder().label(t("message.join")).css_classes(["call-join"]).build();
+        let join =
+            gtk::Button::builder().label(t("message.join")).css_classes(["call-join"]).cursor(&pointer()).build();
         let call_id = call_id.to_owned();
         join.connect_clicked(move |_| on_event(RowEvent::JoinCall(call_id.clone())));
         card.append(&join);

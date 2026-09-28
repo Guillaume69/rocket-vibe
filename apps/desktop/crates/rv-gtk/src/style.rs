@@ -202,7 +202,6 @@ button.file-action, button.call-join { background: linear-gradient(135deg, #FF5F
 .link-title { font-weight: 800; color: #E7E3F5; }
 .link-description { font-size: 13px; color: #BDB7D6; }
 .preview-image { background: #0D0B1A; border-radius: 10px; }
-.video-play { font-size: 30px; color: white; background: rgba(0,0,0,0.55); border-radius: 999px; padding: 6px 14px; }
 .call-title { font-weight: 800; }
 .video-player { border-radius: 10px; }
 .image-attachment { background: #171529; border-radius: 10px; }
@@ -224,7 +223,7 @@ button.menu-action.destructive { color: #FF7A8A; }
 .completion row { border-radius: 8px; padding: 4px 10px; }
 .completion row:selected { background: #2C2946; }
 .completion-item { font-size: 14px; }
-button.emoji-button, menubutton.emoji-button > button { min-width: 28px; min-height: 24px; padding: 0 2px; font-size: 18px; background: transparent; }
+menubutton.emoji-button > button { min-width: 28px; min-height: 24px; padding: 0 2px; color: #8F89AB; background: transparent; }
 button.picker-emoji { font-size: 22px; min-width: 36px; min-height: 36px; padding: 0; background: transparent; border-radius: 8px; }
 button.picker-emoji:hover { background: #2C2946; }
 button.picker-tab { font-size: 18px; min-height: 30px; padding: 0; }

@@ -9,11 +9,11 @@ for the Android app too and are fixed there as well.
 - [x] Small window: messages cropped (images, cards and files kept a fixed width wider than the window)
 - [x] Small window: no composer (pushed off the right edge by the same widths)
 - [ ] Collapsed (one pane) and on the room list: no way back to the open room
-- [ ] Message times cropped at the top
-- [ ] Emoji not aligned with the text around them
-- [ ] Emoji button not aligned with the microphone button
-- [ ] The play button on videos and YouTube cards is not a circle
-- [ ] No pointer cursor on the call card
+- [~] Message times cropped at the top: name and time now share a centred baseline; not reproduced on Linux, to check on Windows and macOS
+- [ ] Emoji not aligned with the text around them: aligned on Linux (Noto Color Emoji), need a Windows / macOS screenshot
+- [x] Emoji button not aligned with the microphone button (now a symbolic icon like its neighbours)
+- [x] The play button on videos and YouTube cards is not a circle (drawn)
+- [x] No pointer cursor on the call card and the header call button
 
 ## Navigation
 
@@ -21,6 +21,7 @@ for the Android app too and are fixed there as well.
 - [ ] Mouse back / forward buttons do nothing
 - [ ] No button back to the latest message after scrolling up (*mobile*)
 - [ ] Up arrow in an empty composer does not edit my last message
+- [ ] No easy access to pinned and starred messages (*mobile*)
 
 ## Messages
 

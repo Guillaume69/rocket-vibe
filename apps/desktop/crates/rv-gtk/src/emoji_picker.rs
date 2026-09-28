@@ -87,7 +87,7 @@ pub fn button(pick: impl Fn(&str) + 'static) -> gtk::MenuButton {
         }
     });
     gtk::MenuButton::builder()
-        .child(&gtk::Label::new(Some("😊")))
+        .icon_name("face-smile-symbolic")
         .popover(&popover)
         .css_classes(["flat", "emoji-button"])
         .valign(gtk::Align::End)

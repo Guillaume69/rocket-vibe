@@ -11,6 +11,8 @@ section here.
 
 - In a narrow window, images, link previews and file cards shrink to fit instead of pushing
   the messages and the send button past the right edge.
+- The play badge on video cards is a circle, the emoji button lines up with the microphone,
+  and message times are no longer cut at the top.
 
 ## [0.1.0] - 2026-09-27
 

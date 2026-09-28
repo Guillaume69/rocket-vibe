@@ -350,7 +350,8 @@ pub fn message_widget(d: &Display, my_id: &str, session: Option<&Arc<Session>>, 
         opens_profile(&name, on_event.clone(), &author);
         header.append(&name);
         let time = label(&local(row.ts).format("%H:%M").to_string(), &["message-time"]);
-        time.set_valign(gtk::Align::Baseline);
+        name.set_valign(gtk::Align::BaselineCenter);
+        time.set_valign(gtk::Align::BaselineCenter);
         header.append(&time);
         column.append(&header);
     }

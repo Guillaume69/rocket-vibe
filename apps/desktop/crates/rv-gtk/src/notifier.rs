@@ -83,8 +83,10 @@ impl Notifier {
             move |signal| {
                 let Some((id, action)) = signal.parameters.get::<(u32, String)>() else { return };
                 let Some(this) = weak.upgrade() else { return };
+                // Taken out first: opening the room withdraws its notification, which borrows `shown`.
+                let rid = this.shown.borrow().get(&id).cloned();
                 if action == "default"
-                    && let Some(rid) = this.shown.borrow().get(&id).cloned()
+                    && let Some(rid) = rid
                 {
                     open(rid);
                 }
@@ -101,7 +103,8 @@ impl Notifier {
             move |signal| {
                 let Some((id, text)) = signal.parameters.get::<(u32, String)>() else { return };
                 let Some(this) = weak.upgrade() else { return };
-                if let Some(rid) = this.shown.borrow().get(&id).cloned() {
+                let rid = this.shown.borrow().get(&id).cloned();
+                if let Some(rid) = rid {
                     reply(rid, text);
                 }
             },

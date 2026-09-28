@@ -43,6 +43,8 @@ section here.
 - Files dropped on the message field were inserted as text instead of being attached, and
   pictures dragged from a web page were refused; both are now attached, and the room is
   outlined while something is dragged over it.
+- Clicking a desktop notification (KDE Plasma and other freedesktop servers) aborted the app
+  when it opened the room.
 
 - In a narrow window, images, link previews and file cards shrink to fit instead of pushing
   the messages and the send button past the right edge.

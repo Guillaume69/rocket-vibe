@@ -177,10 +177,26 @@ fn block(b: &Block, extra: &[&str]) -> gtk::Widget {
 }
 
 /// The message body; `extra` classes (pending, failed) apply to its text.
+/// Consecutive plain paragraphs share one label, so the mouse selects across
+/// their lines.
 pub fn view(blocks: &[Block], extra: &[&str]) -> gtk::Box {
     let body = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(2).build();
+    let mut run: Vec<&str> = Vec::new();
+    let flush = |run: &mut Vec<&str>| {
+        if !run.is_empty() {
+            body.append(&text(&run.join("\n"), &with("message-body", extra)));
+            run.clear();
+        }
+    };
     for b in blocks {
-        body.append(&block(b, extra));
+        match b {
+            Block::Paragraph(markup) if !markup.contains(rv_core::markdown::CUSTOM_MARK) => run.push(markup),
+            _ => {
+                flush(&mut run);
+                body.append(&block(b, extra));
+            }
+        }
     }
+    flush(&mut run);
     body
 }

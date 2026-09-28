@@ -27,7 +27,7 @@ for the Android app too and are fixed there as well.
 
 - [x] Editing happens in a popover, not in place
 - [x] Deleting asks no confirmation
-- [ ] No mouse selection across several lines
+- [~] No mouse selection across several lines: within a message, done (its lines share one label, selection colour visible); across messages would take one text view for the whole room
 - [x] No preview of emoji and mentions on hover (emoji large with its shortcode; a mention shows the person's card)
 - [x] The image viewer does not close on a click outside the image
 - [x] Videos: no poster, no controls, no fullscreen; the player pops in on play

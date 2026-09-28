@@ -182,6 +182,7 @@ textview.inline-images, textview.inline-images text { background: transparent; c
 .message-body { color: #E7E3F5; font-size: 14px; }
 .message-body.pending { opacity: 0.55; }
 .message-body link, .message-body a { color: #5CC8FF; }
+label selection, textview text selection { background: rgba(92, 200, 255, 0.35); color: #FFFFFF; }
 .md-h1, .md-h2, .md-h3, .md-h4 { font-family: "Baloo 2"; font-weight: 700; color: #F3F0FF; }
 .md-h1 { font-size: 20px; }
 .md-h2 { font-size: 18px; }

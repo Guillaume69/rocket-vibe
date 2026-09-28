@@ -28,7 +28,7 @@ for the Android app too and are fixed there as well.
 - [x] Editing happens in a popover, not in place
 - [x] Deleting asks no confirmation
 - [ ] No mouse selection across several lines
-- [ ] No preview of emoji and mentions on hover
+- [x] No preview of emoji and mentions on hover (emoji large with its shortcode; a mention shows the person's card)
 - [x] The image viewer does not close on a click outside the image
 - [x] Videos: no poster, no controls, no fullscreen; the player pops in on play
 - [x] Files: no Download button; Open fails on Linux outside GNOME (falls back to GIO, then xdg-open)

@@ -38,6 +38,8 @@ section here.
   and on Windows and macOS a shortcut to the system's notification settings.
 - On Linux docks that support it (KDE Plasma, Dash to Dock, Plank), the app icon shows the
   number of unread direct messages and mentions.
+- Hovering an emoji in a message shows it large with its shortcode; hovering a mention shows
+  the person's photo, name and username.
 
 ### Fixed
 

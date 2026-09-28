@@ -10,6 +10,7 @@ type EmojiImage = std::rc::Rc<dyn Fn(&str) -> Option<gtk::Widget>>;
 thread_local! {
     static LINKS: std::cell::RefCell<Option<LinkHandler>> = const { std::cell::RefCell::new(None) };
     static CUSTOM_EMOJI: std::cell::RefCell<Option<EmojiImage>> = const { std::cell::RefCell::new(None) };
+    static MENTION_PREVIEW: std::cell::RefCell<Option<EmojiImage>> = const { std::cell::RefCell::new(None) };
 }
 
 /// The image of a custom emoji, by shortcode; None when the server has no such emoji.
@@ -49,6 +50,46 @@ fn with_images(markup: &str, classes: &[&str]) -> gtk::Widget {
     view.upcast()
 }
 
+/// The card shown over a `@mention`, by username.
+pub fn set_mention_preview(f: impl Fn(&str) -> Option<gtk::Widget> + 'static) {
+    MENTION_PREVIEW.with_borrow_mut(|h| *h = Some(std::rc::Rc::new(f)));
+}
+
+/// Hovering an emoji shows it large with its shortcode; hovering a mention, its card.
+fn with_previews(label: &gtk::Label) {
+    label.set_has_tooltip(true);
+    label.connect_query_tooltip(|label, x, y, _, tooltip| {
+        let layout = label.layout();
+        let (dx, dy) = label.layout_offsets();
+        let (inside, index, _) = layout.xy_to_index((x - dx) * pango::SCALE, (y - dy) * pango::SCALE);
+        if !inside {
+            return false;
+        }
+        let index = index as usize;
+        if let Some(link) = rv_core::markdown::link_at(&label.label(), index) {
+            let card = link
+                .strip_prefix("rv-user:")
+                .and_then(|user| MENTION_PREVIEW.with_borrow(Clone::clone).and_then(|f| f(user)));
+            if let Some(card) = card {
+                tooltip.set_custom(Some(&card));
+                return true;
+            }
+            return false;
+        }
+        match rv_core::emoji::at(&layout.text(), index) {
+            Some((glyph, code)) => {
+                tooltip.set_markup(Some(&format!(
+                    "<span size=\"300%\">{}</span>\n:{}:",
+                    glib::markup_escape_text(glyph),
+                    glib::markup_escape_text(code)
+                )));
+                true
+            }
+            None => false,
+        }
+    });
+}
+
 /// Our own links (`rv-user:`, `rv-room:`): the handler says whether it took one.
 pub fn set_link_handler(f: impl Fn(&str) -> bool + 'static) {
     LINKS.with_borrow_mut(|h| *h = Some(std::rc::Rc::new(f)));
@@ -65,6 +106,7 @@ fn text(markup: &str, classes: &[&str]) -> gtk::Label {
         .css_classes(classes.to_vec())
         .build();
     label.set_focusable(false);
+    with_previews(&label);
     label.connect_activate_link(|_, uri| {
         let handler = LINKS.with_borrow(Clone::clone);
         if handler.is_some_and(|h| h(uri)) { glib::Propagation::Stop } else { glib::Propagation::Proceed }
@@ -126,7 +168,9 @@ fn block(b: &Block, extra: &[&str]) -> gtk::Widget {
             list.upcast()
         }
         Block::BigEmoji(glyphs) => {
-            gtk::Label::builder().label(glyphs).xalign(0.0).css_classes(["md-big-emoji"]).build().upcast()
+            let label = gtk::Label::builder().label(glyphs).xalign(0.0).css_classes(["md-big-emoji"]).build();
+            with_previews(&label);
+            label.upcast()
         }
         Block::Break => gtk::Box::builder().height_request(8).build().upcast(),
     }

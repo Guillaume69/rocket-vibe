@@ -430,6 +430,35 @@ impl ChatPage {
             });
             Some(frame.upcast())
         });
+        let names: Rc<RefCell<std::collections::HashMap<String, Option<String>>>> = Rc::default();
+        let weak = Rc::downgrade(&this);
+        crate::markdown_view::set_mention_preview(move |username| {
+            let session = weak.upgrade()?.session()?;
+            if matches!(username, "all" | "here") {
+                return None;
+            }
+            let known = names.borrow().get(username).cloned();
+            if known.is_none() {
+                names.borrow_mut().insert(username.to_owned(), None);
+                let (names, s, user) = (names.clone(), session.clone(), username.to_owned());
+                glib::spawn_future_local(async move {
+                    let key = user.clone();
+                    if let Ok(profile) = on_tokio(async move { s.profile(&key, false).await }).await {
+                        names.borrow_mut().insert(user, profile.name);
+                    }
+                });
+            }
+            let card = gtk::Box::builder().spacing(10).css_classes(["mention-card"]).build();
+            let tile = widgets::tile(username, &widgets::initial(username), TileSize::Message, false);
+            card.append(&with_photo(tile, Some(&session), Some(session.user_avatar(username))));
+            let text = gtk::Box::builder().orientation(gtk::Orientation::Vertical).valign(gtk::Align::Center).build();
+            if let Some(name) = known.flatten().filter(|n| n != username) {
+                text.append(&label(&name, &["author"]));
+            }
+            text.append(&label(&format!("@{username}"), &["room-subtitle"]));
+            card.append(&text);
+            Some(card.upcast())
+        });
         let weak = Rc::downgrade(&this);
         crate::markdown_view::set_link_handler(move |uri| {
             let Some(this) = weak.upgrade() else { return false };

@@ -12,6 +12,8 @@ release, et ses notes sont la section de la version ici.
 - Liste des salons : un appui sur le titre d'une section (Non lus, Salons, Messages privés) la
   replie ou la déplie ; repliée, elle affiche son nombre de conversations, et l'état est retenu
   d'un lancement à l'autre.
+- Salon : remonté de plus d'un écran dans l'historique, un bouton rond en bas à droite ramène
+  d'un geste aux derniers messages.
 
 ### Corrigé
 

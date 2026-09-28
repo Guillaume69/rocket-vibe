@@ -48,9 +48,17 @@ import { useDonneesLissees } from '../../ui/donneesLissees.ts';
 import { idsHeuresRepetees, idsSuites } from '../../ui/groupeMessages.ts';
 import { insererSeparateursJour, type LigneJour } from '../../ui/separateurJour.ts';
 import { avancerBorne, borneImmobile, pageARecule } from '../../ui/paginationSalon.ts';
+import {
+  ETAT_RETOUR_INITIAL,
+  type EtatRetour,
+  surAppuiRetour,
+  surDefilementRetour,
+  surGlisseRetour,
+} from '../../ui/retourAuPlusRecent.ts';
 import { garderAuChaud, salonCouvert } from '../../ui/salonChaud.ts';
 import { marquerSalonCharge, salonChargeSous } from '../../ui/salonsCharges.ts';
 import { BoutonPrincipal, IndicateurSaisie, SeparateurJour } from '../../ui/kit.tsx';
+import { Appuyable } from '../../ui/appuyable.tsx';
 import { memeOrigine, origineDe } from '../../lib/origine.ts';
 import { MoteurSynchro } from '../../lib/sync.ts';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
@@ -431,9 +439,25 @@ function Salon({
   const liste = useRef<FlashListRef<LigneListe>>(null);
   const presDuBas = useRef(true);
   const dernierSuivi = useRef<{ id: string; horodatage: number } | null>(null);
-  const surDefilement = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    presDuBas.current = e.nativeEvent.contentOffset.y <= PRES_DU_BAS_PX;
+  const hauteurListe = useRef(0);
+  const etatRetour = useRef<EtatRetour>(ETAT_RETOUR_INITIAL);
+  const [retourVisible, setRetourVisible] = useState(false);
+  const appliquerRetour = useCallback((suivant: EtatRetour) => {
+    etatRetour.current = suivant;
+    setRetourVisible(suivant.visible);
   }, []);
+  const surDefilement = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const decalage = e.nativeEvent.contentOffset.y;
+      presDuBas.current = decalage <= PRES_DU_BAS_PX;
+      appliquerRetour(surDefilementRetour(etatRetour.current, decalage, hauteurListe.current));
+    },
+    [appliquerRetour],
+  );
+  const allerAuPlusRecent = useCallback(() => {
+    appliquerRetour(surAppuiRetour());
+    liste.current?.scrollToOffset({ offset: 0, animated: true });
+  }, [appliquerRetour]);
   const plusRecent = donnees[0];
   useEffect(() => {
     if (plusRecent === undefined || dernierSuivi.current?.id === plusRecent.id) return;
@@ -744,34 +768,63 @@ function Salon({
           )}
         </View>
       ) : (
-        <FlashList
-          ref={liste}
-          inverted
-          data={donneesListe}
-          // Coupé : à l'offset 0, un prepend s'affiche de lui-même, et le
-          // recalage natif partait avant le snap JS et l'écrasait.
-          maintainVisibleContentPosition={{ disabled: true }}
-          keyExtractor={(m) => m.id}
-          // Contenu HÉTÉROGÈNE (messages, suites sans avatar, barre de
-          // non-lus, séparateurs de jour) : sans type d'item, le recyclage
-          // de FlashList mélange les gabarits.
-          getItemType={(item) =>
-            'barre' in item
-              ? 'barre'
-              : 'jour' in item
-                ? 'jour'
-                : suites.has(item.id)
-                  ? 'suite'
-                  : 'message'
-          }
-          renderItem={rendreLigne}
-          onScroll={surDefilement}
-          scrollEventThrottle={16}
-          // Inversé : la fin des DONNÉES est le haut visuel — le passé.
-          onEndReached={chargerPlus}
-          onEndReachedThreshold={0.4}
-          contentContainerStyle={styles.contenu}
-        />
+        <View
+          style={styles.plein}
+          onLayout={(e) => {
+            hauteurListe.current = e.nativeEvent.layout.height;
+          }}
+        >
+          <FlashList
+            ref={liste}
+            inverted
+            onScrollBeginDrag={() => {
+              etatRetour.current = surGlisseRetour(etatRetour.current);
+            }}
+            data={donneesListe}
+            // Coupé : à l'offset 0, un prepend s'affiche de lui-même, et le
+            // recalage natif partait avant le snap JS et l'écrasait.
+            maintainVisibleContentPosition={{ disabled: true }}
+            keyExtractor={(m) => m.id}
+            // Contenu HÉTÉROGÈNE (messages, suites sans avatar, barre de
+            // non-lus, séparateurs de jour) : sans type d'item, le recyclage
+            // de FlashList mélange les gabarits.
+            getItemType={(item) =>
+              'barre' in item
+                ? 'barre'
+                : 'jour' in item
+                  ? 'jour'
+                  : suites.has(item.id)
+                    ? 'suite'
+                    : 'message'
+            }
+            renderItem={rendreLigne}
+            onScroll={surDefilement}
+            scrollEventThrottle={16}
+            // Inversé : la fin des DONNÉES est le haut visuel — le passé.
+            onEndReached={chargerPlus}
+            onEndReachedThreshold={0.4}
+            contentContainerStyle={styles.contenu}
+          />
+          {retourVisible && (
+            <Appuyable
+              onPress={allerAuPlusRecent}
+              android_ripple={{ color: c.ondulation, borderless: true }}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={t('salon.allerAuPlusRecent')}
+              style={[
+                styles.retourPlusRecent,
+                {
+                  backgroundColor: c.carte,
+                  borderColor: c.bordure,
+                  boxShadow: `0px 4px 12px -4px ${c.ombrePortee}`,
+                },
+              ]}
+            >
+              <Text style={[styles.retourPlusRecentFleche, { color: c.accent }]}>↓</Text>
+            </Appuyable>
+          )}
+        </View>
       )}
       {fichiersEnCours.map((tele) => {
         const enEchec = tele.statut === 'echec';
@@ -869,6 +922,18 @@ const styles = StyleSheet.create({
   contenu: { paddingHorizontal: 16, paddingVertical: 8 },
   heure: { fontSize: 11 },
   basComposer: { position: 'relative' },
+  retourPlusRecent: {
+    position: 'absolute',
+    right: 16,
+    bottom: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  retourPlusRecentFleche: { fontFamily: POLICES.titreFort, fontSize: 22, lineHeight: 26 },
   vide: { textAlign: 'center', padding: 24, fontSize: 14, fontFamily: POLICES.corps },
   erreur: { fontFamily: POLICES.corpsGras, fontSize: 14, textAlign: 'center' },
   autreServeurHote: {

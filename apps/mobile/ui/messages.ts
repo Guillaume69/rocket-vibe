@@ -113,6 +113,7 @@ const fr = {
 
   // ── Salon (écran d'un salon : liste + composer + en-tête)
   'salon.nouveauxMessages': '✦ nouveaux messages',
+  'salon.allerAuPlusRecent': 'Aller aux derniers messages',
   'separateurJour.aujourdhui': "Aujourd'hui",
   'separateurJour.hier': 'Hier',
   'salon.aucunMessage': 'Aucun message.',
@@ -489,6 +490,7 @@ const en: Record<CleTraduction, string> = {
   'connexion.renvoyerCode': 'Resend the code',
 
   'salon.nouveauxMessages': '✦ new messages',
+  'salon.allerAuPlusRecent': 'Jump to latest messages',
   'separateurJour.aujourdhui': 'Today',
   'separateurJour.hier': 'Yesterday',
   'salon.aucunMessage': 'No messages.',

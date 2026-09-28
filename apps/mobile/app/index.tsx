@@ -12,7 +12,13 @@ import { useActivite } from '../ui/activite.ts';
 import { useT } from '../ui/i18n.ts';
 import { AvatarSalon, BadgeNonLus, BarreSynchro, Marque, TuileAvatar } from '../ui/kit.tsx';
 import { couleursPresence, usePresence } from '../ui/presence.ts';
-import { construireSections, type EntreeAccueil } from '../ui/sectionsAccueil.ts';
+import {
+  construireSections,
+  type EntreeAccueil,
+  replierSections,
+  type SectionAffichee,
+} from '../ui/sectionsAccueil.ts';
+import { basculerSectionRepliee, useSectionsRepliees } from '../ui/sectionsRepliees.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { useE2EDeverrouille } from '../ui/e2e.ts';
@@ -129,11 +135,15 @@ function Salons({
   // Fusion, masquage, remontée des non-lus, répartition, sections vides
   // retirées : la projection vit dans `ui/sectionsAccueil.ts`, testée sous
   // Node.
-  const sections: SectionSalons[] = construireSections(lignesSalons, lignesAbonnements, {
-    nonLus: t('accueil.sectionNonLus'),
-    salons: t('accueil.sectionSalons'),
-    messagesPrives: t('accueil.sectionMessagesPrives'),
-  });
+  const repliees = useSectionsRepliees();
+  const sections: SectionSalons[] = replierSections(
+    construireSections(lignesSalons, lignesAbonnements, {
+      nonLus: t('accueil.sectionNonLus'),
+      salons: t('accueil.sectionSalons'),
+      messagesPrives: t('accueil.sectionMessagesPrives'),
+    }),
+    repliees,
+  );
 
   return (
     <SectionList<EntreeSalon, SectionSalons>
@@ -150,7 +160,7 @@ function Salons({
       )}
       // Un en-tête isolé (une seule section peuplée) n'apprend rien : on le tait.
       renderSectionHeader={({ section }) =>
-        sections.length > 1 ? <EnTeteSection c={c} titre={section.titre} /> : null
+        sections.length > 1 ? <EnTeteSection c={c} section={section} /> : null
       }
       stickySectionHeadersEnabled={false}
       ListHeaderComponent={<LigneNouvelleConversation c={c} />}
@@ -165,14 +175,40 @@ function Salons({
 type LigneDeSalon = typeof salons.$inferSelect;
 type LigneDAbonnement = typeof abonnements.$inferSelect;
 type EntreeSalon = EntreeAccueil<LigneDeSalon, LigneDAbonnement>;
-type SectionSalons = { titre: string; data: EntreeSalon[] };
+type SectionSalons = SectionAffichee<EntreeSalon>;
 
-/** Titre de section de la liste : « Non lus », « Salons », « Messages privés ». */
-function EnTeteSection({ c, titre }: { c: Couleurs; titre: string }) {
+/**
+ * Titre de section de la liste : « Non lus », « Salons », « Messages privés ».
+ * Un appui la replie ; repliée, elle affiche son effectif.
+ */
+function EnTeteSection({ c, section }: { c: Couleurs; section: SectionSalons }) {
+  const t = useT();
+  const effectif = t('accueil.sectionConversations', { n: section.total });
   return (
-    <View style={[styles.enteteSection, { backgroundColor: c.fond }]}>
-      <Text style={[styles.enteteSectionTexte, { color: c.attenue }]}>{titre}</Text>
-    </View>
+    <Appuyable
+      onPress={() => basculerSectionRepliee(section.cle)}
+      android_ripple={{ color: c.ondulation }}
+      accessibilityRole="button"
+      accessibilityLabel={section.repliee ? `${section.titre}, ${effectif}` : section.titre}
+      accessibilityState={{ expanded: !section.repliee }}
+      style={[styles.enteteSection, { backgroundColor: c.fond }]}
+    >
+      <Text
+        style={[
+          styles.enteteSectionChevron,
+          { color: c.attenue },
+          !section.repliee && styles.enteteSectionChevronOuvert,
+        ]}
+      >
+        ›
+      </Text>
+      <Text style={[styles.enteteSectionTexte, { color: c.attenue }]}>{section.titre}</Text>
+      {section.repliee && (
+        <Text style={[styles.enteteSectionEffectif, { color: c.texteTertiaire }]}>
+          {section.total}
+        </Text>
+      )}
+    </Appuyable>
   );
 }
 
@@ -341,7 +377,17 @@ const styles = StyleSheet.create({
   /** Petit cadenas devant le nom d'un salon chiffré : « ce salon est E2EE ». */
   badgeChiffre: { fontSize: 12 },
   nouvelle: { fontFamily: POLICES.titre, fontSize: 15.5 },
-  enteteSection: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 6 },
+  enteteSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 6,
+  },
+  enteteSectionChevron: { fontFamily: POLICES.titre, fontSize: 16, lineHeight: 16, width: 10 },
+  enteteSectionChevronOuvert: { transform: [{ rotate: '90deg' }] },
+  enteteSectionEffectif: { fontFamily: POLICES.corpsFort, fontSize: 11 },
   enteteSectionTexte: {
     fontFamily: POLICES.corpsFort,
     fontSize: 11,

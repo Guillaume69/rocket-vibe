@@ -215,6 +215,7 @@ const fr = {
   'accueil.sectionNonLus': 'Non lus',
   'accueil.sectionSalons': 'Salons',
   'accueil.sectionMessagesPrives': 'Messages privés',
+  'accueil.sectionConversations': '{n} conversation | {n} conversations',
   'accueil.listeVide':
     "Aucun salon pour l'instant — la première synchronisation peut prendre quelques secondes.",
   'accueil.messagesChiffres': 'Messages chiffrés',
@@ -580,6 +581,7 @@ const en: Record<CleTraduction, string> = {
   'accueil.sectionNonLus': 'Unread',
   'accueil.sectionSalons': 'Channels',
   'accueil.sectionMessagesPrives': 'Direct messages',
+  'accueil.sectionConversations': '{n} conversation | {n} conversations',
   'accueil.listeVide': 'No channels yet — the first sync may take a few seconds.',
   'accueil.messagesChiffres': 'Encrypted messages',
   'accueil.apercuAppel': 'Video call',

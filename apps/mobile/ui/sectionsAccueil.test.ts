@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { construireSections } from './sectionsAccueil.ts';
+import {
+  basculerSection,
+  type CleSection,
+  construireSections,
+  ecrireSectionsRepliees,
+  lireSectionsRepliees,
+  replierSections,
+} from './sectionsAccueil.ts';
 
 const TITRES = { nonLus: 'Non lus', salons: 'Salons', messagesPrives: 'Messages privés' };
 
@@ -69,5 +76,54 @@ describe('construireSections', () => {
 
   test('requêtes vives pas encore résolues (undefined) : liste vide, pas de crash', () => {
     assert.deepEqual(construireSections(undefined, undefined, TITRES), []);
+  });
+});
+
+describe('sections repliées', () => {
+  const sections = () =>
+    construireSections(
+      [salon('c1', 'c'), salon('d1', 'd'), salon('c2', 'c')],
+      [abonnement('c1'), abonnement('d1'), abonnement('c2')],
+      TITRES,
+    );
+
+  test('une section repliée se vide mais garde son effectif', () => {
+    const affichees = replierSections(sections(), new Set(['salons'] as const));
+    assert.deepEqual(
+      affichees.map((s) => [s.cle, s.repliee, s.total, s.data.length]),
+      [
+        ['salons', true, 2, 0],
+        ['messagesPrives', false, 1, 1],
+      ],
+    );
+  });
+
+  test('une section SEULE ne se replie jamais : sans en-tête, rien ne la rouvrirait', () => {
+    const seule = construireSections([salon('c1', 'c')], [abonnement('c1')], TITRES);
+    const [affichee] = replierSections(seule, new Set(['salons'] as const));
+    assert.equal(affichee.repliee, false);
+    assert.equal(affichee.data.length, 1);
+  });
+
+  test('basculer replie puis déplie, sans muter l’ensemble reçu', () => {
+    const vide = new Set<CleSection>();
+    const repliee = basculerSection(vide, 'messagesPrives');
+    assert.deepEqual([...repliee], ['messagesPrives']);
+    assert.equal(vide.size, 0);
+    assert.deepEqual([...basculerSection(repliee, 'messagesPrives')], []);
+  });
+
+  test('aller-retour par le stockage', () => {
+    const repliees = new Set<CleSection>(['messagesPrives', 'nonLus']);
+    const brut = ecrireSectionsRepliees(repliees);
+    assert.equal(brut, '["nonLus","messagesPrives"]');
+    assert.deepEqual(lireSectionsRepliees(brut), repliees);
+  });
+
+  test('stockage absent, corrompu ou inconnu : rien de replié', () => {
+    assert.equal(lireSectionsRepliees(null).size, 0);
+    assert.equal(lireSectionsRepliees('{pas du json').size, 0);
+    assert.equal(lireSectionsRepliees('{"salons":true}').size, 0);
+    assert.deepEqual([...lireSectionsRepliees('["salons","favoris",3]')], ['salons']);
   });
 });

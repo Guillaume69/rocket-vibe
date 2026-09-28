@@ -7,6 +7,12 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+### Ajouté
+
+- Liste des salons : un appui sur le titre d'une section (Non lus, Salons, Messages privés) la
+  replie ou la déplie ; repliée, elle affiche son nombre de conversations, et l'état est retenu
+  d'un lancement à l'autre.
+
 ### Corrigé
 
 - Un partage vers l’app alors qu’elle n’était pas lancée ouvre bien l’écran de partage, du

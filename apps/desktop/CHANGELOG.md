@@ -31,6 +31,8 @@ section here.
   decode says so and offers another application.
 - Settings, About: the version, and the folder of the logs with a button to open it. A panic is
   recorded in `crash.log` with its backtrace; on Windows the previous run's log is kept.
+- The app icon: in the launcher entry (installed by `scripts/install-desktop.sh` and shipped in
+  the Linux archive), on the window wherever the app runs from, and in the Windows executable.
 
 ### Fixed
 

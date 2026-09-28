@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Registers the app with the desktop: launcher entry, rocketvibe:// links.
+# Registers the app with the desktop: launcher entry and icon, rocketvibe:// links.
 # The entry runs the release build from this checkout.
 #   scripts/install-desktop.sh
 set -euo pipefail
@@ -11,5 +11,9 @@ mkdir -p "$apps"
 rm -f "$apps/me.barrut.RocketVibe.desktop"
 sed "s|^Exec=rocket-vibe-gtk|Exec=$binary|" data/com.rocketvibe.app.desktop > "$apps/com.rocketvibe.app.desktop"
 xdg-mime default com.rocketvibe.app.desktop x-scheme-handler/rocketvibe
+icons="${XDG_DATA_HOME:-$HOME/.local/share}/icons"
+mkdir -p "$icons"
+cp -R data/icons/hicolor "$icons/"
+gtk-update-icon-cache -q -t "$icons/hicolor" 2>/dev/null || true
 update-desktop-database "$apps" 2>/dev/null || true
 echo "installed $apps/com.rocketvibe.app.desktop"

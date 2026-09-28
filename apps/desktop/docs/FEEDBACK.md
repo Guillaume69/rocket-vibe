@@ -40,7 +40,7 @@ for the Android app too and are fixed there as well.
 
 ## Desktop integration
 
-- [ ] No app icon (Linux launcher, Windows, macOS)
+- [~] No app icon (Linux launcher, Windows, macOS): Linux entry and window icon done; Windows exe icon embedded, to confirm on a CI build; macOS already had its .icns
 - [x] App id `me.barrut.RocketVibe` differs from mobile's `com.rocketvibe.app` (keychain items stay under the old name: nobody is signed out)
 - [ ] No unread count on the dock / taskbar icon
 - [ ] Notifications do not show on Windows and macOS, and nothing in the app tells why

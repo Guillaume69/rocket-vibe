@@ -294,6 +294,9 @@ pub fn install(window: &Rc<AppWindow>) {
             .to_node()
             .zip(w.window.renderer())
             .map(|(node, renderer)| renderer.render_texture(&node, None).save_to_png(&shot).is_ok());
+        let icon =
+            gtk::gdk::Display::default().is_some_and(|d| gtk::IconTheme::for_display(&d).has_icon(crate::APP_ID));
+        println!("smoke: app icon found {icon}");
         println!("smoke: screenshot saved {}", saved.unwrap_or(false));
         w.window.application().expect("application").quit();
     });

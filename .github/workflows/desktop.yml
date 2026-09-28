@@ -74,6 +74,7 @@ jobs:
           name="rocket-vibe-desktop-${{ needs.version.outputs.version }}-linux-x86_64"
           mkdir -p "dist/$name"
           cp target/release/rocket-vibe-gtk data/com.rocketvibe.app.desktop README.md "dist/$name/"
+          cp -R data/icons "dist/$name/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
       - uses: actions/upload-artifact@v4
         if: env.PACKAGE == 'true'

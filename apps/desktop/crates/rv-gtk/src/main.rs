@@ -9,6 +9,7 @@ mod details;
 mod emoji_picker;
 mod fonts;
 mod i18n;
+mod icon;
 mod login;
 #[cfg(target_os = "macos")]
 mod macos;
@@ -93,7 +94,12 @@ fn main() -> glib::ExitCode {
     // One instance, except on Windows: a `rocketvibe://` link clicked elsewhere reaches the running app.
     let app = adw::Application::builder().application_id(APP_ID).flags(application_flags()).build();
     i18n::init();
-    app.connect_startup(|_| style::load());
+    app.connect_startup(|_| {
+        style::load();
+        if let Some(display) = gtk::gdk::Display::default() {
+            icon::register(&display);
+        }
+    });
     app.connect_activate(|app| {
         window_of(app);
     });

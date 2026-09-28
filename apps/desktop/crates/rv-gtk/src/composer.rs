@@ -6,7 +6,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gtk::prelude::*;
-use gtk::{gdk, glib};
+use gtk::{gdk, gio, glib};
 use rv_core::session::Session;
 
 use crate::attach::Picked;
@@ -64,6 +64,7 @@ impl Composer {
             .build();
         style_tags(&text.buffer());
         text.buffer().connect_changed(restyle);
+        spell_menu(&text);
         let shortcuts = gtk::EventControllerKey::builder().propagation_phase(gtk::PropagationPhase::Capture).build();
         shortcuts.connect_key_pressed(glib::clone!(
             #[weak]
@@ -704,9 +705,12 @@ fn style_tags(buffer: &gtk::TextBuffer) {
     let quote = tag("quote");
     quote.set_foreground(Some("#C9C3E0"));
     quote.set_style(gtk::pango::Style::Italic);
+    let misspelled = tag("misspelled");
+    misspelled.set_underline(gtk::pango::Underline::Error);
+    misspelled.set_underline_rgba(Some(&gdk::RGBA::new(1.0, 0.48, 0.54, 1.0)));
     let marker = tag("marker");
     marker.set_foreground(Some("#6E6890"));
-    for t in [bold, italic, strike, code, block, heading, quote, marker] {
+    for t in [bold, italic, strike, code, block, heading, quote, marker, misspelled] {
         table.add(&t);
     }
 }
@@ -729,6 +733,12 @@ fn restyle(buffer: &gtk::TextBuffer) {
         };
         let (from, to) = (buffer.iter_at_offset(span.start as i32), buffer.iter_at_offset(span.end as i32));
         buffer.apply_tag_by_name(name, &from, &to);
+    }
+    for (start, end) in rv_core::compose::words(&text) {
+        let (from, to) = (buffer.iter_at_offset(start as i32), buffer.iter_at_offset(end as i32));
+        if !crate::spell::check(&buffer.text(&from, &to, false)) {
+            buffer.apply_tag_by_name("misspelled", &from, &to);
+        }
     }
 }
 
@@ -797,4 +807,80 @@ fn toolbar(view: &gtk::TextView) -> gtk::Box {
         bar.append(&button);
     }
     bar
+}
+
+/// Right-click on a word the dictionaries do not know: their suggestions, and
+/// "Add to dictionary", above the text view's own menu.
+fn spell_menu(view: &gtk::TextView) {
+    let group = gio::SimpleActionGroup::new();
+    let replace = gio::SimpleAction::new("replace", Some(glib::VariantTy::STRING));
+    replace.connect_activate(glib::clone!(
+        #[weak]
+        view,
+        move |_, target| {
+            let Some(target) = target.and_then(|v| v.get::<String>()) else { return };
+            let mut parts = target.splitn(3, ':');
+            let (Some(Ok(start)), Some(Ok(end)), Some(word)) =
+                (parts.next().map(str::parse::<i32>), parts.next().map(str::parse::<i32>), parts.next())
+            else {
+                return;
+            };
+            let buffer = view.buffer();
+            let (mut from, mut to) = (buffer.iter_at_offset(start), buffer.iter_at_offset(end));
+            buffer.begin_user_action();
+            buffer.delete(&mut from, &mut to);
+            buffer.insert(&mut from, word);
+            buffer.end_user_action();
+        }
+    ));
+    group.add_action(&replace);
+    let learn = gio::SimpleAction::new("learn", Some(glib::VariantTy::STRING));
+    learn.connect_activate(glib::clone!(
+        #[weak]
+        view,
+        move |_, word| {
+            if let Some(word) = word.and_then(|v| v.get::<String>()) {
+                crate::spell::learn(&word);
+                restyle(&view.buffer());
+            }
+        }
+    ));
+    group.add_action(&learn);
+    view.insert_action_group("spell", Some(&group));
+
+    let click = gtk::GestureClick::builder()
+        .button(gdk::BUTTON_SECONDARY)
+        .propagation_phase(gtk::PropagationPhase::Capture)
+        .build();
+    click.connect_pressed(glib::clone!(
+        #[weak]
+        view,
+        move |_, _, x, y| {
+            let buffer = view.buffer();
+            let (bx, by) = view.window_to_buffer_coords(gtk::TextWindowType::Widget, x as i32, y as i32);
+            let at = view.iter_at_location(bx, by).map(|i| i.offset() as usize);
+            let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string();
+            let word = at.and_then(|at| rv_core::compose::words(&text).into_iter().find(|&(a, b)| at >= a && at < b));
+            let word = word.map(|(a, b)| (a, b, text.chars().skip(a).take(b - a).collect::<String>()));
+            let menu = word.filter(|(_, _, w)| !crate::spell::check(w)).map(|(a, b, w)| {
+                let menu = gio::Menu::new();
+                let suggestions = gio::Menu::new();
+                for s in crate::spell::suggest(&w) {
+                    let item = gio::MenuItem::new(Some(&s), None);
+                    item.set_action_and_target_value(Some("spell.replace"), Some(&format!("{a}:{b}:{s}").to_variant()));
+                    suggestions.append_item(&item);
+                }
+                if suggestions.n_items() == 0 {
+                    suggestions.append(Some(t("spell.none")), Some("spell.nothing"));
+                }
+                menu.append_section(None, &suggestions);
+                let learn = gio::MenuItem::new(Some(t("spell.learn")), None);
+                learn.set_action_and_target_value(Some("spell.learn"), Some(&w.to_variant()));
+                menu.append_item(&learn);
+                menu
+            });
+            view.set_extra_menu(menu.as_ref());
+        }
+    ));
+    view.add_controller(click);
 }

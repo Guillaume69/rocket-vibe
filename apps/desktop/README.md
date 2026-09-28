@@ -61,6 +61,10 @@ scripts/install-desktop.sh        # launcher entry, rocketvibe:// links
 Voice messages record through GStreamer: the host needs its Opus, Ogg and
 PulseAudio or PipeWire plugins (Fedora ships them with a desktop install).
 
+The spell check reads the system's Hunspell dictionaries (`fr_FR`, `en_US`: the
+`hunspell-fr` and `hunspell-en` packages); the Windows and macOS packages carry
+their own (`scripts/fetch-dictionaries.sh`).
+
 ## Headless smoke run
 
 Logs in, opens a room, optionally sends a message, saves a screenshot and

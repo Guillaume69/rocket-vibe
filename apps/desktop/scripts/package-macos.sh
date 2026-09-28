@@ -32,6 +32,7 @@ cp -RL "$brew/etc/fonts" "$res/etc/"
 cp "$brew"/share/glib-2.0/schemas/*.xml "$res/share/glib-2.0/schemas/"
 glib-compile-schemas "$res/share/glib-2.0/schemas"
 cp -RL "$brew/share/icons/Adwaita" "$brew/share/icons/hicolor" "$res/share/icons/"
+scripts/fetch-dictionaries.sh "$res/share/hunspell"
 
 iconset=dist/rocket-vibe.iconset
 rm -rf "$iconset" && mkdir -p "$iconset"

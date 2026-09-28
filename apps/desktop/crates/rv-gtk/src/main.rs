@@ -25,6 +25,7 @@ mod secrets;
 mod settings;
 mod sizer;
 mod smoke;
+mod spell;
 mod spotlight;
 mod staged;
 mod style;
@@ -97,6 +98,7 @@ fn main() -> glib::ExitCode {
     // One instance, except on Windows: a `rocketvibe://` link clicked elsewhere reaches the running app.
     let app = adw::Application::builder().application_id(APP_ID).flags(application_flags()).build();
     i18n::init();
+    spell::start();
     app.connect_startup(|_| {
         style::load();
         if let Some(display) = gtk::gdk::Display::default() {

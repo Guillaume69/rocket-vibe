@@ -130,6 +130,8 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("presence.offline", "Hors ligne", "Offline"),
     ("attach.choose", "Joindre des fichiers", "Attach files"),
     ("attach.pasted_name", "image-collee", "pasted-image"),
+    ("spell.learn", "Ajouter au dictionnaire", "Add to dictionary"),
+    ("spell.none", "Aucune suggestion", "No suggestions"),
     ("format.bold", "Gras (Ctrl+B)", "Bold (Ctrl+B)"),
     ("format.italic", "Italique (Ctrl+I)", "Italic (Ctrl+I)"),
     ("format.strike", "Barré (Ctrl+Maj+X)", "Strikethrough (Ctrl+Shift+X)"),

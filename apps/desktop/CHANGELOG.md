@@ -36,6 +36,8 @@ section here.
 - A formatting toolbar under the message field (bold, italic, strike, heading, link, code, code
   block, quote, lists) with keyboard shortcuts, and the draft shows its formatting as it is
   typed.
+- Spell check of the message field, French and English at once: unknown words are underlined,
+  a right click offers suggestions and "Add to dictionary".
 - A pin button in the room header lists the room's pinned messages and my starred ones; a
   click goes to the message, loading older history as far as needed.
 - Videos show as a player in place: first image and a play button (files up to 25 MB), then

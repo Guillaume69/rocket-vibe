@@ -1,0 +1,49 @@
+# Test feedback, 2026-09-28
+
+What testers of 0.1.0 reported (Linux, Windows, macOS), and where each item
+stands. `[x]` done · `[ ]` to do · `[~]` partial. Items marked *mobile* hold
+for the Android app too and are fixed there as well.
+
+## Layout
+
+- [ ] Small window: messages cropped, the list does not open on the latest one
+- [ ] Small window: no composer
+- [ ] Collapsed (one pane) and on the room list: no way back to the open room
+- [ ] Message times cropped at the top
+- [ ] Emoji not aligned with the text around them
+- [ ] Emoji button not aligned with the microphone button
+- [ ] The play button on videos and YouTube cards is not a circle
+- [ ] No pointer cursor on the call card
+
+## Navigation
+
+- [ ] Room list sections cannot be collapsed (*mobile*)
+- [ ] Mouse back / forward buttons do nothing
+- [ ] No button back to the latest message after scrolling up (*mobile*)
+- [ ] Up arrow in an empty composer does not edit my last message
+
+## Messages
+
+- [ ] Editing happens in a popover, not in place
+- [ ] Deleting asks no confirmation
+- [ ] No mouse selection across several lines
+- [ ] No preview of emoji and mentions on hover
+- [ ] The image viewer does not close on a click outside the image
+- [ ] Videos: no poster, no controls, no fullscreen; the player pops in on play
+- [ ] Files: no Download button; Open fails on Linux outside GNOME
+- [ ] Files and images dropped on the window are not sent
+- [ ] No spell check
+- [ ] "Nothing to do with this message" menu on system messages
+
+## Desktop integration
+
+- [ ] No app icon (Linux launcher, Windows, macOS)
+- [ ] App id `me.barrut.RocketVibe` differs from mobile's `com.rocketvibe.app`
+- [ ] No unread count on the dock / taskbar icon
+- [ ] Notifications do not show on Windows and macOS, and nothing in the app tells why
+- [ ] Notifications: a click opens the room, not the message; inline reply only on KDE
+- [ ] Random crash on Windows, no crash log to look at
+
+## macOS
+
+- [ ] The app feels laggy: plan a SwiftUI view layer over rv-core (UniFFI)

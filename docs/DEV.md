@@ -177,9 +177,10 @@ Trois cibles : `rocketvibe`, `NotificationService` (push, `plugins/with-ios-push
 |---|---|
 | Polices | iOS résout `fontFamily` par nom PostScript (`Baloo2-SemiBold`), Android par nom de fichier : `POLICES` choisit selon la plateforme (`ui/theme.ts`). |
 | Retour au toucher | `android_ripple` est ignoré sous iOS : `ui/appuyable.tsx` atténue l'élément pressé. |
-| Modules natifs Android | `reducteur-video` et `telechargements` valent `null` : vidéo envoyée sans réduction, « Enregistrer » un fichier ouvre la feuille de partage. |
+| Réduction vidéo | `reducteur-video` a une moitié Swift (AVFoundation, `AVAssetReader` → `AVAssetWriter`) : même sortie que Media3 côté Android, MP4 H.264 au bitrate demandé, côté court plafonné. |
+| Téléchargements | `telechargements` vaut `null` (iOS n'a pas de dossier public) : « Enregistrer » un fichier ouvre la feuille de partage, qui propose « Enregistrer dans Fichiers ». |
 | Messages vocaux | Session audio : enregistrement autorisé le temps de l'enregistrer, lecture malgré le bouton silencieux (`ui/composer.tsx`, `app/_layout.tsx`). |
-| Toasts | `ToastAndroid` ne fait rien sous iOS : une alerte à la place (`ui/actionsJointe.ts`). |
+| Toasts | `ToastAndroid` ne fait rien sous iOS : un toast dessiné par l'app (`ui/toast.tsx`). |
 | Bottom sheets | Marge basse au-dessus de l'indicateur d'accueil (`ui/margeFeuille.ts`). |
 | Photothèque | Demande du JPEG / H.264 au lieu de HEIC / HEVC, illisibles dans un navigateur. |
 | Partage vers l'app | Extension de partage activée ; `app/+native-intent.tsx` écarte son URL `rocketvibe://dataUrl=…` d'expo-router. |

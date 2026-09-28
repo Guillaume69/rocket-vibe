@@ -10,6 +10,7 @@ import { Alert, Platform, ToastAndroid } from 'react-native';
 import { enregistrerJointeProtegee, ouvrirJointeProtegee } from './fichierJoint.ts';
 import type { Traducteur } from './messages.ts';
 import { transferer } from './transferts.ts';
+import { afficherToast } from './toast.tsx';
 
 export type JointeATransferer = {
   /** Clé du transfert : le chemin serveur du fichier, sans jeton. */
@@ -22,10 +23,9 @@ export type JointeATransferer = {
   taille: number | null;
 };
 
-/** iOS n'a pas de toast : une alerte, pour ne pas taire le résultat. */
 function toast(message: string): void {
   if (Platform.OS === 'android') ToastAndroid.show(message, ToastAndroid.SHORT);
-  else Alert.alert(message);
+  else afficherToast(message);
 }
 
 export function enregistrerEnFond(jointe: JointeATransferer, t: Traducteur): void {

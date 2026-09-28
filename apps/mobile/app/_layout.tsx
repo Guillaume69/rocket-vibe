@@ -10,6 +10,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { definirNavigateurProfil } from '../lib/profilPreload.ts';
 import { SuiviIdentites } from '../ui/identites.tsx';
+import { HoteToast } from '../ui/toast.tsx';
 import { IndicateurOuvertureProfil } from '../ui/indicateurOuverture.tsx';
 import { GestionNotifications } from '../ui/notifications.tsx';
 import { SessionProvider } from '../ui/session.tsx';
@@ -161,6 +162,7 @@ export default function RootLayout() {
                   {/* Retour visuel du préchargement de fiche : au-dessus de la
                       pile, ne s'affiche que si l'ouverture traîne (>seuil). */}
                   <IndicateurOuvertureProfil />
+                  <HoteToast />
                   {/* Redirige vers l'écran de partage dès qu'un intent arrive. */}
                   <GardePartage />
                 </VisionneuseImageProvider>

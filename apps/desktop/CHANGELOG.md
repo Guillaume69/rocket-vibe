@@ -12,6 +12,7 @@ section here.
 - Mouse back and forward buttons, and Alt+Left / Alt+Right: out of a thread, between the
   room list and the room in a narrow window, then through the rooms opened before.
 - In a narrow window, a forward arrow on the room list goes back to the open room.
+- Deleting a message asks for confirmation first.
 
 ### Fixed
 

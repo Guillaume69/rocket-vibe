@@ -176,14 +176,18 @@ fn menu(
             }
             Action::Delete => {
                 let (s, rid, id, h) = (session.clone(), room.rid.clone(), row.id.clone(), handlers.clone());
+                let parent = popover.parent();
                 let button = run(
                     t("actions.delete"),
                     Box::new(move || {
                         let (s, rid, id, h) = (s.clone(), rid.clone(), id.clone(), h.clone());
-                        glib::spawn_future_local(async move {
-                            if on_tokio(async move { s.delete(&rid, &id).await }).await.is_err() {
-                                (h.toast)(t("actions.refused").to_owned());
-                            }
+                        confirm_delete(parent.as_ref(), move || {
+                            let (s, rid, id, h) = (s.clone(), rid.clone(), id.clone(), h.clone());
+                            glib::spawn_future_local(async move {
+                                if on_tokio(async move { s.delete(&rid, &id).await }).await.is_err() {
+                                    (h.toast)(t("actions.refused").to_owned());
+                                }
+                            });
                         });
                     }),
                 );
@@ -207,6 +211,19 @@ fn menu(
         column.append(&button);
     }
     column.upcast()
+}
+
+fn confirm_delete(parent: Option<&gtk::Widget>, delete: impl Fn() + 'static) {
+    let dialog = adw::AlertDialog::builder()
+        .heading(t("actions.delete_title"))
+        .body(t("actions.delete_body"))
+        .default_response("cancel")
+        .close_response("cancel")
+        .build();
+    dialog.add_responses(&[("cancel", t("actions.cancel")), ("delete", t("actions.delete"))]);
+    dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
+    dialog.connect_response(Some("delete"), move |_, _| delete());
+    dialog.present(parent);
 }
 
 fn editor(

@@ -264,6 +264,8 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("actions.download", "Télécharger", "Download"),
     ("actions.edit", "Modifier", "Edit"),
     ("actions.delete", "Supprimer", "Delete"),
+    ("actions.delete_title", "Supprimer ce message ?", "Delete this message?"),
+    ("actions.delete_body", "Il disparaîtra pour tout le monde.", "It will be gone for everyone."),
     ("actions.pin", "Épingler", "Pin"),
     ("actions.save", "Enregistrer", "Save"),
     ("actions.cancel", "Annuler", "Cancel"),

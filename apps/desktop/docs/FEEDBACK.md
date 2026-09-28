@@ -26,7 +26,7 @@ for the Android app too and are fixed there as well.
 ## Messages
 
 - [ ] Editing happens in a popover, not in place
-- [ ] Deleting asks no confirmation
+- [x] Deleting asks no confirmation
 - [ ] No mouse selection across several lines
 - [ ] No preview of emoji and mentions on hover
 - [ ] The image viewer does not close on a click outside the image

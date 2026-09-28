@@ -259,6 +259,10 @@ button.picker-tab { font-size: 18px; min-height: 30px; padding: 0; }
 }
 .composer-pill:focus-within { border-color: #34E1D0; box-shadow: 0 0 0 3px rgba(52, 225, 208, 0.14); }
 .composer-pill scrolledwindow, .composer-pill textview, .composer-pill text { background: transparent; color: #F3F0FF; font-size: 14.5px; min-height: 0; }
+.format-bar { margin: 0 6px; }
+.format-bar separator { margin: 6px 4px; background: #2C2946; }
+button.format-button { min-width: 30px; min-height: 26px; padding: 0 4px; color: #8F89AB; font-size: 14px; }
+button.format-button:hover { color: #F3F0FF; }
 .composer-placeholder { color: #6E6890; font-size: 14.5px; }
 button.jump-latest { background: #2C2946; color: #F3F0FF; min-width: 40px; min-height: 40px; box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.8); }
 button.jump-latest:hover { background: #3A3660; }

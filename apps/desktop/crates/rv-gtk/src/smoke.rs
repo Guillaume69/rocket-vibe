@@ -34,6 +34,7 @@
 //!   RV_SMOKE_FOLD=1       folds the channels section: its rooms leave the list, then come back
 //!                          (`keep`: left folded, for a screenshot)
 //!   RV_SMOKE_VIDEO=1      plays the last video card built; it must be playing, controls shown
+//!   RV_SMOKE_DRAFT_TEXT=<text>  typed in the composer (\n breaks lines), for a screenshot
 //!   RV_SMOKE_NAV=<other room>  opens the other room, then mouse back and forward between the two;
 //!                          in a narrow window, back to the list and forward into the room again
 //! A failed expectation makes the process exit with status 1.
@@ -218,6 +219,14 @@ pub fn install(window: &Rc<AppWindow>) {
             {
                 let chat = w.chat.clone();
                 glib::timeout_add_local_once(Duration::from_millis(1500), move || edit_checks(chat, tag));
+            }
+            if let Ok(draft) = std::env::var("RV_SMOKE_DRAFT_TEXT")
+                && !draft.is_empty()
+            {
+                let composer = w.chat.composer_rc();
+                glib::timeout_add_local_once(Duration::from_millis(2000), move || {
+                    composer.set_text(&draft.replace("\\n", "\n"))
+                });
             }
             if std::env::var("RV_SMOKE_JUMP").as_deref() == Ok("1") {
                 let list = w.chat.room_list();

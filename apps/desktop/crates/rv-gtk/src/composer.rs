@@ -62,6 +62,37 @@ impl Composer {
             .top_margin(0)
             .bottom_margin(0)
             .build();
+        style_tags(&text.buffer());
+        text.buffer().connect_changed(restyle);
+        let shortcuts = gtk::EventControllerKey::builder().propagation_phase(gtk::PropagationPhase::Capture).build();
+        shortcuts.connect_key_pressed(glib::clone!(
+            #[weak]
+            text,
+            #[upgrade_or]
+            glib::Propagation::Proceed,
+            move |_, key, _, state| {
+                use rv_core::compose::LineKind;
+                if !state.contains(gdk::ModifierType::CONTROL_MASK) {
+                    return glib::Propagation::Proceed;
+                }
+                let shift = state.contains(gdk::ModifierType::SHIFT_MASK);
+                let action = match key.to_lower() {
+                    gdk::Key::b => Format::Wrap("*"),
+                    gdk::Key::i => Format::Wrap("_"),
+                    gdk::Key::x if shift => Format::Wrap("~"),
+                    gdk::Key::k => Format::Link,
+                    gdk::Key::e if shift => Format::CodeBlock,
+                    gdk::Key::e => Format::Wrap("`"),
+                    gdk::Key::_7 if shift => Format::Lines(LineKind::Numbered),
+                    gdk::Key::_8 if shift => Format::Lines(LineKind::Bullet),
+                    gdk::Key::_9 if shift => Format::Lines(LineKind::Quote),
+                    _ => return glib::Propagation::Proceed,
+                };
+                format(&text, action);
+                glib::Propagation::Stop
+            }
+        ));
+        text.add_controller(shortcuts);
         let scroll = gtk::ScrolledWindow::builder()
             .hscrollbar_policy(gtk::PolicyType::Never)
             .vscrollbar_policy(gtk::PolicyType::External)
@@ -200,6 +231,7 @@ impl Composer {
         root.append(&reply_bar);
         root.append(&staged.root);
         root.append(&field);
+        root.append(&toolbar(&text));
         root.append(&record_bar);
 
         let this = Rc::new(Composer {
@@ -649,4 +681,120 @@ impl Composer {
         let bar = scroller.vscrollbar();
         (scroller.height(), bar.is_visible() && bar.is_child_visible(), scroller.vadjustment().value())
     }
+}
+
+/// What each styled run of the draft looks like as it is typed.
+fn style_tags(buffer: &gtk::TextBuffer) {
+    let table = buffer.tag_table();
+    let tag = |name: &str| gtk::TextTag::builder().name(name).build();
+    let bold = tag("bold");
+    bold.set_weight(800);
+    let italic = tag("italic");
+    italic.set_style(gtk::pango::Style::Italic);
+    let strike = tag("strike");
+    strike.set_strikethrough(true);
+    let code = tag("code");
+    code.set_family(Some("monospace"));
+    code.set_background(Some("#2C2946"));
+    let block = tag("codeblock");
+    block.set_family(Some("monospace"));
+    let heading = tag("heading");
+    heading.set_weight(800);
+    heading.set_scale(1.2);
+    let quote = tag("quote");
+    quote.set_foreground(Some("#C9C3E0"));
+    quote.set_style(gtk::pango::Style::Italic);
+    let marker = tag("marker");
+    marker.set_foreground(Some("#6E6890"));
+    for t in [bold, italic, strike, code, block, heading, quote, marker] {
+        table.add(&t);
+    }
+}
+
+fn restyle(buffer: &gtk::TextBuffer) {
+    let (start, end) = buffer.bounds();
+    buffer.remove_all_tags(&start, &end);
+    let text = buffer.text(&start, &end, false);
+    for span in rv_core::compose::spans(&text) {
+        use rv_core::compose::Style;
+        let name = match span.style {
+            Style::Bold => "bold",
+            Style::Italic => "italic",
+            Style::Strike => "strike",
+            Style::Code => "code",
+            Style::CodeBlock => "codeblock",
+            Style::Heading => "heading",
+            Style::Quote => "quote",
+            Style::Marker => "marker",
+        };
+        let (from, to) = (buffer.iter_at_offset(span.start as i32), buffer.iter_at_offset(span.end as i32));
+        buffer.apply_tag_by_name(name, &from, &to);
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Format {
+    Wrap(&'static str),
+    Lines(rv_core::compose::LineKind),
+    CodeBlock,
+    Link,
+}
+
+/// Applies a format to the selection (or at the cursor) and keeps it selected.
+fn format(view: &gtk::TextView, format: Format) {
+    let buffer = view.buffer();
+    let (start, end) = buffer.selection_bounds().unwrap_or_else(|| {
+        let cursor = buffer.iter_at_mark(&buffer.get_insert());
+        (cursor, cursor)
+    });
+    let (start, end) = (start.offset() as usize, end.offset() as usize);
+    let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string();
+    let edited = match format {
+        Format::Wrap(marker) => rv_core::compose::toggle_wrap(&text, start, end, marker),
+        Format::Lines(kind) => rv_core::compose::toggle_lines(&text, start, end, kind),
+        Format::CodeBlock => rv_core::compose::code_block(&text, start, end),
+        Format::Link => rv_core::compose::link(&text, start, end),
+    };
+    buffer.begin_user_action();
+    buffer.set_text(&edited.text);
+    buffer.end_user_action();
+    let (from, to) = (buffer.iter_at_offset(edited.start as i32), buffer.iter_at_offset(edited.end as i32));
+    buffer.select_range(&from, &to);
+    view.grab_focus();
+}
+
+fn toolbar(view: &gtk::TextView) -> gtk::Box {
+    use rv_core::compose::LineKind;
+    let bar = gtk::Box::builder().spacing(2).css_classes(["format-bar"]).build();
+    let items: [(&str, Option<&str>, &str, Format); 10] = [
+        ("format.bold", None, "<b>B</b>", Format::Wrap("*")),
+        ("format.italic", None, "<i>I</i>", Format::Wrap("_")),
+        ("format.strike", None, "<s>S</s>", Format::Wrap("~")),
+        ("format.heading", None, "H", Format::Lines(LineKind::Heading)),
+        ("format.link", None, "", Format::Link),
+        ("format.code", None, "&lt;/&gt;", Format::Wrap("`")),
+        ("format.code_block", None, "{ }", Format::CodeBlock),
+        ("format.quote", None, "<span size=\"150%\">“</span>", Format::Lines(LineKind::Quote)),
+        ("format.bullets", Some("view-list-bullet-symbolic"), "", Format::Lines(LineKind::Bullet)),
+        ("format.numbers", Some("view-list-ordered-symbolic"), "", Format::Lines(LineKind::Numbered)),
+    ];
+    for (i, (tip, icon, text, action)) in items.into_iter().enumerate() {
+        let button = gtk::Button::builder()
+            .tooltip_text(t(tip))
+            .css_classes(["flat", "format-button"])
+            .focus_on_click(false)
+            .build();
+        match icon {
+            Some(icon) => button.set_icon_name(icon),
+            None if text.is_empty() => button.set_child(Some(&widgets::link_glyph())),
+            None => button.set_child(Some(&gtk::Label::builder().label(text).use_markup(true).build())),
+        }
+        let view = view.clone();
+        button.connect_clicked(move |_| format(&view, action));
+        if i == 3 || i == 7 {
+            bar.append(&gtk::Separator::new(gtk::Orientation::Vertical));
+        }
+        bar.append(&button);
+    }
+    bar
 }

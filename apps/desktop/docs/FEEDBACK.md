@@ -34,7 +34,7 @@ for the Android app too and are fixed there as well.
 - [x] Files: no Download button; Open fails on Linux outside GNOME (falls back to GIO, then xdg-open)
 - [~] Files and images dropped on the window are not sent: the composer took dropped files as text, and pictures dragged from a browser were refused; fixed, to confirm by hand (no way to synthesize a drop headless)
 - [ ] No spell check
-- [ ] No formatting toolbar: a WYSIWYG composer with bold, italic, strike, heading, link, code, quote and lists
+- [~] No formatting toolbar: a WYSIWYG composer with bold, italic, strike, heading, link, code, quote and lists: toolbar and shortcuts done, the draft styled as typed (markers dimmed, still visible: the message is markdown)
 - [x] "Nothing to do with this message" menu on system messages (no menu where nothing is possible)
 - [~] Attachments go out at once: they should wait in the composer as chips (thumbnail, name, size, remove), open a preview on click, and leave with the text (*mobile*): desktop done
 

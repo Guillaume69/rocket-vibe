@@ -192,6 +192,33 @@ pub fn play_badge(size: i32) -> gtk::DrawingArea {
     area
 }
 
+/// A chain link, in the text colour: the icon themes' "insert link" reads as anything but.
+pub fn link_glyph() -> gtk::DrawingArea {
+    let area = gtk::DrawingArea::builder()
+        .content_width(16)
+        .content_height(16)
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
+        .can_target(false)
+        .build();
+    area.set_draw_func(|area, cr, w, h| {
+        let color = area.color();
+        cr.set_source_rgba(color.red().into(), color.green().into(), color.blue().into(), color.alpha().into());
+        cr.set_line_width(1.8);
+        cr.translate(w as f64 / 2.0, h as f64 / 2.0);
+        cr.rotate(-std::f64::consts::FRAC_PI_4);
+        for dx in [-3.2, 3.2] {
+            let (x, y, len, r) = (dx - 4.2, -2.6, 8.4, 2.6);
+            cr.new_sub_path();
+            cr.arc(x + len - r, y + r, r, -std::f64::consts::FRAC_PI_2, std::f64::consts::FRAC_PI_2);
+            cr.arc(x + r, y + r, r, std::f64::consts::FRAC_PI_2, 3.0 * std::f64::consts::FRAC_PI_2);
+            cr.close_path();
+        }
+        let _ = cr.stroke();
+    });
+    area
+}
+
 /// The four-point star of "✦ New messages": few fonts carry U+2726.
 pub fn sparkle() -> gtk::DrawingArea {
     let area = gtk::DrawingArea::builder()

@@ -80,6 +80,31 @@ pub fn open(
     let labels: Vec<&str> = NOTIFICATION_CHOICES.iter().map(|c| t(&format!("settings.notify_{c}"))).collect();
     let notify = combo(t("settings.desktop_notifications"), &labels, 0);
     notify_group.add(&notify);
+    if let Some(notifier) = crate::notifier::current() {
+        let shown_by = adw::ActionRow::builder().title(t("notify.shown_by")).subtitle("…").build();
+        let row = shown_by.clone();
+        notifier.describe(move |text| row.set_subtitle(&text));
+        notify_group.add(&shown_by);
+        let test = adw::ActionRow::builder().title(t("notify.test")).subtitle(t("notify.test_hint")).build();
+        let send = gtk::Button::builder()
+            .icon_name("preferences-system-notifications-symbolic")
+            .tooltip_text(t("notify.test"))
+            .css_classes(["flat"])
+            .valign(gtk::Align::Center)
+            .build();
+        send.connect_clicked(move |_| notifier.test());
+        test.add_suffix(&send);
+        test.set_activatable_widget(Some(&send));
+        notify_group.add(&test);
+    }
+    if let Some(uri) = crate::notifier::system_settings_uri() {
+        let system = adw::ButtonRow::builder()
+            .title(t("notify.system_settings"))
+            .end_icon_name("external-link-symbolic")
+            .build();
+        system.connect_activated(move |row| crate::cards::open_uri(row, uri));
+        notify_group.add(&system);
+    }
     page.add(&notify_group);
 
     let language_group = adw::PreferencesGroup::builder().title(t("settings.language")).build();

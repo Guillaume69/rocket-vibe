@@ -34,6 +34,8 @@ section here.
 - The app icon: in the launcher entry (installed by `scripts/install-desktop.sh` and shipped in
   the Linux archive), on the window wherever the app runs from, and in the Windows executable.
 - A click on a notification opens its message: the room scrolls to it and highlights it.
+- Settings, Notifications: what shows them (and whether it takes replies), a test notification,
+  and on Windows and macOS a shortcut to the system's notification settings.
 
 ### Fixed
 

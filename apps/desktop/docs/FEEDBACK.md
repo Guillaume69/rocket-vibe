@@ -43,7 +43,7 @@ for the Android app too and are fixed there as well.
 - [~] No app icon (Linux launcher, Windows, macOS): Linux entry and window icon done; Windows exe icon embedded, to confirm on a CI build; macOS already had its .icns
 - [x] App id `me.barrut.RocketVibe` differs from mobile's `com.rocketvibe.app` (keychain items stay under the old name: nobody is signed out)
 - [ ] No unread count on the dock / taskbar icon
-- [ ] Notifications do not show on Windows and macOS, and nothing in the app tells why
+- [~] Notifications do not show on Windows and macOS, and nothing in the app tells why: Settings now says what shows them, sends a test and opens the system settings. The cause: GLib only has a tray-balloon backend on Windows (no click) and the deprecated NSUserNotification on macOS; native backends (WinRT toasts, UNUserNotificationCenter) need building and testing on those systems
 - [~] Notifications: a click opens the room, not the message; inline reply only on KDE: a click now opens the message (scrolled to, highlighted); inline reply still where the notification server offers it
 - [~] Random crash on Windows, no crash log to look at: logs kept (previous run too) and panics recorded, shown in Settings; the crash itself needs a log from a tester
 

@@ -528,6 +528,8 @@ fn details_checks(
 
 const NOTIFICATIONS_XML: &str = r#"<node><interface name="org.freedesktop.Notifications">
   <method name="GetCapabilities"><arg type="as" direction="out"/></method>
+  <method name="GetServerInformation"><arg type="s" direction="out"/><arg type="s" direction="out"/>
+    <arg type="s" direction="out"/><arg type="s" direction="out"/></method>
   <method name="Notify"><arg type="s"/><arg type="u"/><arg type="s"/><arg type="s"/><arg type="s"/>
     <arg type="as"/><arg type="a{sv}"/><arg type="i"/><arg type="u" direction="out"/></method>
   <method name="CloseNotification"><arg type="u"/></method>
@@ -549,6 +551,9 @@ fn fake_notification_server(reply: String) {
         .method_call(move |connection, _, _, _, method, parameters, invocation| match method {
             "GetCapabilities" => {
                 invocation.return_value(Some(&(vec!["body", "actions", "inline-reply"],).to_variant()))
+            }
+            "GetServerInformation" => {
+                invocation.return_value(Some(&("smoke-notifications", "rocket-vibe", "1.0", "1.2").to_variant()))
             }
             "Notify" => {
                 let summary = parameters.child_value(3).get::<String>().unwrap_or_default();

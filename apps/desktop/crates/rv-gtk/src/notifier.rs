@@ -12,7 +12,7 @@ use gtk::prelude::*;
 use gtk::{gio, glib};
 use rv_core::notify::Incoming;
 
-use crate::i18n::t;
+use crate::i18n::{t, tf};
 
 const BUS: &str = "org.freedesktop.Notifications";
 const PATH: &str = "/org/freedesktop/Notifications";
@@ -39,6 +39,26 @@ fn session_bus() -> Option<gio::DBusConnection> {
 type OnOpen = Rc<dyn Fn(String, String)>;
 type OnReply = Rc<dyn Fn(String, String)>;
 
+thread_local! {
+    static CURRENT: RefCell<std::rc::Weak<Notifier>> = RefCell::default();
+}
+
+/// The window's notifier, for the settings' test and diagnostics.
+pub fn current() -> Option<Rc<Notifier>> {
+    CURRENT.with_borrow(std::rc::Weak::upgrade)
+}
+
+/// Where the system lets the user allow or silence the app's notifications.
+pub fn system_settings_uri() -> Option<&'static str> {
+    if cfg!(windows) {
+        Some("ms-settings:notifications")
+    } else if cfg!(target_os = "macos") {
+        Some("x-apple.systempreferences:com.apple.Notifications-Settings.extension")
+    } else {
+        None
+    }
+}
+
 impl Notifier {
     pub fn new(
         app: &impl IsA<gio::Application>,
@@ -55,7 +75,7 @@ impl Notifier {
                 }
             });
             app.add_action(&action);
-            return Rc::new(Notifier {
+            let this = Rc::new(Notifier {
                 app,
                 connection: None,
                 inline_reply: Cell::new(false),
@@ -63,6 +83,8 @@ impl Notifier {
                 by_room: RefCell::default(),
                 subscriptions: RefCell::default(),
             });
+            CURRENT.with_borrow_mut(|c| *c = Rc::downgrade(&this));
+            return this;
         };
         let this = Rc::new(Notifier {
             app,
@@ -127,6 +149,7 @@ impl Notifier {
             },
         );
         this.subscriptions.replace(vec![invoked, replied, closed]);
+        CURRENT.with_borrow_mut(|c| *c = Rc::downgrade(&this));
         let weak = Rc::downgrade(&this);
         glib::spawn_future_local(async move {
             let capabilities = connection
@@ -141,6 +164,43 @@ impl Notifier {
             }
         });
         this
+    }
+
+    /// A notification of no room, to see whether the system shows ours.
+    pub fn test(self: &Rc<Self>) {
+        self.show(&Incoming {
+            rid: String::new(),
+            id: String::new(),
+            author: "rocket-vibe".to_owned(),
+            room_name: String::new(),
+            direct: true,
+            body: Some(t("notify.test_body").to_owned()),
+            mentions_me: false,
+        });
+    }
+
+    /// What shows our notifications, in words.
+    pub fn describe(self: &Rc<Self>, done: impl FnOnce(String) + 'static) {
+        let Some(connection) = self.connection.clone() else {
+            done(t(if cfg!(windows) { "notify.backend_windows" } else { "notify.backend_macos" }).to_owned());
+            return;
+        };
+        let inline = self.inline_reply.get();
+        glib::spawn_future_local(async move {
+            let info = connection
+                .call_future(Some(BUS), PATH, BUS, "GetServerInformation", None, None, gio::DBusCallFlags::NONE, 2000)
+                .await
+                .ok()
+                .and_then(|v| v.get::<(String, String, String, String)>());
+            let text = match info {
+                Some((name, _, version, _)) => {
+                    let reply = t(if inline { "notify.reply_yes" } else { "notify.reply_no" });
+                    tf("notify.backend_server", &[("name", &name), ("version", &version), ("reply", reply)])
+                }
+                None => t("notify.backend_none").to_owned(),
+            };
+            done(text);
+        });
     }
 
     pub fn show(self: &Rc<Self>, incoming: &Incoming) {

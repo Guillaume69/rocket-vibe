@@ -51,6 +51,9 @@ section here.
 - The app icon: in the launcher entry (installed by `scripts/install-desktop.sh` and shipped in
   the Linux archive), on the window wherever the app runs from, and in the Windows executable.
 - A click on a notification opens its message: the room scrolls to it and highlights it.
+- Where the notification server has no reply field (GNOME), notifications get a Reply button
+  that opens the message with the message field ready; Windows and macOS notifications now
+  come from the system itself, with a reply field and the unread count on the taskbar or dock.
 - Settings, Notifications: what shows them (and whether it takes replies), a test notification,
   and on Windows and macOS a shortcut to the system's notification settings.
 - On Linux docks that support it (KDE Plasma, Dash to Dock, Plank), the app icon shows the

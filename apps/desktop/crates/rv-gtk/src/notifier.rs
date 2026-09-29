@@ -131,7 +131,7 @@ impl Notifier {
                 let Some(this) = weak.upgrade() else { return };
                 // Taken out first: opening the room withdraws its notification, which borrows `shown`.
                 let target = this.shown.borrow().get(&id).cloned();
-                if action == "default"
+                if (action == "default" || action == "reply")
                     && let Some((rid, message)) = target
                 {
                     open(rid, message);
@@ -261,6 +261,9 @@ impl Notifier {
         if self.inline_reply.get() {
             actions.extend(["inline-reply".to_owned(), t("notify.reply").to_owned()]);
             hints.insert("x-kde-reply-placeholder-text".into(), t("notify.reply_placeholder").to_variant());
+        } else {
+            // No field in the notification (GNOME): the button opens the message, the composer ready.
+            actions.extend(["reply".to_owned(), t("notify.reply").to_owned()]);
         }
         let replaces = self.by_room.borrow().get(&incoming.rid).copied().unwrap_or(0);
         let parameters = (

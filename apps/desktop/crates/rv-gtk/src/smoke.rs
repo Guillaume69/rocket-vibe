@@ -21,7 +21,8 @@
 //!                          checks the read and opens the dialog; emoji: a custom one completes
 //!   RV_SMOKE_NOTIFY=<reply>  stands in for the desktop's notification server (inline reply
 //!                          included), answers the first notification with <reply>, then clicks
-//!                          it: its room must open on that message
+//!                          it: its room must open on that message (`-`: a server without inline
+//!                          reply, whose Reply button must open it the same way)
 //!   RV_SMOKE_SECOND="<user>|<password>"  adds a second account on the same server,
 //!                          then switches back to the first
 //!   RV_SMOKE_E2E=<password>  unlocks encrypted rooms (a wrong one first must be refused)
@@ -578,7 +579,9 @@ fn fake_notification_server(reply: String) {
         .register_object("/org/freedesktop/Notifications", &interface)
         .method_call(move |connection, _, _, _, method, parameters, invocation| match method {
             "GetCapabilities" => {
-                invocation.return_value(Some(&(vec!["body", "actions", "inline-reply"],).to_variant()))
+                let plain = std::env::var("RV_SMOKE_NOTIFY").as_deref() == Ok("-");
+                let caps = if plain { vec!["body", "actions"] } else { vec!["body", "actions", "inline-reply"] };
+                invocation.return_value(Some(&(caps,).to_variant()))
             }
             "GetServerInformation" => {
                 invocation.return_value(Some(&("smoke-notifications", "rocket-vibe", "1.0", "1.2").to_variant()))
@@ -588,27 +591,30 @@ fn fake_notification_server(reply: String) {
                 let body = parameters.child_value(4).get::<String>().unwrap_or_default();
                 let actions = parameters.child_value(5).get::<Vec<String>>().unwrap_or_default();
                 println!(
-                    "smoke: notification {summary:?} {body:?} inline-reply={}",
+                    "smoke: notification {summary:?} {body:?} actions={actions:?} inline-reply={}",
                     actions.iter().any(|a| a == "inline-reply")
                 );
                 invocation.return_value(Some(&(7u32,).to_variant()));
                 if !replied.replace(true) {
                     let (connection, reply) = (connection.clone(), reply.clone());
                     glib::timeout_add_local_once(Duration::from_millis(300), move || {
-                        let _ = connection.emit_signal(
-                            None,
-                            "/org/freedesktop/Notifications",
-                            "org.freedesktop.Notifications",
-                            "NotificationReplied",
-                            Some(&(7u32, reply).to_variant()),
-                        );
+                        let plain = reply == "-";
+                        if !plain {
+                            let _ = connection.emit_signal(
+                                None,
+                                "/org/freedesktop/Notifications",
+                                "org.freedesktop.Notifications",
+                                "NotificationReplied",
+                                Some(&(7u32, reply).to_variant()),
+                            );
+                        }
                         glib::timeout_add_local_once(Duration::from_millis(800), move || {
                             let _ = connection.emit_signal(
                                 None,
                                 "/org/freedesktop/Notifications",
                                 "org.freedesktop.Notifications",
                                 "ActionInvoked",
-                                Some(&(7u32, "default").to_variant()),
+                                Some(&(7u32, if plain { "reply" } else { "default" }).to_variant()),
                             );
                             glib::timeout_add_local_once(Duration::from_millis(1200), || {
                                 let Some(w) = SMOKE_WINDOW.with_borrow(std::rc::Weak::upgrade) else { return };

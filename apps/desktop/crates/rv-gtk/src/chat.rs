@@ -1443,6 +1443,7 @@ impl ChatPage {
         self.open_room(rid);
         if self.current_rid().as_deref() == Some(rid) {
             self.list.reveal(id);
+            self.composer.grab_focus();
         }
     }
 

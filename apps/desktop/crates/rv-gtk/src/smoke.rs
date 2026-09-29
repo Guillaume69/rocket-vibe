@@ -42,6 +42,9 @@
 //!   RV_SMOKE_AUTOSTART=on|off  sets starting at login, prints the result and exits
 //!   RV_SMOKE_SOAK=<secs>   with the gallery: rows, toasts and badges churned that long: see `soak`
 //!   RV_SMOKE_LOG_FLOOD=<n> with the gallery: the same GLib critical n times, then another message
+//!   RV_SMOKE_MEDIA=<files> with the gallery: `|`-separated audio and video files, each must play
+//!   RV_SMOKE_IME=1         with the gallery (Windows): the composer focused, three keyboard layout
+//!                          changes, then typing (`unpinned`: without pinning the input method)
 //!   RV_SMOKE_UPDATE=1      the update card must offer a newer release (RV_SMOKE_UPDATE_FROM plays an
 //!                          older version); `install`: its Update button must replace the binary
 //! A failed expectation makes the process exit with status 1.
@@ -863,6 +866,9 @@ pub fn gallery(app: &adw::Application) -> bool {
         .content(&content)
         .build();
     window.present();
+    if std::env::var("RV_SMOKE_IME").is_ok() {
+        layout_changes(composer.clone());
+    }
     std::mem::forget(composer);
     rv_native::init(crate::APP_ID, "rocket-vibe", Box::new(|event| println!("smoke: native event {event:?}")));
     crate::widgets::badge_follows(&window);
@@ -890,7 +896,59 @@ pub fn gallery(app: &adw::Application) -> bool {
     if let Some(seconds) = std::env::var("RV_SMOKE_SOAK").ok().and_then(|s| s.parse::<u32>().ok()) {
         soak(column, samples.to_vec(), seconds);
     }
+    if let Ok(files) = std::env::var("RV_SMOKE_MEDIA") {
+        media(files.split('|').filter(|f| !f.is_empty()).map(str::to_owned).collect());
+    }
     true
+}
+
+/// `RV_SMOKE_IME`: what a keyboard layout change does to a focused field.
+fn layout_changes(composer: std::rc::Rc<crate::composer::Composer>) {
+    glib::timeout_add_local_once(Duration::from_millis(2000), move || {
+        composer.grab_focus();
+        for round in 1..=3u64 {
+            let composer = composer.clone();
+            glib::timeout_add_local_once(Duration::from_millis(700 * round), move || {
+                rv_native::input_language_changed();
+                if round == 3 {
+                    glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+                        composer.set_text("typed after three layout changes");
+                        println!("smoke: input language changed 3 times, composer {:?}", composer.text());
+                    });
+                }
+            });
+        }
+    });
+}
+
+/// Whether the smoke run leaves the input method to the system.
+#[cfg(windows)]
+pub fn ime_unpinned() -> bool {
+    std::env::var("RV_SMOKE_IME").as_deref() == Ok("unpinned")
+}
+
+/// `RV_SMOKE_MEDIA`: each file through GTK's media stream, as the cards play
+/// them, muted: it has to be ready to play, with no error. CI machines have
+/// no sound card, so how far it got is only reported.
+fn media(files: Vec<String>) {
+    for file in files {
+        let stream = crate::gst_stream::for_file(std::path::Path::new(&file));
+        stream.set_muted(true);
+        stream.play();
+        glib::timeout_add_local_once(Duration::from_millis(4000), move || {
+            let played = stream.timestamp();
+            let ok = stream.error().is_none() && stream.is_prepared();
+            println!(
+                "smoke: media {file} {} (played {} ms, error {:?})",
+                if ok { "ok" } else { "FAILED" },
+                played / 1000,
+                stream.error().map(|e| e.to_string())
+            );
+            if !ok {
+                FAILED.store(true, Ordering::SeqCst);
+            }
+        });
+    }
 }
 
 /// `RV_SMOKE_SOAK=<seconds>` with the gallery: for that long, rebuild the

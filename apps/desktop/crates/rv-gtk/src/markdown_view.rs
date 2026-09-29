@@ -299,6 +299,9 @@ fn block(b: &Block, extra: &[&str]) -> gtk::Widget {
                 .selectable(true)
                 .css_classes(["md-code-text"])
                 .build();
+            let attributes = pango::AttrList::new();
+            attributes.insert(pango::AttrInt::new_insert_hyphens(false));
+            label.set_attributes(Some(&attributes));
             let frame = gtk::Box::builder().css_classes(["md-code"]).build();
             frame.append(&label);
             frame.upcast()

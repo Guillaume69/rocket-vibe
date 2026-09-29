@@ -10,7 +10,9 @@ mod composer;
 mod crashlog;
 mod details;
 mod emoji_picker;
+mod focus;
 mod fonts;
+mod gst_stream;
 mod i18n;
 mod icon;
 mod login;
@@ -107,6 +109,11 @@ fn main() -> glib::ExitCode {
     i18n::init();
     spell::start();
     app.connect_startup(|app| {
+        focus::install();
+        #[cfg(windows)]
+        if !smoke::ime_unpinned() {
+            windows::input_method();
+        }
         background::install(app);
         style::load();
         if let Some(display) = gtk::gdk::Display::default() {

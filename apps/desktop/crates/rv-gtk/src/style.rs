@@ -16,6 +16,8 @@ const CSS: &str = r#"
   --headerbar-shade-color: #1E1B33;
   --sidebar-bg-color: #0F0E1C;
   --sidebar-fg-color: #F3F0FF;
+  --sidebar-backdrop-color: #0F0E1C;
+  --headerbar-backdrop-color: #0C0B16;
   --card-bg-color: #171529;
   --popover-bg-color: #171529;
   --dialog-bg-color: #171529;

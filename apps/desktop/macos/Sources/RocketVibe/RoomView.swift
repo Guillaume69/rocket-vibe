@@ -86,7 +86,7 @@ struct RoomView: View {
         Task {
             guard let chat = app.chat else { return }
             if let link = try? await chat.startCall(rid: model.rid), let url = URL(string: link) {
-                openURL(url)
+                CallWindow.show(url, title: L("call.window_title", ["room": model.room.name]))
             } else {
                 app.notice = L("call.failed")
             }
@@ -676,6 +676,7 @@ struct CallCard: View {
     @Environment(AppModel.self) var app
     @Environment(\.openURL) var openURL
     let callId: String
+    @State var link: String?
 
     var body: some View {
         HStack(spacing: 10) {
@@ -685,12 +686,42 @@ struct CallCard: View {
                 Task {
                     guard let chat = app.chat else { return }
                     if let link = try? await chat.joinCall(callId: callId), let url = URL(string: link) {
-                        openURL(url)
+                        CallWindow.show(url, title: L("message.call"))
                     } else {
                         app.notice = L("call.failed")
                     }
                 }
             }
+            Button {
+                Task {
+                    guard let chat = app.chat else { return }
+                    if let found = try? await chat.callLink(callId: callId) {
+                        link = found
+                    } else {
+                        app.notice = L("call.failed")
+                    }
+                }
+            } label: {
+                Image(systemName: "info.circle")
+            }
+            .buttonStyle(.borderless)
+            .help(L("call.info"))
+        }
+        .alert(
+            L("call.info"),
+            isPresented: Binding(get: { link != nil }, set: { if !$0 { link = nil } }),
+            presenting: link
+        ) { link in
+            Button(L("call.copy_link")) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(link, forType: .string)
+            }
+            Button(L("call.open_browser")) {
+                if let url = URL(string: link) { openURL(url) }
+            }
+            Button(L("call.close"), role: .cancel) {}
+        } message: { link in
+            Text(link)
         }
         .padding(10)
         .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))

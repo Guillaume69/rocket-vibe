@@ -543,6 +543,12 @@ impl Chat {
         Ok(on_tokio(async move { s.join_call(&call_id).await }).await?)
     }
 
+    /// The meeting's link to share, without anyone's token.
+    pub async fn call_link(&self, call_id: String) -> Result<String, RvError> {
+        let s = self.session.clone();
+        Ok(on_tokio(async move { s.call_link(&call_id).await }).await?)
+    }
+
     /// A protected file or avatar, fetched with the session's credentials and cached.
     pub async fn media(&self, path: String) -> Result<MediaData, RvError> {
         let s = self.session.clone();
@@ -732,6 +738,12 @@ pub fn system_message(kind: String, param: String) -> String {
 }
 
 /// `:smile:` to 😄 wherever a shortcode has a glyph.
+/// Where a call window may go: the call's own origin (see `rv_core::call`).
+#[uniffi::export]
+pub fn call_allowed(url: String, call_url: String) -> bool {
+    rv_core::call::allowed(&url, &call_url)
+}
+
 #[uniffi::export]
 pub fn replace_shortcodes(text: String) -> String {
     rv_core::emoji::replace_shortcodes(&text)

@@ -61,6 +61,12 @@ scripts/install-desktop.sh        # launcher entry, rocketvibe:// links
 Voice messages record through GStreamer: the host needs its Opus, Ogg and
 PulseAudio or PipeWire plugins (Fedora ships them with a desktop install).
 
+Video plays through GStreamer too: H.264, the most common format, needs a decoder
+Fedora does not install by default, `gstreamer1-plugin-openh264` (Cisco's repository,
+enabled on Fedora Workstation) or `gstreamer1-plugin-libav` (RPM Fusion); Debian and
+Ubuntu ship `gstreamer1.0-libav`. Without one, a video card says it cannot play the
+format and offers another application.
+
 The spell check reads the system's Hunspell dictionaries (`fr_FR`, `en_US`: the
 `hunspell-fr` and `hunspell-en` packages); the Windows and macOS packages carry
 their own (`scripts/fetch-dictionaries.sh`).

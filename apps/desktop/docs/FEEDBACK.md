@@ -21,7 +21,7 @@ for the Android app too and are fixed there as well.
 - [x] Mouse back / forward buttons do nothing (also Alt+Left / Alt+Right): thread, list, rooms opened before
 - [x] No button back to the latest message after scrolling up (*mobile*): both apps
 - [x] Up arrow in an empty composer does not edit my last message
-- [~] No easy access to pinned and starred messages (*mobile*): desktop done (header button, two tabs, a click jumps to the message, paging back as needed; Star/Unstar/Unpin in the menu)
+- [x] No easy access to pinned and starred messages (*mobile*): both apps (header button, two tabs, a click jumps to the message, paging back as needed; Star/Unstar/Unpin in the actions)
 
 ## Messages
 
@@ -36,7 +36,7 @@ for the Android app too and are fixed there as well.
 - [x] No spell check (Hunspell dictionaries through spellbook: French and English, suggestions and a personal list on right click)
 - [~] No formatting toolbar: a WYSIWYG composer with bold, italic, strike, heading, link, code, quote and lists: toolbar and shortcuts done, the draft styled as typed (markers dimmed, still visible: the message is markdown)
 - [x] "Nothing to do with this message" menu on system messages (no menu where nothing is possible)
-- [~] Attachments go out at once: they should wait in the composer as chips (thumbnail, name, size, remove), open a preview on click, and leave with the text (*mobile*): desktop done
+- [x] Attachments go out at once: they should wait in the composer as chips (thumbnail, name, size, remove), open a preview on click, and leave with the text (*mobile*): both apps
 
 ## Desktop integration
 
@@ -61,4 +61,4 @@ for the Android app too and are fixed there as well.
 - [x] Enter or double click in the room list opened the wrong room (section titles not counted)
 - [x] Clicking a notification on a freedesktop server aborted the app (RefCell borrow held across the room opening)
 - [x] The actions menu never loads the user's permissions: both apps read `permissions.listAll` and my global and room roles, and apply the server's own rules
-- [ ] Videos in a format the system cannot decode (H.264 on a Linux without its codec) now say so; the Linux notes could name the packages
+- [x] Videos in a format the system cannot decode (H.264 on a Linux without its codec) now say so, and the README names the decoder packages

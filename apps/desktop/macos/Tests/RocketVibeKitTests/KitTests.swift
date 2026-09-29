@@ -112,6 +112,25 @@ final class LiveTests: XCTestCase {
     }
 
     @MainActor
+    func testTheProbeSaysWhatTheServerIs() async throws {
+        guard let server = ProcessInfo.processInfo.environment["RV_TEST_SERVER"] else {
+            throw XCTSkip("RV_TEST_SERVER unset")
+        }
+        setFrench(french: false)
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("rv-probe-\(getpid())").path
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let app = AppModel(home: home)
+        app.login.server = server
+        await app.login.probe(client: app.client)
+        XCTAssertTrue(app.login.probeLine?.hasPrefix("Rocket.Chat 8.") ?? false, app.login.probeLine ?? "nil")
+        XCTAssertFalse(app.login.probeBad)
+        app.login.server = "http://127.0.0.1:9"
+        await app.login.probe(client: app.client)
+        XCTAssertEqual(app.login.probeLine, L("login.probe_failed"))
+        XCTAssertTrue(app.login.probeBad)
+    }
+
+    @MainActor
     func until(_ condition: @escaping @MainActor () -> Bool) async throws {
         var tries = 0
         while !condition() && tries < 200 {

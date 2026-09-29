@@ -28,6 +28,7 @@
 import {
   constants,
   createCipheriv,
+  createHash,
   createDecipheriv,
   createPrivateKey,
   pbkdf2Sync,
@@ -295,4 +296,47 @@ export function chiffrerMessage(charge: object, cleSalonOctets: Buffer, kid: str
     throw new ErreurE2E('clé de salon de taille inattendue');
   }
   return { algorithm: 'rc.v2.aes-sha2', kid, iv: iv.toString('base64'), ciphertext: ct.toString('base64') };
+}
+
+/**
+ * Le chiffrement d'un fichier, tel que sa pièce jointe le décrit (dans le
+ * clair du message) : une clé AES-CTR à lui (JWK), un compteur initial de 16
+ * octets, et l'empreinte SHA-256 du fichier clair.
+ */
+export type ChiffrementFichier = { cle: { k: string }; iv: string; sha256: string | null };
+
+/** La description de chiffrement d'une pièce jointe, ou `null` si elle n'est pas chiffrée. */
+export function chiffrementDeJointe(jointe: unknown): ChiffrementFichier | null {
+  if (typeof jointe !== 'object' || jointe === null) return null;
+  const { encryption, hashes } = jointe as { encryption?: unknown; hashes?: unknown };
+  if (typeof encryption !== 'object' || encryption === null) return null;
+  const { key, iv } = encryption as { key?: unknown; iv?: unknown };
+  const k = typeof key === 'object' && key !== null ? (key as { k?: unknown }).k : undefined;
+  if (typeof k !== 'string' || typeof iv !== 'string') return null;
+  const sha256 =
+    typeof hashes === 'object' && hashes !== null ? (hashes as { sha256?: unknown }).sha256 : undefined;
+  return { cle: { k }, iv, sha256: typeof sha256 === 'string' ? sha256 : null };
+}
+
+/**
+ * Octets téléchargés → fichier clair. AES-CTR : pas de remplissage ni de tag,
+ * donc une clé fausse rend du bruit sans erreur — c'est l'empreinte SHA-256
+ * qui tranche, quand l'expéditeur l'a fournie. Lève `ErreurE2E` sinon.
+ */
+export function dechiffrerFichier(octets: Buffer, chiffrement: ChiffrementFichier): Buffer {
+  const cle = base64urlVersOctets(chiffrement.cle.k);
+  const bits = bitsAes(cle);
+  const iv = base64VersOctets(chiffrement.iv);
+  if (bits === null || iv.length !== 16) throw new ErreurE2E('chiffrement de fichier illisible');
+  const dechiffreur = createDecipheriv(`aes-${bits}-ctr`, cle, iv);
+  const clair = Buffer.concat([dechiffreur.update(octets), dechiffreur.final()]);
+  if (chiffrement.sha256 !== null && empreinteSha256(clair) !== chiffrement.sha256.toLowerCase()) {
+    throw new ErreurE2E('fichier altéré ou clé fausse');
+  }
+  return clair;
+}
+
+/** SHA-256 en hexadécimal, la forme des `hashes.sha256` de Rocket.Chat. */
+export function empreinteSha256(octets: Buffer): string {
+  return createHash('sha256').update(octets).digest('hex');
 }

@@ -20,6 +20,7 @@
  */
 
 import { estJointeCitation } from './citation.ts';
+import { chiffrementDeJointe, type ChiffrementFichier } from './e2e/crypto.ts';
 
 /** Crée un dossier et ses parents. Doit être sans effet s'il existe déjà. */
 export type CreerDossier = (chemin: string) => Promise<void>;
@@ -227,6 +228,8 @@ export type JointePartageable = {
   type: string | null;
   /** Poids annoncé par le message, en octets : la progression s'y rapporte quand le serveur tait le sien. */
   taille: number | null;
+  /** Fichier d'un salon chiffré : sa clé, pour le rendre en clair. */
+  chiffrement: ChiffrementFichier | null;
 };
 
 type JointeBrute = {
@@ -276,6 +279,7 @@ export function jointeAPartager(piecesJointes: string | null): JointePartageable
       titre: chaine(j.title),
       type: chaine(j.image_type) ?? chaine(j.video_type) ?? chaine(j.audio_type),
       taille: octets(j.size) ?? octets(j.image_size) ?? octets(j.video_size) ?? octets(j.audio_size),
+      chiffrement: chiffrementDeJointe(jointe),
     };
   }
   return null;

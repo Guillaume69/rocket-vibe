@@ -78,6 +78,7 @@ const fr = {
   'ligneMessage.rejoindre': 'Rejoindre',
   'ligneMessage.imageAgrandir': 'Image, toucher pour agrandir',
   'ligneMessage.fichier': 'Fichier',
+  'ligneMessage.fichierIllisible': '🔒 Fichier chiffré illisible',
   'ligneMessage.fichierOuvertureEchouee': "Impossible d'ouvrir ce fichier.",
 
   // ── Connexion (serveur → identifiants → second facteur)
@@ -471,6 +472,7 @@ const en: Record<CleTraduction, string> = {
   'ligneMessage.rejoindre': 'Join',
   'ligneMessage.imageAgrandir': 'Image, tap to enlarge',
   'ligneMessage.fichier': 'File',
+  'ligneMessage.fichierIllisible': '🔒 Encrypted file could not be read',
   'ligneMessage.fichierOuvertureEchouee': 'Cannot open this file.',
 
   'connexion.titre': 'Sign in',

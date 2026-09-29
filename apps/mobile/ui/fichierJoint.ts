@@ -14,10 +14,12 @@
  * hors appareil. Même patron que `ui/transportUpload.ts`.
  */
 
+import { Buffer } from 'buffer';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Asset, requestPermissionsAsync } from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 
+import { dechiffrerFichier, type ChiffrementFichier } from '../lib/e2e/crypto.ts';
 import { fractionTelechargee, telechargerFichierJoint, versGalerie } from '../lib/fichierJoint.ts';
 import { Telechargements } from '../modules/telechargements/index.ts';
 import type { Progression } from './transferts.ts';
@@ -36,6 +38,8 @@ type OptionsJointe = {
   type: string | null | undefined;
   /** Poids annoncé par le message, en octets. */
   taille?: number | null;
+  /** Fichier d'un salon chiffré : on télécharge du chiffré, on garde le clair. */
+  chiffrement?: ChiffrementFichier | null;
   surProgression?: (p: Progression) => void;
 };
 
@@ -57,6 +61,12 @@ async function versLeCache(options: OptionsJointe): Promise<string> {
     },
     telecharger: async (url, destination) => {
       if ((await FileSystem.getInfoAsync(destination)).exists) return;
+      // Un fichier déjà déchiffré dans NOTRE cache (la visionneuse qui
+      // enregistre une image chiffrée) : rien à télécharger.
+      if (url.startsWith(dossier)) {
+        await FileSystem.copyAsync({ from: url, to: destination });
+        return;
+      }
       const partiel = `${destination}.part`;
       const tache = FileSystem.createDownloadResumable(url, partiel, {}, (e) => {
         options.surProgression?.(
@@ -70,9 +80,34 @@ async function versLeCache(options: OptionsJointe): Promise<string> {
         await FileSystem.deleteAsync(partiel, { idempotent: true });
         throw new ErreurOuvertureFichier(`Téléchargement refusé (HTTP ${res?.status ?? 0}).`);
       }
+      if (options.chiffrement) {
+        const base64 = { encoding: FileSystem.EncodingType.Base64 };
+        try {
+          const chiffre = Buffer.from(await FileSystem.readAsStringAsync(partiel, base64), 'base64');
+          const clair = dechiffrerFichier(chiffre, options.chiffrement);
+          await FileSystem.writeAsStringAsync(partiel, clair.toString('base64'), base64);
+        } catch {
+          await FileSystem.deleteAsync(partiel, { idempotent: true });
+          throw new ErreurOuvertureFichier('Fichier chiffré illisible.');
+        }
+      }
       await FileSystem.moveAsync({ from: partiel, to: destination });
     },
   });
+}
+
+const enCours = new Map<string, Promise<string>>();
+
+/**
+ * Le fichier clair d'une pièce jointe chiffrée, dans le cache — pour l'afficher.
+ * Une même pièce vue deux fois à l'écran ne se télécharge qu'une fois.
+ */
+export function fichierDechiffre(options: OptionsJointe): Promise<string> {
+  const existante = enCours.get(options.url);
+  if (existante !== undefined) return existante;
+  const promesse = versLeCache(options).finally(() => enCours.delete(options.url));
+  enCours.set(options.url, promesse);
+  return promesse;
 }
 
 /**

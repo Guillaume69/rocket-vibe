@@ -24,6 +24,8 @@ release, et ses notes sont la section de la version ici.
 - Salon chiffré : une fois déverrouillé, on y écrit comme ailleurs. Le message part chiffré
   (les mentions notifient toujours) ; verrouillé, il attend le déverrouillage au lieu d'échouer.
   On peut aussi y modifier ses messages et répondre dans un fil.
+- Salon chiffré : les photos, sons et vidéos envoyés chiffrés s'affichent (déchiffrés sur
+  l'appareil, jusqu'à 25 Mo), et tout fichier chiffré se partage ou s'enregistre en clair.
 
 ### Modifié
 

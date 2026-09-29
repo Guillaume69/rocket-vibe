@@ -306,6 +306,7 @@ export default function EcranActionsMessage() {
           titre: jointe.titre,
           type: jointe.type,
           taille: jointe.taille,
+          chiffrement: jointe.chiffrement,
         };
   const partager = async () => {
     if (aTransferer === null) {

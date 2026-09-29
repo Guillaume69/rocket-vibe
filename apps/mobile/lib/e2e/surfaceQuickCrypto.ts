@@ -107,4 +107,10 @@ export function surfaceEmployeeParCryptoTs(): void {
     versGcm.getAuthTag(),
   ]);
   void chiffreGcm;
+
+  // dechiffrerFichier : AES-CTR à taille de clé variable, empreinte SHA-256 en hexadécimal.
+  const ctr = qc.createDecipheriv(`aes-${octets.length * 8}-ctr`, octets, iv);
+  const fichier: BufferEmbarque = moduleBuffer.Buffer.concat([ctr.update(octets), ctr.final()]);
+  const empreinte: string = qc.createHash('sha256').update(fichier).digest('hex');
+  void empreinte;
 }

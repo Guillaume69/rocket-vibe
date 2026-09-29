@@ -3,10 +3,12 @@ import { webcrypto } from 'node:crypto';
 import { describe, test } from 'node:test';
 
 import {
+  chiffrementDeJointe,
   chiffrerMessage,
   dechiffrerCharge,
   dechiffrerClePrivee,
   dechiffrerCleSalon,
+  dechiffrerFichier,
   dechiffrerMessage,
   ErreurE2E,
   importerClePriveeRSA,
@@ -313,4 +315,41 @@ test('la charge d’un fichier : texte et pièces jointes, clé du fichier compr
   const contenu = chiffrerMessage({ msg: 'légende', attachments }, cle, 'k');
   assert.deepEqual(dechiffrerCharge(contenu, cle), { msg: 'légende', attachments });
   assert.deepEqual(dechiffrerCharge(chiffrerMessage({ msg: 'rien' }, cle, 'k'), cle), { msg: 'rien', attachments: null });
+});
+
+describe('crypto e2e — fichiers', () => {
+  /** Ce que fait le client web : clé AES-CTR 256 neuve, compteur de 16 octets, empreinte du clair. */
+  async function fichierDuWeb(clair: Uint8Array<ArrayBuffer>) {
+    const cle = await subtle.generateKey({ name: 'AES-CTR', length: 256 }, true, ['encrypt']);
+    const iv = rand(16);
+    const chiffre = new Uint8Array(await subtle.encrypt({ name: 'AES-CTR', counter: iv, length: 64 }, cle, clair));
+    const empreinte = Buffer.from(await subtle.digest('SHA-256', clair)).toString('hex');
+    const jwk = await subtle.exportKey('jwk', cle);
+    const jointe = { title: 'photo.jpg', encryption: { key: jwk, iv: b64(iv) }, hashes: { sha256: empreinte } };
+    return { chiffre: Buffer.from(chiffre), jointe };
+  }
+
+  test('ce que le client web chiffre, on le relit', async () => {
+    const clair = rand(60_000);
+    const { chiffre, jointe } = await fichierDuWeb(clair);
+    const chiffrement = chiffrementDeJointe(jointe);
+    assert.notEqual(chiffrement, null);
+    assert.deepEqual(dechiffrerFichier(chiffre, chiffrement!), Buffer.from(clair));
+  });
+
+  test('un octet altéré ou une autre clé : refusé par l’empreinte', async () => {
+    const { chiffre, jointe } = await fichierDuWeb(rand(1000));
+    const chiffrement = chiffrementDeJointe(jointe)!;
+    const altere = Buffer.from(chiffre);
+    altere[10] ^= 1;
+    assert.throws(() => dechiffrerFichier(altere, chiffrement), ErreurE2E);
+    const autre = await fichierDuWeb(rand(1000));
+    assert.throws(() => dechiffrerFichier(chiffre, chiffrementDeJointe(autre.jointe)!), ErreurE2E);
+  });
+
+  test('une pièce jointe ordinaire n’a pas de chiffrement', () => {
+    assert.equal(chiffrementDeJointe({ title: 'a.pdf', title_link: '/file-upload/x/a.pdf' }), null);
+    assert.equal(chiffrementDeJointe({ encryption: { iv: 'x' } }), null);
+    assert.equal(chiffrementDeJointe(null), null);
+  });
 });

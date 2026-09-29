@@ -106,6 +106,9 @@ pub fn open(
         notify_group.add(&system);
     }
     page.add(&notify_group);
+    if crate::background::SUPPORTED {
+        page.add(&background_group(&dialog));
+    }
 
     let language_group = adw::PreferencesGroup::builder().title(t("settings.language")).build();
     let labels: Vec<&str> = LANGUAGE_CHOICES.iter().map(|c| t(&format!("settings.lang_{c}"))).collect();
@@ -275,6 +278,41 @@ pub fn open(
 }
 
 /// Every account in the keychain; the others switch on a click.
+/// Closing the window without quitting, and starting at login.
+fn background_group(dialog: &adw::PreferencesDialog) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder().title(t("settings.background")).build();
+    let where_hint = if cfg!(windows) { "settings.keep_running_tray" } else { "settings.keep_running_dock" };
+    let keep = adw::SwitchRow::builder()
+        .title(t("settings.keep_running"))
+        .subtitle(t(where_hint))
+        .active(crate::background::keep_running())
+        .build();
+    keep.connect_active_notify(|row| crate::background::set_keep_running(row.is_active()));
+    group.add(&keep);
+    let login = adw::SwitchRow::builder()
+        .title(t("settings.start_at_login"))
+        .subtitle(t("settings.start_at_login_hint"))
+        .active(rv_native::autostart())
+        .sensitive(rv_native::autostart_supported())
+        .build();
+    login.connect_active_notify(glib::clone!(
+        #[weak]
+        dialog,
+        move |row| {
+            if rv_native::autostart() == row.is_active() {
+                return;
+            }
+            if let Err(e) = rv_native::set_autostart(row.is_active()) {
+                eprintln!("Start at login not changed: {e}");
+                toast_of(&dialog, t("settings.start_at_login_failed"));
+                row.set_active(rv_native::autostart());
+            }
+        }
+    ));
+    group.add(&login);
+    group
+}
+
 fn accounts_group(
     dialog: &adw::PreferencesDialog,
     session: &Arc<Session>,

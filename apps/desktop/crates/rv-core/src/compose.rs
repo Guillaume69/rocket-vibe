@@ -220,7 +220,8 @@ pub fn spans(text: &str) -> Vec<Span> {
                 if let Some(len) = has_prefix(&line, kind) {
                     out.push(Span { start: line_start, end: line_start + len, style: Style::Marker });
                     if let Some(style) = style {
-                        out.push(Span { start: line_start + len, end: line_end, style });
+                        let from = if style == Style::Quote { line_start } else { line_start + len };
+                        out.push(Span { start: from, end: line_end, style });
                     }
                     body = line_start + len;
                 }
@@ -239,6 +240,29 @@ pub fn spans(text: &str) -> Vec<Span> {
         line_start = line_end + 1;
     }
     out
+}
+
+/// The markers the composer hides so the draft reads as formatted text: the
+/// inline ones and the heading and quote prefixes, except on the line holding
+/// the cursor, where they show to be edited. Bullets, numbers and fences stay.
+pub fn hidden_markers(text: &str, cursor: usize) -> Vec<(usize, usize)> {
+    let c = chars(text);
+    let line_of = |i: usize| c[..i.min(c.len())].iter().filter(|&&ch| ch == '\n').count();
+    let cursor_line = line_of(cursor);
+    spans(text)
+        .into_iter()
+        .filter(|s| s.style == Style::Marker)
+        .filter(|s| {
+            let marker: String = c[s.start..s.end].iter().collect();
+            let line_start = s.start == 0 || c[s.start - 1] == '\n';
+            let kept = line_start
+                && (marker.starts_with("```")
+                    || has_prefix(&marker, LineKind::Bullet).is_some()
+                    || has_prefix(&marker, LineKind::Numbered).is_some());
+            !kept && line_of(s.start) != cursor_line
+        })
+        .map(|s| (s.start, s.end))
+        .collect()
 }
 
 /// The words of a draft worth a spell check, in chars: not in code, not part
@@ -330,7 +354,7 @@ mod tests {
         assert!(s.contains(&Span { start: 2, end: 3, style: Style::Marker }));
         assert!(spans("a * b *").is_empty());
         let s = spans("> quoted\n```\ncode *x*\n```\n# title");
-        assert!(s.contains(&Span { start: 2, end: 8, style: Style::Quote }));
+        assert!(s.contains(&Span { start: 0, end: 8, style: Style::Quote }));
         assert!(s.contains(&Span { start: 13, end: 21, style: Style::CodeBlock }));
         assert!(!s.iter().any(|x| x.style == Style::Bold));
         assert!(s.contains(&Span { start: 28, end: 33, style: Style::Heading }));
@@ -343,5 +367,14 @@ mod tests {
         let text = "Salut l'équipe, voyez https://x.fr @bob #général :smile: `codé` v2 à-propos *gras*";
         let found: Vec<String> = words(text).iter().map(|&(a, b)| text.chars().skip(a).take(b - a).collect()).collect();
         assert_eq!(found, ["Salut", "l'équipe", "voyez", "à-propos", "gras"]);
+    }
+
+    #[test]
+    fn markers_hide_away_from_the_cursor() {
+        let text = "# Title\n*bold* - no\n- item\n```\nx\n```";
+        let hidden = hidden_markers(text, text.len());
+        let shown: Vec<String> = hidden.iter().map(|&(a, b)| text.chars().skip(a).take(b - a).collect()).collect();
+        assert_eq!(shown, ["# ", "*", "*"]);
+        assert!(hidden_markers(text, 9).iter().all(|&(a, _)| a < 8));
     }
 }

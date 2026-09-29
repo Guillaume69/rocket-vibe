@@ -85,10 +85,11 @@ and the keys are copied, not shared.
 - Accounts stay where the GTK app keeps them, written by Rust, not by Swift's
   `Security` framework: the `keyring` crate's Keychain items (service
   `me.barrut.RocketVibe`, account `<base URL>|<user id>`, a JSON secret), the
-  `accounts` index and `active-account` file in GLib's config directory, and
-  one database per account (`<host>-<user id>.sqlite`) in its data
-  directory, each under `rocket-vibe-rs/`. Swift hands rv-ffi the same
-  directories GLib gives rv-gtk on macOS. A GTK install and
+  `accounts` index and `active-account` file in `~/.config/rocket-vibe-rs`,
+  and one database per account in
+  `~/.local/share/rocket-vibe-rs/<host>-<user id>.sqlite`: GLib has no macOS
+  case for its user directories, so rv-gtk uses the XDG ones there too, and
+  rv-ffi computes the same. A GTK install and
   a SwiftUI install then share sessions and caches. The Keychain asks once
   ("Always Allow") when one app reads an item the other wrote: its access
   list is per signed app.

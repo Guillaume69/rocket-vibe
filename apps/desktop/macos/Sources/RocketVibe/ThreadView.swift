@@ -10,7 +10,7 @@ struct ThreadView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(L("thread.title")).font(.headline)
+                Text(L("thread.title")).font(.vibeTitle(17, .bold))
                 Spacer()
                 Button { app.closeThread() } label: { Image(systemName: "xmark") }
                     .buttonStyle(.borderless)
@@ -24,5 +24,6 @@ struct ThreadView: View {
             }
             Composer(model: model, staged: $staged)
         }
+        .background(Vibe.night)
     }
 }

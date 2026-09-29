@@ -15,10 +15,11 @@ struct LoginView: View {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
                 .frame(width: 88, height: 88)
-            Text("rocket-vibe")
-                .font(.largeTitle.weight(.semibold))
+                .shadow(color: Vibe.pink.opacity(0.45), radius: 24, y: 8)
+            Wordmark(size: 40)
             Text(L("login.slogan"))
-                .foregroundStyle(.secondary)
+                .font(.vibe(15, .semibold))
+                .foregroundStyle(Vibe.muted)
 
             Form {
                 if let method = login.method {
@@ -52,6 +53,7 @@ struct LoginView: View {
                 }
             }
             .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
             .frame(maxWidth: 400)
             .fixedSize(horizontal: false, vertical: true)
 
@@ -69,12 +71,14 @@ struct LoginView: View {
                     Button(L("login.cancel_add")) { app.cancelLogin() }
                 }
                 Button(login.busy ? L("login.signing_in") : (login.method == nil ? L("login.sign_in") : L("login.confirm")), action: submit)
+                    .buttonStyle(VibeButtonStyle())
                     .keyboardShortcut(.defaultAction)
                     .disabled(login.busy)
             }
         }
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background { LoginSky() }
         .onAppear { focus = login.user.isEmpty ? .user : .password }
         .onChange(of: login.method) { _, method in if method != nil { focus = .code } }
         .task(id: login.server) {
@@ -85,5 +89,34 @@ struct LoginView: View {
 
     func submit() {
         Task { await app.submitLogin() }
+    }
+}
+
+/// The sign-in backdrop: a soft glow of the brand colours and a few sparkles.
+struct LoginSky: View {
+    @State var glow = false
+
+    var body: some View {
+        ZStack {
+            Vibe.night
+            RadialGradient(colors: [Vibe.pink.opacity(0.22), .clear], center: .topLeading, startRadius: 0, endRadius: 520)
+            RadialGradient(colors: [Vibe.violet.opacity(0.2), .clear], center: .bottomTrailing, startRadius: 0, endRadius: 560)
+            GeometryReader { geometry in
+                ForEach(0..<9, id: \.self) { i in
+                    let x = CGFloat((i * 37 + 11) % 100) / 100
+                    let y = CGFloat((i * 53 + 23) % 100) / 100
+                    Sparkle()
+                        .fill([Vibe.pink, Vibe.violet, Vibe.mint][i % 3])
+                        .frame(width: CGFloat(6 + i % 4 * 3), height: CGFloat(6 + i % 4 * 3))
+                        .opacity(glow == (i % 2 == 0) ? 0.85 : 0.25)
+                        .position(x: geometry.size.width * x, y: geometry.size.height * y)
+                }
+            }
+        }
+        .ignoresSafeArea()
+        .onAppear {
+            withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) { glow = true }
+        }
+        .allowsHitTesting(false)
     }
 }

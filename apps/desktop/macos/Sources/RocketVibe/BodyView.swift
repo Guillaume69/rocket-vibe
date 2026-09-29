@@ -4,9 +4,9 @@ import RocketVibeKit
 import SwiftUI
 
 enum Palette {
-    static let mention = Color(red: 1.0, green: 0.478, blue: 0.706)
-    static let channel = Color(red: 0.655, green: 0.545, blue: 0.980)
-    static let highlight = Color(red: 0.29, green: 0.129, blue: 0.251)
+    static let mention = Vibe.pinkSoft
+    static let channel = Vibe.violet
+    static let highlight = Color(hex: 0x4A2140)
 }
 
 func attributed(_ runs: [Run]) -> AttributedString {
@@ -122,11 +122,11 @@ struct BlockView: View {
             RunsText(runs: runs).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
         case let .heading(level, runs):
             RunsText(runs: runs)
-                .font(level <= 1 ? .title2.bold() : level == 2 ? .title3.bold() : .headline)
+                .font(.vibeTitle(level <= 1 ? 22 : level == 2 ? 19 : 16, .bold))
                 .textSelection(.enabled)
         case let .quote(blocks):
             HStack(alignment: .top, spacing: 8) {
-                RoundedRectangle(cornerRadius: 2).fill(.secondary.opacity(0.5)).frame(width: 3)
+                RoundedRectangle(cornerRadius: 2).fill(Vibe.violet.opacity(0.7)).frame(width: 3)
                 BodyView(blocks: blocks)
             }
             .fixedSize(horizontal: false, vertical: true)
@@ -137,12 +137,12 @@ struct BlockView: View {
                     .textSelection(.enabled)
                     .padding(8)
             }
-            .background(Color(nsColor: .textBackgroundColor).opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
+            .vibeCard(radius: 8)
         case let .list(items):
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(item.marker).foregroundStyle(.secondary)
+                        Text(item.marker).foregroundStyle(Vibe.pinkSoft)
                         RunsText(runs: item.runs).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                     }
                 }

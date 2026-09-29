@@ -17,8 +17,8 @@ struct RoomView: View {
             MessageList(model: model)
             if !model.typing.isEmpty {
                 Text(typingLine)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.vibe(11.5, .semibold))
+                    .foregroundStyle(Vibe.pinkSoft)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 2)
@@ -138,10 +138,10 @@ struct LockedBanner: View {
             Image(systemName: "lock.fill")
             Text(L("e2e.read_only"))
             Spacer()
-            Button(L("e2e.unlock")) { asking = true }
+            Button(L("e2e.unlock")) { asking = true }.buttonStyle(VibeButtonStyle())
         }
         .padding(12)
-        .background(.bar)
+        .background(Vibe.card)
         .sheet(isPresented: $asking) { UnlockSheet() }
     }
 }
@@ -188,6 +188,8 @@ struct MessageList: View {
     @State var farFromBottom = false
     @State var editing: String?
     @State var deleting: MessageItem?
+    /// Once the room has loaded, new messages arrive with a spring.
+    @State var settled = false
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -212,14 +214,21 @@ struct MessageList: View {
                     Color.clear.frame(height: 6).id("bottom")
                 }
                 .padding(.vertical, 8)
+                .animation(settled ? Vibe.spring : nil, value: model.messages.last?.id)
             }
             .defaultScrollAnchor(.bottom)
+            .task {
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                settled = true
+            }
             .onScrollGeometryChange(for: [Bool].self) { geometry in
                 let fromBottom = geometry.contentSize.height - geometry.contentOffset.y - geometry.containerSize.height
                 return [fromBottom < 48, fromBottom > geometry.containerSize.height]
             } action: { _, state in
                 pinned = state[0]
-                farFromBottom = state[1]
+                if farFromBottom != state[1] {
+                    withAnimation(Vibe.spring) { farFromBottom = state[1] }
+                }
             }
             .onChange(of: model.messages.last?.id) { _, _ in
                 if pinned { proxy.scrollTo("bottom", anchor: .bottom) }
@@ -242,14 +251,19 @@ struct MessageList: View {
             .overlay(alignment: .bottomTrailing) {
                 if farFromBottom {
                     Button {
-                        withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                        withAnimation(Vibe.spring) { proxy.scrollTo("bottom", anchor: .bottom) }
                     } label: {
-                        Image(systemName: "arrow.down").padding(8)
+                        Image(systemName: "arrow.down")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(Vibe.text)
+                            .frame(width: 40, height: 40)
+                            .background(Vibe.line, in: Circle())
+                            .shadow(color: .black.opacity(0.6), radius: 10, y: 5)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .clipShape(Circle())
+                    .buttonStyle(.plain)
                     .help(L("room.latest"))
                     .padding(16)
+                    .transition(.scale.combined(with: .opacity))
                 }
             }
             .confirmationDialog(L("actions.delete_title"), isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
@@ -302,13 +316,15 @@ struct MessageRow: View, Equatable {
                 DaySeparator(ts: message.ts)
             }
             if message.newMarker {
-                HStack {
-                    Rectangle().fill(Palette.mention).frame(height: 1)
-                    Text("✦ " + L("room.new_messages")).font(.caption.bold()).foregroundStyle(Palette.mention)
-                    Rectangle().fill(Palette.mention).frame(height: 1)
+                HStack(spacing: 8) {
+                    Sparkle().fill(Vibe.pink).frame(width: 12, height: 12)
+                    Text(L("room.new_messages")).font(.vibe(12, .heavy)).foregroundStyle(Vibe.pink)
+                    Capsule()
+                        .fill(LinearGradient(colors: [Vibe.pink, Vibe.violet, Vibe.mint.opacity(0)], startPoint: .leading, endPoint: .trailing))
+                        .frame(height: 1.5)
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 6)
+                .padding(.vertical, 8)
             }
             HStack(alignment: .top, spacing: 10) {
                 gutter
@@ -316,9 +332,9 @@ struct MessageRow: View, Equatable {
                     if message.showHeader {
                         HStack(alignment: .firstTextBaseline, spacing: 7) {
                             Text(message.author)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(message.mine ? Palette.mention : .primary)
-                            Text(Formatting.time(message.ts)).font(.caption).foregroundStyle(.secondary)
+                                .font(.vibe(13.5, .heavy))
+                                .foregroundStyle(message.mine ? Vibe.pink : Vibe.text)
+                            Text(Formatting.time(message.ts)).font(.vibe(11, .semibold)).foregroundStyle(Vibe.faint)
                         }
                     }
                     content
@@ -328,7 +344,8 @@ struct MessageRow: View, Equatable {
             .padding(.horizontal, 16)
             .padding(.top, message.showHeader ? 8 : 1)
             .padding(.bottom, 1)
-            .background(revealed ? Palette.mention.opacity(0.15) : .clear)
+            .background(revealed ? Vibe.pink.opacity(0.14) : .clear)
+            .animation(.easeOut(duration: 0.3), value: revealed)
             .contextMenu { menu }
         }
         .sheet(item: Binding(get: { viewing.map(Viewing.init) }, set: { viewing = $0?.image })) { v in
@@ -341,8 +358,8 @@ struct MessageRow: View, Equatable {
             Avatar(path: message.avatar, name: message.author, size: 34)
         } else {
             Text(message.gutterTime ? Formatting.time(message.ts) : "")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(.vibe(10, .semibold))
+                .foregroundStyle(Vibe.faint)
                 .frame(width: 34)
         }
     }
@@ -387,7 +404,7 @@ struct MessageRow: View, Equatable {
                     Button {
                         Task { await model?.react(message, shortcode: reaction.shortcode, add: !reaction.mine) }
                     } label: {
-                        Group {
+                        HStack(spacing: 0) {
                             if reaction.glyph != nil {
                                 Text("\(reaction.glyph!) \(reaction.count)")
                             } else {
@@ -398,11 +415,15 @@ struct MessageRow: View, Equatable {
                                                     link: nil, mention: false, highlight: false, customEmoji: nil)])
                             }
                         }
-                            .padding(.horizontal, 8)
+                            .font(.vibe(12.5, .bold))
+                            .contentTransition(.numericText())
+                            .padding(.horizontal, 9)
                             .padding(.vertical, 3)
-                            .background(reaction.mine ? Palette.mention.opacity(0.25) : Color.secondary.opacity(0.15), in: Capsule())
+                            .background(reaction.mine ? Vibe.pink.opacity(0.14) : Vibe.card, in: Capsule())
+                            .overlay(Capsule().strokeBorder(reaction.mine ? Vibe.pink : Vibe.line))
+                            .animation(Vibe.spring, value: reaction.count)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(ReactionPress())
                 }
             }
         }
@@ -416,14 +437,14 @@ struct MessageRow: View, Equatable {
                     Button("💬 " + L("message.replies", count: Int(message.threadCount))) { app.openThread(message.id) }
                         .buttonStyle(.link)
                 }
-                if message.edited { Text(L("message.edited")).font(.caption).foregroundStyle(.secondary) }
+                if message.edited { Text(L("message.edited")).font(.vibe(11)).foregroundStyle(Vibe.faint) }
                 switch message.delivery {
                 case .pending:
-                    Text(L("message.sending")).font(.caption).foregroundStyle(.secondary)
+                    Text(L("message.sending")).font(.vibe(11)).foregroundStyle(Vibe.faint)
                 case .failed:
                     Button(L("message.failed")) { Task { await model?.retry(message.id) } }
                         .buttonStyle(.link)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Vibe.pink)
                 case .sent:
                     EmptyView()
                 }
@@ -553,13 +574,28 @@ struct DaySeparator: View {
     let ts: Int64
 
     var body: some View {
-        HStack {
-            Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 1)
-            Text(Formatting.day(ts)).font(.caption.weight(.medium)).foregroundStyle(.secondary)
-            Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 1)
+        HStack(spacing: 10) {
+            Capsule().fill(Vibe.line).frame(height: 1)
+            Text(Formatting.day(ts))
+                .font(.vibe(11.5, .bold))
+                .foregroundStyle(Vibe.muted)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 3)
+                .background(Vibe.card, in: Capsule())
+                .overlay(Capsule().strokeBorder(Vibe.line))
+            Capsule().fill(Vibe.line).frame(height: 1)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+}
+
+/// A reaction pressed: a small bounce.
+struct ReactionPress: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.86 : 1)
+            .animation(Vibe.spring, value: configuration.isPressed)
     }
 }
 
@@ -568,9 +604,9 @@ struct QuoteCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            RoundedRectangle(cornerRadius: 2).fill(Palette.channel).frame(width: 3)
+            RoundedRectangle(cornerRadius: 2).fill(LinearGradient(colors: [Vibe.violet, Vibe.pink], startPoint: .top, endPoint: .bottom)).frame(width: 3)
             VStack(alignment: .leading, spacing: 3) {
-                if let author = quote.author { Text(author).font(.callout.weight(.semibold)) }
+                if let author = quote.author { Text(author).font(.vibe(13, .heavy)) }
                 BodyView(blocks: quote.body)
                 ForEach(Array(quote.images.enumerated()), id: \.offset) { _, image in
                     let size = displaySize(width: image.width, height: image.height, maxWidth: 240, maxHeight: 180)
@@ -581,8 +617,8 @@ struct QuoteCard: View {
                 }
             }
         }
-        .padding(8)
-        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+        .padding(9)
+        .vibeCard(radius: 10)
         .fixedSize(horizontal: false, vertical: true)
     }
 }
@@ -595,11 +631,11 @@ struct FileCard: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: icon).font(.title2).frame(width: 30)
+            Image(systemName: icon).font(.title2).foregroundStyle(Vibe.brand).frame(width: 30)
             VStack(alignment: .leading, spacing: 2) {
-                Text(file.title).lineLimit(1)
+                Text(file.title).font(.vibe(13.5, .bold)).lineLimit(1)
                 Text([file.size, file.mime].compactMap { $0 }.joined(separator: " · "))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.vibe(11.5)).foregroundStyle(Vibe.muted)
             }
             Spacer()
             if file.kind != .other {
@@ -613,7 +649,7 @@ struct FileCard: View {
         }
         .padding(10)
         .frame(maxWidth: 380)
-        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
+        .vibeCard()
         .sheet(item: Binding(get: { playing.map(Playing.init) }, set: { playing = $0?.url })) { p in
             PlayerView(url: p.url)
         }
@@ -668,10 +704,10 @@ struct LinkCard: View {
                 }
                 if card.title != nil || card.description != nil {
                     VStack(alignment: .leading, spacing: 3) {
-                        if let site = card.site { Text(site).font(.caption).foregroundStyle(.secondary) }
-                        if let title = card.title { Text(title).font(.callout.weight(.semibold)).lineLimit(2) }
+                        if let site = card.site { Text(site).font(.vibe(11.5, .bold)).foregroundStyle(Vibe.muted) }
+                        if let title = card.title { Text(title).font(.vibe(13.5, .heavy)).lineLimit(2) }
                         if let description = card.description {
-                            Text(description).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                            Text(description).font(.vibe(12)).foregroundStyle(Vibe.soft).lineLimit(3)
                         }
                     }
                     .multilineTextAlignment(.leading)
@@ -679,7 +715,7 @@ struct LinkCard: View {
             }
             .padding(8)
             .frame(maxWidth: 420, alignment: .leading)
-            .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
+            .vibeCard()
         }
         .buttonStyle(.plain)
     }
@@ -692,8 +728,8 @@ struct CallCard: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "video.fill").foregroundStyle(Palette.channel)
-            Text(L("message.call"))
+            Image(systemName: "video.fill").foregroundStyle(Vibe.mint)
+            Text(L("message.call")).font(.vibe(13.5, .bold))
             Button(L("message.join")) {
                 Task {
                     guard let chat = app.chat else { return }
@@ -704,9 +740,10 @@ struct CallCard: View {
                     }
                 }
             }
+            .buttonStyle(VibeButtonStyle())
         }
         .padding(10)
-        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
+        .vibeCard()
     }
 }
 

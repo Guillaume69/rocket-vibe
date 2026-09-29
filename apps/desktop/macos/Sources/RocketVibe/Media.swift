@@ -13,10 +13,10 @@ struct Avatar: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+            LinearGradient(colors: Vibe.tile(for: name), startPoint: .topLeading, endPoint: .bottomTrailing)
             Text(initial)
-                .font(.system(size: size * 0.45, weight: .semibold))
-                .foregroundStyle(.white)
+                .font(.vibeTitle(size * 0.5))
+                .foregroundStyle(Vibe.ink.opacity(0.85))
             if let shown {
                 Image(nsImage: shown).resizable().scaledToFill()
             }
@@ -33,15 +33,6 @@ struct Avatar: View {
 
     var initial: String {
         String(name.trimmingCharacters(in: CharacterSet(charactersIn: "@#")).prefix(1)).uppercased()
-    }
-
-    var colors: [Color] {
-        let palette: [(Color, Color)] = [
-            (.pink, .purple), (.orange, .pink), (.teal, .blue), (.indigo, .purple), (.mint, .teal), (.purple, .blue),
-        ]
-        let hash = name.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF }
-        let pair = palette[hash % palette.count]
-        return [pair.0, pair.1]
     }
 
     func load() async {
@@ -78,8 +69,8 @@ struct RemoteImage: View {
             }
         }
         .frame(width: width, height: height)
-        .background(.quaternary.opacity(0.4))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .background(Vibe.card)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
         .task(id: path) {
             guard let media = app.media else { return }
             if let loaded = await Pictures.load(path, pixels: pixels, media: media) {

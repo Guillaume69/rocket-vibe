@@ -16,22 +16,28 @@ struct ChatView: View {
             RoomListView()
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 400)
         } detail: {
-            if let room = app.room {
-                RoomView(model: room)
-                    .id(room.rid)
-                    .inspector(isPresented: Binding(get: { app.thread != nil }, set: { if !$0 { app.closeThread() } })) {
-                        if let thread = app.thread {
-                            ThreadView(model: thread)
-                                .inspectorColumnWidth(min: 300, ideal: 380, max: 600)
+            ZStack {
+                if let room = app.room {
+                    RoomView(model: room)
+                        .id(room.rid)
+                        .transition(.opacity.combined(with: .offset(y: 8)))
+                        .inspector(isPresented: Binding(get: { app.thread != nil }, set: { if !$0 { app.closeThread() } })) {
+                            if let thread = app.thread {
+                                ThreadView(model: thread)
+                                    .inspectorColumnWidth(min: 300, ideal: 380, max: 600)
+                            }
                         }
+                } else {
+                    VStack(spacing: 10) {
+                        Sparkle().fill(Vibe.brand).frame(width: 34, height: 34)
+                        Text(L("room.pick")).font(.vibeTitle(22, .bold))
+                        Text(L("room.synced")).foregroundStyle(Vibe.muted)
                     }
-            } else {
-                VStack(spacing: 8) {
-                    Text(L("room.pick")).font(.title3)
-                    Text(L("room.synced")).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .animation(.snappy(duration: 0.22), value: app.room?.rid)
+            .background(Vibe.night)
         }
         .navigationTitle(title)
         .toolbar {
@@ -44,7 +50,7 @@ struct ChatView: View {
                     .help(L("nav.forward"))
             }
         }
-        .overlay(alignment: .bottom) { NoticeView() }
+        .overlay(alignment: .bottom) { NoticeView().animation(Vibe.spring, value: app.notice) }
     }
 }
 
@@ -54,11 +60,17 @@ struct NoticeView: View {
 
     var body: some View {
         if let notice = app.notice {
-            Text(notice)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(.regularMaterial, in: Capsule())
+            HStack(spacing: 8) {
+                Sparkle().fill(Vibe.pink).frame(width: 10, height: 10)
+                Text(notice).font(.vibe(13.5, .bold))
+            }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 9)
+                .background(Vibe.raised, in: Capsule())
+                .overlay(Capsule().strokeBorder(Vibe.pink.opacity(0.45)))
+                .shadow(color: .black.opacity(0.5), radius: 12, y: 6)
                 .padding(.bottom, 24)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
                 .task(id: notice) {
                     try? await Task.sleep(nanoseconds: 3_000_000_000)
                     if app.notice == notice { app.notice = nil }
@@ -95,8 +107,19 @@ struct RoomListView: View {
             }
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .background(Vibe.deep.opacity(0.78))
         .searchable(text: $query, placement: .sidebar, prompt: L("spotlight.placeholder"))
         .task(id: query) { await search() }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                Wordmark(size: 21)
+                Comet(active: app.connection != .online)
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 2)
+            .padding(.bottom, 4)
+        }
         .safeAreaInset(edge: .bottom) { AccountBar() }
     }
 
@@ -134,6 +157,9 @@ struct RoomSections: View {
                     rows(group.rooms)
                 } header: {
                     Text("\(title(group.section)) · \(group.rooms.count)")
+                        .font(.vibe(11.5, .heavy))
+                        .textCase(.uppercase)
+                        .foregroundStyle(Vibe.muted)
                 }
             } else {
                 rows(group.rooms)
@@ -196,10 +222,12 @@ struct RoomRow: View {
             ZStack(alignment: .bottomTrailing) {
                 if room.encrypted && room.avatar == nil {
                     Image(systemName: "lock.fill")
-                        .frame(width: 34, height: 34)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                        .foregroundStyle(Vibe.ink.opacity(0.8))
+                        .frame(width: 36, height: 36)
+                        .background(LinearGradient(colors: [Vibe.muted, Color(hex: 0x5A5573)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                                    in: RoundedRectangle(cornerRadius: 10))
                 } else {
-                    Avatar(path: room.avatar, name: room.name, size: 34)
+                    Avatar(path: room.avatar, name: room.name, size: 36)
                 }
                 if let presence = room.presence {
                     PresenceDot(presence: presence)
@@ -208,31 +236,35 @@ struct RoomRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
                     Text(room.name)
-                        .fontWeight(unread ? .semibold : .regular)
+                        .font(.vibe(14.5, unread ? .heavy : .bold))
+                        .foregroundStyle(unread ? Vibe.text : Vibe.soft)
                         .lineLimit(1)
                     Spacer()
                     Text(Formatting.shortTime(room.lastTs))
-                        .font(.caption)
-                        .foregroundStyle(unread ? .primary : .secondary)
+                        .font(.vibe(11, .semibold))
+                        .foregroundStyle(unread ? Vibe.pinkSoft : Vibe.faint)
                 }
                 HStack {
                     Text(preview)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .font(.vibe(12.5))
+                        .foregroundStyle(Vibe.muted)
                         .lineLimit(1)
                     Spacer()
                     if room.unread > 0 {
                         Text(room.mentions > 0 ? "@\(room.unread)" : "\(room.unread)")
-                            .font(.caption2.weight(.bold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.yellow, in: Capsule())
-                            .foregroundStyle(.black)
+                            .font(.vibe(11.5, .heavy))
+                            .padding(.horizontal, 7)
+                            .frame(minWidth: 22, minHeight: 20)
+                            .background(room.mentions > 0 ? Vibe.pink : Vibe.sun, in: Capsule())
+                            .foregroundStyle(Vibe.ink)
+                            .contentTransition(.numericText())
+                            .transition(.scale.combined(with: .opacity))
                     }
                 }
             }
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, 4)
+        .animation(Vibe.spring, value: room.unread)
     }
 
     var preview: String {
@@ -253,7 +285,7 @@ struct PresenceDot: View {
         Circle()
             .fill(color)
             .frame(width: 10, height: 10)
-            .overlay(Circle().stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 2))
+            .overlay(Circle().stroke(Vibe.deep, lineWidth: 2))
             .help(L("presence.\(key)"))
     }
 
@@ -268,10 +300,10 @@ struct PresenceDot: View {
 
     var color: Color {
         switch presence {
-        case .online: return .green
-        case .away: return .orange
-        case .busy: return .red
-        case .offline: return .gray
+        case .online: return Vibe.mint
+        case .away: return Vibe.sun
+        case .busy: return Vibe.pink
+        case .offline: return Vibe.faint
         }
     }
 }
@@ -286,9 +318,9 @@ struct AccountBar: View {
             if let account = app.account {
                 Avatar(path: app.media?.avatar(user: account.username), name: account.username, size: 26)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(account.username).font(.callout.weight(.medium))
+                    Text(account.username).font(.vibe(13.5, .heavy))
                     Text(URL(string: account.baseUrl)?.host() ?? account.baseUrl)
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.vibe(11.5)).foregroundStyle(Vibe.muted)
                 }
             }
             Spacer()
@@ -302,14 +334,15 @@ struct AccountBar: View {
                 .help(L("settings.title"))
         }
         .padding(10)
-        .background(.bar)
+        .background(Vibe.deep.opacity(0.9))
+        .overlay(alignment: .top) { Rectangle().fill(Vibe.line).frame(height: 1) }
     }
 
     var connectionColor: Color {
         switch app.connection {
-        case .online: return .green
-        case .connecting: return .orange
-        case .offline: return .red
+        case .online: return Vibe.mint
+        case .connecting: return Vibe.sun
+        case .offline: return Vibe.pink
         }
     }
 

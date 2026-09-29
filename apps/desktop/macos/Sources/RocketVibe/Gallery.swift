@@ -21,12 +21,12 @@ func run(_ text: String, bold: Bool = false, italic: Bool = false, strike: Bool 
 
 func sample(_ id: String, _ minutesAgo: Int64, _ author: String, _ body: [BodyBlock], header: Bool = true,
             day: Bool = false, reactions: [Reaction] = [], delivery: Delivery = .sent, edited: Bool = false,
-            replies: Int64 = 0, system: String? = nil, param: String = "") -> MessageItem
+            replies: Int64 = 0, system: String? = nil, param: String = "", marker: Bool = false) -> MessageItem
 {
     let ts = Int64(Date().timeIntervalSince1970 * 1000) - minutesAgo * 60_000
     return MessageItem(
         id: id, rid: "gallery", ts: ts, author: author, authorId: author, avatar: "", mine: author == "alice",
-        showHeader: header, showDay: day, gutterTime: !header, newMarker: false, system: system, param: param,
+        showHeader: header, showDay: day, gutterTime: !header, newMarker: marker, system: system, param: param,
         callId: nil, locked: false, body: body, text: nil, quotes: [], images: [], files: [], cards: [],
         reactions: reactions, edited: edited, delivery: delivery, threadCount: replies, threadId: nil,
         pinned: false, starred: false)
@@ -45,7 +45,7 @@ let gallerySamples: [MessageItem] = [
     sample("5", 40, "carol", [], system: "uj"),
     sample("6", 30, "carol", [.quote(blocks: [.paragraph(runs: [run("une citation")])]),
                               .code(text: "fn main() {\n    println!(\"hi\");\n}")]),
-    sample("7", 5, "alice", [.bigEmoji(runs: [run("🚀✨")])], edited: true),
+    sample("7", 5, "alice", [.bigEmoji(runs: [run("🚀✨")])], edited: true, marker: true),
     sample("8", 1, "alice", [.paragraph(runs: [run("en cours d'envoi…")])], delivery: .pending),
     sample("9", 0, "alice", [.paragraph(runs: [run("pas parti")])], header: false, delivery: .failed),
 ]
@@ -92,6 +92,16 @@ struct GalleryView: View {
                 }
             }
             .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .background(Vibe.deep.opacity(0.78))
+            .safeAreaInset(edge: .top, spacing: 0) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Wordmark(size: 21)
+                    Comet(active: true)
+                }
+                .padding(.horizontal, 14)
+                .padding(.bottom, 4)
+            }
             .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 400)
         } detail: {
             ScrollView {
@@ -107,6 +117,7 @@ struct GalleryView: View {
                 .padding(.vertical, 8)
             }
             .defaultScrollAnchor(.bottom)
+            .background(Vibe.night)
             .background {
                 if ScrollBench.requested { ScrollDriver().frame(width: 1, height: 1) }
             }

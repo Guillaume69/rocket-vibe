@@ -15,4 +15,5 @@ docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/src" -v rv-swift-cargo:/cargo -
   lib=$(macos/scripts/generate.sh | tail -1)
   cd macos
   RV_FFI_LIB_DIR=$lib swift build --scratch-path .build/linux
+  RV_FFI_LIB_DIR=$lib swift test --scratch-path .build/linux
 '

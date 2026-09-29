@@ -22,6 +22,7 @@ var targets: [Target] = [
     .target(name: "RocketVibeCore", dependencies: ["rv_ffiFFI"]),
     .target(name: "RocketVibeKit", dependencies: ["RocketVibeCore"]),
     .executableTarget(name: "rv-rooms", dependencies: ["RocketVibeKit"]),
+    .testTarget(name: "RocketVibeKitTests", dependencies: ["RocketVibeKit"]),
 ]
 
 let package = Package(

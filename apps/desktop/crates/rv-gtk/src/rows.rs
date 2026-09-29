@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use adw::prelude::*;
 use chrono::Local;
-use gtk::{gdk, glib, pango};
+use gtk::{gdk, gio, glib, pango};
 pub use rv_core::media::room_avatar_path;
 use rv_core::media::{ImageAttachment, display_size, image_attachments};
 use rv_core::session::Session;
@@ -140,7 +140,95 @@ pub fn open_viewer(parent: &gtk::Widget, texture: &gdk::Texture, title: &str, fr
         }
     });
     picture.add_controller(click);
+    viewer_menu(&picture, texture, title);
     dialog.present(Some(parent));
+    close_on_backdrop(&dialog);
+}
+
+/// The dimmed backdrop around a dialog is a window handle: a click there
+/// started a window drag and a double click maximized the window. A click on
+/// it closes the dialog instead.
+fn close_on_backdrop(dialog: &adw::Dialog) {
+    let weak = dialog.downgrade();
+    glib::idle_add_local_once(move || {
+        let Some(dialog) = weak.upgrade() else { return };
+        fn find(widget: &gtk::Widget) -> Option<gtk::Widget> {
+            if widget.css_name() == "dimming" {
+                return Some(widget.clone());
+            }
+            std::iter::successors(widget.first_child(), |w| w.next_sibling()).find_map(|child| find(&child))
+        }
+        let Some(dimming) = find(dialog.upcast_ref()) else { return };
+        let click = gtk::GestureClick::builder().button(0).propagation_phase(gtk::PropagationPhase::Capture).build();
+        click.connect_pressed(|gesture, _, _, _| {
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+        });
+        let weak = dialog.downgrade();
+        click.connect_released(move |_, _, _, _| {
+            if let Some(dialog) = weak.upgrade() {
+                dialog.close();
+            }
+        });
+        dimming.add_controller(click);
+    });
+}
+
+/// Right click on the picture: copy it, save it, open it elsewhere.
+fn viewer_menu(picture: &gtk::Picture, texture: &gdk::Texture, title: &str) {
+    let actions = gio::SimpleActionGroup::new();
+    let copy = gio::SimpleAction::new("copy", None);
+    let (tex, target) = (texture.clone(), picture.downgrade());
+    copy.connect_activate(move |_, _| {
+        if let Some(picture) = target.upgrade() {
+            picture.clipboard().set_texture(&tex);
+        }
+    });
+    actions.add_action(&copy);
+    let name = format!("{}.png", title.trim().replace(['/', '\\'], "_"));
+    let save = gio::SimpleAction::new("save", None);
+    let (tex, target, file_name) = (texture.clone(), picture.downgrade(), name.clone());
+    save.connect_activate(move |_, _| {
+        let Some(picture) = target.upgrade() else { return };
+        let window = picture.root().and_downcast::<gtk::Window>();
+        let tex = tex.clone();
+        gtk::FileDialog::builder().initial_name(&file_name).build().save(
+            window.as_ref(),
+            None::<&gio::Cancellable>,
+            move |chosen| {
+                if let Some(path) = chosen.ok().and_then(|f| f.path()) {
+                    let _ = tex.save_to_png(path);
+                }
+            },
+        );
+    });
+    actions.add_action(&save);
+    let open = gio::SimpleAction::new("open", None);
+    let (tex, target) = (texture.clone(), picture.downgrade());
+    open.connect_activate(move |_, _| {
+        let Some(picture) = target.upgrade() else { return };
+        let dir = glib::user_cache_dir().join("rocket-vibe-rs").join("viewer");
+        let path = dir.join(&name);
+        if std::fs::create_dir_all(&dir).is_ok() && tex.save_to_png(&path).is_ok() {
+            cards::open_file(&picture, &path, || {});
+        }
+    });
+    actions.add_action(&open);
+    picture.insert_action_group("viewer", Some(&actions));
+    let menu = gio::Menu::new();
+    menu.append(Some(t("viewer.copy")), Some("viewer.copy"));
+    menu.append(Some(t("viewer.save")), Some("viewer.save"));
+    menu.append(Some(t("viewer.open")), Some("viewer.open"));
+    let popover = gtk::PopoverMenu::from_model(Some(&menu));
+    popover.set_parent(picture);
+    popover.set_has_arrow(false);
+    popover.set_halign(gtk::Align::Start);
+    let right = gtk::GestureClick::builder().button(gdk::BUTTON_SECONDARY).build();
+    right.connect_pressed(move |gesture, _, x, y| {
+        gesture.set_state(gtk::EventSequenceState::Claimed);
+        popover.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        popover.popup();
+    });
+    picture.add_controller(right);
 }
 
 pub fn image_widget(session: &Arc<Session>, image: &ImageAttachment) -> gtk::Widget {

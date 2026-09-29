@@ -96,3 +96,18 @@ pub fn emoji_categories() -> Vec<EmojiCategory> {
         .collect()
 }
 
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_picker_has_every_category_filled() {
+        let categories = super::emoji_categories();
+        assert_eq!(categories.len(), rv_core::emoji::CATEGORIES.len());
+        for c in &categories {
+            assert!(!c.shortcodes.is_empty(), "{}", c.name);
+            assert_eq!(c.shortcodes.len(), c.glyphs.len());
+        }
+        let people = &categories[0];
+        let smile = people.shortcodes.iter().position(|s| s == ":smile:").expect(":smile:");
+        assert_eq!(people.glyphs[smile], "😄");
+    }
+}

@@ -1,0 +1,597 @@
+import AppKit
+import RocketVibeCore
+import RocketVibeKit
+import SwiftUI
+import UniformTypeIdentifiers
+
+struct RoomView: View {
+    @Environment(AppModel.self) var app
+    let model: RoomModel
+    @State var staged: [URL] = []
+
+    var body: some View {
+        VStack(spacing: 0) {
+            MessageList(model: model)
+            if !model.typing.isEmpty {
+                Text(typingLine)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 2)
+            }
+            UploadsView(model: model)
+            if model.room.readOnly {
+                Text(L("room.read_only"))
+                    .foregroundStyle(.secondary)
+                    .padding(12)
+            } else {
+                Composer(model: model, staged: $staged)
+            }
+        }
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            for provider in providers {
+                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    if let url { DispatchQueue.main.async { staged.append(url) } }
+                }
+            }
+            return true
+        }
+        .environment(\.openURL, OpenURLAction { url in handle(url) })
+    }
+
+    var typingLine: String {
+        let who = model.typing
+        switch who.count {
+        case 1: return L("typing.one", ["a": who[0]])
+        case 2: return L("typing.two", ["a": who[0], "b": who[1]])
+        default: return L("typing.many", ["n": String(who.count)])
+        }
+    }
+
+    /// Mentions open a direct room, channel links the channel; the rest goes to the browser.
+    func handle(_ url: URL) -> OpenURLAction.Result {
+        let text = url.absoluteString
+        if text.hasPrefix("rv-user:") {
+            let user = String(text.dropFirst("rv-user:".count))
+            Task { await app.go(to: .user(id: "", username: user, name: nil)) }
+            return .handled
+        }
+        if text.hasPrefix("rv-room:") {
+            let name = String(text.dropFirst("rv-room:".count))
+            if let room = app.rooms.first(where: { $0.slug == name || $0.name == name }) {
+                app.open(room.rid)
+            }
+            return .handled
+        }
+        return .systemAction
+    }
+}
+
+struct MessageList: View {
+    @Environment(AppModel.self) var app
+    let model: RoomModel
+    @State var pinned = true
+    @State var farFromBottom = false
+    @State var editing: String?
+    @State var deleting: MessageItem?
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if model.hasOlder && model.threadId == nil {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(maxWidth: .infinity)
+                            .padding(8)
+                            .onAppear { older(proxy) }
+                    }
+                    ForEach(model.messages, id: \.id) { message in
+                        MessageRow(message: message, model: model, editing: $editing, deleting: $deleting)
+                            .id(message.id)
+                    }
+                    Color.clear.frame(height: 6).id("bottom")
+                }
+                .padding(.vertical, 8)
+            }
+            .defaultScrollAnchor(.bottom)
+            .onScrollGeometryChange(for: [Bool].self) { geometry in
+                let fromBottom = geometry.contentSize.height - geometry.contentOffset.y - geometry.containerSize.height
+                return [fromBottom < 48, fromBottom > geometry.containerSize.height]
+            } action: { _, state in
+                pinned = state[0]
+                farFromBottom = state[1]
+            }
+            .onChange(of: model.messages.last?.id) { _, _ in
+                if pinned { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
+            .onChange(of: model.reveal) { _, id in
+                guard let id else { return }
+                withAnimation { proxy.scrollTo(id, anchor: .center) }
+                Task {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    model.reveal = nil
+                }
+            }
+            .task(id: model.messages.last?.id) {
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                if pinned && NSApp.isActive && model.threadId == nil && (model.room.unread > 0 || model.room.alert) {
+                    await app.markRead()
+                    Notifier.shared.withdraw(rid: model.rid)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if farFromBottom {
+                    Button {
+                        withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                    } label: {
+                        Image(systemName: "arrow.down").padding(8)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .clipShape(Circle())
+                    .help(L("room.latest"))
+                    .padding(16)
+                }
+            }
+            .confirmationDialog(L("actions.delete_title"), isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
+                Button(L("actions.delete"), role: .destructive) {
+                    if let message = deleting {
+                        Task {
+                            do { try await model.delete(message) } catch { app.notice = L("actions.refused") }
+                        }
+                    }
+                    deleting = nil
+                }
+                Button(L("actions.cancel"), role: .cancel) { deleting = nil }
+            } message: {
+                Text(L("actions.delete_body"))
+            }
+        }
+    }
+
+    func older(_ proxy: ScrollViewProxy) {
+        let anchor = model.messages.first?.id
+        Task {
+            if await model.loadOlder(), let anchor {
+                proxy.scrollTo(anchor, anchor: .top)
+            }
+        }
+    }
+}
+
+struct MessageRow: View {
+    @Environment(AppModel.self) var app
+    let message: MessageItem
+    /// None in the sample gallery: no actions there.
+    let model: RoomModel?
+    @Binding var editing: String?
+    @Binding var deleting: MessageItem?
+    @State var draft = ""
+    @State var viewing: ImageItem?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if message.showDay {
+                DaySeparator(ts: message.ts)
+            }
+            if message.newMarker {
+                HStack {
+                    Rectangle().fill(Palette.mention).frame(height: 1)
+                    Text("✦ " + L("room.new_messages")).font(.caption.bold()).foregroundStyle(Palette.mention)
+                    Rectangle().fill(Palette.mention).frame(height: 1)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+            }
+            HStack(alignment: .top, spacing: 10) {
+                gutter
+                VStack(alignment: .leading, spacing: 4) {
+                    if message.showHeader {
+                        HStack(alignment: .firstTextBaseline, spacing: 7) {
+                            Text(message.author)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(message.mine ? Palette.mention : .primary)
+                            Text(Formatting.time(message.ts)).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    content
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, message.showHeader ? 8 : 1)
+            .padding(.bottom, 1)
+            .background(model?.reveal == message.id ? Palette.mention.opacity(0.15) : .clear)
+            .contextMenu { menu }
+        }
+        .sheet(item: Binding(get: { viewing.map(Viewing.init) }, set: { viewing = $0?.image })) { v in
+            ImageViewer(path: v.image.source, title: v.image.title)
+        }
+    }
+
+    @ViewBuilder var gutter: some View {
+        if message.showHeader {
+            Avatar(path: message.avatar, name: message.author, size: 34)
+        } else {
+            Text(message.gutterTime ? Formatting.time(message.ts) : "")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(width: 34)
+        }
+    }
+
+    @ViewBuilder var content: some View {
+        if let system = message.system {
+            if let callId = message.callId {
+                CallCard(callId: callId)
+            } else {
+                Text("\(message.author) \(systemMessage(kind: system, param: message.param))")
+                    .italic()
+                    .foregroundStyle(.secondary)
+            }
+        } else if message.locked {
+            Text(L("message.encrypted_locked")).italic().foregroundStyle(.secondary)
+        }
+        ForEach(Array(message.quotes.enumerated()), id: \.offset) { _, quote in
+            QuoteCard(quote: quote)
+        }
+        if editing == message.id {
+            editor
+        } else if !message.body.isEmpty {
+            BodyView(blocks: message.body, dimmed: message.delivery != .sent)
+        }
+        ForEach(Array(message.images.enumerated()), id: \.offset) { _, image in
+            let size = displaySize(width: image.width, height: image.height)
+            RemoteImage(path: image.source, width: size.width, height: size.height)
+                .onTapGesture { viewing = image }
+            if let caption = image.description {
+                Text(caption).textSelection(.enabled)
+            }
+        }
+        ForEach(Array(message.files.enumerated()), id: \.offset) { _, file in
+            FileCard(file: file)
+        }
+        ForEach(Array(message.cards.enumerated()), id: \.offset) { _, card in
+            LinkCard(card: card)
+        }
+        if !message.reactions.isEmpty {
+            HStack(spacing: 6) {
+                ForEach(message.reactions, id: \.shortcode) { reaction in
+                    Button {
+                        Task { await model?.react(message, shortcode: reaction.shortcode, add: !reaction.mine) }
+                    } label: {
+                        Text("\(reaction.glyph ?? reaction.shortcode) \(reaction.count)")
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(reaction.mine ? Palette.mention.opacity(0.25) : Color.secondary.opacity(0.15), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        footer
+    }
+
+    @ViewBuilder var footer: some View {
+        if message.edited || message.delivery != .sent || message.threadCount > 0 {
+            HStack(spacing: 10) {
+                if message.threadCount > 0 {
+                    Button("💬 " + L("message.replies", count: Int(message.threadCount))) { app.openThread(message.id) }
+                        .buttonStyle(.link)
+                }
+                if message.edited { Text(L("message.edited")).font(.caption).foregroundStyle(.secondary) }
+                switch message.delivery {
+                case .pending:
+                    Text(L("message.sending")).font(.caption).foregroundStyle(.secondary)
+                case .failed:
+                    Button(L("message.failed")) { Task { await model?.retry(message.id) } }
+                        .buttonStyle(.link)
+                        .foregroundStyle(.red)
+                case .sent:
+                    EmptyView()
+                }
+            }
+        }
+    }
+
+    var editor: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            TextField("", text: $draft, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(1...10)
+                .onSubmit(save)
+                .onExitCommand { editing = nil }
+            HStack {
+                Text(L("edit.hint")).font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button(L("actions.cancel")) { editing = nil }
+                Button(L("actions.save"), action: save).keyboardShortcut(.defaultAction)
+            }
+        }
+        .onAppear { draft = message.text ?? "" }
+    }
+
+    func save() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        editing = nil
+        guard !text.isEmpty, text != message.text else { return }
+        Task {
+            do { try await model?.edit(message, text: text) } catch { app.notice = L("actions.refused") }
+        }
+    }
+
+    @ViewBuilder var menu: some View {
+        let actions = model?.actions(for: message) ?? []
+        if actions.contains(.react) {
+            Menu("😀") {
+                ForEach(model?.quickReactions ?? [], id: \.self) { code in
+                    Button(replaceShortcodes(text: code)) {
+                        Task { await model?.react(message, shortcode: code, add: true) }
+                    }
+                }
+            }
+        }
+        ForEach(actions.filter { $0 != .react }, id: \.self) { action in
+            Button(title(action), role: action == .delete ? .destructive : nil) { run(action) }
+        }
+    }
+
+    func title(_ action: MessageAction) -> String {
+        switch action {
+        case .react: return "😀"
+        case .reply: return L("actions.reply")
+        case .replyInThread: return L("actions.reply_thread")
+        case .copy: return L("actions.copy")
+        case .download: return L("actions.download")
+        case .edit: return L("actions.edit")
+        case .delete: return L("actions.delete")
+        case .pin: return L("actions.pin")
+        case .unpin: return L("actions.unpin")
+        case .star: return L("actions.star")
+        case .unstar: return L("actions.unstar")
+        }
+    }
+
+    func run(_ action: MessageAction) {
+        switch action {
+        case .react: break
+        case .reply: Task { await model?.quote(message) }
+        case .replyInThread: app.openThread(message.threadId ?? message.id)
+        case .copy:
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(message.text ?? "", forType: .string)
+            app.notice = L("actions.copied")
+        case .download:
+            if let path = message.files.first?.url ?? message.images.first?.source {
+                let name = message.files.first?.title ?? message.images.first?.title ?? "file"
+                Task { await download(path: path, name: name, app: app) }
+            }
+        case .edit: editing = message.id
+        case .delete: deleting = message
+        case .pin, .unpin:
+            Task {
+                do {
+                    try await model?.pin(message, action == .pin)
+                    app.notice = L(action == .pin ? "actions.pinned" : "actions.unpinned")
+                } catch { app.notice = L("actions.refused") }
+            }
+        case .star, .unstar:
+            Task {
+                do {
+                    try await model?.star(message, action == .star)
+                    app.notice = L(action == .star ? "actions.starred" : "actions.unstarred")
+                } catch { app.notice = L("actions.refused") }
+            }
+        }
+    }
+}
+
+struct Viewing: Identifiable {
+    let image: ImageItem
+    var id: String { image.source }
+}
+
+/// Into Downloads, under a name not taken yet.
+@MainActor
+func download(path: String, name: String, app: AppModel) async {
+    guard let media = app.media,
+          let folder = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first else { return }
+    var target = folder.appendingPathComponent(name)
+    let base = target.deletingPathExtension().lastPathComponent
+    let ext = target.pathExtension
+    var n = 1
+    while FileManager.default.fileExists(atPath: target.path) {
+        n += 1
+        target = folder.appendingPathComponent(ext.isEmpty ? "\(base) (\(n))" : "\(base) (\(n)).\(ext)")
+    }
+    do {
+        try await media.download(path, to: target.path)
+        app.notice = L("actions.saved")
+    } catch {
+        app.notice = L("actions.save_failed")
+    }
+}
+
+struct DaySeparator: View {
+    let ts: Int64
+
+    var body: some View {
+        HStack {
+            Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 1)
+            Text(Formatting.day(ts)).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+            Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 1)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+}
+
+struct QuoteCard: View {
+    let quote: Quote
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            RoundedRectangle(cornerRadius: 2).fill(Palette.channel).frame(width: 3)
+            VStack(alignment: .leading, spacing: 3) {
+                if let author = quote.author { Text(author).font(.callout.weight(.semibold)) }
+                BodyView(blocks: quote.body)
+                ForEach(Array(quote.images.enumerated()), id: \.offset) { _, image in
+                    let size = displaySize(width: image.width, height: image.height, maxWidth: 240, maxHeight: 180)
+                    RemoteImage(path: image.source, width: size.width, height: size.height)
+                }
+            }
+        }
+        .padding(8)
+        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+        .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+struct FileCard: View {
+    @Environment(AppModel.self) var app
+    let file: FileItem
+    @State var playing: URL?
+    @State var loading = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon).font(.title2).frame(width: 30)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(file.title).lineLimit(1)
+                Text([file.size, file.mime].compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if file.kind != .other {
+                Button { Task { await play() } } label: { Image(systemName: loading ? "hourglass" : "play.fill") }
+                    .help(L("file.play"))
+            }
+            Button { Task { await download(path: file.url, name: file.title, app: app) } } label: {
+                Image(systemName: "arrow.down.circle")
+            }
+            .help(L("actions.download"))
+        }
+        .padding(10)
+        .frame(maxWidth: 380)
+        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
+        .sheet(item: Binding(get: { playing.map(Playing.init) }, set: { playing = $0?.url })) { p in
+            PlayerView(url: p.url)
+        }
+    }
+
+    var icon: String {
+        switch file.kind {
+        case .audio: return "waveform"
+        case .video: return "film"
+        case .other: return "doc"
+        }
+    }
+
+    /// Protected files cannot be streamed without the token: a local copy first.
+    func play() async {
+        guard let media = app.media else { return }
+        loading = true
+        defer { loading = false }
+        let local = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "rv-\(abs(file.url.hashValue))-\(file.title)")
+        if !FileManager.default.fileExists(atPath: local.path) {
+            do { try await media.download(file.url, to: local.path) } catch {
+                app.notice = L("file.failed")
+                return
+            }
+        }
+        playing = local
+    }
+}
+
+struct Playing: Identifiable {
+    let url: URL
+    var id: URL { url }
+}
+
+struct LinkCard: View {
+    @Environment(\.openURL) var openURL
+    let card: Card
+
+    var body: some View {
+        Button {
+            if let url = URL(string: card.url) { openURL(url) }
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                if let image = card.image {
+                    ZStack {
+                        RemoteImage(path: image, width: card.title == nil ? 320 : 96, height: card.title == nil ? 200 : 72)
+                        if card.video {
+                            Image(systemName: "play.circle.fill").font(.largeTitle).foregroundStyle(.white)
+                        }
+                    }
+                }
+                if card.title != nil || card.description != nil {
+                    VStack(alignment: .leading, spacing: 3) {
+                        if let site = card.site { Text(site).font(.caption).foregroundStyle(.secondary) }
+                        if let title = card.title { Text(title).font(.callout.weight(.semibold)).lineLimit(2) }
+                        if let description = card.description {
+                            Text(description).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                        }
+                    }
+                    .multilineTextAlignment(.leading)
+                }
+            }
+            .padding(8)
+            .frame(maxWidth: 420, alignment: .leading)
+            .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct CallCard: View {
+    @Environment(AppModel.self) var app
+    @Environment(\.openURL) var openURL
+    let callId: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "video.fill").foregroundStyle(Palette.channel)
+            Text(L("message.call"))
+            Button(L("message.join")) {
+                Task {
+                    guard let chat = app.chat else { return }
+                    if let link = try? await chat.joinCall(callId: callId), let url = URL(string: link) {
+                        openURL(url)
+                    } else {
+                        app.notice = L("call.failed")
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+struct UploadsView: View {
+    let model: RoomModel
+
+    var body: some View {
+        ForEach(model.uploads, id: \.id) { upload in
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.up.doc")
+                Text(upload.name).lineLimit(1)
+                Spacer()
+                if upload.failed {
+                    Text(L("upload.failed")).foregroundStyle(.red).font(.caption)
+                    Button(L("upload.retry")) { Task { await model.retryUpload(upload.id) } }
+                    Button(L("upload.discard")) { model.discardUpload(upload.id) }
+                } else if let progress = upload.progress {
+                    ProgressView(value: progress).frame(width: 120)
+                } else {
+                    Text(L("upload.waiting")).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 4)
+        }
+    }
+}

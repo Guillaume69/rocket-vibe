@@ -25,6 +25,11 @@ var targets: [Target] = [
     .testTarget(name: "RocketVibeKitTests", dependencies: ["RocketVibeKit"]),
 ]
 
+#if os(macOS)
+products.append(.executable(name: "RocketVibe", targets: ["RocketVibe"]))
+targets.append(.executableTarget(name: "RocketVibe", dependencies: ["RocketVibeKit"]))
+#endif
+
 let package = Package(
     name: "RocketVibeMac",
     platforms: [.macOS(.v15)],

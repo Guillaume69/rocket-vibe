@@ -49,6 +49,7 @@ jobs:
       - run: swift --version
       - name: View models and the offline self-check
         run: |
+          set -o pipefail
           lib=$(scripts/generate.sh | tail -1)
           export RV_FFI_LIB_DIR="$PWD/../$lib"
           swift test

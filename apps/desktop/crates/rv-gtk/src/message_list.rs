@@ -29,6 +29,11 @@ pub struct MessageList {
     pick_label: gtk::Label,
     picked: RefCell<Vec<String>>,
     anchor: RefCell<Option<String>>,
+    /// A text selection being dragged: the message it started in, and
+    /// whether it has crossed into another one.
+    text_drag: RefCell<Option<String>>,
+    text_dragging: Cell<bool>,
+    text_press: Cell<Option<(f64, f64)>>,
     view: gtk::ListView,
     store: gio::ListStore,
     rows: RefCell<Vec<Display>>,
@@ -93,6 +98,9 @@ impl MessageList {
             pick_label,
             picked: RefCell::default(),
             anchor: RefCell::default(),
+            text_drag: RefCell::default(),
+            text_dragging: Cell::new(false),
+            text_press: Cell::new(None),
             view,
             store,
             rows: RefCell::default(),
@@ -228,6 +236,13 @@ impl MessageList {
             }
         });
         self.view.add_controller(drag);
+        let text = gtk::EventControllerLegacy::builder().propagation_phase(gtk::PropagationPhase::Capture).build();
+        let weak = Rc::downgrade(self);
+        text.connect_event(move |_, event| {
+            let Some(this) = weak.upgrade() else { return glib::Propagation::Proceed };
+            this.text_drag_event(event)
+        });
+        self.view.add_controller(text);
         let keys = gtk::EventControllerKey::new();
         let weak = Rc::downgrade(self);
         keys.connect_key_pressed(move |_, key, _, state| {
@@ -242,6 +257,67 @@ impl MessageList {
             glib::Propagation::Stop
         });
         self.view.add_controller(keys);
+    }
+
+    /// A text selection dragged out of its message becomes a selection of
+    /// whole messages, from that one to the one under the pointer.
+    fn text_drag_event(&self, event: &gtk::gdk::Event) -> glib::Propagation {
+        use gtk::gdk::EventType;
+        let point = || {
+            let native = self.view.native()?;
+            let (sx, sy) = native.surface_transform();
+            let (x, y) = event.position()?;
+            let p = native.compute_point(&self.view, &gtk::graphene::Point::new((x - sx) as f32, (y - sy) as f32))?;
+            Some((p.x() as f64, p.y() as f64))
+        };
+        match event.event_type() {
+            EventType::ButtonPress => {
+                let primary = event.downcast_ref::<gtk::gdk::ButtonEvent>().is_some_and(|b| b.button() == 1);
+                let start = point().filter(|(x, _)| primary && *x >= GUTTER).and_then(|(x, y)| self.id_at(x, y));
+                self.text_drag.replace(start);
+                self.text_press.set(point().filter(|_| primary));
+                self.text_dragging.set(false);
+                glib::Propagation::Proceed
+            }
+            EventType::MotionNotify => {
+                let Some(start) = self.text_drag.borrow().clone() else { return glib::Propagation::Proceed };
+                if !event.modifier_state().contains(gtk::gdk::ModifierType::BUTTON1_MASK) {
+                    self.text_drag.replace(None);
+                    return glib::Propagation::Proceed;
+                }
+                let Some(id) = point().and_then(|(x, y)| self.id_at(x, y)) else {
+                    return if self.text_dragging.get() { glib::Propagation::Stop } else { glib::Propagation::Proceed };
+                };
+                if id == start && !self.text_dragging.get() {
+                    return glib::Propagation::Proceed;
+                }
+                if !self.text_dragging.replace(true) {
+                    crate::markdown_view::clear_selection();
+                    self.anchor.replace(Some(start.clone()));
+                    self.view.set_focusable(true);
+                    self.view.grab_focus();
+                }
+                self.pick_range(&start, &id);
+                glib::Propagation::Stop
+            }
+            EventType::ButtonRelease => {
+                let start = self.text_press.take();
+                self.text_drag.replace(None);
+                if self.text_dragging.replace(false) {
+                    return glib::Propagation::Stop;
+                }
+                if let Some((x, y)) = start {
+                    let view = self.view.clone();
+                    glib::idle_add_local_once(move || {
+                        if let Some(widget) = view.pick(x, y, gtk::PickFlags::DEFAULT) {
+                            crate::markdown_view::note_selection(&widget);
+                        }
+                    });
+                }
+                glib::Propagation::Proceed
+            }
+            _ => glib::Propagation::Proceed,
+        }
     }
 
     /// The message whose row is at `(x, y)` of the list.
@@ -278,6 +354,10 @@ impl MessageList {
         }
         self.pick_bar.set_visible(!now.is_empty());
         self.pick_label.set_label(&crate::i18n::tn("pick.count", now.len() as i64));
+    }
+
+    pub fn has_picked(&self) -> bool {
+        !self.picked.borrow().is_empty()
     }
 
     pub fn clear_picked(&self) {

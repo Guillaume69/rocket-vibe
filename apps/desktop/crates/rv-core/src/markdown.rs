@@ -121,6 +121,40 @@ pub fn pieces(markup: &str) -> Vec<Piece<'_>> {
         .collect()
 }
 
+/// Markup cut at its links, for a view that draws links itself: each run's
+/// markup without the `<a>` tags, and the link it belongs to. A link cut
+/// short by a custom emoji ends there.
+pub fn link_runs(markup: &str) -> Vec<(String, Option<String>)> {
+    let mut runs = Vec::new();
+    let (mut rest, mut href) = (markup, None::<String>);
+    loop {
+        let opening = rest.find("<a ");
+        let closing = rest.find("</a>");
+        let next = match (opening, closing) {
+            (Some(o), Some(c)) => Some(o.min(c)),
+            (o, c) => o.or(c),
+        };
+        let Some(at) = next else {
+            if !rest.is_empty() {
+                runs.push((rest.to_owned(), href));
+            }
+            return runs;
+        };
+        if at > 0 {
+            runs.push((rest[..at].to_owned(), href.clone()));
+        }
+        if Some(at) == closing {
+            href = None;
+            rest = &rest[at + 4..];
+        } else {
+            let end = rest[at..].find('>').map_or(rest.len(), |e| at + e + 1);
+            let tag = &rest[at..end];
+            href = tag.split_once("href=\"").and_then(|(_, v)| v.split_once('"')).map(|(v, _)| unescape(v));
+            rest = &rest[end..];
+        }
+    }
+}
+
 /// The markup with custom emoji as plain `:code:`.
 pub fn without_custom(markup: &str) -> String {
     pieces(markup)
@@ -307,6 +341,27 @@ pub fn render(md: Option<&str>, text: Option<&str>, ctx: &Context) -> Vec<Block>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn link_runs_split_markup_at_links() {
+        let runs =
+            link_runs("hey <a href=\"rv-user:bob\"><b>@bob</b></a> look <a href=\"https://x.y/?a=1&amp;b=2\">x</a>");
+        assert_eq!(
+            runs,
+            [
+                ("hey ".to_owned(), None),
+                ("<b>@bob</b>".to_owned(), Some("rv-user:bob".to_owned())),
+                (" look ".to_owned(), None),
+                ("x".to_owned(), Some("https://x.y/?a=1&b=2".to_owned())),
+            ]
+        );
+        assert_eq!(link_runs("<b>plain</b>"), [("<b>plain</b>".to_owned(), None)]);
+        assert_eq!(
+            link_runs("cut <a href=\"u\">short"),
+            [("cut ".to_owned(), None), ("short".to_owned(), Some("u".to_owned()))]
+        );
+        assert_eq!(link_runs("end</a> more"), [("end".to_owned(), None), (" more".to_owned(), None)]);
+    }
 
     #[test]
     fn custom_emoji_are_marked() {

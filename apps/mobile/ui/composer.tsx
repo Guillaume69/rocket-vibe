@@ -76,6 +76,9 @@ function assetVersFichier(a: ImagePicker.ImagePickerAsset): FichierEnAttente {
   };
 }
 
+/** Pièces préparées d'un salon (ou d'un fil) quitté sans envoyer : elles l'y attendent. */
+const piecesParquees = new Map<string, { pieces: PieceEnAttente[]; qualite: QualiteEnvoi }>();
+
 export function Composer({
   c,
   rid,
@@ -133,22 +136,32 @@ export function Composer({
   // Pièces jointes en attente d'envoi (images, vocal, tout fichier) : elles se
   // posent en pastilles au-dessus du champ, le texte tapé devient la légende
   // de la première, et tout part au ➤ — rien ne part dès le choix.
-  const [enAttente, setEnAttente] = useState<PieceEnAttente[]>([]);
-  const prochaineCle = useRef(0);
+  const cleParking = `${rid}:${filId ?? ''}`;
+  const [parquees] = useState(() => {
+    const p = piecesParquees.get(cleParking);
+    piecesParquees.delete(cleParking);
+    return p;
+  });
+  const [enAttente, setEnAttente] = useState<PieceEnAttente[]>(parquees?.pieces ?? []);
+  const prochaineCle = useRef(Math.max(0, ...(parquees?.pieces ?? []).map((p) => p.cle + 1)));
   // Qualité d'envoi des médias réductibles (photo lourde, vidéo) : « réduite »
   // par défaut, basculable sur les pastilles. La réduction se fait À L'ENVOI
   // (voir `envoyer`) — pas au choix du fichier, où elle ferait payer un
   // transcodage à qui retire la pièce ou veut l'original.
-  const [qualite, setQualite] = useState<QualiteEnvoi>('reduite');
+  const [qualite, setQualite] = useState<QualiteEnvoi>(parquees?.qualite ?? 'reduite');
   const [videoOuverte, setVideoOuverte] = useState<PieceEnAttente | null>(null);
   const visionneuse = useVisionneuse();
   // Changer de salon démonte le composer (`key={rid}`) : les pièces qui
-  // attendaient sont abandonnées, et leurs copies en cache effacées — sauf
-  // celle que l'envoi en cours a déjà confiée à la file.
+  // attendaient sont mises de côté pour ce salon, sauf celles que l'envoi en
+  // cours a déjà confiées à la file.
   const enAttenteRef = useRef(enAttente);
   useEffect(() => {
     enAttenteRef.current = enAttente;
   }, [enAttente]);
+  const qualiteRef = useRef(qualite);
+  useEffect(() => {
+    qualiteRef.current = qualite;
+  }, [qualite]);
   const confiees = useRef(new Set<number>());
   const demonte = useRef(false);
   useEffect(() => {
@@ -156,11 +169,10 @@ export function Composer({
     demonte.current = false;
     return () => {
       demonte.current = true;
-      for (const p of enAttenteRef.current) {
-        if (!confieesIci.has(p.cle)) void supprimerSiTemporaire(p.uri);
-      }
+      const restantes = enAttenteRef.current.filter((p) => !confieesIci.has(p.cle));
+      if (restantes.length > 0) piecesParquees.set(cleParking, { pieces: restantes, qualite: qualiteRef.current });
     };
-  }, []);
+  }, [cleParking]);
   // `.m4a` AAC (préréglage HIGH_QUALITY) — le MIME attendu est `audio/mp4`.
   const enregistreur = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const routeur = useRouter();

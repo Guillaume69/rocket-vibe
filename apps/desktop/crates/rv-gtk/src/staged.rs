@@ -3,6 +3,7 @@
 //! the images' quality. They leave with the text typed, as its caption.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use gtk::prelude::*;
@@ -12,11 +13,15 @@ use rv_core::content::human_size;
 use crate::attach::{Picked, mime_of};
 use crate::i18n::t;
 
+type Batch = (Vec<(Picked, String)>, bool);
+
 pub struct Staged {
     pub root: gtk::Box,
     chips: gtk::FlowBox,
     original: gtk::CheckButton,
     items: RefCell<Vec<(Picked, String)>>,
+    key: RefCell<String>,
+    parked: RefCell<HashMap<String, Batch>>,
 }
 
 /// The file's kind as people know it: its extension, else the MIME subtype.
@@ -45,7 +50,14 @@ impl Staged {
             .build();
         root.append(&chips);
         root.append(&original);
-        Rc::new(Staged { root, chips, original, items: RefCell::default() })
+        Rc::new(Staged {
+            root,
+            chips,
+            original,
+            items: RefCell::default(),
+            key: RefCell::default(),
+            parked: RefCell::default(),
+        })
     }
 
     pub fn add(self: &Rc<Self>, picked: Vec<Picked>) {
@@ -68,13 +80,19 @@ impl Staged {
         (items, original)
     }
 
-    /// Thrown away: temporary copies (pasted pictures) are deleted.
-    pub fn clear(self: &Rc<Self>) {
-        for (item, _) in std::mem::take(&mut *self.items.borrow_mut()) {
-            if item.temporary {
-                let _ = std::fs::remove_file(&item.path);
-            }
+    /// Files staged for one room or thread wait there while another is open.
+    pub fn switch(self: &Rc<Self>, key: &str) {
+        let previous = self.key.replace(key.to_owned());
+        if previous == key {
+            return;
         }
+        let items = std::mem::take(&mut *self.items.borrow_mut());
+        if !items.is_empty() {
+            self.parked.borrow_mut().insert(previous, (items, self.original.is_active()));
+        }
+        let (items, original) = self.parked.borrow_mut().remove(key).unwrap_or_default();
+        *self.items.borrow_mut() = items;
+        self.original.set_active(original);
         self.rebuild();
     }
 

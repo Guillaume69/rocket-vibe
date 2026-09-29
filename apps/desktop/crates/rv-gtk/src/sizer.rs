@@ -7,6 +7,10 @@ use std::cell::Cell;
 use gtk::glib;
 use gtk::subclass::prelude::*;
 
+/// Never narrower: a size asked without a width then still reserves the
+/// height this width needs, instead of none.
+const MIN_WIDTH: i32 = 120;
+
 mod imp {
     use super::*;
 
@@ -32,13 +36,11 @@ mod imp {
 
         fn measure(&self, orientation: gtk::Orientation, for_size: i32) -> (i32, i32, i32, i32) {
             let (w, h) = (self.width.get().max(1), self.height.get());
+            let fitted = |width: i32| (h as i64 * width.clamp(0, w) as i64 / w as i64) as i32;
             match orientation {
-                gtk::Orientation::Horizontal => (0, w, -1, -1),
-                _ if for_size < 0 => (0, h, -1, -1),
-                _ => {
-                    let fitted = (h as i64 * for_size.min(w) as i64 / w as i64) as i32;
-                    (fitted, fitted, -1, -1)
-                }
+                gtk::Orientation::Horizontal => (MIN_WIDTH.min(w), w, -1, -1),
+                _ if for_size < 0 => (fitted(MIN_WIDTH), h, -1, -1),
+                _ => (fitted(for_size), fitted(for_size), -1, -1),
             }
         }
     }

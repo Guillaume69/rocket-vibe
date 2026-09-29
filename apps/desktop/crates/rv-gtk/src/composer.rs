@@ -32,6 +32,7 @@ pub struct Composer {
     mentions: RefCell<Option<MentionSource>>,
     on_files: Handler<Vec<Picked>>,
     custom_emoji: RefCell<Option<MentionSource>>,
+    custom_names: Rc<RefCell<Option<crate::emoji_picker::CustomSource>>>,
     field: gtk::Box,
     record_bar: gtk::Box,
     record_time: gtk::Label,
@@ -159,10 +160,15 @@ impl Composer {
         pill.append(&attach);
         pill.append(&stack);
         let text_for_picker = text.clone();
-        pill.append(&crate::emoji_picker::button(move |glyph| {
-            text_for_picker.buffer().insert_at_cursor(glyph);
-            text_for_picker.grab_focus();
-        }));
+        let custom_names: Rc<RefCell<Option<crate::emoji_picker::CustomSource>>> = Rc::default();
+        let names = custom_names.clone();
+        pill.append(&crate::emoji_picker::button(
+            move |glyph| {
+                text_for_picker.buffer().insert_at_cursor(glyph);
+                text_for_picker.grab_focus();
+            },
+            Rc::new(move || names.borrow().as_ref().map(|f| f()).unwrap_or_default()),
+        ));
         let choices =
             gtk::ListBox::builder().selection_mode(gtk::SelectionMode::Single).css_classes(["completion"]).build();
         let completion = gtk::Popover::builder()
@@ -251,6 +257,7 @@ impl Composer {
             mentions: RefCell::default(),
             on_files: RefCell::default(),
             custom_emoji: RefCell::default(),
+            custom_names,
             field,
             record_bar,
             record_time,
@@ -482,11 +489,11 @@ impl Composer {
     /// Ties the composer to a room (`thread` None) or a thread: restores its
     /// draft, saves it as it changes, and offers the room's authors after `@`.
     pub fn bind(&self, session: &Arc<Session>, rid: &str, thread: Option<&str>) {
-        self.staged.clear();
         let key = match thread {
             Some(tmid) => format!("{rid}:{tmid}"),
             None => rid.to_owned(),
         };
+        self.staged.switch(&key);
         self.on_changed.replace(None);
         self.set_text(&session.store.draft(&key).unwrap_or_default());
         self.completion.popdown();
@@ -508,6 +515,8 @@ impl Composer {
         });
         let s = session.clone();
         self.custom_emoji.replace(Some(Rc::new(move |prefix: &str| s.custom_emoji_codes(prefix))));
+        let s = session.clone();
+        self.custom_names.replace(Some(Rc::new(move || s.custom_emoji_names())));
     }
 
     /// Usernames offered after `@`, given the prefix typed.
@@ -524,25 +533,31 @@ impl Composer {
         let buffer = self.text.buffer();
         let cursor = buffer.iter_at_mark(&buffer.get_insert());
         let before = buffer.text(&buffer.start_iter(), &cursor, false).to_string();
-        let offered: Vec<(String, usize, String)> = match rv_core::completion::query(&before) {
+        let offered: Vec<(String, usize, String, Option<gtk::Widget>)> = match rv_core::completion::query(&before) {
             Some(q) if q.trigger == rv_core::completion::Trigger::Mention => {
                 let source = self.mentions.borrow().clone();
                 source
                     .map(|f| f(&q.prefix))
                     .unwrap_or_default()
                     .into_iter()
-                    .map(|name| (format!("@{name}"), q.start, format!("@{name} ")))
+                    .map(|name| {
+                        let card = crate::markdown_view::mention_preview(&name);
+                        (format!("@{name}"), q.start, format!("@{name} "), card)
+                    })
                     .collect()
             }
             Some(q) => {
                 let custom = self.custom_emoji.borrow().clone().map(|f| f(&q.prefix)).unwrap_or_default();
                 custom
                     .into_iter()
-                    .map(|code| (format!(":{code}:"), q.start, format!(":{code}: ")))
+                    .map(|code| {
+                        let image = crate::markdown_view::custom_emoji(&code);
+                        (format!(":{code}:"), q.start, format!(":{code}: "), image)
+                    })
                     .chain(
                         rv_core::emoji::complete(&q.prefix, 8)
                             .into_iter()
-                            .map(|(code, glyph)| (format!("{glyph}  :{code}:"), q.start, format!("{glyph} "))),
+                            .map(|(code, glyph)| (format!("{glyph}  :{code}:"), q.start, format!("{glyph} "), None)),
                     )
                     .take(8)
                     .collect()
@@ -557,11 +572,21 @@ impl Composer {
             self.completion.popdown();
             return;
         }
-        for (label, _, _) in &offered {
-            self.choices
-                .append(&gtk::Label::builder().label(label).xalign(0.0).css_classes(["completion-item"]).build());
+        for (label, _, _, preview) in &offered {
+            let text = gtk::Label::builder().label(label).xalign(0.0).css_classes(["completion-item"]).build();
+            match preview {
+                Some(card) if card.has_css_class("mention-card") => self.choices.append(card),
+                Some(image) => {
+                    image.set_tooltip_text(None);
+                    let row = gtk::Box::builder().spacing(8).build();
+                    row.append(image);
+                    row.append(&text);
+                    self.choices.append(&row);
+                }
+                None => self.choices.append(&text),
+            }
         }
-        self.offered.replace(offered.into_iter().map(|(_, start, insert)| (start, insert)).collect());
+        self.offered.replace(offered.into_iter().map(|(_, start, insert, _)| (start, insert)).collect());
         self.select(0);
         self.completion.popup();
     }

@@ -56,6 +56,17 @@ for the Android app too and are fixed there as well.
 - [x] Sharing to the app from a cold start opens the normal view; the second share works,
   and every later launch replays the share until the app is force-closed
 
+## Second round (2026-09-29)
+
+- [x] Small window: no composer, content cut: the window asked for 480 px of height, which a tiling slot of 306 px crops; it now asks for 240 (checked at 480x306)
+- [x] A picture takes no room and slides under the next messages: not reproduced on the test server (link cards, video and images hold at every width tried); the one path that gave a media frame no height (measured without a width) now reserves it. To confirm on the message it happened with
+- [x] Mouse selection across lines or messages: paragraphs split by a blank line share one label; a drag leaving its message selects whole messages
+- [x] Ctrl+C (and Omarchy's Super+C, sent as Ctrl+Insert) does not copy: message text takes no focus; the last selection is remembered and a window-wide shortcut copies it
+- [x] A staged attachment vanishes after switching rooms and back: kept per room (*mobile* too)
+- [x] No preview for mentions and custom emoji: a paragraph with a custom emoji dropped its mentions entirely; hover cards for server emoji; completion rows show the person and the emoji
+- [x] Custom emoji missing from the picker, tofu boxes in it: a server emoji tab and search; emoji the fonts cannot draw left out
+- [x] Check for new versions, update in place: a card at the foot of the room list; Linux replaces the binary and restarts, Windows runs the installer, macOS opens the DMG (mobile waits for the store)
+
 ## Found while fixing
 
 - [x] Enter or double click in the room list opened the wrong room (section titles not counted)

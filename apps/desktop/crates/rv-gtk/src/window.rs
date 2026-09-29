@@ -97,7 +97,7 @@ impl AppWindow {
             .default_width(1180)
             .default_height(760)
             .width_request(360)
-            .height_request(480)
+            .height_request(240)
             .content(&toasts)
             .build();
 

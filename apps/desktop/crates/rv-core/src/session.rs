@@ -161,6 +161,8 @@ pub struct Session {
 
 struct E2eUnlocked {
     key: crate::e2e::PrivateKey,
+    /// The same key as its JWK, for the keychain.
+    jwk: String,
     rooms: HashMap<String, (String, Vec<u8>)>,
 }
 
@@ -418,16 +420,37 @@ impl Session {
         Ok(info::search_results(&self.rest.get("chat.search", options).await?))
     }
 
-    /// Opens my private key with the E2E password; it stays in memory only.
+    /// Opens my private key with the E2E password. The password is not kept;
+    /// the key is, by the app, through `e2e_export`.
     pub async fn e2e_unlock(&self, password: &str) -> Result<(), UnlockError> {
         let keys = self.rest.get("e2e.fetchMyKeys", CallOptions::default()).await.map_err(UnlockError::Server)?;
         let private = keys.get("private_key").and_then(Value::as_str).unwrap_or_default();
-        let key = crate::e2e::unlock_private_key(private, password, &self.info.user_id).map_err(UnlockError::Key)?;
-        self.e2e.lock().unwrap().replace(E2eUnlocked { key, rooms: HashMap::new() });
+        let (key, jwk) =
+            crate::e2e::unlock_private_key_jwk(private, password, &self.info.user_id).map_err(UnlockError::Key)?;
+        self.unlocked_with(key, jwk);
+        Ok(())
+    }
+
+    /// Unlocks with a key kept from an earlier session. False when it does not import.
+    pub fn e2e_resume(&self, jwk: &str) -> bool {
+        if self.e2e_unlocked() {
+            return true;
+        }
+        let Ok(key) = crate::e2e::import_private_key(jwk) else { return false };
+        self.unlocked_with(key, jwk.to_owned());
+        true
+    }
+
+    /// My private key as a JWK, while unlocked.
+    pub fn e2e_export(&self) -> Option<String> {
+        self.e2e.lock().unwrap().as_ref().map(|u| u.jwk.clone())
+    }
+
+    fn unlocked_with(&self, key: crate::e2e::PrivateKey, jwk: String) {
+        self.e2e.lock().unwrap().replace(E2eUnlocked { key, jwk, rooms: HashMap::new() });
         let _ = self.events.send(SessionEvent::E2e);
         let outbox = self.outbox.clone();
         tokio::spawn(async move { outbox.process().await });
-        Ok(())
     }
 
     pub fn e2e_lock(&self) {

@@ -143,6 +143,23 @@ fn import_jwk(jwk: &[u8]) -> Result<PrivateKey, E2eError> {
 /// JSON envelope (PBKDF2 with its own salt and rounds, AES-GCM); v1 is
 /// `IV || AES-CBC`, salted with the user id, 1000 rounds.
 pub fn unlock_private_key(private_key: &str, password: &str, uid: &str) -> Result<PrivateKey, E2eError> {
+    unlock_private_key_jwk(private_key, password, uid).map(|(key, _)| key)
+}
+
+/// The same, with the private key as its JWK: what is kept to unlock the
+/// next launch without the password, as the web client keeps it.
+pub fn unlock_private_key_jwk(private_key: &str, password: &str, uid: &str) -> Result<(PrivateKey, String), E2eError> {
+    let jwk = open_private_key(private_key, password, uid)?;
+    let key = import_jwk(&jwk)?;
+    Ok((key, String::from_utf8(jwk).map_err(|_| E2eError::WrongPassword)?))
+}
+
+/// A private key kept from an earlier unlock.
+pub fn import_private_key(jwk: &str) -> Result<PrivateKey, E2eError> {
+    import_jwk(jwk.as_bytes())
+}
+
+fn open_private_key(private_key: &str, password: &str, uid: &str) -> Result<Vec<u8>, E2eError> {
     let raw = private_key.trim();
     if raw.is_empty() {
         return Err(E2eError::NoKeys);
@@ -153,8 +170,7 @@ pub fn unlock_private_key(private_key: &str, password: &str, uid: &str) -> Resul
             let text = |k: &str| e.get(k).and_then(Value::as_str).unwrap_or_default();
             let rounds = e.get("iterations").and_then(Value::as_u64).unwrap_or(0) as u32;
             let key = pbkdf2(password, text("salt").as_bytes(), rounds);
-            let jwk = gcm(&key, &b64(text("iv"))?, &b64(text("ciphertext"))?).ok_or(E2eError::WrongPassword)?;
-            return import_jwk(&jwk);
+            return gcm(&key, &b64(text("iv"))?, &b64(text("ciphertext"))?).ok_or(E2eError::WrongPassword);
         }
         Some(e) => b64(e.get("$binary").and_then(Value::as_str).ok_or(E2eError::NoKeys)?)?,
         None => b64(raw)?,
@@ -163,8 +179,7 @@ pub fn unlock_private_key(private_key: &str, password: &str, uid: &str) -> Resul
         return Err(E2eError::Undecipherable("v1 key"));
     }
     let key = pbkdf2(password, uid.as_bytes(), 1000);
-    let jwk = cbc(&key, &v1[..CBC_IV], &v1[CBC_IV..]).ok_or(E2eError::WrongPassword)?;
-    import_jwk(&jwk)
+    cbc(&key, &v1[..CBC_IV], &v1[CBC_IV..]).ok_or(E2eError::WrongPassword)
 }
 
 /// The key id an `E2EKey` starts with (a UUID in v2, 12 characters in v1).

@@ -335,6 +335,12 @@ impl AppWindow {
             }
         };
         self.db_path.replace(Some(path));
+        let resumed = session.clone();
+        runtime().spawn(async move {
+            if let Some(jwk) = secrets::e2e_key(&resumed.info).await {
+                resumed.e2e_resume(&jwk);
+            }
+        });
 
         let (tx, rx) = async_channel::unbounded();
         let mut changes = session.store.changes();
@@ -373,7 +379,13 @@ impl AppWindow {
                     UiEvent::Session(SessionEvent::Upload(rid)) => this.chat.on_upload(&rid),
                     UiEvent::Session(SessionEvent::Avatar) => this.chat.on_avatar(),
                     UiEvent::Session(SessionEvent::Incoming(incoming)) => this.notify(&incoming),
-                    UiEvent::Session(SessionEvent::E2e) => this.chat.on_e2e(),
+                    UiEvent::Session(SessionEvent::E2e) => {
+                        this.chat.on_e2e();
+                        if let Some(s) = this.session.borrow().clone() {
+                            let (info, jwk) = (s.info.clone(), s.e2e_export());
+                            runtime().spawn(async move { secrets::save_e2e(&info, jwk.as_deref()).await });
+                        }
+                    }
                     UiEvent::Session(SessionEvent::Expired) => {
                         let expired = this.session.borrow().as_ref().map(|s| s.info.clone());
                         this.stop_session(true);

@@ -436,6 +436,7 @@ struct MessageRow: View, Equatable {
                 if message.threadCount > 0 {
                     Button("💬 " + L("message.replies", count: Int(message.threadCount))) { app.openThread(message.id) }
                         .buttonStyle(.link)
+                        .foregroundStyle(Vibe.pinkSoft)
                 }
                 if message.edited { Text(L("message.edited")).font(.vibe(11)).foregroundStyle(Vibe.faint) }
                 switch message.delivery {

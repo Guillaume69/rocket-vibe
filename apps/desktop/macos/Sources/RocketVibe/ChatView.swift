@@ -40,6 +40,7 @@ struct ChatView: View {
             .background(Vibe.night)
         }
         .navigationTitle(title)
+        .toolbarBackground(Vibe.night, for: .windowToolbar)
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 Button { app.goBack() } label: { Image(systemName: "chevron.left") }

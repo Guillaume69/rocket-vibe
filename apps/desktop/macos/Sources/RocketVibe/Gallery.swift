@@ -97,7 +97,7 @@ struct GalleryView: View {
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(alignment: .leading, spacing: 6) {
                     Wordmark(size: 21)
-                    Comet(active: true)
+                    Comet(active: !ScrollBench.requested)
                 }
                 .padding(.horizontal, 14)
                 .padding(.bottom, 4)
@@ -123,6 +123,7 @@ struct GalleryView: View {
             }
         }
         .navigationTitle(galleryGroups.flatMap(\.rooms).first { $0.rid == selected }.map { "(2) \($0.name) - rocket-vibe" } ?? "rocket-vibe")
+        .toolbarBackground(Vibe.night, for: .windowToolbar)
         .frame(minWidth: 900, minHeight: 560)
         .task {
             print("smoke: gallery shows \(galleryGroups.flatMap(\.rooms).count) rooms and \(messages.count) messages")

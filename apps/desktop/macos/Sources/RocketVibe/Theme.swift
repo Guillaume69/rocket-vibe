@@ -95,35 +95,50 @@ struct Wordmark: View {
                         .offset(x: size * 0.3, y: -size * 0.12)
                 }
         }
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) { twinkle = true }
+        .task {
+            while !Task.isCancelled {
+                withAnimation(.easeInOut(duration: 0.7)) { twinkle = true }
+                try? await Task.sleep(nanoseconds: 900_000_000)
+                withAnimation(.easeInOut(duration: 0.9)) { twinkle = false }
+                try? await Task.sleep(nanoseconds: 6_000_000_000)
+            }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("rocket-vibe")
     }
 }
 
-/// The sync comet: a streak of the brand gradient crossing while it connects.
+/// The sync comet: a streak of the brand gradient crossing while it
+/// connects. Once connected it is gone, and nothing animates there.
 struct Comet: View {
     let active: Bool
-    @State var phase: CGFloat = -0.4
 
     var body: some View {
-        GeometryReader { geometry in
-            Capsule()
-                .fill(LinearGradient(colors: [Vibe.pink.opacity(0), Vibe.pink, Vibe.violet, Vibe.mint, Vibe.mint.opacity(0)],
-                                     startPoint: .leading, endPoint: .trailing))
-                .frame(width: geometry.size.width * 0.3)
-                .offset(x: geometry.size.width * phase)
+        ZStack {
+            if active { Streak().transition(.opacity) }
         }
+        .frame(maxWidth: .infinity)
         .frame(height: 3)
-        .opacity(active ? 1 : 0)
         .animation(.easeInOut(duration: 0.4), value: active)
-        .onAppear {
-            withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) { phase = 1.1 }
-        }
         .clipped()
         .allowsHitTesting(false)
+    }
+
+    struct Streak: View {
+        @State var phase: CGFloat = -0.4
+
+        var body: some View {
+            GeometryReader { geometry in
+                Capsule()
+                    .fill(LinearGradient(colors: [Vibe.pink.opacity(0), Vibe.pink, Vibe.violet, Vibe.mint, Vibe.mint.opacity(0)],
+                                         startPoint: .leading, endPoint: .trailing))
+                    .frame(width: geometry.size.width * 0.3)
+                    .offset(x: geometry.size.width * phase)
+            }
+            .onAppear {
+                withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) { phase = 1.1 }
+            }
+        }
     }
 }
 

@@ -14,6 +14,10 @@ section here.
   shares the GTK app's accounts, caches, language and E2E key. Rooms, threads, markdown,
   images, files, cards, reactions, editing, the actions menu, uploads, voice messages (AAC),
   encrypted rooms, notifications with a reply field and the dock badge.
+- The app tells when a newer version is out: a card at the foot of the room list, with what is
+  new and an Update button. On Linux it replaces the binary in place and offers to restart, on
+  Windows it runs the installer and reopens, on macOS it downloads and opens the disk image.
+  Checked at startup (every 6 hours at most) and from Settings, where it can be turned off.
 
 ## [0.3.0] - 2026-09-29
 

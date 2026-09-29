@@ -711,6 +711,10 @@ impl ChatPage {
         }
     }
 
+    pub fn update_notice(&self) -> Option<gtk::Widget> {
+        self.update_slot.first_child()
+    }
+
     pub fn connect_toast(&self, f: impl Fn(String) + 'static) {
         self.on_toast.replace(Some(Rc::new(f)));
     }

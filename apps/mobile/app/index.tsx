@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { BaseLocale } from '../db/client.ts';
 import { abonnements, salons } from '../db/schema.ts';
+import { apercuTexte } from '../lib/markdown.ts';
 import { apercuSysteme } from '../lib/messagesSysteme.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { useActivite } from '../ui/activite.ts';
@@ -246,7 +247,9 @@ function LigneSalon({
   const apercu =
     salon.chiffre && salon.dernierMessage === null
       ? t('accueil.messagesChiffres')
-      : (salon.dernierMessage ?? apercuSysteme(t, salon.dernierMessageType) ?? ' ');
+      : ((salon.dernierMessage !== null ? apercuTexte(salon.dernierMessage) : null) ??
+        apercuSysteme(t, salon.dernierMessageType) ??
+        ' ');
 
   return (
     // L'enveloppe arrondie + `overflow: 'hidden'` est ce qui ARRONDIT

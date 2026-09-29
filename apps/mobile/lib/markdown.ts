@@ -105,3 +105,45 @@ export function texteDe(noeud: unknown): string {
   }
   return '';
 }
+
+function enLigne(noeud: unknown): string {
+  if (Array.isArray(noeud)) return noeud.map(enLigne).join('');
+  if (typeof noeud !== 'object' || noeud === null) return texteDe(noeud);
+  const n = noeud as { type?: unknown; value?: unknown };
+  const valeur = n.value as { src?: unknown; label?: unknown } | undefined;
+  switch (n.type) {
+    case 'LINK': {
+      const libelle = enLigne(valeur?.label ?? []).trim();
+      return libelle !== '' ? libelle : texteDe(valeur?.src);
+    }
+    case 'MENTION_USER':
+      return `@${texteDe(n.value)}`;
+    case 'MENTION_CHANNEL':
+      return `#${texteDe(n.value)}`;
+    case 'CODE':
+    case 'QUOTE':
+      return Array.isArray(n.value) ? n.value.map(enLigne).join(' ') : texteDe(n.value);
+    case 'UNORDERED_LIST':
+    case 'ORDERED_LIST':
+    case 'TASKS':
+      return Array.isArray(n.value)
+        ? n.value.map((item) => `• ${enLigne((item as { value?: unknown }).value)}`).join(' ')
+        : '';
+    case 'BIG_EMOJI':
+      return Array.isArray(n.value) ? n.value.map(texteDe).join(' ') : texteDe(n.value);
+    case 'LINE_BREAK':
+      return ' ';
+    case 'EMOJI':
+    case 'PLAIN_TEXT':
+      return texteDe(noeud);
+    default:
+      return 'value' in n ? enLigne(n.value) : texteDe(noeud);
+  }
+}
+
+/** Un message sur une ligne, sans syntaxe : l'aperçu de la liste des salons. */
+export function apercuTexte(texte: string): string {
+  const arbre = arbreDuMessage(null, texte);
+  if (arbre === null) return texte;
+  return arbre.map(enLigne).join(' ').replace(/\s+/g, ' ').trim();
+}

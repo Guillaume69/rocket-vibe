@@ -39,16 +39,20 @@ import { citer } from '../lib/citation.ts';
 import type { CandidatMention } from '../lib/completionMention.ts';
 import type { Outbox, OutboxFichiers } from '../lib/fournisseur.ts';
 import type { ClientRest } from '../lib/rest.ts';
-import { ApercuPieceJointe, type FichierEnAttente } from './apercuPieceJointe.tsx';
+import type { FichierEnAttente } from './apercuPieceJointe.tsx';
 import { BandeauReponse } from './bandeauReponse.tsx';
 import { BandeauCompletionEmoji, useCompletionEmoji } from './completionEmoji.tsx';
 import { BandeauCompletionMention } from './completionMention.tsx';
 import { useE2EDeverrouille } from './e2e.ts';
+import { ouvrirFichierLocal } from './fichierJoint.ts';
 import { supprimerSiTemporaire } from './fichiersTemporaires.ts';
 import { useT } from './i18n.ts';
 import { TuileAvatar } from './kit.tsx';
 import { estRejetArbreDeVues, lancerSelecteurAvecReprise } from './lancerSelecteur.ts';
+import { ModaleVideo } from './lecteurVideo.tsx';
+import { estImage } from './mime.ts';
 import { NavigateurEmoji, usePanneauEmoji } from './navigateurEmoji.tsx';
+import { PiecesEnAttente, type PieceEnAttente } from './piecesEnAttente.tsx';
 import { reduirePieceJointe } from './preparerPieceJointe.ts';
 import { reductionProposable, type QualiteEnvoi } from './qualitePieceJointe.ts';
 import { annulerReponse, useReponse } from './reponse.ts';
@@ -57,6 +61,7 @@ import { demanderSource, feuilleEstMontee } from './sourcePieceJointe.ts';
 import { useSynchro } from './synchro.tsx';
 import { type Couleurs, POLICES } from './theme.ts';
 import { phraseValidation } from './validationFichiers.ts';
+import { useVisionneuse } from './visionneuse.tsx';
 import { Appuyable } from './appuyable.tsx';
 
 /** Média d'`expo-image-picker` → pièce en attente normalisée. */
@@ -122,15 +127,37 @@ export function Composer({
   const [envoiFichier, setEnvoiFichier] = useState(false);
   const [erreurFichier, setErreurFichier] = useState<string | null>(null);
   const [enregistrement, setEnregistrement] = useState(false);
-  // Pièce jointe en attente d'envoi (image, audio, ou tout fichier) : elle se
-  // pose au-dessus du composer, on lui ajoute une légende, puis on l'envoie —
-  // au lieu de partir dès le choix (7.x). Une seule à la fois.
-  const [enAttente, setEnAttente] = useState<FichierEnAttente | null>(null);
-  // Qualité d'envoi d'un média réductible (photo lourde, vidéo) : « réduite »
-  // par défaut, basculable sur les pastilles de l'aperçu. La réduction se fait
-  // À L'ENVOI (voir `envoyer`) — pas au choix du fichier, où elle ferait payer
-  // un transcodage à qui retire la pièce ou veut l'original.
+  // Pièces jointes en attente d'envoi (images, vocal, tout fichier) : elles se
+  // posent en pastilles au-dessus du champ, le texte tapé devient la légende
+  // de la première, et tout part au ➤ — rien ne part dès le choix.
+  const [enAttente, setEnAttente] = useState<PieceEnAttente[]>([]);
+  const prochaineCle = useRef(0);
+  // Qualité d'envoi des médias réductibles (photo lourde, vidéo) : « réduite »
+  // par défaut, basculable sur les pastilles. La réduction se fait À L'ENVOI
+  // (voir `envoyer`) — pas au choix du fichier, où elle ferait payer un
+  // transcodage à qui retire la pièce ou veut l'original.
   const [qualite, setQualite] = useState<QualiteEnvoi>('reduite');
+  const [videoOuverte, setVideoOuverte] = useState<PieceEnAttente | null>(null);
+  const visionneuse = useVisionneuse();
+  // Changer de salon démonte le composer (`key={rid}`) : les pièces qui
+  // attendaient sont abandonnées, et leurs copies en cache effacées — sauf
+  // celle que l'envoi en cours a déjà confiée à la file.
+  const enAttenteRef = useRef(enAttente);
+  useEffect(() => {
+    enAttenteRef.current = enAttente;
+  }, [enAttente]);
+  const confiees = useRef(new Set<number>());
+  const demonte = useRef(false);
+  useEffect(() => {
+    const confieesIci = confiees.current;
+    demonte.current = false;
+    return () => {
+      demonte.current = true;
+      for (const p of enAttenteRef.current) {
+        if (!confieesIci.has(p.cle)) void supprimerSiTemporaire(p.uri);
+      }
+    };
+  }, []);
   // `.m4a` AAC (préréglage HIGH_QUALITY) — le MIME attendu est `audio/mp4`.
   const enregistreur = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const routeur = useRouter();
@@ -147,19 +174,27 @@ export function Composer({
   const emoji = usePanneauEmoji(champRef);
   const { fermer: fermerEmoji } = emoji;
 
-  // Le back retire l'aperçu en attente au lieu de quitter le salon — sinon on
-  // perd le salon ET la pièce jointe préparée.
-  // Retirer l'aperçu efface AUSSI le fichier : aucune ligne de téléversement
+  // Le back retire la dernière pièce en attente au lieu de quitter le salon —
+  // sinon on perd le salon ET les pièces préparées.
+  // Retirer une pièce efface AUSSI le fichier : aucune ligne de téléversement
   // ne l'a jamais connu, donc le ménage de la file ne l'atteindrait jamais.
   // `supprimerSiTemporaire` ne touche que le cache de l'app — jamais la photo
   // que l'utilisateur a désignée en place.
   // L'effacement est HORS de l'updater : React peut rejouer un updater, et une
   // suppression de fichier n'est pas rejouable.
-  const retirerEnAttente = useCallback(() => {
-    if (enAttente !== null) void supprimerSiTemporaire(enAttente.uri);
-    setEnAttente(null);
-  }, [enAttente]);
-  useRetourMateriel(enAttente !== null, retirerEnAttente);
+  const retirerPiece = useCallback(
+    (cle: number) => {
+      const partante = enAttente.find((p) => p.cle === cle);
+      if (partante !== undefined) void supprimerSiTemporaire(partante.uri);
+      setEnAttente((prev) => prev.filter((p) => p.cle !== cle));
+    },
+    [enAttente],
+  );
+  const retirerDernierePiece = useCallback(() => {
+    const derniere = enAttente[enAttente.length - 1];
+    if (derniere !== undefined) retirerPiece(derniere.cle);
+  }, [enAttente, retirerPiece]);
+  useRetourMateriel(enAttente.length > 0 && !envoiFichier, retirerDernierePiece);
 
   // Cible de réponse (citation), armée par la feuille d'actions (appui long →
   // Répondre). Adressée à CE composer : `rid:filId` dans un fil, `rid` dans le
@@ -188,61 +223,72 @@ export function Composer({
     // Une citation armée préfixe le texte de son permalien `[ ](…)` — le
     // serveur en fera la pièce jointe de citation (lib/citation.ts).
     const texteAEnvoyer = reponse === null ? legende : citer(reponse.permalien, legende);
-    // Une pièce jointe en attente part AVEC la légende, en un seul message.
-    // (`fichiers` ne peut pas être null ici : sans lui, ni 📎 ni 🎤 — rien ne
-    // peut poser de pièce en attente. La garde contente le typage.)
-    if (enAttente !== null && fichiers !== null) {
+    // Les pièces en attente partent une par une, dans l'ordre ; la légende
+    // (citation comprise) accompagne la PREMIÈRE — répétée sous chaque pièce,
+    // elle s'afficherait autant de fois. (`fichiers` ne peut pas être null ici :
+    // sans lui, ni 📎 ni 🎤 — rien ne peut poser de pièce. La garde contente le
+    // typage.)
+    if (enAttente.length > 0 && fichiers !== null) {
       setErreurFichier(null);
       setEnvoiFichier(true);
-      const originale = enAttente;
+      const lot = enAttente;
       // `fichiers.envoyer` valide (taille/type), persiste l'intention puis
       // téléverse ; il ne REJETTE que sur un refus de validation. Tout le
       // reste — refus serveur ET réseau injoignable — devient une ligne du
-      // bandeau de l'écran, désormais affichée QUEL QUE SOIT son statut : un
-      // envoi hors ligne reste `en-attente` et n'aurait été visible nulle part.
-      // On ne vide donc l'aperçu qu'au succès, sinon le fichier serait perdu.
+      // bandeau de l'écran, affichée QUEL QUE SOIT son statut. Une pièce ne
+      // quitte donc les pastilles qu'une fois confiée à la file.
       void (async () => {
-        // La réduction promise par les pastilles se paie ICI (photo → JPEG
-        // 1920 px, vidéo → MP4 H.264 720p via le module natif Media3) : le
-        // spinner du 📎 couvre le transcodage puis le téléversement.
-        const pret =
-          qualite === 'reduite' && reductionProposable(originale)
-            ? await reduirePieceJointe(originale)
-            : originale;
+        const parties = new Set<number>();
+        let legendePartie = false;
         try {
-          await fichiers.envoyer(rid, pret, texteAEnvoyer || undefined);
-          // L'original du sélecteur ne sert plus : la version réduite est
-          // partie (la file effacera SON fichier au solde de la ligne).
-          if (pret.uri !== originale.uri) void supprimerSiTemporaire(originale.uri);
-          setEnAttente(null);
-          // La citation, elle, a été CONSOMMÉE par le message qui vient de
-          // partir — son permalien est dans `texteAEnvoyer`, calculé avant
-          // l'appel. La désarmer sans condition : sous la garde ci-dessous,
-          // elle resterait armée et le message SUIVANT re-citerait la même
-          // cible sans qu'on l'ait demandé.
-          annulerReponse(cleReponse);
-          // Le reste ne se solde que si le champ n'a pas bougé depuis l'appui :
-          // ce qui a été tapé pendant le téléversement n'est ni la légende
-          // partie, ni à jeter (correctif de 8.7, perdu en 30e1c85 au profit
-          // d'un vidage sec). `effacerBrouillon()` détruit en plus la ligne
-          // persistée — le texte ne serait pas même récupérable au retour dans
-          // le salon.
-          if (brouillonRef.current === brouillon) {
-            setBrouillon('');
-            reinitialiser();
-            effacerBrouillon();
+          for (const [i, originale] of lot.entries()) {
+            if (demonte.current) break;
+            confiees.current.add(originale.cle);
+            // La réduction promise par les pastilles se paie ICI (photo → JPEG
+            // 1920 px, vidéo → MP4 H.264 720p via le module natif Media3) : le
+            // spinner du 📎 couvre le transcodage puis le téléversement.
+            const pret =
+              qualite === 'reduite' && reductionProposable(originale)
+                ? await reduirePieceJointe(originale)
+                : originale;
+            const porteLegende = i === 0 && texteAEnvoyer !== '';
+            try {
+              await fichiers.envoyer(rid, pret, porteLegende ? texteAEnvoyer : undefined);
+            } catch (e) {
+              confiees.current.delete(originale.cle);
+              // Refus de validation : la pièce (l'original) reste en place ; la
+              // version réduite orpheline s'efface — elle se recalculera si on
+              // réessaie.
+              if (pret.uri !== originale.uri) void supprimerSiTemporaire(pret.uri);
+              throw e;
+            }
+            // L'original du sélecteur ne sert plus : la version réduite est
+            // partie (la file effacera SON fichier au solde de la ligne).
+            if (pret.uri !== originale.uri) void supprimerSiTemporaire(originale.uri);
+            parties.add(originale.cle);
+            if (porteLegende) legendePartie = true;
           }
         } catch (e) {
-          // Refus de validation : l'aperçu (l'original) reste en place ; la
-          // version réduite orpheline s'efface — elle se recalculera si on
-          // réessaie.
-          if (pret.uri !== originale.uri) void supprimerSiTemporaire(pret.uri);
           setErreurFichier(
             phraseValidation(e, t) ??
               (e instanceof Error ? e.message : t('salon.televersementImpossible')),
           );
         } finally {
+          setEnAttente((prev) => prev.filter((p) => !parties.has(p.cle)));
           setEnvoiFichier(false);
+        }
+        if (parties.size === 0) return;
+        // La citation a été CONSOMMÉE par le premier message — son permalien
+        // est dans `texteAEnvoyer`, calculé avant l'appel. La désarmer sans
+        // condition : sinon le message SUIVANT re-citerait la même cible.
+        annulerReponse(cleReponse);
+        // Le champ ne se solde que s'il porte encore la légende partie : ce qui
+        // a été tapé pendant le téléversement n'est pas à jeter (correctif de
+        // 8.7). `effacerBrouillon()` détruit en plus la ligne persistée.
+        if (legendePartie && brouillonRef.current === brouillon) {
+          setBrouillon('');
+          reinitialiser();
+          effacerBrouillon();
         }
       })();
       return;
@@ -280,6 +326,62 @@ export function Composer({
     t,
   ]);
 
+  // Pose des médias/fichiers choisis en pastilles, en attente d'une légende et
+  // du ➤. Chaque pièce reste l'ORIGINAL : la réduction éventuelle (7.3) se paie
+  // à l'envoi. La validation (taille/type), elle, se fait DÈS la pose — une
+  // pièce que le serveur refusera ne s'affiche même pas. Le poids d'un média
+  // réductible n'est pas jugé ici : la version réduite peut passer sous la
+  // limite, et `envoyer` revalide ce qui part réellement.
+  const poserPieces = useCallback(
+    async (pieces: FichierEnAttente[]) => {
+      if (fichiers === null || pieces.length === 0) return;
+      const acceptees: PieceEnAttente[] = [];
+      let refus: unknown = null;
+      for (const piece of pieces) {
+        try {
+          await fichiers.valider({
+            type: piece.type,
+            taille: reductionProposable(piece) ? null : piece.taille,
+          });
+          acceptees.push({ ...piece, cle: prochaineCle.current++ });
+        } catch (e) {
+          refus ??= e;
+          void supprimerSiTemporaire(piece.uri);
+        }
+      }
+      if (demonte.current) {
+        for (const p of acceptees) void supprimerSiTemporaire(p.uri);
+        return;
+      }
+      setErreurFichier(
+        refus === null
+          ? null
+          : (phraseValidation(refus, t) ??
+              (refus instanceof Error ? refus.message : t('salon.televersementImpossible'))),
+      );
+      if (acceptees.length === 0) return;
+      // Le choix de qualité vaut pour un lot : il se réarme quand on repart de rien.
+      if (enAttenteRef.current.length === 0) setQualite('reduite');
+      setEnAttente((prev) => [...prev, ...acceptees]);
+    },
+    [fichiers, t],
+  );
+
+  const ouvrirPiece = useCallback(
+    (piece: PieceEnAttente) => {
+      if (estImage(piece.type)) {
+        visionneuse.ouvrir({ uri: piece.uri, titre: piece.nom, type: piece.type, local: true });
+      } else if (piece.type.startsWith('video/')) {
+        setVideoOuverte(piece);
+      } else {
+        ouvrirFichierLocal(piece.uri, piece.type).catch(() =>
+          setErreurFichier(t('apercuPieceJointe.ouvertureImpossible')),
+        );
+      }
+    },
+    [visionneuse, t],
+  );
+
   const basculerVocal = useCallback(async () => {
     setErreurFichier(null);
     try {
@@ -307,33 +409,13 @@ export function Composer({
       }
       // On ne l'envoie plus tout de suite : le vocal se pose au-dessus du
       // composer (réécoutable), en attente d'une éventuelle légende et de l'envoi.
-      setEnAttente({
-        uri,
-        nom: `vocal-${Date.now()}.m4a`,
-        type: 'audio/mp4',
-        taille: null,
-      });
+      await poserPieces([{ uri, nom: `vocal-${Date.now()}.m4a`, type: 'audio/mp4', taille: null }]);
     } catch (e) {
       setEnregistrement(false);
       void setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => {});
       setErreurFichier(e instanceof Error ? e.message : t('salon.enregistrementImpossible'));
     }
-  }, [enregistrement, enregistreur, t]);
-
-  // Pose un média/fichier choisi au-dessus du composer, en attente d'une
-  // légende. La pièce reste l'ORIGINAL : la réduction éventuelle (7.3) se paie
-  // à l'envoi, selon les pastilles de qualité de l'aperçu — « réduite » est
-  // réarmé à chaque pose, le choix vaut pour UNE pièce, pas pour la session.
-  // Validation (taille/type) et envoi arrivent au clic sur ➤ (voir `envoyer`).
-  const poserPieceJointe = useCallback((piece: FichierEnAttente) => {
-    // Choisir une SECONDE pièce sans envoyer la première abandonnait la
-    // sienne : aucune ligne SQL ne l'avait jamais connue.
-    if (enAttente !== null && enAttente.uri !== piece.uri) {
-      void supprimerSiTemporaire(enAttente.uri);
-    }
-    setEnAttente(piece);
-    setQualite('reduite');
-  }, [enAttente]);
+  }, [enregistrement, enregistreur, poserPieces, t]);
 
   // Referme la feuille « joindre », restée ouverte pendant le sélecteur. Le
   // garde n'est pas décoratif : sans lui, si l'usager a balayé la feuille entre
@@ -360,9 +442,9 @@ export function Composer({
         }),
       );
       fermerFeuilleJoindre();
-      if (!res.canceled) poserPieceJointe(assetVersFichier(res.assets[0]));
+      if (!res.canceled) await poserPieces(res.assets.map(assetVersFichier));
     },
-    [poserPieceJointe, fermerFeuilleJoindre, t],
+    [poserPieces, fermerFeuilleJoindre, t],
   );
 
   const depuisBibliotheque = useCallback(async () => {
@@ -370,29 +452,33 @@ export function Composer({
       ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images', 'videos'],
         quality: 1,
+        allowsMultipleSelection: true,
+        selectionLimit: 10,
+        orderedSelection: true,
         // iOS : la photothèque rendrait du HEIC/HEVC, que la plupart des
         // navigateurs (donc Rocket.Chat web) n'affichent pas. Sans effet Android.
         preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
       }),
     );
     fermerFeuilleJoindre();
-    if (!res.canceled) poserPieceJointe(assetVersFichier(res.assets[0]));
-  }, [poserPieceJointe, fermerFeuilleJoindre]);
+    if (!res.canceled) await poserPieces(res.assets.map(assetVersFichier));
+  }, [poserPieces, fermerFeuilleJoindre]);
 
   const depuisFichier = useCallback(async () => {
     const choix = await lancerSelecteurAvecReprise(() =>
-      DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true }),
+      DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: true }),
     );
     fermerFeuilleJoindre();
     if (choix.canceled || choix.assets.length === 0) return;
-    const brut = choix.assets[0];
-    poserPieceJointe({
-      uri: brut.uri,
-      nom: brut.name,
-      type: brut.mimeType ?? 'application/octet-stream',
-      taille: brut.size ?? null,
-    });
-  }, [poserPieceJointe, fermerFeuilleJoindre]);
+    await poserPieces(
+      choix.assets.map((brut) => ({
+        uri: brut.uri,
+        nom: brut.name,
+        type: brut.mimeType ?? 'application/octet-stream',
+        taille: brut.size ?? null,
+      })),
+    );
+  }, [poserPieces, fermerFeuilleJoindre]);
 
   // 📎 → menu de sources (feuille native), comme l'app officielle, au lieu
   // d'ouvrir directement le sélecteur de fichiers. La feuille renvoie la source
@@ -451,25 +537,32 @@ export function Composer({
   // Le bouton d'envoi remplace le micro dès qu'il y a un texte OU une pièce
   // jointe en attente — mais JAMAIS pendant l'enregistrement, où le bouton doit
   // rester « arrêter » (⏹), même si du texte a été tapé entre-temps.
-  const montrerEnvoi = (!brouillonVide || enAttente !== null) && !enregistrement;
+  const montrerEnvoi = (!brouillonVide || enAttente.length > 0) && !enregistrement;
 
   return (
     <View>
       {erreurFichier !== null && (
         <Text style={[styles.erreurComposer, { color: c.texteErreur }]}>{erreurFichier}</Text>
       )}
-      {/* Le buffer d'aperçu : la pièce jointe attend ici qu'on l'envoie. Son
-          apparition pousse nativement le dernier message vers le haut. */}
-      {enAttente !== null && (
-        <ApercuPieceJointe
+      {/* Les pièces attendent ici qu'on les envoie. Leur apparition pousse
+          nativement le dernier message vers le haut. */}
+      {enAttente.length > 0 && (
+        <PiecesEnAttente
           c={c}
-          fichier={enAttente}
+          pieces={enAttente}
           occupe={envoiFichier}
-          // Le même geste que le retour matériel : l'aperçu part ET son
-          // fichier temporaire aussi — le ✕ seul laissait fuir le cache.
-          onRetirer={retirerEnAttente}
-          qualite={reductionProposable(enAttente) ? qualite : null}
+          onRetirer={retirerPiece}
+          onOuvrir={ouvrirPiece}
+          qualite={enAttente.some((p) => reductionProposable(p)) ? qualite : null}
           surQualite={setQualite}
+        />
+      )}
+      {videoOuverte !== null && (
+        <ModaleVideo
+          c={c}
+          url={videoOuverte.uri}
+          titre={videoOuverte.nom}
+          onFermer={() => setVideoOuverte(null)}
         />
       )}
       {reponse !== null && (
@@ -493,8 +586,7 @@ export function Composer({
         {fichiers !== null && (
           <Appuyable
             onPress={() => void joindre()}
-            // Une seule pièce jointe à la fois : pour en changer, on retire d'abord.
-            disabled={envoiFichier || enregistrement || enAttente !== null}
+            disabled={envoiFichier || enregistrement}
             android_ripple={{ color: c.ondulation, borderless: true }}
             style={styles.boutonJoindre}
             accessibilityLabel={t('salon.joindreFichier')}
@@ -503,7 +595,7 @@ export function Composer({
               <ActivityIndicator size="small" color={c.accent} />
             ) : (
               <Text
-                style={[styles.attache, (enregistrement || enAttente !== null) && styles.attacheInactif]}
+                style={[styles.attache, enregistrement && styles.attacheInactif]}
               >
                 📎
               </Text>
@@ -526,7 +618,7 @@ export function Composer({
           onSelectionChange={surSelection}
           // Toucher le champ referme le panneau : le clavier reprend sa place.
           onFocus={emoji.surFocus}
-          placeholder={enAttente !== null ? t('salon.ajouterLegende') : placeholder}
+          placeholder={enAttente.length > 0 ? t('salon.ajouterLegende') : placeholder}
           placeholderTextColor={c.texteTertiaire}
           multiline
           style={[styles.champComposer, { color: c.texte, backgroundColor: c.carte }]}

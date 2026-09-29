@@ -195,6 +195,8 @@ export interface OutboxFichiers {
   readonly progression: Map<string, number>;
   /** S'abonner aux changements de `progression` — rend le désabonnement. */
   abonner(auditeur: () => void): () => void;
+  /** Rejette (`ErreurValidation`) une pièce que le serveur refuserait — sans rien envoyer. */
+  valider(fichier: { type: string; taille: number | null }): Promise<void>;
   envoyer(
     rid: string,
     fichier: FichierAEnvoyer & { taille: number | null },

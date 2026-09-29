@@ -198,24 +198,35 @@ export class MoteurTeleversement {
     for (const auditeur of this.auditeurs) auditeur();
   }
 
+  private async reglesUpload(): Promise<ReglesUpload> {
+    if (this.regles !== null) return this.regles;
+    try {
+      const regles = await lireReglesUpload(this.client);
+      this.regles = regles; // seul un SUCCÈS est mémoïsé —
+      return regles;
+    } catch {
+      // — un repli permissif mis en cache après un passage hors ligne
+      // désactiverait la validation pour toute la session.
+      return { tailleMax: null, typesAcceptes: null };
+    }
+  }
+
+  /**
+   * La validation seule, sans rien persister : le composer refuse une pièce
+   * dès qu'on la pose, pas au moment d'envoyer. `envoyer` revalide de toute
+   * façon — la pièce a pu être réduite entre-temps.
+   */
+  async valider(fichier: { type: string; taille: number | null }): Promise<void> {
+    validerFichier(await this.reglesUpload(), fichier);
+  }
+
   /** Valide (7.3) PUIS persiste l'intention PUIS tente l'envoi. */
   async envoyer(
     rid: string,
     fichier: FichierAEnvoyer & { taille: number | null },
     legende?: string,
   ): Promise<void> {
-    let regles = this.regles;
-    if (regles === null) {
-      try {
-        regles = await lireReglesUpload(this.client);
-        this.regles = regles; // seul un SUCCÈS est mémoïsé —
-      } catch {
-        // — un repli permissif mis en cache après un passage hors ligne
-        // désactiverait la validation pour toute la session.
-        regles = { tailleMax: null, typesAcceptes: null };
-      }
-    }
-    validerFichier(regles, fichier);
+    validerFichier(await this.reglesUpload(), fichier);
 
     await this.depot.inserer({
       id: this.genererId(),

@@ -18,6 +18,14 @@ release, et ses notes sont la section de la version ici.
   d'un message. Un bouton 📌 dans l'en-tête du salon ouvre ses messages épinglés et vos
   favoris ; toucher l'un d'eux ramène la conversation jusqu'à lui et le surligne, en chargeant
   l'historique plus ancien au besoin.
+- Composer : les pièces jointes attendent l'envoi en pastilles (vignette ou icône, nom, format et
+  poids, ✕ pour retirer) ; on peut en joindre plusieurs à la fois, les prévisualiser d'un toucher,
+  et le texte tapé part en légende de la première.
+
+### Modifié
+
+- Un fichier refusé par le serveur (taille, type) l'est dès qu'on le joint, et non plus au
+  moment d'envoyer.
 
 ### Corrigé
 

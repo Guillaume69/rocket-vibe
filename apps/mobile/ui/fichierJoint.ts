@@ -88,6 +88,14 @@ export async function ouvrirJointeProtegee(options: OptionsJointe): Promise<void
   await Sharing.shareAsync(local, options.type ? { mimeType: options.type } : {});
 }
 
+/** Confie au système un fichier DÉJÀ local (une pièce pas encore envoyée). */
+export async function ouvrirFichierLocal(uri: string, type: string | null): Promise<void> {
+  if (!(await Sharing.isAvailableAsync())) {
+    throw new ErreurOuvertureFichier('Le partage de fichiers est indisponible.');
+  }
+  await Sharing.shareAsync(uri, type ? { mimeType: type } : {});
+}
+
 export type LieuEnregistrement = 'galerie' | 'telechargements' | 'partage';
 
 /**

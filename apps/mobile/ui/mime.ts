@@ -21,3 +21,16 @@ export function emojiFichier(type: string): string {
 export function estImage(type: string): boolean {
   return type.startsWith('image/');
 }
+
+/**
+ * Le format court d'une pièce (« PNG », « PDF », « M4A ») : l'extension du nom
+ * quand il en a une, sinon le sous-type MIME débarrassé de ses préfixes.
+ */
+export function formatCourt(nom: string, type: string): string | null {
+  const point = nom.lastIndexOf('.');
+  const extension = point > 0 ? nom.slice(point + 1) : '';
+  if (/^[a-z0-9]{1,5}$/i.test(extension)) return extension.toUpperCase();
+  const sous = type.split('/')[1]?.split(';')[0]?.split('+')[0] ?? '';
+  const dernier = sous.split('.').pop()?.replace(/^x-/, '') ?? '';
+  return dernier === '' || dernier === 'octet-stream' ? null : dernier.toUpperCase();
+}

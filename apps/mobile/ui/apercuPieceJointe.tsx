@@ -27,7 +27,7 @@ import { type Couleurs, POLICES } from './theme.ts';
 export type FichierEnAttente = {
   uri: string;
   nom: string;
-  /** MIME. Validé à l'envoi contre `FileUpload_MediaTypeWhiteList`. */
+  /** MIME. Validé à la pose et à l'envoi contre `FileUpload_MediaTypeWhiteList`. */
   type: string;
   taille: number | null;
 };

@@ -53,6 +53,8 @@ export type CibleImage = {
   cle?: string | null;
   /** Poids du fichier annoncé par le message, en octets. */
   taille?: number | null;
+  /** Fichier de l'appareil (pièce pas encore envoyée) : rien à télécharger. */
+  local?: boolean;
 };
 
 type ContexteVisionneuse = {
@@ -252,20 +254,24 @@ function ModaleImage({ cible, onFermer }: { cible: CibleImage | null; onFermer: 
           <Text style={[styles.croix, { color: c.texte }]}>✕</Text>
         </Pressable>
 
-        <Pressable
-          onPress={enregistrer}
-          disabled={progression !== undefined}
-          hitSlop={12}
-          style={[styles.enregistrer, { top: insets.top + 8, backgroundColor: c.carte + 'D9' }]}
-          accessibilityRole="button"
-          accessibilityLabel={t('actionsMessage.enregistrer')}
-        >
-          {progression === undefined ? (
-            <Text style={[styles.croix, { color: c.texte }]}>⤓</Text>
-          ) : (
-            <Text style={[styles.pourcentage, { color: c.texte }]}>{libelleProgression(progression)}</Text>
-          )}
-        </Pressable>
+        {cible?.local !== true && (
+          <Pressable
+            onPress={enregistrer}
+            disabled={progression !== undefined}
+            hitSlop={12}
+            style={[styles.enregistrer, { top: insets.top + 8, backgroundColor: c.carte + 'D9' }]}
+            accessibilityRole="button"
+            accessibilityLabel={t('actionsMessage.enregistrer')}
+          >
+            {progression === undefined ? (
+              <Text style={[styles.croix, { color: c.texte }]}>⤓</Text>
+            ) : (
+              <Text style={[styles.pourcentage, { color: c.texte }]}>
+                {libelleProgression(progression)}
+              </Text>
+            )}
+          </Pressable>
+        )}
 
         {cible?.titre != null && cible.titre !== '' && (
           <View style={[styles.legende, { bottom: insets.bottom + 12 }]} pointerEvents="none">

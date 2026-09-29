@@ -148,6 +148,43 @@ function clientConfirmant() {
 }
 
 describe('MoteurTeleversement', () => {
+  test('valider refuse sans rien persister, et les réglages ne sont lus qu’une fois', async () => {
+    const { depot, lignes } = fauxDepot();
+    let lectures = 0;
+    const client = new ClientRest('http://x', {
+      fetch: async () => {
+        lectures++;
+        return new Response(
+          JSON.stringify({
+            settings: [
+              { _id: 'FileUpload_MaxFileSize', value: 100 },
+              { _id: 'FileUpload_MediaTypeWhiteList', value: 'image/*' },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      },
+      dormir: async () => {},
+    });
+    const moteur = new MoteurTeleversement({
+      depot,
+      client,
+      transport: async () => assert.fail('valider ne téléverse rien'),
+      genererId: () => 'id-fichier-000000000000',
+      ingerer: async () => {},
+    });
+
+    await moteur.valider({ type: 'image/png', taille: 99 });
+    await assert.rejects(moteur.valider({ type: 'image/png', taille: 101 }), (e: unknown) => {
+      return e instanceof ErreurValidation && e.detail.code === 'taille';
+    });
+    await assert.rejects(moteur.valider({ type: 'application/pdf', taille: 1 }), (e: unknown) => {
+      return e instanceof ErreurValidation && e.detail.code === 'type';
+    });
+    assert.equal(lignes.size, 0);
+    assert.equal(lectures, 1);
+  });
+
   test('persiste AVANT l’envoi, téléverse, confirme, ingère, purge', async () => {
     const { depot, lignes } = fauxDepot();
     const ingeres: unknown[] = [];

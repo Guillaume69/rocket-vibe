@@ -337,6 +337,8 @@ const fr = {
   'apercuPieceJointe.originale': 'Originale',
   'apercuPieceJointe.envoyerReduite': 'Envoyer en qualité réduite',
   'apercuPieceJointe.envoyerOriginale': "Envoyer en qualité d'origine",
+  'apercuPieceJointe.apercu': 'Aperçu de {nom}',
+  'apercuPieceJointe.ouvertureImpossible': "Impossible d'ouvrir ce fichier.",
 
   // ── Cartes (aperçus de liens / embeds)
   'carteLien.imageAgrandir': 'Image, toucher pour agrandir',
@@ -700,6 +702,8 @@ const en: Record<CleTraduction, string> = {
   'apercuPieceJointe.originale': 'Original',
   'apercuPieceJointe.envoyerReduite': 'Send in reduced quality',
   'apercuPieceJointe.envoyerOriginale': 'Send in original quality',
+  'apercuPieceJointe.apercu': 'Preview {nom}',
+  'apercuPieceJointe.ouvertureImpossible': "Couldn't open this file.",
 
   'carteLien.imageAgrandir': 'Image, tap to enlarge',
   'carteLien.lienDefaut': 'Link',

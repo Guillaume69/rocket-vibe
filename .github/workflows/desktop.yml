@@ -178,6 +178,35 @@ jobs:
           $shot.Save("$env:RUNNER_TEMP\screenshot.png")
           Stop-Process -Id $run.Id -Force
           Start-Sleep -Seconds 2
+          # Started in the background: running, in the notification area, no window;
+          # a second launch hands the running app its link and brings the window back.
+          $bg = Start-Process $exe -ArgumentList "--background" -WorkingDirectory "$app\bin" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\background-out.txt"
+          Start-Sleep -Seconds 8
+          $bg.Refresh()
+          if ($bg.HasExited) { throw "a background start left (exit $($bg.ExitCode))" }
+          if ($bg.MainWindowHandle -ne 0) { throw "a background start showed the window" }
+          $second = Start-Process $exe -ArgumentList "rocketvibe://salon/smoke" -WorkingDirectory "$app\bin" -PassThru
+          Start-Sleep -Seconds 6
+          if (-not $second.HasExited) { Stop-Process -Id $second.Id -Force; throw "a second launch kept running beside the first" }
+          $bg.Refresh()
+          $shown = $bg.MainWindowHandle -ne 0
+          Stop-Process -Id $bg.Id -Force
+          Start-Sleep -Seconds 2
+          Get-Content "$env:RUNNER_TEMP\background-out.txt" -ErrorAction SilentlyContinue
+          if (-not $shown) { throw "the second launch did not bring the window back" }
+          if (-not (Select-String -Path "$env:RUNNER_TEMP\background-out.txt" -Pattern "native: tray icon added" -Quiet)) { throw "no notification-area icon" }
+          # Start at login: the Run value is written, taken away, written again for the uninstaller.
+          $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+          foreach ($state in "on", "off", "on") {
+            $env:RV_SMOKE_AUTOSTART = $state
+            $switch = Start-Process $exe -WorkingDirectory "$app\bin" -PassThru -Wait -RedirectStandardOutput "$env:RUNNER_TEMP\autostart.txt"
+            Get-Content "$env:RUNNER_TEMP\autostart.txt" -ErrorAction SilentlyContinue
+            $login = (Get-ItemProperty $runKey -ErrorAction SilentlyContinue).'rocket-vibe'
+            if ($switch.ExitCode -ne 0) { throw "start at login not switched $state" }
+            if ($state -eq "on" -and $login -notlike "*rocket-vibe-gtk.exe*--background") { throw "start at login not written: $login" }
+            if ($state -eq "off" -and $login) { throw "start at login not taken away: $login" }
+          }
+          Remove-Item Env:RV_SMOKE_AUTOSTART
           # Sample messages without a server: how text, emoji and times line up here.
           $env:RV_SMOKE_GALLERY = "1"
           $gallery = Start-Process $exe -WorkingDirectory "$app\bin" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\gallery-out.txt"
@@ -203,6 +232,7 @@ jobs:
           Start-Sleep -Seconds 3
           if (Test-Path "HKCU:\Software\Classes\rocketvibe") { throw "the link registration outlived the uninstall" }
           if (Test-Path $exe) { throw "the app outlived the uninstall" }
+          if ((Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -ErrorAction SilentlyContinue).'rocket-vibe') { throw "start at login outlived the uninstall" }
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
@@ -340,6 +370,22 @@ jobs:
           crash="$HOME/.cache/rocket-vibe-rs/crash.log"
           if [ -f "$crash" ]; then cat "$crash"; alive=0; fi
           if [ "$soak_alive" = 0 ] || ! grep -q "soak survived" "$RUNNER_TEMP/soak.log"; then alive=0; fi
+          # Start at login: the launch agent is written, then taken away.
+          plist="$HOME/Library/LaunchAgents/com.rocketvibe.app.plist"
+          RV_SMOKE_AUTOSTART=on "$app/Contents/MacOS/rocket-vibe-gtk" || alive=0
+          if ! grep -q -- "--background" "$plist" || ! plutil -lint "$plist"; then echo "::error::no launch agent"; alive=0; fi
+          RV_SMOKE_AUTOSTART=off "$app/Contents/MacOS/rocket-vibe-gtk" || alive=0
+          if [ -f "$plist" ]; then echo "::error::the launch agent outlived its switch"; alive=0; fi
+          # Started in the background: running, without its window.
+          "$app/Contents/MacOS/rocket-vibe-gtk" --background > "$RUNNER_TEMP/background.log" 2>&1 &
+          background=$!
+          sleep 8
+          if ! kill -0 "$background" 2>/dev/null || ! grep -q "started without the window" "$RUNNER_TEMP/background.log"; then
+            cat "$RUNNER_TEMP/background.log"
+            echo "::error::no background start"
+            alive=0
+          fi
+          kill "$background" 2>/dev/null || true
           sudo mv /opt/homebrew-aside /opt/homebrew
           cat "$RUNNER_TEMP/app.log"
           if [ "$alive" = 0 ]; then

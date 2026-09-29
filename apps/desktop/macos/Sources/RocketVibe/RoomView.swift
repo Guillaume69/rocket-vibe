@@ -34,10 +34,16 @@ struct RoomView: View {
                 Composer(model: model, staged: $staged)
             }
         }
-        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+        .onDrop(of: [.fileURL, .plainText], isTargeted: nil) { providers in
             for provider in providers {
-                _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                    if let url { DispatchQueue.main.async { staged.append(url) } }
+                if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                    _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                        if let url { DispatchQueue.main.async { staged.append(url) } }
+                    }
+                } else {
+                    _ = provider.loadObject(ofClass: String.self) { text, _ in
+                        if let text { DispatchQueue.main.async { model.draft += text } }
+                    }
                 }
             }
             return true

@@ -504,6 +504,12 @@ impl Chat {
         rv_core::actions::QUICK_REACTIONS.iter().map(|c| (*c).to_owned()).collect()
     }
 
+    /// The call's link, to open in the browser.
+    pub async fn join_call(&self, call_id: String) -> Result<String, RvError> {
+        let s = self.session.clone();
+        Ok(on_tokio(async move { s.join_call(&call_id).await }).await?)
+    }
+
     /// A protected file or avatar, fetched with the session's credentials and cached.
     pub async fn media(&self, path: String) -> Result<MediaData, RvError> {
         let s = self.session.clone();

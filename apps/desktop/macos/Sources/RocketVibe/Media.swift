@@ -17,13 +17,18 @@ struct Avatar: View {
             Text(initial)
                 .font(.system(size: size * 0.45, weight: .semibold))
                 .foregroundStyle(.white)
-            if let image {
-                Image(nsImage: image).resizable().scaledToFill()
+            if let shown {
+                Image(nsImage: shown).resizable().scaledToFill()
             }
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: size * 0.28))
         .task(id: "\(path ?? "")#\(app.imagesVersion)") { await load() }
+    }
+
+    /// The decoded photo, or the one already in the cache when the row is new.
+    var shown: NSImage? {
+        image ?? path.flatMap { Pictures.cached($0, pixels: Pictures.pixels(size)) }
     }
 
     var initial: String {
@@ -44,12 +49,7 @@ struct Avatar: View {
             image = nil
             return
         }
-        if let hit = media.cached(path) {
-            image = hit.placeholder ? nil : NSImage(data: hit.bytes)
-            return
-        }
-        let data = await media.load(path)
-        image = data.flatMap { $0.placeholder ? nil : NSImage(data: $0.bytes) }
+        image = await Pictures.load(path, pixels: Pictures.pixels(size), media: media)
     }
 }
 
@@ -62,10 +62,15 @@ struct RemoteImage: View {
     @State var image: NSImage?
     @State var failed = false
 
+    var pixels: Int {
+        guard width != nil || height != nil else { return 0 }
+        return Pictures.pixels(max(width ?? 0, height ?? 0))
+    }
+
     var body: some View {
         Group {
-            if let image {
-                Image(nsImage: image).resizable().scaledToFill()
+            if let shown = image ?? Pictures.cached(path, pixels: pixels) {
+                Image(nsImage: shown).resizable().scaledToFill()
             } else if failed {
                 Image(systemName: "photo").foregroundStyle(.secondary)
             } else {
@@ -77,8 +82,8 @@ struct RemoteImage: View {
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .task(id: path) {
             guard let media = app.media else { return }
-            if let data = await media.load(path), let img = NSImage(data: data.bytes) {
-                image = img
+            if let loaded = await Pictures.load(path, pixels: pixels, media: media) {
+                image = loaded
             } else {
                 failed = true
             }

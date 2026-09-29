@@ -30,6 +30,36 @@ func attributed(_ runs: [Run]) -> AttributedString {
     return out
 }
 
+/// Styled text by its runs, built once: rows scrolled back into view reuse it.
+@MainActor
+enum StyledText {
+    final class Key: NSObject {
+        let runs: [Run]
+        init(_ runs: [Run]) { self.runs = runs }
+        override var hash: Int { runs.hashValue }
+        override func isEqual(_ other: Any?) -> Bool { (other as? Key)?.runs == runs }
+    }
+
+    final class Box: NSObject {
+        let value: AttributedString
+        init(_ value: AttributedString) { self.value = value }
+    }
+
+    static let cache: NSCache<Key, Box> = {
+        let cache = NSCache<Key, Box>()
+        cache.countLimit = 3000
+        return cache
+    }()
+
+    static func of(_ runs: [Run]) -> AttributedString {
+        let key = Key(runs)
+        if let hit = cache.object(forKey: key) { return hit.value }
+        let value = attributed(runs)
+        cache.setObject(Box(value), forKey: key)
+        return value
+    }
+}
+
 /// Runs as one text, a server emoji drawn as its picture once loaded.
 struct RunsText: View {
     @Environment(AppModel.self) var app
@@ -38,29 +68,32 @@ struct RunsText: View {
     @State var loaded = 0
 
     var body: some View {
-        runs.reduce(Text("")) { text, run in
-            if let code = run.customEmoji, let image = picture(code) {
-                return text + Text(Image(nsImage: image)).baselineOffset(-3)
+        if runs.allSatisfy({ $0.customEmoji == nil }) {
+            Text(StyledText.of(runs))
+        } else {
+            runs.reduce(Text("")) { text, run in
+                if let code = run.customEmoji, let image = picture(code) {
+                    return text + Text(Image(nsImage: image)).baselineOffset(-3)
+                }
+                return text + Text(StyledText.of([run]))
             }
-            return text + Text(attributed([run]))
+            .task(id: runs.compactMap(\.customEmoji).joined(separator: ",")) { await load() }
         }
-        .task(id: runs.compactMap(\.customEmoji).joined(separator: ",")) { await load() }
     }
 
     func picture(_ code: String) -> NSImage? {
         _ = loaded
-        guard let media = app.media, let path = media.customEmoji(code), let data = media.cached(path),
-              let image = NSImage(data: data.bytes) else { return nil }
-        image.size = NSSize(width: size, height: size * image.size.height / max(image.size.width, 1))
-        return image
+        guard let path = app.media?.customEmoji(code) else { return nil }
+        return Pictures.cached(path, pixels: Pictures.pixels(size))
     }
 
     func load() async {
         guard let media = app.media else { return }
         for code in runs.compactMap(\.customEmoji) {
-            if let path = media.customEmoji(code), media.cached(path) == nil, await media.load(path) != nil {
-                loaded += 1
+            guard let path = media.customEmoji(code), Pictures.cached(path, pixels: Pictures.pixels(size)) == nil else {
+                continue
             }
+            if await Pictures.load(path, pixels: Pictures.pixels(size), media: media) != nil { loaded += 1 }
         }
     }
 }

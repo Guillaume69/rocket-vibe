@@ -201,8 +201,13 @@ struct MessageList: View {
                             .onAppear { older(proxy) }
                     }
                     ForEach(model.messages, id: \.id) { message in
-                        MessageRow(message: message, model: model, editing: $editing, deleting: $deleting)
-                            .id(message.id)
+                        MessageRow(
+                            message: message, model: model, editing: editing == message.id,
+                            revealed: model.reveal == message.id,
+                            setEditing: { editing = $0 }, askDelete: { deleting = $0 }
+                        )
+                        .equatable()
+                        .id(message.id)
                     }
                     Color.clear.frame(height: 6).id("bottom")
                 }
@@ -273,15 +278,23 @@ struct MessageList: View {
     }
 }
 
-struct MessageRow: View {
+/// A message. It compares by what it shows, so a list reloaded around it
+/// leaves it as it is.
+struct MessageRow: View, Equatable {
     @Environment(AppModel.self) var app
     let message: MessageItem
     /// None in the sample gallery: no actions there.
     let model: RoomModel?
-    @Binding var editing: String?
-    @Binding var deleting: MessageItem?
+    let editing: Bool
+    let revealed: Bool
+    let setEditing: (String?) -> Void
+    let askDelete: (MessageItem) -> Void
     @State var draft = ""
     @State var viewing: ImageItem?
+
+    nonisolated static func == (a: MessageRow, b: MessageRow) -> Bool {
+        a.message == b.message && a.editing == b.editing && a.revealed == b.revealed && a.model === b.model
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -315,7 +328,7 @@ struct MessageRow: View {
             .padding(.horizontal, 16)
             .padding(.top, message.showHeader ? 8 : 1)
             .padding(.bottom, 1)
-            .background(model?.reveal == message.id ? Palette.mention.opacity(0.15) : .clear)
+            .background(revealed ? Palette.mention.opacity(0.15) : .clear)
             .contextMenu { menu }
         }
         .sheet(item: Binding(get: { viewing.map(Viewing.init) }, set: { viewing = $0?.image })) { v in
@@ -349,7 +362,7 @@ struct MessageRow: View {
         ForEach(Array(message.quotes.enumerated()), id: \.offset) { _, quote in
             QuoteCard(quote: quote)
         }
-        if editing == message.id {
+        if editing {
             editor
         } else if !message.body.isEmpty {
             BodyView(blocks: message.body, dimmed: message.delivery != .sent)
@@ -424,11 +437,11 @@ struct MessageRow: View {
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1...10)
                 .onSubmit(save)
-                .onExitCommand { editing = nil }
+                .onExitCommand { setEditing(nil) }
             HStack {
                 Text(L("edit.hint")).font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button(L("actions.cancel")) { editing = nil }
+                Button(L("actions.cancel")) { setEditing(nil) }
                 Button(L("actions.save"), action: save).keyboardShortcut(.defaultAction)
             }
         }
@@ -437,7 +450,7 @@ struct MessageRow: View {
 
     func save() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        editing = nil
+        setEditing(nil)
         guard !text.isEmpty, text != message.text else { return }
         Task {
             do { try await model?.edit(message, text: text) } catch { app.notice = L("actions.refused") }
@@ -490,8 +503,8 @@ struct MessageRow: View {
                 let name = message.files.first?.title ?? message.images.first?.title ?? "file"
                 Task { await download(path: path, name: name, app: app) }
             }
-        case .edit: editing = message.id
-        case .delete: deleting = message
+        case .edit: setEditing(message.id)
+        case .delete: askDelete(message)
         case .pin, .unpin:
             Task {
                 do {

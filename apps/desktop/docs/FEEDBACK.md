@@ -42,9 +42,9 @@ for the Android app too and are fixed there as well.
 
 - [x] No app icon (Linux launcher, Windows, macOS): Linux entry and window icon; the Windows exe embeds its icon (checked in the CI build) and the taskbar shows it; the macOS dock shows the .icns (CI screenshot)
 - [x] App id `me.barrut.RocketVibe` differs from mobile's `com.rocketvibe.app` (keychain items stay under the old name: nobody is signed out)
-- [~] No unread count on the dock / taskbar icon: Linux docks (Unity launcher protocol: KDE, Dash to Dock, Plank) done; Windows taskbar overlay and macOS dock badge to do with the native notification work
-- [~] Notifications do not show on Windows and macOS, and nothing in the app tells why: Settings now says what shows them, sends a test and opens the system settings. The cause: GLib only has a tray-balloon backend on Windows (no click) and the deprecated NSUserNotification on macOS; native backends (WinRT toasts, UNUserNotificationCenter) need building and testing on those systems
-- [~] Notifications: a click opens the room, not the message; inline reply only on KDE: a click now opens the message (scrolled to, highlighted); inline reply still where the notification server offers it
+- [x] No unread count on the dock / taskbar icon: Linux docks (Unity launcher protocol: KDE, Dash to Dock, Plank); Windows taskbar button (a drawn overlay, seen in CI's screenshot); macOS dock badge (NSDockTile, shown once the user allows the app's notifications, which a CI runner cannot)
+- [x] Notifications do not show on Windows and macOS, and nothing in the app tells why: GLib only had a tray balloon (Windows) and the deprecated NSUserNotification (macOS); rv-native now uses WinRT toasts (CI: delivered to the Action Center) and UNUserNotificationCenter (asks for permission at first launch); Settings says what shows them, sends a test and opens the system settings
+- [x] Notifications: a click opens the room, not the message; inline reply only on KDE: a click opens the message (scrolled to, highlighted) everywhere; inline reply on KDE, Windows and macOS; a Reply button that opens the message where the server has no reply field (GNOME)
 - [~] Random crash on Windows, no crash log to look at: logs kept (previous run too) and panics recorded, shown in Settings; the crash itself needs a log from a tester
 
 ## macOS

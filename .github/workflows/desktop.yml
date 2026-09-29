@@ -186,8 +186,18 @@ jobs:
           [System.Drawing.Graphics]::FromImage($shot).CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
           $shot.Save("$env:RUNNER_TEMP\gallery.png")
           if (-not $gallery.HasExited) { Stop-Process -Id $gallery.Id -Force }
-          Remove-Item Env:RV_SMOKE_GALLERY
           Get-Content "$env:RUNNER_TEMP\gallery-out.txt" -ErrorAction SilentlyContinue
+          # Soak: rows, toasts and the badge churned for 45 s; the app must still be there, with no panic recorded.
+          $env:RV_SMOKE_SOAK = "45"
+          $soak = Start-Process $exe -WorkingDirectory "$app\bin" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\soak-out.txt"
+          Start-Sleep -Seconds 55
+          $survived = Select-String -Path "$env:RUNNER_TEMP\soak-out.txt" -Pattern "soak survived" -Quiet
+          Get-Content "$env:RUNNER_TEMP\soak-out.txt" -ErrorAction SilentlyContinue
+          if ($soak.HasExited) { throw "the app died during the soak (exit $($soak.ExitCode))" }
+          Stop-Process -Id $soak.Id -Force
+          Remove-Item Env:RV_SMOKE_SOAK, Env:RV_SMOKE_GALLERY
+          if (-not $survived) { throw "the soak did not finish" }
+          if (Test-Path "$env:LOCALAPPDATA\rocket-vibe-rs\crash.log") { Get-Content "$env:LOCALAPPDATA\rocket-vibe-rs\crash.log"; throw "a panic was recorded" }
           Start-Sleep -Seconds 2
           Start-Process "$app\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES" -Wait
           Start-Sleep -Seconds 3
@@ -319,6 +329,17 @@ jobs:
           screencapture -x "$RUNNER_TEMP/gallery.png" || true
           kill "$gallery" 2>/dev/null || true
           cat "$RUNNER_TEMP/gallery.log"
+          # Soak: rows, toasts and the badge churned for 45 s; the app must still be there, with no panic recorded.
+          RV_SMOKE_GALLERY=1 RV_SMOKE_SOAK=45 "$app/Contents/MacOS/rocket-vibe-gtk" > "$RUNNER_TEMP/soak.log" 2>&1 &
+          soak=$!
+          sleep 55
+          soak_alive=0
+          if kill -0 "$soak" 2>/dev/null; then soak_alive=1; fi
+          kill "$soak" 2>/dev/null || true
+          grep smoke "$RUNNER_TEMP/soak.log" || true
+          crash="$HOME/Library/Caches/rocket-vibe-rs/crash.log"
+          if [ -f "$crash" ]; then cat "$crash"; alive=0; fi
+          if [ "$soak_alive" = 0 ] || ! grep -q "soak survived" "$RUNNER_TEMP/soak.log"; then alive=0; fi
           sudo mv /opt/homebrew-aside /opt/homebrew
           cat "$RUNNER_TEMP/app.log"
           if [ "$alive" = 0 ]; then

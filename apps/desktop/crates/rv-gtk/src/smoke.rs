@@ -39,6 +39,7 @@
 //!   RV_SMOKE_NAV=<other room>  opens the other room, then mouse back and forward between the two;
 //!                          in a narrow window, back to the list and forward into the room again
 //!   RV_SMOKE_GALLERY=1     sample messages and a composer, no server: see `gallery`
+//!   RV_SMOKE_SOAK=<secs>   with the gallery: rows, toasts and badges churned that long: see `soak`
 //! A failed expectation makes the process exit with status 1.
 
 use std::cell::Cell;
@@ -852,5 +853,45 @@ pub fn gallery(app: &adw::Application) -> bool {
         reply: Some(rv_native::ReplyLabels { placeholder: "Reply", send: "Send" }),
     });
     println!("smoke: native notifications available {}", rv_native::available());
+    if let Some(seconds) = std::env::var("RV_SMOKE_SOAK").ok().and_then(|s| s.parse::<u32>().ok()) {
+        soak(column, samples.to_vec(), seconds);
+    }
     true
+}
+
+/// `RV_SMOKE_SOAK=<seconds>` with the gallery: for that long, rebuild the
+/// message rows, post toasts and change the badge several times a second,
+/// then print that it survived: the platform paths a random crash could hide in.
+fn soak(column: gtk::Box, samples: Vec<crate::rows::Display>, seconds: u32) {
+    let rounds = std::rc::Rc::new(std::cell::Cell::new(0u32));
+    let started = std::time::Instant::now();
+    glib::timeout_add_local(Duration::from_millis(150), move || {
+        let round = rounds.get() + 1;
+        rounds.set(round);
+        while let Some(child) = column.first_child() {
+            column.remove(&child);
+        }
+        for d in &samples {
+            column.append(&crate::rows::message_widget(d, "alice", None, None, std::rc::Rc::new(|_| {})));
+        }
+        rv_native::badge(i64::from(round % 12));
+        if round.is_multiple_of(5) {
+            let body = format!("Soak round {round} 🎉");
+            rv_native::show(&rv_native::Toast {
+                room: if round.is_multiple_of(2) { "soak-a" } else { "soak-b" },
+                message: "1",
+                title: "bob",
+                body: &body,
+                reply: Some(rv_native::ReplyLabels { placeholder: "Reply", send: "Send" }),
+            });
+        }
+        if round.is_multiple_of(7) {
+            rv_native::withdraw("soak-a");
+        }
+        if started.elapsed().as_secs() >= u64::from(seconds) {
+            println!("smoke: soak survived {round} rounds in {seconds} s");
+            return glib::ControlFlow::Break;
+        }
+        glib::ControlFlow::Continue
+    });
 }

@@ -21,7 +21,9 @@ struct RoomView: View {
                     .padding(.bottom, 2)
             }
             UploadsView(model: model)
-            if model.room.readOnly {
+            if model.room.encrypted && !app.e2eUnlocked {
+                LockedBanner()
+            } else if model.room.readOnly {
                 Text(L("room.read_only"))
                     .foregroundStyle(.secondary)
                     .padding(12)
@@ -65,6 +67,59 @@ struct RoomView: View {
             return .handled
         }
         return .systemAction
+    }
+}
+
+/// An encrypted room while my key is locked: nothing to read or write yet.
+struct LockedBanner: View {
+    @Environment(AppModel.self) var app
+    @State var asking = false
+
+    var body: some View {
+        HStack {
+            Image(systemName: "lock.fill")
+            Text(L("e2e.read_only"))
+            Spacer()
+            Button(L("e2e.unlock")) { asking = true }
+        }
+        .padding(12)
+        .background(.bar)
+        .sheet(isPresented: $asking) { UnlockSheet() }
+    }
+}
+
+struct UnlockSheet: View {
+    @Environment(AppModel.self) var app
+    @Environment(\.dismiss) var dismiss
+    @State var password = ""
+    @State var error: String?
+    @State var busy = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(L("e2e.title")).font(.headline)
+            Text(L("e2e.body")).fixedSize(horizontal: false, vertical: true)
+            SecureField(L("e2e.password"), text: $password)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(unlock)
+            if let error { Text(error).foregroundStyle(.red) }
+            HStack {
+                Spacer()
+                Button(L("actions.cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(L("e2e.unlock"), action: unlock).keyboardShortcut(.defaultAction).disabled(busy || password.isEmpty)
+            }
+        }
+        .padding()
+        .frame(width: 420)
+    }
+
+    func unlock() {
+        busy = true
+        Task {
+            error = await app.unlock(password: password)
+            busy = false
+            if error == nil { dismiss() }
+        }
     }
 }
 

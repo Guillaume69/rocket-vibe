@@ -29,6 +29,15 @@ struct SettingsView: View {
                         .disabled(app.chat == nil)
                 }
             }
+            Section(L("e2e.status")) {
+                HStack {
+                    Text(app.e2eUnlocked ? L("e2e.unlocked") : L("e2e.locked"))
+                    Spacer()
+                    if app.e2eUnlocked {
+                        Button(L("e2e.lock")) { app.lock() }
+                    }
+                }
+            }
             Section(L("settings.language")) {
                 Picker(L("settings.language"), selection: $language) {
                     Text(L("settings.lang_auto")).tag("auto")

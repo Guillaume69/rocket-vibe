@@ -142,7 +142,7 @@ impl Client {
         let (dirs, saved) = (self.dirs.clone(), info.clone());
         blocking(move || {
             accounts::remember_server(&dirs, &saved.base_url);
-            accounts::save(&dirs, &saved)
+            accounts::save(&dirs, &saved, None)
         })
         .await
         .map_err(RvError::local)?;
@@ -176,6 +176,13 @@ impl Client {
             let _guard = runtime().enter();
             Session::start(info, &path).map_err(RvError::local)?
         };
+        let resumed = session.clone();
+        runtime().spawn_blocking(move || {
+            if let Some(jwk) = accounts::e2e_key(&resumed.info) {
+                let _guard = runtime().enter();
+                resumed.e2e_resume(&jwk);
+            }
+        });
         Ok(Arc::new(Chat {
             session,
             dirs: self.dirs.clone(),
@@ -297,6 +304,7 @@ impl Chat {
         let mut changes = self.session.store.changes();
         let mut events = self.session.events();
         let (dirs, info, database) = (self.dirs.clone(), self.session.info.clone(), self.database.clone());
+        let session = Arc::downgrade(&self.session);
         let task = runtime().spawn(async move {
             loop {
                 let e = tokio::select! {
@@ -311,6 +319,12 @@ impl Chat {
                         Err(RecvError::Closed) => return,
                     },
                 };
+                if e == Event::E2e
+                    && let Some(s) = session.upgrade()
+                {
+                    let (dirs, info, jwk) = (dirs.clone(), info.clone(), s.e2e_export());
+                    let _ = tokio::task::spawn_blocking(move || accounts::save(&dirs, &info, jwk.as_deref())).await;
+                }
                 if e == Event::Expired {
                     let (dirs, info, database) = (dirs.clone(), info.clone(), database.clone());
                     let _ = tokio::task::spawn_blocking(move || {
@@ -325,6 +339,26 @@ impl Chat {
         if let Some(old) = self.forward.lock().unwrap().replace(task) {
             old.abort();
         }
+    }
+
+    /// Unlocks encrypted rooms with my E2E password; the key is then kept
+    /// for the next launch. Errors: `e2e-wrong`, `e2e-no-keys`, `e2e-failed`.
+    pub async fn e2e_unlock(&self, password: String) -> Result<(), RvError> {
+        let s = self.session.clone();
+        on_tokio(async move { s.e2e_unlock(&password).await }).await.map_err(|e| match e {
+            session::UnlockError::Key(rv_core::e2e::E2eError::WrongPassword) => RvError::local("e2e-wrong"),
+            session::UnlockError::Key(rv_core::e2e::E2eError::NoKeys) => RvError::local("e2e-no-keys"),
+            _ => RvError::local("e2e-failed"),
+        })
+    }
+
+    /// Locks them again and forgets the kept key.
+    pub fn e2e_lock(&self) {
+        self.session.e2e_lock();
+    }
+
+    pub fn e2e_unlocked(&self) -> bool {
+        self.session.e2e_unlocked()
     }
 
     pub fn reconnect_now(&self) {

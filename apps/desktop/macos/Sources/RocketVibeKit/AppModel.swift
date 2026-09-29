@@ -19,6 +19,8 @@ public final class AppModel {
     public private(set) var accounts: [Account] = []
     public private(set) var groups: [RoomGroup] = []
     public private(set) var connection = ConnectionState.offline
+    /// Encrypted rooms readable and writable (my E2E key unlocked).
+    public private(set) var e2eUnlocked = false
     public private(set) var room: RoomModel?
     public private(set) var thread: RoomModel?
     public private(set) var collapsed: Set<RoomSection>
@@ -84,6 +86,7 @@ public final class AppModel {
         media = MediaStore(chat: chat)
         connection = .connecting
         chat.setListener(listener: Relay { [weak self] event in self?.handle(event) })
+        e2eUnlocked = chat.e2eUnlocked()
         reloadRooms()
         screen = .chat
     }
@@ -136,6 +139,7 @@ public final class AppModel {
             imagesVersion += 1
             reloadRooms()
         case .e2e:
+            e2eUnlocked = chat?.e2eUnlocked() ?? false
             reloadRooms()
             room?.reload()
         case let .incoming(incoming):
@@ -199,6 +203,29 @@ public final class AppModel {
 
     public func markRead() async {
         if let chat, let room { await chat.markRead(rid: room.rid) }
+    }
+
+    /// Nil when unlocked, else what went wrong.
+    public func unlock(password: String) async -> String? {
+        guard let chat else { return nil }
+        do {
+            try await chat.e2eUnlock(password: password)
+            e2eUnlocked = chat.e2eUnlocked()
+            return nil
+        } catch let RvError.Local(message) {
+            switch message {
+            case "e2e-wrong": return L("e2e.wrong")
+            case "e2e-no-keys": return L("e2e.no_keys")
+            default: return L("e2e.failed")
+            }
+        } catch {
+            return L("e2e.failed")
+        }
+    }
+
+    public func lock() {
+        chat?.e2eLock()
+        e2eUnlocked = false
     }
 
     public func reconnect() {

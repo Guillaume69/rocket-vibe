@@ -90,15 +90,19 @@ pub fn load_all(dirs: &Dirs) -> Vec<SessionInfo> {
     found
 }
 
-/// Blocking.
-pub fn save(dirs: &Dirs, info: &SessionInfo) -> Result<(), String> {
-    let secret = json!({
+/// Blocking. `e2e_key`: my E2E private key (a JWK) while unlocked, kept
+/// beside the session as the GTK app keeps it.
+pub fn save(dirs: &Dirs, info: &SessionInfo, e2e_key: Option<&str>) -> Result<(), String> {
+    let mut secret = json!({
         "baseUrl": info.base_url,
         "userId": info.user_id,
         "username": info.username,
         "authToken": info.auth_token,
-    })
-    .to_string();
+    });
+    if let Some(jwk) = e2e_key {
+        secret["e2eKey"] = json!(jwk);
+    }
+    let secret = secret.to_string();
     let k = key(info);
     entry(&k).and_then(|e| e.set_password(&secret)).map_err(|e| e.to_string())?;
     let index = dirs.file("accounts");
@@ -109,6 +113,13 @@ pub fn save(dirs: &Dirs, info: &SessionInfo) -> Result<(), String> {
     }
     set_active(dirs, info);
     Ok(())
+}
+
+/// The E2E key kept for the account, if any. Blocking.
+pub fn e2e_key(info: &SessionInfo) -> Option<String> {
+    let secret = entry(&key(info)).ok()?.get_password().ok()?;
+    let v: Value = serde_json::from_str(&secret).ok()?;
+    v.get("e2eKey").and_then(Value::as_str).map(str::to_owned)
 }
 
 pub fn set_active(dirs: &Dirs, info: &SessionInfo) {

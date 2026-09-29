@@ -5,7 +5,7 @@
  */
 
 import { useSyncExternalStore } from 'react';
-import { AccessibilityInfo, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Platform, StyleSheet, Text, ToastAndroid, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -31,6 +31,12 @@ export function afficherToast(message: string): void {
   }, DUREE_MS);
   AccessibilityInfo.announceForAccessibility(message);
   notifier();
+}
+
+/** Le toast de la plateforme : `ToastAndroid` sur Android, le nôtre ailleurs. */
+export function signaler(message: string): void {
+  if (Platform.OS === 'android') ToastAndroid.show(message, ToastAndroid.SHORT);
+  else afficherToast(message);
 }
 
 function abonner(e: () => void): () => void {

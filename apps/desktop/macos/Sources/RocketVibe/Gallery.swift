@@ -49,31 +49,72 @@ let gallerySamples: [MessageItem] = [
     sample("9", 0, "alice", [.paragraph(runs: [run("pas parti")])], header: false, delivery: .failed),
 ]
 
+func sampleRoom(_ rid: String, _ kind: String, _ name: String, _ preview: RoomPreview, minutesAgo: Int64,
+                unread: Int64 = 0, mentions: Int64 = 0, encrypted: Bool = false, presence: Presence? = nil) -> Room
+{
+    Room(rid: rid, kind: kind, name: name, slug: name, preview: preview,
+         lastTs: Int64(Date().timeIntervalSince1970 * 1000) - minutesAgo * 60_000, unread: unread, mentions: mentions,
+         alert: unread > 0, favorite: false, encrypted: encrypted, readOnly: false, avatar: nil, presence: presence)
+}
+
+let galleryGroups: [RoomGroup] = [
+    RoomGroup(section: .unread, rooms: [
+        sampleRoom("general", "c", "general", .text(text: "@alice on se voit à 14h ?"), minutesAgo: 2, unread: 3, mentions: 1),
+        sampleRoom("bob", "d", "bob", .text(text: "Regarde ça 🚀"), minutesAgo: 9, unread: 1, presence: .online),
+    ]),
+    RoomGroup(section: .channels, rooms: [
+        sampleRoom("random", "c", "random", .system(author: "carol", kind: "uj", param: ""), minutesAgo: 40),
+        sampleRoom("laprivitude", "p", "laprivitude", .encrypted, minutesAgo: 300, encrypted: true),
+        sampleRoom("test-prive", "p", "test-prive", .text(text: "Du code, de l'italique et du barré."), minutesAgo: 60 * 30),
+    ]),
+    RoomGroup(section: .direct, rooms: [
+        sampleRoom("carol", "d", "carol", .text(text: "merci !"), minutesAgo: 60 * 24 * 3, presence: .away),
+        sampleRoom("dave", "d", "dave", .empty, minutesAgo: 60 * 24 * 20, presence: .offline),
+    ]),
+]
+
+/// The chat window as it is signed in, drawn from samples: the real sidebar
+/// sections and rows beside the real message rows.
 struct GalleryView: View {
     @State var messages = gallerySamples
+    @State var selected: String? = "general"
+    @State var collapsed: Set<RoomSection> = []
     @State var rounds = 0
     @State var editing: String?
     @State var deleting: MessageItem?
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(messages, id: \.id) { message in
-                    MessageRow(message: message, model: nil, editing: $editing, deleting: $deleting)
+        NavigationSplitView {
+            List(selection: $selected) {
+                RoomSections(groups: galleryGroups, collapsed: collapsed) { section in
+                    if collapsed.contains(section) { collapsed.remove(section) } else { collapsed.insert(section) }
                 }
             }
-            .padding(.vertical, 8)
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 400)
+        } detail: {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(messages, id: \.id) { message in
+                        MessageRow(message: message, model: nil, editing: $editing, deleting: $deleting)
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+            .defaultScrollAnchor(.bottom)
         }
-        .defaultScrollAnchor(.bottom)
-        .frame(minWidth: 640, minHeight: 520)
+        .navigationTitle(galleryGroups.flatMap(\.rooms).first { $0.rid == selected }.map { "(2) \($0.name) - rocket-vibe" } ?? "rocket-vibe")
+        .frame(minWidth: 900, minHeight: 560)
         .task {
-            print("smoke: gallery shows \(messages.count) messages")
+            print("smoke: gallery shows \(galleryGroups.flatMap(\.rooms).count) rooms and \(messages.count) messages")
             fflush(stdout)
             guard let seconds = SmokeGallery.soakSeconds else { return }
+            let rids = galleryGroups.flatMap(\.rooms).map(\.rid)
             let end = Date().addingTimeInterval(TimeInterval(seconds))
             while Date() < end {
                 rounds += 1
                 messages = rounds % 2 == 0 ? gallerySamples : gallerySamples.reversed().map { $0 }
+                selected = rids[rounds % rids.count]
                 NSApp.dockTile.badgeLabel = String(rounds % 100)
                 try? await Task.sleep(nanoseconds: 50_000_000)
             }

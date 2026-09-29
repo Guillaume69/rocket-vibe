@@ -81,6 +81,8 @@ export const abonnements = sqliteTable('abonnements', {
   e2eKey: text('e2e_key'),
   /** `e2eKeyId` : UUID de la clé de salon, si le serveur le fournit à part. */
   e2eKeyId: text('e2e_key_id'),
+  /** `roles` : mes rôles DANS ce salon (`owner`, `moderator`…), sérialisés ; `null` si aucun. */
+  roles: text('roles'),
   misAJourLe: integer('mis_a_jour_le').notNull().default(0),
 });
 

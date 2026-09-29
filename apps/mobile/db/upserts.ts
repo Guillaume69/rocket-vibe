@@ -110,8 +110,8 @@ WHERE excluded.mis_a_jour_le >= salons.mis_a_jour_le
 export const UPSERT_ABONNEMENT = `
 INSERT INTO abonnements (
   rid, sub_id, non_lus, mentions, mentions_groupe, alerte, ouvert, favori,
-  lu_jusqu_a, e2e_key, e2e_key_id, mis_a_jour_le
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  lu_jusqu_a, e2e_key, e2e_key_id, roles, mis_a_jour_le
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(rid) DO UPDATE SET
   sub_id = COALESCE(excluded.sub_id, abonnements.sub_id),
   non_lus = excluded.non_lus,
@@ -125,6 +125,9 @@ ON CONFLICT(rid) DO UPDATE SET
   -- effacer la clé déjà connue.
   e2e_key = COALESCE(excluded.e2e_key, abonnements.e2e_key),
   e2e_key_id = COALESCE(excluded.e2e_key_id, abonnements.e2e_key_id),
+  -- Même règle : un rôle retiré laisse roles: [] ($pull), jamais un champ
+  -- absent — l'absence ne dit donc rien.
+  roles = COALESCE(excluded.roles, abonnements.roles),
   mis_a_jour_le = excluded.mis_a_jour_le
 WHERE excluded.mis_a_jour_le >= abonnements.mis_a_jour_le
 `;
@@ -643,6 +646,7 @@ export function paramsAbonnement(a: AbonnementLocal): Parametre[] {
     a.luJusquA,
     a.e2eKey,
     a.e2eKeyId,
+    a.roles,
     a.misAJourLe,
   ];
 }

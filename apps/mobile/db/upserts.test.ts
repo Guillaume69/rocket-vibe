@@ -143,6 +143,7 @@ function abo(o: Partial<AbonnementLocal> & { rid: string; misAJourLe: number }) 
     luJusquA: null,
     e2eKey: null,
     e2eKeyId: null,
+    roles: null,
     ...o,
   });
 }
@@ -329,6 +330,15 @@ describe('upserts idempotents', () => {
     db.prepare(UPSERT_ABONNEMENT).run(...abo({ rid: 'r1', nonLus: 7, misAJourLe: 100 })); // rattrapage
     const a = ligne(db.prepare('SELECT non_lus FROM abonnements WHERE rid = ?').get('r1'));
     assert.deepEqual(a, { non_lus: 0 });
+  });
+
+  test('rôles du salon : un document sans rôles les garde, une liste vide les retire', () => {
+    const lire = () => ligne(db.prepare('SELECT roles FROM abonnements WHERE rid = ?').get('r1'));
+    db.prepare(UPSERT_ABONNEMENT).run(...abo({ rid: 'r1', roles: '["owner"]', misAJourLe: 100 }));
+    db.prepare(UPSERT_ABONNEMENT).run(...abo({ rid: 'r1', roles: null, misAJourLe: 200 }));
+    assert.deepEqual(lire(), { roles: '["owner"]' });
+    db.prepare(UPSERT_ABONNEMENT).run(...abo({ rid: 'r1', roles: '[]', misAJourLe: 300 }));
+    assert.deepEqual(lire(), { roles: '[]' });
   });
 
   test('un curseur de rattrapage ne recule jamais', () => {

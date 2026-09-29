@@ -103,6 +103,8 @@ export type AbonnementLocal = {
   e2eKey: string | null;
   /** `e2eKeyId` : UUID de la clé de salon, quand le serveur le fournit à part. */
   e2eKeyId: string | null;
+  /** Mes rôles dans le salon, sérialisés — `null` si le document n'en porte pas. */
+  roles: string | null;
   misAJourLe: number;
 };
 
@@ -319,6 +321,9 @@ export function versAbonnement(brut: Record<string, unknown>): AbonnementLocal |
     luJusquA: versEpoch(brut.ls),
     e2eKey: chaine(brut.E2EKey),
     e2eKeyId: chaine(brut.e2eKeyId),
+    roles: Array.isArray(brut.roles)
+      ? JSON.stringify(brut.roles.filter((r): r is string => typeof r === 'string'))
+      : null,
     misAJourLe: versEpoch(brut._updatedAt) ?? 0,
   };
 }

@@ -221,6 +221,7 @@ describe('versAbonnement', () => {
       luJusquA: null,
       e2eKey: null,
       e2eKeyId: null,
+      roles: null,
       misAJourLe: 0,
     });
   });
@@ -238,6 +239,7 @@ describe('versAbonnement', () => {
       ls: { $date: 900 },
       E2EKey: 'kid+base64',
       e2eKeyId: 'kid',
+      roles: ['owner', 7],
       _updatedAt: { $date: 1000 },
     });
     assert.deepEqual(a, {
@@ -252,6 +254,7 @@ describe('versAbonnement', () => {
       luJusquA: 900,
       e2eKey: 'kid+base64',
       e2eKeyId: 'kid',
+      roles: '["owner"]',
       misAJourLe: 1000,
     });
   });

@@ -272,3 +272,26 @@ describe('ajout de file_id à la file de téléversements (0013)', () => {
     }
   });
 });
+
+describe('rôles des abonnements (0015)', () => {
+  test('ajoute la colonne et oublie le curseur des abonnements, pas les autres', () => {
+    const db = baseMigreeAvant(15);
+    const ins = 'INSERT INTO etat_synchro (portee, flux, mis_a_jour_depuis) VALUES (?, ?, ?)';
+    db.prepare(ins).run('*', 'abonnements', 100);
+    db.prepare(ins).run('*', 'salons', 100);
+    db.prepare(ins).run('r1', 'messages', 100);
+
+    appliquerMigration(db, 15);
+
+    const curseurs = db
+      .prepare('SELECT portee, flux FROM etat_synchro ORDER BY portee, flux')
+      .all()
+      .map((l) => ({ ...(l as Record<string, unknown>) }));
+    assert.deepEqual(curseurs, [
+      { portee: '*', flux: 'salons' },
+      { portee: 'r1', flux: 'messages' },
+    ]);
+    db.prepare("INSERT INTO abonnements (rid, roles) VALUES ('r1', '[\"owner\"]')").run();
+    db.close();
+  });
+});

@@ -14,6 +14,7 @@ mod fonts;
 mod i18n;
 mod icon;
 mod login;
+mod logs;
 #[cfg(target_os = "macos")]
 mod macos;
 mod markdown_view;
@@ -94,6 +95,7 @@ fn application_flags() -> gtk::gio::ApplicationFlags {
 
 fn main() -> glib::ExitCode {
     crashlog::install();
+    logs::install();
     #[cfg(target_os = "macos")]
     macos::bundle_environment();
     #[cfg(windows)]

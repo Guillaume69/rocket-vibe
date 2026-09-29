@@ -112,6 +112,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("format.bullets", "Liste à puces (Ctrl+Maj+8)", "Bulleted list (Ctrl+Shift+8)"),
     ("format.numbers", "Liste numérotée (Ctrl+Maj+7)", "Numbered list (Ctrl+Shift+7)"),
     ("attach.original", "Images en qualité d'origine", "Images in original quality"),
+    ("emoji.server", "Émojis du serveur", "Server emoji"),
     ("attach.preview", "Aperçu", "Preview"),
     ("attach.remove", "Retirer", "Remove"),
     ("attach.too_large", "{name} dépasse {max} Mo", "{name} is over {max} MB"),

@@ -32,6 +32,7 @@ pub struct Composer {
     mentions: RefCell<Option<MentionSource>>,
     on_files: Handler<Vec<Picked>>,
     custom_emoji: RefCell<Option<MentionSource>>,
+    custom_names: Rc<RefCell<Option<crate::emoji_picker::CustomSource>>>,
     field: gtk::Box,
     record_bar: gtk::Box,
     record_time: gtk::Label,
@@ -159,10 +160,15 @@ impl Composer {
         pill.append(&attach);
         pill.append(&stack);
         let text_for_picker = text.clone();
-        pill.append(&crate::emoji_picker::button(move |glyph| {
-            text_for_picker.buffer().insert_at_cursor(glyph);
-            text_for_picker.grab_focus();
-        }));
+        let custom_names: Rc<RefCell<Option<crate::emoji_picker::CustomSource>>> = Rc::default();
+        let names = custom_names.clone();
+        pill.append(&crate::emoji_picker::button(
+            move |glyph| {
+                text_for_picker.buffer().insert_at_cursor(glyph);
+                text_for_picker.grab_focus();
+            },
+            Rc::new(move || names.borrow().as_ref().map(|f| f()).unwrap_or_default()),
+        ));
         let choices =
             gtk::ListBox::builder().selection_mode(gtk::SelectionMode::Single).css_classes(["completion"]).build();
         let completion = gtk::Popover::builder()
@@ -251,6 +257,7 @@ impl Composer {
             mentions: RefCell::default(),
             on_files: RefCell::default(),
             custom_emoji: RefCell::default(),
+            custom_names,
             field,
             record_bar,
             record_time,
@@ -508,6 +515,8 @@ impl Composer {
         });
         let s = session.clone();
         self.custom_emoji.replace(Some(Rc::new(move |prefix: &str| s.custom_emoji_codes(prefix))));
+        let s = session.clone();
+        self.custom_names.replace(Some(Rc::new(move || s.custom_emoji_names())));
     }
 
     /// Usernames offered after `@`, given the prefix typed.

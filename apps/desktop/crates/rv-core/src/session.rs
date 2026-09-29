@@ -154,6 +154,7 @@ pub struct Session {
     e2e: Mutex<Option<E2eUnlocked>>,
     /// Custom emoji: shortcode (name or alias) → image path.
     custom_emoji: Mutex<HashMap<String, String>>,
+    custom_emoji_names: Mutex<Vec<String>>,
     once: tokio::sync::OnceCell<()>,
     /// Rooms whose edits and deletions were caught up this session.
     synced: Arc<Mutex<std::collections::HashSet<String>>>,
@@ -211,6 +212,7 @@ impl Session {
             notification_preference: Mutex::new("default".to_owned()),
             e2e: Mutex::default(),
             custom_emoji: Mutex::default(),
+            custom_emoji_names: Mutex::default(),
             once: tokio::sync::OnceCell::new(),
             synced: Arc::default(),
             presence: Mutex::default(),
@@ -518,6 +520,11 @@ impl Session {
         self.custom_emoji.lock().unwrap().get(code).cloned()
     }
 
+    /// Every custom emoji, once each, by name.
+    pub fn custom_emoji_names(&self) -> Vec<String> {
+        self.custom_emoji_names.lock().unwrap().clone()
+    }
+
     /// Custom shortcodes starting with `prefix`, sorted.
     pub fn custom_emoji_codes(&self, prefix: &str) -> Vec<String> {
         let mut codes: Vec<String> =
@@ -665,7 +672,9 @@ impl Session {
     /// the REST budget being ten calls a minute.
     async fn once_per_session(&self) {
         if let Ok(list) = self.rest.get("emoji-custom.list", CallOptions::default()).await {
-            self.custom_emoji.lock().unwrap().extend(crate::emoji::custom_index(&list));
+            let index = crate::emoji::custom_index(&list);
+            *self.custom_emoji_names.lock().unwrap() = crate::emoji::custom_names(&index);
+            self.custom_emoji.lock().unwrap().extend(index);
             let _ = self.events.send(SessionEvent::Avatar);
         }
         if let Ok(me) = self.me().await {

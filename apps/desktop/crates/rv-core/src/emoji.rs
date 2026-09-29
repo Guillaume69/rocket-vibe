@@ -159,6 +159,15 @@ pub fn custom_index(response: &serde_json::Value) -> Vec<(String, String)> {
     index
 }
 
+/// Each custom emoji once, by its own name rather than an alias, sorted.
+pub fn custom_names(index: &[(String, String)]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut names: Vec<String> =
+        index.iter().filter(|(_, path)| seen.insert(path.as_str())).map(|(code, _)| code.clone()).collect();
+    names.sort();
+    names
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,6 +186,15 @@ mod tests {
                 ("parrot".to_owned(), "/emoji-custom/parrot.png".to_owned())
             ]
         );
+    }
+
+    #[test]
+    fn custom_names_skip_aliases() {
+        let index = custom_index(&serde_json::json!({"emojis":{"update":[
+            {"name":"shipit","aliases":["ship"],"extension":"png"},
+            {"name":"party_parrot","aliases":["parrot","pp"],"extension":"gif"}
+        ]}}));
+        assert_eq!(custom_names(&index), ["party_parrot", "shipit"]);
     }
 
     #[test]

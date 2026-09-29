@@ -41,6 +41,7 @@
 //!   RV_SMOKE_GALLERY=1     sample messages and a composer, no server: see `gallery`
 //!   RV_SMOKE_AUTOSTART=on|off  sets starting at login, prints the result and exits
 //!   RV_SMOKE_SOAK=<secs>   with the gallery: rows, toasts and badges churned that long: see `soak`
+//!   RV_SMOKE_CALL=<url>    with the gallery: the call window opened on <url>
 //!   RV_SMOKE_UPDATE=1      the update card must offer a newer release (RV_SMOKE_UPDATE_FROM plays an
 //!                          older version); `install`: its Update button must replace the binary
 //! A failed expectation makes the process exit with status 1.
@@ -844,6 +845,17 @@ pub fn gallery(app: &adw::Application) -> bool {
         ),
         display(row("3", "bob", "😀", now), true, false, false),
         display(row("4", "bob", "Mixed: café, naïve, 日本語, emoji 👩‍💻 at the end 🙂", now), false, false, false),
+        display(
+            rv_core::store::MessageRow {
+                system_type: Some("videoconf".into()),
+                call_id: Some("gallery-call".into()),
+                text: None,
+                ..row("5", "bob", "", now)
+            },
+            false,
+            false,
+            false,
+        ),
     ];
     let column = gtk::Box::builder().orientation(gtk::Orientation::Vertical).margin_top(12).build();
     for d in &samples {
@@ -879,6 +891,13 @@ pub fn gallery(app: &adw::Application) -> bool {
         reply: Some(rv_native::ReplyLabels { placeholder: "Reply", send: "Send" }),
     });
     println!("smoke: native notifications available {}", rv_native::available());
+    if let Ok(url) = std::env::var("RV_SMOKE_CALL") {
+        let anchor = window.clone();
+        glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+            crate::call_window::open(&anchor, &url, "smoke", |text| println!("smoke: call toast {text}"));
+            println!("smoke: call window asked for {url}");
+        });
+    }
     if let Some(seconds) = std::env::var("RV_SMOKE_SOAK").ok().and_then(|s| s.parse::<u32>().ok()) {
         soak(column, samples.to_vec(), seconds);
     }

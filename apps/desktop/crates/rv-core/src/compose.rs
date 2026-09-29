@@ -314,9 +314,121 @@ pub fn words(text: &str) -> Vec<(usize, usize)> {
     out
 }
 
+/// Shift+Enter on a list item: the next item's marker, the same bullet or
+/// the next number, at the same indentation. On an item left empty the marker
+/// goes and the list ends. None where a plain line break is right: outside a
+/// list, before the marker, or inside a code block.
+pub fn list_break(text: &str, cursor: usize) -> Option<Edited> {
+    let c = chars(text);
+    let cursor = cursor.min(c.len());
+    let line_start = c[..cursor].iter().rposition(|&ch| ch == '\n').map_or(0, |i| i + 1);
+    let line_end = c[line_start..].iter().position(|&ch| ch == '\n').map_or(c.len(), |i| line_start + i);
+    let fences = string(&c[..line_start]).lines().filter(|l| l.trim_start().starts_with("```")).count();
+    if fences % 2 == 1 {
+        return None;
+    }
+    let line = string(&c[line_start..line_end]);
+    let indent: String = line.chars().take_while(|ch| *ch == ' ' || *ch == '\t').collect();
+    let rest = &line[indent.len()..];
+    let (marker_len, next) = if rest.starts_with("- ") || rest.starts_with("* ") {
+        (2, rest[..2].to_owned())
+    } else {
+        let digits = rest.chars().take_while(char::is_ascii_digit).count();
+        if digits == 0 || !rest[digits..].starts_with(". ") {
+            return None;
+        }
+        let number: u64 = rest[..digits].parse().ok()?;
+        (digits + 2, format!("{}. ", number + 1))
+    };
+    let body_start = line_start + indent.chars().count() + marker_len;
+    if cursor < body_start {
+        return None;
+    }
+    if string(&c[body_start..line_end]).trim().is_empty() {
+        let text = string(&c[..line_start]) + &string(&c[line_end..]);
+        return Some(Edited { text, start: line_start, end: line_start });
+    }
+    let inserted = format!("\n{indent}{next}");
+    let at = cursor + inserted.chars().count();
+    Some(Edited { text: string(&c[..cursor]) + &inserted + &string(&c[cursor..]), start: at, end: at })
+}
+
+/// Code fences as Rocket.Chat's parser needs them, each on a line of its
+/// own: a fence closed at the end of a line, or opened and closed on one,
+/// would otherwise post a list or stray backticks where the draft showed a
+/// code block. A word right after the
+/// opening fence stays there, as the language.
+pub fn fenced(text: &str) -> String {
+    if !text.contains("```") {
+        return text.to_owned();
+    }
+    let language = |rest: &str| rest.chars().all(|c| c.is_ascii_alphanumeric() || "+#_-.".contains(c));
+    let mut out: Vec<String> = Vec::new();
+    let mut open = false;
+    for line in text.split('\n') {
+        let trimmed = line.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("```") {
+            if open {
+                out.push("```".to_owned());
+                if !rest.trim().is_empty() {
+                    out.push(rest.trim_start().to_owned());
+                }
+                open = false;
+            } else if let Some((inside, after)) = rest.split_once("```") {
+                out.extend(["```".to_owned(), inside.to_owned(), "```".to_owned()]);
+                if !after.trim().is_empty() {
+                    out.push(after.trim_start().to_owned());
+                }
+            } else if language(rest.trim_end()) {
+                out.push(line.to_owned());
+                open = true;
+            } else {
+                out.extend(["```".to_owned(), rest.to_owned()]);
+                open = true;
+            }
+        } else if let Some(inside) = line.trim_end().strip_suffix("```").filter(|_| open) {
+            out.extend([inside.to_owned(), "```".to_owned()]);
+            open = false;
+        } else {
+            out.push(line.to_owned());
+        }
+    }
+    out.join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn list_breaks_continue_bullets_and_numbers() {
+        let at_end = |t: &str| list_break(t, t.chars().count()).map(|e| (e.text, e.start));
+        assert_eq!(at_end("- un"), Some(("- un\n- ".into(), 7)));
+        assert_eq!(at_end("intro\n* un"), Some(("intro\n* un\n* ".into(), 13)));
+        assert_eq!(at_end("9. neuf"), Some(("9. neuf\n10. ".into(), 12)));
+        assert_eq!(at_end("  - sous"), Some(("  - sous\n  - ".into(), 13)));
+        assert_eq!(at_end("- un\n- "), Some(("- un\n".into(), 5)));
+        assert_eq!(at_end("- un\n3. "), Some(("- un\n".into(), 5)));
+        assert_eq!(at_end("plain"), None);
+        assert_eq!(at_end("-dash"), None);
+        assert_eq!(at_end("```\n- in code"), None);
+        assert_eq!(at_end("```\ncode\n```\n- after"), Some(("```\ncode\n```\n- after\n- ".into(), 23)));
+        assert_eq!(list_break("- un deux", 4).map(|e| e.text), Some("- un\n-  deux".into()));
+        assert_eq!(list_break("- un", 1), None);
+    }
+
+    #[test]
+    fn fences_get_lines_of_their_own() {
+        assert_eq!(fenced("```\n- un\n- deux```"), "```\n- un\n- deux\n```");
+        assert_eq!(fenced("```- un\n- deux```"), "```\n- un\n- deux\n```");
+        assert_eq!(fenced("```-ZOB-```"), "```\n-ZOB-\n```");
+        assert_eq!(fenced("see ```x```"), "see ```x```");
+        assert_eq!(fenced("```rust\nfn a() {}\n``` done"), "```rust\nfn a() {}\n```\ndone");
+        assert_eq!(fenced("```\nok\n```"), "```\nok\n```");
+        assert_eq!(fenced("```x``` after"), "```\nx\n```\nafter");
+        assert_eq!(fenced("no code"), "no code");
+        assert_eq!(fenced("```\nleft open"), "```\nleft open");
+    }
 
     fn edit(text: &str, start: usize, end: usize) -> Edited {
         Edited { text: text.into(), start, end }

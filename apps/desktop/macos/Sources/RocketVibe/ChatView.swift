@@ -150,6 +150,7 @@ struct RoomSections: View {
     func title(_ section: RoomSection) -> String {
         switch section {
         case .unread: return L("rooms.section_unread")
+        case .favorites: return L("rooms.section_favorites")
         case .channels: return L("rooms.section_channels")
         case .direct: return L("rooms.section_direct")
         }

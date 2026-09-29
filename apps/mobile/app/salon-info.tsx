@@ -17,11 +17,12 @@ import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import type { BaseLocale } from '../db/client.ts';
-import { salons } from '../db/schema.ts';
+import { abonnements, salons } from '../db/schema.ts';
 import type { MoteurE2E } from '../lib/e2e/moteur.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { useE2EDeverrouille } from '../ui/e2e.ts';
 import { traduireCourant, useT } from '../ui/i18n.ts';
+import { Appuyable } from '../ui/appuyable.tsx';
 import { AvatarSalon } from '../ui/kit.tsx';
 import type { CleTraduction } from '../ui/messages.ts';
 import { useSession } from '../ui/session.tsx';
@@ -84,6 +85,25 @@ function ContenuSalonInfo({
     [rid],
   );
   const salon = (lignes ?? [])[0];
+  const { data: lignesAbonnement } = useRequeteVive(
+    base.select().from(abonnements).where(eq(abonnements.rid, rid)),
+    [rid],
+  );
+  const favori = (lignesAbonnement ?? [])[0]?.favori === true;
+  const [basculeFavori, setBasculeFavori] = useState(false);
+  const [erreurFavori, setErreurFavori] = useState(false);
+  // Le serveur d'abord : la ligne locale ne change qu'une fois l'étoile posée,
+  // le flux des abonnements confirmera de lui-même.
+  const basculerFavori = (): void => {
+    if (basculeFavori) return;
+    setBasculeFavori(true);
+    setErreurFavori(false);
+    void client
+      .post('rooms.favorite', { corps: { roomId: rid, favorite: !favori } })
+      .then(() => base.update(abonnements).set({ favori: !favori }).where(eq(abonnements.rid, rid)))
+      .catch(() => setErreurFavori(true))
+      .finally(() => setBasculeFavori(false));
+  };
 
   const [complement, setComplement] = useState<Complement | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
@@ -153,6 +173,21 @@ function ContenuSalonInfo({
         </View>
       </View>
 
+      <Appuyable
+        onPress={basculerFavori}
+        disabled={basculeFavori}
+        accessibilityRole="button"
+        android_ripple={{ color: c.ondulation }}
+        style={[styles.favori, { backgroundColor: c.carte }]}
+      >
+        <Text style={[styles.favoriTexte, { color: c.texte }]}>
+          {favori ? '★ ' + t('salonInfo.retirerFavori') : '☆ ' + t('salonInfo.ajouterFavori')}
+        </Text>
+      </Appuyable>
+      {erreurFavori && (
+        <Text style={[styles.vide, { color: c.texteErreur }]}>{t('salonInfo.favoriEchec')}</Text>
+      )}
+
       {complement?.annonce !== null && complement !== null && (
         <Section c={c} titre={t('salonInfo.annonce')} texte={complement.annonce} />
       )}
@@ -206,4 +241,6 @@ const styles = StyleSheet.create({
   sectionTitre: { fontFamily: POLICES.corpsFort, fontSize: 12, textTransform: 'uppercase' },
   sectionTexte: { fontFamily: POLICES.corps, fontSize: 15 },
   vide: { fontFamily: POLICES.corps, fontSize: 13, fontStyle: 'italic' },
+  favori: { borderRadius: 14, paddingVertical: 12, paddingHorizontal: 16, alignItems: 'center' },
+  favoriTexte: { fontFamily: POLICES.corpsFort, fontSize: 15 },
 });

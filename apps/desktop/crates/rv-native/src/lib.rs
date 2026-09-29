@@ -124,6 +124,12 @@ pub use other::{
     set_autostart, set_window, show, tray, withdraw,
 };
 
+/// The smoke run's stand-in for a keyboard layout change (Windows only).
+#[cfg(windows)]
+pub use windows_impl::input_language_changed;
+#[cfg(not(windows))]
+pub fn input_language_changed() {}
+
 /// What the call window does, in the log, for the smoke run to read.
 #[cfg(any(windows, target_os = "macos"))]
 pub(crate) fn call_event(what: &str, detail: &str) {

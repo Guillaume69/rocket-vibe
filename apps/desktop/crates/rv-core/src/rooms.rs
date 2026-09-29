@@ -7,19 +7,22 @@ use crate::store::RoomRow;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Section {
     Unread,
+    Favorites,
     Channels,
     Direct,
 }
 
-/// Unread first, then channels and groups, then direct messages; each keeps
-/// the list's order (latest activity first), and empty sections are left out.
+/// Unread first, then the rooms I starred, then channels and groups, then
+/// direct messages; each keeps the list's order (latest activity first), and
+/// empty sections are left out.
 pub fn sections(rooms: &[RoomRow]) -> Vec<(Section, Vec<RoomRow>)> {
     let unread = |r: &RoomRow| r.unread > 0 || r.alert;
     let pick = |f: &dyn Fn(&RoomRow) -> bool| rooms.iter().filter(|r| f(r)).cloned().collect::<Vec<_>>();
     [
         (Section::Unread, pick(&|r| unread(r))),
-        (Section::Channels, pick(&|r| !unread(r) && r.kind != "d")),
-        (Section::Direct, pick(&|r| !unread(r) && r.kind == "d")),
+        (Section::Favorites, pick(&|r| !unread(r) && r.favorite)),
+        (Section::Channels, pick(&|r| !unread(r) && !r.favorite && r.kind != "d")),
+        (Section::Direct, pick(&|r| !unread(r) && !r.favorite && r.kind == "d")),
     ]
     .into_iter()
     .filter(|(_, rows)| !rows.is_empty())
@@ -115,6 +118,13 @@ mod tests {
             [(Section::Unread, vec!["b"]), (Section::Channels, vec!["a", "c"]), (Section::Direct, vec!["d"])]
         );
         assert_eq!(sections(&[room("a", "c", 0)]).len(), 1);
+        let mut starred = room("e", "d", 0);
+        starred.favorite = true;
+        let mut starred_unread = room("f", "c", 1);
+        starred_unread.favorite = true;
+        let kinds: Vec<(Section, usize)> =
+            sections(&[starred, starred_unread, room("g", "c", 0)]).iter().map(|(k, r)| (*k, r.len())).collect();
+        assert_eq!(kinds, [(Section::Unread, 1), (Section::Favorites, 1), (Section::Channels, 1)]);
         assert_eq!(unread_rooms(&rooms), 1);
     }
 

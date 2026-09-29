@@ -16,6 +16,8 @@ const CSS: &str = r#"
   --headerbar-shade-color: #1E1B33;
   --sidebar-bg-color: #0F0E1C;
   --sidebar-fg-color: #F3F0FF;
+  --sidebar-backdrop-color: #0F0E1C;
+  --headerbar-backdrop-color: #0C0B16;
   --card-bg-color: #171529;
   --popover-bg-color: #171529;
   --dialog-bg-color: #171529;
@@ -162,6 +164,8 @@ button.attach-button { min-width: 28px; min-height: 24px; padding: 0 2px; color:
 button.known-server { background: #171529; border: 1px solid #2C2946; border-radius: 999px; padding: 2px 12px; min-height: 26px; font-size: 12.5px; }
 .e2e-banner { background: #171529; border: 1px solid #2C2946; border-radius: 12px; padding: 8px 12px; margin: 8px 16px 0 16px; }
 textview.inline-images, textview.inline-images text { background: transparent; color: #E7E3F5; }
+textview.inline-images .custom-emoji { min-width: 20px; min-height: 20px; }
+textview.md-big-emoji .custom-emoji { min-width: 48px; min-height: 48px; margin-bottom: 0; }
 .custom-emoji { min-width: 22px; min-height: 22px; }
 .record-bar { background: #171529; border: 2px solid #FF5FA2; border-radius: 999px; padding: 6px 8px 6px 16px; }
 .record-dot { background: #FF5F6D; border-radius: 999px; min-width: 10px; min-height: 10px; }
@@ -222,10 +226,6 @@ button.file-action, button.call-join { background: linear-gradient(135deg, #FF5F
 .video-bar { background: linear-gradient(0deg, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0)); padding: 18px 8px 4px 8px; color: #FFFFFF; }
 .video-bar button { color: #FFFFFF; }
 .image-attachment { background: #171529; border-radius: 10px; }
-.message.picked { background: rgba(92, 200, 255, 0.14); border-radius: 12px; }
-.pick-bar { background: #2C2946; border-radius: 999px; padding: 4px 6px 4px 16px; box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.8); }
-.pick-count { font-weight: 700; font-size: 13px; }
-button.pick-copy { background: linear-gradient(135deg, #FF5FA2, #A78BFA); color: #0D0B1A; font-weight: 800; border-radius: 999px; min-height: 0; padding: 3px 14px; }
 .message.revealed { background: rgba(167, 139, 250, 0.16); border-radius: 12px; transition: background 400ms; }
 .message .row-more { opacity: 0; min-height: 24px; min-width: 28px; padding: 0; color: #8F89AB; transition: opacity 120ms; }
 .message:hover .row-more { opacity: 1; }

@@ -117,6 +117,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: desktop-appimage
+      - uses: actions/checkout@v5
+        with:
+          path: repo
+          sparse-checkout: apps/desktop/tests/media
       - name: Gallery on Ubuntu 22.04
         run: |
           export DEBIAN_FRONTEND=noninteractive
@@ -126,6 +130,8 @@ jobs:
           chmod +x ./*.AppImage
           Xvfb :99 -screen 0 1100x750x24 > /dev/null 2>&1 &
           export DISPLAY=:99 HOME="$RUNNER_TEMP/home" RV_SMOKE_GALLERY=1
+          media="$PWD/repo/apps/desktop/tests/media"
+          export RV_SMOKE_MEDIA="$media/voice.ogg|$media/voice.m4a|$media/video.mp4"
           mkdir -p "$HOME"
           sleep 2
           ./*.AppImage > gallery.log 2>&1 &
@@ -135,6 +141,7 @@ jobs:
           cat gallery.log
           if ! kill -0 "$app" 2> /dev/null; then echo "::error::the AppImage exited"; exit 1; fi
           if grep -q panicked gallery.log; then echo "::error::a panic was logged"; exit 1; fi
+          if [ "$(grep -c "smoke: media .* ok" gallery.log)" != 3 ]; then echo "::error::audio or video did not play"; exit 1; fi
           kill "$app"
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
@@ -269,13 +276,35 @@ jobs:
           Remove-Item Env:RV_SMOKE_AUTOSTART
           # Sample messages without a server: how text, emoji and times line up here.
           $env:RV_SMOKE_GALLERY = "1"
+          $media = "$env:GITHUB_WORKSPACE\apps\desktop\tests\media"
+          $env:RV_SMOKE_MEDIA = "$media\voice.ogg|$media\voice.m4a|$media\video.mp4"
           $gallery = Start-Process $exe -WorkingDirectory "$app\bin" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\gallery-out.txt"
           Start-Sleep -Seconds 8
+          for ($i = 0; $i -lt 20 -and @(Select-String -Path "$env:RUNNER_TEMP\gallery-out.txt" -Pattern "smoke: media " -ErrorAction SilentlyContinue).Count -lt 3; $i++) { Start-Sleep -Seconds 1 }
           $shot = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
           [System.Drawing.Graphics]::FromImage($shot).CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
           $shot.Save("$env:RUNNER_TEMP\gallery.png")
           if (-not $gallery.HasExited) { Stop-Process -Id $gallery.Id -Force }
           Get-Content "$env:RUNNER_TEMP\gallery-out.txt" -ErrorAction SilentlyContinue
+          Remove-Item Env:RV_SMOKE_MEDIA
+          $played = @(Select-String -Path "$env:RUNNER_TEMP\gallery-out.txt" -Pattern "smoke: media .* ok").Count
+          if ($played -ne 3) { throw "audio or video did not play ($played of 3)" }
+          # Keyboard layout changes with the composer focused: once as GTK leaves it, to show the
+          # test reproduces the IME crash, then with the input method pinned, which must stay clean.
+          foreach ($mode in @("unpinned", "1")) {
+            $env:RV_SMOKE_IME = $mode
+            $ime = Start-Process $exe -WorkingDirectory "$app\bin" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\ime-$mode.txt"
+            Start-Sleep -Seconds 12
+            $imeAlive = -not $ime.HasExited
+            if ($imeAlive) { Stop-Process -Id $ime.Id -Force }
+            Start-Sleep -Seconds 1
+            $imeLog = Get-Content "$env:LOCALAPPDATA\rocket-vibe-rs\rocket-vibe.log" -Raw -ErrorAction SilentlyContinue
+            $criticals = ([regex]::Matches("$imeLog", "GTK_IS_IM_CONTEXT_IME")).Count
+            Get-Content "$env:RUNNER_TEMP\ime-$mode.txt" -ErrorAction SilentlyContinue
+            Write-Host "input method $mode : alive $imeAlive, $criticals IME criticals"
+            if ($mode -eq "1" -and (-not $imeAlive -or $criticals -gt 0)) { throw "a keyboard layout change still breaks the input method" }
+          }
+          Remove-Item Env:RV_SMOKE_IME
           # The call window: WebView2 in a window of the app, on the page it was given.
           $env:RV_SMOKE_CALL = "https://example.org/"
           $call = Start-Process $exe -WorkingDirectory "$app\bin" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\call-out.txt"
@@ -425,12 +454,15 @@ jobs:
           kill "$pid" 2>/dev/null || true
           # Sample messages without a server: how text, emoji and times line up here.
           sleep 2
-          RV_SMOKE_GALLERY=1 "$app/Contents/MacOS/rocket-vibe-gtk" > "$RUNNER_TEMP/gallery.log" 2>&1 &
+          media="$GITHUB_WORKSPACE/apps/desktop/tests/media"
+          RV_SMOKE_GALLERY=1 RV_SMOKE_MEDIA="$media/voice.ogg|$media/voice.m4a|$media/video.mp4" \
+            "$app/Contents/MacOS/rocket-vibe-gtk" > "$RUNNER_TEMP/gallery.log" 2>&1 &
           gallery=$!
           sleep 8
           screencapture -x "$RUNNER_TEMP/gallery.png" || true
           kill "$gallery" 2>/dev/null || true
           cat "$RUNNER_TEMP/gallery.log"
+          if [ "$(grep -c "smoke: media .* ok" "$RUNNER_TEMP/gallery.log")" != 3 ]; then echo "::error::audio or video did not play"; alive=0; fi
           # The call window: WKWebView in a window of the app, on the page it was given.
           RV_SMOKE_GALLERY=1 RV_SMOKE_CALL=https://example.org/ "$app/Contents/MacOS/rocket-vibe-gtk" > "$RUNNER_TEMP/call.log" 2>&1 &
           call=$!

@@ -5,8 +5,14 @@
 use std::io::Write;
 use std::path::PathBuf;
 
+/// On Windows, GLib's cache folder is the browser cache, which Disk Cleanup
+/// empties: the logs go in the local app data folder instead.
 pub fn dir() -> PathBuf {
-    let dir = gtk::glib::user_cache_dir().join("rocket-vibe-rs");
+    #[cfg(windows)]
+    let base = gtk::glib::user_data_dir();
+    #[cfg(not(windows))]
+    let base = gtk::glib::user_cache_dir();
+    let dir = base.join("rocket-vibe-rs");
     let _ = std::fs::create_dir_all(&dir);
     dir
 }
@@ -29,7 +35,9 @@ pub fn install() {
             std::env::consts::OS,
             std::env::consts::ARCH,
         );
-        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(dir().join("crash.log")) {
+        let path = dir().join("crash.log");
+        let full = std::fs::metadata(&path).is_ok_and(|m| m.len() > crate::logs::CAP);
+        if !full && let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
             let _ = file.write_all(entry.as_bytes());
         }
         default(info);

@@ -16,6 +16,42 @@ section here.
   window of Chromium, Chrome, Brave, Edge or Vivaldi when one is installed, else in the browser.
 - An information button on the call card shows the meeting link, to copy or open in the
   browser, like the official client's.
+- A Favorites section in the room list, after Unread, for the rooms starred on the server
+  (as in the official client); a right click on a room adds it or takes it out.
+- Shift+Enter continues a list in the composer: the same bullet, or the next number, at the
+  same indentation; on an empty item it ends the list.
+
+### Changed
+
+- Text selects across messages as in a browser: drag from one message into others and the
+  selection runs through them in reading order, scrolling the list at its edges; Ctrl+C
+  copies it. The selection of whole messages from the avatar column is gone.
+
+### Fixed
+
+- Logs could grow without bound: a GTK critical repeated four million times made a 300 MB
+  log. A message repeated back to back is now written once and counted, and a run writes
+  5 MB at most.
+- Windows: the app crashed after a keyboard layout change (Win+Space, Alt+Shift, or Windows
+  switching layouts per window) while typing: GTK left its input method behind. The input
+  method is now fixed, so a layout change no longer swaps it.
+- Audio and video files did not play on Windows (decoders missing from the package) nor on
+  macOS (Homebrew's GTK has no media backend; the app now plays through GStreamer itself).
+  Both play Ogg (voice messages from this app), AAC (from the Android app) and H.264 video.
+  An audio file that cannot play says so.
+- Windows: the logs moved to `%LOCALAPPDATA%\rocket-vibe-rs`, out of the Internet cache that
+  Disk Cleanup empties. Settings, Logs opens the folder.
+- A code block closed at the end of its last line, or opened and closed on one line, was
+  posted as a list or with stray backticks: the fences now get lines of their own.
+- Long lines in code blocks wrapped with inserted hyphens, which also ended up in copies.
+- The room list turned grey while the window was not focused.
+- Server emoji showed as boxes in headings and list items, and a message of server emoji
+  alone showed them small; in bold or struck text the words around them disappeared (the
+  "Invalid markup" warnings in the log).
+- Messages that come without the server's parsed form (bots, integrations) showed their raw
+  text: `[label](url)` links, `:emoji:` codes and formatting now render.
+- Pinned and starred messages showed raw markdown; they render as in the room.
+- Room list previews showed markdown syntax (fences, stars, link brackets); they read as text.
 
 ## [0.4.1] - 2026-09-29
 

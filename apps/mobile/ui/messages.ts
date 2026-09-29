@@ -217,6 +217,7 @@ const fr = {
   // ── Accueil (liste des conversations)
   'accueil.parametres': 'Paramètres',
   'accueil.sectionNonLus': 'Non lus',
+  'accueil.sectionFavoris': 'Favoris',
   'accueil.sectionSalons': 'Salons',
   'accueil.sectionMessagesPrives': 'Messages privés',
   'accueil.sectionConversations': '{n} conversation | {n} conversations',
@@ -412,6 +413,9 @@ const fr = {
   'salonInfo.sujet': 'Sujet',
   'salonInfo.description': 'Description',
   'salonInfo.rienARenseigner': 'Ni description, ni sujet, ni annonce.',
+  'salonInfo.ajouterFavori': 'Ajouter aux favoris',
+  'salonInfo.retirerFavori': 'Retirer des favoris',
+  'salonInfo.favoriEchec': 'Favori non modifié : réessayez.',
 } as const;
 
 /** Toutes les clés valides de traduction — dérivées de `fr`, la référence. */
@@ -600,6 +604,7 @@ const en: Record<CleTraduction, string> = {
 
   'accueil.parametres': 'Settings',
   'accueil.sectionNonLus': 'Unread',
+  'accueil.sectionFavoris': 'Favorites',
   'accueil.sectionSalons': 'Channels',
   'accueil.sectionMessagesPrives': 'Direct messages',
   'accueil.sectionConversations': '{n} conversation | {n} conversations',
@@ -771,6 +776,9 @@ const en: Record<CleTraduction, string> = {
   'salonInfo.sujet': 'Topic',
   'salonInfo.description': 'Description',
   'salonInfo.rienARenseigner': 'No description, topic, or announcement.',
+  'salonInfo.ajouterFavori': 'Add to favorites',
+  'salonInfo.retirerFavori': 'Remove from favorites',
+  'salonInfo.favoriEchec': 'Favorite not changed: try again.',
 };
 
 /** Les deux catalogues, prêts à l'indexation par langue. */

@@ -717,11 +717,11 @@ impl Session {
     }
 
     pub async fn send(&self, rid: &str, text: &str) {
-        let text = text.trim();
+        let text = crate::compose::fenced(text.trim());
         if text.is_empty() {
             return;
         }
-        self.outbox.enqueue(rid, text, None);
+        self.outbox.enqueue(rid, &text, None);
         self.outbox.process().await;
     }
 
@@ -776,6 +776,7 @@ impl Session {
     }
 
     pub async fn edit(&self, rid: &str, msg_id: &str, text: &str) -> Result<(), RestError> {
+        let text = &crate::compose::fenced(text);
         let doc = if self.store.message_type(msg_id).as_deref() == Some(crate::normalize::ENCRYPTED_TYPE) {
             let content = self
                 .encrypt(rid, &serde_json::json!({"msg": text}))
@@ -793,6 +794,13 @@ impl Session {
     pub async fn delete(&self, rid: &str, msg_id: &str) -> Result<(), RestError> {
         actions::delete(&self.rest, rid, msg_id).await?;
         self.store.write(|w| w.delete_message(msg_id));
+        Ok(())
+    }
+
+    /// Stars a room, or takes the star away: it moves to the Favorites section.
+    pub async fn set_favorite(&self, rid: &str, on: bool) -> Result<(), RestError> {
+        actions::favorite(&self.rest, rid, on).await?;
+        self.store.write(|w| w.set_favorite(rid, on));
         Ok(())
     }
 
@@ -889,11 +897,11 @@ impl Session {
 
     /// Sends into a thread when `thread_id` is set.
     pub async fn send_in(&self, rid: &str, text: &str, thread_id: Option<&str>) {
-        let text = text.trim();
+        let text = crate::compose::fenced(text.trim());
         if text.is_empty() {
             return;
         }
-        self.outbox.enqueue(rid, text, thread_id);
+        self.outbox.enqueue(rid, &text, thread_id);
         self.outbox.process().await;
     }
 

@@ -302,6 +302,10 @@ pub async fn delete(rest: &RestClient, rid: &str, msg_id: &str) -> Result<(), Re
     rest.post("chat.delete", CallOptions::body(json!({"roomId": rid, "msgId": msg_id}))).await.map(|_| ())
 }
 
+pub async fn favorite(rest: &RestClient, rid: &str, on: bool) -> Result<(), RestError> {
+    rest.post("rooms.favorite", CallOptions::body(json!({"roomId": rid, "favorite": on}))).await.map(|_| ())
+}
+
 pub async fn pin(rest: &RestClient, msg_id: &str) -> Result<(), RestError> {
     rest.post("chat.pinMessage", CallOptions::body(json!({"messageId": msg_id}))).await.map(|_| ())
 }

@@ -107,7 +107,7 @@ fn rich(markup: &str, classes: &[&str], emoji: i32) -> gtk::Widget {
             let from = end.offset();
             let anchor = buffer.create_child_anchor(&mut end);
             view.add_child_at_anchor(&image, &anchor);
-            if emoji < 30 {
+            if emoji < 30 && !classes.iter().any(|c| c.starts_with("md-h")) {
                 buffer.apply_tag(&style_tag(&buffer, "sink"), &buffer.iter_at_offset(from), &buffer.end_iter());
             }
             continue;
@@ -136,6 +136,16 @@ fn rich(markup: &str, classes: &[&str], emoji: i32) -> gtk::Widget {
         }
     }
     with_view_links(&view);
+    // A text view reports the height of its last layout, not the height for the
+    // width it is being given: once laid out at its real width, ask again.
+    view.connect_map(|view| {
+        let view = view.downgrade();
+        glib::timeout_add_local_once(std::time::Duration::from_millis(60), move || {
+            if let Some(view) = view.upgrade() {
+                view.queue_resize();
+            }
+        });
+    });
     view.upcast()
 }
 

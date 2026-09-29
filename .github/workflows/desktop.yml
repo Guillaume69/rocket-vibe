@@ -117,6 +117,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: desktop-appimage
+      - uses: actions/checkout@v5
+        with:
+          path: repo
+          sparse-checkout: apps/desktop/tests/media
       - name: Gallery on Ubuntu 22.04
         run: |
           export DEBIAN_FRONTEND=noninteractive
@@ -126,6 +130,8 @@ jobs:
           chmod +x ./*.AppImage
           Xvfb :99 -screen 0 1100x750x24 > /dev/null 2>&1 &
           export DISPLAY=:99 HOME="$RUNNER_TEMP/home" RV_SMOKE_GALLERY=1
+          media="$PWD/repo/apps/desktop/tests/media"
+          export RV_SMOKE_MEDIA="$media/voice.ogg|$media/voice.m4a|$media/video.mp4"
           mkdir -p "$HOME"
           sleep 2
           ./*.AppImage > gallery.log 2>&1 &
@@ -135,6 +141,7 @@ jobs:
           cat gallery.log
           if ! kill -0 "$app" 2> /dev/null; then echo "::error::the AppImage exited"; exit 1; fi
           if grep -q panicked gallery.log; then echo "::error::a panic was logged"; exit 1; fi
+          if [ "$(grep -c "smoke: media .* ok" gallery.log)" != 3 ]; then echo "::error::audio or video did not play"; exit 1; fi
           kill "$app"
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
@@ -269,6 +276,8 @@ jobs:
           Remove-Item Env:RV_SMOKE_AUTOSTART
           # Sample messages without a server: how text, emoji and times line up here.
           $env:RV_SMOKE_GALLERY = "1"
+          $media = "$env:GITHUB_WORKSPACE\apps\desktop\tests\media"
+          $env:RV_SMOKE_MEDIA = "$media\voice.ogg|$media\voice.m4a|$media\video.mp4"
           $gallery = Start-Process $exe -WorkingDirectory "$app\bin" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\gallery-out.txt"
           Start-Sleep -Seconds 8
           $shot = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
@@ -276,6 +285,9 @@ jobs:
           $shot.Save("$env:RUNNER_TEMP\gallery.png")
           if (-not $gallery.HasExited) { Stop-Process -Id $gallery.Id -Force }
           Get-Content "$env:RUNNER_TEMP\gallery-out.txt" -ErrorAction SilentlyContinue
+          Remove-Item Env:RV_SMOKE_MEDIA
+          $played = @(Select-String -Path "$env:RUNNER_TEMP\gallery-out.txt" -Pattern "smoke: media .* ok").Count
+          if ($played -ne 3) { throw "audio or video did not play ($played of 3)" }
           # Soak: rows, toasts and the badge churned for 45 s; the app must still be there, with no panic recorded.
           $env:RV_SMOKE_SOAK = "45"
           $soak = Start-Process $exe -WorkingDirectory "$app\bin" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\soak-out.txt"
@@ -413,12 +425,15 @@ jobs:
           kill "$pid" 2>/dev/null || true
           # Sample messages without a server: how text, emoji and times line up here.
           sleep 2
-          RV_SMOKE_GALLERY=1 "$app/Contents/MacOS/rocket-vibe-gtk" > "$RUNNER_TEMP/gallery.log" 2>&1 &
+          media="$GITHUB_WORKSPACE/apps/desktop/tests/media"
+          RV_SMOKE_GALLERY=1 RV_SMOKE_MEDIA="$media/voice.ogg|$media/voice.m4a|$media/video.mp4" \
+            "$app/Contents/MacOS/rocket-vibe-gtk" > "$RUNNER_TEMP/gallery.log" 2>&1 &
           gallery=$!
           sleep 8
           screencapture -x "$RUNNER_TEMP/gallery.png" || true
           kill "$gallery" 2>/dev/null || true
           cat "$RUNNER_TEMP/gallery.log"
+          if [ "$(grep -c "smoke: media .* ok" "$RUNNER_TEMP/gallery.log")" != 3 ]; then echo "::error::audio or video did not play"; alive=0; fi
           # Soak: rows, toasts and the badge churned for 45 s; the app must still be there, with no panic recorded.
           RV_SMOKE_GALLERY=1 RV_SMOKE_SOAK=45 "$app/Contents/MacOS/rocket-vibe-gtk" > "$RUNNER_TEMP/soak.log" 2>&1 &
           soak=$!

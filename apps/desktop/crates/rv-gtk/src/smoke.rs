@@ -41,6 +41,7 @@
 //!   RV_SMOKE_GALLERY=1     sample messages and a composer, no server: see `gallery`
 //!   RV_SMOKE_AUTOSTART=on|off  sets starting at login, prints the result and exits
 //!   RV_SMOKE_SOAK=<secs>   with the gallery: rows, toasts and badges churned that long: see `soak`
+//!   RV_SMOKE_MEDIA=<files> with the gallery: `|`-separated audio and video files, each must play
 //!   RV_SMOKE_UPDATE=1      the update card must offer a newer release (RV_SMOKE_UPDATE_FROM plays an
 //!                          older version); `install`: its Update button must replace the binary
 //! A failed expectation makes the process exit with status 1.
@@ -882,7 +883,34 @@ pub fn gallery(app: &adw::Application) -> bool {
     if let Some(seconds) = std::env::var("RV_SMOKE_SOAK").ok().and_then(|s| s.parse::<u32>().ok()) {
         soak(column, samples.to_vec(), seconds);
     }
+    if let Ok(files) = std::env::var("RV_SMOKE_MEDIA") {
+        media(files.split('|').filter(|f| !f.is_empty()).map(str::to_owned).collect());
+    }
     true
+}
+
+/// `RV_SMOKE_MEDIA`: each file through GTK's media stream, as the cards play
+/// them, muted: it has to be ready to play, with no error. CI machines have
+/// no sound card, so how far it got is only reported.
+fn media(files: Vec<String>) {
+    for file in files {
+        let stream = gtk::MediaFile::for_filename(&file);
+        stream.set_muted(true);
+        stream.play();
+        glib::timeout_add_local_once(Duration::from_millis(4000), move || {
+            let played = stream.timestamp();
+            let ok = stream.error().is_none() && stream.is_prepared();
+            println!(
+                "smoke: media {file} {} (played {} ms, error {:?})",
+                if ok { "ok" } else { "FAILED" },
+                played / 1000,
+                stream.error().map(|e| e.to_string())
+            );
+            if !ok {
+                FAILED.store(true, Ordering::SeqCst);
+            }
+        });
+    }
 }
 
 /// `RV_SMOKE_SOAK=<seconds>` with the gallery: for that long, rebuild the

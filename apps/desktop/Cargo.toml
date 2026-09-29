@@ -4,7 +4,7 @@ members = ["crates/rv-core", "crates/rv-ffi", "crates/rv-gtk", "crates/rv-native
 
 [workspace.package]
 edition = "2024"
-version = "0.4.0"
+version = "0.4.1"
 license = "MIT"
 
 [workspace.lints.rust]

@@ -37,6 +37,7 @@
 //!   RV_SMOKE_DRAFT_TEXT=<text>  typed in the composer (\n breaks lines), for a screenshot
 //!   RV_SMOKE_NAV=<other room>  opens the other room, then mouse back and forward between the two;
 //!                          in a narrow window, back to the list and forward into the room again
+//!   RV_SMOKE_GALLERY=1     sample messages and a composer, no server: see `gallery`
 //! A failed expectation makes the process exit with status 1.
 
 use std::cell::Cell;
@@ -774,4 +775,60 @@ fn fold_checks(chat: Rc<crate::chat::ChatPage>) {
     if folded >= before || back != before {
         FAILED.store(true, Ordering::SeqCst);
     }
+}
+
+/// `RV_SMOKE_GALLERY=1`: a window of sample messages and a composer, no
+/// server needed, so CI can screenshot how text, emoji and times line up
+/// with each system's fonts.
+pub fn gallery(app: &adw::Application) -> bool {
+    if std::env::var("RV_SMOKE_GALLERY").as_deref() != Ok("1") {
+        return false;
+    }
+    let now = chrono::Local::now().timestamp_millis();
+    let row = |id: &str, author: &str, text: &str, ts: i64| rv_core::store::MessageRow {
+        id: id.into(),
+        rid: "gallery".into(),
+        ts,
+        text: Some(text.into()),
+        author: Some(author.into()),
+        author_id: author.into(),
+        ..Default::default()
+    };
+    let display = |row, show_header, show_day, gutter_time| crate::rows::Display {
+        row,
+        show_header,
+        show_day,
+        gutter_time,
+        new_marker: false,
+    };
+    let samples = [
+        display(row("1", "alice", "Emoji inline 😄 hello 🎉 world 🚀 and a 👍 end", now - 120_000), true, true, false),
+        display(
+            row("2", "alice", "Line with 🇫🇷 flags 🇬🇧 and ❤️ hearts, then *bold* text", now - 60_000),
+            false,
+            false,
+            true,
+        ),
+        display(row("3", "bob", "😀", now), true, false, false),
+        display(row("4", "bob", "Mixed: café, naïve, 日本語, emoji 👩‍💻 at the end 🙂", now), false, false, false),
+    ];
+    let column = gtk::Box::builder().orientation(gtk::Orientation::Vertical).margin_top(12).build();
+    for d in &samples {
+        column.append(&crate::rows::message_widget(d, "alice", None, None, std::rc::Rc::new(|_| {})));
+    }
+    let composer = crate::composer::Composer::new();
+    composer.set_text("Draft 😊 with emoji");
+    let content = gtk::Box::builder().orientation(gtk::Orientation::Vertical).build();
+    content.append(&gtk::ScrolledWindow::builder().child(&column).vexpand(true).build());
+    content.append(&composer.root);
+    let window = adw::ApplicationWindow::builder()
+        .application(app)
+        .title("rocket-vibe gallery")
+        .default_width(900)
+        .default_height(600)
+        .content(&content)
+        .build();
+    window.present();
+    std::mem::forget(composer);
+    true
 }

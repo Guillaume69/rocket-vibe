@@ -178,6 +178,16 @@ jobs:
           $shot.Save("$env:RUNNER_TEMP\screenshot.png")
           Stop-Process -Id $run.Id -Force
           Start-Sleep -Seconds 2
+          # Sample messages without a server: how text, emoji and times line up here.
+          $env:RV_SMOKE_GALLERY = "1"
+          $gallery = Start-Process $exe -WorkingDirectory "$app\bin" -PassThru
+          Start-Sleep -Seconds 8
+          $shot = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
+          [System.Drawing.Graphics]::FromImage($shot).CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
+          $shot.Save("$env:RUNNER_TEMP\gallery.png")
+          if (-not $gallery.HasExited) { Stop-Process -Id $gallery.Id -Force }
+          Remove-Item Env:RV_SMOKE_GALLERY
+          Start-Sleep -Seconds 2
           Start-Process "$app\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES" -Wait
           Start-Sleep -Seconds 3
           if (Test-Path "HKCU:\Software\Classes\rocketvibe") { throw "the link registration outlived the uninstall" }
@@ -186,7 +196,9 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: desktop-windows-screenshot
-          path: ${{ runner.temp }}/screenshot.png
+          path: |
+            ${{ runner.temp }}/screenshot.png
+            ${{ runner.temp }}/gallery.png
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: ${{ failure() }}
@@ -298,6 +310,13 @@ jobs:
           if kill -0 "$pid" 2>/dev/null; then alive=1; fi
           screencapture -x "$RUNNER_TEMP/screenshot.png" || true
           kill "$pid" 2>/dev/null || true
+          # Sample messages without a server: how text, emoji and times line up here.
+          sleep 2
+          RV_SMOKE_GALLERY=1 "$app/Contents/MacOS/rocket-vibe-gtk" > "$RUNNER_TEMP/gallery.log" 2>&1 &
+          gallery=$!
+          sleep 8
+          screencapture -x "$RUNNER_TEMP/gallery.png" || true
+          kill "$gallery" 2>/dev/null || true
           sudo mv /opt/homebrew-aside /opt/homebrew
           cat "$RUNNER_TEMP/app.log"
           if [ "$alive" = 0 ]; then
@@ -311,7 +330,9 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: desktop-macos-screenshot
-          path: ${{ runner.temp }}/screenshot.png
+          path: |
+            ${{ runner.temp }}/screenshot.png
+            ${{ runner.temp }}/gallery.png
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:

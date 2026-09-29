@@ -65,7 +65,7 @@ pub struct RoomRow {
     pub last_encrypted: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MessageRow {
     pub id: String,
     pub rid: String,

@@ -106,6 +106,9 @@ fn main() -> glib::ExitCode {
         }
     });
     app.connect_activate(|app| {
+        if smoke::gallery(app) {
+            return;
+        }
         window_of(app);
     });
     app.connect_open(|app, files, _| {

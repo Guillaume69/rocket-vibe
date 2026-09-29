@@ -227,6 +227,7 @@ impl MessageList {
     pub fn new(session: Shared<Arc<Session>>) -> Rc<Self> {
         let store = gio::ListStore::new::<glib::BoxedAnyObject>();
         let view = gtk::ListView::new(Some(gtk::NoSelection::new(Some(store.clone()))), None::<gtk::ListItemFactory>);
+        view.set_vscroll_policy(gtk::ScrollablePolicy::Natural);
         let scroll =
             gtk::ScrolledWindow::builder().hscrollbar_policy(gtk::PolicyType::Never).vexpand(true).child(&view).build();
         let jump = gtk::Button::builder()

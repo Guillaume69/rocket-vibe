@@ -163,7 +163,7 @@ fn chip(item: &Picked, mime: &str, on_remove: impl Fn() + 'static) -> gtk::Widge
     click.connect_released(move |gesture, _, _, _| {
         let Some(widget) = gesture.widget() else { return };
         match &texture {
-            Some(texture) => crate::rows::open_viewer(&widget, texture, &title),
+            Some(texture) => crate::rows::open_viewer(&widget, texture, &title, None),
             None => crate::cards::open_file(&widget, &path, || {}),
         }
     });

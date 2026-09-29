@@ -109,7 +109,11 @@ pub struct RestClient {
 
 impl RestClient {
     pub fn new(base: Url) -> Self {
-        let http = reqwest::Client::builder().timeout(TIMEOUT).build().expect("HTTP client");
+        let http = reqwest::Client::builder()
+            .timeout(TIMEOUT)
+            .user_agent(concat!("rocket-vibe-desktop/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .expect("HTTP client");
         let (token_rejected, _) = broadcast::channel(8);
         RestClient { http, base, credentials: Arc::default(), token_rejected }
     }

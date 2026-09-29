@@ -84,8 +84,12 @@ pub const NO_PHOTO: &str = "none";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImageAttachment {
-    /// `title_link` first: `image_url` is only a thumbnail, pixelated once shown large.
+    /// `title_link` first when it is a file on the server: `image_url` is only a
+    /// thumbnail there, pixelated once shown large.
     pub source: String,
+    /// The page an image from elsewhere comes from (a GIF search, a bot), shown
+    /// as its title's link.
+    pub link: Option<String>,
     pub width: Option<i64>,
     pub height: Option<i64>,
     pub title: Option<String>,
@@ -100,8 +104,14 @@ pub fn image_attachments(json: Option<&str>) -> Vec<ImageAttachment> {
     list.iter()
         .filter_map(|a| {
             let image = text(a, "image_url")?;
+            let title_link = text(a, "title_link");
+            let (source, link) = match title_link {
+                Some(link) if link.starts_with('/') => (link, None),
+                link => (image, link),
+            };
             Some(ImageAttachment {
-                source: text(a, "title_link").unwrap_or(image),
+                source,
+                link,
                 width: a.pointer("/image_dimensions/width").and_then(Value::as_i64),
                 height: a.pointer("/image_dimensions/height").and_then(Value::as_i64),
                 title: text(a, "title"),
@@ -228,8 +238,18 @@ mod tests {
         assert_eq!(images[0].description.as_deref(), Some("my cat"));
         assert_eq!(images[0].alt.as_deref(), Some("a cat"));
         assert_eq!(images[1].source, "/file-upload/4/only.png");
+        assert_eq!(images[0].link, None);
         assert!(image_attachments(None).is_empty());
         assert!(image_attachments(Some("not json")).is_empty());
+    }
+
+    #[test]
+    fn images_from_elsewhere_keep_their_page_as_a_link() {
+        let json = r#"[{"title":"fight","title_link":"https://giphy.com/gifs/fight-abc","image_url":"https://media.giphy.com/media/abc/giphy.gif"}]"#;
+        let images = image_attachments(Some(json));
+        assert_eq!(images[0].source, "https://media.giphy.com/media/abc/giphy.gif");
+        assert_eq!(images[0].link.as_deref(), Some("https://giphy.com/gifs/fight-abc"));
+        assert_eq!(images[0].title.as_deref(), Some("fight"));
     }
 
     #[test]

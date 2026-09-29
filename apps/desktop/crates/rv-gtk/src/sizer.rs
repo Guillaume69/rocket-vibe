@@ -5,6 +5,7 @@
 use std::cell::Cell;
 
 use gtk::glib;
+use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 
 /// Never narrower: a size asked without a width then still reserves the
@@ -57,5 +58,11 @@ impl Sizer {
         this.imp().width.set(width);
         this.imp().height.set(height);
         this
+    }
+
+    pub fn set_size(&self, width: i32, height: i32) {
+        self.imp().width.set(width);
+        self.imp().height.set(height);
+        self.queue_resize();
     }
 }

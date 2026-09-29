@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use adw::prelude::*;
 use chrono::Local;
-use gtk::{gdk, glib, pango};
+use gtk::{gdk, gio, glib, pango};
 pub use rv_core::media::room_avatar_path;
 use rv_core::media::{ImageAttachment, display_size, image_attachments};
 use rv_core::session::Session;
@@ -116,8 +116,11 @@ pub fn room_tile(name: &str, kind: &str, encrypted: bool, size: TileSize) -> gtk
     widgets::tile(name, &glyph, size, false)
 }
 
-pub fn open_viewer(parent: &gtk::Widget, texture: &gdk::Texture, title: &str) {
+pub fn open_viewer(parent: &gtk::Widget, texture: &gdk::Texture, title: &str, frames: Option<media::Frames>) {
     let picture = gtk::Picture::builder().paintable(texture).content_fit(gtk::ContentFit::Contain).build();
+    if let Some(frames) = frames {
+        media::play(&picture, frames);
+    }
     let page = adw::ToolbarView::new();
     page.add_top_bar(&adw::HeaderBar::new());
     page.set_content(Some(&picture));
@@ -137,7 +140,95 @@ pub fn open_viewer(parent: &gtk::Widget, texture: &gdk::Texture, title: &str) {
         }
     });
     picture.add_controller(click);
+    viewer_menu(&picture, texture, title);
     dialog.present(Some(parent));
+    close_on_backdrop(&dialog);
+}
+
+/// The dimmed backdrop around a dialog is a window handle: a click there
+/// started a window drag and a double click maximized the window. A click on
+/// it closes the dialog instead.
+fn close_on_backdrop(dialog: &adw::Dialog) {
+    let weak = dialog.downgrade();
+    glib::idle_add_local_once(move || {
+        let Some(dialog) = weak.upgrade() else { return };
+        fn find(widget: &gtk::Widget) -> Option<gtk::Widget> {
+            if widget.css_name() == "dimming" {
+                return Some(widget.clone());
+            }
+            std::iter::successors(widget.first_child(), |w| w.next_sibling()).find_map(|child| find(&child))
+        }
+        let Some(dimming) = find(dialog.upcast_ref()) else { return };
+        let click = gtk::GestureClick::builder().button(0).propagation_phase(gtk::PropagationPhase::Capture).build();
+        click.connect_pressed(|gesture, _, _, _| {
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+        });
+        let weak = dialog.downgrade();
+        click.connect_released(move |_, _, _, _| {
+            if let Some(dialog) = weak.upgrade() {
+                dialog.close();
+            }
+        });
+        dimming.add_controller(click);
+    });
+}
+
+/// Right click on the picture: copy it, save it, open it elsewhere.
+fn viewer_menu(picture: &gtk::Picture, texture: &gdk::Texture, title: &str) {
+    let actions = gio::SimpleActionGroup::new();
+    let copy = gio::SimpleAction::new("copy", None);
+    let (tex, target) = (texture.clone(), picture.downgrade());
+    copy.connect_activate(move |_, _| {
+        if let Some(picture) = target.upgrade() {
+            picture.clipboard().set_texture(&tex);
+        }
+    });
+    actions.add_action(&copy);
+    let name = format!("{}.png", title.trim().replace(['/', '\\'], "_"));
+    let save = gio::SimpleAction::new("save", None);
+    let (tex, target, file_name) = (texture.clone(), picture.downgrade(), name.clone());
+    save.connect_activate(move |_, _| {
+        let Some(picture) = target.upgrade() else { return };
+        let window = picture.root().and_downcast::<gtk::Window>();
+        let tex = tex.clone();
+        gtk::FileDialog::builder().initial_name(&file_name).build().save(
+            window.as_ref(),
+            None::<&gio::Cancellable>,
+            move |chosen| {
+                if let Some(path) = chosen.ok().and_then(|f| f.path()) {
+                    let _ = tex.save_to_png(path);
+                }
+            },
+        );
+    });
+    actions.add_action(&save);
+    let open = gio::SimpleAction::new("open", None);
+    let (tex, target) = (texture.clone(), picture.downgrade());
+    open.connect_activate(move |_, _| {
+        let Some(picture) = target.upgrade() else { return };
+        let dir = glib::user_cache_dir().join("rocket-vibe-rs").join("viewer");
+        let path = dir.join(&name);
+        if std::fs::create_dir_all(&dir).is_ok() && tex.save_to_png(&path).is_ok() {
+            cards::open_file(&picture, &path, || {});
+        }
+    });
+    actions.add_action(&open);
+    picture.insert_action_group("viewer", Some(&actions));
+    let menu = gio::Menu::new();
+    menu.append(Some(t("viewer.copy")), Some("viewer.copy"));
+    menu.append(Some(t("viewer.save")), Some("viewer.save"));
+    menu.append(Some(t("viewer.open")), Some("viewer.open"));
+    let popover = gtk::PopoverMenu::from_model(Some(&menu));
+    popover.set_parent(picture);
+    popover.set_has_arrow(false);
+    popover.set_halign(gtk::Align::Start);
+    let right = gtk::GestureClick::builder().button(gdk::BUTTON_SECONDARY).build();
+    right.connect_pressed(move |gesture, _, x, y| {
+        gesture.set_state(gtk::EventSequenceState::Claimed);
+        popover.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        popover.popup();
+    });
+    picture.add_controller(right);
 }
 
 pub fn image_widget(session: &Arc<Session>, image: &ImageAttachment) -> gtk::Widget {
@@ -146,11 +237,18 @@ pub fn image_widget(session: &Arc<Session>, image: &ImageAttachment) -> gtk::Wid
     frame.set_cursor(gdk::Cursor::from_name("pointer", None).as_ref());
     frame.set_margin_top(4);
     let weak = frame.downgrade();
+    let (source, sized) = (image.source.clone(), image.width.is_some());
     media::load(session, &image.source, move |texture| {
-        if let Some(frame) = weak.upgrade() {
-            let picture =
-                gtk::Picture::builder().paintable(texture).content_fit(gtk::ContentFit::Cover).can_shrink(true).build();
-            frame.add_overlay(&picture);
+        let Some(frame) = weak.upgrade() else { return };
+        if !sized && let Some(sizer) = frame.child().and_downcast::<crate::sizer::Sizer>() {
+            let (w, h) = display_size(Some(texture.width().into()), Some(texture.height().into()), 120, 360, 300);
+            sizer.set_size(w, h);
+        }
+        let picture =
+            gtk::Picture::builder().paintable(texture).content_fit(gtk::ContentFit::Cover).can_shrink(true).build();
+        frame.add_overlay(&picture);
+        if let Some(frames) = media::frames(&source) {
+            media::play(&picture, frames);
         }
     });
     let click = gtk::GestureClick::new();
@@ -162,10 +260,23 @@ pub fn image_widget(session: &Arc<Session>, image: &ImageAttachment) -> gtk::Wid
     click.connect_released(move |gesture, _, _, _| {
         let Some(widget) = gesture.widget() else { return };
         let title = title.clone();
-        media::load(&session, &source, move |texture| open_viewer(&widget, texture, &title));
+        let frames = media::frames(&source);
+        media::load(&session, &source, move |texture| open_viewer(&widget, texture, &title, frames));
     });
     frame.add_controller(click);
-    frame.upcast()
+    let Some(link) = &image.link else { return frame.upcast() };
+    let shown = image.title.as_deref().unwrap_or(link);
+    let title = gtk::Label::builder()
+        .use_markup(true)
+        .label(format!("<a href=\"{}\">{}</a>", glib::markup_escape_text(link), glib::markup_escape_text(shown)))
+        .xalign(0.0)
+        .ellipsize(pango::EllipsizeMode::End)
+        .css_classes(["attachment-title"])
+        .build();
+    let column = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(2).margin_top(4).build();
+    column.append(&title);
+    column.append(&frame);
+    column.upcast()
 }
 
 pub fn room_widget(r: &RoomRow, session: Option<&Arc<Session>>) -> gtk::Widget {
@@ -435,6 +546,9 @@ pub fn message_widget(
         }
         for f in content::files(row.attachments.as_deref()) {
             column.append(&cards::file(session, &f));
+        }
+        for card in content::cards(row.attachments.as_deref()) {
+            column.append(&cards::attachment_card(&card));
         }
         for video in content::video_links(row.text.as_deref().unwrap_or_default(), row.urls.as_deref(), 3) {
             column.append(&cards::video_link(session, &video));

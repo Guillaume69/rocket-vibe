@@ -9,6 +9,11 @@ section here.
 
 ### Added
 
+- Animated GIFs play, in the list and in the image viewer, only while on screen. A GIF search
+  result or a bot's picture shows its title as a link to its page.
+- Bot and integration attachments show as cards: author, linked title, text and fields, with
+  their colour down the side.
+- A right click on a picture in the viewer copies it, saves it or opens it in the default app.
 - A Favorites section in the room list, after Unread, for the rooms starred on the server
   (as in the official client); a right click on a room adds it or takes it out.
 - Shift+Enter continues a list in the composer: the same bullet, or the next number, at the
@@ -50,6 +55,14 @@ section here.
   text: `[label](url)` links, `:emoji:` codes and formatting now render.
 - Pinned and starred messages showed raw markdown; they render as in the room.
 - Room list previews showed markdown syntax (fences, stars, link brackets); they read as text.
+- A message with a picture, a video or a link card could be drawn over the next messages: rows
+  were sized for the picture at its narrowest.
+- Images from GIF searches and bots showed as empty frames: their page was fetched instead of
+  the image, and hosts that require a User-Agent refused the request.
+- Clicking the dimmed backdrop around the image viewer now closes it; a double click there no
+  longer maximizes the window.
+- Times in the room list and beside messages lost the top of their digits at small or
+  fractional scales.
 
 ## [0.4.1] - 2026-09-29
 

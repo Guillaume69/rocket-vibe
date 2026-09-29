@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use adw::prelude::*;
 use gtk::{gdk, gio, glib, pango};
-use rv_core::content::{FileAttachment, FileKind, LinkPreview, Quote, VideoLink, human_size};
+use rv_core::content::{CardAttachment, FileAttachment, FileKind, LinkPreview, Quote, VideoLink, human_size};
 use rv_core::markdown;
 use rv_core::session::Session;
 use sha2::{Digest, Sha256};
@@ -347,4 +347,87 @@ pub fn call(call_id: Option<&str>, on_event: OnRowEvent) -> gtk::Widget {
         card.append(&join);
     }
     card.upcast()
+}
+
+/// A bot's or an integration's card: its colour down the side, the author,
+/// the linked title, the text and the fields, two abreast when short.
+pub fn attachment_card(card: &CardAttachment) -> gtk::Widget {
+    let column = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(3)
+        .css_classes(["link-card", "attachment-card"])
+        .halign(gtk::Align::Start)
+        .build();
+    if let Some(class) = card.color.as_deref().and_then(color_class) {
+        column.add_css_class(&class);
+    }
+    if let Some(author) = &card.author {
+        column.append(&label(author, &["link-site"]));
+    }
+    if let Some(title) = &card.title {
+        let shown = glib::markup_escape_text(title);
+        let markup = match &card.link {
+            Some(link) => format!("<a href=\"{}\">{shown}</a>", glib::markup_escape_text(link)),
+            None => shown.to_string(),
+        };
+        let title = label("", &["link-title"]);
+        title.set_markup(&markup);
+        column.append(&title);
+    }
+    if let Some(text) = &card.text {
+        let text = label(text, &["link-description"]);
+        text.set_selectable(true);
+        column.append(&text);
+    }
+    let grid = gtk::Grid::builder().column_spacing(16).row_spacing(4).build();
+    let (mut row, mut col) = (0, 0);
+    for (name, value, short) in &card.fields {
+        let cell = gtk::Box::new(gtk::Orientation::Vertical, 1);
+        let one_line = |text: &str, class: &str| {
+            let l = label(text, &[class]);
+            l.set_wrap(false);
+            l.set_ellipsize(pango::EllipsizeMode::End);
+            l.set_tooltip_text(Some(text));
+            l
+        };
+        cell.append(&one_line(name, "card-field-name"));
+        cell.append(&one_line(value, "link-description"));
+        let span = if *short { 1 } else { 2 };
+        if col + span > 2 {
+            row += 1;
+            col = 0;
+        }
+        grid.attach(&cell, col, row, span, 1);
+        col += span;
+        if col >= 2 {
+            row += 1;
+            col = 0;
+        }
+    }
+    if !card.fields.is_empty() {
+        column.append(&grid);
+    }
+    column.upcast()
+}
+
+/// A style class drawing the card's left edge in `color`, the rule added once.
+fn color_class(color: &str) -> Option<String> {
+    thread_local! {
+        static ADDED: std::cell::RefCell<std::collections::HashSet<String>> = Default::default();
+    }
+    let rgba = gdk::RGBA::parse(color).ok()?;
+    let hex = format!(
+        "{:02x}{:02x}{:02x}",
+        (rgba.red() * 255.0).round() as u8,
+        (rgba.green() * 255.0).round() as u8,
+        (rgba.blue() * 255.0).round() as u8
+    );
+    let class = format!("card-color-{hex}");
+    let fresh = ADDED.with_borrow_mut(|added| added.insert(hex.clone()));
+    if fresh && let Some(display) = gdk::Display::default() {
+        let provider = gtk::CssProvider::new();
+        provider.load_from_string(&format!(".{class} {{ border-left: 4px solid #{hex}; }}"));
+        gtk::style_context_add_provider_for_display(&display, &provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
+    }
+    Some(class)
 }

@@ -129,7 +129,7 @@ button.cta:active, button.cta:disabled { opacity: 0.75; }
 .room-preview { font-size: 12.5px; color: #8F89AB; }
 .room-preview.unread { color: #C9C3E0; }
 .room-preview.encrypted { font-style: italic; }
-.room-time { font-size: 11px; color: #6E6890; }
+.room-time { font-size: 11.5px; font-weight: 600; color: #7C76A0; font-feature-settings: "tnum"; }
 .room-time.unread { color: #FFD34E; font-weight: 700; }
 .account { border-top: 1px solid #1E1B33; padding: 10px 14px; }
 .account-name { font-weight: 800; font-size: 13.5px; }
@@ -190,8 +190,8 @@ textview.md-big-emoji .custom-emoji { min-width: 48px; min-height: 48px; margin-
 
 .author { font-weight: 800; font-size: 13.5px; color: #F3F0FF; }
 .author.mine { color: #FF5FA2; }
-.message-time { color: #6E6890; font-size: 10.5px; }
-.gutter-time { color: #6E6890; font-size: 9px; }
+.message-time { color: #7C76A0; font-size: 11px; font-weight: 600; font-feature-settings: "tnum"; }
+.gutter-time { color: #7C76A0; font-size: 10px; font-weight: 600; font-feature-settings: "tnum"; }
 .message-body { color: #E7E3F5; font-size: 14px; }
 .message-body.pending { opacity: 0.55; }
 .message-body link, .message-body a { color: #5CC8FF; }
@@ -219,6 +219,9 @@ button.retry { color: #FF7A8A; font-weight: 700; font-size: 12px; padding: 0 4px
 .file-detail, .link-site { font-size: 12px; color: #8F89AB; }
 button.file-action, button.call-join { background: linear-gradient(135deg, #FF5FA2, #A78BFA); color: #0D0B1A; font-weight: 800; border-radius: 999px; padding: 2px 14px; min-height: 28px; }
 .link-title { font-weight: 800; color: #E7E3F5; }
+.attachment-title { font-size: 13px; font-weight: 700; }
+.attachment-card { border-left: 4px solid #5C5680; }
+.card-field-name { font-size: 12px; font-weight: 700; color: #8F89AB; }
 .link-description { font-size: 13px; color: #BDB7D6; }
 .preview-image { background: #0D0B1A; border-radius: 10px; }
 .call-title { font-weight: 800; }

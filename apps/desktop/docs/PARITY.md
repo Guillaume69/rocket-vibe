@@ -122,6 +122,10 @@ the same rv-core, with these differences:
 - [x] Desktop notifications for DMs and mentions while the app runs, click opens the room
 - [x] Reply from the notification, where the desktop supports it
 - [x] Nothing for encrypted rooms' content
+- [x] Keeps running with its window closed, as push arrives with the Android app closed: the
+  Windows notification-area icon (the count, or a dot for plain unread) and the macOS Dock bring
+  it back; starts at login on both. Linux quits on close, its desktops agreeing on no tray
+  (SwiftUI app: not yet)
 
 ## 11. End-to-end encryption
 

@@ -7,6 +7,18 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- On Windows and macOS, closing the window no longer quits: the app keeps running, and
+  notifications keep coming. On Windows it sits in the notification area (a click brings the
+  window back, a right click offers Open and Quit); on macOS the Dock brings it back. Quit,
+  Cmd+Q or Ctrl+Q leave for real. Switched off in Settings, Startup and background.
+- Start at login, from the same section, without opening the window (Windows and macOS).
+- The app icon shows a dot for unread messages when none mentions you or comes as a direct
+  message; the count stays for those (Windows taskbar and notification area, macOS Dock).
+- On Windows, opening the app, or a `rocketvibe://` link, while it already runs brings its
+  window back instead of starting a second one.
+
 ### Fixed
 
 - On Windows, a blank icon named `rocket-vibe-gtk.exe` appeared in the notification area

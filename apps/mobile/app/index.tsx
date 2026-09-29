@@ -139,6 +139,7 @@ function Salons({
   const sections: SectionSalons[] = replierSections(
     construireSections(lignesSalons, lignesAbonnements, {
       nonLus: t('accueil.sectionNonLus'),
+      favoris: t('accueil.sectionFavoris'),
       salons: t('accueil.sectionSalons'),
       messagesPrives: t('accueil.sectionMessagesPrives'),
     }),

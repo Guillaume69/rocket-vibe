@@ -217,6 +217,7 @@ const fr = {
   // ── Accueil (liste des conversations)
   'accueil.parametres': 'Paramètres',
   'accueil.sectionNonLus': 'Non lus',
+  'accueil.sectionFavoris': 'Favoris',
   'accueil.sectionSalons': 'Salons',
   'accueil.sectionMessagesPrives': 'Messages privés',
   'accueil.sectionConversations': '{n} conversation | {n} conversations',
@@ -600,6 +601,7 @@ const en: Record<CleTraduction, string> = {
 
   'accueil.parametres': 'Settings',
   'accueil.sectionNonLus': 'Unread',
+  'accueil.sectionFavoris': 'Favorites',
   'accueil.sectionSalons': 'Channels',
   'accueil.sectionMessagesPrives': 'Direct messages',
   'accueil.sectionConversations': '{n} conversation | {n} conversations',

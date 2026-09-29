@@ -10,6 +10,7 @@ pub mod ddp;
 pub mod diff;
 pub mod e2e;
 pub mod emoji;
+pub mod i18n;
 pub mod info;
 pub mod links;
 pub mod live;

@@ -4,6 +4,8 @@
 mod accounts;
 pub mod markup;
 pub mod model;
+pub mod people;
+pub mod writing;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};

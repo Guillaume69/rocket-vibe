@@ -225,6 +225,8 @@ pub struct Quote {
     pub author: Option<String>,
     pub body: Vec<BodyBlock>,
     pub images: Vec<ImageItem>,
+    /// What the quoted message quoted in turn.
+    pub quotes: Vec<Quote>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -296,6 +298,7 @@ pub fn quote(q: content::Quote, me: &str) -> Quote {
         author: q.author,
         body: markup::blocks(markdown::render(q.md.as_deref(), Some(&q.text), &ctx)),
         images: q.images.into_iter().map(ImageItem::from).collect(),
+        quotes: q.quotes.into_iter().map(|inner| quote(inner, me)).collect(),
     }
 }
 

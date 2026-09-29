@@ -34,7 +34,8 @@ section here.
 - File cards have a Download button that saves the file to the Downloads folder.
 - Message actions: Star and Unstar, and Unpin on a pinned message.
 - A formatting toolbar under the message field (bold, italic, strike, heading, link, code, code
-  block, quote, lists) with keyboard shortcuts, and the draft shows its formatting as it is
+  block, quote, lists) with keyboard shortcuts, and the draft shows as formatted text, its
+  markdown markers hidden except on the line being edited, as it is
   typed.
 - Spell check of the message field, French and English at once: unknown words are underlined,
   a right click offers suggestions and "Add to dictionary".

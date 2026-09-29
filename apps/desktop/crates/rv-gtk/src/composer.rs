@@ -64,6 +64,7 @@ impl Composer {
             .build();
         style_tags(&text.buffer());
         text.buffer().connect_changed(restyle);
+        text.buffer().connect_cursor_position_notify(restyle);
         spell_menu(&text);
         let shortcuts = gtk::EventControllerKey::builder().propagation_phase(gtk::PropagationPhase::Capture).build();
         shortcuts.connect_key_pressed(glib::clone!(
@@ -705,12 +706,16 @@ fn style_tags(buffer: &gtk::TextBuffer) {
     let quote = tag("quote");
     quote.set_foreground(Some("#C9C3E0"));
     quote.set_style(gtk::pango::Style::Italic);
+    quote.set_left_margin(12);
+    quote.set_paragraph_background(Some("#1E1B33"));
     let misspelled = tag("misspelled");
     misspelled.set_underline(gtk::pango::Underline::Error);
     misspelled.set_underline_rgba(Some(&gdk::RGBA::new(1.0, 0.48, 0.54, 1.0)));
     let marker = tag("marker");
     marker.set_foreground(Some("#6E6890"));
-    for t in [bold, italic, strike, code, block, heading, quote, marker, misspelled] {
+    let hidden = tag("hidden");
+    hidden.set_invisible(true);
+    for t in [bold, italic, strike, code, block, heading, quote, marker, misspelled, hidden] {
         table.add(&t);
     }
 }
@@ -733,6 +738,11 @@ fn restyle(buffer: &gtk::TextBuffer) {
         };
         let (from, to) = (buffer.iter_at_offset(span.start as i32), buffer.iter_at_offset(span.end as i32));
         buffer.apply_tag_by_name(name, &from, &to);
+    }
+    let cursor = buffer.cursor_position().max(0) as usize;
+    for (start, end) in rv_core::compose::hidden_markers(&text, cursor) {
+        let (from, to) = (buffer.iter_at_offset(start as i32), buffer.iter_at_offset(end as i32));
+        buffer.apply_tag_by_name("hidden", &from, &to);
     }
     for (start, end) in rv_core::compose::words(&text) {
         let (from, to) = (buffer.iter_at_offset(start as i32), buffer.iter_at_offset(end as i32));

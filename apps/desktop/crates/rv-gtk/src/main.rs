@@ -10,6 +10,7 @@ mod composer;
 mod crashlog;
 mod details;
 mod emoji_picker;
+mod focus;
 mod fonts;
 mod gst_stream;
 mod i18n;
@@ -106,6 +107,7 @@ fn main() -> glib::ExitCode {
     i18n::init();
     spell::start();
     app.connect_startup(|app| {
+        focus::install();
         #[cfg(windows)]
         if !smoke::ime_unpinned() {
             windows::input_method();

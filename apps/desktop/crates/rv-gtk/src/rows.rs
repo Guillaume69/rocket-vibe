@@ -288,15 +288,13 @@ pub fn room_widget(r: &RoomRow, session: Option<&Arc<Session>>) -> gtk::Widget {
     let system = r.last_type.as_deref().filter(|kind| *kind != "e2e");
     let clear = r.last_encrypted.as_deref().zip(session).and_then(|(raw, s)| s.decrypt(&r.rid, raw));
     let preview = match (&r.last_message, r.encrypted) {
-        _ if let Some(text) = &clear => label(&rv_core::emoji::replace_shortcodes(text), &["room-preview"]),
+        _ if let Some(text) = &clear => label(&rv_core::runs::preview(text), &["room-preview"]),
         _ if let Some(kind) = system => {
             let param = r.last_message.as_deref().unwrap_or_default();
             let author = r.last_author.as_deref().unwrap_or_default();
             label(format!("{author} {}", i18n::system_message(kind, param)).trim(), &["room-preview"])
         }
-        (Some(m), _) => {
-            label(&rv_core::emoji::replace_shortcodes(rv_core::actions::strip_quote_prefix(m)), &["room-preview"])
-        }
+        (Some(m), _) => label(&rv_core::runs::preview(rv_core::actions::strip_quote_prefix(m)), &["room-preview"]),
         (None, true) => label(t("rooms.encrypted"), &["room-preview", "encrypted"]),
         (None, false) => label("", &["room-preview"]),
     };

@@ -262,6 +262,7 @@ public final class AppModel {
     static func key(_ section: RoomSection) -> String {
         switch section {
         case .unread: return "unread"
+        case .favorites: return "favorites"
         case .channels: return "channels"
         case .direct: return "direct"
         }
@@ -269,7 +270,7 @@ public final class AppModel {
 
     static func loadCollapsed(_ configDir: String) -> Set<RoomSection> {
         let text = (try? String(contentsOfFile: configDir + "/collapsed-sections", encoding: .utf8)) ?? ""
-        let all: [RoomSection] = [.unread, .channels, .direct]
+        let all: [RoomSection] = [.unread, .favorites, .channels, .direct]
         let keys = Set(text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) })
         return Set(all.filter { keys.contains(key($0)) })
     }

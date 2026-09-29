@@ -1,6 +1,7 @@
 //! A list of messages, newest at the bottom, shared by rooms and threads.
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -16,24 +17,193 @@ use crate::widgets::Handler;
 
 pub type Shared<T> = Rc<RefCell<Option<T>>>;
 
-/// The avatar and time column of a row: pressing there picks whole messages.
-const GUTTER: f64 = 60.0;
+/// A place in a message's text: which of its texts, and how many characters in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Point {
+    id: String,
+    text: usize,
+    offset: i32,
+}
+
+/// A selection dragged across messages, from where it started to the pointer.
+#[derive(Debug, Clone)]
+struct Span {
+    anchor: Point,
+    focus: Point,
+}
+
+/// A place in reading order: row, text in it, character in that.
+type Place = (usize, usize, i32);
+
+/// Distance from the list's edge where a selection being dragged scrolls it.
+const EDGE: f64 = 28.0;
+
+fn is_text(widget: &gtk::Widget) -> bool {
+    widget.downcast_ref::<gtk::Label>().is_some_and(|l| l.is_selectable())
+        || widget.downcast_ref::<gtk::TextView>().is_some_and(|v| !v.is_editable())
+}
+
+/// A row's texts, in reading order.
+fn texts(row: &gtk::Widget) -> Vec<gtk::Widget> {
+    let mut out = Vec::new();
+    let mut stack = vec![row.clone()];
+    while let Some(widget) = stack.pop() {
+        if is_text(&widget) {
+            out.push(widget);
+            continue;
+        }
+        let children: Vec<gtk::Widget> = std::iter::successors(widget.first_child(), |c| c.next_sibling()).collect();
+        stack.extend(children.into_iter().rev());
+    }
+    out
+}
+
+fn words(text: &gtk::Widget) -> String {
+    match text.downcast_ref::<gtk::Label>() {
+        Some(label) => label.text().to_string(),
+        None => text.downcast_ref::<gtk::TextView>().map_or_else(String::new, |v| {
+            let buffer = v.buffer();
+            buffer.slice(&buffer.start_iter(), &buffer.end_iter(), true).to_string()
+        }),
+    }
+}
+
+/// A text's words and the codes of the server emoji in it.
+type Segment = (String, Vec<String>);
+
+/// A text's words, a server emoji standing as U+FFFC as in the text view, and
+/// the emoji's `:code:` for each, in order, for copying.
+fn segment(text: &gtk::Widget) -> Segment {
+    let shown = words(text);
+    let Some(view) = text.downcast_ref::<gtk::TextView>() else { return (shown, Vec::new()) };
+    let buffer = view.buffer();
+    let mut codes = Vec::new();
+    let mut iter = buffer.start_iter();
+    loop {
+        if let Some(anchor) = iter.child_anchor() {
+            let code = anchor.widgets().first().and_then(|w| w.tooltip_text()).map(|t| t.to_string());
+            codes.push(code.unwrap_or_default());
+        }
+        if !iter.forward_char() {
+            break;
+        }
+    }
+    (shown, codes)
+}
+
+/// Characters `start..end` of a segment as they read: emoji by their code.
+fn copied(segment: &Segment, start: i32, end: i32) -> String {
+    let (shown, codes) = segment;
+    let mut code = shown.chars().take(start as usize).filter(|&c| c == '\u{FFFC}').count();
+    let mut out = String::new();
+    for c in shown.chars().skip(start as usize).take((end - start) as usize) {
+        if c == '\u{FFFC}' {
+            out.push_str(codes.get(code).map_or(":?:", String::as_str));
+            code += 1;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// The selection's colour over the window's, as GTK draws a selection.
+const SPAN_COLOR: (u16, u16, u16) = (0x2828, 0x4d4d, 0x6868);
+
+fn is_span_attribute(attribute: &gtk::pango::Attribute) -> bool {
+    attribute.downcast_ref::<gtk::pango::AttrColor>().is_some_and(|c| {
+        let color = c.color();
+        attribute.type_() == gtk::pango::AttrType::Background
+            && (color.red(), color.green(), color.blue()) == SPAN_COLOR
+    })
+}
+
+/// Marks `range` (characters) of a text as selected, or none of it. Only one
+/// label at a time may hold GTK's own selection (it is the system's primary
+/// selection), so a selection across texts is drawn rather than made.
+fn highlight(text: &gtk::Widget, range: Option<(i32, i32)>) {
+    if let Some(label) = text.downcast_ref::<gtk::Label>() {
+        let attributes = label.attributes().and_then(|a| a.copy()).unwrap_or_default();
+        let marked = !attributes.filter(is_span_attribute).map(|m| m.attributes().is_empty()).unwrap_or(true);
+        if marked {
+            // GTK merges a label's attributes into those its markup made, in
+            // place: only parsing the markup again takes a highlight away.
+            let markup = label.label();
+            label.set_label("");
+            label.set_label(&markup);
+        }
+        if let Some((start, end)) = range {
+            let shown = label.text();
+            let byte = |chars: i32| shown.char_indices().nth(chars as usize).map_or(shown.len(), |(i, _)| i) as u32;
+            let mut color = gtk::pango::AttrColor::new_background(SPAN_COLOR.0, SPAN_COLOR.1, SPAN_COLOR.2);
+            color.set_start_index(byte(start));
+            color.set_end_index(byte(end));
+            attributes.insert(color);
+        }
+        if marked || range.is_some() {
+            label.set_attributes(Some(&attributes));
+        }
+    } else if let Some(view) = text.downcast_ref::<gtk::TextView>() {
+        let buffer = view.buffer();
+        let table = buffer.tag_table();
+        let tag = table.lookup("spanned").unwrap_or_else(|| {
+            let tag = gtk::TextTag::builder().name("spanned").background("#284D68").build();
+            table.add(&tag);
+            tag
+        });
+        buffer.remove_tag(&tag, &buffer.start_iter(), &buffer.end_iter());
+        if let Some((start, end)) = range {
+            buffer.apply_tag(&tag, &buffer.iter_at_offset(start), &buffer.iter_at_offset(end));
+        }
+    }
+}
+
+/// Drops GTK's own selection in a text.
+fn unselect(text: &gtk::Widget) {
+    if let Some(label) = text.downcast_ref::<gtk::Label>() {
+        label.select_region(0, 0);
+    } else if let Some(view) = text.downcast_ref::<gtk::TextView>() {
+        let buffer = view.buffer();
+        let at = buffer.start_iter();
+        buffer.select_range(&at, &at);
+    }
+}
+
+/// The character under `(x, y)` of `text`, in its own coordinates.
+fn offset_at(text: &gtk::Widget, x: f64, y: f64) -> i32 {
+    if let Some(label) = text.downcast_ref::<gtk::Label>() {
+        let layout = label.layout();
+        let (dx, dy) = label.layout_offsets();
+        let (_, index, trailing) = layout.xy_to_index(
+            ((x - dx as f64) * gtk::pango::SCALE as f64) as i32,
+            ((y - dy as f64) * gtk::pango::SCALE as f64) as i32,
+        );
+        let shown = layout.text();
+        let index = (index.max(0) as usize).min(shown.len());
+        return (shown[..index].chars().count() as i32 + trailing).min(shown.chars().count() as i32);
+    }
+    let Some(view) = text.downcast_ref::<gtk::TextView>() else { return 0 };
+    let (bx, by) = view.window_to_buffer_coords(gtk::TextWindowType::Widget, x as i32, y as i32);
+    view.iter_at_location(bx, by).map_or_else(|| view.buffer().char_count(), |iter| iter.offset())
+}
 
 pub struct MessageList {
     /// The scroller, with the button back to the latest message over it.
     pub root: gtk::Overlay,
     scroll: gtk::ScrolledWindow,
     jump: gtk::Button,
-    /// Whole messages picked in the gutter, and the bar that copies them.
-    pick_bar: gtk::Box,
-    pick_label: gtk::Label,
-    picked: RefCell<Vec<String>>,
-    anchor: RefCell<Option<String>>,
-    /// A text selection being dragged: the message it started in, and
-    /// whether it has crossed into another one.
-    text_drag: RefCell<Option<String>>,
-    text_dragging: Cell<bool>,
-    text_press: Cell<Option<(f64, f64)>>,
+    /// The row built for each message on screen, and the texts each message
+    /// showed last, for copying a selection that ran past the screen.
+    bound: RefCell<HashMap<String, gtk::Widget>>,
+    seen: RefCell<HashMap<String, Vec<Segment>>>,
+    /// Where the button went down in a text, and the selection once it
+    /// left that text for another.
+    press: RefCell<Option<Point>>,
+    press_at: Cell<Option<(f64, f64)>>,
+    span: RefCell<Option<Span>>,
+    spanning: Cell<bool>,
+    pointer: Cell<(f64, f64)>,
+    scroller: RefCell<Option<glib::SourceId>>,
     view: gtk::ListView,
     store: gio::ListStore,
     rows: RefCell<Vec<Display>>,
@@ -72,36 +242,18 @@ impl MessageList {
             .build();
         let root = gtk::Overlay::builder().child(&scroll).build();
         root.add_overlay(&jump);
-        let pick_label = gtk::Label::builder().css_classes(["pick-count"]).build();
-        let pick_copy = gtk::Button::builder().label(t("pick.copy")).css_classes(["pick-copy"]).build();
-        let pick_clear = gtk::Button::builder()
-            .icon_name("window-close-symbolic")
-            .tooltip_text(t("pick.clear"))
-            .css_classes(["flat", "circular"])
-            .build();
-        let pick_bar = gtk::Box::builder()
-            .spacing(10)
-            .css_classes(["pick-bar"])
-            .halign(gtk::Align::Center)
-            .valign(gtk::Align::Start)
-            .margin_top(8)
-            .visible(false)
-            .build();
-        pick_bar.append(&pick_label);
-        pick_bar.append(&pick_copy);
-        pick_bar.append(&pick_clear);
-        root.add_overlay(&pick_bar);
         let this = Rc::new(MessageList {
             root,
             scroll,
             jump,
-            pick_bar,
-            pick_label,
-            picked: RefCell::default(),
-            anchor: RefCell::default(),
-            text_drag: RefCell::default(),
-            text_dragging: Cell::new(false),
-            text_press: Cell::new(None),
+            bound: RefCell::default(),
+            seen: RefCell::default(),
+            press: RefCell::default(),
+            press_at: Cell::new(None),
+            span: RefCell::default(),
+            spanning: Cell::new(false),
+            pointer: Cell::new((0.0, 0.0)),
+            scroller: RefCell::default(),
             view,
             store,
             rows: RefCell::default(),
@@ -115,19 +267,7 @@ impl MessageList {
             revealing: RefCell::default(),
             highlighted: RefCell::default(),
         });
-        let weak = Rc::downgrade(&this);
-        pick_copy.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.copy_picked();
-            }
-        });
-        let weak = Rc::downgrade(&this);
-        pick_clear.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.clear_picked();
-            }
-        });
-        this.wire_picking();
+        this.wire_selection();
         this.wire(session);
         this
     }
@@ -158,13 +298,25 @@ impl MessageList {
                 this.editing.borrow().as_ref().filter(|(id, _)| *id == display.row.id).map(|(_, b)| b.clone())
             });
             let widget = rows::message_widget(&display, &my_id, session.as_ref(), editing.as_ref(), on_event);
-            if w.upgrade().is_some_and(|this| this.picked.borrow().contains(&display.row.id)) {
-                widget.add_css_class("picked");
+            if let Some(this) = w.upgrade() {
+                this.bound.borrow_mut().insert(display.row.id.clone(), widget.clone());
+                this.seen.borrow_mut().insert(display.row.id.clone(), texts(&widget).iter().map(segment).collect());
+                this.apply_to(&display.row.id, &widget);
             }
             if w.upgrade().is_some_and(|this| this.highlighted.borrow().as_deref() == Some(display.row.id.as_str())) {
                 widget.add_css_class("revealed");
             }
             item.set_child(Some(&widget));
+        });
+        let w = weak.clone();
+        factory.connect_unbind(move |_, item| {
+            let item = item.downcast_ref::<gtk::ListItem>().expect("list item");
+            let (Some(this), Some(child)) = (w.upgrade(), item.child()) else { return };
+            let id = child.widget_name().to_string();
+            let mut bound = this.bound.borrow_mut();
+            if bound.get(&id) == Some(&child) {
+                bound.remove(&id);
+            }
         });
         self.view.set_factory(Some(&factory));
 
@@ -202,67 +354,20 @@ impl MessageList {
         });
     }
 
-    /// Pressing in the gutter (avatar, time) and dragging picks whole messages,
-    /// Shift extends from the last one; inside a message the text selects as usual.
-    fn wire_picking(self: &Rc<Self>) {
-        let drag = gtk::GestureDrag::builder().propagation_phase(gtk::PropagationPhase::Capture).build();
+    /// Selecting text: in one text GTK's own selection; dragged on into
+    /// another text or message, a selection running across them, in reading
+    /// order, as in a browser.
+    fn wire_selection(self: &Rc<Self>) {
+        let events = gtk::EventControllerLegacy::builder().propagation_phase(gtk::PropagationPhase::Capture).build();
         let weak = Rc::downgrade(self);
-        drag.connect_drag_begin(move |gesture, x, y| {
-            let Some(this) = weak.upgrade() else { return };
-            let id = (x < GUTTER).then(|| this.id_at(x, y)).flatten();
-            let Some(id) = id else {
-                gesture.set_state(gtk::EventSequenceState::Denied);
-                return;
-            };
-            gesture.set_state(gtk::EventSequenceState::Claimed);
-            this.view.set_focusable(true);
-            this.view.grab_focus();
-            let shift = gesture.current_event_state().contains(gtk::gdk::ModifierType::SHIFT_MASK);
-            let anchor = this.anchor.borrow().clone().filter(|_| shift);
-            match anchor {
-                Some(anchor) => this.pick_range(&anchor, &id),
-                None => {
-                    this.anchor.replace(Some(id.clone()));
-                    let already = this.picked.borrow().len() == 1 && this.picked.borrow()[0] == id;
-                    this.set_picked(if already { Vec::new() } else { vec![id] });
-                }
-            }
-        });
-        let weak = Rc::downgrade(self);
-        drag.connect_drag_update(move |gesture, dx, dy| {
-            let (Some(this), Some((x, y))) = (weak.upgrade(), gesture.start_point()) else { return };
-            let anchor = this.anchor.borrow().clone();
-            if let (Some(anchor), Some(id)) = (anchor, this.id_at(x + dx, y + dy)) {
-                this.pick_range(&anchor, &id);
-            }
-        });
-        self.view.add_controller(drag);
-        let text = gtk::EventControllerLegacy::builder().propagation_phase(gtk::PropagationPhase::Capture).build();
-        let weak = Rc::downgrade(self);
-        text.connect_event(move |_, event| {
+        events.connect_event(move |_, event| {
             let Some(this) = weak.upgrade() else { return glib::Propagation::Proceed };
-            this.text_drag_event(event)
+            this.selection_event(event)
         });
-        self.view.add_controller(text);
-        let keys = gtk::EventControllerKey::new();
-        let weak = Rc::downgrade(self);
-        keys.connect_key_pressed(move |_, key, _, state| {
-            let Some(this) = weak.upgrade().filter(|this| !this.picked.borrow().is_empty()) else {
-                return glib::Propagation::Proceed;
-            };
-            match key {
-                gtk::gdk::Key::c if state.contains(gtk::gdk::ModifierType::CONTROL_MASK) => this.copy_picked(),
-                gtk::gdk::Key::Escape => this.clear_picked(),
-                _ => return glib::Propagation::Proceed,
-            }
-            glib::Propagation::Stop
-        });
-        self.view.add_controller(keys);
+        self.view.add_controller(events);
     }
 
-    /// A text selection dragged out of its message becomes a selection of
-    /// whole messages, from that one to the one under the pointer.
-    fn text_drag_event(&self, event: &gtk::gdk::Event) -> glib::Propagation {
+    fn selection_event(self: &Rc<Self>, event: &gtk::gdk::Event) -> glib::Propagation {
         use gtk::gdk::EventType;
         let point = || {
             let native = self.view.native()?;
@@ -274,40 +379,53 @@ impl MessageList {
         match event.event_type() {
             EventType::ButtonPress => {
                 let primary = event.downcast_ref::<gtk::gdk::ButtonEvent>().is_some_and(|b| b.button() == 1);
-                let start = point().filter(|(x, _)| primary && *x >= GUTTER).and_then(|(x, y)| self.id_at(x, y));
-                self.text_drag.replace(start);
-                self.text_press.set(point().filter(|_| primary));
-                self.text_dragging.set(false);
+                if !primary {
+                    return glib::Propagation::Proceed;
+                }
+                if self.span.borrow().is_some() {
+                    self.clear_span();
+                }
+                let at = point();
+                self.press_at.set(at);
+                self.press.replace(at.and_then(|(x, y)| self.point_at(x, y, true)));
+                self.spanning.set(false);
                 glib::Propagation::Proceed
             }
             EventType::MotionNotify => {
-                let Some(start) = self.text_drag.borrow().clone() else { return glib::Propagation::Proceed };
+                let Some(press) = self.press.borrow().clone() else { return glib::Propagation::Proceed };
                 if !event.modifier_state().contains(gtk::gdk::ModifierType::BUTTON1_MASK) {
-                    self.text_drag.replace(None);
+                    self.end_drag();
                     return glib::Propagation::Proceed;
                 }
-                let Some(id) = point().and_then(|(x, y)| self.id_at(x, y)) else {
-                    return if self.text_dragging.get() { glib::Propagation::Stop } else { glib::Propagation::Proceed };
+                let Some((x, y)) = point() else { return glib::Propagation::Proceed };
+                self.pointer.set((x, y));
+                let Some(focus) = self.point_at(x, y, false) else {
+                    return if self.spanning.get() { glib::Propagation::Stop } else { glib::Propagation::Proceed };
                 };
-                if id == start && !self.text_dragging.get() {
-                    return glib::Propagation::Proceed;
+                if !self.spanning.get() {
+                    if focus.id == press.id && focus.text == press.text {
+                        return glib::Propagation::Proceed;
+                    }
+                    self.spanning.set(true);
+                    crate::markdown_view::spanning(self.view.upcast_ref());
+                    if let Some(row) = self.bound.borrow().get(&press.id)
+                        && let Some(text) = texts(row).get(press.text)
+                    {
+                        unselect(text);
+                    }
                 }
-                if !self.text_dragging.replace(true) {
-                    crate::markdown_view::clear_selection();
-                    self.anchor.replace(Some(start.clone()));
-                    self.view.set_focusable(true);
-                    self.view.grab_focus();
-                }
-                self.pick_range(&start, &id);
+                self.span.replace(Some(Span { anchor: press, focus }));
+                self.apply();
+                self.autoscroll();
                 glib::Propagation::Stop
             }
             EventType::ButtonRelease => {
-                let start = self.text_press.take();
-                self.text_drag.replace(None);
-                if self.text_dragging.replace(false) {
+                let spanned = self.spanning.get();
+                self.end_drag();
+                if spanned {
                     return glib::Propagation::Stop;
                 }
-                if let Some((x, y)) = start {
+                if let Some((x, y)) = self.press_at.take() {
                     let view = self.view.clone();
                     glib::idle_add_local_once(move || {
                         if let Some(widget) = view.pick(x, y, gtk::PickFlags::DEFAULT) {
@@ -321,71 +439,181 @@ impl MessageList {
         }
     }
 
-    /// The message whose row is at `(x, y)` of the list.
-    fn id_at(&self, x: f64, y: f64) -> Option<String> {
-        let mut widget = self.view.pick(x, y, gtk::PickFlags::DEFAULT);
+    fn end_drag(&self) {
+        self.press.replace(None);
+        self.spanning.set(false);
+        if let Some(source) = self.scroller.take() {
+            source.remove();
+        }
+    }
+
+    /// Near the list's top or bottom, a selection being dragged scrolls it
+    /// and follows the text coming into view.
+    fn autoscroll(self: &Rc<Self>) {
+        let (_, y) = self.pointer.get();
+        let near = y < EDGE || y > self.view.height() as f64 - EDGE;
+        if !near {
+            if let Some(source) = self.scroller.take() {
+                source.remove();
+            }
+            return;
+        }
+        if self.scroller.borrow().is_some() {
+            return;
+        }
+        let weak = Rc::downgrade(self);
+        let source = glib::timeout_add_local(std::time::Duration::from_millis(40), move || {
+            let Some(this) = weak.upgrade().filter(|this| this.spanning.get()) else {
+                return glib::ControlFlow::Break;
+            };
+            let (x, y) = this.pointer.get();
+            let step = if y < EDGE { -(EDGE - y).max(4.0) } else { (y - this.view.height() as f64 + EDGE).max(4.0) };
+            let adjustment = this.scroll.vadjustment();
+            adjustment.set_value(adjustment.value() + step);
+            let clamped = y.clamp(1.0, this.view.height() as f64 - 1.0);
+            if let Some(focus) = this.point_at(x, clamped, false) {
+                if let Some(span) = this.span.borrow_mut().as_mut() {
+                    span.focus = focus;
+                }
+                this.apply();
+            }
+            glib::ControlFlow::Continue
+        });
+        self.scroller.replace(Some(source));
+    }
+
+    /// The message row a widget belongs to, and that row's widget.
+    fn row_of(&self, widget: Option<gtk::Widget>) -> Option<(String, gtk::Widget)> {
+        let mut widget = widget;
         while let Some(w) = widget {
             let name = w.widget_name();
-            if self.rows.borrow().iter().any(|d| d.row.id == name.as_str()) {
-                return Some(name.to_string());
+            if self.bound.borrow().get(name.as_str()) == Some(&w) {
+                return Some((name.to_string(), w));
             }
             widget = w.parent();
         }
         None
     }
 
-    fn pick_range(&self, from: &str, to: &str) {
-        let rows = self.rows.borrow();
-        let at = |id: &str| rows.iter().position(|d| d.row.id == id);
-        let (Some(a), Some(b)) = (at(from), at(to)) else { return };
-        let ids = rows[a.min(b)..=a.max(b)]
-            .iter()
-            .filter(|d| rv_core::actions::has_actions(d.row.system_type.as_deref(), d.row.text.as_deref()))
-            .map(|d| d.row.id.clone())
-            .collect();
-        drop(rows);
-        self.set_picked(ids);
-    }
-
-    fn set_picked(&self, ids: Vec<String>) {
-        let before = self.picked.replace(ids);
-        let now = self.picked.borrow().clone();
-        for id in before.iter().filter(|id| !now.contains(id)).chain(now.iter().filter(|id| !before.contains(id))) {
-            self.refresh(id);
+    /// Where \`(x, y)\` of the list falls in a message's text; \`exact\`: only
+    /// right on a text, else the nearest place in the row under it.
+    fn point_at(&self, x: f64, y: f64, exact: bool) -> Option<Point> {
+        let picked = self.view.pick(x, y, gtk::PickFlags::DEFAULT);
+        let (id, row) = self.row_of(picked.clone())?;
+        let texts = texts(&row);
+        let on =
+            picked.and_then(|p| std::iter::successors(Some(p), |w| w.parent()).take_while(|w| *w != row).find(is_text));
+        let local = |text: &gtk::Widget, x: f64, y: f64| {
+            let p = self.view.compute_point(text, &gtk::graphene::Point::new(x as f32, y as f32))?;
+            Some((p.x() as f64, p.y() as f64))
+        };
+        if let Some(text) = on {
+            let index = texts.iter().position(|t| *t == text)?;
+            let (lx, ly) = local(&text, x, y)?;
+            return Some(Point { id, text: index, offset: offset_at(&text, lx, ly) });
         }
-        self.pick_bar.set_visible(!now.is_empty());
-        self.pick_label.set_label(&crate::i18n::tn("pick.count", now.len() as i64));
+        if exact || texts.is_empty() {
+            return None;
+        }
+        let bounds: Vec<_> = texts.iter().filter_map(|t| t.compute_bounds(&self.view)).collect();
+        if bounds.len() != texts.len() {
+            return None;
+        }
+        let above = bounds.iter().rposition(|b| (b.y() as f64) <= y);
+        let Some(index) = above else { return Some(Point { id, text: 0, offset: 0 }) };
+        let b = &bounds[index];
+        let text = &texts[index];
+        if y > (b.y() + b.height()) as f64 {
+            return Some(Point { id, text: index, offset: words(text).chars().count() as i32 });
+        }
+        let cx = x.clamp(b.x() as f64 + 1.0, (b.x() + b.width()) as f64 - 1.0);
+        let (lx, ly) = local(text, cx, y)?;
+        Some(Point { id, text: index, offset: offset_at(text, lx, ly) })
     }
 
-    pub fn has_picked(&self) -> bool {
-        !self.picked.borrow().is_empty()
+    /// The span's ends in reading order: (row, text, offset) each.
+    fn ends(&self, span: &Span) -> Option<(Place, Place)> {
+        let rows = self.rows.borrow();
+        let at = |p: &Point| rows.iter().position(|d| d.row.id == p.id).map(|r| (r, p.text, p.offset));
+        let (a, b) = (at(&span.anchor)?, at(&span.focus)?);
+        Some(if a <= b { (a, b) } else { (b, a) })
     }
 
-    pub fn clear_picked(&self) {
-        self.anchor.replace(None);
-        self.set_picked(Vec::new());
+    /// What of text \`text\` (\`len\` characters) of row \`row\` the span covers.
+    fn covered(ends: (Place, Place), row: usize, text: usize, len: i32) -> Option<(i32, i32)> {
+        let ((ar, at, ao), (br, bt, bo)) = ends;
+        if (row, text) < (ar, at) || (row, text) > (br, bt) {
+            return None;
+        }
+        let start = if (row, text) == (ar, at) { ao } else { 0 };
+        let end = if (row, text) == (br, bt) { bo } else { len };
+        (start < end).then_some((start, end))
     }
 
-    /// The picked messages as text, oldest first: author and time, then the words.
-    pub fn picked_text(&self) -> String {
-        let picked = self.picked.borrow();
-        self.rows
-            .borrow()
-            .iter()
-            .filter(|d| picked.contains(&d.row.id))
-            .map(|d| {
-                let words = rv_core::actions::copyable_text(d.row.text.as_deref())
-                    .map_or_else(|| t("pick.attachment").to_owned(), str::to_owned);
-                let when = rows::local(d.row.ts).format("%d/%m/%Y %H:%M");
-                format!("{} · {when}\n{words}", d.row.author.as_deref().unwrap_or_default())
-            })
-            .collect::<Vec<_>>()
-            .join("\n\n")
+    /// Shows the span in the row built for message \`id\`.
+    fn apply_to(&self, id: &str, row: &gtk::Widget) {
+        let span = self.span.borrow().clone();
+        let ends = span.as_ref().and_then(|s| self.ends(s));
+        let index = self.rows.borrow().iter().position(|d| d.row.id == id);
+        for (i, text) in texts(row).iter().enumerate() {
+            let len = words(text).chars().count() as i32;
+            let range = ends.zip(index).and_then(|(ends, r)| Self::covered(ends, r, i, len));
+            if span.is_some() || range.is_some() {
+                highlight(text, range);
+            }
+        }
     }
 
-    fn copy_picked(&self) {
-        self.root.clipboard().set_text(&self.picked_text());
-        self.clear_picked();
+    fn apply(&self) {
+        let bound: Vec<(String, gtk::Widget)> =
+            self.bound.borrow().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        for (id, row) in bound {
+            self.apply_to(&id, &row);
+        }
+    }
+
+    fn clear_span(&self) {
+        if self.span.replace(None).is_none() {
+            return;
+        }
+        let bound: Vec<gtk::Widget> = self.bound.borrow().values().cloned().collect();
+        for row in bound {
+            for text in texts(&row) {
+                highlight(&text, None);
+            }
+        }
+    }
+
+    /// The text of a selection that runs across texts or messages, one line
+    /// per text; None when there is none.
+    pub fn selection_text(&self) -> Option<String> {
+        let span = self.span.borrow().clone()?;
+        let ((ar, ..), (br, ..)) = self.ends(&span)?;
+        let ends = self.ends(&span)?;
+        let rows = self.rows.borrow();
+        let mut lines = Vec::new();
+        for (r, display) in rows.iter().enumerate().take(br + 1).skip(ar) {
+            let id = &display.row.id;
+            let segments: Vec<Segment> = match self.bound.borrow().get(id) {
+                Some(row) => texts(row).iter().map(segment).collect(),
+                None => self.seen.borrow().get(id).cloned().unwrap_or_else(|| {
+                    let blocks = rv_core::markdown::render(
+                        display.row.md.as_deref(),
+                        display.row.text.as_deref(),
+                        &rv_core::markdown::Context { me: "" },
+                    );
+                    vec![(rv_core::runs::text(&blocks), Vec::new())]
+                }),
+            };
+            for (i, segment) in segments.iter().enumerate() {
+                let len = segment.0.chars().count() as i32;
+                if let Some((start, end)) = Self::covered(ends, r, i, len) {
+                    lines.push(copied(segment, start, end));
+                }
+            }
+        }
+        let text = lines.join("\n");
+        (!text.is_empty()).then_some(text)
     }
 
     pub fn connect_event(&self, f: impl Fn(RowEvent) + 'static) {
@@ -398,6 +626,8 @@ impl MessageList {
 
     /// Empties the list and pins it to the bottom again.
     pub fn clear(&self) {
+        self.span.replace(None);
+        self.seen.borrow_mut().clear();
         self.rows.replace(Vec::new());
         self.store.remove_all();
         self.pinned.set(true);

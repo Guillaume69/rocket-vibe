@@ -386,6 +386,13 @@ impl Composer {
                 return glib::Propagation::Stop;
             }
             let enter = key == gdk::Key::Return || key == gdk::Key::KP_Enter;
+            if enter
+                && state.contains(gdk::ModifierType::SHIFT_MASK)
+                && let Some(this) = weak.upgrade()
+                && this.continue_list()
+            {
+                return glib::Propagation::Stop;
+            }
             if !enter || state.contains(gdk::ModifierType::SHIFT_MASK) {
                 return glib::Propagation::Proceed;
             }
@@ -396,6 +403,21 @@ impl Composer {
         });
         this.text.add_controller(keys);
         this
+    }
+
+    /// Shift+Enter in a list: the next item's marker comes with the new line.
+    fn continue_list(&self) -> bool {
+        let buffer = self.text.buffer();
+        if buffer.has_selection() {
+            return false;
+        }
+        let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string();
+        let Some(edited) = rv_core::compose::list_break(&text, self.cursor_offset()) else { return false };
+        buffer.begin_user_action();
+        buffer.set_text(&edited.text);
+        buffer.end_user_action();
+        buffer.place_cursor(&buffer.iter_at_offset(edited.start as i32));
+        true
     }
 
     /// Called on every edit, with the whole text: drafts are saved from here.

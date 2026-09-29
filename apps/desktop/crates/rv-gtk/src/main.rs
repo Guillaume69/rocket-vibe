@@ -10,10 +10,13 @@ mod composer;
 mod crashlog;
 mod details;
 mod emoji_picker;
+mod focus;
 mod fonts;
+mod gst_stream;
 mod i18n;
 mod icon;
 mod login;
+mod logs;
 #[cfg(target_os = "macos")]
 mod macos;
 mod markdown_view;
@@ -94,6 +97,7 @@ fn application_flags() -> gtk::gio::ApplicationFlags {
 
 fn main() -> glib::ExitCode {
     crashlog::install();
+    logs::install();
     #[cfg(target_os = "macos")]
     macos::bundle_environment();
     #[cfg(windows)]
@@ -105,6 +109,11 @@ fn main() -> glib::ExitCode {
     i18n::init();
     spell::start();
     app.connect_startup(|app| {
+        focus::install();
+        #[cfg(windows)]
+        if !smoke::ime_unpinned() {
+            windows::input_method();
+        }
         background::install(app);
         style::load();
         if let Some(display) = gtk::gdk::Display::default() {

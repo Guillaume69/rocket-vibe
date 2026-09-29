@@ -81,6 +81,7 @@ impl From<rv_core::server::ServerProfile> for ServerProfile {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum RoomSection {
     Unread,
+    Favorites,
     Channels,
     Direct,
 }
@@ -89,6 +90,7 @@ impl From<Section> for RoomSection {
     fn from(s: Section) -> Self {
         match s {
             Section::Unread => RoomSection::Unread,
+            Section::Favorites => RoomSection::Favorites,
             Section::Channels => RoomSection::Channels,
             Section::Direct => RoomSection::Direct,
         }

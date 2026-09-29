@@ -14,10 +14,11 @@ mkdir -p "$out/bin" "$out/lib/gstreamer-1.0" "$out/share/glib-2.0/schemas" "$out
 cp target/release/rocket-vibe-gtk.exe "$out/bin/"
 
 # GStreamer finds its plugins in ../lib/gstreamer-1.0 next to its DLL.
-for plugin in coreelements audioconvert audioresample autodetect wasapi wasapi2 directsound opus ogg \
-  playback typefindfunctions audioparsers isomp4 matroska videoconvertscale volume; do
-  file="$prefix/lib/gstreamer-1.0/libgst$plugin.dll"
-  if [ -f "$file" ]; then cp "$file" "$out/lib/gstreamer-1.0/"; fi
+# GTK reads the file through gio's giostreamsrc; Media Foundation decodes H.264 and AAC
+# with what Windows already has.
+for plugin in coreelements gio audioconvert audioresample autodetect wasapi wasapi2 directsound opus vorbis ogg \
+  playback typefindfunctions audioparsers isomp4 matroska videoconvertscale volume mediafoundation; do
+  cp "$prefix/lib/gstreamer-1.0/libgst$plugin.dll" "$out/lib/gstreamer-1.0/"
 done
 cp -r "$prefix/lib/gdk-pixbuf-2.0" "$out/lib/"
 

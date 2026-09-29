@@ -60,14 +60,48 @@ fn collapsed_file() -> std::path::PathBuf {
 fn section_key(section: Section) -> &'static str {
     match section {
         Section::Unread => "unread",
+        Section::Favorites => "favorites",
         Section::Channels => "channels",
         Section::Direct => "direct",
     }
 }
 
+/// A right click on a room offers to star it, or to take the star away.
+fn favorite_menu(widget: &gtk::Widget, session: Arc<Session>, rid: &str, favorite: bool) {
+    let click = gtk::GestureClick::builder().button(gdk::BUTTON_SECONDARY).build();
+    let (target, rid) = (widget.downgrade(), rid.to_owned());
+    click.connect_pressed(move |gesture, _, x, y| {
+        let Some(widget) = target.upgrade() else { return };
+        gesture.set_state(gtk::EventSequenceState::Claimed);
+        let label = t(if favorite { "rooms.favorite_remove" } else { "rooms.favorite_add" });
+        let content = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        content.append(&gtk::Image::from_icon_name(if favorite { "non-starred-symbolic" } else { "starred-symbolic" }));
+        content.append(&gtk::Label::new(Some(label)));
+        let button = gtk::Button::builder().child(&content).css_classes(["flat"]).build();
+        let popover = gtk::Popover::builder().child(&button).has_arrow(false).build();
+        popover.set_parent(&widget);
+        popover.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        popover.connect_closed(|p| p.unparent());
+        let (session, rid, weak) = (session.clone(), rid.clone(), popover.downgrade());
+        button.connect_clicked(move |_| {
+            if let Some(popover) = weak.upgrade() {
+                popover.popdown();
+            }
+            let (session, rid) = (session.clone(), rid.clone());
+            glib::spawn_future_local(async move {
+                if let Err(e) = on_tokio(async move { session.set_favorite(&rid, !favorite).await }).await {
+                    eprintln!("Favorite not changed: {e}");
+                }
+            });
+        });
+        popover.popup();
+    });
+    widget.add_controller(click);
+}
+
 fn load_collapsed() -> Vec<Section> {
     let saved = std::fs::read_to_string(collapsed_file()).unwrap_or_default();
-    [Section::Unread, Section::Channels, Section::Direct]
+    [Section::Unread, Section::Favorites, Section::Channels, Section::Direct]
         .into_iter()
         .filter(|s| saved.lines().any(|l| l == section_key(*s)))
         .collect()
@@ -155,7 +189,11 @@ impl ChatPage {
                 RoomItem::Room(room) => {
                     item.set_selectable(true);
                     item.set_activatable(true);
-                    item.set_child(Some(&room_widget(room, shared.borrow().as_ref())));
+                    let widget = room_widget(room, shared.borrow().as_ref());
+                    if let Some(session) = shared.borrow().clone() {
+                        favorite_menu(&widget, session, &room.rid, room.favorite);
+                    }
+                    item.set_child(Some(&widget));
                 }
             }
         });
@@ -581,10 +619,16 @@ impl ChatPage {
             if !ctrl || !matches!(key, gdk::Key::c | gdk::Key::C | gdk::Key::Insert | gdk::Key::KP_Insert) {
                 return glib::Propagation::Proceed;
             }
-            if w.upgrade().is_some_and(|this| {
-                this.list.has_picked() || this.thread.borrow().as_ref().is_some_and(|t| t.list.has_picked())
-            }) {
-                return glib::Propagation::Proceed;
+            let spanned = w.upgrade().and_then(|this| {
+                this.list
+                    .selection_text()
+                    .or_else(|| this.thread.borrow().as_ref().and_then(|t| t.list.selection_text()))
+            });
+            if let Some(text) = spanned {
+                if let Some(display) = gdk::Display::default() {
+                    display.clipboard().set_text(&text);
+                }
+                return glib::Propagation::Stop;
             }
             let focus = controller.widget().and_then(|w| w.root()).and_then(|root| root.focus());
             let editor_selection = focus.as_ref().is_some_and(|f| {
@@ -1297,6 +1341,7 @@ impl ChatPage {
                 if titled {
                     let title = match section {
                         Section::Unread => t("rooms.section_unread"),
+                        Section::Favorites => t("rooms.section_favorites"),
                         Section::Channels => t("rooms.section_channels"),
                         Section::Direct => t("rooms.section_direct"),
                     };

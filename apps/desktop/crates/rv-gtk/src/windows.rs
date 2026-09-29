@@ -72,3 +72,13 @@ pub fn text_backend() {
     // SAFETY: called first thing in main, while the process has one thread.
     let _ = unsafe { gtk::glib::setenv("PANGOCAIRO_BACKEND", "fc", false) };
 }
+
+/// The input method pinned to the one GTK picks here anyway. Left to the
+/// system, every keyboard layout change swaps each text field's input method,
+/// and GTK 4.24 does not tell the focused one it lost the focus: its message
+/// filter outlives it and the app crashes (`c000041d` in libgtk).
+pub fn input_method() {
+    if let Some(settings) = gtk::Settings::default() {
+        settings.set_gtk_im_module(Some("ime"));
+    }
+}

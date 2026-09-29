@@ -21,6 +21,18 @@ thread_local! {
 fn selected(widget: &impl IsA<gtk::Widget>) {
     let widget = widget.upcast_ref::<gtk::Widget>();
     SELECTED.with_borrow(|s| s.set(Some(widget)));
+    drop_editor_selection(widget);
+}
+
+/// A selection now runs across messages: the one made in a single text and
+/// an editor's give way to it.
+pub fn spanning(widget: &gtk::Widget) {
+    clear_selection();
+    SELECTED.with_borrow(|s| s.set(None));
+    drop_editor_selection(widget);
+}
+
+fn drop_editor_selection(widget: &gtk::Widget) {
     let focus = widget.root().and_then(|root| root.focus());
     if let Some(editor) = focus.as_ref().and_then(|f| f.downcast_ref::<gtk::TextView>()) {
         let buffer = editor.buffer();
@@ -86,9 +98,9 @@ pub fn custom_emoji(code: &str) -> Option<gtk::Widget> {
     CUSTOM_EMOJI.with_borrow(Clone::clone).and_then(|f| f(code))
 }
 
-/// Text with custom emoji drawn inline: a label cannot hold pictures, a
-/// read-only text view can.
-fn with_images(markup: &str, classes: &[&str]) -> gtk::Widget {
+/// Text with server emoji drawn inline, `emoji` pixels high: a label cannot
+/// hold pictures, a read-only text view can. Styled from rv-core's runs.
+fn rich(markup: &str, classes: &[&str], emoji: i32) -> gtk::Widget {
     let view = gtk::TextView::builder()
         .editable(false)
         .cursor_visible(false)
@@ -98,37 +110,85 @@ fn with_images(markup: &str, classes: &[&str]) -> gtk::Widget {
         .build();
     view.add_css_class("inline-images");
     let buffer = view.buffer();
-    for piece in rv_core::markdown::pieces(markup) {
+    for run in rv_core::runs::runs(markup) {
         let mut end = buffer.end_iter();
-        match piece {
-            rv_core::markdown::Piece::Markup(m) => {
-                for (run, href) in rv_core::markdown::link_runs(m) {
-                    let mut end = buffer.end_iter();
-                    let from = end.offset();
-                    buffer.insert_markup(&mut end, &run);
-                    if let Some(href) = href {
-                        buffer.apply_tag(&link_tag(&buffer, &href), &buffer.iter_at_offset(from), &buffer.end_iter());
-                    }
-                }
+        if let Some(code) = &run.custom_emoji
+            && let Some(image) = custom_emoji(code)
+        {
+            image.set_size_request(emoji, emoji);
+            let from = end.offset();
+            let anchor = buffer.create_child_anchor(&mut end);
+            view.add_child_at_anchor(&image, &anchor);
+            if emoji < 30 && !classes.iter().any(|c| c.starts_with("md-h")) {
+                buffer.apply_tag(&style_tag(&buffer, "sink"), &buffer.iter_at_offset(from), &buffer.end_iter());
             }
-            rv_core::markdown::Piece::Custom(code) => match custom_emoji(code) {
-                Some(image) => {
-                    let anchor = buffer.create_child_anchor(&mut end);
-                    view.add_child_at_anchor(&image, &anchor);
-                }
-                None => buffer.insert(&mut end, &format!(":{code}:")),
-            },
+            continue;
+        }
+        let from = end.offset();
+        buffer.insert(&mut end, &run.text);
+        let (start, end) = (buffer.iter_at_offset(from), buffer.end_iter());
+        let channel = run.link.as_deref().is_some_and(|l| l.starts_with("rv-room:"));
+        let styles = [
+            (run.bold || run.mention, "bold"),
+            (run.italic, "italic"),
+            (run.strike, "strike"),
+            (run.code, "code"),
+            (run.mention && !channel, "mention"),
+            (run.mention && channel, "channel"),
+            (run.highlight, "highlight"),
+            (run.link.is_some() && !run.mention, "link"),
+        ];
+        for (on, name) in styles {
+            if on {
+                buffer.apply_tag(&style_tag(&buffer, name), &start, &end);
+            }
+        }
+        if let Some(href) = &run.link {
+            buffer.apply_tag(&link_tag(&buffer, href), &start, &end);
         }
     }
     with_view_links(&view);
+    // A text view reports the height of its last layout, not the height for the
+    // width it is being given: once laid out at its real width, ask again.
+    view.connect_map(|view| {
+        let view = view.downgrade();
+        glib::timeout_add_local_once(std::time::Duration::from_millis(60), move || {
+            if let Some(view) = view.upgrade() {
+                view.queue_resize();
+            }
+        });
+    });
     view.upcast()
+}
+
+fn style_tag(buffer: &gtk::TextBuffer, name: &str) -> gtk::TextTag {
+    let table = buffer.tag_table();
+    table.lookup(name).unwrap_or_else(|| {
+        let tag = gtk::TextTag::new(Some(name));
+        match name {
+            "bold" => tag.set_weight(700),
+            "italic" => tag.set_style(pango::Style::Italic),
+            "strike" => tag.set_strikethrough(true),
+            "code" => {
+                tag.set_family(Some("monospace"));
+                tag.set_background(Some("#1E1B33"));
+            }
+            "mention" => tag.set_foreground(Some("#FF7AB4")),
+            "channel" => tag.set_foreground(Some("#A78BFA")),
+            "highlight" => tag.set_background(Some("#4A2140")),
+            "sink" => tag.set_rise(-5 * pango::SCALE),
+            _ => tag.set_foreground(Some("#5CC8FF")),
+        }
+        table.add(&tag);
+        tag
+    })
 }
 
 fn link_tag(buffer: &gtk::TextBuffer, href: &str) -> gtk::TextTag {
     let table = buffer.tag_table();
     let name = format!("href:{href}");
     table.lookup(&name).unwrap_or_else(|| {
-        let tag = gtk::TextTag::builder().name(&name).foreground("#5CC8FF").build();
+        let tag = gtk::TextTag::new(Some(&name));
         table.add(&tag);
         tag
     })
@@ -272,13 +332,19 @@ fn with<'a>(base: &'a str, extra: &[&'a str]) -> Vec<&'a str> {
     std::iter::once(base).chain(extra.iter().copied()).collect()
 }
 
+/// A label, or a text view when server emoji are drawn in it.
+fn body(markup: &str, classes: &[&str]) -> gtk::Widget {
+    if markup.contains(rv_core::markdown::CUSTOM_MARK) {
+        rich(markup, classes, 20)
+    } else {
+        text(markup, classes).upcast()
+    }
+}
+
 fn block(b: &Block, extra: &[&str]) -> gtk::Widget {
     match b {
-        Block::Paragraph(markup) if markup.contains(rv_core::markdown::CUSTOM_MARK) => {
-            with_images(markup, &with("message-body", extra))
-        }
-        Block::Paragraph(markup) => text(markup, &with("message-body", extra)).upcast(),
-        Block::Heading { level, markup } => text(markup, &with(&format!("md-h{level}"), extra)).upcast(),
+        Block::Paragraph(markup) => body(markup, &with("message-body", extra)),
+        Block::Heading { level, markup } => body(markup, &with(&format!("md-h{level}"), extra)),
         Block::Quote(inner) => {
             let quote = gtk::Box::builder()
                 .orientation(gtk::Orientation::Vertical)
@@ -299,6 +365,9 @@ fn block(b: &Block, extra: &[&str]) -> gtk::Widget {
                 .selectable(true)
                 .css_classes(["md-code-text"])
                 .build();
+            let attributes = pango::AttrList::new();
+            attributes.insert(pango::AttrInt::new_insert_hyphens(false));
+            label.set_attributes(Some(&attributes));
             let frame = gtk::Box::builder().css_classes(["md-code"]).build();
             frame.append(&label);
             frame.upcast()
@@ -307,19 +376,24 @@ fn block(b: &Block, extra: &[&str]) -> gtk::Widget {
             let list = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(2).build();
             for (marker, markup) in items {
                 let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+                row.set_baseline_position(gtk::BaselinePosition::Top);
                 row.append(
                     &gtk::Label::builder()
                         .label(marker)
-                        .valign(gtk::Align::Start)
+                        .valign(gtk::Align::BaselineFill)
                         .css_classes(with("message-body", extra))
                         .build(),
                 );
-                let item = text(markup, &with("message-body", extra));
+                let item = body(markup, &with("message-body", extra));
                 item.set_hexpand(true);
+                item.set_valign(gtk::Align::BaselineFill);
                 row.append(&item);
                 list.append(&row);
             }
             list.upcast()
+        }
+        Block::BigEmoji(markup) if markup.contains(rv_core::markdown::CUSTOM_MARK) => {
+            rich(markup, &["md-big-emoji"], 48)
         }
         Block::BigEmoji(glyphs) => {
             let label = gtk::Label::builder().label(glyphs).xalign(0.0).css_classes(["md-big-emoji"]).build();

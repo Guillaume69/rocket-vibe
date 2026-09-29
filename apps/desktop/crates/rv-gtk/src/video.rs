@@ -40,14 +40,14 @@ struct Player {
     badge: gtk::DrawingArea,
     bar: gtk::Box,
     status: gtk::Label,
-    stream: std::cell::RefCell<Option<gtk::MediaFile>>,
+    stream: std::cell::RefCell<Option<gtk::MediaStream>>,
     session: Arc<Session>,
     file: FileAttachment,
 }
 
 impl Player {
     /// The file on disk and its stream, made once.
-    async fn stream(self: &Rc<Self>) -> Option<gtk::MediaFile> {
+    async fn stream(self: &Rc<Self>) -> Option<gtk::MediaStream> {
         if let Some(stream) = self.stream.borrow().clone() {
             return Some(stream);
         }
@@ -55,7 +55,7 @@ impl Player {
         if let Some(stream) = self.stream.borrow().clone() {
             return Some(stream);
         }
-        let stream = gtk::MediaFile::for_filename(&path);
+        let stream = crate::gst_stream::for_file(&path);
         self.picture.set_paintable(Some(&stream));
         let controls = gtk::MediaControls::new(Some(&stream));
         controls.set_hexpand(true);

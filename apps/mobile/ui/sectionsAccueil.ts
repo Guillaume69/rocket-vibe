@@ -11,7 +11,9 @@
  *     plutôt que de faire clignoter la liste ;
  *   - « j'ai un message » = non-lus > 0 OU drapeau `alerte` (une mention peut
  *     le lever sans que le compteur bouge) : ces salons remontent en tête,
- *     TOUS TYPES CONFONDUS ; le reste se répartit Salons / Messages privés ;
+ *     TOUS TYPES CONFONDUS ; viennent ensuite les salons que j'ai mis en favori
+ *     (l'étoile du serveur, `f`), puis le reste se répartit Salons / Messages
+ *     privés ;
  *   - une section vide est retirée ;
  *   - l'ordre d'entrée (récence décroissante, trié par la requête) est
  *     PRÉSERVÉ par chaque section — aucun re-tri ici.
@@ -19,7 +21,7 @@
 
 export type EntreeAccueil<S, A> = { salon: S; abonnement: A | null };
 
-export type CleSection = 'nonLus' | 'salons' | 'messagesPrives';
+export type CleSection = 'nonLus' | 'favoris' | 'salons' | 'messagesPrives';
 
 export type TitresSections = Record<CleSection, string>;
 
@@ -27,7 +29,7 @@ export type SectionAccueil<E> = { cle: CleSection; titre: string; data: E[] };
 
 export function construireSections<
   S extends { rid: string; type: string },
-  A extends { rid: string; nonLus: number; alerte: boolean; ouvert: boolean },
+  A extends { rid: string; nonLus: number; alerte: boolean; ouvert: boolean; favori: boolean },
 >(
   lignesSalons: S[] | undefined,
   lignesAbonnements: A[] | undefined,
@@ -41,10 +43,12 @@ export function construireSections<
   const aUnMessage = (e: EntreeAccueil<S, A>): boolean =>
     (e.abonnement?.nonLus ?? 0) > 0 || e.abonnement?.alerte === true;
   const nonLus = visibles.filter(aUnMessage);
-  const lus = visibles.filter((e) => !aUnMessage(e));
+  const favoris = visibles.filter((e) => !aUnMessage(e) && e.abonnement?.favori === true);
+  const lus = visibles.filter((e) => !aUnMessage(e) && e.abonnement?.favori !== true);
 
   const sections: SectionAccueil<EntreeAccueil<S, A>>[] = [
     { cle: 'nonLus', titre: titres.nonLus, data: nonLus },
+    { cle: 'favoris', titre: titres.favoris, data: favoris },
     { cle: 'salons', titre: titres.salons, data: lus.filter((e) => e.salon.type !== 'd') },
     {
       cle: 'messagesPrives',
@@ -55,7 +59,7 @@ export function construireSections<
   return sections.filter((s) => s.data.length > 0);
 }
 
-const CLES_SECTIONS: readonly CleSection[] = ['nonLus', 'salons', 'messagesPrives'];
+const CLES_SECTIONS: readonly CleSection[] = ['nonLus', 'favoris', 'salons', 'messagesPrives'];
 
 /**
  * Relit les sections repliées persistées. Tout ce qui n'est pas un tableau de

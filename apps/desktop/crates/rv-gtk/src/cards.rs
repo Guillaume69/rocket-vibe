@@ -132,9 +132,15 @@ pub fn open_file(widget: &impl IsA<gtk::Widget>, path: &std::path::Path, failed:
 }
 
 fn audio_player(path: &std::path::Path) -> gtk::Widget {
-    let stream = gtk::MediaFile::for_filename(path);
+    let stream = crate::gst_stream::for_file(path);
+    let player = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    player.append(&gtk::MediaControls::new(Some(&stream)));
+    let failed = label(t("video.unsupported"), &["file-detail"]);
+    failed.set_visible(false);
+    player.append(&failed);
+    stream.connect_error_notify(move |s| failed.set_visible(s.error().is_some()));
     stream.play();
-    gtk::MediaControls::new(Some(&stream)).upcast()
+    player.upcast()
 }
 
 /// A file: its name and size, and what can be done with it. Audio and video

@@ -176,10 +176,10 @@ fn emoji_text(node: &Value) -> String {
     }
 }
 
+/// A glyph, or a server emoji by its shortcode.
 fn is_emoji(node: &Value) -> bool {
     node.get("type").and_then(Value::as_str) == Some("EMOJI")
-        && (node.get("unicode").is_some()
-            || node.get("shortCode").and_then(Value::as_str).and_then(emoji::unicode).is_some())
+        && (node.get("unicode").is_some() || node.get("shortCode").and_then(Value::as_str).is_some())
 }
 
 fn safe_href(url: &str) -> Option<&str> {
@@ -333,7 +333,7 @@ pub fn render(md: Option<&str>, text: Option<&str>, ctx: &Context) -> Vec<Block>
         return without_quote_links(tree).iter().map(|b| block(b, ctx)).collect();
     }
     match text.filter(|t| !t.trim().is_empty()) {
-        Some(t) => vec![Block::Paragraph(escape(t))],
+        Some(t) => without_quote_links(crate::parse::tree(t)).iter().map(|b| block(b, ctx)).collect(),
         None => Vec::new(),
     }
 }
@@ -436,14 +436,14 @@ mod tests {
     }
 
     #[test]
-    fn big_emoji_only_when_all_resolve() {
+    fn big_emoji_take_server_emoji_too() {
         let e = |c: &str| json!({"type": "EMOJI", "shortCode": c, "value": plain(c)});
         assert_eq!(
             one(json!([{"type": "BIG_EMOJI", "value": [e("smile"), e("tada")]}])),
             [Block::BigEmoji("😄 🎉".into())]
         );
         let blocks = one(json!([{"type": "BIG_EMOJI", "value": [e("custom_one")]}]));
-        let [Block::Paragraph(markup)] = &blocks[..] else { panic!("{blocks:?}") };
+        let [Block::BigEmoji(markup)] = &blocks[..] else { panic!("{blocks:?}") };
         assert_eq!(without_custom(markup), ":custom_one:");
     }
 
@@ -493,6 +493,10 @@ mod tests {
     #[test]
     fn falls_back_on_text() {
         assert_eq!(render(None, Some("a <b>"), &CTX), [Block::Paragraph("a &lt;b&gt;".into())]);
+        assert_eq!(
+            render(None, Some("[t.gg](http://t.gg)"), &CTX),
+            [Block::Paragraph("<a href=\"http://t.gg\">t.gg</a>".into())]
+        );
         assert_eq!(render(Some("[null]"), Some("t"), &CTX), [Block::Paragraph("t".into())]);
         assert_eq!(render(Some("not json"), Some("t"), &CTX), [Block::Paragraph("t".into())]);
         assert!(render(None, Some("  "), &CTX).is_empty());

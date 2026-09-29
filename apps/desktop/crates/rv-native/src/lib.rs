@@ -113,6 +113,12 @@ pub use other::{
     set_window, show, tray, withdraw,
 };
 
+/// The smoke run's stand-in for a keyboard layout change (Windows only).
+#[cfg(windows)]
+pub use windows_impl::input_language_changed;
+#[cfg(not(windows))]
+pub fn input_language_changed() {}
+
 /// What a second launch asks of the first, from its arguments (one per line):
 /// the link it was started with, else the window, unless it was a start at
 /// login, which leaves the running app as it is.

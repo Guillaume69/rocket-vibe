@@ -115,7 +115,7 @@ impl From<rv_core::live::Presence> for Presence {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
-pub enum Preview {
+pub enum RoomPreview {
     Empty,
     Text {
         text: String,
@@ -135,7 +135,7 @@ pub struct Room {
     pub kind: String,
     pub name: String,
     pub slug: Option<String>,
-    pub preview: Preview,
+    pub preview: RoomPreview,
     pub last_ts: i64,
     pub unread: i64,
     pub mentions: i64,
@@ -156,17 +156,17 @@ pub struct RoomGroup {
 pub fn room(r: RoomRow, clear_last: Option<String>, presence: Option<Presence>) -> Room {
     let system = r.last_type.as_deref().filter(|kind| *kind != "e2e");
     let preview = match (&r.last_message, r.encrypted) {
-        _ if let Some(text) = clear_last => Preview::Text { text: rv_core::emoji::replace_shortcodes(&text) },
-        _ if let Some(kind) = system => Preview::System {
+        _ if let Some(text) = clear_last => RoomPreview::Text { text: rv_core::emoji::replace_shortcodes(&text) },
+        _ if let Some(kind) = system => RoomPreview::System {
             author: r.last_author.clone().unwrap_or_default(),
             kind: kind.to_owned(),
             param: r.last_message.clone().unwrap_or_default(),
         },
         (Some(m), _) => {
-            Preview::Text { text: rv_core::emoji::replace_shortcodes(rv_core::actions::strip_quote_prefix(m)) }
+            RoomPreview::Text { text: rv_core::emoji::replace_shortcodes(rv_core::actions::strip_quote_prefix(m)) }
         }
-        (None, true) => Preview::Encrypted,
-        (None, false) => Preview::Empty,
+        (None, true) => RoomPreview::Encrypted,
+        (None, false) => RoomPreview::Empty,
     };
     Room {
         avatar: media::room_avatar_path(&r),
@@ -225,6 +225,8 @@ pub struct Quote {
     pub author: Option<String>,
     pub body: Vec<BodyBlock>,
     pub images: Vec<ImageItem>,
+    /// What the quoted message quoted in turn.
+    pub quotes: Vec<Quote>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -296,11 +298,13 @@ pub fn quote(q: content::Quote, me: &str) -> Quote {
         author: q.author,
         body: markup::blocks(markdown::render(q.md.as_deref(), Some(&q.text), &ctx)),
         images: q.images.into_iter().map(ImageItem::from).collect(),
+        quotes: q.quotes.into_iter().map(|inner| quote(inner, me)).collect(),
     }
 }
 
-/// `clear`: the decrypted text of an `e2e` message, when the keys read it.
-pub fn message(d: Display, me_id: &str, me: &str, clear: Option<String>) -> MessageItem {
+/// `d.row` as `Session::open_row` left it: an encrypted message opened when
+/// the keys read it, its text None when they do not.
+pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
     let row: MessageRow = d.row;
     let ctx = markdown::Context { me };
     let encrypted = row.system_type.as_deref() == Some("e2e");
@@ -309,8 +313,8 @@ pub fn message(d: Display, me_id: &str, me: &str, clear: Option<String>) -> Mess
     let (body, text, locked) = if system.is_some() {
         (Vec::new(), None, false)
     } else if encrypted {
-        match clear {
-            Some(t) => (markup::blocks(markdown::render(None, Some(&t), &ctx)), Some(t), false),
+        match &row.text {
+            Some(t) => (markup::blocks(markdown::render(None, Some(t), &ctx)), Some(t.clone()), false),
             None => (Vec::new(), None, true),
         }
     } else {
@@ -420,7 +424,7 @@ mod tests {
             outbox_status: Some("failed".into()),
             ..Default::default()
         };
-        let m = message(display(row), "U1", "me", None);
+        let m = message(display(row), "U1", "me");
         assert_eq!((m.author.as_str(), m.mine, m.delivery), ("bob", false, Delivery::Failed));
         assert_eq!(m.avatar, "/avatar/bob");
         assert_eq!(m.images.len(), 1);
@@ -438,14 +442,14 @@ mod tests {
     #[test]
     fn system_and_encrypted_messages_carry_no_body() {
         let joined = MessageRow { system_type: Some("uj".into()), text: Some("bob".into()), ..Default::default() };
-        let m = message(display(joined), "U1", "me", None);
+        let m = message(display(joined), "U1", "me");
         assert_eq!((m.system.as_deref(), m.param.as_str()), (Some("uj"), "bob"));
         assert!(m.body.is_empty() && !m.locked);
 
         let sealed = MessageRow { system_type: Some("e2e".into()), ..Default::default() };
-        let locked = message(display(sealed.clone()), "U1", "me", None);
+        let locked = message(display(sealed.clone()), "U1", "me");
         assert!(locked.locked && locked.system.is_none() && locked.text.is_none());
-        let open = message(display(sealed), "U1", "me", Some("secret".into()));
+        let open = message(display(MessageRow { text: Some("secret".into()), ..sealed }), "U1", "me");
         assert!(!open.locked);
         assert_eq!(open.text.as_deref(), Some("secret"));
     }
@@ -472,7 +476,7 @@ mod tests {
             last_encrypted: None,
         };
         let quoted = RoomRow { last_message: Some("[ ](https://x/?msg=1) hi :smile:".into()), ..base.clone() };
-        assert_eq!(room(quoted, None, None).preview, Preview::Text { text: "hi 😄".into() });
+        assert_eq!(room(quoted, None, None).preview, RoomPreview::Text { text: "hi 😄".into() });
         let joined = RoomRow {
             last_type: Some("uj".into()),
             last_author: Some("bob".into()),
@@ -481,12 +485,12 @@ mod tests {
         };
         assert_eq!(
             room(joined, None, None).preview,
-            Preview::System { author: "bob".into(), kind: "uj".into(), param: String::new() }
+            RoomPreview::System { author: "bob".into(), kind: "uj".into(), param: String::new() }
         );
         let sealed = RoomRow { encrypted: true, ..base.clone() };
         let r = room(sealed.clone(), None, None);
-        assert_eq!((r.preview, r.avatar), (Preview::Encrypted, None));
-        assert_eq!(room(sealed, Some("clear".into()), None).preview, Preview::Text { text: "clear".into() });
+        assert_eq!((r.preview, r.avatar), (RoomPreview::Encrypted, None));
+        assert_eq!(room(sealed, Some("clear".into()), None).preview, RoomPreview::Text { text: "clear".into() });
         assert_eq!(room(base, None, None).avatar.as_deref(), Some("/avatar/room/r"));
     }
 }

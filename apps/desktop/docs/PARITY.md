@@ -6,6 +6,19 @@ rather than dropped.
 
 `[x]` done · `[ ]` to do · `[~]` partial
 
+The boxes are the GTK app's (Linux, Windows, macOS). The SwiftUI app for
+macOS (`macos/`, `docs/MACOS-SWIFTUI.md`) has every `[x]` below too, over
+the same rv-core, with these differences:
+
+- Its emoji picker is its own grid (categories, search); the system's
+  Emoji & Symbols also works in its composer.
+- Voice messages leave as AAC (`.m4a`), as the Android app sends them, not
+  Ogg/Opus.
+- Proven so far by rv-ffi's and the view models' tests against the test
+  server, and by CI on a Mac (build, signature, notarization, sample
+  messages, soak): its screens have not yet been walked against a server
+  on a Mac, which the testers' beta does.
+
 ## 1. Login, session, servers
 
 - [x] Server + username/email + password login (`POST login`)

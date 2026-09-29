@@ -1,0 +1,188 @@
+import Foundation
+import Observation
+import RocketVibeCore
+
+let historyPage: Int64 = 50
+
+/// One open room, or one thread: its messages as the store holds them,
+/// paged back on demand.
+@MainActor @Observable
+public final class RoomModel {
+    public private(set) var room: Room
+    /// The thread's root message id, None for the room itself.
+    public let threadId: String?
+    let chat: Chat
+    public private(set) var messages: [MessageItem] = []
+    public private(set) var hasOlder = true
+    public private(set) var loading = false
+    public private(set) var typing: [String] = []
+    public private(set) var uploads: [Upload] = []
+    /// Set to scroll to a message (a notification, a pinned one): cleared by the view.
+    public var reveal: String?
+    let unreadAfter: Int64?
+    var limit = historyPage
+    var draftSave: Task<Void, Never>?
+
+    public var draft: String {
+        didSet {
+            let (chat, rid, thread, text) = (chat, room.rid, threadId, draft)
+            draftSave?.cancel()
+            draftSave = Task {
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                if !Task.isCancelled { chat.setDraft(rid: rid, threadId: thread, text: text) }
+            }
+        }
+    }
+
+    init(chat: Chat, room: Room, threadId: String? = nil) {
+        self.chat = chat
+        self.room = room
+        self.threadId = threadId
+        let unread = room.unread > 0 || room.alert
+        unreadAfter = unread && threadId == nil ? chat.lastSeen(rid: room.rid) : nil
+        draft = chat.draft(rid: room.rid, threadId: threadId)
+    }
+
+    public var rid: String { room.rid }
+
+    func update(room: Room) {
+        self.room = room
+    }
+
+    public func reload() {
+        if let threadId {
+            messages = chat.threadMessages(rootId: threadId)
+        } else {
+            messages = chat.messages(rid: room.rid, limit: limit, unreadAfter: unreadAfter)
+            uploads = chat.uploads(rid: room.rid)
+        }
+    }
+
+    func refreshTyping() {
+        typing = threadId == nil ? chat.typing(rid: room.rid) : []
+    }
+
+    func refreshUploads() {
+        uploads = chat.uploads(rid: room.rid)
+    }
+
+    /// Shows what the store has, then the server's newest page.
+    func load() async {
+        reload()
+        let (chat, rid) = (chat, room.rid)
+        Task { await chat.prepareActions(rid: rid) }
+        loading = true
+        defer { loading = false }
+        if let threadId {
+            try? await chat.loadThread(rootId: threadId)
+            hasOlder = false
+        } else if let more = try? await chat.openRoom(rid: room.rid, kind: room.kind) {
+            hasOlder = more
+        }
+        reload()
+    }
+
+    /// One more page of history. False when there is none or one is coming.
+    @discardableResult
+    public func loadOlder() async -> Bool {
+        guard !loading, hasOlder, threadId == nil, let oldest = messages.first?.ts else { return false }
+        loading = true
+        defer { loading = false }
+        guard let more = try? await chat.loadOlder(rid: room.rid, kind: room.kind, oldestTs: oldest) else {
+            return false
+        }
+        hasOlder = more
+        limit += historyPage
+        reload()
+        return true
+    }
+
+    /// Pages back until the message is loaded, then asks the view to scroll to it.
+    public func jump(to id: String) async -> Bool {
+        for _ in 0..<30 where !messages.contains(where: { $0.id == id }) {
+            if !(await loadOlder()) { break }
+        }
+        let found = messages.contains { $0.id == id }
+        if found { reveal = id }
+        return found
+    }
+
+    public func send() async {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        draft = ""
+        draftSave?.cancel()
+        chat.setDraft(rid: room.rid, threadId: threadId, text: "")
+        await chat.send(rid: room.rid, text: text, threadId: threadId)
+    }
+
+    public func retry(_ id: String) async {
+        await chat.retry(id: id)
+    }
+
+    public func react(_ message: MessageItem, shortcode: String, add: Bool) async {
+        try? await chat.react(messageId: message.id, shortcode: shortcode, add: add)
+    }
+
+    public func actions(for message: MessageItem) -> [MessageAction] {
+        chat.actions(rid: room.rid, messageId: message.id, inThread: threadId != nil)
+    }
+
+    public var quickReactions: [String] { chat.quickReactions() }
+
+    public func edit(_ message: MessageItem, text: String) async throws {
+        try await chat.edit(rid: room.rid, messageId: message.id, text: text)
+    }
+
+    public func delete(_ message: MessageItem) async throws {
+        try await chat.delete(rid: room.rid, messageId: message.id)
+    }
+
+    public func pin(_ message: MessageItem, _ on: Bool) async throws {
+        try await chat.pin(messageId: message.id, on: on)
+    }
+
+    public func star(_ message: MessageItem, _ on: Bool) async throws {
+        try await chat.star(messageId: message.id, on: on)
+    }
+
+    /// Puts a quote of the message at the start of the draft.
+    public func quote(_ message: MessageItem) async {
+        let q = await chat.quote(
+            kind: room.kind, slug: room.slug, rid: room.rid, messageId: message.id, text: message.text ?? "")
+        draft = q + draft
+    }
+
+    /// My latest message still editable, for the Up arrow in an empty composer.
+    public func lastMine() -> MessageItem? {
+        messages.last { $0.mine && $0.system == nil && $0.delivery == .sent }
+    }
+
+    public func attach(path: String, name: String, mime: String, caption: String?, temporary: Bool) async -> String? {
+        do {
+            try await chat.attach(
+                rid: room.rid, path: path, name: name, mime: mime, caption: caption, temporary: temporary)
+            refreshUploads()
+            return nil
+        } catch let RvError.Local(message) {
+            if message == "encrypted-files-off" {
+                return L("attach.encrypted_off", ["name": name])
+            }
+            if message.hasPrefix("too-large:") {
+                return L("attach.too_large", ["name": name, "max": String(message.dropFirst("too-large:".count))])
+            }
+            return L("attach.type_refused", ["name": name, "type": String(message.dropFirst("type-not-allowed:".count))])
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    public func retryUpload(_ id: String) async {
+        await chat.retryUpload(id: id)
+    }
+
+    public func discardUpload(_ id: String) {
+        chat.discardUpload(id: id)
+        refreshUploads()
+    }
+}

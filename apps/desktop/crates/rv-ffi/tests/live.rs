@@ -71,14 +71,39 @@ fn login_rooms_send_and_hear_it() {
     });
 
     let sent = chat.messages(room.rid.clone(), 50, None).into_iter().rev().find(|m| m.mine).unwrap();
-    let actions = block_on(chat.actions(room.rid.clone(), sent.id.clone(), false));
+    block_on(chat.prepare_actions(room.rid.clone()));
+    let actions = chat.actions(room.rid.clone(), sent.id.clone(), false);
     assert!(actions.contains(&rv_ffi::MessageAction::Edit) && actions.contains(&rv_ffi::MessageAction::Delete));
     block_on(chat.react(sent.id.clone(), ":+1:".into(), true)).expect("react");
     until("the reaction", || {
         chat.messages(room.rid.clone(), 50, None).iter().any(|m| m.id == sent.id && m.reactions.iter().any(|r| r.mine))
     });
+    until("the search index", || {
+        block_on(chat.search(room.rid.clone(), text.clone())).is_ok_and(|hits| hits.iter().any(|h| h.id == sent.id))
+    });
     block_on(chat.delete(room.rid.clone(), sent.id.clone())).expect("delete");
     until("the deletion", || chat.messages(room.rid.clone(), 50, None).iter().all(|m| m.id != sent.id));
+
+    let details = block_on(chat.room_details(room.rid.clone())).expect("room details");
+    assert_eq!(details.name, "test-public");
+    assert_eq!(block_on(chat.room_named("test-public".into())).expect("room by name").id, room.rid);
+    let bob = block_on(chat.person("bob".into(), false)).expect("profile");
+    assert_eq!((bob.username.as_str(), bob.avatar.starts_with("/avatar/bob")), ("bob", true));
+    let me = block_on(chat.me()).expect("me");
+    assert_eq!(me.username, "alice");
+    block_on(chat.update_profile(me.clone(), me.clone(), None, None, None)).expect("nothing to change");
+    let renamed = rv_ffi::people::Me { username: "alice2".into(), ..me.clone() };
+    assert!(matches!(
+        block_on(chat.update_profile(me.clone(), renamed, None, None, None)),
+        Err(rv_ffi::model::RvError::Local { message }) if message == "password-needed"
+    ));
+    let mention = chat.suggestions(room.rid.clone(), "hi @al".into()).expect("mentions");
+    assert_eq!(mention.start, 3);
+    assert!(mention.items.iter().any(|s| s.insert == "@all "));
+    let emoji = chat.suggestions(room.rid.clone(), ":smil".into()).expect("emoji");
+    assert!(emoji.items.iter().any(|s| s.glyph.as_deref() == Some("😄")));
+    assert!(chat.suggestions(room.rid.clone(), "plain words".into()).is_none());
+    block_on(chat.marked(room.rid.clone(), false)).expect("pinned");
 
     let avatar = block_on(chat.media(chat.user_avatar("alice".into()))).expect("avatar");
     assert!(!avatar.bytes.is_empty());

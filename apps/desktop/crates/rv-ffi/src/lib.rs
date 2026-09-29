@@ -4,6 +4,8 @@
 mod accounts;
 pub mod markup;
 pub mod model;
+pub mod people;
+pub mod writing;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -101,6 +103,12 @@ impl Client {
         Arc::new(Client { dirs: Arc::new(Dirs::glib(std::path::Path::new(&home))) })
     }
 
+    /// Where the apps keep their small preferences (language, folded sections).
+    pub fn config_dir(&self) -> String {
+        let _ = std::fs::create_dir_all(&self.dirs.config);
+        self.dirs.config.to_string_lossy().into_owned()
+    }
+
     /// For files the app makes before sending them (voice, pasted pictures).
     pub fn cache_dir(&self) -> String {
         let _ = std::fs::create_dir_all(&self.dirs.cache);
@@ -136,7 +144,7 @@ impl Client {
         let (dirs, saved) = (self.dirs.clone(), info.clone());
         blocking(move || {
             accounts::remember_server(&dirs, &saved.base_url);
-            accounts::save(&dirs, &saved)
+            accounts::save(&dirs, &saved, None)
         })
         .await
         .map_err(RvError::local)?;
@@ -170,7 +178,20 @@ impl Client {
             let _guard = runtime().enter();
             Session::start(info, &path).map_err(RvError::local)?
         };
-        Ok(Arc::new(Chat { session, dirs: self.dirs.clone(), database: path, forward: Mutex::default() }))
+        let resumed = session.clone();
+        runtime().spawn_blocking(move || {
+            if let Some(jwk) = accounts::e2e_key(&resumed.info) {
+                let _guard = runtime().enter();
+                resumed.e2e_resume(&jwk);
+            }
+        });
+        Ok(Arc::new(Chat {
+            session,
+            dirs: self.dirs.clone(),
+            database: path,
+            forward: Mutex::default(),
+            rules: Mutex::default(),
+        }))
     }
 }
 
@@ -227,7 +248,11 @@ pub struct Chat {
     dirs: Arc<Dirs>,
     database: PathBuf,
     forward: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// The server's settings and my permissions by room, for `actions`.
+    rules: Mutex<ActionRules>,
 }
+
+type ActionRules = (Option<rv_core::actions::ServerSettings>, std::collections::HashMap<String, Vec<String>>);
 
 impl Drop for Chat {
     fn drop(&mut self) {
@@ -281,6 +306,7 @@ impl Chat {
         let mut changes = self.session.store.changes();
         let mut events = self.session.events();
         let (dirs, info, database) = (self.dirs.clone(), self.session.info.clone(), self.database.clone());
+        let session = Arc::downgrade(&self.session);
         let task = runtime().spawn(async move {
             loop {
                 let e = tokio::select! {
@@ -295,6 +321,12 @@ impl Chat {
                         Err(RecvError::Closed) => return,
                     },
                 };
+                if e == Event::E2e
+                    && let Some(s) = session.upgrade()
+                {
+                    let (dirs, info, jwk) = (dirs.clone(), info.clone(), s.e2e_export());
+                    let _ = tokio::task::spawn_blocking(move || accounts::save(&dirs, &info, jwk.as_deref())).await;
+                }
                 if e == Event::Expired {
                     let (dirs, info, database) = (dirs.clone(), info.clone(), database.clone());
                     let _ = tokio::task::spawn_blocking(move || {
@@ -309,6 +341,26 @@ impl Chat {
         if let Some(old) = self.forward.lock().unwrap().replace(task) {
             old.abort();
         }
+    }
+
+    /// Unlocks encrypted rooms with my E2E password; the key is then kept
+    /// for the next launch. Errors: `e2e-wrong`, `e2e-no-keys`, `e2e-failed`.
+    pub async fn e2e_unlock(&self, password: String) -> Result<(), RvError> {
+        let s = self.session.clone();
+        on_tokio(async move { s.e2e_unlock(&password).await }).await.map_err(|e| match e {
+            session::UnlockError::Key(rv_core::e2e::E2eError::WrongPassword) => RvError::local("e2e-wrong"),
+            session::UnlockError::Key(rv_core::e2e::E2eError::NoKeys) => RvError::local("e2e-no-keys"),
+            _ => RvError::local("e2e-failed"),
+        })
+    }
+
+    /// Locks them again and forgets the kept key.
+    pub fn e2e_lock(&self) {
+        self.session.e2e_lock();
+    }
+
+    pub fn e2e_unlocked(&self) -> bool {
+        self.session.e2e_unlocked()
     }
 
     pub fn reconnect_now(&self) {
@@ -432,41 +484,63 @@ impl Chat {
         rv_core::actions::quote(&link, &text)
     }
 
-    /// What the actions menu offers on this message, by the server's rules.
-    pub async fn actions(&self, rid: String, message_id: String, in_thread: bool) -> Vec<MessageAction> {
+    /// Reads, once, what `actions` needs from the server for this room: its
+    /// settings and my permissions there.
+    pub async fn prepare_actions(&self, rid: String) {
         let s = self.session.clone();
-        on_tokio(async move {
-            let Some(row) = s.store.messages_by_id(std::slice::from_ref(&message_id)).into_iter().next() else {
-                return Vec::new();
-            };
-            let (read_only, encrypted) =
-                s.store.rooms().iter().find(|r| r.rid == rid).map_or((false, false), |r| (r.read_only, r.encrypted));
-            let permissions = s.permissions(&rid).await;
-            let settings = s.settings().await;
-            let text = match row.system_type.as_deref() {
-                Some("e2e") => row.encrypted_raw.as_deref().and_then(|raw| s.decrypt(&rid, raw)),
-                _ => row.text.clone(),
-            };
-            let ctx = rv_core::actions::ActionContext {
-                author_id: &row.author_id,
-                ts: row.ts,
-                system_type: row.system_type.as_deref(),
-                text: text.as_deref(),
-                has_file: !rv_core::content::files(row.attachments.as_deref()).is_empty()
-                    || !rv_core::media::image_attachments(row.attachments.as_deref()).is_empty(),
-                me: &s.info.user_id,
-                settings,
-                permissions: permissions.as_deref(),
-                read_only,
-                encrypted,
-                in_thread,
-                pinned: row.pinned,
-                starred: row.starred_by(&s.info.user_id),
-                now: chrono::Utc::now().timestamp_millis(),
-            };
-            rv_core::actions::possible_actions(&ctx).into_iter().map(action).collect()
+        let (settings, permissions) = on_tokio(async move {
+            let settings = s.settings().await.clone();
+            (settings, s.permissions(&rid).await.map(|p| (rid, p)))
         })
-        .await
+        .await;
+        let mut rules = self.rules.lock().unwrap();
+        rules.0 = Some(settings);
+        if let Some((rid, granted)) = permissions {
+            rules.1.insert(rid, granted);
+        }
+    }
+
+    /// What the actions menu offers on this message, by the server's rules.
+    /// Before `prepare_actions` answered, by what a member may do.
+    pub fn actions(&self, rid: String, message_id: String, in_thread: bool) -> Vec<MessageAction> {
+        let s = &self.session;
+        let Some(row) = s.store.messages_by_id(std::slice::from_ref(&message_id)).into_iter().next() else {
+            return Vec::new();
+        };
+        let row = s.open_row(row);
+        let (read_only, encrypted) =
+            s.store.rooms().iter().find(|r| r.rid == rid).map_or((false, false), |r| (r.read_only, r.encrypted));
+        let rules = self.rules.lock().unwrap();
+        let fallback = rv_core::actions::ServerSettings::from_list(&[]);
+        let ctx = rv_core::actions::ActionContext {
+            author_id: &row.author_id,
+            ts: row.ts,
+            system_type: row.system_type.as_deref(),
+            text: row.text.as_deref(),
+            has_file: !rv_core::content::files(row.attachments.as_deref()).is_empty()
+                || !rv_core::media::image_attachments(row.attachments.as_deref()).is_empty(),
+            me: &s.info.user_id,
+            settings: rules.0.as_ref().unwrap_or(&fallback),
+            permissions: rules.1.get(&rid).map(Vec::as_slice),
+            read_only,
+            encrypted,
+            in_thread,
+            pinned: row.pinned,
+            starred: row.starred_by(&s.info.user_id),
+            now: chrono::Utc::now().timestamp_millis(),
+        };
+        rv_core::actions::possible_actions(&ctx).into_iter().map(action).collect()
+    }
+
+    /// The reactions the actions menu offers first, as shortcodes.
+    pub fn quick_reactions(&self) -> Vec<String> {
+        rv_core::actions::QUICK_REACTIONS.iter().map(|c| (*c).to_owned()).collect()
+    }
+
+    /// The call's link, to open in the browser.
+    pub async fn join_call(&self, call_id: String) -> Result<String, RvError> {
+        let s = self.session.clone();
+        Ok(on_tokio(async move { s.join_call(&call_id).await }).await?)
     }
 
     /// A protected file or avatar, fetched with the session's credentials and cached.
@@ -596,18 +670,11 @@ impl Chat {
 impl Chat {
     fn lay_out(&self, rows: Vec<rv_core::store::MessageRow>, unread_after: Option<i64>) -> Vec<model::MessageItem> {
         let info = &self.session.info;
-        let mut laid = timeline::group(rows);
+        let mut laid = timeline::group(rows.into_iter().map(|r| self.session.open_row(r)).collect());
         if let Some(seen) = unread_after {
             timeline::mark_new(&mut laid, seen, &info.user_id);
         }
-        laid.into_iter()
-            .map(|d| {
-                let clear = (d.row.system_type.as_deref() == Some("e2e"))
-                    .then(|| d.row.encrypted_raw.as_deref().and_then(|raw| self.session.decrypt(&d.row.rid, raw)))
-                    .flatten();
-                model::message(d, &info.user_id, &info.username, clear)
-            })
-            .collect()
+        laid.into_iter().map(|d| model::message(d, &info.user_id, &info.username)).collect()
     }
 }
 
@@ -633,4 +700,54 @@ fn action(a: rv_core::actions::Action) -> MessageAction {
         Action::Star => MessageAction::Star,
         Action::Unstar => MessageAction::Unstar,
     }
+}
+
+/// French when true, English otherwise; the app decides from the system's languages.
+#[uniffi::export]
+pub fn set_french(french: bool) {
+    rv_core::i18n::set(if french { rv_core::i18n::Lang::Fr } else { rv_core::i18n::Lang::En });
+}
+
+#[uniffi::export]
+pub fn t(key: String) -> String {
+    rv_core::i18n::t(&key).to_owned()
+}
+
+/// Fills each `{name}` from `args`.
+#[uniffi::export]
+pub fn tf(key: String, args: std::collections::HashMap<String, String>) -> String {
+    let pairs: Vec<(&str, &str)> = args.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    rv_core::i18n::tf(&key, &pairs)
+}
+
+#[uniffi::export]
+pub fn tn(key: String, n: i64) -> String {
+    rv_core::i18n::tn(&key, n)
+}
+
+/// What a system message says, after its author's name.
+#[uniffi::export]
+pub fn system_message(kind: String, param: String) -> String {
+    rv_core::i18n::system_message(&kind, &param)
+}
+
+/// `:smile:` to 😄 wherever a shortcode has a glyph.
+#[uniffi::export]
+pub fn replace_shortcodes(text: String) -> String {
+    rv_core::emoji::replace_shortcodes(&text)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct EmojiMatch {
+    pub shortcode: String,
+    pub glyph: String,
+}
+
+/// Emoji whose shortcode starts with `prefix`, for the composer's `:` completion.
+#[uniffi::export]
+pub fn complete_emoji(prefix: String, limit: u32) -> Vec<EmojiMatch> {
+    rv_core::emoji::complete(&prefix, limit as usize)
+        .into_iter()
+        .map(|(code, glyph)| EmojiMatch { shortcode: code.to_owned(), glyph: glyph.to_owned() })
+        .collect()
 }

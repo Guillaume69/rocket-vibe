@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>rocket-vibe SwiftUI</string>
+  <key>CFBundleDisplayName</key>
+  <string>rocket-vibe SwiftUI</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.rocketvibe.app.swiftui</string>
+  <key>CFBundleVersion</key>
+  <string>@VERSION@</string>
+  <key>CFBundleShortVersionString</key>
+  <string>@VERSION@</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleExecutable</key>
+  <string>RocketVibe</string>
+  <key>CFBundleIconFile</key>
+  <string>rocket-vibe</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>15.0</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.social-networking</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSPrincipalClass</key>
+  <string>NSApplication</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>rocket-vibe records voice messages with the microphone.</string>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>com.rocketvibe.app.swiftui</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>rocketvibe</string>
+      </array>
+    </dict>
+  </array>
+</dict>
+</plist>

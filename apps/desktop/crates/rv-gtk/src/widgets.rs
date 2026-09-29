@@ -71,6 +71,24 @@ pub fn media_frame(width: i32, height: i32, classes: &[&str]) -> gtk::Overlay {
         .build()
 }
 
+/// On Windows, the taskbar button's badge needs the window's handle, known once it is mapped.
+pub fn badge_follows(window: &impl IsA<gtk::Window>) {
+    #[cfg(windows)]
+    {
+        let hand_over = |window: &gtk::Window| {
+            if let Some(surface) = window.surface().and_downcast::<gdk4_win32::Win32Surface>() {
+                rv_native::set_window(surface.handle().0 as isize);
+            }
+        };
+        if window.as_ref().is_mapped() {
+            hand_over(window.as_ref());
+        }
+        window.as_ref().connect_map(move |window| hand_over(window));
+    }
+    #[cfg(not(windows))]
+    let _ = window;
+}
+
 /// Lays the real photo over a tile; the gradient stays as its backdrop.
 pub fn set_photo(tile: &gtk::Widget, texture: &gtk::gdk::Texture) {
     let Some(overlay) = tile.downcast_ref::<gtk::Overlay>() else { return };

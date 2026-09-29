@@ -158,5 +158,15 @@ pub fn withdraw(room: &str) {
 pub fn badge(count: i64) {
     let Some(mtm) = MainThreadMarker::new() else { return };
     let label = (count > 0).then(|| NSString::from_str(&count.min(99).to_string()));
-    NSApplication::sharedApplication(mtm).dockTile().setBadgeLabel(label.as_deref());
+    let tile = NSApplication::sharedApplication(mtm).dockTile();
+    tile.setBadgeLabel(label.as_deref());
+    tile.display();
 }
+
+/// Delivered notifications are only known asynchronously on macOS.
+pub fn delivered() -> Option<usize> {
+    None
+}
+
+/// The dock tile belongs to the app, not to a window.
+pub fn set_window(_hwnd: isize) {}

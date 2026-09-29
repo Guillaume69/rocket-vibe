@@ -837,7 +837,13 @@ pub fn gallery(app: &adw::Application) -> bool {
     window.present();
     std::mem::forget(composer);
     rv_native::init(crate::APP_ID, "rocket-vibe", Box::new(|event| println!("smoke: native event {event:?}")));
-    rv_native::badge(3);
+    crate::widgets::badge_follows(&window);
+    glib::timeout_add_local_once(Duration::from_millis(2000), || {
+        rv_native::badge(3);
+        glib::timeout_add_local_once(Duration::from_millis(1500), || {
+            println!("smoke: native toasts delivered {:?}", rv_native::delivered());
+        });
+    });
     rv_native::show(&rv_native::Toast {
         room: "gallery",
         message: "1",

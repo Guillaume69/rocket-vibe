@@ -107,6 +107,7 @@ impl AppWindow {
         narrow.add_setter(chat.widget(), "collapsed", Some(&true.to_value()));
         window.add_breakpoint(narrow);
 
+        crate::widgets::badge_follows(&window);
         let this = Rc::new(AppWindow {
             window,
             stack,

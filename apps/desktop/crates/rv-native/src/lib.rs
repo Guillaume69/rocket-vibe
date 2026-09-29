@@ -33,12 +33,12 @@ pub struct ReplyLabels<'a> {
 #[cfg(windows)]
 mod windows_impl;
 #[cfg(windows)]
-pub use windows_impl::{available, badge, init, show, withdraw};
+pub use windows_impl::{available, badge, delivered, init, set_window, show, withdraw};
 
 #[cfg(target_os = "macos")]
 mod macos_impl;
 #[cfg(target_os = "macos")]
-pub use macos_impl::{available, badge, init, show, withdraw};
+pub use macos_impl::{available, badge, delivered, init, set_window, show, withdraw};
 
 #[cfg(not(any(windows, target_os = "macos")))]
 mod other {
@@ -51,9 +51,13 @@ mod other {
     pub fn show(_toast: &Toast) {}
     pub fn withdraw(_room: &str) {}
     pub fn badge(_count: i64) {}
+    pub fn delivered() -> Option<usize> {
+        None
+    }
+    pub fn set_window(_hwnd: isize) {}
 }
 #[cfg(not(any(windows, target_os = "macos")))]
-pub use other::{available, badge, init, show, withdraw};
+pub use other::{available, badge, delivered, init, set_window, show, withdraw};
 
 /// Toast arguments carry the room and the message, `|`-separated; ids never hold one.
 pub fn encode(room: &str, message: &str) -> String {

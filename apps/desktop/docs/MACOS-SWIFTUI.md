@@ -151,8 +151,11 @@ the dock badge, and Retina rendering on the GPU.
 
 ## Status (2026-09-29)
 
-Phases 1 to 4 are built, on the branch `feature/macos-swiftui`. What is
-proven, and where:
+Phases 1 to 4 are built, on the branch `feature/macos-swiftui`, and phase
+5's parity: every item of `docs/PARITY.md` (room info, profiles, search,
+pinned and starred, calls, completion, the emoji picker, the staged-file
+preview, my profile, the notification preference...). What is proven, and
+where:
 
 - rv-ffi, against the test server from Rust and from Swift on Linux: sign-in
   (a wrong password refused), the room list, going online, send, react,

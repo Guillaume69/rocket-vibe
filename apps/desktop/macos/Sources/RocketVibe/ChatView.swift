@@ -91,39 +91,13 @@ struct RoomListView: View {
                     }
                 }
             } else {
-                let titled = app.groups.count > 1
-                ForEach(app.groups, id: \.section) { group in
-                    if titled {
-                        Section(isExpanded: Binding(get: { !app.collapsed.contains(group.section) },
-                                                    set: { _ in app.toggle(group.section) })) {
-                            rows(group.rooms)
-                        } header: {
-                            Text("\(title(group.section)) · \(group.rooms.count)")
-                        }
-                    } else {
-                        rows(group.rooms)
-                    }
-                }
+                RoomSections(groups: app.groups, collapsed: app.collapsed, toggle: app.toggle)
             }
         }
         .listStyle(.sidebar)
         .searchable(text: $query, placement: .sidebar, prompt: L("spotlight.placeholder"))
         .task(id: query) { await search() }
         .safeAreaInset(edge: .bottom) { AccountBar() }
-    }
-
-    func rows(_ rooms: [Room]) -> some View {
-        ForEach(rooms, id: \.rid) { room in
-            RoomRow(room: room).tag(room.rid)
-        }
-    }
-
-    func title(_ section: RoomSection) -> String {
-        switch section {
-        case .unread: return L("rooms.section_unread")
-        case .channels: return L("rooms.section_channels")
-        case .direct: return L("rooms.section_direct")
-        }
     }
 
     func search() async {
@@ -141,6 +115,43 @@ struct RoomListView: View {
         } catch {
             found = []
             app.notice = L("spotlight.failed")
+        }
+    }
+}
+
+/// The room list's sections, folding when there is more than one: the
+/// sidebar's, and the sample gallery's.
+struct RoomSections: View {
+    let groups: [RoomGroup]
+    let collapsed: Set<RoomSection>
+    let toggle: (RoomSection) -> Void
+
+    var body: some View {
+        let titled = groups.count > 1
+        ForEach(groups, id: \.section) { group in
+            if titled {
+                Section(isExpanded: Binding(get: { !collapsed.contains(group.section) }, set: { _ in toggle(group.section) })) {
+                    rows(group.rooms)
+                } header: {
+                    Text("\(title(group.section)) · \(group.rooms.count)")
+                }
+            } else {
+                rows(group.rooms)
+            }
+        }
+    }
+
+    func rows(_ rooms: [Room]) -> some View {
+        ForEach(rooms, id: \.rid) { room in
+            RoomRow(room: room).tag(room.rid)
+        }
+    }
+
+    func title(_ section: RoomSection) -> String {
+        switch section {
+        case .unread: return L("rooms.section_unread")
+        case .channels: return L("rooms.section_channels")
+        case .direct: return L("rooms.section_direct")
         }
     }
 }

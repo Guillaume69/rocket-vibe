@@ -26,8 +26,8 @@ fn label(text: &str, classes: &[&str]) -> gtk::Label {
         .build()
 }
 
-fn pointer() -> gdk::Cursor {
-    gdk::Cursor::from_name("pointer", None).expect("cursor")
+fn pointer() -> Option<gdk::Cursor> {
+    gdk::Cursor::from_name("pointer", None)
 }
 
 pub fn open_uri(widget: &impl IsA<gtk::Widget>, uri: &str) {
@@ -42,7 +42,7 @@ fn on_click(widget: &impl IsA<gtk::Widget>, f: impl Fn(&gtk::Widget) + 'static) 
             f(&w);
         }
     });
-    widget.as_ref().set_cursor(Some(&pointer()));
+    widget.as_ref().set_cursor(pointer().as_ref());
     widget.as_ref().add_controller(click);
 }
 
@@ -334,8 +334,8 @@ pub fn call(call_id: Option<&str>, on_event: OnRowEvent) -> gtk::Widget {
     let card = gtk::Box::builder().spacing(12).css_classes(["call-card"]).halign(gtk::Align::Start).build();
     card.append(&gtk::Label::builder().label(format!("📹 {}", t("message.call"))).css_classes(["call-title"]).build());
     if let Some(call_id) = call_id {
-        let join =
-            gtk::Button::builder().label(t("message.join")).css_classes(["call-join"]).cursor(&pointer()).build();
+        let join = gtk::Button::builder().label(t("message.join")).css_classes(["call-join"]).build();
+        join.set_cursor(pointer().as_ref());
         let call_id = call_id.to_owned();
         join.connect_clicked(move |_| on_event(RowEvent::JoinCall(call_id.clone())));
         card.append(&join);

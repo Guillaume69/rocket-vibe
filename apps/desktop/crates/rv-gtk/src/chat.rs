@@ -238,11 +238,11 @@ impl ChatPage {
         room_header.set_title_widget(Some(&room_title));
         let call_button = gtk::Button::builder()
             .icon_name("camera-video-symbolic")
-            .cursor(&gdk::Cursor::from_name("pointer", None).expect("cursor"))
             .css_classes(["flat"])
             .tooltip_text(t("room.call"))
             .visible(false)
             .build();
+        call_button.set_cursor(gdk::Cursor::from_name("pointer", None).as_ref());
         room_header.pack_end(&call_button);
         let search_button = gtk::Button::builder()
             .icon_name("system-search-symbolic")

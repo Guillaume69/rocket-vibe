@@ -116,8 +116,11 @@ pub fn room_tile(name: &str, kind: &str, encrypted: bool, size: TileSize) -> gtk
     widgets::tile(name, &glyph, size, false)
 }
 
-pub fn open_viewer(parent: &gtk::Widget, texture: &gdk::Texture, title: &str) {
+pub fn open_viewer(parent: &gtk::Widget, texture: &gdk::Texture, title: &str, frames: Option<media::Frames>) {
     let picture = gtk::Picture::builder().paintable(texture).content_fit(gtk::ContentFit::Contain).build();
+    if let Some(frames) = frames {
+        media::play(&picture, frames);
+    }
     let page = adw::ToolbarView::new();
     page.add_top_bar(&adw::HeaderBar::new());
     page.set_content(Some(&picture));
@@ -146,11 +149,18 @@ pub fn image_widget(session: &Arc<Session>, image: &ImageAttachment) -> gtk::Wid
     frame.set_cursor(gdk::Cursor::from_name("pointer", None).as_ref());
     frame.set_margin_top(4);
     let weak = frame.downgrade();
+    let (source, sized) = (image.source.clone(), image.width.is_some());
     media::load(session, &image.source, move |texture| {
-        if let Some(frame) = weak.upgrade() {
-            let picture =
-                gtk::Picture::builder().paintable(texture).content_fit(gtk::ContentFit::Cover).can_shrink(true).build();
-            frame.add_overlay(&picture);
+        let Some(frame) = weak.upgrade() else { return };
+        if !sized && let Some(sizer) = frame.child().and_downcast::<crate::sizer::Sizer>() {
+            let (w, h) = display_size(Some(texture.width().into()), Some(texture.height().into()), 120, 360, 300);
+            sizer.set_size(w, h);
+        }
+        let picture =
+            gtk::Picture::builder().paintable(texture).content_fit(gtk::ContentFit::Cover).can_shrink(true).build();
+        frame.add_overlay(&picture);
+        if let Some(frames) = media::frames(&source) {
+            media::play(&picture, frames);
         }
     });
     let click = gtk::GestureClick::new();
@@ -162,10 +172,23 @@ pub fn image_widget(session: &Arc<Session>, image: &ImageAttachment) -> gtk::Wid
     click.connect_released(move |gesture, _, _, _| {
         let Some(widget) = gesture.widget() else { return };
         let title = title.clone();
-        media::load(&session, &source, move |texture| open_viewer(&widget, texture, &title));
+        let frames = media::frames(&source);
+        media::load(&session, &source, move |texture| open_viewer(&widget, texture, &title, frames));
     });
     frame.add_controller(click);
-    frame.upcast()
+    let Some(link) = &image.link else { return frame.upcast() };
+    let shown = image.title.as_deref().unwrap_or(link);
+    let title = gtk::Label::builder()
+        .use_markup(true)
+        .label(format!("<a href=\"{}\">{}</a>", glib::markup_escape_text(link), glib::markup_escape_text(shown)))
+        .xalign(0.0)
+        .ellipsize(pango::EllipsizeMode::End)
+        .css_classes(["attachment-title"])
+        .build();
+    let column = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(2).margin_top(4).build();
+    column.append(&title);
+    column.append(&frame);
+    column.upcast()
 }
 
 pub fn room_widget(r: &RoomRow, session: Option<&Arc<Session>>) -> gtk::Widget {

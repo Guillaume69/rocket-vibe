@@ -46,9 +46,9 @@ fn menu_button(text: &str) -> gtk::Button {
 
 /// What the server's rules let me do with the message.
 pub async fn allowed(session: &Arc<Session>, row: &MessageRow, room: &RoomContext) -> Vec<Action> {
-    let s = session.clone();
-    let settings = on_tokio(async move { s.settings().await.clone() }).await;
-    let permissions: Vec<String> = Vec::new();
+    let (s, rid) = (session.clone(), room.rid.clone());
+    let (settings, permissions) =
+        on_tokio(async move { (s.settings().await.clone(), s.permissions(&rid).await) }).await;
     let ctx = ActionContext {
         author_id: &row.author_id,
         ts: row.ts,
@@ -57,7 +57,7 @@ pub async fn allowed(session: &Arc<Session>, row: &MessageRow, room: &RoomContex
         has_file: file_of(row.attachments.as_deref()).is_some(),
         me: &session.info.user_id,
         settings: &settings,
-        permissions: &permissions,
+        permissions: permissions.as_deref(),
         read_only: room.read_only,
         encrypted: room.encrypted,
         in_thread: room.in_thread,

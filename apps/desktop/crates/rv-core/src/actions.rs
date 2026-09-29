@@ -75,7 +75,8 @@ pub struct ActionContext<'a> {
     pub has_file: bool,
     pub me: &'a str,
     pub settings: &'a ServerSettings,
-    pub permissions: &'a [String],
+    /// Those I hold in the room; None when they could not be read.
+    pub permissions: Option<&'a [String]>,
     pub read_only: bool,
     pub encrypted: bool,
     pub in_thread: bool,
@@ -120,26 +121,67 @@ pub fn possible_actions(ctx: &ActionContext) -> Vec<Action> {
         out.push(Action::Download);
     }
     let mine = ctx.author_id == ctx.me;
-    let bypass = ctx.permissions.iter().any(|p| p == "bypass-time-limit-edit-and-delete");
-    let may = |allowed: bool, minutes: i64| mine && allowed && (bypass || within(ctx, minutes));
+    // The server's own checks (8.5 updateMessage, canDeleteMessageAsync, pinMessage).
+    // Unknown permissions (the server could not be asked): what a member may do
+    // on their own messages, and Pin; the server decides.
+    let has = |permission: &str, if_unknown: bool| {
+        ctx.permissions.map_or(if_unknown, |granted| granted.iter().any(|p| p == permission))
+    };
+    let no_limit = has("bypass-time-limit-edit-and-delete", false);
     if !readable_encrypted
-        && (may(ctx.settings.editing_allowed, ctx.settings.edit_minutes)
-            || ctx.permissions.iter().any(|p| p == "edit-message"))
+        && (has("edit-message", false) || (mine && ctx.settings.editing_allowed))
+        && (no_limit || within(ctx, ctx.settings.edit_minutes))
     {
         out.push(Action::Edit);
     }
-    if may(ctx.settings.deleting_allowed, ctx.settings.delete_minutes)
-        || ctx.permissions.iter().any(|p| p == "force-delete-message")
+    if has("force-delete-message", false)
+        || (ctx.settings.deleting_allowed
+            && (has("delete-message", false) || (mine && has("delete-own-message", true)))
+            && (no_limit || within(ctx, ctx.settings.delete_minutes)))
     {
         out.push(Action::Delete);
     }
-    if ctx.settings.pinning_allowed {
+    if ctx.settings.pinning_allowed && has("pin-message", true) {
         out.push(if ctx.pinned { Action::Unpin } else { Action::Pin });
     }
     if ctx.settings.starring_allowed {
         out.push(if ctx.starred { Action::Unstar } else { Action::Star });
     }
     out
+}
+
+/// The permissions the message actions depend on.
+pub const ACTION_PERMISSIONS: [&str; 6] = [
+    "edit-message",
+    "delete-message",
+    "delete-own-message",
+    "force-delete-message",
+    "bypass-time-limit-edit-and-delete",
+    "pin-message",
+];
+
+/// A permission and the roles that hold it.
+pub type PermissionRoles = (String, Vec<String>);
+
+/// Each permission `permissions.listAll` lists with its roles, kept for ours.
+pub fn permission_roles(response: &Value) -> Vec<PermissionRoles> {
+    let list = response.get("update").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+    list.iter()
+        .filter_map(|p| {
+            let id = p.get("_id").and_then(Value::as_str).filter(|id| ACTION_PERMISSIONS.contains(id))?;
+            let roles = p.get("roles").and_then(Value::as_array)?;
+            Some((id.to_owned(), roles.iter().filter_map(Value::as_str).map(str::to_owned).collect()))
+        })
+        .collect()
+}
+
+/// Those granted to someone holding `roles` (global and in the room).
+pub fn granted(permissions: &[PermissionRoles], roles: &[String]) -> Vec<String> {
+    permissions
+        .iter()
+        .filter(|(_, needed)| needed.iter().any(|r| roles.contains(r)))
+        .map(|(id, _)| id.clone())
+        .collect()
 }
 
 /// `/channel/<name>` (public), `/group/<name>` (private), `/direct/<rid>` (DM).
@@ -279,7 +321,7 @@ mod tests {
             has_file: false,
             me: "me",
             settings: s,
-            permissions: perms,
+            permissions: Some(perms),
             read_only: false,
             encrypted: false,
             in_thread: false,
@@ -303,8 +345,8 @@ mod tests {
     #[test]
     fn own_message_within_the_limit() {
         let s = settings();
-        let none: Vec<String> = vec![];
-        let fresh = possible_actions(&ctx(&s, &none, "me", 5));
+        let pin = vec!["pin-message".to_owned(), "delete-own-message".to_owned()];
+        let fresh = possible_actions(&ctx(&s, &pin, "me", 5));
         assert_eq!(
             fresh,
             [
@@ -318,7 +360,8 @@ mod tests {
                 Action::Star
             ]
         );
-        let old = possible_actions(&ctx(&s, &none, "me", 30));
+        let own = vec!["delete-own-message".to_owned()];
+        let old = possible_actions(&ctx(&s, &own, "me", 30));
         assert!(!old.contains(&Action::Edit) && old.contains(&Action::Delete));
         let bypass = vec!["bypass-time-limit-edit-and-delete".to_owned()];
         assert!(possible_actions(&ctx(&s, &bypass, "me", 30)).contains(&Action::Edit));
@@ -339,7 +382,11 @@ mod tests {
         let none: Vec<String> = vec![];
         let theirs = possible_actions(&ctx(&s, &none, "bob", 1));
         assert!(!theirs.contains(&Action::Edit) && !theirs.contains(&Action::Delete));
-        let mods = vec!["edit-message".to_owned(), "force-delete-message".to_owned()];
+        let mods = vec![
+            "edit-message".to_owned(),
+            "force-delete-message".to_owned(),
+            "bypass-time-limit-edit-and-delete".to_owned(),
+        ];
         let moderated = possible_actions(&ctx(&s, &mods, "bob", 999));
         assert!(moderated.contains(&Action::Edit) && moderated.contains(&Action::Delete));
     }
@@ -393,7 +440,8 @@ mod tests {
     fn pinned_and_starred_offer_the_way_back() {
         let s = settings();
         let none: Vec<String> = vec![];
-        let mut c = ctx(&s, &none, "bob", 1);
+        let pin = vec!["pin-message".to_owned()];
+        let mut c = ctx(&s, &pin, "bob", 1);
         c.pinned = true;
         c.starred = true;
         let actions = possible_actions(&c);
@@ -402,5 +450,38 @@ mod tests {
         let off = ServerSettings::from_list(&[json!({"_id": "Message_AllowStarring", "value": false})]);
         let actions = possible_actions(&ctx(&off, &none, "bob", 1));
         assert!(!actions.contains(&Action::Star) && !actions.contains(&Action::Unstar));
+    }
+
+    #[test]
+    fn permissions_follow_roles() {
+        let response = json!({"update": [
+            {"_id": "pin-message", "roles": ["owner", "moderator", "admin"]},
+            {"_id": "edit-message", "roles": ["admin"]},
+            {"_id": "view-logs", "roles": ["user"]},
+        ]});
+        let known = permission_roles(&response);
+        assert_eq!(known.len(), 2);
+        assert_eq!(granted(&known, &["user".into(), "owner".into()]), ["pin-message"]);
+        assert!(granted(&known, &["user".into()]).is_empty());
+        let s = settings();
+        let none: Vec<String> = vec![];
+        assert!(!possible_actions(&ctx(&s, &none, "me", 1)).contains(&Action::Pin));
+    }
+
+    #[test]
+    fn unknown_permissions_leave_it_to_the_server() {
+        let s = settings();
+        let none: Vec<String> = vec![];
+        let mut c = ctx(&s, &none, "me", 1);
+        c.permissions = None;
+        let actions = possible_actions(&c);
+        assert!(actions.contains(&Action::Edit) && actions.contains(&Action::Delete) && actions.contains(&Action::Pin));
+        c.author_id = "bob";
+        let theirs = possible_actions(&c);
+        assert!(!theirs.contains(&Action::Edit) && !theirs.contains(&Action::Delete));
+        let within = vec!["edit-message".to_owned(), "delete-message".to_owned()];
+        let moderated = possible_actions(&ctx(&s, &within, "bob", 1));
+        assert!(moderated.contains(&Action::Edit) && moderated.contains(&Action::Delete));
+        assert!(!possible_actions(&ctx(&s, &within, "bob", 999)).contains(&Action::Edit));
     }
 }

@@ -172,6 +172,7 @@ const MIGRATIONS: &[&str] = &[
        temporary INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL)",
     "ALTER TABLE subscriptions ADD COLUMN e2e_key TEXT; ALTER TABLE rooms ADD COLUMN last_encrypted TEXT",
     "ALTER TABLE messages ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0; ALTER TABLE messages ADD COLUMN starred TEXT",
+    "ALTER TABLE subscriptions ADD COLUMN roles TEXT; DELETE FROM cursors WHERE stream = 'subscriptions'",
 ];
 
 pub struct Store {
@@ -321,6 +322,16 @@ impl Store {
     }
 
     /// My wrapped copy of the room's key, in an encrypted room.
+    /// My roles in the room.
+    pub fn room_roles(&self, rid: &str) -> Vec<String> {
+        let roles: Option<String> = self
+            .read(|c| c.query_row("SELECT roles FROM subscriptions WHERE rid = ?1", [rid], |r| r.get(0)).optional())
+            .ok()
+            .flatten()
+            .flatten();
+        roles.map(|r| r.split(',').map(str::to_owned).collect()).unwrap_or_default()
+    }
+
     pub fn e2e_key(&self, rid: &str) -> Option<String> {
         self.read(|c| c.query_row("SELECT e2e_key FROM subscriptions WHERE rid = ?1", [rid], |r| r.get(0)).optional())
             .ok()
@@ -555,8 +566,8 @@ impl Writer<'_> {
     pub fn upsert_subscription(&mut self, s: &Subscription) {
         self.conn
             .execute(
-                "INSERT INTO subscriptions (rid, sub_id, unread, mentions, group_mentions, alert, open, favorite, last_seen, updated_at, e2e_key)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                "INSERT INTO subscriptions (rid, sub_id, unread, mentions, group_mentions, alert, open, favorite, last_seen, updated_at, e2e_key, roles)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
                  ON CONFLICT(rid) DO UPDATE SET
                    sub_id = COALESCE(excluded.sub_id, subscriptions.sub_id),
                    unread = excluded.unread,
@@ -567,11 +578,12 @@ impl Writer<'_> {
                    favorite = excluded.favorite,
                    last_seen = excluded.last_seen,
                    updated_at = excluded.updated_at,
-                   e2e_key = COALESCE(excluded.e2e_key, subscriptions.e2e_key)
+                   e2e_key = COALESCE(excluded.e2e_key, subscriptions.e2e_key),
+                   roles = excluded.roles
                  WHERE excluded.updated_at >= subscriptions.updated_at",
                 params![
                     s.rid, s.sub_id, s.unread, s.mentions, s.group_mentions, s.alert, s.open, s.favorite,
-                    s.last_seen, s.updated_at, s.e2e_key
+                    s.last_seen, s.updated_at, s.e2e_key, s.roles
                 ],
             )
             .expect("upsert subscription");

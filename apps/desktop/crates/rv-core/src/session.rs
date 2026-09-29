@@ -140,6 +140,8 @@ pub struct Session {
     current_room: Mutex<Option<(String, String)>>,
     tasks: Mutex<Vec<JoinHandle<()>>>,
     settings: tokio::sync::OnceCell<ServerSettings>,
+    /// `permissions.listAll` (ours only) and my global roles, fetched once.
+    access: tokio::sync::OnceCell<(Vec<actions::PermissionRoles>, Vec<String>)>,
     typing: Mutex<live::Typing>,
     call_available: Mutex<Option<bool>>,
     /// Photo versions learnt from `updateAvatar`, by username.
@@ -200,6 +202,7 @@ impl Session {
             current_room: Mutex::new(None),
             tasks: Mutex::default(),
             settings: tokio::sync::OnceCell::new(),
+            access: tokio::sync::OnceCell::new(),
             typing: Mutex::default(),
             call_available: Mutex::default(),
             avatars: Mutex::default(),
@@ -663,6 +666,30 @@ impl Session {
     /// The server's public settings, read once per session.
     pub async fn settings(&self) -> &ServerSettings {
         self.settings.get_or_init(|| ServerSettings::fetch(&self.rest)).await
+    }
+
+    /// The message-action permissions I hold in the room: from my global roles
+    /// and my roles there. None when the server could not be asked.
+    pub async fn permissions(&self, rid: &str) -> Option<Vec<String>> {
+        let access = self
+            .access
+            .get_or_try_init(|| async {
+                let (all, me) = tokio::try_join!(
+                    self.rest.get("permissions.listAll", CallOptions::default()),
+                    self.rest.get("me", CallOptions::default()),
+                )?;
+                let roles = me
+                    .get("roles")
+                    .and_then(Value::as_array)
+                    .map(|r| r.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                    .unwrap_or_default();
+                Ok::<_, RestError>((actions::permission_roles(&all), roles))
+            })
+            .await;
+        let (permissions, global) = access.ok()?;
+        let mut roles = global.clone();
+        roles.extend(self.store.room_roles(rid));
+        Some(actions::granted(permissions, &roles))
     }
 
     /// The permalink the server recognises: built on `Site_Url`, else on our base URL.

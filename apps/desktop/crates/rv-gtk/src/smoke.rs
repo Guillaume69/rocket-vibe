@@ -17,7 +17,7 @@
 //!                          sends (RV_SMOKE_UPLOAD_HOLD=1: left staged, for a screenshot)
 //!   RV_SMOKE_SPOTLIGHT=<query>  finds a channel, joins it and opens it
 //!   RV_SMOKE_DETAILS=profile:<user> | room | search:<text> | settings | emoji:<code> | marked
-//!                          | jump:<message id>
+//!                          | jump:<message id> | permissions:<expected, comma-separated>
 //!                          checks the read and opens the dialog; emoji: a custom one completes
 //!   RV_SMOKE_NOTIFY=<reply>  stands in for the desktop's notification server (inline reply
 //!                          included), answers the first notification with <reply>, then clicks
@@ -528,6 +528,10 @@ fn details_checks(
                 round.as_ref().map(|m| (m.status.clone(), m.desktop_notifications.clone())),
             );
             crate::settings::open(chat.widget(), session, None, || {});
+        } else if let Some(expected) = what.strip_prefix("permissions:") {
+            let (s, r) = (session.clone(), rid.clone());
+            let granted = crate::on_tokio(async move { s.permissions(&r).await }).await;
+            check("permissions", granted.as_ref().is_some_and(|g| g.join(",") == expected), &granted);
         } else if what == "marked" {
             let (s, r) = (session.clone(), rid.clone());
             let pinned = crate::on_tokio(async move { s.marked(&r, false).await }).await;

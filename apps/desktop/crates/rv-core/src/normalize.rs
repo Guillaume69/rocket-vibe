@@ -108,6 +108,8 @@ pub struct Subscription {
     pub updated_at: i64,
     /// The room's AES key wrapped for me (`E2EKey`), in an encrypted room.
     pub e2e_key: Option<String>,
+    /// My roles in the room (`owner`, `moderator`, `leader`), comma-separated.
+    pub roles: Option<String>,
 }
 
 pub fn to_message(raw: &Value) -> Option<Message> {
@@ -236,6 +238,11 @@ pub fn to_subscription(raw: &Value) -> Option<Subscription> {
         last_seen: raw.get("ls").and_then(to_epoch),
         updated_at: raw.get("_updatedAt").and_then(to_epoch).unwrap_or(0),
         e2e_key: string(raw.get("E2EKey")),
+        roles: raw
+            .get("roles")
+            .and_then(Value::as_array)
+            .map(|roles| roles.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(","))
+            .filter(|r| !r.is_empty()),
     })
 }
 

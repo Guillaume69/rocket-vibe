@@ -60,5 +60,5 @@ for the Android app too and are fixed there as well.
 
 - [x] Enter or double click in the room list opened the wrong room (section titles not counted)
 - [x] Clicking a notification on a freedesktop server aborted the app (RefCell borrow held across the room opening)
-- [ ] The actions menu never loads the user's permissions (`permissions.listAll` and the room's roles): everyone is offered Pin, moderators are not offered Edit or Delete on others' messages; the server refuses and a toast says so
+- [x] The actions menu never loads the user's permissions: both apps read `permissions.listAll` and my global and room roles, and apply the server's own rules
 - [ ] Videos in a format the system cannot decode (H.264 on a Linux without its codec) now say so; the Linux notes could name the packages

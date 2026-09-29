@@ -64,6 +64,8 @@ section here.
 - Files dropped on the message field were inserted as text instead of being attached, and
   pictures dragged from a web page were refused; both are now attached, and the room is
   outlined while something is dragged over it.
+- The actions menu follows my permissions: Pin only where I may pin, and Edit and Delete on
+  others' messages where I moderate.
 - Clicking a desktop notification (KDE Plasma and other freedesktop servers) aborted the app
   when it opened the room.
 

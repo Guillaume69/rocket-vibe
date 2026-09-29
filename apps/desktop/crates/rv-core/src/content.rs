@@ -37,6 +37,19 @@ pub struct FileAttachment {
     pub description: Option<String>,
 }
 
+/// What a bot or an integration posts: a card with an author, a linked
+/// title, text, labelled fields and a colour.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CardAttachment {
+    pub author: Option<String>,
+    pub title: Option<String>,
+    pub link: Option<String>,
+    pub text: Option<String>,
+    pub color: Option<String>,
+    /// Label, value, and whether it sits beside the next one.
+    pub fields: Vec<(String, String, bool)>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkPreview {
     Image {
@@ -124,7 +137,8 @@ pub fn files(attachments: Option<&str>) -> Vec<FileAttachment> {
             } else if let Some(url) = text(a, "video_url") {
                 (FileKind::Video, url, text(a, "video_type"), a.get("video_size"))
             } else {
-                (FileKind::Other, text(a, "title_link")?, text(a, "format"), a.get("size"))
+                let link = text(a, "title_link").filter(|link| is_upload(a, link))?;
+                (FileKind::Other, link, text(a, "format"), a.get("size"))
             };
             Some(FileAttachment {
                 kind,
@@ -135,6 +149,41 @@ pub fn files(attachments: Option<&str>) -> Vec<FileAttachment> {
                 mime,
             })
         })
+        .collect()
+}
+
+/// A file on the server, not a page elsewhere that a card links to.
+fn is_upload(a: &Value, link: &str) -> bool {
+    link.starts_with('/') || a.get("title_link_download").and_then(Value::as_bool) == Some(true)
+}
+
+/// Attachments that are neither quotes, images, audio, video nor uploads.
+pub fn cards(attachments: Option<&str>) -> Vec<CardAttachment> {
+    list(attachments)
+        .iter()
+        .filter(|a| !is_quote(a) && ["image_url", "audio_url", "video_url"].iter().all(|k| a.get(*k).is_none()))
+        .filter(|a| !text(a, "title_link").is_some_and(|link| is_upload(a, &link)))
+        .map(|a| CardAttachment {
+            author: text(a, "author_name"),
+            title: text(a, "title"),
+            link: text(a, "title_link"),
+            text: text(a, "text"),
+            color: text(a, "color"),
+            fields: a
+                .get("fields")
+                .and_then(Value::as_array)
+                .map(|fields| {
+                    fields
+                        .iter()
+                        .filter_map(|f| {
+                            let short = f.get("short").and_then(Value::as_bool).unwrap_or(false);
+                            Some((text(f, "title")?, text(f, "value").unwrap_or_default(), short))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+        })
+        .filter(|c| c.title.is_some() || c.text.is_some() || !c.fields.is_empty())
         .collect()
 }
 
@@ -332,6 +381,30 @@ mod tests {
         assert_eq!(human_size(900), "900 B");
         assert_eq!(human_size(2048), "2.0 KB");
         assert_eq!(human_size(5_000_000), "4.8 MB");
+    }
+
+    #[test]
+    fn integration_cards_are_not_files() {
+        let attachments = json!([
+            {"author_name":"CI","title":"Build #42","title_link":"https://ci.example/42","text":"passed","color":"#2de0a5",
+             "fields":[{"short":true,"title":"Branch","value":"master"},{"title":"Log"}]},
+            {"title":"doc.pdf","title_link":"/d.pdf"},
+            {"title":"ext.pdf","title_link":"https://x/ext.pdf","title_link_download":true},
+            {"image_url":"https://media.giphy.com/x.gif","title_link":"https://giphy.com/x"},
+            {"message_link":"http://x/c?msg=1","text":"q"}
+        ])
+        .to_string();
+        let c = cards(Some(&attachments));
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].author.as_deref(), Some("CI"));
+        assert_eq!(c[0].link.as_deref(), Some("https://ci.example/42"));
+        assert_eq!(c[0].color.as_deref(), Some("#2de0a5"));
+        assert_eq!(
+            c[0].fields,
+            [("Branch".to_owned(), "master".to_owned(), true), ("Log".to_owned(), String::new(), false)]
+        );
+        let f = files(Some(&attachments));
+        assert_eq!(f.iter().map(|f| f.title.as_str()).collect::<Vec<_>>(), ["doc.pdf", "ext.pdf"]);
     }
 
     #[test]

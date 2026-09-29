@@ -41,6 +41,7 @@
 //!   RV_SMOKE_GALLERY=1     sample messages and a composer, no server: see `gallery`
 //!   RV_SMOKE_AUTOSTART=on|off  sets starting at login, prints the result and exits
 //!   RV_SMOKE_SOAK=<secs>   with the gallery: rows, toasts and badges churned that long: see `soak`
+//!   RV_SMOKE_LOG_FLOOD=<n> with the gallery: the same GLib critical n times, then another message
 //!   RV_SMOKE_UPDATE=1      the update card must offer a newer release (RV_SMOKE_UPDATE_FROM plays an
 //!                          older version); `install`: its Update button must replace the binary
 //! A failed expectation makes the process exit with status 1.
@@ -879,6 +880,13 @@ pub fn gallery(app: &adw::Application) -> bool {
         reply: Some(rv_native::ReplyLabels { placeholder: "Reply", send: "Send" }),
     });
     println!("smoke: native notifications available {}", rv_native::available());
+    if let Some(times) = std::env::var("RV_SMOKE_LOG_FLOOD").ok().and_then(|s| s.parse::<u64>().ok()) {
+        for _ in 0..times {
+            glib::g_critical!("rv-smoke", "the same critical, again");
+        }
+        glib::g_warning!("rv-smoke", "a different warning");
+        println!("smoke: logged {times} criticals");
+    }
     if let Some(seconds) = std::env::var("RV_SMOKE_SOAK").ok().and_then(|s| s.parse::<u32>().ok()) {
         soak(column, samples.to_vec(), seconds);
     }

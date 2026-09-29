@@ -101,6 +101,12 @@ impl Client {
         Arc::new(Client { dirs: Arc::new(Dirs::glib(std::path::Path::new(&home))) })
     }
 
+    /// Where the apps keep their small preferences (language, folded sections).
+    pub fn config_dir(&self) -> String {
+        let _ = std::fs::create_dir_all(&self.dirs.config);
+        self.dirs.config.to_string_lossy().into_owned()
+    }
+
     /// For files the app makes before sending them (voice, pasted pictures).
     pub fn cache_dir(&self) -> String {
         let _ = std::fs::create_dir_all(&self.dirs.cache);
@@ -633,4 +639,54 @@ fn action(a: rv_core::actions::Action) -> MessageAction {
         Action::Star => MessageAction::Star,
         Action::Unstar => MessageAction::Unstar,
     }
+}
+
+/// French when true, English otherwise; the app decides from the system's languages.
+#[uniffi::export]
+pub fn set_french(french: bool) {
+    rv_core::i18n::set(if french { rv_core::i18n::Lang::Fr } else { rv_core::i18n::Lang::En });
+}
+
+#[uniffi::export]
+pub fn t(key: String) -> String {
+    rv_core::i18n::t(&key).to_owned()
+}
+
+/// Fills each `{name}` from `args`.
+#[uniffi::export]
+pub fn tf(key: String, args: std::collections::HashMap<String, String>) -> String {
+    let pairs: Vec<(&str, &str)> = args.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    rv_core::i18n::tf(&key, &pairs)
+}
+
+#[uniffi::export]
+pub fn tn(key: String, n: i64) -> String {
+    rv_core::i18n::tn(&key, n)
+}
+
+/// What a system message says, after its author's name.
+#[uniffi::export]
+pub fn system_message(kind: String, param: String) -> String {
+    rv_core::i18n::system_message(&kind, &param)
+}
+
+/// `:smile:` to 😄 wherever a shortcode has a glyph.
+#[uniffi::export]
+pub fn replace_shortcodes(text: String) -> String {
+    rv_core::emoji::replace_shortcodes(&text)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct EmojiMatch {
+    pub shortcode: String,
+    pub glyph: String,
+}
+
+/// Emoji whose shortcode starts with `prefix`, for the composer's `:` completion.
+#[uniffi::export]
+pub fn complete_emoji(prefix: String, limit: u32) -> Vec<EmojiMatch> {
+    rv_core::emoji::complete(&prefix, limit as usize)
+        .into_iter()
+        .map(|(code, glyph)| EmojiMatch { shortcode: code.to_owned(), glyph: glyph.to_owned() })
+        .collect()
 }

@@ -7,6 +7,8 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+## [0.2.0] - 2026-09-29
+
 ### Ajouté
 
 - Liste des salons : un appui sur le titre d'une section (Non lus, Salons, Messages privés) la
@@ -62,5 +64,6 @@ Première version publiée : Android, pour Rocket.Chat 8 ou plus récent.
 - Profils, informations de salon, mon profil (statut, photo, informations).
 - Interface en français et en anglais.
 
-[Non publié]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.1.0...HEAD
+[Non publié]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.2.0...HEAD
+[0.2.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.1.0...mobile-v0.2.0
 [0.1.0]: https://github.com/Guillaume69/rocket-vibe/releases/tag/mobile-v0.1.0

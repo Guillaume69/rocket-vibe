@@ -11,6 +11,70 @@ thread_local! {
     static LINKS: std::cell::RefCell<Option<LinkHandler>> = const { std::cell::RefCell::new(None) };
     static CUSTOM_EMOJI: std::cell::RefCell<Option<EmojiImage>> = const { std::cell::RefCell::new(None) };
     static MENTION_PREVIEW: std::cell::RefCell<Option<EmojiImage>> = const { std::cell::RefCell::new(None) };
+    static SELECTED: std::cell::RefCell<glib::WeakRef<gtk::Widget>> = std::cell::RefCell::default();
+}
+
+/// Message text takes no keyboard focus, so the copy shortcut cannot reach
+/// it: the last selection made in a message is remembered for it instead.
+/// Only one selection shows at a time, as in a browser: an editor's own
+/// selection is dropped.
+fn selected(widget: &impl IsA<gtk::Widget>) {
+    let widget = widget.upcast_ref::<gtk::Widget>();
+    SELECTED.with_borrow(|s| s.set(Some(widget)));
+    let focus = widget.root().and_then(|root| root.focus());
+    if let Some(editor) = focus.as_ref().and_then(|f| f.downcast_ref::<gtk::TextView>()) {
+        let buffer = editor.buffer();
+        let at = buffer.iter_at_mark(&buffer.get_insert());
+        buffer.select_range(&at, &at);
+    } else if let Some(entry) = focus.as_ref().and_then(|f| f.downcast_ref::<gtk::Text>()) {
+        let at = entry.position();
+        entry.select_region(at, at);
+    }
+}
+
+/// After a click or a drag in a message: the text under `widget`, if it
+/// now holds a selection, is the one the copy shortcut takes; a click that
+/// selected nothing drops the previous selection.
+pub fn note_selection(widget: &gtk::Widget) {
+    let text = std::iter::successors(Some(widget.clone()), |w| w.parent())
+        .take(4)
+        .find(|w| w.is::<gtk::Label>() || w.is::<gtk::TextView>())
+        .filter(|text| match text.downcast_ref::<gtk::Label>() {
+            Some(label) => label.selection_bounds().is_some_and(|(a, b)| a != b),
+            None => text.downcast_ref::<gtk::TextView>().is_some_and(|v| v.buffer().has_selection()),
+        });
+    let previous = SELECTED.with_borrow(|s| s.upgrade());
+    if previous.is_some() && previous != text {
+        clear_selection();
+        SELECTED.with_borrow(|s| s.set(None));
+    }
+    if let Some(text) = text {
+        selected(&text);
+    }
+}
+
+/// Drops the selection made in a message.
+pub fn clear_selection() {
+    let Some(widget) = SELECTED.with_borrow(|s| s.upgrade()) else { return };
+    if let Some(label) = widget.downcast_ref::<gtk::Label>() {
+        label.select_region(0, 0);
+    } else if let Some(view) = widget.downcast_ref::<gtk::TextView>() {
+        let start = view.buffer().start_iter();
+        view.buffer().select_range(&start, &start);
+    }
+}
+
+/// The text last selected in a message, while it is still on screen and selected.
+pub fn selected_text() -> Option<String> {
+    let widget = SELECTED.with_borrow(|s| s.upgrade()).filter(|w| w.is_mapped())?;
+    if let Some(label) = widget.downcast_ref::<gtk::Label>() {
+        let (a, b) = label.selection_bounds().filter(|(a, b)| a != b)?;
+        let (a, b) = (a.min(b) as usize, a.max(b) as usize);
+        return Some(label.text().chars().skip(a).take(b - a).collect());
+    }
+    let view = widget.downcast_ref::<gtk::TextView>()?;
+    let (start, end) = view.buffer().selection_bounds()?;
+    Some(view.buffer().text(&start, &end, false).to_string())
 }
 
 /// The image of a custom emoji, by shortcode; None when the server has no such emoji.
@@ -273,14 +337,20 @@ pub fn view(blocks: &[Block], extra: &[&str]) -> gtk::Box {
     let body = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(2).build();
     let mut run: Vec<&str> = Vec::new();
     let flush = |run: &mut Vec<&str>| {
+        let trailing = run.iter().rev().take_while(|m| m.is_empty()).count();
+        run.truncate(run.len() - trailing);
         if !run.is_empty() {
             body.append(&text(&run.join("\n"), &with("message-body", extra)));
             run.clear();
+        }
+        for _ in 0..trailing {
+            body.append(&block(&Block::Break, extra));
         }
     };
     for b in blocks {
         match b {
             Block::Paragraph(markup) if !markup.contains(rv_core::markdown::CUSTOM_MARK) => run.push(markup),
+            Block::Break if !run.is_empty() => run.push(""),
             _ => {
                 flush(&mut run);
                 body.append(&block(b, extra));

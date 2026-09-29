@@ -570,6 +570,34 @@ impl ChatPage {
             keys.add_shortcut(gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string(trigger), Some(action)));
         }
         self.split.add_controller(keys);
+        let copy = gtk::EventControllerKey::builder().propagation_phase(gtk::PropagationPhase::Capture).build();
+        let w = weak.clone();
+        copy.connect_key_pressed(move |controller, key, _, state| {
+            let ctrl = state.contains(gdk::ModifierType::CONTROL_MASK);
+            if !ctrl || !matches!(key, gdk::Key::c | gdk::Key::C | gdk::Key::Insert | gdk::Key::KP_Insert) {
+                return glib::Propagation::Proceed;
+            }
+            if w.upgrade().is_some_and(|this| {
+                this.list.has_picked() || this.thread.borrow().as_ref().is_some_and(|t| t.list.has_picked())
+            }) {
+                return glib::Propagation::Proceed;
+            }
+            let focus = controller.widget().and_then(|w| w.root()).and_then(|root| root.focus());
+            let editor_selection = focus.as_ref().is_some_and(|f| {
+                f.downcast_ref::<gtk::TextView>().is_some_and(|v| v.buffer().has_selection())
+                    || f.downcast_ref::<gtk::Text>().is_some_and(|t| t.selection_bounds().is_some())
+            });
+            match crate::markdown_view::selected_text().filter(|_| !editor_selection) {
+                Some(text) => {
+                    if let Some(display) = gdk::Display::default() {
+                        display.clipboard().set_text(&text);
+                    }
+                    glib::Propagation::Stop
+                }
+                None => glib::Propagation::Proceed,
+            }
+        });
+        self.split.add_controller(copy);
         let w = weak.clone();
         self.list.connect_event(move |event| {
             if let Some(this) = w.upgrade() {

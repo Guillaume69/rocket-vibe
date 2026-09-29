@@ -1,0 +1,131 @@
+name: desktop-swiftui
+
+# The SwiftUI app for macOS (apps/desktop/macos over rv-ffi). A Mac runner
+# costs ten Linux ones: manual runs and desktop tags only, like the GTK
+# bundle's job.
+on:
+  push:
+    tags: ['desktop-v*']
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-swiftui-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: apps/desktop/macos
+    env:
+      APPLE_SIGNING: ${{ secrets.MACOS_CERTIFICATE_P12 != '' }}
+      APPLE_NOTARY: ${{ secrets.APPLE_API_KEY_P8 != '' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            apps/desktop/target
+            apps/desktop/macos/.build
+          key: desktop-swiftui-${{ hashFiles('apps/desktop/Cargo.lock', 'apps/desktop/macos/Package.swift') }}
+          restore-keys: desktop-swiftui-
+      - id: version
+        working-directory: .
+        run: |
+          if [ "${{ github.ref_type }}" = tag ]; then
+            version=$(node scripts/version.mjs desktop --tag "${{ github.ref_name }}")
+          else
+            version=$(node scripts/version.mjs desktop)
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - run: swift --version
+      - name: View models and the offline self-check
+        run: |
+          lib=$(scripts/generate.sh | tail -1)
+          export RV_FFI_LIB_DIR="$PWD/../$lib"
+          swift test
+          swift run rv-rooms
+      - name: Developer ID certificate
+        if: env.APPLE_SIGNING == 'true'
+        env:
+          CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password=$(openssl rand -hex 16)
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" > /dev/null
+          existing=()
+          while IFS= read -r line; do existing+=("$(echo "$line" | tr -d '" ')"); done < <(security list-keychains -d user)
+          security list-keychains -d user -s "$keychain" "${existing[@]}"
+          identity=$(security find-identity -v -p codesigning "$keychain" | awk -F'"' '/Developer ID Application/ {print $2; exit}')
+          if [ -z "$identity" ]; then echo "::error::no Developer ID Application identity in the certificate"; exit 1; fi
+          echo "MACOS_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+      - run: scripts/package.sh "${{ steps.version.outputs.version }}"
+      - name: Notarization
+        if: env.APPLE_SIGNING == 'true' && env.APPLE_NOTARY == 'true'
+        env:
+          API_KEY: ${{ secrets.APPLE_API_KEY_P8 }}
+          API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          printf '%s' "$API_KEY" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          dmg=$(ls dist/*.dmg)
+          xcrun notarytool submit "$dmg" --key "$RUNNER_TEMP/notary.p8" --key-id "$API_KEY_ID" --issuer "$API_ISSUER_ID" --wait --timeout 60m \
+            --output-format json > "$RUNNER_TEMP/notary.json" || true
+          cat "$RUNNER_TEMP/notary.json"
+          status=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("status",""))' "$RUNNER_TEMP/notary.json" 2>/dev/null || true)
+          if [ "$status" != Accepted ]; then echo "::error::notarization: ${status:-no answer}"; exit 1; fi
+          xcrun stapler staple "$dmg"
+          rm "$RUNNER_TEMP/notary.p8"
+      # The login screen, then sample messages without a server, then a soak.
+      - name: The app starts on its own
+        run: |
+          exe="$PWD/dist/rocket-vibe SwiftUI.app/Contents/MacOS/RocketVibe"
+          "$exe" > "$RUNNER_TEMP/app.log" 2>&1 &
+          pid=$!
+          sleep 8
+          alive=0
+          if kill -0 "$pid" 2>/dev/null; then alive=1; fi
+          screencapture -x "$RUNNER_TEMP/login.png" || true
+          kill "$pid" 2>/dev/null || true
+          sleep 2
+          RV_SMOKE_GALLERY=1 "$exe" > "$RUNNER_TEMP/gallery.log" 2>&1 &
+          gallery=$!
+          sleep 6
+          screencapture -x "$RUNNER_TEMP/gallery.png" || true
+          kill "$gallery" 2>/dev/null || true
+          cat "$RUNNER_TEMP/gallery.log"
+          RV_SMOKE_GALLERY=1 RV_SMOKE_SOAK=45 "$exe" > "$RUNNER_TEMP/soak.log" 2>&1 &
+          soak=$!
+          sleep 55
+          kill "$soak" 2>/dev/null || true
+          cat "$RUNNER_TEMP/soak.log"
+          cat "$RUNNER_TEMP/app.log"
+          if [ "$alive" = 0 ] || ! grep -q "soak survived" "$RUNNER_TEMP/soak.log"; then
+            for report in ~/Library/Logs/DiagnosticReports/*RocketVibe*; do
+              [ -f "$report" ] && head -120 "$report"
+            done
+            echo "::error::the app did not stay up"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: desktop-swiftui-screenshots
+          path: |
+            ${{ runner.temp }}/login.png
+            ${{ runner.temp }}/gallery.png
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-swiftui
+          path: apps/desktop/macos/dist/*.dmg

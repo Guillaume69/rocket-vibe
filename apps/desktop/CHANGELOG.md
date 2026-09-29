@@ -7,6 +7,19 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- A Favorites section in the room list, after Unread, for the rooms starred on the server
+  (as in the official client); a right click on a room adds it or takes it out.
+- Shift+Enter continues a list in the composer: the same bullet, or the next number, at the
+  same indentation; on an empty item it ends the list.
+
+### Fixed
+
+- Logs could grow without bound: a GTK critical repeated four million times made a 300 MB
+  log. A message repeated back to back is now written once and counted, and a run writes
+  5 MB at most.
+
 ## [0.4.1] - 2026-09-29
 
 ### Added

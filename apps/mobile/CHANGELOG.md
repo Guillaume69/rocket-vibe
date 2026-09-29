@@ -7,6 +7,12 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+### Ajouté
+
+- Une section Favoris dans la liste des salons, après Non lus, pour les salons mis en favori
+  sur le serveur (comme dans le client officiel) ; la fiche d'un salon l'y ajoute ou l'en
+  retire.
+
 ## [0.3.1] - 2026-09-29
 
 ### Corrigé

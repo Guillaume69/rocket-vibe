@@ -332,11 +332,8 @@ impl MessageList {
     /// Applies the new rows as splices, keeping the scroll position.
     pub fn set_rows(self: &Rc<Self>, fresh: Vec<MessageRow>) {
         let mut fresh = rows::group(self.opened(fresh));
-        if let Some((seen, me)) = self.unread_after.borrow().as_ref()
-            && let Some(first) =
-                fresh.iter_mut().find(|d| d.row.ts > *seen && d.row.author_id != *me && d.row.outbox_status.is_none())
-        {
-            first.new_marker = true;
+        if let Some((seen, me)) = self.unread_after.borrow().as_ref() {
+            rv_core::timeline::mark_new(&mut fresh, *seen, me);
         }
         let old = self.rows.replace(fresh.clone());
         let splices = diff_sorted(

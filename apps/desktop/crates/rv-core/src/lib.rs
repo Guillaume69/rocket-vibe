@@ -24,4 +24,5 @@ pub mod server;
 pub mod session;
 pub mod store;
 pub mod sync;
+pub mod timeline;
 pub mod uploads;

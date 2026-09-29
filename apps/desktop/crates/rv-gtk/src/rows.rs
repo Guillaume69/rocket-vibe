@@ -3,18 +3,18 @@
 use std::sync::Arc;
 
 use adw::prelude::*;
-use chrono::{DateTime, Local, TimeZone};
+use chrono::Local;
 use gtk::{gdk, glib, pango};
 use rv_core::media::{AvatarTarget, ImageAttachment, avatar_path, display_size, image_attachments};
 use rv_core::session::Session;
 use rv_core::store::{MessageRow, RoomRow};
+use rv_core::timeline::is_system;
+pub use rv_core::timeline::{Display, group, local};
 use rv_core::{content, markdown};
 
 use crate::i18n::{self, t, tn};
 use crate::widgets::{self, TileSize};
 use crate::{cards, markdown_view, media};
-
-const GROUPING_GAP_MS: i64 = 5 * 60 * 1000;
 
 /// What a message row asks of the page showing it.
 pub enum RowEvent {
@@ -42,22 +42,6 @@ pub enum RowEvent {
 
 pub type OnRowEvent = std::rc::Rc<dyn Fn(RowEvent)>;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Display {
-    pub row: MessageRow,
-    pub show_header: bool,
-    pub show_day: bool,
-    /// A continuation row whose minute differs from the row above: the time
-    /// goes in the avatar gutter.
-    pub gutter_time: bool,
-    /// The first message I have not read: "✦ New messages" above it.
-    pub new_marker: bool,
-}
-
-pub fn local(ts: i64) -> DateTime<Local> {
-    Local.timestamp_millis_opt(ts).single().unwrap_or_default()
-}
-
 pub fn short_time(ts: i64) -> String {
     if ts <= 0 {
         return String::new();
@@ -82,33 +66,6 @@ pub fn system_line(row: &MessageRow) -> String {
         Some(kind) => format!("{author} {}", i18n::system_message(kind, row.text.as_deref().unwrap_or_default())),
         None => String::new(),
     }
-}
-
-/// A message with a system type other than `e2e`, which is someone's words.
-fn is_system(row: &MessageRow) -> bool {
-    row.system_type.as_deref().is_some_and(|kind| kind != "e2e")
-}
-
-pub fn group(rows: Vec<MessageRow>) -> Vec<Display> {
-    let mut out: Vec<Display> = Vec::with_capacity(rows.len());
-    for row in rows {
-        let minute = |ts: i64| local(ts).format("%Y%m%d%H%M").to_string();
-        let gutter_time = out.last().is_some_and(|prev| minute(prev.row.ts) != minute(row.ts));
-        let (show_header, show_day) = match out.last() {
-            None => (true, true),
-            Some(prev) => {
-                let new_day = local(prev.row.ts).date_naive() != local(row.ts).date_naive();
-                let header = new_day
-                    || is_system(&row)
-                    || is_system(&prev.row)
-                    || prev.row.author_id != row.author_id
-                    || row.ts - prev.row.ts > GROUPING_GAP_MS;
-                (header, new_day)
-            }
-        };
-        out.push(Display { gutter_time: gutter_time && !show_header, row, show_header, show_day, new_marker: false });
-    }
-    out
 }
 
 pub fn presence_dot(p: rv_core::live::Presence, classes: &[&str]) -> gtk::Widget {

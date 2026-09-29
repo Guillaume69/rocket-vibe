@@ -626,12 +626,13 @@ impl ChatPage {
         self.call_button.connect_clicked(move |_| {
             let Some(this) = w.upgrade() else { return };
             let (Some(session), Some(rid)) = (this.session(), this.current_rid()) else { return };
+            let room = this.current_name();
             let weak = Rc::downgrade(&this);
             glib::spawn_future_local(async move {
                 let url = on_tokio(async move { session.start_call(&rid).await }).await;
                 let Some(this) = weak.upgrade() else { return };
                 match url {
-                    Ok(url) => crate::cards::open_uri(&this.split, &url),
+                    Ok(url) => this.open_call(&url, &room),
                     Err(_) => this.toast(t("call.failed").to_owned()),
                 }
             });
@@ -799,11 +800,23 @@ impl ChatPage {
             RowEvent::Profile(username) => self.show_profile(&username, false),
             RowEvent::JoinCall(call_id) => {
                 let weak = Rc::downgrade(self);
+                let room = self.current_name();
                 glib::spawn_future_local(async move {
                     let url = on_tokio(async move { session.join_call(&call_id).await }).await;
                     let Some(this) = weak.upgrade() else { return };
                     match url {
-                        Ok(url) => crate::cards::open_uri(&this.split, &url),
+                        Ok(url) => this.open_call(&url, &room),
+                        Err(_) => this.toast(t("call.failed").to_owned()),
+                    }
+                });
+            }
+            RowEvent::CallInfo(call_id) => {
+                let weak = Rc::downgrade(self);
+                glib::spawn_future_local(async move {
+                    let link = on_tokio(async move { session.call_link(&call_id).await }).await;
+                    let Some(this) = weak.upgrade() else { return };
+                    match link {
+                        Ok(link) => crate::call_window::info(&this.split, &link),
                         Err(_) => this.toast(t("call.failed").to_owned()),
                     }
                 });
@@ -1078,6 +1091,7 @@ impl ChatPage {
                 let Some(session) = this.session() else { return };
                 let weak = Rc::downgrade(&this);
                 glib::spawn_future_local(async move {
+                    let room = username.clone();
                     let url = on_tokio(async move {
                         let rid = session.open_dm(&username).await?;
                         session.start_call(&rid).await
@@ -1085,7 +1099,7 @@ impl ChatPage {
                     .await;
                     let Some(this) = weak.upgrade() else { return };
                     match url {
-                        Ok(url) => crate::cards::open_uri(&this.split, &url),
+                        Ok(url) => this.open_call(&url, &room),
                         Err(_) => this.toast(t("call.failed").to_owned()),
                     }
                 });
@@ -1689,6 +1703,19 @@ impl ChatPage {
 
     pub fn session(&self) -> Option<Arc<Session>> {
         self.session.borrow().clone()
+    }
+
+    fn current_name(&self) -> String {
+        self.current.borrow().as_ref().map(|o| o.name.clone()).unwrap_or_default()
+    }
+
+    fn open_call(self: &Rc<Self>, url: &str, room: &str) {
+        let weak = Rc::downgrade(self);
+        crate::call_window::open(&self.split, url, room, move |text| {
+            if let Some(this) = weak.upgrade() {
+                this.toast(text);
+            }
+        });
     }
 
     pub fn current_rid(&self) -> Option<String> {

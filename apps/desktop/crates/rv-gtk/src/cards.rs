@@ -337,8 +337,19 @@ pub fn call(call_id: Option<&str>, on_event: OnRowEvent) -> gtk::Widget {
         let join = gtk::Button::builder().label(t("message.join")).css_classes(["call-join"]).build();
         join.set_cursor(pointer().as_ref());
         let call_id = call_id.to_owned();
-        join.connect_clicked(move |_| on_event(RowEvent::JoinCall(call_id.clone())));
+        let on_join = on_event.clone();
+        let id = call_id.clone();
+        join.connect_clicked(move |_| on_join(RowEvent::JoinCall(id.clone())));
         card.append(&join);
+        let info = gtk::Button::builder()
+            .icon_name("help-about-symbolic")
+            .tooltip_text(t("call.info"))
+            .css_classes(["flat", "circular", "call-info"])
+            .valign(gtk::Align::Center)
+            .build();
+        info.set_cursor(pointer().as_ref());
+        info.connect_clicked(move |_| on_event(RowEvent::CallInfo(call_id.clone())));
+        card.append(&info);
     }
     card.upcast()
 }

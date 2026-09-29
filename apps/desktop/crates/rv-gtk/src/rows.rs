@@ -28,6 +28,8 @@ pub enum RowEvent {
         y: f64,
     },
     JoinCall(String),
+    /// The meeting link of a call, by call id.
+    CallInfo(String),
     /// Someone's profile, by username.
     Profile(String),
     React {

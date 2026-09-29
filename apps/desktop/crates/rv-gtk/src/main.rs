@@ -4,6 +4,7 @@ mod attach;
 mod background;
 mod badge;
 mod bundle;
+mod call_window;
 mod cards;
 mod chat;
 mod composer;

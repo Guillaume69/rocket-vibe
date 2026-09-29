@@ -63,6 +63,8 @@ section here.
 
 ### Fixed
 
+- An encrypted room created by an older web client (AES-128 room key) reads once unlocked,
+  instead of showing every message as undecipherable.
 - Opening a room with Enter or a double click in the room list opened the room one or two
   rows off (the section titles were not counted).
 - Open on a file did nothing on Linux desktops without the GNOME portal: it falls back to the

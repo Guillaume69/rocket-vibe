@@ -2,8 +2,10 @@
 //! writing them. The private key, unlocked with the E2E password, stays in
 //! memory; each room's AES key is unwrapped from its subscription's `E2EKey`.
 
-use aws_lc_rs::aead::{AES_256_GCM, Aad, LessSafeKey, Nonce, UnboundKey};
-use aws_lc_rs::cipher::{AES_256, DecryptionContext, PaddedBlockDecryptingKey, UnboundCipherKey};
+use aws_lc_rs::aead::{AES_128_GCM, AES_256_GCM, Aad, Algorithm, LessSafeKey, Nonce, UnboundKey};
+use aws_lc_rs::cipher::{
+    AES_128, AES_256, Algorithm as CipherAlgorithm, DecryptionContext, PaddedBlockDecryptingKey, UnboundCipherKey,
+};
 use aws_lc_rs::rsa::{OAEP_SHA256_MGF1SHA256, OaepPrivateDecryptingKey, PrivateDecryptingKey};
 use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
@@ -39,13 +41,31 @@ fn pbkdf2(password: &str, salt: &[u8], iterations: u32) -> [u8; 32] {
     key
 }
 
-/// AES-256-GCM with the tag at the end (WebCrypto's layout). None when it
-/// does not authenticate: a wrong key.
+/// The AES variant a key's length calls for: a room created by the old web
+/// client has a 16-byte `A128CBC` key, a recent one 32 bytes.
+fn gcm_for(key: &[u8]) -> Option<&'static Algorithm> {
+    match key.len() {
+        16 => Some(&AES_128_GCM),
+        32 => Some(&AES_256_GCM),
+        _ => None,
+    }
+}
+
+fn cbc_for(key: &[u8]) -> Option<&'static CipherAlgorithm> {
+    match key.len() {
+        16 => Some(&AES_128),
+        32 => Some(&AES_256),
+        _ => None,
+    }
+}
+
+/// AES-GCM with the tag at the end (WebCrypto's layout). None when it does
+/// not authenticate: a wrong key.
 fn gcm(key: &[u8], iv: &[u8], sealed: &[u8]) -> Option<Vec<u8>> {
     if sealed.len() < GCM_TAG {
         return None;
     }
-    let key = LessSafeKey::new(UnboundKey::new(&AES_256_GCM, key).ok()?);
+    let key = LessSafeKey::new(UnboundKey::new(gcm_for(key)?, key).ok()?);
     let nonce = Nonce::try_assume_unique_for_key(iv).ok()?;
     let mut buffer = sealed.to_vec();
     let plain = key.open_in_place(nonce, Aad::empty(), &mut buffer).ok()?;
@@ -53,7 +73,7 @@ fn gcm(key: &[u8], iv: &[u8], sealed: &[u8]) -> Option<Vec<u8>> {
 }
 
 fn cbc(key: &[u8], iv: &[u8], data: &[u8]) -> Option<Vec<u8>> {
-    let key = PaddedBlockDecryptingKey::cbc_pkcs7(UnboundCipherKey::new(&AES_256, key).ok()?).ok()?;
+    let key = PaddedBlockDecryptingKey::cbc_pkcs7(UnboundCipherKey::new(cbc_for(key)?, key).ok()?).ok()?;
     let iv: [u8; CBC_IV] = iv.try_into().ok()?;
     let mut buffer = data.to_vec();
     let plain = key.decrypt(&mut buffer, DecryptionContext::Iv128(iv.into())).ok()?;
@@ -191,14 +211,15 @@ mod tests {
     use aws_lc_rs::cipher::{EncryptionContext, PaddedBlockEncryptingKey};
 
     fn seal_gcm(key: &[u8], iv: &[u8], plain: &[u8]) -> Vec<u8> {
-        let key = LessSafeKey::new(UnboundKey::new(&AES_256_GCM, key).unwrap());
+        let key = LessSafeKey::new(UnboundKey::new(gcm_for(key).unwrap(), key).unwrap());
         let mut buffer = plain.to_vec();
         key.seal_in_place_append_tag(Nonce::try_assume_unique_for_key(iv).unwrap(), Aad::empty(), &mut buffer).unwrap();
         buffer
     }
 
     fn seal_cbc(key: &[u8], iv: [u8; 16], plain: &[u8]) -> Vec<u8> {
-        let key = PaddedBlockEncryptingKey::cbc_pkcs7(UnboundCipherKey::new(&AES_256, key).unwrap()).unwrap();
+        let key =
+            PaddedBlockEncryptingKey::cbc_pkcs7(UnboundCipherKey::new(cbc_for(key).unwrap(), key).unwrap()).unwrap();
         let mut buffer = plain.to_vec();
         key.less_safe_encrypt(&mut buffer, EncryptionContext::Iv128(iv.into())).unwrap();
         buffer
@@ -206,19 +227,23 @@ mod tests {
 
     #[test]
     fn messages_in_all_three_shapes() {
-        let key = [7u8; 32];
-        let gcm_iv = [1u8; NONCE_LEN];
-        let v2 = serde_json::json!({"algorithm":"rc.v2.aes-sha2","kid":"k","iv":STANDARD.encode(gcm_iv),
-            "ciphertext":STANDARD.encode(seal_gcm(&key, &gcm_iv, br#"{"msg":"hello gcm"}"#))});
-        assert_eq!(decrypt_message(&v2.to_string(), &key).unwrap(), "hello gcm");
-        let cbc_iv = [2u8; 16];
-        let old = serde_json::json!({"iv":STANDARD.encode(cbc_iv),
-            "ciphertext":STANDARD.encode(seal_cbc(&key, cbc_iv, br#"{"text":"hello cbc"}"#))});
-        assert_eq!(decrypt_message(&old.to_string(), &key).unwrap(), "hello cbc");
-        let blob = [&cbc_iv[..], &seal_cbc(&key, cbc_iv, b"plain v1")].concat();
-        let v1 = serde_json::json!({"ciphertext": format!("abcdefghijkl{}", STANDARD.encode(blob))});
-        assert_eq!(decrypt_message(&v1.to_string(), &key).unwrap(), "plain v1");
-        assert!(decrypt_message(&v2.to_string(), &[8u8; 32]).is_err());
+        for size in [16, 32] {
+            let key = vec![7u8; size];
+            let gcm_iv = [1u8; NONCE_LEN];
+            let v2 = serde_json::json!({"algorithm":"rc.v2.aes-sha2","kid":"k","iv":STANDARD.encode(gcm_iv),
+                "ciphertext":STANDARD.encode(seal_gcm(&key, &gcm_iv, br#"{"msg":"hello gcm"}"#))});
+            assert_eq!(decrypt_message(&v2.to_string(), &key).unwrap(), "hello gcm");
+            let cbc_iv = [2u8; 16];
+            let old = serde_json::json!({"iv":STANDARD.encode(cbc_iv),
+                "ciphertext":STANDARD.encode(seal_cbc(&key, cbc_iv, br#"{"text":"hello cbc"}"#))});
+            assert_eq!(decrypt_message(&old.to_string(), &key).unwrap(), "hello cbc");
+            let blob = [&cbc_iv[..], &seal_cbc(&key, cbc_iv, b"plain v1")].concat();
+            let v1 = serde_json::json!({"ciphertext": format!("abcdefghijkl{}", STANDARD.encode(blob))});
+            assert_eq!(decrypt_message(&v1.to_string(), &key).unwrap(), "plain v1");
+            assert!(decrypt_message(&v2.to_string(), &vec![8u8; size]).is_err());
+        }
+        let v2 = serde_json::json!({"iv":STANDARD.encode([1u8; NONCE_LEN]),"ciphertext":STANDARD.encode([0u8; 32])});
+        assert!(decrypt_message(&v2.to_string(), &[7u8; 20]).is_err());
     }
 
     #[test]

@@ -337,7 +337,7 @@ jobs:
           if kill -0 "$soak" 2>/dev/null; then soak_alive=1; fi
           kill "$soak" 2>/dev/null || true
           grep smoke "$RUNNER_TEMP/soak.log" || true
-          crash="$HOME/Library/Caches/rocket-vibe-rs/crash.log"
+          crash="$HOME/.cache/rocket-vibe-rs/crash.log"
           if [ -f "$crash" ]; then cat "$crash"; alive=0; fi
           if [ "$soak_alive" = 0 ] || ! grep -q "soak survived" "$RUNNER_TEMP/soak.log"; then alive=0; fi
           sudo mv /opt/homebrew-aside /opt/homebrew

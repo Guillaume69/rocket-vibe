@@ -59,18 +59,26 @@ pub const LOGIN_ENTRY: &str = "com.rocketvibe.app";
 pub const BACKGROUND_FLAG: &str = "--background";
 
 #[cfg(windows)]
+mod windows_call;
+#[cfg(windows)]
 mod windows_impl;
 #[cfg(windows)]
 mod windows_shell;
+#[cfg(windows)]
+pub use windows_call::call_window;
 #[cfg(windows)]
 pub use windows_impl::{available, badge, delivered, init, set_window, show, withdraw};
 #[cfg(windows)]
 pub use windows_shell::{app_events, autostart, autostart_supported, claim_instance, set_autostart, tray};
 
 #[cfg(target_os = "macos")]
+mod macos_call;
+#[cfg(target_os = "macos")]
 mod macos_impl;
 #[cfg(target_os = "macos")]
 mod macos_shell;
+#[cfg(target_os = "macos")]
+pub use macos_call::call_window;
 #[cfg(target_os = "macos")]
 pub use macos_impl::{available, badge, delivered, init, set_window, show, withdraw};
 #[cfg(target_os = "macos")]
@@ -106,11 +114,14 @@ mod other {
         None
     }
     pub fn set_window(_hwnd: isize) {}
+    pub fn call_window(_url: &str, _title: &str, _allowed: fn(&str, &str) -> bool) -> Result<(), String> {
+        Err("no call window here".to_owned())
+    }
 }
 #[cfg(not(any(windows, target_os = "macos")))]
 pub use other::{
-    app_events, autostart, autostart_supported, available, badge, claim_instance, delivered, init, set_autostart,
-    set_window, show, tray, withdraw,
+    app_events, autostart, autostart_supported, available, badge, call_window, claim_instance, delivered, init,
+    set_autostart, set_window, show, tray, withdraw,
 };
 
 /// The smoke run's stand-in for a keyboard layout change (Windows only).
@@ -118,6 +129,12 @@ pub use other::{
 pub use windows_impl::input_language_changed;
 #[cfg(not(windows))]
 pub fn input_language_changed() {}
+
+/// What the call window does, in the log, for the smoke run to read.
+#[cfg(any(windows, target_os = "macos"))]
+pub(crate) fn call_event(what: &str, detail: &str) {
+    println!("native: call {what} {detail}");
+}
 
 /// What a second launch asks of the first, from its arguments (one per line):
 /// the link it was started with, else the window, unless it was a start at

@@ -138,7 +138,8 @@ the same rv-core, with these differences:
 
 ## 12. Calls
 
-- [x] Start (`video-conference.start`) and join (`video-conference.join`) a Jitsi call (desktop: in the browser)
+- [x] Start (`video-conference.start`) and join (`video-conference.join`) a Jitsi call. Desktop: in a window of the app, locked on the call's origin (WebView2 on Windows, WKWebView on macOS, GTK and SwiftUI apps); on Linux an app window of a Chromium browser when one is installed, else the browser
+- [x] Meeting information on the call card: the link without the token (`video-conference.info`), to copy or open in the browser
 
 ## 13. Sharing and links
 

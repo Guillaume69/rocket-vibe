@@ -2,8 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <!-- Voice messages. -->
+  <!-- Voice messages and calls. -->
   <key>com.apple.security.device.audio-input</key>
+  <true/>
+  <!-- Calls, in the call window. -->
+  <key>com.apple.security.device.camera</key>
   <true/>
 </dict>
 </plist>

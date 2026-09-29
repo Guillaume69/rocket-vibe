@@ -305,6 +305,20 @@ jobs:
             if ($mode -eq "1" -and (-not $imeAlive -or $criticals -gt 0)) { throw "a keyboard layout change still breaks the input method" }
           }
           Remove-Item Env:RV_SMOKE_IME
+          # The call window: WebView2 in a window of the app, on the page it was given.
+          $env:RV_SMOKE_CALL = "https://example.org/"
+          $call = Start-Process $exe -WorkingDirectory "$app\bin" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\call-out.txt"
+          Start-Sleep -Seconds 15
+          $shot = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
+          [System.Drawing.Graphics]::FromImage($shot).CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
+          $shot.Save("$env:RUNNER_TEMP\call.png")
+          if (-not $call.HasExited) { Stop-Process -Id $call.Id -Force }
+          Remove-Item Env:RV_SMOKE_CALL
+          Get-Content "$env:RUNNER_TEMP\call-out.txt" -ErrorAction SilentlyContinue
+          if (-not (Select-String -Path "$env:RUNNER_TEMP\call-out.txt" -Pattern "native: call loaded https://example.org" -Quiet)) {
+            Get-Content "$env:LOCALAPPDATA\rocket-vibe-rs\rocket-vibe.log" -Tail 40 -ErrorAction SilentlyContinue
+            throw "the call window did not load its page"
+          }
           # Soak: rows, toasts and the badge churned for 45 s; the app must still be there, with no panic recorded.
           $env:RV_SMOKE_SOAK = "45"
           $soak = Start-Process $exe -WorkingDirectory "$app\bin" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\soak-out.txt"
@@ -329,6 +343,7 @@ jobs:
           path: |
             ${{ runner.temp }}/screenshot.png
             ${{ runner.temp }}/gallery.png
+            ${{ runner.temp }}/call.png
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: ${{ failure() }}
@@ -451,6 +466,14 @@ jobs:
           kill "$gallery" 2>/dev/null || true
           cat "$RUNNER_TEMP/gallery.log"
           if [ "$(grep -c "smoke: media .* ok" "$RUNNER_TEMP/gallery.log")" != 3 ]; then echo "::error::audio or video did not play"; alive=0; fi
+          # The call window: WKWebView in a window of the app, on the page it was given.
+          RV_SMOKE_GALLERY=1 RV_SMOKE_CALL=https://example.org/ "$app/Contents/MacOS/rocket-vibe-gtk" > "$RUNNER_TEMP/call.log" 2>&1 &
+          call=$!
+          sleep 15
+          screencapture -x "$RUNNER_TEMP/call.png" || true
+          kill "$call" 2>/dev/null || true
+          cat "$RUNNER_TEMP/call.log"
+          if ! grep -q "native: call loaded https://example.org" "$RUNNER_TEMP/call.log"; then echo "::error::the call window did not load its page"; alive=0; fi
           # Soak: rows, toasts and the badge churned for 45 s; the app must still be there, with no panic recorded.
           RV_SMOKE_GALLERY=1 RV_SMOKE_SOAK=45 "$app/Contents/MacOS/rocket-vibe-gtk" > "$RUNNER_TEMP/soak.log" 2>&1 &
           soak=$!
@@ -494,6 +517,7 @@ jobs:
           path: |
             ${{ runner.temp }}/screenshot.png
             ${{ runner.temp }}/gallery.png
+            ${{ runner.temp }}/call.png
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:

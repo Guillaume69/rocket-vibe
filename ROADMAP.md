@@ -159,6 +159,16 @@ C'est ce qu'on utilisera pour la feuille d'actions sur un message, le sélecteur
 > parce que l'app détient caméra et micro pendant l'appel et qu'Android ne sait pas arbitrer ces
 > permissions par origine, la navigation est le seul verrou. Partout ailleurs, l'interdit tient :
 > la lecture intégrée des liens vidéo, par exemple, reste une carte native (`apps/mobile/ui/carteEmbed.tsx`).
+>
+> **Sur le bureau, la même exception, avec les mêmes bornes** (2026-09-30) : l'appel s'ouvre dans une
+> fenêtre de l'app et nulle part ailleurs, WebView2 sous Windows (`apps/desktop/crates/rv-native/src/windows_call.rs`),
+> WKWebView sous macOS (`macos_call.rs`, et `CallWindow.swift` dans l'app SwiftUI). L'origine est
+> verrouillée par la même règle, écrite une fois en Rust (`apps/desktop/crates/rv-core/src/call.rs`,
+> portage de `origine.ts`) : navigation hors de l'origine annulée et renvoyée au navigateur, et
+> cette fois la caméra et le micro s'arbitrent aussi par origine, ce que WebView2 et WKWebView
+> permettent. Sous Linux, pas de moteur embarqué : les distributions compilent WebKitGTK sans WebRTC
+> (vérifié sur Fedora 44 et Arch, `RTCPeerConnection` absent), l'appel ouvre donc une fenêtre
+> d'application d'un navigateur Chromium (`--app`) quand il y en a un, sinon le navigateur.
 
 > **Piège transverse, et il est inévitable** : `react-native-reanimated` augmente la RAM de 25 à 30 % depuis RN 0.85 (changement Hermes), même inutilisé. Vérifié après installation : **`expo-router@57.0.4` en dépend directement**, ainsi que de `react-native-worklets`. Aucun choix de template ne l'évite. S'en passer supposerait d'abandonner `expo-router` pour `react-navigation` nu — probablement pas rentable. À surveiller au profilage plutôt qu'à combattre.
 

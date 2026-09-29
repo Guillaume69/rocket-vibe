@@ -162,7 +162,7 @@ struct ProfileView: View {
             return
         }
         if let link = try? await chat.startCall(rid: rid), let url = URL(string: link) {
-            openURL(url)
+            CallWindow.show(url, title: L("call.window_title", ["room": p.username]))
         } else {
             app.notice = L("call.failed")
         }

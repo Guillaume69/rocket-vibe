@@ -14,6 +14,13 @@ section here.
 - Bot and integration attachments show as cards: author, linked title, text and fields, with
   their colour down the side.
 - A right click on a picture in the viewer copies it, saves it or opens it in the default app.
+- Calls open in a window of the app instead of a browser tab: WebView2 on Windows, WKWebView
+  on macOS (the SwiftUI app too). The window stays on the meeting's own site: only that site
+  gets the camera and the microphone, any other link opens in the browser. On Linux, where
+  distributions build WebKitGTK without the WebRTC a meeting needs, the call opens as an app
+  window of Chromium, Chrome, Brave, Edge or Vivaldi when one is installed, else in the browser.
+- An information button on the call card shows the meeting link, to copy or open in the
+  browser, like the official client's.
 - A Favorites section in the room list, after Unread, for the rooms starred on the server
   (as in the official client); a right click on a room adds it or takes it out.
 - Shift+Enter continues a list in the composer: the same bullet, or the next number, at the

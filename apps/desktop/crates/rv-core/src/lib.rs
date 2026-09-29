@@ -4,6 +4,7 @@
 pub mod account;
 pub mod actions;
 pub mod animation;
+pub mod call;
 pub mod completion;
 pub mod compose;
 pub mod content;

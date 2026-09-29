@@ -28,8 +28,10 @@
   <true/>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
+  <key>NSCameraUsageDescription</key>
+  <string>rocket-vibe uses the camera in video calls.</string>
   <key>NSMicrophoneUsageDescription</key>
-  <string>rocket-vibe records voice messages with the microphone.</string>
+  <string>rocket-vibe uses the microphone for voice messages and video calls.</string>
   <key>CFBundleURLTypes</key>
   <array>
     <dict>

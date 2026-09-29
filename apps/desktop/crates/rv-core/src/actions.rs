@@ -292,6 +292,12 @@ pub async fn join_call(rest: &RestClient, call_id: &str) -> Result<String, RestE
     response.get("url").and_then(Value::as_str).map(str::to_owned).ok_or_else(|| RestError::incomplete("no url"))
 }
 
+/// The call's own address (`video-conference.info`), when the provider gives one.
+pub async fn call_url(rest: &RestClient, call_id: &str) -> Result<Option<String>, RestError> {
+    let response = rest.get("video-conference.info", CallOptions::params([("callId", call_id)])).await?;
+    Ok(response.get("url").and_then(Value::as_str).filter(|u| !u.is_empty()).map(str::to_owned))
+}
+
 pub async fn delete(rest: &RestClient, rid: &str, msg_id: &str) -> Result<(), RestError> {
     rest.post("chat.delete", CallOptions::body(json!({"roomId": rid, "msgId": msg_id}))).await.map(|_| ())
 }

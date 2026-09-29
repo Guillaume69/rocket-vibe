@@ -12,6 +12,9 @@ prefix=/ucrt64
 rm -rf "$out"
 mkdir -p "$out/bin" "$out/lib/gstreamer-1.0" "$out/share/glib-2.0/schemas" "$out/share/icons" "$out/etc"
 cp target/release/rocket-vibe-gtk.exe "$out/bin/"
+# The call window's WebView2 loader, which the exe loads at start: GNU builds link it as a DLL.
+loader=$(find target/release/build -path "*webview2-com-sys-*/out/x64/WebView2Loader.dll" | head -n 1)
+cp "$loader" "$out/bin/"
 
 # GStreamer finds its plugins in ../lib/gstreamer-1.0 next to its DLL.
 for plugin in coreelements audioconvert audioresample autodetect wasapi wasapi2 directsound opus ogg \

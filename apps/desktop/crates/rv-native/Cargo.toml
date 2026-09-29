@@ -8,6 +8,7 @@ license.workspace = true
 workspace = true
 
 [target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
 windows = { version = "0.62", features = [
     "Data_Xml_Dom",
     "Foundation",
@@ -28,8 +29,29 @@ windows = { version = "0.62", features = [
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSDockTile", "NSResponder"] }
-objc2-foundation = { version = "0.3", features = ["NSString", "NSSet", "NSArray", "NSError", "NSObject", "NSBundle"] }
+objc2-app-kit = { version = "0.3", features = [
+    "NSApplication",
+    "NSDockTile",
+    "NSGraphics",
+    "NSResponder",
+    "NSView",
+    "NSWindow",
+    "NSWorkspace",
+] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSSet", "NSArray", "NSError", "NSObject", "NSBundle", "NSGeometry", "NSURL", "NSURLRequest"] }
+objc2-web-kit = { version = "0.3", features = [
+    "WKFrameInfo",
+    "WKNavigation",
+    "WKNavigationAction",
+    "WKNavigationDelegate",
+    "WKSecurityOrigin",
+    "WKUIDelegate",
+    "WKWebView",
+    "WKWebViewConfiguration",
+    "WKWindowFeatures",
+    "block2",
+    "objc2-app-kit",
+] }
 objc2-user-notifications = { version = "0.3", features = [
     "UNNotification",
     "UNNotificationAction",

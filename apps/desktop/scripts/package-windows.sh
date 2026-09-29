@@ -14,15 +14,19 @@ mkdir -p "$out/bin" "$out/lib/gstreamer-1.0" "$out/share/glib-2.0/schemas" "$out
 cp target/release/rocket-vibe-gtk.exe "$out/bin/"
 
 # GStreamer finds its plugins in ../lib/gstreamer-1.0 next to its DLL.
-for plugin in coreelements audioconvert audioresample autodetect wasapi wasapi2 directsound opus ogg \
-  playback typefindfunctions audioparsers isomp4 matroska videoconvertscale volume; do
-  file="$prefix/lib/gstreamer-1.0/libgst$plugin.dll"
-  if [ -f "$file" ]; then cp "$file" "$out/lib/gstreamer-1.0/"; fi
+# Media Foundation decodes H.264 and AAC with what Windows already has.
+for plugin in coreelements audioconvert audioresample autodetect wasapi wasapi2 directsound opus vorbis ogg \
+  playback typefindfunctions audioparsers isomp4 matroska videoconvertscale volume mediafoundation; do
+  cp "$prefix/lib/gstreamer-1.0/libgst$plugin.dll" "$out/lib/gstreamer-1.0/"
 done
 cp -r "$prefix/lib/gdk-pixbuf-2.0" "$out/lib/"
+# GTK plays audio and video through its GStreamer media module, found in ../lib/gtk-4.0.
+cp -r "$prefix/lib/gtk-4.0" "$out/lib/"
+ls "$out"/lib/gtk-4.0/*/media/*gstreamer*.dll
 
 # Every DLL from the MSYS2 prefix that the exe, the plugins or the loaders pull in.
 ldd "$out/bin/rocket-vibe-gtk.exe" "$out"/lib/gstreamer-1.0/*.dll "$out"/lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll \
+  "$out"/lib/gtk-4.0/*/media/*.dll \
   | awk '$3 ~ /^\/ucrt64\// {print $3}' | sort -u | xargs -r cp -t "$out/bin/"
 
 # fontconfig, which the app uses for text on Windows, finds its configuration in ../etc/fonts.

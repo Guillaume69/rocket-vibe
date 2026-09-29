@@ -109,9 +109,14 @@ rather than dropped.
 - [x] Reply from the notification, where the desktop supports it
 - [x] Nothing for encrypted rooms' content
 
-## 11. End-to-end encryption (read only)
+## 11. End-to-end encryption
 
 - [x] Unlock with the E2E password (`e2e.fetchMyKeys`), decrypt messages and previews, lock again
+- [x] Room keys of either size: AES-128 (rooms made by the old web client) and AES-256
+- [x] Send, edit and answer in a thread, encrypted (`content`, `e2eMentions`); locked, the message waits
+- [x] Encrypted files: shown and saved in clear, sent encrypted (`fileContent`, AES-CTR key per file)
+- [x] The key is kept (Keystore on mobile, system keychain on desktop): both open unlocked at launch
+- [ ] Create an encrypted room (room key made and shared with members): neither app yet
 
 ## 12. Calls
 

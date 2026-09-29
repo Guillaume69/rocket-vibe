@@ -71,7 +71,8 @@ fn login_rooms_send_and_hear_it() {
     });
 
     let sent = chat.messages(room.rid.clone(), 50, None).into_iter().rev().find(|m| m.mine).unwrap();
-    let actions = block_on(chat.actions(room.rid.clone(), sent.id.clone(), false));
+    block_on(chat.prepare_actions(room.rid.clone()));
+    let actions = chat.actions(room.rid.clone(), sent.id.clone(), false);
     assert!(actions.contains(&rv_ffi::MessageAction::Edit) && actions.contains(&rv_ffi::MessageAction::Delete));
     block_on(chat.react(sent.id.clone(), ":+1:".into(), true)).expect("react");
     until("the reaction", || {

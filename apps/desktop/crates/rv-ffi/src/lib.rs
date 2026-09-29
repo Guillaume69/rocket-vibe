@@ -176,7 +176,13 @@ impl Client {
             let _guard = runtime().enter();
             Session::start(info, &path).map_err(RvError::local)?
         };
-        Ok(Arc::new(Chat { session, dirs: self.dirs.clone(), database: path, forward: Mutex::default() }))
+        Ok(Arc::new(Chat {
+            session,
+            dirs: self.dirs.clone(),
+            database: path,
+            forward: Mutex::default(),
+            rules: Mutex::default(),
+        }))
     }
 }
 
@@ -233,7 +239,11 @@ pub struct Chat {
     dirs: Arc<Dirs>,
     database: PathBuf,
     forward: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// The server's settings and my permissions by room, for `actions`.
+    rules: Mutex<ActionRules>,
 }
+
+type ActionRules = (Option<rv_core::actions::ServerSettings>, std::collections::HashMap<String, Vec<String>>);
 
 impl Drop for Chat {
     fn drop(&mut self) {
@@ -438,41 +448,60 @@ impl Chat {
         rv_core::actions::quote(&link, &text)
     }
 
-    /// What the actions menu offers on this message, by the server's rules.
-    pub async fn actions(&self, rid: String, message_id: String, in_thread: bool) -> Vec<MessageAction> {
+    /// Reads, once, what `actions` needs from the server for this room: its
+    /// settings and my permissions there.
+    pub async fn prepare_actions(&self, rid: String) {
         let s = self.session.clone();
-        on_tokio(async move {
-            let Some(row) = s.store.messages_by_id(std::slice::from_ref(&message_id)).into_iter().next() else {
-                return Vec::new();
-            };
-            let (read_only, encrypted) =
-                s.store.rooms().iter().find(|r| r.rid == rid).map_or((false, false), |r| (r.read_only, r.encrypted));
-            let permissions = s.permissions(&rid).await;
-            let settings = s.settings().await;
-            let text = match row.system_type.as_deref() {
-                Some("e2e") => row.encrypted_raw.as_deref().and_then(|raw| s.decrypt(&rid, raw)),
-                _ => row.text.clone(),
-            };
-            let ctx = rv_core::actions::ActionContext {
-                author_id: &row.author_id,
-                ts: row.ts,
-                system_type: row.system_type.as_deref(),
-                text: text.as_deref(),
-                has_file: !rv_core::content::files(row.attachments.as_deref()).is_empty()
-                    || !rv_core::media::image_attachments(row.attachments.as_deref()).is_empty(),
-                me: &s.info.user_id,
-                settings,
-                permissions: permissions.as_deref(),
-                read_only,
-                encrypted,
-                in_thread,
-                pinned: row.pinned,
-                starred: row.starred_by(&s.info.user_id),
-                now: chrono::Utc::now().timestamp_millis(),
-            };
-            rv_core::actions::possible_actions(&ctx).into_iter().map(action).collect()
+        let (settings, permissions) = on_tokio(async move {
+            let settings = s.settings().await.clone();
+            (settings, s.permissions(&rid).await.map(|p| (rid, p)))
         })
-        .await
+        .await;
+        let mut rules = self.rules.lock().unwrap();
+        rules.0 = Some(settings);
+        if let Some((rid, granted)) = permissions {
+            rules.1.insert(rid, granted);
+        }
+    }
+
+    /// What the actions menu offers on this message, by the server's rules.
+    /// Before `prepare_actions` answered, by what a member may do.
+    pub fn actions(&self, rid: String, message_id: String, in_thread: bool) -> Vec<MessageAction> {
+        let s = &self.session;
+        let Some(row) = s.store.messages_by_id(std::slice::from_ref(&message_id)).into_iter().next() else {
+            return Vec::new();
+        };
+        let (read_only, encrypted) =
+            s.store.rooms().iter().find(|r| r.rid == rid).map_or((false, false), |r| (r.read_only, r.encrypted));
+        let rules = self.rules.lock().unwrap();
+        let fallback = rv_core::actions::ServerSettings::from_list(&[]);
+        let text = match row.system_type.as_deref() {
+            Some("e2e") => row.encrypted_raw.as_deref().and_then(|raw| s.decrypt(&rid, raw)),
+            _ => row.text.clone(),
+        };
+        let ctx = rv_core::actions::ActionContext {
+            author_id: &row.author_id,
+            ts: row.ts,
+            system_type: row.system_type.as_deref(),
+            text: text.as_deref(),
+            has_file: !rv_core::content::files(row.attachments.as_deref()).is_empty()
+                || !rv_core::media::image_attachments(row.attachments.as_deref()).is_empty(),
+            me: &s.info.user_id,
+            settings: rules.0.as_ref().unwrap_or(&fallback),
+            permissions: rules.1.get(&rid).map(Vec::as_slice),
+            read_only,
+            encrypted,
+            in_thread,
+            pinned: row.pinned,
+            starred: row.starred_by(&s.info.user_id),
+            now: chrono::Utc::now().timestamp_millis(),
+        };
+        rv_core::actions::possible_actions(&ctx).into_iter().map(action).collect()
+    }
+
+    /// The reactions the actions menu offers first, as shortcodes.
+    pub fn quick_reactions(&self) -> Vec<String> {
+        rv_core::actions::QUICK_REACTIONS.iter().map(|c| (*c).to_owned()).collect()
     }
 
     /// A protected file or avatar, fetched with the session's credentials and cached.

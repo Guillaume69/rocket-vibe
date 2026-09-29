@@ -69,6 +69,8 @@ public final class RoomModel {
     /// Shows what the store has, then the server's newest page.
     func load() async {
         reload()
+        let (chat, rid) = (chat, room.rid)
+        Task { await chat.prepareActions(rid: rid) }
         loading = true
         defer { loading = false }
         if let threadId {
@@ -122,9 +124,11 @@ public final class RoomModel {
         try? await chat.react(messageId: message.id, shortcode: shortcode, add: add)
     }
 
-    public func actions(for message: MessageItem) async -> [MessageAction] {
-        await chat.actions(rid: room.rid, messageId: message.id, inThread: threadId != nil)
+    public func actions(for message: MessageItem) -> [MessageAction] {
+        chat.actions(rid: room.rid, messageId: message.id, inThread: threadId != nil)
     }
+
+    public var quickReactions: [String] { chat.quickReactions() }
 
     public func edit(_ message: MessageItem, text: String) async throws {
         try await chat.edit(rid: room.rid, messageId: message.id, text: text)

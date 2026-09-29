@@ -100,7 +100,7 @@ final class LiveTests: XCTestCase {
         XCTAssertEqual(room.draft, "")
         let mine = try XCTUnwrap(room.lastMine())
         XCTAssertEqual(mine.text, text)
-        let actions = await room.actions(for: mine)
+        let actions = room.actions(for: mine)
         XCTAssertTrue(actions.contains(.edit))
         try await room.delete(mine)
         try await until { !room.messages.contains { $0.id == mine.id } }

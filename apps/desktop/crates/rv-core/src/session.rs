@@ -717,11 +717,11 @@ impl Session {
     }
 
     pub async fn send(&self, rid: &str, text: &str) {
-        let text = text.trim();
+        let text = crate::compose::fenced(text.trim());
         if text.is_empty() {
             return;
         }
-        self.outbox.enqueue(rid, text, None);
+        self.outbox.enqueue(rid, &text, None);
         self.outbox.process().await;
     }
 
@@ -776,6 +776,7 @@ impl Session {
     }
 
     pub async fn edit(&self, rid: &str, msg_id: &str, text: &str) -> Result<(), RestError> {
+        let text = &crate::compose::fenced(text);
         let doc = if self.store.message_type(msg_id).as_deref() == Some(crate::normalize::ENCRYPTED_TYPE) {
             let content = self
                 .encrypt(rid, &serde_json::json!({"msg": text}))
@@ -880,11 +881,11 @@ impl Session {
 
     /// Sends into a thread when `thread_id` is set.
     pub async fn send_in(&self, rid: &str, text: &str, thread_id: Option<&str>) {
-        let text = text.trim();
+        let text = crate::compose::fenced(text.trim());
         if text.is_empty() {
             return;
         }
-        self.outbox.enqueue(rid, text, thread_id);
+        self.outbox.enqueue(rid, &text, thread_id);
         self.outbox.process().await;
     }
 

@@ -7,8 +7,10 @@ import type { MessageLocal } from '../lib/normaliser.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { Appuyable } from '../ui/appuyable.tsx';
 import { useT } from '../ui/i18n.ts';
+import { SeparateurJour } from '../ui/kit.tsx';
 import { LigneMessage } from '../ui/ligneMessage.tsx';
 import { demanderSaut } from '../ui/sautMessage.ts';
+import { cleJour } from '../ui/separateurJour.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { type Couleurs, POLICES, useCouleurs } from '../ui/theme.ts';
@@ -147,8 +149,12 @@ function MessagesMarques({
         <FlatList
           data={courante.messages}
           keyExtractor={(m) => m.id}
-          renderItem={({ item }) => (
+          renderItem={({ item, index }) => (
             <View style={styles.resultat}>
+              {(index === 0 ||
+                cleJour(courante.messages[index - 1].horodatage) !== cleJour(item.horodatage)) && (
+                <SeparateurJour c={c} horodatage={item.horodatage} />
+              )}
               <LigneMessage
                 c={c}
                 message={item}

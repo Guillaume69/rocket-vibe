@@ -120,7 +120,7 @@ jobs:
           # A long room scrolled up and down, frame times reported (a runner has no GPU: a trend, not a gate).
           RV_SMOKE_GALLERY=1 RV_SMOKE_SCROLL=1 "$exe" > "$RUNNER_TEMP/scroll.log" 2>&1 &
           scroll=$!
-          for _ in $(seq 1 60); do grep -q "smoke: scroll" "$RUNNER_TEMP/scroll.log" && break; sleep 1; done
+          for _ in $(seq 1 170); do grep -q "smoke: scroll total" "$RUNNER_TEMP/scroll.log" && break; sleep 1; done
           screencapture -x "$RUNNER_TEMP/scroll.png" || true
           kill "$scroll" 2>/dev/null || true
           if grep "smoke: scroll" "$RUNNER_TEMP/scroll.log"; then

@@ -4,9 +4,9 @@ import RocketVibeCore
 import SwiftUI
 
 /// `RV_SMOKE_SCROLL=1` with the gallery: a long room scrolled up to its top
-/// and back down at a steady speed, one step per display frame on the
-/// window's own scroll view, as a trackpad moves it, and how long each frame
-/// took while it moved.
+/// and back down at a steady speed, three times, one step per display frame
+/// on the window's own scroll view, as a trackpad moves it, and how long each
+/// frame took while it moved: each pass, then all of them.
 enum ScrollBench {
     static var requested: Bool { ProcessInfo.processInfo.environment["RV_SMOKE_SCROLL"] == "1" }
 
@@ -22,15 +22,16 @@ enum ScrollBench {
 
     /// Points per second, the pace of a firm trackpad flick.
     static let speed: CGFloat = 1400
+    static let passes = 3
 
-    static func report(_ intervals: [CFTimeInterval]) -> String {
-        guard !intervals.isEmpty else { return "smoke: scroll measured no frame" }
+    static func report(_ label: String, _ intervals: [CFTimeInterval]) -> String {
+        guard !intervals.isEmpty else { return "smoke: scroll \(label) measured no frame" }
         let ms = intervals.map { $0 * 1000 }.sorted()
         func at(_ q: Double) -> Double { ms[min(ms.count - 1, Int(Double(ms.count - 1) * q))] }
         let slow = ms.filter { $0 > 25 }.count
         return String(
-            format: "smoke: scroll %d frames, p50 %.1f ms, p95 %.1f ms, p99 %.1f ms, max %.1f ms, over 25 ms %d (%.1f%%)",
-            ms.count, at(0.5), at(0.95), at(0.99), ms.last ?? 0, slow, Double(slow) * 100 / Double(ms.count))
+            format: "smoke: scroll %@ %d frames, p50 %.1f ms, p95 %.1f ms, p99 %.1f ms, max %.1f ms, over 25 ms %d (%.1f%%)",
+            label, ms.count, at(0.5), at(0.95), at(0.99), ms.last ?? 0, slow, Double(slow) * 100 / Double(ms.count))
     }
 }
 
@@ -43,6 +44,8 @@ struct ScrollDriver: NSViewRepresentable {
         var link: CADisplayLink?
         var last: CFTimeInterval?
         var intervals: [CFTimeInterval] = []
+        var all: [CFTimeInterval] = []
+        var pass = 1
         var goingUp = true
         var startAt: Date?
         var finished = false
@@ -89,13 +92,21 @@ struct ScrollDriver: NSViewRepresentable {
             let atBottom = document.isFlipped ? y >= range : y <= 0
             clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: y))
             scroll.reflectScrolledClipView(clip)
-            let timedOut = Date() > startAt.addingTimeInterval(40)
+            let timedOut = Date() > startAt.addingTimeInterval(150)
             if goingUp && atTop && !timedOut {
                 goingUp = false
             } else if (!goingUp && atBottom) || timedOut {
-                finished = true
-                link.invalidate()
-                print(ScrollBench.report(intervals) + (timedOut ? " (timed out)" : ""))
+                print(ScrollBench.report("pass \(pass)", intervals) + (timedOut ? " (timed out)" : ""))
+                all += intervals
+                intervals = []
+                last = nil
+                goingUp = true
+                pass += 1
+                if pass > ScrollBench.passes || timedOut {
+                    finished = true
+                    link.invalidate()
+                    print(ScrollBench.report("total", all))
+                }
                 fflush(stdout)
             }
         }

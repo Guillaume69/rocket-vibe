@@ -105,6 +105,8 @@ fn main() -> glib::ExitCode {
     i18n::init();
     spell::start();
     app.connect_startup(|app| {
+        #[cfg(windows)]
+        windows::input_method();
         background::install(app);
         style::load();
         if let Some(display) = gtk::gdk::Display::default() {

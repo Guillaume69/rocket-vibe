@@ -22,6 +22,7 @@ pub mod outbox;
 pub mod parse;
 pub mod rest;
 pub mod rooms;
+pub mod runs;
 pub mod server;
 pub mod session;
 pub mod store;

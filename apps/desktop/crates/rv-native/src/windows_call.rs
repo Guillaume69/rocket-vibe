@@ -132,6 +132,7 @@ pub fn call_window(url: &str, title: &str, allowed: Allowed) -> Result<(), Strin
     }
     // SAFETY: GTK already runs this thread as a single-threaded apartment; a mode clash is not an error here.
     let _ = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
+    call_event("runtime", "found");
     let class = register_class()?;
     let title = wide(title);
     // SAFETY: a top-level window of our registered class, on this thread.
@@ -152,11 +153,13 @@ pub fn call_window(url: &str, title: &str, allowed: Allowed) -> Result<(), Strin
         )
     }
     .map_err(|e| e.to_string())?;
+    call_event("window", "made");
     let call_url = url.to_owned();
     let folder = user_data();
     let environment_ready =
         CreateCoreWebView2EnvironmentCompletedHandler::create(Box::new(move |error, environment| {
             error?;
+            call_event("engine", "ready");
             let Some(environment) = environment else { return Ok(()) };
             let controller_ready =
                 CreateCoreWebView2ControllerCompletedHandler::create(Box::new(move |error, controller| {

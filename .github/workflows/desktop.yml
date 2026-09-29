@@ -315,7 +315,10 @@ jobs:
           if (-not $call.HasExited) { Stop-Process -Id $call.Id -Force }
           Remove-Item Env:RV_SMOKE_CALL
           Get-Content "$env:RUNNER_TEMP\call-out.txt" -ErrorAction SilentlyContinue
-          if (-not (Select-String -Path "$env:RUNNER_TEMP\call-out.txt" -Pattern "native: call loaded https://example.org" -Quiet)) { throw "the call window did not load its page" }
+          if (-not (Select-String -Path "$env:RUNNER_TEMP\call-out.txt" -Pattern "native: call loaded https://example.org" -Quiet)) {
+            Get-Content "$env:LOCALAPPDATA\rocket-vibe-rs\rocket-vibe.log" -Tail 40 -ErrorAction SilentlyContinue
+            throw "the call window did not load its page"
+          }
           # Soak: rows, toasts and the badge churned for 45 s; the app must still be there, with no panic recorded.
           $env:RV_SMOKE_SOAK = "45"
           $soak = Start-Process $exe -WorkingDirectory "$app\bin" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\soak-out.txt"

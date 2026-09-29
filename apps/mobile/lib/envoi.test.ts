@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { MoteurEnvoi, idDepuisOctets, type DepotEnvoi, type LigneSortie } from './envoi.ts';
+import { MoteurEnvoi, idDepuisOctets, type ChiffreurEnvoi, type DepotEnvoi, type LigneSortie } from './envoi.ts';
 import type { MessageLocal } from './normaliser.ts';
 import { ClientRest } from './rest.ts';
 
-function fauxDepot() {
+function fauxDepot(chiffres: ReadonlySet<string> = new Set()) {
   const sortie = new Map<string, LigneSortie>();
   const messages: MessageLocal[] = [];
   const depot: DepotEnvoi = {
@@ -26,6 +26,7 @@ function fauxDepot() {
       const i = messages.findIndex((m) => m.id === id && m.misAJourLe === 0);
       if (i !== -1) messages.splice(i, 1);
     },
+    salonChiffre: async (rid) => chiffres.has(rid),
   };
   return { depot, sortie, messages };
 }
@@ -59,8 +60,10 @@ const ok = (json: unknown) =>
 function moteurDeTest(options: {
   repondre: (corps: Record<string, unknown>) => Promise<Response>;
   repondreGet?: (url: string) => Promise<Response>;
+  chiffres?: ReadonlySet<string>;
+  chiffreur?: ChiffreurEnvoi;
 }) {
-  const { depot, sortie, messages } = fauxDepot();
+  const { depot, sortie, messages } = fauxDepot(options.chiffres);
   const { client, requetes } = fauxClient(options.repondre, options.repondreGet);
   const ingeres: Record<string, unknown>[] = [];
   let n = 0;
@@ -70,6 +73,7 @@ function moteurDeTest(options: {
     moi: { id: 'u1', username: 'alice' },
     genererId: () => `id-genere-${++n}`.padEnd(24, '0'),
     ingerer: async (doc) => void ingeres.push(doc),
+    chiffreur: options.chiffreur,
     maintenant: () => 1000,
   });
   return { moteur, sortie, messages, requetes, ingeres };
@@ -304,5 +308,67 @@ describe('MoteurEnvoi', () => {
     vanne.ouvrir?.();
     await Promise.all([p1, p2]);
     assert.equal(requetes.length, 1);
+  });
+});
+
+describe('MoteurEnvoi — salon chiffré', () => {
+  const echo = async (corps: Record<string, unknown>) => {
+    const m = (corps.message ?? {}) as Record<string, unknown>;
+    return ok({ success: true, message: { ...m, ts: { $date: 2000 }, u: { _id: 'u1' } } });
+  };
+  const chiffreur: ChiffreurEnvoi = {
+    chiffrer: (rid, charge) => ({
+      algorithm: 'rc.v2.aes-sha2',
+      kid: `kid-${rid}`,
+      iv: 'aXY=',
+      ciphertext: Buffer.from(JSON.stringify(charge)).toString('base64'),
+    }),
+  };
+
+  test('le texte part chiffré, jamais en clair, avec ses mentions et son fil', async () => {
+    const { moteur, messages, requetes, sortie } = moteurDeTest({ repondre: echo, chiffres: new Set(['p1']), chiffreur });
+
+    await moteur.envoyer('p1', 'salut @bob', 'racine');
+
+    assert.equal(messages[0].typeSysteme, 'e2e', "l'optimiste est un message chiffré…");
+    assert.equal(messages[0].texte, 'salut @bob', '…affiché en clair localement');
+    const envoye = (requetes[0].message ?? {}) as Record<string, unknown>;
+    assert.equal(envoye.msg, undefined, 'aucun clair sur le réseau');
+    assert.equal(envoye.t, 'e2e');
+    assert.equal(envoye.e2e, 'pending');
+    assert.equal(envoye.tmid, 'racine');
+    const content = envoye.content as { kid: string; ciphertext: string };
+    assert.equal(content.kid, 'kid-p1');
+    assert.deepEqual(JSON.parse(Buffer.from(content.ciphertext, 'base64').toString()), { msg: 'salut @bob' });
+    assert.deepEqual(envoye.e2eMentions, { e2eUserMentions: ['@bob'], e2eChannelMentions: [] });
+    assert.equal(sortie.size, 0);
+  });
+
+  test('verrouillé : la ligne attend sans échouer, les autres salons partent', async () => {
+    let cle = false;
+    const { moteur, requetes, sortie } = moteurDeTest({
+      repondre: echo,
+      chiffres: new Set(['p1']),
+      chiffreur: { chiffrer: (rid, charge) => (cle ? chiffreur.chiffrer(rid, charge) : null) },
+    });
+
+    await moteur.envoyer('p1', 'secret');
+    await moteur.envoyer('r2', 'public');
+
+    assert.deepEqual(requetes.map((r) => (r.message as { rid: string }).rid), ['r2']);
+    assert.equal(sortie.size, 1);
+    assert.equal([...sortie.values()][0].statut, 'en-attente');
+
+    cle = true;
+    await moteur.traiter();
+    assert.equal(requetes.length, 2);
+    assert.equal(sortie.size, 0);
+  });
+
+  test('sans chiffreur, un salon chiffré ne reçoit rien', async () => {
+    const { moteur, requetes, sortie } = moteurDeTest({ repondre: echo, chiffres: new Set(['p1']) });
+    await moteur.envoyer('p1', 'secret');
+    assert.equal(requetes.length, 0);
+    assert.equal(sortie.size, 1);
   });
 });

@@ -21,7 +21,7 @@ import { EVENEMENT_PRESENCE, STREAM_NOTIFY_LOGGED } from '../../lib/presence.ts'
 import { rattraperGlobal, rattraperSalon, reconcilierSalons } from '../../lib/rattrapage.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 import { STREAM_MESSAGES, STREAM_NOTIFY_ROOM, STREAM_NOTIFY_USER } from '../../lib/sync.ts';
-import type { DepotEnvoi } from '../../lib/envoi.ts';
+import type { ChiffreurEnvoi, DepotEnvoi } from '../../lib/envoi.ts';
 import type { DepotTeleversements } from '../../lib/envoiFichiers.ts';
 import type { TransportUpload } from '../../lib/upload.ts';
 import { ActionsRC } from './actions.ts';
@@ -69,13 +69,14 @@ export function creerFournisseurRC(
     chargerHistorique: (moteur, rid, type, latest) =>
       chargerHistorique(client, moteur, rid, type, latest),
     chargerFil: (moteur, filId, estAbandonne) => chargerFil(client, moteur, filId, estAbandonne),
-    creerEnvoi(depot: DepotEnvoi, ingerer: Ingerer): Outbox {
+    creerEnvoi(depot: DepotEnvoi, ingerer: Ingerer, chiffreur?: ChiffreurEnvoi): Outbox {
       return new MoteurEnvoi({
         depot,
         client,
         moi: { id: session.userId, username: session.username },
         genererId,
         ingerer,
+        chiffreur,
       });
     },
     creerTeleversement(

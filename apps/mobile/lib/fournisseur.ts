@@ -11,7 +11,7 @@
  */
 
 import type { Evenement, EtatDdp } from './ddp.ts';
-import type { DepotEnvoi } from './envoi.ts';
+import type { ChiffreurEnvoi, DepotEnvoi } from './envoi.ts';
 import type { DepotTeleversements } from './envoiFichiers.ts';
 import type { AbonnementLocal, MessageLocal, SalonLocal } from './normaliser.ts';
 import type { MoteurSynchro } from './sync.ts';
@@ -255,7 +255,7 @@ export interface Fournisseur {
    * Rejouable — mêmes upserts idempotents que le reste de la synchro.
    */
   chargerFil(moteur: MoteurSynchro, filId: string, estAbandonne: () => boolean): Promise<void>;
-  creerEnvoi(depot: DepotEnvoi, ingerer: Ingerer): Outbox;
+  creerEnvoi(depot: DepotEnvoi, ingerer: Ingerer, chiffreur?: ChiffreurEnvoi): Outbox;
   creerTeleversement(
     depot: DepotTeleversements,
     transport: TransportUpload,

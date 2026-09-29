@@ -21,6 +21,8 @@ release, et ses notes sont la section de la version ici.
 - Composer : les pièces jointes attendent l'envoi en pastilles (vignette ou icône, nom, format et
   poids, ✕ pour retirer) ; on peut en joindre plusieurs à la fois, les prévisualiser d'un toucher,
   et le texte tapé part en légende de la première.
+- Salon chiffré : une fois déverrouillé, on y écrit comme ailleurs. Le message part chiffré
+  (les mentions notifient toujours) ; verrouillé, il attend le déverrouillage au lieu d'échouer.
 
 ### Modifié
 

@@ -248,9 +248,13 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           rafraichirSalon: (rid) => fournisseur.rattraperSalon(moteur, rid, estAbandonne),
         },
       );
-      const envoi = fournisseur.creerEnvoi(creerDepotEnvoi(brute, fileEcritures), async (doc) => {
-        await moteur.ingererMessages([doc]);
-      });
+      const envoi = fournisseur.creerEnvoi(
+        creerDepotEnvoi(brute, fileEcritures),
+        async (doc) => {
+          await moteur.ingererMessages([doc]);
+        },
+        e2e,
+      );
       const depotEmojis = creerDepotEmojis(brute, fileEcritures);
       // Les écrans salon montés : le sommet est celui que l'utilisateur
       // regarde, le seul que le rattrapage vise. Voir `ui/salonsOuverts.ts`.
@@ -291,6 +295,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         await e2e.deverrouiller(motDePasse); // lève ErreurE2E si faux
         await moteur.deverrouillageE2E(); // éclaire les messages déjà en base
         rafraichirE2E();
+        envoi.traiter().catch(() => {}); // ce qui attendait une clé de salon
       };
       const verrouillerE2E = async (): Promise<void> => {
         await e2e.verrouiller();
@@ -340,6 +345,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           }
           await moteur.deverrouillageE2E();
           if (!abandonne) rafraichirE2E();
+          envoi.traiter().catch(() => {});
         })
         .catch(() => {});
 

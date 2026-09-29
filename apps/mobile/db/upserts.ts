@@ -453,6 +453,9 @@ VALUES (?, ?, ?, ?, 'en-attente', 0, NULL, ?)
 `;
 
 /** Les échecs aussi : le rejeu au retour du réseau retente tout ce qui reste. */
+/** Le salon est-il chiffré ? Décide du chemin d'envoi d'un message. */
+export const SALON_CHIFFRE = `SELECT chiffre FROM salons WHERE rid = ?`;
+
 export const LISTER_SORTIE_A_ENVOYER = `
 SELECT id, rid, texte, fil_id, statut, tentatives FROM sortie
 WHERE statut IN ('en-attente', 'echec') ORDER BY cree_le

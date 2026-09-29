@@ -131,7 +131,6 @@ const fr = {
   'salon.reessayer': 'réessayer',
   'salon.abandonner': 'abandonner',
   'salon.chiffreVerrouille': '🔓 Déverrouiller pour lire ce salon chiffré',
-  'salon.chiffreLecture': '🔒 Chiffré — lecture seule (envoi non pris en charge)',
   'e2e.titre': 'Déverrouiller le chiffrement',
   'e2e.explication':
     'Entre ton mot de passe de chiffrement E2E pour lire les salons chiffrés. Il déverrouille cet appareil une fois pour toutes.',
@@ -521,7 +520,6 @@ const en: Record<CleTraduction, string> = {
   'salon.reessayer': 'retry',
   'salon.abandonner': 'discard',
   'salon.chiffreVerrouille': '🔓 Unlock to read this encrypted channel',
-  'salon.chiffreLecture': '🔒 Encrypted — read-only (sending not supported)',
   'e2e.titre': 'Unlock encryption',
   'e2e.explication':
     'Enter your E2E encryption password to read encrypted channels. It unlocks this device once and for all.',

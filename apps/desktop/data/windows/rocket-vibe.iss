@@ -48,6 +48,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Root: HKCU; Subkey: "Software\Classes\rocketvibe"; ValueType: string; ValueName: ""; ValueData: "URL:rocketvibe"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\rocketvibe"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
 Root: HKCU; Subkey: "Software\Classes\rocketvibe\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\rocket-vibe.ico"""
+; Written by the app's "Start at login" switch; gone with the app.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "rocket-vibe"; Flags: uninsdeletevalue dontcreatekey
 Root: HKCU; Subkey: "Software\Classes\rocketvibe\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\bin\rocket-vibe-gtk.exe"" ""%1"""
 
 [Run]

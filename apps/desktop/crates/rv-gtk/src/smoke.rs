@@ -39,6 +39,7 @@
 //!   RV_SMOKE_NAV=<other room>  opens the other room, then mouse back and forward between the two;
 //!                          in a narrow window, back to the list and forward into the room again
 //!   RV_SMOKE_GALLERY=1     sample messages and a composer, no server: see `gallery`
+//!   RV_SMOKE_AUTOSTART=on|off  sets starting at login, prints the result and exits
 //!   RV_SMOKE_SOAK=<secs>   with the gallery: rows, toasts and badges churned that long: see `soak`
 //!   RV_SMOKE_UPDATE=1      the update card must offer a newer release (RV_SMOKE_UPDATE_FROM plays an
 //!                          older version); `install`: its Update button must replace the binary
@@ -66,6 +67,20 @@ pub fn failed() -> bool {
 
 fn list(var: &str) -> Vec<String> {
     std::env::var(var).unwrap_or_default().split('|').filter(|s| !s.is_empty()).map(str::to_owned).collect()
+}
+
+/// `RV_SMOKE_AUTOSTART=on|off`: sets starting at login that way, says what
+/// the system now has, and exits.
+pub fn autostart() -> Option<glib::ExitCode> {
+    let wanted = match std::env::var("RV_SMOKE_AUTOSTART").ok()?.as_str() {
+        "on" => true,
+        "off" => false,
+        _ => return None,
+    };
+    let set = rv_native::set_autostart(wanted);
+    let now = rv_native::autostart();
+    println!("smoke: autostart supported {} set {set:?} now {now}", rv_native::autostart_supported());
+    Some(if set.is_ok() && now == wanted { glib::ExitCode::SUCCESS } else { glib::ExitCode::FAILURE })
 }
 
 pub fn install_early() {
@@ -851,7 +866,7 @@ pub fn gallery(app: &adw::Application) -> bool {
     rv_native::init(crate::APP_ID, "rocket-vibe", Box::new(|event| println!("smoke: native event {event:?}")));
     crate::widgets::badge_follows(&window);
     glib::timeout_add_local_once(Duration::from_millis(2000), || {
-        rv_native::badge(3);
+        rv_native::badge(3, false);
         glib::timeout_add_local_once(Duration::from_millis(1500), || {
             println!("smoke: native toasts delivered {:?}", rv_native::delivered());
         });
@@ -885,7 +900,7 @@ fn soak(column: gtk::Box, samples: Vec<crate::rows::Display>, seconds: u32) {
         for d in &samples {
             column.append(&crate::rows::message_widget(d, "alice", None, None, std::rc::Rc::new(|_| {})));
         }
-        rv_native::badge(i64::from(round % 12));
+        rv_native::badge(i64::from(round % 12), round.is_multiple_of(3));
         if round.is_multiple_of(5) {
             let body = format!("Soak round {round} 🎉");
             rv_native::show(&rv_native::Toast {

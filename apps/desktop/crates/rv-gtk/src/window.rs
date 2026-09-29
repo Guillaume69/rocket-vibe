@@ -228,8 +228,8 @@ impl AppWindow {
             let Some(this) = weak.upgrade() else { return };
             let (w1, w2) = (Rc::downgrade(&this), Rc::downgrade(&this));
             let quit: Rc<dyn Fn()> = Rc::new(move || {
-                if let Some(this) = w1.upgrade() {
-                    this.window.close();
+                if let Some(app) = w1.upgrade().and_then(|this| this.window.application()) {
+                    crate::background::quit(&app);
                 }
             });
             let close: Rc<dyn Fn()> = Rc::new(move || {
@@ -242,7 +242,11 @@ impl AppWindow {
         // Every handler above holds a weak reference: the window's own
         // handler is what keeps the controller alive as long as the window.
         let keep = this.clone();
-        this.window.connect_close_request(move |_| {
+        this.window.connect_close_request(move |window| {
+            if crate::background::keep_running() && !crate::background::quitting() {
+                window.set_visible(false);
+                return glib::Propagation::Stop;
+            }
             keep.stop_session(false);
             glib::Propagation::Proceed
         });

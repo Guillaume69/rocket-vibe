@@ -155,9 +155,13 @@ pub fn withdraw(room: &str) {
 }
 
 /// On the main thread only (AppKit); a call from elsewhere is dropped.
-pub fn badge(count: i64) {
+pub fn badge(count: i64, dot: bool) {
     let Some(mtm) = MainThreadMarker::new() else { return };
-    let label = (count > 0).then(|| NSString::from_str(&count.min(99).to_string()));
+    let label = match crate::badge_text(count) {
+        text if !text.is_empty() => Some(NSString::from_str(&text)),
+        _ if dot => Some(NSString::from_str("•")),
+        _ => None,
+    };
     let tile = NSApplication::sharedApplication(mtm).dockTile();
     tile.setBadgeLabel(label.as_deref());
     tile.display();

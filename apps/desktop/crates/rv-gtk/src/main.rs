@@ -1,6 +1,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 mod actions_menu;
 mod attach;
+mod background;
 mod badge;
 mod cards;
 mod chat;
@@ -75,7 +76,9 @@ fn window_of(app: &adw::Application) -> std::rc::Rc<window::AppWindow> {
     smoke::install_early();
     let window = window::AppWindow::new(app);
     smoke::install(&window);
-    window.window.present();
+    if !background::start_hidden() {
+        window.window.present();
+    }
     window.start();
     WINDOW.with_borrow_mut(|w| *w = Some(window.clone()));
     window
@@ -100,7 +103,8 @@ fn main() -> glib::ExitCode {
     let app = adw::Application::builder().application_id(APP_ID).flags(application_flags()).build();
     i18n::init();
     spell::start();
-    app.connect_startup(|_| {
+    app.connect_startup(|app| {
+        background::install(app);
         style::load();
         if let Some(display) = gtk::gdk::Display::default() {
             icon::register(&display);
@@ -118,7 +122,14 @@ fn main() -> glib::ExitCode {
             window.open_link(&file.uri());
         }
     });
-    let args: Vec<String> = std::env::args().collect();
+    let mut args: Vec<String> = std::env::args().collect();
+    if let Some(code) = smoke::autostart() {
+        return code;
+    }
+    if !rv_native::claim_instance(&args) {
+        return glib::ExitCode::SUCCESS;
+    }
+    background::take_flag(&mut args);
     let code = app.run_with_args(&args);
     if smoke::failed() { glib::ExitCode::FAILURE } else { code }
 }

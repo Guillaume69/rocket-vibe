@@ -112,7 +112,7 @@ final class LiveTests: XCTestCase {
     }
 
     @MainActor
-    func until(_ condition: @MainActor () -> Bool) async throws {
+    func until(_ condition: @escaping @MainActor () -> Bool) async throws {
         var tries = 0
         while !condition() && tries < 200 {
             tries += 1

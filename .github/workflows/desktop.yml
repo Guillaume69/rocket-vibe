@@ -82,6 +82,66 @@ jobs:
           name: desktop-linux
           path: apps/desktop/dist/*.tar.gz
 
+  # Built on Arch against Arch's libraries, glibc included, so it runs on any
+  # distribution: see scripts/appimage-build.sh.
+  appimage:
+    needs: version
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    container: ghcr.io/pkgforge-dev/archlinux:latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            apps/desktop/target/appimage
+          key: desktop-appimage-${{ hashFiles('apps/desktop/Cargo.lock') }}
+          restore-keys: desktop-appimage-
+      - run: sh scripts/appimage-build.sh "${{ needs.version.outputs.version }}" dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-appimage
+          path: apps/desktop/dist/*.AppImage
+
+  # The AppImage on a distribution with no GTK at all: sample messages drawn,
+  # and the app still running after a while.
+  appimage-smoke:
+    needs: appimage
+    runs-on: ubuntu-24.04
+    container: ubuntu:22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-appimage
+      - name: Gallery on Ubuntu 22.04
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y -qq xvfb x11-apps imagemagick ca-certificates > /dev/null
+          if ldconfig -p | grep -q 'libgtk-4\|libadwaita'; then echo "::error::GTK is on this system"; exit 1; fi
+          chmod +x ./*.AppImage
+          Xvfb :99 -screen 0 1100x750x24 > /dev/null 2>&1 &
+          export DISPLAY=:99 HOME="$RUNNER_TEMP/home" RV_SMOKE_GALLERY=1
+          mkdir -p "$HOME"
+          sleep 2
+          ./*.AppImage > gallery.log 2>&1 &
+          app=$!
+          sleep 25
+          xwd -root -silent | convert xwd:- gallery.png
+          cat gallery.log
+          if ! kill -0 "$app" 2> /dev/null; then echo "::error::the AppImage exited"; exit 1; fi
+          if grep -q panicked gallery.log; then echo "::error::a panic was logged"; exit 1; fi
+          kill "$app"
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: appimage-screenshots
+          path: gallery.png
+
   windows:
     if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     needs: version
@@ -369,7 +429,7 @@ jobs:
 
   release:
     if: github.ref_type == 'tag'
-    needs: [version, linux, windows, macos, macos-swiftui]
+    needs: [version, linux, appimage, appimage-smoke, windows, macos, macos-swiftui]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -386,6 +446,7 @@ jobs:
           body_path: ${{ runner.temp }}/notes.md
           files: |
             *.tar.gz
+            *.AppImage
             *.zip
             *-setup.exe
             *.dmg

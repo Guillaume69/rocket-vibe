@@ -37,6 +37,23 @@ pub fn attention(rooms: &[RoomRow]) -> i64 {
     rooms.iter().map(|r| if r.kind == "d" { r.unread } else { r.mentions }).sum()
 }
 
+/// What the app icon shows: the count of what calls for me, else a dot for
+/// unread chatter, else nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Badge {
+    None,
+    Dot,
+    Count(i64),
+}
+
+pub fn badge(rooms: &[RoomRow]) -> Badge {
+    match attention(rooms) {
+        0 if unread_rooms(rooms) > 0 => Badge::Dot,
+        0 => Badge::None,
+        n => Badge::Count(n),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Found {
     User { id: String, username: String, name: Option<String> },
@@ -123,5 +140,17 @@ mod tests {
         let rooms = vec![channel, room("d1", "d", 3), room("c2", "c", 7)];
         assert_eq!(attention(&rooms), 5);
         assert_eq!(attention(&[]), 0);
+    }
+
+    #[test]
+    fn the_badge_counts_what_calls_for_me_and_dots_the_rest() {
+        let mut channel = room("c1", "c", 5);
+        assert_eq!(badge(&[channel.clone()]), Badge::Dot);
+        channel.mentions = 1;
+        assert_eq!(badge(&[channel, room("d1", "d", 2)]), Badge::Count(3));
+        let mut alerted = room("c2", "c", 0);
+        alerted.alert = true;
+        assert_eq!(badge(&[alerted]), Badge::Dot);
+        assert_eq!(badge(&[room("c3", "c", 0)]), Badge::None);
     }
 }

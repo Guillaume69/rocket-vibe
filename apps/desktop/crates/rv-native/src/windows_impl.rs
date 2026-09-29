@@ -36,7 +36,7 @@ struct State {
 
 static STATE: OnceLock<State> = OnceLock::new();
 
-fn wide(text: &str) -> Vec<u16> {
+pub(crate) fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
@@ -261,11 +261,17 @@ fn try_badge(count: i64, dot: bool) -> windows::core::Result<()> {
     }
 }
 
-/// The count, or a dot, on the taskbar button (Windows keeps no badge for a classic app).
+/// The count, or a dot, on the taskbar button (Windows keeps no badge for a
+/// classic app) and on the notification-area icon.
 pub fn badge(count: i64, dot: bool) {
     BADGE.store(count, Ordering::SeqCst);
     DOT.store(dot, Ordering::SeqCst);
     if let Err(e) = try_badge(count, dot) {
         eprintln!("Badge not set: {e}");
     }
+    crate::windows_shell::refresh_badge();
+}
+
+pub(crate) fn badge_state() -> (i64, bool) {
+    (BADGE.load(Ordering::SeqCst), DOT.load(Ordering::SeqCst))
 }

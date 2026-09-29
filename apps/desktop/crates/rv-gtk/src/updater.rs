@@ -51,7 +51,11 @@ pub fn running_version() -> String {
 }
 
 fn load() -> Checked {
-    std::fs::read_to_string(cache_file()).ok().and_then(|text| Checked::from_json(&text)).unwrap_or_default()
+    std::fs::read_to_string(cache_file())
+        .ok()
+        .and_then(|text| Checked::from_json(&text))
+        .unwrap_or_default()
+        .for_platform(Platform::current())
 }
 
 fn save(checked: &Checked) {
@@ -176,18 +180,46 @@ fn make_executable(_path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// The new binary written beside the running one, then renamed over it.
-fn replace_running(new_binary: &Path) -> Result<(), String> {
-    let exe = std::env::current_exe().and_then(std::fs::canonicalize).map_err(|e| e.to_string())?;
-    let name = exe.file_name().ok_or("no binary name")?.to_string_lossy().into_owned();
-    let staged = exe.with_file_name(format!(".{name}.new"));
-    std::fs::copy(new_binary, &staged).map_err(|e| e.to_string())?;
-    let replaced = make_executable(&staged).and_then(|()| std::fs::rename(&staged, &exe));
+/// The running binary, or the AppImage holding it.
+fn running_file() -> Result<PathBuf, String> {
+    let path = match std::env::var_os("APPIMAGE").filter(|path| !path.is_empty()) {
+        Some(appimage) => PathBuf::from(appimage),
+        None => std::env::current_exe().map_err(|e| e.to_string())?,
+    };
+    std::fs::canonicalize(path).map_err(|e| e.to_string())
+}
+
+/// The file staged beside the running one, made executable, then renamed over it.
+fn replace_running_with(write: impl FnOnce(&Path) -> std::io::Result<()>) -> Result<(), String> {
+    let target = running_file()?;
+    let name = target.file_name().ok_or("no file name")?.to_string_lossy().into_owned();
+    let staged = target.with_file_name(format!(".{name}.new"));
+    let replaced =
+        write(&staged).and_then(|()| make_executable(&staged)).and_then(|()| std::fs::rename(&staged, &target));
     if let Err(e) = replaced {
         let _ = std::fs::remove_file(&staged);
         return Err(e.to_string());
     }
     Ok(())
+}
+
+fn replace_running(new_binary: &Path) -> Result<(), String> {
+    replace_running_with(|staged| std::fs::copy(new_binary, staged).map(|_| ()))
+}
+
+/// The new AppImage downloaded beside the one running, then put in its place.
+async fn install_appimage(asset: &update::Asset, progress: impl Fn(f64) + 'static) -> Result<(), String> {
+    if !asset.name.ends_with(Platform::LinuxAppImage.asset_suffix()) {
+        return Err(format!("{} is not an AppImage", asset.name));
+    }
+    let dir = staging_dir();
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let download = dir.join(&asset.name);
+    fetch(asset.url.clone(), download.clone(), progress).await?;
+    let result = replace_running_with(|staged| std::fs::copy(&download, staged).map(|_| ()));
+    let _ = std::fs::remove_dir_all(&dir);
+    result
 }
 
 async fn install_archive(asset: &update::Asset, progress: impl Fn(f64) + 'static) -> Result<(), String> {
@@ -248,14 +280,21 @@ pub async fn install(
         return Ok(Outcome::PageOpened);
     };
     match Platform::current() {
-        Some(Platform::LinuxX86_64) => match install_archive(&asset, progress).await {
-            Ok(()) => Ok(Outcome::Replaced),
-            Err(e) => {
-                eprintln!("In-place update failed: {e}");
-                crate::cards::open_uri(widget, &release.page);
-                Ok(Outcome::PageOpened)
+        Some(platform @ (Platform::LinuxX86_64 | Platform::LinuxAppImage)) => {
+            let replaced = if platform == Platform::LinuxAppImage {
+                install_appimage(&asset, progress).await
+            } else {
+                install_archive(&asset, progress).await
+            };
+            match replaced {
+                Ok(()) => Ok(Outcome::Replaced),
+                Err(e) => {
+                    eprintln!("In-place update failed: {e}");
+                    crate::cards::open_uri(widget, &release.page);
+                    Ok(Outcome::PageOpened)
+                }
             }
-        },
+        }
         #[cfg(windows)]
         Some(Platform::WindowsX86_64) if installed_by_setup() => {
             run_installer(&asset, progress).await.map(|()| Outcome::InstallerStarted)
@@ -276,8 +315,8 @@ pub async fn install(
 /// Starts the freshly installed binary once this one is gone: a single
 /// instance would otherwise hand the launch back to the process quitting.
 pub fn relaunch() -> bool {
-    let Ok(exe) = std::env::current_exe() else { return false };
-    std::process::Command::new("sh").arg("-c").arg("sleep 1; exec \"$0\"").arg(exe).spawn().is_ok()
+    let Ok(file) = running_file() else { return false };
+    std::process::Command::new("sh").arg("-c").arg("sleep 1; exec \"$0\"").arg(file).spawn().is_ok()
 }
 
 /// The card offering `release`. `quit` closes the app for a restart or the installer.

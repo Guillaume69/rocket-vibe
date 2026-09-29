@@ -14,17 +14,21 @@ pub const CHECK_EVERY_MS: i64 = 6 * 60 * 60 * 1000;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Platform {
     LinuxX86_64,
+    /// Running from the AppImage, which `APPIMAGE` names.
+    LinuxAppImage,
     WindowsX86_64,
     MacosArm64,
 }
 
 impl Platform {
     pub fn current() -> Option<Platform> {
-        Platform::of(std::env::consts::OS, std::env::consts::ARCH)
+        let appimage = std::env::var_os("APPIMAGE").is_some_and(|path| !path.is_empty());
+        Platform::of(std::env::consts::OS, std::env::consts::ARCH, appimage)
     }
 
-    fn of(os: &str, arch: &str) -> Option<Platform> {
+    fn of(os: &str, arch: &str, appimage: bool) -> Option<Platform> {
         match (os, arch) {
+            ("linux", "x86_64") if appimage => Some(Platform::LinuxAppImage),
             ("linux", "x86_64") => Some(Platform::LinuxX86_64),
             ("windows", "x86_64") => Some(Platform::WindowsX86_64),
             ("macos", "aarch64") => Some(Platform::MacosArm64),
@@ -36,6 +40,7 @@ impl Platform {
     pub fn asset_suffix(self) -> &'static str {
         match self {
             Platform::LinuxX86_64 => "-linux-x86_64.tar.gz",
+            Platform::LinuxAppImage => "-linux-x86_64.AppImage",
             Platform::WindowsX86_64 => "-windows-x86_64-setup.exe",
             Platform::MacosArm64 => "-macos-arm64.dmg",
         }
@@ -145,6 +150,20 @@ impl Checked {
         json!({"at_ms": self.at_ms, "latest": latest, "dismissed": self.dismissed}).to_string()
     }
 
+    /// A check made for another kind of install (a tarball's, before the
+    /// AppImage) names the wrong download: it is forgotten, and due again.
+    pub fn for_platform(self, platform: Option<Platform>) -> Checked {
+        let fits = |r: &Release| match (&r.asset, platform) {
+            (Some(asset), Some(p)) => asset.name.ends_with(p.asset_suffix()),
+            (Some(_), None) => false,
+            (None, _) => true,
+        };
+        if self.latest.as_ref().is_none_or(fits) {
+            return self;
+        }
+        Checked { at_ms: 0, latest: None, ..self }
+    }
+
     pub fn from_json(text: &str) -> Option<Checked> {
         let v: Value = serde_json::from_str(text).ok()?;
         let latest = v["latest"].as_object().and_then(|r| {
@@ -177,9 +196,14 @@ fn client() -> Result<reqwest::Client, String> {
 }
 
 /// GitHub's release list for the repository, newest first.
+/// `ROCKET_VIBE_RELEASES` points at another list, as `scripts/install.sh` takes it.
 pub async fn fetch_releases() -> Result<Value, String> {
+    let url = std::env::var("ROCKET_VIBE_RELEASES")
+        .ok()
+        .filter(|url| !url.is_empty())
+        .unwrap_or_else(|| format!("https://api.github.com/repos/{REPO}/releases?per_page=30"));
     let response = client()?
-        .get(format!("https://api.github.com/repos/{REPO}/releases?per_page=30"))
+        .get(url)
         .header("Accept", "application/vnd.github+json")
         .timeout(Duration::from_secs(30))
         .send()
@@ -229,6 +253,7 @@ mod tests {
             {"tag_name": "desktop-v0.3.0", "html_url": "https://github.com/x/releases/tag/desktop-v0.3.0",
              "draft": false, "prerelease": false, "assets": [
                 {"name": "rocket-vibe-desktop-0.3.0-linux-x86_64.tar.gz", "browser_download_url": "tgz", "size": 30},
+                {"name": "rocket-vibe-desktop-0.3.0-linux-x86_64.AppImage", "browser_download_url": "appimage", "size": 35},
                 {"name": "rocket-vibe-desktop-0.3.0-windows-x86_64.zip", "browser_download_url": "zip", "size": 40},
                 {"name": "rocket-vibe-desktop-0.3.0-windows-x86_64-setup.exe", "browser_download_url": "exe", "size": 50},
                 {"name": "rocket-vibe-desktop-0.3.0-macos-arm64.dmg", "browser_download_url": "dmg", "size": 60}]},
@@ -261,8 +286,12 @@ mod tests {
         assert_eq!(asset(Platform::WindowsX86_64), "exe");
         assert_eq!(asset(Platform::MacosArm64), "dmg");
         assert_eq!(latest(&releases(), None).unwrap().asset, None);
-        assert_eq!(Platform::of("linux", "aarch64"), None);
-        assert_eq!(Platform::of("macos", "aarch64"), Some(Platform::MacosArm64));
+        assert_eq!(asset(Platform::LinuxAppImage), "appimage");
+        assert_eq!(asset(Platform::LinuxX86_64), "tgz");
+        assert_eq!(Platform::of("linux", "aarch64", false), None);
+        assert_eq!(Platform::of("linux", "x86_64", true), Some(Platform::LinuxAppImage));
+        assert_eq!(Platform::of("linux", "x86_64", false), Some(Platform::LinuxX86_64));
+        assert_eq!(Platform::of("macos", "aarch64", true), Some(Platform::MacosArm64));
     }
 
     #[test]
@@ -283,6 +312,16 @@ mod tests {
         assert!(checked.due(1_000 + CHECK_EVERY_MS));
         assert!(checked.due(0));
         assert!(Checked::default().due(5));
+    }
+
+    #[test]
+    fn a_check_for_another_install_is_forgotten() {
+        let tarball = Checked { at_ms: 7, latest: latest(&releases(), Some(Platform::LinuxX86_64)), dismissed: None };
+        assert_eq!(tarball.clone().for_platform(Some(Platform::LinuxX86_64)), tarball);
+        let moved = tarball.for_platform(Some(Platform::LinuxAppImage));
+        assert_eq!((moved.at_ms, moved.latest), (0, None));
+        let bare = Checked { at_ms: 7, latest: latest(&releases(), None), dismissed: None };
+        assert_eq!(bare.clone().for_platform(Some(Platform::LinuxAppImage)), bare);
     }
 
     #[test]

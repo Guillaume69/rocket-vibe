@@ -23,7 +23,7 @@ import {
   chiffrerMessage,
   dechiffrerCleSalon,
   dechiffrerClePrivee,
-  dechiffrerMessage,
+  dechiffrerCharge,
   ErreurE2E,
   importerClePriveeRSA,
   keyIdDeE2EKey,
@@ -156,16 +156,18 @@ export class MoteurE2E {
   }
 
   /**
-   * Déchiffre un objet `content` pour un salon. SYNCHRONE (forge l'est) : se
-   * branche au fil de l'ingestion. Rend `null` si verrouillé, si la clé du salon
-   * manque, ou si le contenu est illisible — l'appelant garde alors le
-   * ciphertext pour retenter après déverrouillage.
+   * Déchiffre un objet `content` pour un salon : son texte, et les pièces
+   * jointes (JSON) d'un fichier. SYNCHRONE : se branche au fil de l'ingestion.
+   * Rend `null` si verrouillé, si la clé du salon manque, ou si le contenu est
+   * illisible — l'appelant garde alors le ciphertext pour retenter après
+   * déverrouillage.
    */
-  dechiffrerContenu(rid: string, content: ContenuChiffre): string | null {
+  dechiffrerContenu(rid: string, content: ContenuChiffre): { texte: string; piecesJointes: string | null } | null {
     const cle = this.cleDuSalon(rid);
     if (cle === null) return null;
     try {
-      return dechiffrerMessage(content, cle);
+      const { msg, attachments } = dechiffrerCharge(content, cle);
+      return { texte: msg, piecesJointes: attachments === null ? null : JSON.stringify(attachments) };
     } catch {
       return null;
     }

@@ -4,6 +4,7 @@ import { describe, test } from 'node:test';
 
 import {
   chiffrerMessage,
+  dechiffrerCharge,
   dechiffrerClePrivee,
   dechiffrerCleSalon,
   dechiffrerMessage,
@@ -304,4 +305,12 @@ describe('crypto e2e — chiffrement des messages envoyés', () => {
   test('clé de taille inattendue → ErreurE2E', () => {
     assert.throws(() => chiffrerMessage({ msg: 'x' }, Buffer.from(rand(20)), 'k'), ErreurE2E);
   });
+});
+
+test('la charge d’un fichier : texte et pièces jointes, clé du fichier comprise', () => {
+  const cle = Buffer.from(rand(32));
+  const attachments = [{ title: 'photo.jpg', encryption: { key: { k: 'abc' }, iv: 'aXY=' } }];
+  const contenu = chiffrerMessage({ msg: 'légende', attachments }, cle, 'k');
+  assert.deepEqual(dechiffrerCharge(contenu, cle), { msg: 'légende', attachments });
+  assert.deepEqual(dechiffrerCharge(chiffrerMessage({ msg: 'rien' }, cle, 'k'), cle), { msg: 'rien', attachments: null });
 });

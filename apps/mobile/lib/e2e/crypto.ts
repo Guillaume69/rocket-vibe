@@ -228,10 +228,22 @@ export function dechiffrerCleSalon(e2eKey: string, clePrivee: ClePriveeRSA): Buf
 }
 
 /**
- * Objet `content` + clé de salon (octets) → texte clair du message. Le clair est
- * un JSON `{"msg": "..."}` (parfois `text`). Lève `ErreurE2E` si l'auth échoue.
+ * Ce que porte un message chiffré une fois ouvert : son texte, et pour un
+ * fichier ses pièces jointes, qui détiennent la clé du fichier.
  */
+export type ChargeClaire = { msg: string; attachments: unknown[] | null };
+
+/** Objet `content` + clé de salon (octets) → texte clair du message. */
 export function dechiffrerMessage(contenu: ContenuChiffre, cleSalonOctets: Buffer): string {
+  return dechiffrerCharge(contenu, cleSalonOctets).msg;
+}
+
+/**
+ * Objet `content` + clé de salon (octets) → charge claire. Le clair est un JSON
+ * `{"msg": "...", "attachments": [...]}` (parfois `text`). Lève `ErreurE2E` si
+ * l'auth échoue.
+ */
+export function dechiffrerCharge(contenu: ContenuChiffre, cleSalonOctets: Buffer): ChargeClaire {
   let clair: Buffer | null;
   if (typeof contenu.iv === 'string' && contenu.iv !== '') {
     // Structure moderne : iv et ciphertext séparés. IV de 12 octets → GCM
@@ -249,13 +261,15 @@ export function dechiffrerMessage(contenu: ContenuChiffre, cleSalonOctets: Buffe
   // Le clair est en général un JSON `{"msg": "..."}` ; certains messages
   // hérités portent le texte brut — on retombe dessus.
   try {
-    const obj = JSON.parse(texte) as { msg?: unknown; text?: unknown };
-    if (typeof obj.msg === 'string') return obj.msg;
-    if (typeof obj.text === 'string') return obj.text;
+    const obj = JSON.parse(texte) as { msg?: unknown; text?: unknown; attachments?: unknown };
+    const attachments = Array.isArray(obj.attachments) ? obj.attachments : null;
+    if (typeof obj.msg === 'string') return { msg: obj.msg, attachments };
+    if (typeof obj.text === 'string') return { msg: obj.text, attachments };
+    if (attachments !== null) return { msg: '', attachments };
   } catch {
     // pas du JSON : texte brut.
   }
-  return texte;
+  return { msg: texte, attachments: null };
 }
 
 /**

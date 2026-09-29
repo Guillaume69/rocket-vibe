@@ -243,9 +243,9 @@ export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot
     },
     // La passe de déverrouillage écrit le clair : elle passe par la file, comme
     // toute écriture, pour ne pas s'intercaler dans une transaction ouverte.
-    majTexteMessage: (id, texte) =>
+    majTexteMessage: (id, texte, piecesJointes) =>
       enSerie(async () => {
-        await brute.runAsync(MAJ_TEXTE_MESSAGE, [texte, id]);
+        await brute.runAsync(MAJ_TEXTE_MESSAGE, [texte, piecesJointes, id]);
       }),
     majMarquesMessage: (id, epingle, etoiles) =>
       enSerie(async () => {

@@ -265,16 +265,16 @@ function faireDepot() {
       messages
         .filter((m): m is MessageLocal & { chiffreBrut: string } => m.chiffreBrut !== null && m.texte === null)
         .map((m) => ({ id: m.id, rid: m.rid, chiffreBrut: m.chiffreBrut })),
-    majTexteMessage: async (id, texte) => {
+    majTexteMessage: async (id, texte, piecesJointes) => {
       const m = messages.find((x) => x.id === id);
-      if (m !== undefined) m.texte = texte;
+      if (m !== undefined) Object.assign(m, { texte, piecesJointes: piecesJointes ?? m.piecesJointes });
     },
     majMarquesMessage: async (id, epingle, etoiles) => {
       const m = messages.find((x) => x.id === id);
       if (m !== undefined) Object.assign(m, { epingle, etoiles });
     },
     masquerMessagesChiffres: async () => {
-      for (const m of messages) if (m.chiffreBrut !== null) m.texte = null;
+      for (const m of messages) if (m.chiffreBrut !== null) Object.assign(m, { texte: null, piecesJointes: null });
     },
     majApercuChiffre: async () => {},
     majAvatarUtilisateur: async (username, etag) => void avatars.set(`u:${username}`, etag),
@@ -465,7 +465,8 @@ describe('MoteurSynchro — déchiffrement E2EE', () => {
   test('déchiffre à l’ingestion quand la clé est disponible', async () => {
     const { depot, messages } = faireDepot();
     const dechiffreur: DechiffreurE2E = {
-      dechiffrerContenu: (_rid, content) => (content.ciphertext === 'CT' ? 'clair !' : null),
+      dechiffrerContenu: (_rid, content) =>
+        content.ciphertext === 'CT' ? { texte: 'clair !', piecesJointes: null } : null,
       enregistrerCleSalon: () => {},
     };
     const moteur = new MoteurSynchro(depot, new TraducteurRC('moi', 'uid'), dechiffreur);
@@ -479,7 +480,7 @@ describe('MoteurSynchro — déchiffrement E2EE', () => {
     let deverrouille = false;
     const dechiffreur: DechiffreurE2E = {
       dechiffrerContenu: (_rid, content) =>
-        deverrouille && content.ciphertext === 'CT' ? 'clair !' : null,
+        deverrouille && content.ciphertext === 'CT' ? { texte: 'clair !', piecesJointes: null } : null,
       enregistrerCleSalon: () => {},
     };
     const moteur = new MoteurSynchro(depot, new TraducteurRC('moi', 'uid'), dechiffreur);
@@ -490,6 +491,26 @@ describe('MoteurSynchro — déchiffrement E2EE', () => {
     const n = await moteur.deverrouillageE2E();
     assert.equal(n, 1);
     assert.equal(messages[0].texte, 'clair !');
+  });
+
+  test('un fichier chiffré : ses pièces jointes viennent du clair, à l’ingestion comme au déverrouillage', async () => {
+    const jointes = JSON.stringify([{ title: 'photo.jpg', encryption: { iv: 'aXY=' } }]);
+    const { depot, messages } = faireDepot();
+    let deverrouille = false;
+    const dechiffreur: DechiffreurE2E = {
+      dechiffrerContenu: () => (deverrouille ? { texte: '', piecesJointes: jointes } : null),
+      enregistrerCleSalon: () => {},
+    };
+    const moteur = new MoteurSynchro(depot, new TraducteurRC('moi', 'uid'), dechiffreur);
+    await moteur.ingererMessages([{ ...msgChiffre('m1', 'CT'), attachments: [{ title: 'haché.bin' }] }]);
+    assert.equal(messages[0].piecesJointes, null, 'jamais celles du serveur, opaques');
+
+    deverrouille = true;
+    await moteur.deverrouillageE2E();
+    assert.equal(messages[0].piecesJointes, jointes);
+
+    await moteur.ingererMessages([msgChiffre('m2', 'CT')]);
+    assert.equal(messages[1].piecesJointes, jointes);
   });
 
   test('sans déchiffreur, un message chiffré garde son ciphertext et reste illisible', async () => {

@@ -16,7 +16,7 @@ struct LoginView: View {
                 .resizable()
                 .frame(width: 88, height: 88)
                 .shadow(color: Vibe.pink.opacity(0.45), radius: 24, y: 8)
-            Wordmark(size: 40)
+            Wordmark(size: 40, twinkles: true)
             Text(L("login.slogan"))
                 .font(.vibe(15, .semibold))
                 .foregroundStyle(Vibe.muted)

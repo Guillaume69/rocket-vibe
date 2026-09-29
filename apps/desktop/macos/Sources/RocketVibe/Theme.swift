@@ -76,8 +76,11 @@ struct Sparkle: Shape {
 }
 
 /// "rocket-vibe" in Baloo 2 along the brand gradient, a sparkle over its end.
+/// It twinkles only where nothing scrolls (the sign-in screen): SwiftUI runs
+/// an animation on the main thread, beside the list.
 struct Wordmark: View {
     var size: CGFloat = 22
+    var twinkles = false
     @State var twinkle = false
 
     var body: some View {
@@ -90,13 +93,13 @@ struct Wordmark: View {
                     Sparkle()
                         .fill(Vibe.mint)
                         .frame(width: size * 0.36, height: size * 0.36)
-                        .scaleEffect(twinkle ? 1 : 0.55)
-                        .opacity(twinkle ? 1 : 0.5)
+                        .scaleEffect(twinkle || !twinkles ? 1 : 0.55)
+                        .opacity(twinkle || !twinkles ? 1 : 0.5)
                         .offset(x: size * 0.3, y: -size * 0.12)
                 }
         }
         .task {
-            while !Task.isCancelled {
+            while twinkles && !Task.isCancelled {
                 withAnimation(.easeInOut(duration: 0.7)) { twinkle = true }
                 try? await Task.sleep(nanoseconds: 900_000_000)
                 withAnimation(.easeInOut(duration: 0.9)) { twinkle = false }

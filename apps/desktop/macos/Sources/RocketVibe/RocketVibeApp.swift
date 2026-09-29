@@ -91,7 +91,7 @@ struct RootView: View {
         switch app.screen {
         case .starting:
             VStack(spacing: 18) {
-                Wordmark(size: 34)
+                Wordmark(size: 34, twinkles: true)
                 Comet(active: true).frame(width: 180)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

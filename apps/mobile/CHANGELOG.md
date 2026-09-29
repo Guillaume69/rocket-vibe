@@ -7,6 +7,8 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+## [0.3.0] - 2026-09-29
+
 ### Ajouté
 
 - Salon chiffré : une fois déverrouillé, on y écrit comme ailleurs. Le message part chiffré
@@ -78,6 +80,7 @@ Première version publiée : Android, pour Rocket.Chat 8 ou plus récent.
 - Profils, informations de salon, mon profil (statut, photo, informations).
 - Interface en français et en anglais.
 
-[Non publié]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.2.0...HEAD
+[Non publié]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.3.0...HEAD
+[0.3.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.2.0...mobile-v0.3.0
 [0.2.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.1.0...mobile-v0.2.0
 [0.1.0]: https://github.com/Guillaume69/rocket-vibe/releases/tag/mobile-v0.1.0

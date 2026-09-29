@@ -7,6 +7,11 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+### Corrigé
+
+- Les pièces jointes préparées dans un salon, pas encore envoyées, étaient perdues en
+  changeant de salon : elles attendent désormais qu'on y revienne.
+
 ## [0.3.0] - 2026-09-29
 
 ### Ajouté

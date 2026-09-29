@@ -14,6 +14,26 @@ section here.
   shares the GTK app's accounts, caches, language and E2E key. Rooms, threads, markdown,
   images, files, cards, reactions, editing, the actions menu, uploads, voice messages (AAC),
   encrypted rooms, notifications with a reply field and the dock badge.
+- The server's own emoji in the emoji picker: a tab of their own, and first in a search.
+- The @ and : suggestions show the person's card and the server emoji's picture; hovering a
+  server emoji in a message shows it large with its shortcode.
+
+### Fixed
+
+- In a short window (a tiling slot of about 300 px), the composer was cut off: the window
+  asked for 480 px of height.
+- A paragraph holding both a server emoji and a mention or a link lost everything before
+  the emoji; its mentions now show their card on hover like any other.
+- Ctrl+C (and Ctrl+Insert, which Omarchy's Super+C sends) did nothing on text selected in a
+  message; only the right-click menu copied it.
+- A selection now runs across a message's blank lines, and dragging it into another message
+  selects the whole messages in between, copied with Ctrl+C.
+- Files waiting in the composer were lost when another room was opened; they now wait in
+  their room.
+- The emoji picker showed boxes for emoji this computer's fonts cannot draw, which also
+  spread its grid wide: they are left out.
+- A picture measured before its width was known could take no room and slide under the
+  next messages.
 
 ## [0.3.0] - 2026-09-29
 

@@ -7,6 +7,14 @@ section here.
 
 ## [Unreleased]
 
+### Changed
+
+- The macOS SwiftUI app wears the rocket-vibe look: the night palette, the gradient wordmark
+  and sync comet, Android avatar colours, Baloo 2 and Nunito, pink and yellow badges, the
+  sparkle marker, the pill composer with its gradient send button, and springs where things
+  move. It scrolls smoother: pictures decode in the background at the size drawn and stay
+  cached, unchanged messages are not redrawn, and bursts of server events reload once.
+
 ## [0.4.1] - 2026-09-29
 
 ### Added

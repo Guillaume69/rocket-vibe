@@ -33,6 +33,8 @@ public final class AppModel {
     /// Room ids opened, for back and forward.
     var history: [String] = []
     var historyAt = -1
+    @ObservationIgnored var pending = Pending()
+    @ObservationIgnored var flush: Task<Void, Never>?
 
     public var onIncoming: ((Incoming) -> Void)?
     /// The dock badge: mentions and direct messages.
@@ -92,6 +94,9 @@ public final class AppModel {
     }
 
     func end() {
+        flush?.cancel()
+        flush = nil
+        pending = Pending()
         room = nil
         thread = nil
         chat = nil
@@ -113,13 +118,9 @@ public final class AppModel {
     func handle(_ event: Event) {
         switch event {
         case let .changed(rooms, rids):
-            if rooms { reloadRooms() }
-            if let room, rids.contains(room.rid) { room.reload() }
-            if let thread, rids.contains(thread.rid) { thread.reload() }
+            later(rooms: rooms, rids: rids)
         case .resync:
-            reloadRooms()
-            room?.reload()
-            thread?.reload()
+            later(everything: true)
         case let .connection(state):
             connection = state
         case .expired:
@@ -131,25 +132,41 @@ public final class AppModel {
         case let .typing(rid):
             if room?.rid == rid { room?.refreshTyping() }
         case .presence:
-            reloadRooms()
+            later(rooms: true)
         case let .upload(rid):
             if room?.rid == rid { room?.refreshUploads() }
         case .avatar:
             media?.forget()
             imagesVersion += 1
-            reloadRooms()
+            later(rooms: true)
         case .e2e:
             e2eUnlocked = chat?.e2eUnlocked() ?? false
-            reloadRooms()
-            room?.reload()
+            later(everything: true)
         case let .incoming(incoming):
             onIncoming?(incoming)
         }
     }
 
+    /// Gathers what the events ask for and reloads it once, a frame and a half later.
+    func later(rooms: Bool = false, everything: Bool = false, rids: [String] = []) {
+        pending.add(rooms: rooms, everything: everything, rids: rids)
+        guard flush == nil else { return }
+        flush = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 25_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.flush = nil
+            let pending = self.pending
+            self.pending = Pending()
+            if pending.reloadsRooms { self.reloadRooms() }
+            if pending.reloads(self.room?.rid) { self.room?.reload() }
+            if pending.reloads(self.thread?.rid) { self.thread?.reload() }
+        }
+    }
+
     func reloadRooms() {
         guard let chat else { return }
-        groups = chat.rooms()
+        let fresh = chat.rooms()
+        if fresh != groups { groups = fresh }
         if let room, let fresh = rooms.first(where: { $0.rid == room.rid }) { room.update(room: fresh) }
         onAttention?(chat.attention())
     }

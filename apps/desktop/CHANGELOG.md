@@ -16,6 +16,11 @@ section here.
 
 ### Changed
 
+- The macOS SwiftUI app wears the rocket-vibe look: the night palette, the gradient wordmark
+  and sync comet, Android avatar colours, Baloo 2 and Nunito, pink and yellow badges, the
+  sparkle marker, the pill composer with its gradient send button, and springs where things
+  move. It scrolls smoother: pictures decode in the background at the size drawn and stay
+  cached, unchanged messages are not redrawn, and bursts of server events reload once.
 - Text selects across messages as in a browser: drag from one message into others and the
   selection runs through them in reading order, scrolling the list at its edges; Ctrl+C
   copies it. The selection of whole messages from the avatar column is gone.

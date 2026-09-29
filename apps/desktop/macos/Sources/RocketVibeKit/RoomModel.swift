@@ -22,6 +22,8 @@ public final class RoomModel {
     let unreadAfter: Int64?
     var limit = historyPage
     var draftSave: Task<Void, Never>?
+    /// Each message's actions, asked of rv-ffi once per version of the list.
+    @ObservationIgnored var actionsOf: [String: [MessageAction]] = [:]
 
     public var draft: String {
         didSet {
@@ -46,24 +48,28 @@ public final class RoomModel {
     public var rid: String { room.rid }
 
     func update(room: Room) {
-        self.room = room
+        if room != self.room { self.room = room }
     }
 
+    /// Publishes only what changed: an equal list leaves every row alone.
     public func reload() {
-        if let threadId {
-            messages = chat.threadMessages(rootId: threadId)
-        } else {
-            messages = chat.messages(rid: room.rid, limit: limit, unreadAfter: unreadAfter)
-            uploads = chat.uploads(rid: room.rid)
+        let fresh = threadId.map { chat.threadMessages(rootId: $0) }
+            ?? chat.messages(rid: room.rid, limit: limit, unreadAfter: unreadAfter)
+        if fresh != messages {
+            messages = fresh
+            actionsOf.removeAll()
         }
+        if threadId == nil { refreshUploads() }
     }
 
     func refreshTyping() {
-        typing = threadId == nil ? chat.typing(rid: room.rid) : []
+        let fresh = threadId == nil ? chat.typing(rid: room.rid) : []
+        if fresh != typing { typing = fresh }
     }
 
     func refreshUploads() {
-        uploads = chat.uploads(rid: room.rid)
+        let fresh = chat.uploads(rid: room.rid)
+        if fresh != uploads { uploads = fresh }
     }
 
     /// Shows what the store has, then the server's newest page.
@@ -125,7 +131,10 @@ public final class RoomModel {
     }
 
     public func actions(for message: MessageItem) -> [MessageAction] {
-        chat.actions(rid: room.rid, messageId: message.id, inThread: threadId != nil)
+        if let known = actionsOf[message.id] { return known }
+        let actions = chat.actions(rid: room.rid, messageId: message.id, inThread: threadId != nil)
+        actionsOf[message.id] = actions
+        return actions
     }
 
     public var quickReactions: [String] { chat.quickReactions() }

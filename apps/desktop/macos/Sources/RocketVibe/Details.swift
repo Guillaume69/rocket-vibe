@@ -252,7 +252,10 @@ struct MarkedView: View {
                         ScrollView {
                             LazyVStack(alignment: .leading, spacing: 0) {
                                 ForEach(messages, id: \.id) { message in
-                                    MessageRow(message: message, model: model, editing: $editing, deleting: $deleting)
+                                    MessageRow(
+                                        message: message, model: model, editing: editing == message.id, revealed: false,
+                                        setEditing: { editing = $0 }, askDelete: { deleting = $0 }
+                                    )
                                         .contentShape(Rectangle())
                                         .onTapGesture {
                                             dismiss()

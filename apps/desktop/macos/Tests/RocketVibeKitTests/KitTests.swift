@@ -4,6 +4,22 @@ import XCTest
 
 @testable import RocketVibeKit
 
+final class PendingTests: XCTestCase {
+    func testABurstReloadsEachThingOnce() {
+        var pending = Pending()
+        XCTAssertTrue(pending.isEmpty)
+        pending.add(rids: ["a"])
+        pending.add(rooms: true, rids: ["b", "a"])
+        XCTAssertTrue(pending.reloadsRooms)
+        XCTAssertTrue(pending.reloads("a"))
+        XCTAssertTrue(pending.reloads("b"))
+        XCTAssertFalse(pending.reloads("c"))
+        XCTAssertFalse(pending.reloads(nil))
+        pending.add(everything: true)
+        XCTAssertTrue(pending.reloads("c"))
+    }
+}
+
 final class FormattingTests: XCTestCase {
     var calendar = Calendar(identifier: .gregorian)
 

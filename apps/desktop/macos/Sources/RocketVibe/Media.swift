@@ -13,12 +13,12 @@ struct Avatar: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+            LinearGradient(colors: Vibe.tile(for: name), startPoint: .topLeading, endPoint: .bottomTrailing)
             Text(initial)
-                .font(.system(size: size * 0.45, weight: .semibold))
-                .foregroundStyle(.white)
-            if let image {
-                Image(nsImage: image).resizable().scaledToFill()
+                .font(.vibeTitle(size * 0.5))
+                .foregroundStyle(Vibe.ink.opacity(0.85))
+            if let shown {
+                Image(nsImage: shown).resizable().scaledToFill()
             }
         }
         .frame(width: size, height: size)
@@ -26,17 +26,13 @@ struct Avatar: View {
         .task(id: "\(path ?? "")#\(app.imagesVersion)") { await load() }
     }
 
-    var initial: String {
-        String(name.trimmingCharacters(in: CharacterSet(charactersIn: "@#")).prefix(1)).uppercased()
+    /// The decoded photo, or the one already in the cache when the row is new.
+    var shown: NSImage? {
+        image ?? path.flatMap { Pictures.cached($0, pixels: Pictures.pixels(size)) }
     }
 
-    var colors: [Color] {
-        let palette: [(Color, Color)] = [
-            (.pink, .purple), (.orange, .pink), (.teal, .blue), (.indigo, .purple), (.mint, .teal), (.purple, .blue),
-        ]
-        let hash = name.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF }
-        let pair = palette[hash % palette.count]
-        return [pair.0, pair.1]
+    var initial: String {
+        String(name.trimmingCharacters(in: CharacterSet(charactersIn: "@#")).prefix(1)).uppercased()
     }
 
     func load() async {
@@ -44,12 +40,7 @@ struct Avatar: View {
             image = nil
             return
         }
-        if let hit = media.cached(path) {
-            image = hit.placeholder ? nil : NSImage(data: hit.bytes)
-            return
-        }
-        let data = await media.load(path)
-        image = data.flatMap { $0.placeholder ? nil : NSImage(data: $0.bytes) }
+        image = await Pictures.load(path, pixels: Pictures.pixels(size), media: media)
     }
 }
 
@@ -62,10 +53,15 @@ struct RemoteImage: View {
     @State var image: NSImage?
     @State var failed = false
 
+    var pixels: Int {
+        guard width != nil || height != nil else { return 0 }
+        return Pictures.pixels(max(width ?? 0, height ?? 0))
+    }
+
     var body: some View {
         Group {
-            if let image {
-                Image(nsImage: image).resizable().scaledToFill()
+            if let shown = image ?? Pictures.cached(path, pixels: pixels) {
+                Image(nsImage: shown).resizable().scaledToFill()
             } else if failed {
                 Image(systemName: "photo").foregroundStyle(.secondary)
             } else {
@@ -73,12 +69,12 @@ struct RemoteImage: View {
             }
         }
         .frame(width: width, height: height)
-        .background(.quaternary.opacity(0.4))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .background(Vibe.card)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
         .task(id: path) {
             guard let media = app.media else { return }
-            if let data = await media.load(path), let img = NSImage(data: data.bytes) {
-                image = img
+            if let loaded = await Pictures.load(path, pixels: pixels, media: media) {
+                image = loaded
             } else {
                 failed = true
             }

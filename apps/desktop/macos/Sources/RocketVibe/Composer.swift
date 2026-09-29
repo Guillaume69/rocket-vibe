@@ -69,51 +69,64 @@ struct Composer: View {
                     }
                 }
             }
-            HStack(alignment: .bottom, spacing: 8) {
-                Button(action: pick) { Image(systemName: "paperclip") }
-                    .buttonStyle(.borderless)
-                    .help(L("attach.choose"))
-                ComposerField(
-                    text: $model.draft,
-                    placeholder: L("composer.placeholder"),
-                    bridge: bridge,
-                    onSubmit: send,
-                    onUpInEmpty: editLast,
-                    onPasteFiles: { staged.append(contentsOf: $0) },
-                    onCursor: suggest,
-                    onKey: key
-                )
-                .frame(height: height)
-                .padding(6)
-                .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .separatorColor)))
-                Button { picking = true } label: { Image(systemName: "face.smiling") }
-                    .buttonStyle(.borderless)
-                    .help(L("composer.emoji"))
-                    .popover(isPresented: $picking) {
-                        EmojiPicker { _, glyph in
-                            picking = false
-                            bridge.insert(glyph)
+            HStack(alignment: .bottom, spacing: 10) {
+                HStack(alignment: .bottom, spacing: 8) {
+                    Button(action: pick) { Image(systemName: "paperclip").foregroundStyle(Vibe.muted) }
+                        .buttonStyle(.borderless)
+                        .help(L("attach.choose"))
+                        .padding(.bottom, 5)
+                    ComposerField(
+                        text: $model.draft,
+                        placeholder: L("composer.placeholder"),
+                        bridge: bridge,
+                        onSubmit: send,
+                        onUpInEmpty: editLast,
+                        onPasteFiles: { staged.append(contentsOf: $0) },
+                        onCursor: suggest,
+                        onKey: key
+                    )
+                    .frame(height: height)
+                    Button { picking = true } label: { Image(systemName: "face.smiling").foregroundStyle(Vibe.muted) }
+                        .buttonStyle(.borderless)
+                        .help(L("composer.emoji"))
+                        .padding(.bottom, 5)
+                        .popover(isPresented: $picking) {
+                            EmojiPicker { _, glyph in
+                                picking = false
+                                bridge.insert(glyph)
+                            }
                         }
+                    if recorder.recording {
+                        Text(recorder.elapsed).monospacedDigit().foregroundStyle(Vibe.pink).padding(.bottom, 5)
+                        Button { recorder.cancel() } label: { Image(systemName: "xmark").foregroundStyle(Vibe.muted) }
+                            .buttonStyle(.borderless)
+                            .help(L("voice.cancel"))
+                            .padding(.bottom, 5)
+                    } else {
+                        Button { Task { await startVoice() } } label: { Image(systemName: "mic").foregroundStyle(Vibe.muted) }
+                            .buttonStyle(.borderless)
+                            .help(L("voice.record"))
+                            .padding(.bottom, 5)
                     }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(Vibe.card, in: RoundedRectangle(cornerRadius: 22))
+                .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(Vibe.line, lineWidth: 1.5))
                 if recorder.recording {
-                    Text(recorder.elapsed).monospacedDigit().foregroundStyle(.red)
-                    Button { recorder.cancel() } label: { Image(systemName: "xmark") }
-                        .buttonStyle(.borderless)
-                        .help(L("voice.cancel"))
-                    Button(action: sendVoice) { Image(systemName: "arrow.up.circle.fill").font(.title2) }
-                        .buttonStyle(.borderless)
+                    Button(action: sendVoice) { Image(systemName: "arrow.up") }
+                        .buttonStyle(SendButtonStyle())
                         .help(L("voice.send"))
+                        .transition(.scale.combined(with: .opacity))
                 } else {
-                    Button { Task { await startVoice() } } label: { Image(systemName: "mic") }
-                        .buttonStyle(.borderless)
-                        .help(L("voice.record"))
-                    Button(action: send) { Image(systemName: "paperplane.fill") }
-                        .buttonStyle(.borderless)
+                    Button(action: send) { Image(systemName: "arrow.up") }
+                        .buttonStyle(SendButtonStyle())
                         .help(L("composer.send"))
                         .disabled(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && staged.isEmpty)
+                        .keyboardShortcut(.return, modifiers: .command)
                 }
             }
+            .animation(Vibe.spring, value: recorder.recording)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -130,7 +143,7 @@ struct Composer: View {
 
     var height: CGFloat {
         let lines = max(1, model.draft.split(separator: "\n", omittingEmptySubsequences: false).count)
-        return min(160, CGFloat(lines) * 18 + 6)
+        return min(170, CGFloat(lines) * 20 + 6)
     }
 
     func suggest(_ before: String) {
@@ -261,12 +274,12 @@ struct SuggestionList: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background(i == selected ? Color.accentColor.opacity(0.25) : .clear)
+                .background(i == selected ? Vibe.line : .clear)
                 .contentShape(Rectangle())
                 .onTapGesture { pick(item) }
             }
         }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .vibeCard(radius: 10)
         .frame(maxWidth: 320, alignment: .leading)
     }
 }
@@ -291,7 +304,8 @@ struct StagedChip: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(.quaternary.opacity(0.5), in: Capsule())
+        .background(Vibe.card, in: Capsule())
+        .overlay(Capsule().strokeBorder(Vibe.line))
     }
 }
 
@@ -399,7 +413,9 @@ struct ComposerField: NSViewRepresentable {
         view.isRichText = false
         view.importsGraphics = false
         view.allowsUndo = true
-        view.font = .systemFont(ofSize: NSFont.systemFontSize + 1)
+        view.font = NSFont(name: "Nunito-Regular", size: 14.5) ?? .systemFont(ofSize: NSFont.systemFontSize + 1)
+        view.textColor = NSColor(Vibe.text)
+        view.insertionPointColor = NSColor(Vibe.pink)
         view.isContinuousSpellCheckingEnabled = true
         view.isAutomaticQuoteSubstitutionEnabled = false
         view.isAutomaticDashSubstitutionEnabled = false

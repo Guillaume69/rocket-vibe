@@ -166,6 +166,20 @@ where:
 - Not yet: the SwiftUI views against a real server on a Mac. The runner has
   none, and step 0 is still undone. Both are for the testers' beta.
 
+Since the testers' first look (2026-09-30): the app wears the rocket-vibe
+look (night palette, Baloo 2 and Nunito bundled, the wordmark, Android avatar
+gradients, the pill composer, springs), and the stutter they felt was worked
+on: pictures decode off the main thread at the size drawn and stay cached,
+rows are Equatable so an unchanged message is not redrawn, bursts of listener
+events reload once, and nothing animates while connected. The gallery times a
+400-row scroll on CI (`RV_SMOKE_SCROLL=1`, three passes, one step per display
+frame). Runner timings swing widely between machines: the same code measured
+0.1% and 1.8% of frames over 25 ms on two runs. Master's code measured 0.2%;
+the new look 0.1% to 0.4% on the same runner as its variants (system fonts,
+no borders), so the look costs nothing measurable there. The gallery has no
+photos and no server, so the fixes for those are not in that measure; how it
+feels on a tester's Mac is still to be told.
+
 ## Phases
 
 1. **rv-ffi skeleton** (about a week): login, session resume, room list

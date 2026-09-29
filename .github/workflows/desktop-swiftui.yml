@@ -117,6 +117,17 @@ jobs:
           sleep 55
           kill "$soak" 2>/dev/null || true
           cat "$RUNNER_TEMP/soak.log"
+          # A long room scrolled up and down, frame times reported (a runner has no GPU: a trend, not a gate).
+          RV_SMOKE_GALLERY=1 RV_SMOKE_SCROLL=1 "$exe" > "$RUNNER_TEMP/scroll.log" 2>&1 &
+          scroll=$!
+          for _ in $(seq 1 170); do grep -q "smoke: scroll total" "$RUNNER_TEMP/scroll.log" && break; sleep 1; done
+          screencapture -x "$RUNNER_TEMP/scroll.png" || true
+          kill "$scroll" 2>/dev/null || true
+          if grep "smoke: scroll" "$RUNNER_TEMP/scroll.log"; then
+            grep "smoke: scroll" "$RUNNER_TEMP/scroll.log" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::the scroll benchmark reported nothing"
+          fi
           cat "$RUNNER_TEMP/app.log"
           if [ "$alive" = 0 ] || ! grep -q "soak survived" "$RUNNER_TEMP/soak.log"; then
             for report in ~/Library/Logs/DiagnosticReports/*RocketVibe*; do
@@ -132,6 +143,7 @@ jobs:
           path: |
             ${{ runner.temp }}/login.png
             ${{ runner.temp }}/gallery.png
+            ${{ runner.temp }}/scroll.png
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:

@@ -12,6 +12,7 @@ struct RocketVibeApp: App {
         Window("rocket-vibe", id: "main") {
             RootView()
                 .environment(app)
+                .vibe()
                 .frame(minWidth: 420, minHeight: 360)
                 .task { await start() }
                 .onOpenURL { url in open(url) }
@@ -22,6 +23,7 @@ struct RocketVibeApp: App {
         Settings {
             SettingsView()
                 .environment(app)
+                .vibe()
         }
     }
 
@@ -88,8 +90,11 @@ struct RootView: View {
     @ViewBuilder var screen: some View {
         switch app.screen {
         case .starting:
-            ProgressView()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(spacing: 18) {
+                Wordmark(size: 34, twinkles: true)
+                Comet(active: true).frame(width: 180)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .login:
             LoginView()
         case .chat:
@@ -108,5 +113,16 @@ struct AppCommands: Commands {
             Button(L("nav.forward")) { app.goForward() }
                 .keyboardShortcut(.rightArrow, modifiers: .option)
         }
+    }
+}
+
+extension View {
+    /// The night look everywhere: dark, pink accents, Nunito text.
+    func vibe() -> some View {
+        preferredColorScheme(.dark)
+            .tint(Vibe.pink)
+            .font(.vibe(14))
+            .foregroundStyle(Vibe.text)
+            .containerBackground(Vibe.night, for: .window)
     }
 }

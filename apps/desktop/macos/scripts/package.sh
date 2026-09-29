@@ -15,6 +15,10 @@ rm -rf dist && mkdir -p "$contents/MacOS" "$contents/Resources"
 sed "s/@VERSION@/$version/g" data/Info.plist > "$contents/Info.plist"
 cp "$bin/RocketVibe" "$contents/MacOS/"
 
+# Baloo 2 and Nunito, the Android app's faces: Info.plist's ATSApplicationFontsPath registers them.
+mkdir -p "$contents/Resources/Fonts"
+cp ../crates/rv-gtk/assets/fonts/*.ttf ../crates/rv-gtk/assets/fonts/OFL-*.txt "$contents/Resources/Fonts/"
+
 iconset=dist/rocket-vibe.iconset
 mkdir -p "$iconset"
 for size in 16 32 128 256 512; do

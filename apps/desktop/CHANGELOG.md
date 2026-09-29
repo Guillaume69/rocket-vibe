@@ -7,6 +7,15 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- A Linux AppImage that runs on any distribution, Ubuntu LTS and Debian stable included,
+  with nothing installed: GTK, GStreamer and its video codecs, the dictionaries and the
+  emoji font are all inside. One line installs it for the current user, with its launcher
+  entry and `rocketvibe://` links:
+  `curl -fsSL https://raw.githubusercontent.com/Guillaume69/rocket-vibe/master/apps/desktop/scripts/install.sh | sh`
+  (`| sh -s -- --uninstall` removes it). The update card replaces the AppImage in place.
+
 ### Fixed
 
 - On Windows, a blank icon named `rocket-vibe-gtk.exe` appeared in the notification area

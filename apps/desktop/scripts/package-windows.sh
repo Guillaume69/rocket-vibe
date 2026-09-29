@@ -31,6 +31,7 @@ cp "$prefix"/share/glib-2.0/schemas/*.xml "$out/share/glib-2.0/schemas/"
 glib-compile-schemas "$out/share/glib-2.0/schemas"
 cp -r "$prefix/share/icons/Adwaita" "$prefix/share/icons/hicolor" "$out/share/icons/"
 scripts/fetch-dictionaries.sh "$out/share/hunspell"
+scripts/fetch-emoji-font.sh "$out/share/fonts"
 cp README.md "$out/"
 
 (cd dist && rm -f "$name.zip" && zip -qr "$name.zip" "$name")

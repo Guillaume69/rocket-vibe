@@ -23,7 +23,7 @@ const CSS: &str = r#"
   --error-color: #FF7A8A;
 }
 
-window, label, entry, textview, button { font-family: "Nunito"; }
+window, label, entry, textview, button { font-family: "Nunito", "Noto Color Emoji"; }
 
 .brand { font-family: "Baloo 2"; font-weight: 800; }
 .brand-hero { font-size: 32px; }
@@ -283,6 +283,7 @@ button.send {
 
 pub fn load() {
     crate::fonts::register();
+    crate::fonts::register_packaged();
     adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
     let provider = gtk::CssProvider::new();
     provider.load_from_string(CSS);

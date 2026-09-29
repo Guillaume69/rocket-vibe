@@ -57,6 +57,23 @@ pub fn register() {
     }
 }
 
+/// The emoji font the Windows and macOS packages carry beside the app
+/// (`share/fonts`), registered so the style's font list can name it.
+pub fn register_packaged() {
+    let Some(bin) = std::env::current_exe().ok().and_then(|exe| exe.parent().map(std::path::Path::to_path_buf)) else {
+        return;
+    };
+    let Some(font_map) = gtk::Label::new(None).pango_context().font_map() else { return };
+    for dir in [bin.join("../share/fonts"), bin.join("../Resources/share/fonts")] {
+        let path = dir.join("NotoColorEmoji.ttf");
+        if path.exists()
+            && let Err(e) = font_map.add_font_file(&path)
+        {
+            eprintln!("Emoji font not registered: {e}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

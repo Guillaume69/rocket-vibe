@@ -1,10 +1,43 @@
 import AppKit
 import AVFoundation
 import AVKit
+import ImageIO
 import RocketVibeCore
 import RocketVibeKit
 import SwiftUI
 import UniformTypeIdentifiers
+
+/// Lets the SwiftUI side act on the text view: insertions keep undo and the cursor.
+@MainActor
+final class ComposerBridge {
+    weak var view: NSTextView?
+
+    /// The text before the cursor.
+    var beforeCursor: String {
+        guard let view else { return "" }
+        let location = view.selectedRange().location
+        return (view.string as NSString).substring(to: min(location, (view.string as NSString).length))
+    }
+
+    /// Replaces from `start` (in Unicode scalars) up to the cursor.
+    func replace(fromScalar start: Int, with text: String) {
+        guard let view else { return }
+        let before = beforeCursor
+        let head = String(String.UnicodeScalarView(before.unicodeScalars.prefix(start)))
+        let range = NSRange(location: (head as NSString).length, length: (before as NSString).length - (head as NSString).length)
+        view.insertText(text, replacementRange: range)
+    }
+
+    func insert(_ text: String) {
+        guard let view else { return }
+        view.insertText(text, replacementRange: view.selectedRange())
+        view.window?.makeFirstResponder(view)
+    }
+}
+
+enum ComposerKey {
+    case up, down, accept, cancel
+}
 
 struct Composer: View {
     @Environment(AppModel.self) var app
@@ -12,25 +45,26 @@ struct Composer: View {
     @Binding var staged: [URL]
     @State var recorder = VoiceRecorder()
     @State var editingLast: MessageItem?
-    @State var editText = ""
+    @State var bridge = ComposerBridge()
+    @State var suggestions: Suggestions?
+    @State var selected = 0
+    @State var picking = false
+    @State var previewing: URL?
+    @State var caption = ""
+    @State var original = false
 
     var body: some View {
         @Bindable var model = model
         VStack(alignment: .leading, spacing: 6) {
+            if let suggestions {
+                SuggestionList(items: suggestions.items, selected: selected) { accept($0) }
+            }
             if !staged.isEmpty {
                 ScrollView(.horizontal) {
                     HStack {
                         ForEach(staged, id: \.self) { url in
-                            HStack(spacing: 6) {
-                                Image(systemName: "doc")
-                                Text(url.lastPathComponent).lineLimit(1)
-                                Button { staged.removeAll { $0 == url } } label: { Image(systemName: "xmark.circle.fill") }
-                                    .buttonStyle(.plain)
-                                    .help(L("attach.remove"))
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(.quaternary.opacity(0.5), in: Capsule())
+                            StagedChip(url: url) { staged.removeAll { $0 == url } }
+                                .onTapGesture { previewing = url }
                         }
                     }
                 }
@@ -42,14 +76,26 @@ struct Composer: View {
                 ComposerField(
                     text: $model.draft,
                     placeholder: L("composer.placeholder"),
+                    bridge: bridge,
                     onSubmit: send,
                     onUpInEmpty: editLast,
-                    onPasteFiles: { staged.append(contentsOf: $0) }
+                    onPasteFiles: { staged.append(contentsOf: $0) },
+                    onCursor: suggest,
+                    onKey: key
                 )
                 .frame(height: height)
                 .padding(6)
                 .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .separatorColor)))
+                Button { picking = true } label: { Image(systemName: "face.smiling") }
+                    .buttonStyle(.borderless)
+                    .help(L("composer.emoji"))
+                    .popover(isPresented: $picking) {
+                        EmojiPicker { _, glyph in
+                            picking = false
+                            bridge.insert(glyph)
+                        }
+                    }
                 if recorder.recording {
                     Text(recorder.elapsed).monospacedDigit().foregroundStyle(.red)
                     Button { recorder.cancel() } label: { Image(systemName: "xmark") }
@@ -74,6 +120,12 @@ struct Composer: View {
         .sheet(item: Binding(get: { editingLast.map(EditingLast.init) }, set: { editingLast = $0?.message })) { e in
             EditLastSheet(model: model, message: e.message)
         }
+        .sheet(item: Binding(get: { previewing.map(Playing.init) }, set: { previewing = $0?.url })) { p in
+            StagedPreview(url: p.url, caption: $model.draft, original: $original) {
+                staged.removeAll { $0 == p.url }
+                previewing = nil
+            }
+        }
     }
 
     var height: CGFloat {
@@ -81,22 +133,54 @@ struct Composer: View {
         return min(160, CGFloat(lines) * 18 + 6)
     }
 
+    func suggest(_ before: String) {
+        let fresh = app.chat?.suggestions(rid: model.rid, beforeCursor: before)
+        if fresh?.start != suggestions?.start || fresh?.items != suggestions?.items { selected = 0 }
+        suggestions = fresh
+    }
+
+    func accept(_ item: Suggestion) {
+        guard let start = suggestions?.start else { return }
+        suggestions = nil
+        bridge.replace(fromScalar: Int(start), with: item.insert)
+    }
+
+    /// Arrows, Return, Tab and Escape drive the suggestions while they show.
+    func key(_ key: ComposerKey) -> Bool {
+        guard let items = suggestions?.items, !items.isEmpty else { return false }
+        switch key {
+        case .up: selected = (selected + items.count - 1) % items.count
+        case .down: selected = (selected + 1) % items.count
+        case .accept: accept(items[min(selected, items.count - 1)])
+        case .cancel: suggestions = nil
+        }
+        return true
+    }
+
     func send() {
         let files = staged
         staged = []
+        suggestions = nil
         if files.isEmpty {
             Task { await model.send() }
             return
         }
         let caption = model.draft.trimmingCharacters(in: .whitespacesAndNewlines)
         model.draft = ""
+        let reduce = !original
+        let outgoing = URL(fileURLWithPath: app.client.cacheDir()).appendingPathComponent("outgoing")
         Task {
             for (i, url) in files.enumerated() {
-                let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+                var (path, name, temporary) = (url.path, url.lastPathComponent, false)
+                var mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+                if reduce, let copy = reduceImage(url, mime: mime, into: outgoing) {
+                    (path, name, mime, temporary) = (copy.path, url.deletingPathExtension().lastPathComponent + ".jpg", "image/jpeg", true)
+                }
                 if let refusal = await model.attach(
-                    path: url.path, name: url.lastPathComponent, mime: mime,
-                    caption: i == 0 && !caption.isEmpty ? caption : nil, temporary: false)
+                    path: path, name: name, mime: mime,
+                    caption: i == 0 && !caption.isEmpty ? caption : nil, temporary: temporary)
                 {
+                    if temporary { try? FileManager.default.removeItem(atPath: path) }
                     app.notice = refusal
                 }
             }
@@ -130,6 +214,116 @@ struct Composer: View {
                 app.notice = refusal
             }
         }
+    }
+}
+
+/// A copy fitting 1920 px as JPEG, as the GTK app sends: None when it would
+/// not be smaller, or for what is not a still picture.
+func reduceImage(_ url: URL, mime: String, into dir: URL) -> URL? {
+    guard ["image/jpeg", "image/png", "image/heic", "image/webp", "image/tiff", "image/bmp"].contains(mime),
+          let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+          let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+    else { return nil }
+    let width = props[kCGImagePropertyPixelWidth] as? Int ?? 0
+    let height = props[kCGImagePropertyPixelHeight] as? Int ?? 0
+    let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+    if width <= 1920 && height <= 1920 && size < 1024 * 1024 { return nil }
+    let options: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceThumbnailMaxPixelSize: 1920,
+    ]
+    guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let out = dir.appendingPathComponent("reduced-\(UUID().uuidString.prefix(8)).jpg")
+    guard let dest = CGImageDestinationCreateWithURL(out as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+    CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.82] as CFDictionary)
+    return CGImageDestinationFinalize(dest) ? out : nil
+}
+
+struct SuggestionList: View {
+    @Environment(AppModel.self) var app
+    let items: [Suggestion]
+    let selected: Int
+    let pick: (Suggestion) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.offset) { i, item in
+                HStack(spacing: 8) {
+                    if let glyph = item.glyph {
+                        Text(glyph)
+                    } else if let image = item.image {
+                        RemoteImage(path: image, width: 18, height: 18)
+                    }
+                    Text(item.label)
+                    Spacer()
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(i == selected ? Color.accentColor.opacity(0.25) : .clear)
+                .contentShape(Rectangle())
+                .onTapGesture { pick(item) }
+            }
+        }
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .frame(maxWidth: 320, alignment: .leading)
+    }
+}
+
+struct StagedChip: View {
+    let url: URL
+    let remove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if let image = NSImage(contentsOf: url), UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true {
+                Image(nsImage: image).resizable().scaledToFill().frame(width: 22, height: 22).clipShape(RoundedRectangle(cornerRadius: 4))
+            } else {
+                Image(systemName: "doc")
+            }
+            Text(url.lastPathComponent).lineLimit(1)
+            Text(ByteCountFormatter.string(fromByteCount: Int64((try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0), countStyle: .file))
+                .font(.caption).foregroundStyle(.secondary)
+            Button(action: remove) { Image(systemName: "xmark.circle.fill") }
+                .buttonStyle(.plain)
+                .help(L("attach.remove"))
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(.quaternary.opacity(0.5), in: Capsule())
+    }
+}
+
+/// A staged file before it leaves: the picture, the caption (the composer's
+/// text), whether images keep their original quality.
+struct StagedPreview: View {
+    @Environment(\.dismiss) var dismiss
+    let url: URL
+    @Binding var caption: String
+    @Binding var original: Bool
+    let remove: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(url.lastPathComponent).font(.headline)
+            if let image = NSImage(contentsOf: url), UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true {
+                Image(nsImage: image).resizable().scaledToFit().frame(maxHeight: 360)
+                Toggle(L("attach.original"), isOn: $original)
+            } else {
+                Image(systemName: "doc").font(.system(size: 48))
+            }
+            TextField(L("composer.placeholder"), text: $caption, axis: .vertical)
+                .lineLimit(1...5)
+                .textFieldStyle(.roundedBorder)
+            HStack {
+                Button(L("attach.remove"), role: .destructive, action: remove)
+                Spacer()
+                Button(L("actions.save")) { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding()
+        .frame(width: 480)
     }
 }
 
@@ -175,14 +369,18 @@ struct EditLastSheet: View {
     }
 }
 
-/// AppKit's text view: native editing, the system spell checker and text
-/// services. Return sends, Shift-Return starts a new line.
+/// AppKit's text view: native editing, the system spell checker, text
+/// services and Edit > Emoji & Symbols. Return sends, Shift-Return starts a
+/// new line.
 struct ComposerField: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String
+    let bridge: ComposerBridge
     let onSubmit: () -> Void
     let onUpInEmpty: () -> Void
     let onPasteFiles: ([URL]) -> Void
+    let onCursor: (String) -> Void
+    let onKey: (ComposerKey) -> Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -210,6 +408,7 @@ struct ComposerField: NSViewRepresentable {
         view.setAccessibilityLabel(placeholder)
         view.string = text
         view.onPasteFiles = onPasteFiles
+        bridge.view = view
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
@@ -220,6 +419,7 @@ struct ComposerField: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self
         guard let view = scroll.documentView as? NSTextView else { return }
+        bridge.view = view
         if view.string != text {
             view.string = text
             view.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
@@ -236,22 +436,45 @@ struct ComposerField: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let view = notification.object as? NSTextView else { return }
             parent.text = view.string
+            cursorMoved(view)
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let view = notification.object as? NSTextView else { return }
+            cursorMoved(view)
+        }
+
+        func cursorMoved(_ view: NSTextView) {
+            let location = min(view.selectedRange().location, (view.string as NSString).length)
+            parent.onCursor((view.string as NSString).substring(to: location))
         }
 
         func textView(_ view: NSTextView, doCommandBy selector: Selector) -> Bool {
-            if selector == #selector(NSResponder.insertNewline(_:)) {
+            switch selector {
+            case #selector(NSResponder.moveUp(_:)):
+                if parent.onKey(.up) { return true }
+                if view.string.isEmpty {
+                    parent.onUpInEmpty()
+                    return true
+                }
+                return false
+            case #selector(NSResponder.moveDown(_:)):
+                return parent.onKey(.down)
+            case #selector(NSResponder.insertTab(_:)):
+                return parent.onKey(.accept)
+            case #selector(NSResponder.cancelOperation(_:)):
+                return parent.onKey(.cancel)
+            case #selector(NSResponder.insertNewline(_:)):
+                if parent.onKey(.accept) { return true }
                 if NSApp.currentEvent?.modifierFlags.contains(.shift) == true {
                     view.insertNewlineIgnoringFieldEditor(nil)
                 } else {
                     parent.onSubmit()
                 }
                 return true
+            default:
+                return false
             }
-            if selector == #selector(NSResponder.moveUp(_:)) && view.string.isEmpty {
-                parent.onUpInEmpty()
-                return true
-            }
-            return false
         }
     }
 }

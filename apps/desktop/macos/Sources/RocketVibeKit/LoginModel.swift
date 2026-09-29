@@ -16,6 +16,9 @@ public final class LoginModel {
     public private(set) var error: String?
     public private(set) var busy = false
     public private(set) var knownServers: [String] = []
+    /// What the server says about itself: its version and what it asks, or why it will not do.
+    public private(set) var probeLine: String?
+    public private(set) var probeBad = false
 
     public init() {}
 
@@ -26,6 +29,31 @@ public final class LoginModel {
         code = ""
         method = nil
         self.error = error
+    }
+
+    /// Asks the typed server about itself; nothing shown for an address that is not one.
+    public func probe(client: Client) async {
+        let asked = server
+        do {
+            let p = try await client.probe(server: asked)
+            guard asked == server else { return }
+            if !p.passwordLogin {
+                probeLine = L("login.probe_no_password")
+                probeBad = true
+                return
+            }
+            var facts = ["Rocket.Chat \(p.version)"]
+            if p.twoFactor { facts.append(L("login.probe_2fa")) }
+            if p.e2e { facts.append(L("login.probe_e2e")) }
+            probeLine = facts.joined(separator: " · ")
+            probeBad = false
+        } catch RvError.Local {
+            if asked == server { probeLine = nil }
+        } catch {
+            guard asked == server else { return }
+            probeLine = L("login.probe_failed")
+            probeBad = true
+        }
     }
 
     public func cancelCode() {

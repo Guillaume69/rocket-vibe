@@ -5,6 +5,12 @@ import SwiftUI
 struct ChatView: View {
     @Environment(AppModel.self) var app
 
+    /// "(unread rooms) room - rocket-vibe", as the GTK app titles its window.
+    var title: String {
+        let name = app.room.map { "\($0.room.name) - rocket-vibe" } ?? "rocket-vibe"
+        return app.unreadRooms == 0 ? name : "(\(app.unreadRooms)) \(name)"
+    }
+
     var body: some View {
         NavigationSplitView {
             RoomListView()
@@ -27,7 +33,7 @@ struct ChatView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .navigationTitle(app.room?.room.name ?? "rocket-vibe")
+        .navigationTitle(title)
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 Button { app.goBack() } label: { Image(systemName: "chevron.left") }

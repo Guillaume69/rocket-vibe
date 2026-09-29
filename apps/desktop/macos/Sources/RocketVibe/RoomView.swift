@@ -6,8 +6,11 @@ import UniformTypeIdentifiers
 
 struct RoomView: View {
     @Environment(AppModel.self) var app
+    @Environment(\.openURL) var openURL
     let model: RoomModel
     @State var staged: [URL] = []
+    @State var panel: Panel?
+    @State var callable = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,6 +43,48 @@ struct RoomView: View {
             return true
         }
         .environment(\.openURL, OpenURLAction { url in handle(url) })
+        .sheet(item: $panel) { PanelView(panel: $0, model: model) }
+        .navigationSubtitle(subtitle)
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                if model.loading || app.connection != .online {
+                    ProgressView().controlSize(.small)
+                }
+                if callable {
+                    Button(action: call) { Image(systemName: "video") }.help(L("room.call"))
+                }
+                Button { panel = .marked } label: { Image(systemName: "pin") }.help(L("marked.title"))
+                Button { panel = .search } label: { Image(systemName: "magnifyingglass") }.help(L("search.title"))
+                    .keyboardShortcut("f", modifiers: .command)
+                Button { panel = .info } label: { Image(systemName: "info.circle") }.help(L("info.room"))
+            }
+        }
+        .task(id: model.rid) {
+            callable = false
+            if !model.room.readOnly, let chat = app.chat { callable = await chat.callAvailable() }
+        }
+    }
+
+    /// A direct room's partner: their presence.
+    var subtitle: String {
+        guard let presence = model.room.presence else { return "" }
+        switch presence {
+        case .online: return L("presence.online")
+        case .away: return L("presence.away")
+        case .busy: return L("presence.busy")
+        case .offline: return L("presence.offline")
+        }
+    }
+
+    func call() {
+        Task {
+            guard let chat = app.chat else { return }
+            if let link = try? await chat.startCall(rid: model.rid), let url = URL(string: link) {
+                openURL(url)
+            } else {
+                app.notice = L("call.failed")
+            }
+        }
     }
 
     var typingLine: String {
@@ -55,14 +100,21 @@ struct RoomView: View {
     func handle(_ url: URL) -> OpenURLAction.Result {
         let text = url.absoluteString
         if text.hasPrefix("rv-user:") {
-            let user = String(text.dropFirst("rv-user:".count))
-            Task { await app.go(to: .user(id: "", username: user, name: nil)) }
+            panel = .profile(String(text.dropFirst("rv-user:".count)))
             return .handled
         }
         if text.hasPrefix("rv-room:") {
             let name = String(text.dropFirst("rv-room:".count))
             if let room = app.rooms.first(where: { $0.slug == name || $0.name == name }) {
                 app.open(room.rid)
+            } else {
+                Task {
+                    guard let details = try? await app.chat?.roomNamed(name: name) else {
+                        app.notice = L("spotlight.open_failed")
+                        return
+                    }
+                    await app.go(to: .room(id: details.id, name: details.name, kind: details.kind))
+                }
             }
             return .handled
         }
@@ -316,7 +368,17 @@ struct MessageRow: View {
                     Button {
                         Task { await model?.react(message, shortcode: reaction.shortcode, add: !reaction.mine) }
                     } label: {
-                        Text("\(reaction.glyph ?? reaction.shortcode) \(reaction.count)")
+                        Group {
+                            if reaction.glyph != nil {
+                                Text("\(reaction.glyph!) \(reaction.count)")
+                            } else {
+                                RunsText(runs: [Run(text: reaction.shortcode, bold: false, italic: false, strike: false, code: false,
+                                                    link: nil, mention: false, highlight: false,
+                                                    customEmoji: reaction.shortcode.trimmingCharacters(in: CharacterSet(charactersIn: ":"))),
+                                                Run(text: " \(reaction.count)", bold: false, italic: false, strike: false, code: false,
+                                                    link: nil, mention: false, highlight: false, customEmoji: nil)])
+                            }
+                        }
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
                             .background(reaction.mine ? Palette.mention.opacity(0.25) : Color.secondary.opacity(0.15), in: Capsule())
@@ -494,6 +556,9 @@ struct QuoteCard: View {
                 ForEach(Array(quote.images.enumerated()), id: \.offset) { _, image in
                     let size = displaySize(width: image.width, height: image.height, maxWidth: 240, maxHeight: 180)
                     RemoteImage(path: image.source, width: size.width, height: size.height)
+                }
+                ForEach(Array(quote.quotes.enumerated()), id: \.offset) { _, inner in
+                    AnyView(QuoteCard(quote: inner))
                 }
             }
         }

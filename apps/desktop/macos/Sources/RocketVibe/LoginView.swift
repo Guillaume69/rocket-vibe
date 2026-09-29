@@ -31,6 +31,11 @@ struct LoginView: View {
                     TextField(L("login.server"), text: $login.server)
                         .focused($focus, equals: .server)
                         .textContentType(.URL)
+                    if let probe = login.probeLine {
+                        Text(probe)
+                            .font(.caption)
+                            .foregroundStyle(login.probeBad ? .red : .secondary)
+                    }
                     if !login.knownServers.isEmpty {
                         Picker("", selection: $login.server) {
                             ForEach(login.knownServers, id: \.self) { Text($0).tag($0) }
@@ -72,6 +77,10 @@ struct LoginView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { focus = login.user.isEmpty ? .user : .password }
         .onChange(of: login.method) { _, method in if method != nil { focus = .code } }
+        .task(id: login.server) {
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            if !Task.isCancelled { await login.probe(client: app.client) }
+        }
     }
 
     func submit() {

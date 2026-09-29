@@ -60,6 +60,7 @@ fn collapsed_file() -> std::path::PathBuf {
 fn section_key(section: Section) -> &'static str {
     match section {
         Section::Unread => "unread",
+        Section::Favorites => "favorites",
         Section::Channels => "channels",
         Section::Direct => "direct",
     }
@@ -67,7 +68,7 @@ fn section_key(section: Section) -> &'static str {
 
 fn load_collapsed() -> Vec<Section> {
     let saved = std::fs::read_to_string(collapsed_file()).unwrap_or_default();
-    [Section::Unread, Section::Channels, Section::Direct]
+    [Section::Unread, Section::Favorites, Section::Channels, Section::Direct]
         .into_iter()
         .filter(|s| saved.lines().any(|l| l == section_key(*s)))
         .collect()
@@ -1297,6 +1298,7 @@ impl ChatPage {
                 if titled {
                     let title = match section {
                         Section::Unread => t("rooms.section_unread"),
+                        Section::Favorites => t("rooms.section_favorites"),
                         Section::Channels => t("rooms.section_channels"),
                         Section::Direct => t("rooms.section_direct"),
                     };

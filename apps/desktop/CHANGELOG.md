@@ -7,6 +7,12 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- On Windows, a blank icon named `rocket-vibe-gtk.exe` appeared in the notification area
+  once a room was opened: GLib's own notification backend, woken by clearing the room's
+  toasts, which the app's native notifications already do.
+
 ## [0.4.0] - 2026-09-29
 
 ### Added

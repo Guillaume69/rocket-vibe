@@ -505,19 +505,16 @@ impl Chat {
         let Some(row) = s.store.messages_by_id(std::slice::from_ref(&message_id)).into_iter().next() else {
             return Vec::new();
         };
+        let row = s.open_row(row);
         let (read_only, encrypted) =
             s.store.rooms().iter().find(|r| r.rid == rid).map_or((false, false), |r| (r.read_only, r.encrypted));
         let rules = self.rules.lock().unwrap();
         let fallback = rv_core::actions::ServerSettings::from_list(&[]);
-        let text = match row.system_type.as_deref() {
-            Some("e2e") => row.encrypted_raw.as_deref().and_then(|raw| s.decrypt(&rid, raw)),
-            _ => row.text.clone(),
-        };
         let ctx = rv_core::actions::ActionContext {
             author_id: &row.author_id,
             ts: row.ts,
             system_type: row.system_type.as_deref(),
-            text: text.as_deref(),
+            text: row.text.as_deref(),
             has_file: !rv_core::content::files(row.attachments.as_deref()).is_empty()
                 || !rv_core::media::image_attachments(row.attachments.as_deref()).is_empty(),
             me: &s.info.user_id,
@@ -671,18 +668,11 @@ impl Chat {
 impl Chat {
     fn lay_out(&self, rows: Vec<rv_core::store::MessageRow>, unread_after: Option<i64>) -> Vec<model::MessageItem> {
         let info = &self.session.info;
-        let mut laid = timeline::group(rows);
+        let mut laid = timeline::group(rows.into_iter().map(|r| self.session.open_row(r)).collect());
         if let Some(seen) = unread_after {
             timeline::mark_new(&mut laid, seen, &info.user_id);
         }
-        laid.into_iter()
-            .map(|d| {
-                let clear = (d.row.system_type.as_deref() == Some("e2e"))
-                    .then(|| d.row.encrypted_raw.as_deref().and_then(|raw| self.session.decrypt(&d.row.rid, raw)))
-                    .flatten();
-                model::message(d, &info.user_id, &info.username, clear)
-            })
-            .collect()
+        laid.into_iter().map(|d| model::message(d, &info.user_id, &info.username)).collect()
     }
 }
 

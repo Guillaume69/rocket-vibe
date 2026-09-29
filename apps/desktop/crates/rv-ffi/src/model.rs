@@ -299,8 +299,9 @@ pub fn quote(q: content::Quote, me: &str) -> Quote {
     }
 }
 
-/// `clear`: the decrypted text of an `e2e` message, when the keys read it.
-pub fn message(d: Display, me_id: &str, me: &str, clear: Option<String>) -> MessageItem {
+/// `d.row` as `Session::open_row` left it: an encrypted message opened when
+/// the keys read it, its text None when they do not.
+pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
     let row: MessageRow = d.row;
     let ctx = markdown::Context { me };
     let encrypted = row.system_type.as_deref() == Some("e2e");
@@ -309,8 +310,8 @@ pub fn message(d: Display, me_id: &str, me: &str, clear: Option<String>) -> Mess
     let (body, text, locked) = if system.is_some() {
         (Vec::new(), None, false)
     } else if encrypted {
-        match clear {
-            Some(t) => (markup::blocks(markdown::render(None, Some(&t), &ctx)), Some(t), false),
+        match &row.text {
+            Some(t) => (markup::blocks(markdown::render(None, Some(t), &ctx)), Some(t.clone()), false),
             None => (Vec::new(), None, true),
         }
     } else {
@@ -420,7 +421,7 @@ mod tests {
             outbox_status: Some("failed".into()),
             ..Default::default()
         };
-        let m = message(display(row), "U1", "me", None);
+        let m = message(display(row), "U1", "me");
         assert_eq!((m.author.as_str(), m.mine, m.delivery), ("bob", false, Delivery::Failed));
         assert_eq!(m.avatar, "/avatar/bob");
         assert_eq!(m.images.len(), 1);
@@ -438,14 +439,14 @@ mod tests {
     #[test]
     fn system_and_encrypted_messages_carry_no_body() {
         let joined = MessageRow { system_type: Some("uj".into()), text: Some("bob".into()), ..Default::default() };
-        let m = message(display(joined), "U1", "me", None);
+        let m = message(display(joined), "U1", "me");
         assert_eq!((m.system.as_deref(), m.param.as_str()), (Some("uj"), "bob"));
         assert!(m.body.is_empty() && !m.locked);
 
         let sealed = MessageRow { system_type: Some("e2e".into()), ..Default::default() };
-        let locked = message(display(sealed.clone()), "U1", "me", None);
+        let locked = message(display(sealed.clone()), "U1", "me");
         assert!(locked.locked && locked.system.is_none() && locked.text.is_none());
-        let open = message(display(sealed), "U1", "me", Some("secret".into()));
+        let open = message(display(MessageRow { text: Some("secret".into()), ..sealed }), "U1", "me");
         assert!(!open.locked);
         assert_eq!(open.text.as_deref(), Some("secret"));
     }

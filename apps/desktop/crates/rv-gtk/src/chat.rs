@@ -1340,8 +1340,8 @@ impl ChatPage {
         self.room_title.append(&names);
         let unlocked = self.session.borrow().as_ref().is_some_and(|s| s.e2e_unlocked());
         self.e2e_banner.set_visible(open.encrypted && !unlocked);
-        // Encrypted rooms are read here, not written: the server refuses clear text in them.
-        let writable = !open.read_only && !open.encrypted;
+        // Locked, nothing can leave an encrypted room: the server refuses clear text in it.
+        let writable = !open.read_only && (!open.encrypted || unlocked);
         self.composer.root.set_visible(writable);
         self.read_only_label.set_label(t(if open.encrypted { "e2e.read_only" } else { "room.read_only" }));
         self.read_only_label.set_visible(!writable);

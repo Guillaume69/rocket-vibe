@@ -1,6 +1,9 @@
 //! The message `_id` is generated client-side before anything is shown. The
 //! message appears at once (optimistic row, `updated_at = 0`), the outbox
 //! persists the intent, and a replay after a crash never duplicates it.
+//!
+//! In an encrypted room the text is encrypted when it leaves, never before;
+//! without the room's key (locked) the row waits instead of failing.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -17,6 +20,8 @@ pub fn generate_message_id() -> String {
     (0..12).map(|_| format!("{:02x}", fastrand::u8(..))).collect()
 }
 
+type Encryptor = dyn Fn(&str, &Value) -> Option<Value> + Send + Sync;
+
 enum Delivered {
     Yes(Value),
     No,
@@ -30,6 +35,7 @@ pub struct Outbox {
     me_id: String,
     me_name: String,
     id_generator: Mutex<Box<dyn FnMut() -> String + Send>>,
+    encryptor: Mutex<Option<Arc<Encryptor>>>,
     running: AtomicBool,
     again: AtomicBool,
 }
@@ -43,6 +49,7 @@ impl Outbox {
             me_id: me_id.to_owned(),
             me_name: me_name.to_owned(),
             id_generator: Mutex::new(Box::new(generate_message_id)),
+            encryptor: Mutex::new(None),
             running: AtomicBool::new(false),
             again: AtomicBool::new(false),
         }
@@ -50,6 +57,11 @@ impl Outbox {
 
     pub fn set_id_generator(&self, generator: impl FnMut() -> String + Send + 'static) {
         *self.id_generator.lock().unwrap() = Box::new(generator);
+    }
+
+    /// How a payload is encrypted for a room: None while it cannot be.
+    pub fn set_encryptor(&self, encryptor: impl Fn(&str, &Value) -> Option<Value> + Send + Sync + 'static) {
+        *self.encryptor.lock().unwrap() = Some(Arc::new(encryptor));
     }
 
     /// Shows the message at once and persists the intent. Call `process` to send.
@@ -62,6 +74,7 @@ impl Outbox {
             ts: chrono::Utc::now().timestamp_millis(),
             author_id: self.me_id.clone(),
             author_name: Some(self.me_name.clone()),
+            system_type: self.store.room_encrypted(rid).then(|| crate::normalize::ENCRYPTED_TYPE.to_owned()),
             thread_id: thread_id.map(str::to_owned),
             updated_at: 0,
             ..Default::default()
@@ -97,10 +110,7 @@ impl Outbox {
     /// Returns false when the server is out of reach: no point insisting.
     async fn pass(&self) -> bool {
         for entry in self.store.pending_outbox() {
-            let mut message = json!({"_id": entry.id, "rid": entry.rid, "msg": entry.text});
-            if let Some(tmid) = &entry.thread_id {
-                message["tmid"] = json!(tmid);
-            }
+            let Some(message) = self.message_of(&entry) else { continue };
             match self.rest.post("chat.sendMessage", CallOptions::body(json!({"message": message}))).await {
                 Ok(response) => {
                     self.store.write(|w| w.delete_outbox(&entry.id));
@@ -124,6 +134,24 @@ impl Outbox {
             }
         }
         true
+    }
+
+    /// The message as it leaves, or None while it waits for a room key.
+    fn message_of(&self, entry: &crate::store::OutboxEntry) -> Option<Value> {
+        let mut message = json!({"_id": entry.id, "rid": entry.rid});
+        if let Some(tmid) = &entry.thread_id {
+            message["tmid"] = json!(tmid);
+        }
+        if !self.store.room_encrypted(&entry.rid) {
+            message["msg"] = json!(entry.text);
+            return Some(message);
+        }
+        let encrypt = self.encryptor.lock().unwrap().clone()?;
+        message["content"] = encrypt(&entry.rid, &json!({"msg": entry.text}))?;
+        message["t"] = json!(crate::normalize::ENCRYPTED_TYPE);
+        message["e2e"] = json!("pending");
+        message["e2eMentions"] = crate::e2e::mentions(&entry.text);
+        Some(message)
     }
 
     async fn delivered(&self, id: &str) -> Delivered {

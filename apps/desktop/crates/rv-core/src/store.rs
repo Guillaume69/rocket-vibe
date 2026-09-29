@@ -332,6 +332,21 @@ impl Store {
         roles.map(|r| r.split(',').map(str::to_owned).collect()).unwrap_or_default()
     }
 
+    pub fn room_encrypted(&self, rid: &str) -> bool {
+        self.read(|c| c.query_row("SELECT encrypted FROM rooms WHERE rid = ?1", [rid], |r| r.get(0)).optional())
+            .ok()
+            .flatten()
+            .unwrap_or(false)
+    }
+
+    /// A message's `t`, when it is a system or encrypted one.
+    pub fn message_type(&self, id: &str) -> Option<String> {
+        self.read(|c| c.query_row("SELECT system_type FROM messages WHERE id = ?1", [id], |r| r.get(0)).optional())
+            .ok()
+            .flatten()
+            .flatten()
+    }
+
     pub fn e2e_key(&self, rid: &str) -> Option<String> {
         self.read(|c| c.query_row("SELECT e2e_key FROM subscriptions WHERE rid = ?1", [rid], |r| r.get(0)).optional())
             .ok()

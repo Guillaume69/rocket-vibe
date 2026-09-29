@@ -213,6 +213,8 @@ impl Session {
             synced: Arc::default(),
             presence: Mutex::default(),
         });
+        let weak = Arc::downgrade(&session);
+        session.outbox.set_encryptor(move |rid, payload| weak.upgrade()?.encrypt(rid, payload));
         let listener = tokio::spawn(Self::listen(Arc::downgrade(&session), ddp_events));
         let watcher = tokio::spawn(Self::watch_token(Arc::downgrade(&session), session.rest.token_rejected()));
         let progress = tokio::spawn(Self::forward_uploads(Arc::downgrade(&session), session.uploads.changes()));
@@ -423,6 +425,8 @@ impl Session {
         let key = crate::e2e::unlock_private_key(private, password, &self.info.user_id).map_err(UnlockError::Key)?;
         self.e2e.lock().unwrap().replace(E2eUnlocked { key, rooms: HashMap::new() });
         let _ = self.events.send(SessionEvent::E2e);
+        let outbox = self.outbox.clone();
+        tokio::spawn(async move { outbox.process().await });
         Ok(())
     }
 
@@ -436,8 +440,8 @@ impl Session {
         self.e2e.lock().unwrap().is_some()
     }
 
-    /// An encrypted `content` of the room in clear, when unlocked and the key fits.
-    pub fn decrypt(&self, rid: &str, content: &str) -> Option<String> {
+    /// The room's key id and AES key, when unlocked and my wrapped copy opens.
+    fn room_key(&self, rid: &str) -> Option<(String, Vec<u8>)> {
         let mut guard = self.e2e.lock().unwrap();
         let unlocked = guard.as_mut()?;
         let wrapped = self.store.e2e_key(rid)?;
@@ -446,7 +450,23 @@ impl Session {
             let key = crate::e2e::room_key(&wrapped, &unlocked.key).ok()?;
             unlocked.rooms.insert(rid.to_owned(), (kid, key));
         }
-        crate::e2e::decrypt_message(content, &unlocked.rooms.get(rid)?.1).ok()
+        unlocked.rooms.get(rid).cloned()
+    }
+
+    /// An encrypted `content` of the room in clear, when unlocked and the key fits.
+    pub fn decrypt(&self, rid: &str, content: &str) -> Option<String> {
+        self.decrypt_payload(rid, content).map(|p| p.text)
+    }
+
+    /// The text of an encrypted `content`, and the attachments of a file.
+    pub fn decrypt_payload(&self, rid: &str, content: &str) -> Option<crate::e2e::Payload> {
+        crate::e2e::decrypt_payload(content, &self.room_key(rid)?.1).ok()
+    }
+
+    /// A payload encrypted under the room's current key, or None while locked.
+    pub fn encrypt(&self, rid: &str, payload: &Value) -> Option<Value> {
+        let (kid, key) = self.room_key(rid)?;
+        crate::e2e::encrypt_message(payload, &key, &kid).ok()
     }
 
     /// The server path of a custom emoji's image.
@@ -703,7 +723,14 @@ impl Session {
     }
 
     pub async fn edit(&self, rid: &str, msg_id: &str, text: &str) -> Result<(), RestError> {
-        let doc = actions::edit(&self.rest, rid, msg_id, text).await?;
+        let doc = if self.store.message_type(msg_id).as_deref() == Some(crate::normalize::ENCRYPTED_TYPE) {
+            let content = self
+                .encrypt(rid, &serde_json::json!({"msg": text}))
+                .ok_or_else(|| RestError::incomplete("chat.update: room key unavailable"))?;
+            actions::edit_encrypted(&self.rest, rid, msg_id, content, crate::e2e::mentions(text)).await?
+        } else {
+            actions::edit(&self.rest, rid, msg_id, text).await?
+        };
         if doc.is_object() {
             self.sync.ingest_messages(std::slice::from_ref(&doc));
         }

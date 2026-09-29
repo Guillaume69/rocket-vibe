@@ -100,7 +100,6 @@ pub fn has_actions(system_type: Option<&str>, text: Option<&str>) -> bool {
 }
 
 pub fn possible_actions(ctx: &ActionContext) -> Vec<Action> {
-    let readable_encrypted = ctx.system_type == Some("e2e") && ctx.text.is_some();
     if !has_actions(ctx.system_type, ctx.text) {
         return Vec::new();
     }
@@ -108,8 +107,12 @@ pub fn possible_actions(ctx: &ActionContext) -> Vec<Action> {
     if !ctx.read_only {
         out.push(Action::React);
     }
-    if !ctx.read_only && !ctx.encrypted {
-        out.push(Action::Reply);
+    // A quote is a card the server builds from the text, which it cannot
+    // read in an encrypted room: there, one answers in a thread.
+    if !ctx.read_only {
+        if !ctx.encrypted {
+            out.push(Action::Reply);
+        }
         if !ctx.in_thread {
             out.push(Action::ReplyInThread);
         }
@@ -128,8 +131,7 @@ pub fn possible_actions(ctx: &ActionContext) -> Vec<Action> {
         ctx.permissions.map_or(if_unknown, |granted| granted.iter().any(|p| p == permission))
     };
     let no_limit = has("bypass-time-limit-edit-and-delete", false);
-    if !readable_encrypted
-        && (has("edit-message", false) || (mine && ctx.settings.editing_allowed))
+    if (has("edit-message", false) || (mine && ctx.settings.editing_allowed))
         && (no_limit || within(ctx, ctx.settings.edit_minutes))
     {
         out.push(Action::Edit);
@@ -253,6 +255,20 @@ pub async fn react(rest: &RestClient, msg_id: &str, shortcode: &str, add: bool) 
 
 pub async fn edit(rest: &RestClient, rid: &str, msg_id: &str, text: &str) -> Result<Value, RestError> {
     let body = json!({"roomId": rid, "msgId": msg_id, "text": text});
+    let response = rest.post("chat.update", CallOptions::body(body)).await?;
+    Ok(response.get("message").cloned().unwrap_or(Value::Null))
+}
+
+/// An encrypted message is edited through `content`, which the server takes
+/// only on an `e2e` message, and would refuse `text` there.
+pub async fn edit_encrypted(
+    rest: &RestClient,
+    rid: &str,
+    msg_id: &str,
+    content: Value,
+    mentions: Value,
+) -> Result<Value, RestError> {
+    let body = json!({"roomId": rid, "msgId": msg_id, "content": content, "e2eMentions": mentions});
     let response = rest.post("chat.update", CallOptions::body(body)).await?;
     Ok(response.get("message").cloned().unwrap_or(Value::Null))
 }
@@ -403,6 +419,20 @@ mod tests {
         assert!(!possible_actions(&c).contains(&Action::ReplyInThread));
         let mut c = ctx(&s, &none, "me", 1);
         c.system_type = Some("uj");
+        assert!(possible_actions(&c).is_empty());
+    }
+
+    #[test]
+    fn encrypted_rooms_answer_in_threads_and_edit() {
+        let s = settings();
+        let none: Vec<String> = vec![];
+        let mut c = ctx(&s, &none, "me", 1);
+        c.encrypted = true;
+        c.system_type = Some("e2e");
+        let actions = possible_actions(&c);
+        assert!(actions.contains(&Action::ReplyInThread) && actions.contains(&Action::Edit));
+        assert!(!actions.contains(&Action::Reply));
+        c.text = None;
         assert!(possible_actions(&c).is_empty());
     }
 

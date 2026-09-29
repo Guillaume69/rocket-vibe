@@ -280,6 +280,7 @@ jobs:
           $env:RV_SMOKE_MEDIA = "$media\voice.ogg|$media\voice.m4a|$media\video.mp4"
           $gallery = Start-Process $exe -WorkingDirectory "$app\bin" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\gallery-out.txt"
           Start-Sleep -Seconds 8
+          for ($i = 0; $i -lt 20 -and @(Select-String -Path "$env:RUNNER_TEMP\gallery-out.txt" -Pattern "smoke: media " -ErrorAction SilentlyContinue).Count -lt 3; $i++) { Start-Sleep -Seconds 1 }
           $shot = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
           [System.Drawing.Graphics]::FromImage($shot).CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
           $shot.Save("$env:RUNNER_TEMP\gallery.png")

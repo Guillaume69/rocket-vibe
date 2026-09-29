@@ -9,6 +9,7 @@ use serde_json::Value;
 use url::Url;
 
 use crate::rest::{Credentials, RestClient, RestError};
+use crate::store::RoomRow;
 
 /// Beyond this, the cache is simply emptied: photos are small and refetched on demand.
 const CACHE_LIMIT: usize = 400;
@@ -42,6 +43,19 @@ fn encode_component(s: &str) -> String {
             _ => format!("%{b:02X}"),
         })
         .collect()
+}
+
+/// DM: the other person's photo by uid; channel or group: the room's photo.
+/// A locked encrypted room keeps its grey padlock.
+pub fn room_avatar_path(r: &RoomRow) -> Option<String> {
+    if r.encrypted {
+        return None;
+    }
+    match (r.kind.as_str(), &r.dm_other_uid) {
+        ("d", Some(uid)) => Some(avatar_path(AvatarTarget::Uid(uid), None)),
+        ("d", None) => None,
+        _ => Some(avatar_path(AvatarTarget::Room(&r.rid), r.avatar_etag.as_deref())),
+    }
 }
 
 /// The token only ever goes to OUR server. An attachment URL comes from a

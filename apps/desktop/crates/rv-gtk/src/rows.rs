@@ -5,7 +5,8 @@ use std::sync::Arc;
 use adw::prelude::*;
 use chrono::Local;
 use gtk::{gdk, glib, pango};
-use rv_core::media::{AvatarTarget, ImageAttachment, avatar_path, display_size, image_attachments};
+pub use rv_core::media::room_avatar_path;
+use rv_core::media::{ImageAttachment, display_size, image_attachments};
 use rv_core::session::Session;
 use rv_core::store::{MessageRow, RoomRow};
 use rv_core::timeline::is_system;
@@ -96,19 +97,6 @@ pub fn with_photo(tile: gtk::Widget, session: Option<&Arc<Session>>, path: Optio
         });
     }
     tile
-}
-
-/// DM: the other person's photo by uid; channel or group: the room's photo.
-/// A locked encrypted room keeps its grey padlock.
-pub fn room_avatar_path(r: &RoomRow) -> Option<String> {
-    if r.encrypted {
-        return None;
-    }
-    match (r.kind.as_str(), &r.dm_other_uid) {
-        ("d", Some(uid)) => Some(avatar_path(AvatarTarget::Uid(uid), None)),
-        ("d", None) => None,
-        _ => Some(avatar_path(AvatarTarget::Room(&r.rid), r.avatar_etag.as_deref())),
-    }
 }
 
 /// A click on an author's photo or name opens their profile.

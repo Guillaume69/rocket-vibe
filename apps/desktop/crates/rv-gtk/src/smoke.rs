@@ -836,5 +836,15 @@ pub fn gallery(app: &adw::Application) -> bool {
         .build();
     window.present();
     std::mem::forget(composer);
+    rv_native::init(crate::APP_ID, "rocket-vibe", Box::new(|event| println!("smoke: native event {event:?}")));
+    rv_native::badge(3);
+    rv_native::show(&rv_native::Toast {
+        room: "gallery",
+        message: "1",
+        title: "bob",
+        body: "A native notification 🎉",
+        reply: Some(rv_native::ReplyLabels { placeholder: "Reply", send: "Send" }),
+    });
+    println!("smoke: native notifications available {}", rv_native::available());
     true
 }

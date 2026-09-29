@@ -180,13 +180,14 @@ jobs:
           Start-Sleep -Seconds 2
           # Sample messages without a server: how text, emoji and times line up here.
           $env:RV_SMOKE_GALLERY = "1"
-          $gallery = Start-Process $exe -WorkingDirectory "$app\bin" -PassThru
+          $gallery = Start-Process $exe -WorkingDirectory "$app\bin" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\gallery-out.txt"
           Start-Sleep -Seconds 8
           $shot = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
           [System.Drawing.Graphics]::FromImage($shot).CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
           $shot.Save("$env:RUNNER_TEMP\gallery.png")
           if (-not $gallery.HasExited) { Stop-Process -Id $gallery.Id -Force }
           Remove-Item Env:RV_SMOKE_GALLERY
+          Get-Content "$env:RUNNER_TEMP\gallery-out.txt" -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 2
           Start-Process "$app\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES" -Wait
           Start-Sleep -Seconds 3
@@ -317,6 +318,7 @@ jobs:
           sleep 8
           screencapture -x "$RUNNER_TEMP/gallery.png" || true
           kill "$gallery" 2>/dev/null || true
+          cat "$RUNNER_TEMP/gallery.log"
           sudo mv /opt/homebrew-aside /opt/homebrew
           cat "$RUNNER_TEMP/app.log"
           if [ "$alive" = 0 ]; then

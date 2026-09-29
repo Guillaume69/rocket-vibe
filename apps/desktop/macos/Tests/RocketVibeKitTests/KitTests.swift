@@ -113,7 +113,9 @@ final class LiveTests: XCTestCase {
 
     @MainActor
     func until(_ condition: @MainActor () -> Bool) async throws {
-        for _ in 0..<200 where !condition() {
+        var tries = 0
+        while !condition() && tries < 200 {
+            tries += 1
             try await Task.sleep(nanoseconds: 100_000_000)
         }
         XCTAssertTrue(condition())

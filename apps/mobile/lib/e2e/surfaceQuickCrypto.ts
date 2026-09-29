@@ -113,4 +113,9 @@ export function surfaceEmployeeParCryptoTs(): void {
   const fichier: BufferEmbarque = moduleBuffer.Buffer.concat([ctr.update(octets), ctr.final()]);
   const empreinte: string = qc.createHash('sha256').update(fichier).digest('hex');
   void empreinte;
+
+  // chiffrerFichier : AES-256-CTR, clé et compteur aléatoires.
+  const versCtr = qc.createCipheriv('aes-256-ctr', qc.randomBytes(32), iv);
+  const chiffreCtr: BufferEmbarque = moduleBuffer.Buffer.concat([versCtr.update(octets), versCtr.final()]);
+  void chiffreCtr;
 }

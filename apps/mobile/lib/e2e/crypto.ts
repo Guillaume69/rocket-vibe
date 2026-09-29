@@ -340,3 +340,32 @@ export function dechiffrerFichier(octets: Buffer, chiffrement: ChiffrementFichie
 export function empreinteSha256(octets: Buffer): string {
   return createHash('sha256').update(octets).digest('hex');
 }
+
+/** La clé d'un fichier envoyé, sous la forme JWK que le client web réimporte (AES-CTR, extractible). */
+export type JwkFichier = { kty: 'oct'; alg: 'A256CTR'; k: string; ext: true; key_ops: ['encrypt', 'decrypt'] };
+
+/**
+ * Fichier clair → octets à téléverser, et de quoi le relire : une clé AES-CTR
+ * 256 neuve, un compteur initial de 16 octets, l'empreinte SHA-256 du clair —
+ * ce que le client web met dans la pièce jointe.
+ */
+export function chiffrerFichier(clair: Buffer): {
+  chiffre: Buffer;
+  cle: JwkFichier;
+  iv: string;
+  sha256: string;
+} {
+  const cle = randomBytes(32);
+  const iv = randomBytes(16);
+  const chiffreur = createCipheriv('aes-256-ctr', cle, iv);
+  return {
+    chiffre: Buffer.concat([chiffreur.update(clair), chiffreur.final()]),
+    cle: { kty: 'oct', alg: 'A256CTR', k: versBase64url(cle), ext: true, key_ops: ['encrypt', 'decrypt'] },
+    iv: iv.toString('base64'),
+    sha256: empreinteSha256(clair),
+  };
+}
+
+function versBase64url(octets: Buffer): string {
+  return octets.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}

@@ -4,6 +4,7 @@ import { describe, test } from 'node:test';
 
 import {
   chiffrementDeJointe,
+  chiffrerFichier,
   chiffrerMessage,
   dechiffrerCharge,
   dechiffrerClePrivee,
@@ -345,6 +346,21 @@ describe('crypto e2e — fichiers', () => {
     assert.throws(() => dechiffrerFichier(altere, chiffrement), ErreurE2E);
     const autre = await fichierDuWeb(rand(1000));
     assert.throws(() => dechiffrerFichier(chiffre, chiffrementDeJointe(autre.jointe)!), ErreurE2E);
+  });
+
+  test('ce que l’on chiffre, le client web le relit (clé JWK réimportable)', async () => {
+    const clair = rand(50_000);
+    const { chiffre, cle, iv, sha256 } = chiffrerFichier(Buffer.from(clair));
+    const cleWeb = await subtle.importKey('jwk', cle, { name: 'AES-CTR' }, true, ['encrypt', 'decrypt']);
+    const relu = await subtle.decrypt(
+      { name: 'AES-CTR', counter: new Uint8Array(Buffer.from(iv, 'base64')), length: 64 },
+      cleWeb,
+      new Uint8Array(chiffre),
+    );
+    assert.deepEqual(Buffer.from(relu), Buffer.from(clair));
+    assert.equal(sha256, Buffer.from(await subtle.digest('SHA-256', clair)).toString('hex'));
+    const jointe = { encryption: { key: cle, iv }, hashes: { sha256 } };
+    assert.deepEqual(dechiffrerFichier(chiffre, chiffrementDeJointe(jointe)!), Buffer.from(clair));
   });
 
   test('une pièce jointe ordinaire n’a pas de chiffrement', () => {

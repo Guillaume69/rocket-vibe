@@ -852,6 +852,15 @@ impl Session {
         actions::join_call(&self.rest, call_id).await
     }
 
+    /// The meeting's link to share, without anyone's token.
+    pub async fn call_link(&self, call_id: &str) -> Result<String, RestError> {
+        let url = match actions::call_url(&self.rest, call_id).await? {
+            Some(url) => url,
+            None => actions::join_call(&self.rest, call_id).await?,
+        };
+        Ok(crate::call::meeting_link(&url))
+    }
+
     /// The root (`chat.getThreadMessages` never returns it) then every reply,
     /// by full pages: `count: 0` depends on `API_Allow_Infinite_Count`.
     pub async fn load_thread(&self, root_id: &str) -> Result<(), RestError> {

@@ -3,6 +3,7 @@ import { webcrypto } from 'node:crypto';
 import { describe, test } from 'node:test';
 
 import {
+  chiffrerMessage,
   dechiffrerClePrivee,
   dechiffrerCleSalon,
   dechiffrerMessage,
@@ -265,5 +266,42 @@ describe('crypto e2e — chaîne complète', () => {
     octets[0] ^= 0xff;
     const falsifie: ContenuChiffre = { ...contenu, ciphertext: octets.toString('base64') };
     assert.throws(() => dechiffrerMessage(falsifie, cleSalon), ErreurE2E);
+  });
+});
+
+describe('crypto e2e — chiffrement des messages envoyés', () => {
+  const cas = [
+    { taille: 16, algo: { name: 'AES-CBC' }, tailleIv: 16 },
+    { taille: 32, algo: { name: 'AES-GCM' }, tailleIv: 12 },
+  ] as const;
+
+  for (const { taille, algo, tailleIv } of cas) {
+    test(`clé de ${taille} octets : WebCrypto (le client web) relit ce que l'on chiffre`, async () => {
+      const raw = rand(taille);
+      const charge = { msg: 'réponse chiffrée 🔒' };
+      const contenu = chiffrerMessage(charge, Buffer.from(raw), 'eyJhbGciOiJB');
+
+      assert.equal(contenu.algorithm, 'rc.v2.aes-sha2');
+      assert.equal(contenu.kid, 'eyJhbGciOiJB');
+      const iv = new Uint8Array(Buffer.from(contenu.iv ?? '', 'base64'));
+      assert.equal(iv.length, tailleIv);
+
+      const cle = await subtle.importKey('raw', raw, algo, false, ['decrypt']);
+      const clair = await subtle.decrypt({ ...algo, iv }, cle, new Uint8Array(Buffer.from(contenu.ciphertext, 'base64')));
+      assert.deepEqual(JSON.parse(new TextDecoder().decode(clair)), charge);
+      assert.equal(dechiffrerMessage(contenu, Buffer.from(raw)), charge.msg);
+    });
+  }
+
+  test('deux envois du même texte ne se ressemblent pas (IV neuf)', () => {
+    const cle = Buffer.from(rand(32));
+    const a = chiffrerMessage({ msg: 'pareil' }, cle, 'k');
+    const b = chiffrerMessage({ msg: 'pareil' }, cle, 'k');
+    assert.notEqual(a.iv, b.iv);
+    assert.notEqual(a.ciphertext, b.ciphertext);
+  });
+
+  test('clé de taille inattendue → ErreurE2E', () => {
+    assert.throws(() => chiffrerMessage({ msg: 'x' }, Buffer.from(rand(20)), 'k'), ErreurE2E);
   });
 });

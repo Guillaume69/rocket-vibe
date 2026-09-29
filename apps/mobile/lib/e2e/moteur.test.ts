@@ -211,3 +211,43 @@ describe('MoteurE2E', () => {
     assert.equal(n, 2);
   });
 });
+
+describe('MoteurE2E — chiffrer', () => {
+  test('verrouillé ou sans clé de salon → null, jamais de clair', async () => {
+    const { fetchMyKeys, e2eKey } = await fabriquer();
+    const { client, stockage } = faux(fetchMyKeys);
+    const m = new MoteurE2E({ client, stockage, uid: 'osR3JzQEiM2H77m46' });
+    m.enregistrerCleSalon(RID, e2eKey);
+    assert.equal(m.chiffrer(RID, { msg: 'x' }), null);
+    await m.deverrouiller(MOT_DE_PASSE);
+    assert.equal(m.chiffrer('autre-salon', { msg: 'x' }), null);
+  });
+
+  test('chiffre sous la clé et le keyID du salon — relu par dechiffrerContenu', async () => {
+    const { fetchMyKeys, e2eKey } = await fabriquer();
+    const { client, stockage } = faux(fetchMyKeys);
+    const m = new MoteurE2E({ client, stockage, uid: 'osR3JzQEiM2H77m46' });
+    await m.deverrouiller(MOT_DE_PASSE);
+    m.enregistrerCleSalon(RID, e2eKey);
+
+    const contenu = m.chiffrer(RID, { msg: 'envoyé chiffré' });
+    assert.notEqual(contenu, null);
+    assert.equal(contenu?.kid, e2eKey.slice(0, 36));
+    assert.equal(m.dechiffrerContenu(RID, contenu as ContenuChiffre), 'envoyé chiffré');
+  });
+
+  test('après une rotation, chiffre sous la NOUVELLE clé', async () => {
+    const { fetchMyKeys, e2eKey } = await fabriquer();
+    const { client, stockage } = faux(fetchMyKeys);
+    const m = new MoteurE2E({ client, stockage, uid: 'osR3JzQEiM2H77m46' });
+    await m.deverrouiller(MOT_DE_PASSE);
+    m.enregistrerCleSalon(RID, e2eKey);
+    m.chiffrer(RID, { msg: 'avant' });
+
+    const rot = await fabriquerCleSalon(fetchMyKeys.public_key, 'ignoré');
+    m.enregistrerCleSalon(RID, rot.e2eKey);
+    const contenu = m.chiffrer(RID, { msg: 'après' });
+    assert.equal(contenu?.kid, rot.e2eKey.slice(0, 36));
+    assert.equal(m.dechiffrerContenu(RID, contenu as ContenuChiffre), 'après');
+  });
+});

@@ -3,7 +3,7 @@
  * le déverrouillage. La crypto pure vit dans `crypto.ts` ; ici on gère l'état
  * (verrouillé / déverrouillé), le stockage sécurisé de la clé et le REST.
  *
- * Modèle d'usage — DÉCHIFFREMENT SEUL (lecture) pour ce v1 :
+ * Modèle d'usage :
  *   1. `reprendre()` au démarrage : si une clé privée est en Keystore, on
  *      réimporte sans mot de passe → déverrouillé silencieusement.
  *   2. sinon `deverrouiller(motDePasse)` au tap sur un salon chiffré : va
@@ -11,7 +11,8 @@
  *      persiste.
  *   3. `enregistrerCleSalon(rid, E2EKey)` met la clé AES d'un salon en cache
  *      (déchiffrée par RSA une fois) ; `dechiffrerContenu(rid, content)` est
- *      alors SYNCHRONE — forge l'est — donc branchable au fil de l'ingestion.
+ *      alors SYNCHRONE, donc branchable au fil de l'ingestion ; `chiffrer(rid,
+ *      charge)` l'est aussi, pour l'envoi.
  *   4. `verrouiller()` oublie tout, en mémoire et en Keystore.
  *
  * `estDeverrouille` est observable (`souscrire`) pour piloter l'UI via
@@ -19,6 +20,7 @@
  */
 
 import {
+  chiffrerMessage,
   dechiffrerCleSalon,
   dechiffrerClePrivee,
   dechiffrerMessage,
@@ -160,21 +162,42 @@ export class MoteurE2E {
    * ciphertext pour retenter après déverrouillage.
    */
   dechiffrerContenu(rid: string, content: ContenuChiffre): string | null {
-    if (this.clePrivee === null) return null;
-    let cle = this.clesSalon.get(rid);
-    if (cle === undefined) {
-      // Pas encore en cache : tenter depuis l'`E2EKey` connu.
-      const e2eKey = this.e2eKeys.get(rid);
-      if (e2eKey === undefined) return null;
-      try {
-        cle = dechiffrerCleSalon(e2eKey, this.clePrivee);
-        this.clesSalon.set(rid, cle);
-      } catch {
-        return null;
-      }
-    }
+    const cle = this.cleDuSalon(rid);
+    if (cle === null) return null;
     try {
       return dechiffrerMessage(content, cle);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Chiffre une charge (`{msg}`…) pour un salon, sous sa clé courante et son
+   * keyID. Rend `null` si verrouillé ou si la clé du salon manque : l'envoi
+   * attend alors, il ne part jamais en clair.
+   */
+  chiffrer(rid: string, charge: object): ContenuChiffre | null {
+    const cle = this.cleDuSalon(rid);
+    const kid = this.keyIdSalon(rid);
+    if (cle === null || kid === null) return null;
+    try {
+      return chiffrerMessage(charge, cle, kid);
+    } catch {
+      return null;
+    }
+  }
+
+  private cleDuSalon(rid: string): Buffer | null {
+    if (this.clePrivee === null) return null;
+    const connue = this.clesSalon.get(rid);
+    if (connue !== undefined) return connue;
+    // Pas encore en cache : tenter depuis l'`E2EKey` connu.
+    const e2eKey = this.e2eKeys.get(rid);
+    if (e2eKey === undefined) return null;
+    try {
+      const cle = dechiffrerCleSalon(e2eKey, this.clePrivee);
+      this.clesSalon.set(rid, cle);
+      return cle;
     } catch {
       return null;
     }

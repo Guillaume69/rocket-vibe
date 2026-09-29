@@ -94,4 +94,17 @@ export function surfaceEmployeeParCryptoTs(): void {
     octets,
   );
   void jwkSalon.toString('utf8');
+
+  // chiffrerMessage : IV aléatoire, CBC 128 ou GCM 256 (tag lu après final).
+  const iv: BufferEmbarque = qc.randomBytes(16);
+  const versCbc = qc.createCipheriv('aes-128-cbc', octets, iv);
+  const chiffreCbc: BufferEmbarque = moduleBuffer.Buffer.concat([versCbc.update(octets), versCbc.final()]);
+  void chiffreCbc.toString('base64');
+  const versGcm = qc.createCipheriv('aes-256-gcm', octets, iv);
+  const chiffreGcm: BufferEmbarque = moduleBuffer.Buffer.concat([
+    versGcm.update(octets),
+    versGcm.final(),
+    versGcm.getAuthTag(),
+  ]);
+  void chiffreGcm;
 }

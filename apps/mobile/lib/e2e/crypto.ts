@@ -1,5 +1,6 @@
 /**
- * Primitives de déchiffrement E2EE Rocket.Chat (schéma `rc.v2.aes-sha2`).
+ * Primitives E2EE Rocket.Chat (schéma `rc.v2.aes-sha2`) : déchiffrement, et
+ * chiffrement des messages envoyés.
  *
  * Fonctions PURES, sans React ni réseau — testables sous Node. Tout le savoir
  * cryptographique du client tient ici ; l'orchestration (session, clés en
@@ -24,7 +25,16 @@
  * `setAuthTag` — d'où le découpage.
  */
 
-import { constants, createDecipheriv, createPrivateKey, pbkdf2Sync, privateDecrypt, type KeyObject } from 'crypto';
+import {
+  constants,
+  createCipheriv,
+  createDecipheriv,
+  createPrivateKey,
+  pbkdf2Sync,
+  privateDecrypt,
+  randomBytes,
+  type KeyObject,
+} from 'crypto';
 import { Buffer } from 'buffer';
 
 /** Enveloppe de la clé privée telle que renvoyée par `e2e.fetchMyKeys`. */
@@ -246,4 +256,29 @@ export function dechiffrerMessage(contenu: ContenuChiffre, cleSalonOctets: Buffe
     // pas du JSON : texte brut.
   }
   return texte;
+}
+
+/**
+ * Charge claire (`{msg}`, plus `attachments`/`files`/`file` pour un fichier) →
+ * objet `content` `rc.v2.aes-sha2`, tel que le client web le produit. Le mode
+ * suit la clé de salon, comme WebCrypto côté web où la clé est importée selon
+ * l'`alg` de son JWK : `A128CBC` (16 octets) → CBC, IV de 16 ; `A256GCM` (32)
+ * → GCM, IV de 12, tag collé en fin de `ciphertext`.
+ */
+export function chiffrerMessage(charge: object, cleSalonOctets: Buffer, kid: string): ContenuChiffre {
+  const clair = Buffer.from(JSON.stringify(charge), 'utf8');
+  let iv: Buffer;
+  let ct: Buffer;
+  if (cleSalonOctets.length === 16) {
+    iv = randomBytes(TAILLE_IV_CBC);
+    const chiffreur = createCipheriv('aes-128-cbc', cleSalonOctets, iv);
+    ct = Buffer.concat([chiffreur.update(clair), chiffreur.final()]);
+  } else if (cleSalonOctets.length === 32) {
+    iv = randomBytes(12);
+    const chiffreur = createCipheriv('aes-256-gcm', cleSalonOctets, iv);
+    ct = Buffer.concat([chiffreur.update(clair), chiffreur.final(), chiffreur.getAuthTag()]);
+  } else {
+    throw new ErreurE2E('clé de salon de taille inattendue');
+  }
+  return { algorithm: 'rc.v2.aes-sha2', kid, iv: iv.toString('base64'), ciphertext: ct.toString('base64') };
 }

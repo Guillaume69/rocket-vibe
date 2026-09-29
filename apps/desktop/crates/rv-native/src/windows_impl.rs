@@ -140,6 +140,27 @@ pub fn set_window(hwnd: isize) {
     badge(BADGE.load(Ordering::SeqCst), DOT.load(Ordering::SeqCst));
 }
 
+/// What Windows sends the window when the keyboard layout changes, for the smoke run.
+pub fn input_language_changed() {
+    use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::UI::Input::KeyboardAndMouse::GetKeyboardLayout;
+    use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_INPUTLANGCHANGE};
+    let hwnd = WINDOW.load(Ordering::SeqCst);
+    if hwnd == 0 {
+        return;
+    }
+    // SAFETY: a window handle of this process and the thread's own layout.
+    unsafe {
+        let layout = GetKeyboardLayout(0);
+        let _ = PostMessageW(
+            Some(HWND(hwnd as *mut core::ffi::c_void)),
+            WM_INPUTLANGCHANGE,
+            WPARAM(0),
+            LPARAM(layout.0 as isize),
+        );
+    }
+}
+
 const SIDE: i32 = 32;
 
 /// A red disc of radius `r` centred at `(cx, cy)`, with `text` in white.

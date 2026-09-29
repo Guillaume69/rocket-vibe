@@ -106,7 +106,9 @@ fn main() -> glib::ExitCode {
     spell::start();
     app.connect_startup(|app| {
         #[cfg(windows)]
-        windows::input_method();
+        if !smoke::ime_unpinned() {
+            windows::input_method();
+        }
         background::install(app);
         style::load();
         if let Some(display) = gtk::gdk::Display::default() {

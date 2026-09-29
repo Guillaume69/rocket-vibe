@@ -288,6 +288,22 @@ jobs:
           Remove-Item Env:RV_SMOKE_MEDIA
           $played = @(Select-String -Path "$env:RUNNER_TEMP\gallery-out.txt" -Pattern "smoke: media .* ok").Count
           if ($played -ne 3) { throw "audio or video did not play ($played of 3)" }
+          # Keyboard layout changes with the composer focused: once as GTK leaves it, to show the
+          # test reproduces the IME crash, then with the input method pinned, which must stay clean.
+          foreach ($mode in @("unpinned", "1")) {
+            $env:RV_SMOKE_IME = $mode
+            $ime = Start-Process $exe -WorkingDirectory "$app\bin" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\ime-$mode.txt"
+            Start-Sleep -Seconds 12
+            $imeAlive = -not $ime.HasExited
+            if ($imeAlive) { Stop-Process -Id $ime.Id -Force }
+            Start-Sleep -Seconds 1
+            $imeLog = Get-Content "$env:LOCALAPPDATA\rocket-vibe-rs\rocket-vibe.log" -Raw -ErrorAction SilentlyContinue
+            $criticals = ([regex]::Matches("$imeLog", "GTK_IS_IM_CONTEXT_IME")).Count
+            Get-Content "$env:RUNNER_TEMP\ime-$mode.txt" -ErrorAction SilentlyContinue
+            Write-Host "input method $mode : alive $imeAlive, $criticals IME criticals"
+            if ($mode -eq "1" -and (-not $imeAlive -or $criticals -gt 0)) { throw "a keyboard layout change still breaks the input method" }
+          }
+          Remove-Item Env:RV_SMOKE_IME
           # Soak: rows, toasts and the badge churned for 45 s; the app must still be there, with no panic recorded.
           $env:RV_SMOKE_SOAK = "45"
           $soak = Start-Process $exe -WorkingDirectory "$app\bin" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\soak-out.txt"

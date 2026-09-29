@@ -12,8 +12,9 @@ section here.
 - Windows: the app crashed after a keyboard layout change (Win+Space, Alt+Shift, or Windows
   switching layouts per window) while typing: GTK left its input method behind. The input
   method is now fixed, so a layout change no longer swaps it.
-- Windows: audio and video files did not play; the package lacked GTK's media module. It
-  now plays Ogg (voice messages from this app), AAC (from the Android app) and H.264 video.
+- Audio and video files did not play on Windows (decoders missing from the package) nor on
+  macOS (Homebrew's GTK has no media backend; the app now plays through GStreamer itself).
+  Both play Ogg (voice messages from this app), AAC (from the Android app) and H.264 video.
   An audio file that cannot play says so.
 - Windows: the logs moved to `%LOCALAPPDATA%\rocket-vibe-rs`, out of the Internet cache that
   Disk Cleanup empties. Settings, Logs opens the folder.

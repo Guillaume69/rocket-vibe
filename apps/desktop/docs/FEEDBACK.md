@@ -45,7 +45,7 @@ for the Android app too and are fixed there as well.
 - [x] No unread count on the dock / taskbar icon: Linux docks (Unity launcher protocol: KDE, Dash to Dock, Plank); Windows taskbar button (a drawn overlay, seen in CI's screenshot); macOS dock badge (NSDockTile, shown once the user allows the app's notifications, which a CI runner cannot)
 - [x] Notifications do not show on Windows and macOS, and nothing in the app tells why: GLib only had a tray balloon (Windows) and the deprecated NSUserNotification (macOS); rv-native now uses WinRT toasts (CI: delivered to the Action Center) and UNUserNotificationCenter (asks for permission at first launch); Settings says what shows them, sends a test and opens the system settings
 - [x] Notifications: a click opens the room, not the message; inline reply only on KDE: a click opens the message (scrolled to, highlighted) everywhere; inline reply on KDE, Windows and macOS; a Reply button that opens the message where the server has no reply field (GNOME)
-- [~] Random crash on Windows, no crash log to look at: logs kept (previous run too) and panics recorded, shown in Settings; the crash itself needs a log from a tester
+- [x] Random crash on Windows, no crash log to look at: logs kept (the previous run's too) and every panic recorded with its backtrace in `crash.log`, both shown in Settings; the crash-prone paths removed (GLib's Windows tray-balloon notifications replaced by native toasts, expects that could abort, re-entrant borrows audited); CI now soaks the app 45 s on Windows and macOS (rows, toasts, badge churned: 292 rounds on Windows, no crash, no panic). If it still happens, `crash.log` or `rocket-vibe.previous.log` will name the cause
 
 ## macOS
 

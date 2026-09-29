@@ -138,6 +138,11 @@ button.cta:active, button.cta:disabled { opacity: 0.75; }
 .staged-thumb { background: #1E1B33; border-radius: 8px; }
 .staged-icon { font-size: 22px; }
 .staged-quality { font-size: 12.5px; color: #8F89AB; }
+.update-card { background: #171529; border: 1.5px solid #2C2946; border-radius: 16px; padding: 10px 12px; margin: 6px 8px; }
+.update-title { font-weight: 800; font-size: 13px; }
+button.update-install { background: linear-gradient(135deg, #FF5FA2, #A78BFA); color: #0D0B1A; font-weight: 800; border-radius: 999px; padding: 2px 14px; min-height: 28px; }
+button.update-notes { font-size: 12.5px; border-radius: 999px; min-height: 28px; }
+button.update-close { min-width: 24px; min-height: 24px; padding: 0; }
 button.attach-button { min-width: 28px; min-height: 24px; padding: 0 2px; color: #8F89AB; }
 .room-content:drop(active) { box-shadow: inset 0 0 0 2px #34E1D0; }
 .upload-strip { margin: 0 16px 4px 16px; }

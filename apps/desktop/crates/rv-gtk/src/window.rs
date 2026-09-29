@@ -223,6 +223,22 @@ impl AppWindow {
                 }
             }),
         });
+        let weak = Rc::downgrade(&this);
+        crate::updater::set_presenter(move |release| {
+            let Some(this) = weak.upgrade() else { return };
+            let (w1, w2) = (Rc::downgrade(&this), Rc::downgrade(&this));
+            let quit: Rc<dyn Fn()> = Rc::new(move || {
+                if let Some(this) = w1.upgrade() {
+                    this.window.close();
+                }
+            });
+            let close: Rc<dyn Fn()> = Rc::new(move || {
+                if let Some(this) = w2.upgrade() {
+                    this.chat.set_update_notice(None);
+                }
+            });
+            this.chat.set_update_notice(Some(&crate::updater::card(release, quit, close)));
+        });
         // Every handler above holds a weak reference: the window's own
         // handler is what keeps the controller alive as long as the window.
         let keep = this.clone();
@@ -238,6 +254,7 @@ impl AppWindow {
     }
 
     pub fn start(self: &Rc<Self>) {
+        crate::updater::startup();
         let this = self.clone();
         glib::spawn_future_local(async move {
             match on_tokio(secrets::load_all()).await.into_iter().next() {

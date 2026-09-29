@@ -160,6 +160,37 @@ pub fn open(
 
     let about = adw::PreferencesGroup::builder().title(t("settings.about")).build();
     about.add(&adw::ActionRow::builder().title(t("settings.version")).subtitle(env!("CARGO_PKG_VERSION")).build());
+    let auto_update = adw::SwitchRow::builder()
+        .title(t("settings.updates_auto"))
+        .subtitle(t("settings.updates_auto_hint"))
+        .active(crate::updater::automatic())
+        .build();
+    auto_update.connect_active_notify(|row| crate::updater::set_automatic(row.is_active()));
+    about.add(&auto_update);
+    let check_now = adw::ButtonRow::builder().title(t("settings.updates_check")).build();
+    check_now.connect_activated(glib::clone!(
+        #[weak]
+        dialog,
+        move |row| {
+            row.set_sensitive(false);
+            let row = row.clone();
+            glib::spawn_future_local(async move {
+                match crate::updater::check().await {
+                    Ok(Some(release)) => {
+                        dialog.close();
+                        crate::updater::present(release);
+                    }
+                    Ok(None) => toast_of(&dialog, t("settings.updates_none")),
+                    Err(e) => {
+                        eprintln!("Update check failed: {e}");
+                        toast_of(&dialog, t("settings.updates_failed"));
+                    }
+                }
+                row.set_sensitive(true);
+            });
+        }
+    ));
+    about.add(&check_now);
     let logs_dir = crate::crashlog::dir();
     let logs_row = adw::ActionRow::builder()
         .title(t("settings.logs"))

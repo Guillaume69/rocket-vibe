@@ -115,6 +115,7 @@ the same rv-core, with these differences:
 
 - [x] Settings page: profile card, notification preference (`users.setPreferences`), language, E2EE status, account, server
 - [x] Languages: French and English, automatic by default
+- [x] New versions (desktop equivalent of the store): checked on GitHub releases at startup (6 h at most) or on demand, installed in place on Linux, through the installer on Windows, by opening the DMG on macOS (SwiftUI app: not yet)
 
 ## 10. Notifications (desktop equivalent of Android push)
 

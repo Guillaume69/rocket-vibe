@@ -40,6 +40,8 @@
 //!                          in a narrow window, back to the list and forward into the room again
 //!   RV_SMOKE_GALLERY=1     sample messages and a composer, no server: see `gallery`
 //!   RV_SMOKE_SOAK=<secs>   with the gallery: rows, toasts and badges churned that long: see `soak`
+//!   RV_SMOKE_UPDATE=1      the update card must offer a newer release (RV_SMOKE_UPDATE_FROM plays an
+//!                          older version); `install`: its Update button must replace the binary
 //! A failed expectation makes the process exit with status 1.
 
 use std::cell::Cell;
@@ -229,6 +231,14 @@ pub fn install(window: &Rc<AppWindow>) {
                 let composer = w.chat.composer_rc();
                 glib::timeout_add_local_once(Duration::from_millis(2000), move || {
                     composer.set_text(&draft.replace("\\n", "\n"))
+                });
+            }
+            if let Ok(mode) = std::env::var("RV_SMOKE_UPDATE")
+                && !mode.is_empty()
+            {
+                let chat = w.chat.clone();
+                glib::timeout_add_local_once(Duration::from_millis(6000), move || {
+                    update_checks(chat, mode == "install")
                 });
             }
             if std::env::var("RV_SMOKE_JUMP").as_deref() == Ok("1") {
@@ -891,6 +901,53 @@ fn soak(column: gtk::Box, samples: Vec<crate::rows::Display>, seconds: u32) {
         }
         if started.elapsed().as_secs() >= u64::from(seconds) {
             println!("smoke: soak survived {round} rounds in {seconds} s");
+            return glib::ControlFlow::Break;
+        }
+        glib::ControlFlow::Continue
+    });
+}
+
+fn find_by_class(root: &gtk::Widget, class: &str) -> Option<gtk::Widget> {
+    if root.has_css_class(class) {
+        return Some(root.clone());
+    }
+    let mut child = root.first_child();
+    while let Some(c) = child {
+        if let Some(found) = find_by_class(&c, class) {
+            return Some(found);
+        }
+        child = c.next_sibling();
+    }
+    None
+}
+
+fn update_checks(chat: Rc<crate::chat::ChatPage>, install: bool) {
+    let Some(card) = chat.update_notice() else {
+        println!("smoke: update notice shown=false");
+        FAILED.store(true, Ordering::SeqCst);
+        return;
+    };
+    let title = find_by_class(&card, "update-title").and_downcast::<gtk::Label>().map(|l| l.label());
+    println!("smoke: update notice shown=true title={title:?}");
+    if !install {
+        return;
+    }
+    let Some(button) = find_by_class(&card, "update-install").and_downcast::<gtk::Button>() else {
+        FAILED.store(true, Ordering::SeqCst);
+        return;
+    };
+    button.emit_clicked();
+    let waited = Rc::new(Cell::new(0u32));
+    glib::timeout_add_local(Duration::from_millis(500), move || {
+        let label = find_by_class(&card, "update-title").and_downcast::<gtk::Label>().map(|l| l.label().to_string());
+        let done = label.as_deref() == Some(crate::i18n::t("update.installed"));
+        let failed = label.as_deref() == Some(crate::i18n::t("update.failed"));
+        waited.set(waited.get() + 1);
+        if done || failed || waited.get() > 90 {
+            println!("smoke: update installed={done} label={label:?}");
+            if !done {
+                FAILED.store(true, Ordering::SeqCst);
+            }
             return glib::ControlFlow::Break;
         }
         glib::ControlFlow::Continue

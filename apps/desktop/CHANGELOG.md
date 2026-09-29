@@ -17,6 +17,10 @@ section here.
 - The server's own emoji in the emoji picker: a tab of their own, and first in a search.
 - The @ and : suggestions show the person's card and the server emoji's picture; hovering a
   server emoji in a message shows it large with its shortcode.
+- The app tells when a newer version is out: a card at the foot of the room list, with what is
+  new and an Update button. On Linux it replaces the binary in place and offers to restart, on
+  Windows it runs the installer and reopens, on macOS it downloads and opens the disk image.
+  Checked at startup (every 6 hours at most) and from Settings, where it can be turned off.
 
 ### Fixed
 

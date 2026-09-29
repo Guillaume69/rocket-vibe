@@ -19,10 +19,10 @@ cp target/release/rocket-vibe-gtk "$contents/MacOS/"
 scanner="$brew/libexec/gstreamer-1.0/gst-plugin-scanner"
 if [ -f "$scanner" ]; then cp "$scanner" "$contents/MacOS/"; fi
 
-for plugin in coreelements audioconvert audioresample autodetect osxaudio opus ogg playback \
+# Homebrew's GTK has no media backend: the app plays through playbin and an appsink.
+for plugin in coreelements audioconvert audioresample autodetect osxaudio opus vorbis ogg playback app \
   typefindfunctions audioparsers isomp4 matroska videoconvertscale volume applemedia; do
-  file="$brew/lib/gstreamer-1.0/libgst$plugin.dylib"
-  if [ -f "$file" ]; then cp "$file" "$res/lib/gstreamer-1.0/"; fi
+  cp "$brew/lib/gstreamer-1.0/libgst$plugin.dylib" "$res/lib/gstreamer-1.0/"
 done
 cp -RL "$brew/lib/gdk-pixbuf-2.0" "$res/lib/"
 if [ -d "$brew/lib/gtk-4.0" ]; then cp -RL "$brew/lib/gtk-4.0" "$res/lib/"; fi

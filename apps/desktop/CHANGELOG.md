@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-29
+
 ### Changed
 
 - Files chosen, dropped or pasted wait in the composer as chips (thumbnail, name, type and
@@ -121,5 +123,6 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.1.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.2.0...HEAD
+[0.2.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.1.0...desktop-v0.2.0
 [0.1.0]: https://github.com/Guillaume69/rocket-vibe/releases/tag/desktop-v0.1.0

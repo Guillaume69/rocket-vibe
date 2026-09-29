@@ -433,7 +433,7 @@ impl ChatPage {
                 .tooltip_text(format!(":{code}:"))
                 .build();
             frame.set_child(Some(&gtk::Box::new(gtk::Orientation::Vertical, 0)));
-            let target = frame.downgrade();
+            let (target, code) = (frame.downgrade(), code.to_owned());
             crate::media::load(&session, &path, move |texture| {
                 if let Some(frame) = target.upgrade() {
                     frame.add_overlay(
@@ -443,6 +443,12 @@ impl ChatPage {
                             .can_shrink(true)
                             .build(),
                     );
+                    let texture = texture.clone();
+                    frame.set_has_tooltip(true);
+                    frame.connect_query_tooltip(move |_, _, _, _, tooltip| {
+                        tooltip.set_custom(Some(&crate::markdown_view::emoji_card(&texture, &code)));
+                        true
+                    });
                 }
             });
             Some(frame.upcast())

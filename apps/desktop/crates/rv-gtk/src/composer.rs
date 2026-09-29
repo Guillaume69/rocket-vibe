@@ -524,25 +524,31 @@ impl Composer {
         let buffer = self.text.buffer();
         let cursor = buffer.iter_at_mark(&buffer.get_insert());
         let before = buffer.text(&buffer.start_iter(), &cursor, false).to_string();
-        let offered: Vec<(String, usize, String)> = match rv_core::completion::query(&before) {
+        let offered: Vec<(String, usize, String, Option<gtk::Widget>)> = match rv_core::completion::query(&before) {
             Some(q) if q.trigger == rv_core::completion::Trigger::Mention => {
                 let source = self.mentions.borrow().clone();
                 source
                     .map(|f| f(&q.prefix))
                     .unwrap_or_default()
                     .into_iter()
-                    .map(|name| (format!("@{name}"), q.start, format!("@{name} ")))
+                    .map(|name| {
+                        let card = crate::markdown_view::mention_preview(&name);
+                        (format!("@{name}"), q.start, format!("@{name} "), card)
+                    })
                     .collect()
             }
             Some(q) => {
                 let custom = self.custom_emoji.borrow().clone().map(|f| f(&q.prefix)).unwrap_or_default();
                 custom
                     .into_iter()
-                    .map(|code| (format!(":{code}:"), q.start, format!(":{code}: ")))
+                    .map(|code| {
+                        let image = crate::markdown_view::custom_emoji(&code);
+                        (format!(":{code}:"), q.start, format!(":{code}: "), image)
+                    })
                     .chain(
                         rv_core::emoji::complete(&q.prefix, 8)
                             .into_iter()
-                            .map(|(code, glyph)| (format!("{glyph}  :{code}:"), q.start, format!("{glyph} "))),
+                            .map(|(code, glyph)| (format!("{glyph}  :{code}:"), q.start, format!("{glyph} "), None)),
                     )
                     .take(8)
                     .collect()
@@ -557,11 +563,21 @@ impl Composer {
             self.completion.popdown();
             return;
         }
-        for (label, _, _) in &offered {
-            self.choices
-                .append(&gtk::Label::builder().label(label).xalign(0.0).css_classes(["completion-item"]).build());
+        for (label, _, _, preview) in &offered {
+            let text = gtk::Label::builder().label(label).xalign(0.0).css_classes(["completion-item"]).build();
+            match preview {
+                Some(card) if card.has_css_class("mention-card") => self.choices.append(card),
+                Some(image) => {
+                    image.set_tooltip_text(None);
+                    let row = gtk::Box::builder().spacing(8).build();
+                    row.append(image);
+                    row.append(&text);
+                    self.choices.append(&row);
+                }
+                None => self.choices.append(&text),
+            }
         }
-        self.offered.replace(offered.into_iter().map(|(_, start, insert)| (start, insert)).collect());
+        self.offered.replace(offered.into_iter().map(|(_, start, insert, _)| (start, insert)).collect());
         self.select(0);
         self.completion.popup();
     }

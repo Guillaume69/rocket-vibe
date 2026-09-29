@@ -37,7 +37,16 @@ fn with_images(markup: &str, classes: &[&str]) -> gtk::Widget {
     for piece in rv_core::markdown::pieces(markup) {
         let mut end = buffer.end_iter();
         match piece {
-            rv_core::markdown::Piece::Markup(m) => buffer.insert_markup(&mut end, m),
+            rv_core::markdown::Piece::Markup(m) => {
+                for (run, href) in rv_core::markdown::link_runs(m) {
+                    let mut end = buffer.end_iter();
+                    let from = end.offset();
+                    buffer.insert_markup(&mut end, &run);
+                    if let Some(href) = href {
+                        buffer.apply_tag(&link_tag(&buffer, &href), &buffer.iter_at_offset(from), &buffer.end_iter());
+                    }
+                }
+            }
             rv_core::markdown::Piece::Custom(code) => match custom_emoji(code) {
                 Some(image) => {
                     let anchor = buffer.create_child_anchor(&mut end);
@@ -47,12 +56,95 @@ fn with_images(markup: &str, classes: &[&str]) -> gtk::Widget {
             },
         }
     }
+    with_view_links(&view);
     view.upcast()
+}
+
+fn link_tag(buffer: &gtk::TextBuffer, href: &str) -> gtk::TextTag {
+    let table = buffer.tag_table();
+    let name = format!("href:{href}");
+    table.lookup(&name).unwrap_or_else(|| {
+        let tag = gtk::TextTag::builder().name(&name).foreground("#5CC8FF").build();
+        table.add(&tag);
+        tag
+    })
+}
+
+fn view_iter(view: &gtk::TextView, x: f64, y: f64) -> Option<gtk::TextIter> {
+    let (bx, by) = view.window_to_buffer_coords(gtk::TextWindowType::Widget, x as i32, y as i32);
+    view.iter_at_location(bx, by)
+}
+
+fn href_at(iter: &gtk::TextIter) -> Option<String> {
+    iter.tags().iter().find_map(|tag| tag.name()?.strip_prefix("href:").map(str::to_owned))
+}
+
+/// A text view's links open and preview as a label's do.
+fn with_view_links(view: &gtk::TextView) {
+    let click = gtk::GestureClick::new();
+    click.connect_released(|gesture, _, x, y| {
+        let Some(view) = gesture.widget().and_downcast::<gtk::TextView>() else { return };
+        if view.buffer().has_selection() {
+            return;
+        }
+        let Some(href) = view_iter(&view, x, y).as_ref().and_then(href_at) else { return };
+        let handler = LINKS.with_borrow(Clone::clone);
+        if !handler.is_some_and(|h| h(&href)) {
+            crate::cards::open_uri(&view, &href);
+        }
+    });
+    view.add_controller(click);
+    view.set_has_tooltip(true);
+    view.connect_query_tooltip(|view, x, y, _, tooltip| {
+        let Some(iter) = view_iter(view, x as f64, y as f64) else { return false };
+        if let Some(href) = href_at(&iter) {
+            if let Some(card) = href.strip_prefix("rv-user:").and_then(mention_preview) {
+                tooltip.set_custom(Some(&card));
+                return true;
+            }
+            tooltip.set_text(Some(&href));
+            return true;
+        }
+        let buffer = view.buffer();
+        let text = buffer.slice(&buffer.start_iter(), &buffer.end_iter(), true);
+        let Some((index, _)) = text.char_indices().nth(iter.offset().max(0) as usize) else { return false };
+        match rv_core::emoji::at(&text, index) {
+            Some((glyph, code)) => {
+                tooltip.set_markup(Some(&format!(
+                    "<span size=\"300%\">{}</span>\n:{}:",
+                    glib::markup_escape_text(glyph),
+                    glib::markup_escape_text(code)
+                )));
+                true
+            }
+            None => false,
+        }
+    });
 }
 
 /// The card shown over a `@mention`, by username.
 pub fn set_mention_preview(f: impl Fn(&str) -> Option<gtk::Widget> + 'static) {
     MENTION_PREVIEW.with_borrow_mut(|h| *h = Some(std::rc::Rc::new(f)));
+}
+
+/// A server emoji, large, with its shortcode.
+pub fn emoji_card(texture: &gtk::gdk::Texture, code: &str) -> gtk::Widget {
+    let card = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(4).build();
+    card.append(
+        &gtk::Picture::builder()
+            .paintable(texture)
+            .content_fit(gtk::ContentFit::Contain)
+            .width_request(64)
+            .height_request(64)
+            .build(),
+    );
+    card.append(&gtk::Label::new(Some(&format!(":{code}:"))));
+    card.upcast()
+}
+
+/// A person's card, as a mention's hover shows it.
+pub fn mention_preview(username: &str) -> Option<gtk::Widget> {
+    MENTION_PREVIEW.with_borrow(Clone::clone).and_then(|f| f(username))
 }
 
 /// Hovering an emoji shows it large with its shortcode; hovering a mention, its card.
@@ -67,9 +159,7 @@ fn with_previews(label: &gtk::Label) {
         }
         let index = index as usize;
         if let Some(link) = rv_core::markdown::link_at(&label.label(), index) {
-            let card = link
-                .strip_prefix("rv-user:")
-                .and_then(|user| MENTION_PREVIEW.with_borrow(Clone::clone).and_then(|f| f(user)));
+            let card = link.strip_prefix("rv-user:").and_then(mention_preview);
             if let Some(card) = card {
                 tooltip.set_custom(Some(&card));
                 return true;

@@ -362,9 +362,14 @@ jobs:
           name: desktop-macos
           path: apps/desktop/dist/*.dmg
 
+  macos-swiftui:
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/desktop-swiftui.yml
+    secrets: inherit
+
   release:
     if: github.ref_type == 'tag'
-    needs: [version, linux, windows, macos]
+    needs: [version, linux, windows, macos, macos-swiftui]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

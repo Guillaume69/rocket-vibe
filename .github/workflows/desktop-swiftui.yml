@@ -1,11 +1,12 @@
 name: desktop-swiftui
 
 # The SwiftUI app for macOS (apps/desktop/macos over rv-ffi). A Mac runner
-# costs ten Linux ones: desktop tags, manual runs, and feature branches that
-# touch the app (master is checked through them).
+# costs ten Linux ones: manual runs, feature branches that touch the app
+# (master is checked through them), and desktop.yml's tags and manual runs,
+# whose release takes its DMG.
 on:
+  workflow_call:
   push:
-    tags: ['desktop-v*']
     branches-ignore: [master]
     paths:
       - 'apps/desktop/macos/**'
@@ -14,7 +15,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: desktop-swiftui-${{ github.ref }}
+  group: desktop-swiftui-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:

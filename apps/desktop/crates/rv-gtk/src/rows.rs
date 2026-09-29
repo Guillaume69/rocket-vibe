@@ -595,6 +595,7 @@ pub fn message_widget(
     }
     line.append(&column);
     line.append(&more);
+    outer.set_widget_name(&row.id);
     outer.add_css_class("message");
     outer.append(&line);
     outer.upcast()

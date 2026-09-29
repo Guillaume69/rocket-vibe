@@ -16,11 +16,19 @@ use crate::widgets::Handler;
 
 pub type Shared<T> = Rc<RefCell<Option<T>>>;
 
+/// The avatar and time column of a row: pressing there picks whole messages.
+const GUTTER: f64 = 60.0;
+
 pub struct MessageList {
     /// The scroller, with the button back to the latest message over it.
     pub root: gtk::Overlay,
     scroll: gtk::ScrolledWindow,
     jump: gtk::Button,
+    /// Whole messages picked in the gutter, and the bar that copies them.
+    pick_bar: gtk::Box,
+    pick_label: gtk::Label,
+    picked: RefCell<Vec<String>>,
+    anchor: RefCell<Option<String>>,
     view: gtk::ListView,
     store: gio::ListStore,
     rows: RefCell<Vec<Display>>,
@@ -58,10 +66,33 @@ impl MessageList {
             .build();
         let root = gtk::Overlay::builder().child(&scroll).build();
         root.add_overlay(&jump);
+        let pick_label = gtk::Label::builder().css_classes(["pick-count"]).build();
+        let pick_copy = gtk::Button::builder().label(t("pick.copy")).css_classes(["pick-copy"]).build();
+        let pick_clear = gtk::Button::builder()
+            .icon_name("window-close-symbolic")
+            .tooltip_text(t("pick.clear"))
+            .css_classes(["flat", "circular"])
+            .build();
+        let pick_bar = gtk::Box::builder()
+            .spacing(10)
+            .css_classes(["pick-bar"])
+            .halign(gtk::Align::Center)
+            .valign(gtk::Align::Start)
+            .margin_top(8)
+            .visible(false)
+            .build();
+        pick_bar.append(&pick_label);
+        pick_bar.append(&pick_copy);
+        pick_bar.append(&pick_clear);
+        root.add_overlay(&pick_bar);
         let this = Rc::new(MessageList {
             root,
             scroll,
             jump,
+            pick_bar,
+            pick_label,
+            picked: RefCell::default(),
+            anchor: RefCell::default(),
             view,
             store,
             rows: RefCell::default(),
@@ -75,6 +106,19 @@ impl MessageList {
             revealing: RefCell::default(),
             highlighted: RefCell::default(),
         });
+        let weak = Rc::downgrade(&this);
+        pick_copy.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.copy_picked();
+            }
+        });
+        let weak = Rc::downgrade(&this);
+        pick_clear.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.clear_picked();
+            }
+        });
+        this.wire_picking();
         this.wire(session);
         this
     }
@@ -105,6 +149,9 @@ impl MessageList {
                 this.editing.borrow().as_ref().filter(|(id, _)| *id == display.row.id).map(|(_, b)| b.clone())
             });
             let widget = rows::message_widget(&display, &my_id, session.as_ref(), editing.as_ref(), on_event);
+            if w.upgrade().is_some_and(|this| this.picked.borrow().contains(&display.row.id)) {
+                widget.add_css_class("picked");
+            }
             if w.upgrade().is_some_and(|this| this.highlighted.borrow().as_deref() == Some(display.row.id.as_str())) {
                 widget.add_css_class("revealed");
             }
@@ -144,6 +191,120 @@ impl MessageList {
                 top(());
             }
         });
+    }
+
+    /// Pressing in the gutter (avatar, time) and dragging picks whole messages,
+    /// Shift extends from the last one; inside a message the text selects as usual.
+    fn wire_picking(self: &Rc<Self>) {
+        let drag = gtk::GestureDrag::builder().propagation_phase(gtk::PropagationPhase::Capture).build();
+        let weak = Rc::downgrade(self);
+        drag.connect_drag_begin(move |gesture, x, y| {
+            let Some(this) = weak.upgrade() else { return };
+            let id = (x < GUTTER).then(|| this.id_at(x, y)).flatten();
+            let Some(id) = id else {
+                gesture.set_state(gtk::EventSequenceState::Denied);
+                return;
+            };
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+            this.view.set_focusable(true);
+            this.view.grab_focus();
+            let shift = gesture.current_event_state().contains(gtk::gdk::ModifierType::SHIFT_MASK);
+            let anchor = this.anchor.borrow().clone().filter(|_| shift);
+            match anchor {
+                Some(anchor) => this.pick_range(&anchor, &id),
+                None => {
+                    this.anchor.replace(Some(id.clone()));
+                    let already = this.picked.borrow().len() == 1 && this.picked.borrow()[0] == id;
+                    this.set_picked(if already { Vec::new() } else { vec![id] });
+                }
+            }
+        });
+        let weak = Rc::downgrade(self);
+        drag.connect_drag_update(move |gesture, dx, dy| {
+            let (Some(this), Some((x, y))) = (weak.upgrade(), gesture.start_point()) else { return };
+            let anchor = this.anchor.borrow().clone();
+            if let (Some(anchor), Some(id)) = (anchor, this.id_at(x + dx, y + dy)) {
+                this.pick_range(&anchor, &id);
+            }
+        });
+        self.view.add_controller(drag);
+        let keys = gtk::EventControllerKey::new();
+        let weak = Rc::downgrade(self);
+        keys.connect_key_pressed(move |_, key, _, state| {
+            let Some(this) = weak.upgrade().filter(|this| !this.picked.borrow().is_empty()) else {
+                return glib::Propagation::Proceed;
+            };
+            match key {
+                gtk::gdk::Key::c if state.contains(gtk::gdk::ModifierType::CONTROL_MASK) => this.copy_picked(),
+                gtk::gdk::Key::Escape => this.clear_picked(),
+                _ => return glib::Propagation::Proceed,
+            }
+            glib::Propagation::Stop
+        });
+        self.view.add_controller(keys);
+    }
+
+    /// The message whose row is at `(x, y)` of the list.
+    fn id_at(&self, x: f64, y: f64) -> Option<String> {
+        let mut widget = self.view.pick(x, y, gtk::PickFlags::DEFAULT);
+        while let Some(w) = widget {
+            let name = w.widget_name();
+            if self.rows.borrow().iter().any(|d| d.row.id == name.as_str()) {
+                return Some(name.to_string());
+            }
+            widget = w.parent();
+        }
+        None
+    }
+
+    fn pick_range(&self, from: &str, to: &str) {
+        let rows = self.rows.borrow();
+        let at = |id: &str| rows.iter().position(|d| d.row.id == id);
+        let (Some(a), Some(b)) = (at(from), at(to)) else { return };
+        let ids = rows[a.min(b)..=a.max(b)]
+            .iter()
+            .filter(|d| rv_core::actions::has_actions(d.row.system_type.as_deref(), d.row.text.as_deref()))
+            .map(|d| d.row.id.clone())
+            .collect();
+        drop(rows);
+        self.set_picked(ids);
+    }
+
+    fn set_picked(&self, ids: Vec<String>) {
+        let before = self.picked.replace(ids);
+        let now = self.picked.borrow().clone();
+        for id in before.iter().filter(|id| !now.contains(id)).chain(now.iter().filter(|id| !before.contains(id))) {
+            self.refresh(id);
+        }
+        self.pick_bar.set_visible(!now.is_empty());
+        self.pick_label.set_label(&crate::i18n::tn("pick.count", now.len() as i64));
+    }
+
+    pub fn clear_picked(&self) {
+        self.anchor.replace(None);
+        self.set_picked(Vec::new());
+    }
+
+    /// The picked messages as text, oldest first: author and time, then the words.
+    pub fn picked_text(&self) -> String {
+        let picked = self.picked.borrow();
+        self.rows
+            .borrow()
+            .iter()
+            .filter(|d| picked.contains(&d.row.id))
+            .map(|d| {
+                let words = rv_core::actions::copyable_text(d.row.text.as_deref())
+                    .map_or_else(|| t("pick.attachment").to_owned(), str::to_owned);
+                let when = rows::local(d.row.ts).format("%d/%m/%Y %H:%M");
+                format!("{} · {when}\n{words}", d.row.author.as_deref().unwrap_or_default())
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    }
+
+    fn copy_picked(&self) {
+        self.root.clipboard().set_text(&self.picked_text());
+        self.clear_picked();
     }
 
     pub fn connect_event(&self, f: impl Fn(RowEvent) + 'static) {

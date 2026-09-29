@@ -23,6 +23,8 @@ section here.
 - Mouse back and forward buttons, and Alt+Left / Alt+Right: out of a thread, between the
   room list and the room in a narrow window, then through the rooms opened before.
 - The mouse selects across the lines of a message, and a selection is plainly visible.
+- Several messages at once: press in the left gutter (avatar, time) and drag, or Shift+click, to
+  pick whole messages; Copy (or Ctrl+C) puts them on the clipboard with their author and time.
 - In a narrow window, a forward arrow on the room list goes back to the open room.
 - Deleting a message asks for confirmation first.
 - Messages are edited in place, in their own row (Enter saves, Escape cancels), and Up in an

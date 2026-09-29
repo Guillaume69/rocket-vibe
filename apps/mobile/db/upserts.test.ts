@@ -43,6 +43,7 @@ import {
   MASQUER_APERCU_CHIFFRE,
   MASQUER_MESSAGES_CHIFFRES,
   MAJ_AVATAR_SALON,
+  MAJ_MARQUES_MESSAGE,
   MAJ_AVATAR_UTILISATEUR,
   SUPPRIMER_MESSAGE,
   SUPPRIMER_MESSAGE_OPTIMISTE,
@@ -107,6 +108,8 @@ function msg(o: Partial<MessageLocal> & { id: string; misAJourLe: number }) {
     urls: null,
     appelId: null,
     chiffreBrut: null,
+    epingle: false,
+    etoiles: null,
     ...o,
   });
 }
@@ -216,6 +219,23 @@ describe('upserts idempotents', () => {
       db.prepare('SELECT type_systeme, appel_id FROM messages WHERE id = ?').get('m1'),
     );
     assert.deepEqual(m, { type_systeme: 'videoconf', appel_id: 'call-xyz' });
+  });
+
+  test('épinglage et étoiles : aller-retour, puis pose locale écrasée par la version serveur suivante', () => {
+    db.prepare(UPSERT_MESSAGE).run(
+      ...msg({ id: 'm1', epingle: true, etoiles: '["u1"]', misAJourLe: 100 }),
+    );
+    const lire = () =>
+      ligne(db.prepare('SELECT epingle, etoiles, mis_a_jour_le FROM messages WHERE id = ?').get('m1'));
+    assert.deepEqual(lire(), { epingle: 1, etoiles: '["u1"]', mis_a_jour_le: 100 });
+
+    db.prepare(MAJ_MARQUES_MESSAGE).run(0, null, 'm1');
+    assert.deepEqual(lire(), { epingle: 0, etoiles: null, mis_a_jour_le: 100 });
+
+    db.prepare(UPSERT_MESSAGE).run(
+      ...msg({ id: 'm1', epingle: true, etoiles: '["u2"]', misAJourLe: 101 }),
+    );
+    assert.deepEqual(lire(), { epingle: 1, etoiles: '["u2"]', mis_a_jour_le: 101 });
   });
 
   test('un événement de même horodatage est appliqué (rejeu idempotent)', () => {

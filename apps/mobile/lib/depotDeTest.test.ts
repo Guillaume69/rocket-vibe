@@ -24,6 +24,7 @@ function faireDepotNu() {
     listerClesSalon: async () => [],
     messagesADechiffrer: async () => [],
     majTexteMessage: async () => void ecrits.push('majTexte'),
+    majMarquesMessage: async () => void ecrits.push('majMarques'),
     masquerMessagesChiffres: async () => void ecrits.push('masquer'),
     majApercuChiffre: async () => void ecrits.push('apercu'),
     majAvatarUtilisateur: async () => void ecrits.push('avatarU'),

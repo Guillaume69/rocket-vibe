@@ -5,6 +5,8 @@
  * les bizarreries du serveur, pour qu'elles ne se répandent pas ailleurs.
  */
 
+import { idsEtoiles } from './marques.ts';
+
 /** Le serveur envoie soit `{"$date": epochMs}` (EJSON), soit une chaîne ISO. */
 export function versEpoch(valeur: unknown): number | null {
   if (typeof valeur === 'number' && Number.isFinite(valeur)) return valeur;
@@ -51,6 +53,9 @@ export type MessageLocal = {
    * pris en charge). Ce n'est pas du clair : rien à afficher tel quel.
    */
   chiffreBrut: string | null;
+  epingle: boolean;
+  /** Uids qui ont étoilé le message, sérialisés (`lib/marques.ts`). */
+  etoiles: string | null;
   misAJourLe: number;
 };
 
@@ -166,6 +171,8 @@ export function versMessage(brut: Record<string, unknown>): MessageLocal | null 
     // Le `content` chiffré est conservé pour un déchiffrement différé ; le `msg`
     // opaque, lui, ne l'est jamais (voir `texte`).
     chiffreBrut: chiffre ? jsonOuNull(brut.content) : null,
+    epingle: booleen(brut.pinned),
+    etoiles: idsEtoiles(brut.starred),
     // `_updatedAt` est l'horloge du serveur : c'est elle qui arbitre les
     // conflits entre le WebSocket et un rattrapage REST plus lent.
     misAJourLe: versEpoch(brut._updatedAt) ?? horodatage,

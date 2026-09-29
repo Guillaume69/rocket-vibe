@@ -269,6 +269,10 @@ function faireDepot() {
       const m = messages.find((x) => x.id === id);
       if (m !== undefined) m.texte = texte;
     },
+    majMarquesMessage: async (id, epingle, etoiles) => {
+      const m = messages.find((x) => x.id === id);
+      if (m !== undefined) Object.assign(m, { epingle, etoiles });
+    },
     masquerMessagesChiffres: async () => {
       for (const m of messages) if (m.chiffreBrut !== null) m.texte = null;
     },

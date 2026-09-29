@@ -37,6 +37,20 @@ describe('versMessage — message de visioconférence', () => {
   });
 });
 
+describe('versMessage — épinglage et étoiles', () => {
+  test('lit `pinned` et réduit `starred` aux uids', () => {
+    const m = versMessage({ ...base, msg: 'x', pinned: true, starred: [{ _id: 'u1' }, { _id: 'u2' }] });
+    assert.equal(m?.epingle, true);
+    assert.equal(m?.etoiles, '["u1","u2"]');
+  });
+
+  test('absents ou vides : ni épinglé ni étoilé', () => {
+    const m = versMessage({ ...base, msg: 'x', starred: [] });
+    assert.equal(m?.epingle, false);
+    assert.equal(m?.etoiles, null);
+  });
+});
+
 describe('versEpoch — les trois formes que le serveur envoie', () => {
   test('un nombre passe tel quel', () => {
     assert.equal(versEpoch(1_700_000_000_000), 1_700_000_000_000);

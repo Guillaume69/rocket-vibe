@@ -45,6 +45,7 @@ function fauxDepotComplet() {
     listerClesSalon: async () => [],
     messagesADechiffrer: async () => [],
     majTexteMessage: async () => {},
+    majMarquesMessage: async () => {},
     masquerMessagesChiffres: async () => {},
     majApercuChiffre: async () => {},
     majAvatarUtilisateur: async () => {},

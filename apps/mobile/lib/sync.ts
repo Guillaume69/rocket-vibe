@@ -70,6 +70,8 @@ export interface Depot {
   messagesADechiffrer(): Promise<{ id: string; rid: string; chiffreBrut: string }[]>;
   /** Pose le clair d'un message après déchiffrement au déverrouillage. */
   majTexteMessage(id: string, texte: string): Promise<void>;
+  /** Épinglage et étoiles posés localement après un geste réussi (`lib/marques.ts`). */
+  majMarquesMessage(id: string, epingle: boolean, etoiles: string | null): Promise<void>;
   /**
    * Pose la version d'avatar (`avatarETag`) d'un utilisateur, désigné par son
    * PSEUDO — c'est la seule clé que porte le stream. Sans effet sur un pseudo

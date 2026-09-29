@@ -55,6 +55,7 @@ import {
   paramsIdentite,
   MESSAGES_A_DECHIFFRER,
   MAJ_TEXTE_MESSAGE,
+  MAJ_MARQUES_MESSAGE,
   MASQUER_MESSAGES_CHIFFRES,
   MAJ_APERCU_CHIFFRE,
   MASQUER_APERCU_CHIFFRE,
@@ -244,6 +245,10 @@ export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot
     majTexteMessage: (id, texte) =>
       enSerie(async () => {
         await brute.runAsync(MAJ_TEXTE_MESSAGE, [texte, id]);
+      }),
+    majMarquesMessage: (id, epingle, etoiles) =>
+      enSerie(async () => {
+        await brute.runAsync(MAJ_MARQUES_MESSAGE, [epingle ? 1 : 0, etoiles, id]);
       }),
     masquerMessagesChiffres: () =>
       enSerie(async () => {

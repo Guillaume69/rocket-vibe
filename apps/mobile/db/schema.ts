@@ -130,6 +130,10 @@ export const messages = sqliteTable(
      * tant que le salon n'est pas déverrouillé. Voir `lib/e2e`.
      */
     chiffreBrut: text('chiffre_brut'),
+    /** `pinned`. */
+    epingle: integer('epingle', { mode: 'boolean' }).notNull().default(false),
+    /** `starred` réduit aux uids, sérialisé ; `null` si personne. Voir `lib/marques.ts`. */
+    etoiles: text('etoiles'),
     misAJourLe: integer('mis_a_jour_le').notNull().default(0),
   },
   // L'index couvre la requête de l'écran salon : `WHERE rid = ? ORDER BY horodatage DESC`.

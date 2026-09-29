@@ -20,8 +20,8 @@ export const UPSERT_MESSAGE = `
 INSERT INTO messages (
   id, rid, texte, horodatage, auteur_id, auteur_nom, type_systeme,
   fil_id, fil_reponses, fil_dernier, fil_affiche, modifie_le, md,
-  pieces_jointes, reactions, urls, appel_id, chiffre_brut, mis_a_jour_le
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  pieces_jointes, reactions, urls, appel_id, chiffre_brut, epingle, etoiles, mis_a_jour_le
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
   -- Message chiffré : garder le clair déjà déchiffré si la resynchro arrive
   -- sans clé (excluded.texte null). Message ordinaire : comportement inchangé.
@@ -45,6 +45,8 @@ ON CONFLICT(id) DO UPDATE SET
   -- texte déjà déchiffré localement (COALESCE ci-dessus) : une resynchro du
   -- même message chiffré ne doit pas ré-effacer le clair (chiffre_brut gardé).
   chiffre_brut = COALESCE(excluded.chiffre_brut, messages.chiffre_brut),
+  epingle = excluded.epingle,
+  etoiles = excluded.etoiles,
   mis_a_jour_le = excluded.mis_a_jour_le
 WHERE excluded.mis_a_jour_le >= messages.mis_a_jour_le
 `;
@@ -200,6 +202,11 @@ export const LISTER_CLES_SALON = `SELECT rid, e2e_key FROM abonnements WHERE e2e
 export const MESSAGES_A_DECHIFFRER = `SELECT id, rid, chiffre_brut FROM messages WHERE chiffre_brut IS NOT NULL AND texte IS NULL`;
 /** Pose le clair d'un message une fois déchiffré. */
 export const MAJ_TEXTE_MESSAGE = `UPDATE messages SET texte = ? WHERE id = ?`;
+/**
+ * Pose l'épinglage et les étoiles après un geste réussi (voir `lib/marques.ts`).
+ * `mis_a_jour_le` n'avance pas : la prochaine version du serveur fait foi.
+ */
+export const MAJ_MARQUES_MESSAGE = `UPDATE messages SET epingle = ?, etoiles = ? WHERE id = ?`;
 /** Re-masque tout message chiffré au verrouillage : le clair local disparaît,
  *  le ciphertext (`chiffre_brut`) reste pour re-déchiffrer au prochain déverrou.
  *
@@ -600,6 +607,8 @@ export function paramsMessage(m: MessageLocal): Parametre[] {
     m.urls,
     m.appelId,
     m.chiffreBrut,
+    b(m.epingle),
+    m.etoiles,
     m.misAJourLe,
   ];
 }

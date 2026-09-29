@@ -619,10 +619,16 @@ impl ChatPage {
             if !ctrl || !matches!(key, gdk::Key::c | gdk::Key::C | gdk::Key::Insert | gdk::Key::KP_Insert) {
                 return glib::Propagation::Proceed;
             }
-            if w.upgrade().is_some_and(|this| {
-                this.list.has_picked() || this.thread.borrow().as_ref().is_some_and(|t| t.list.has_picked())
-            }) {
-                return glib::Propagation::Proceed;
+            let spanned = w.upgrade().and_then(|this| {
+                this.list
+                    .selection_text()
+                    .or_else(|| this.thread.borrow().as_ref().and_then(|t| t.list.selection_text()))
+            });
+            if let Some(text) = spanned {
+                if let Some(display) = gdk::Display::default() {
+                    display.clipboard().set_text(&text);
+                }
+                return glib::Propagation::Stop;
             }
             let focus = controller.widget().and_then(|w| w.root()).and_then(|root| root.focus());
             let editor_selection = focus.as_ref().is_some_and(|f| {

@@ -1,7 +1,7 @@
 //! rv-core renders message bodies as Pango markup for GTK. Swift gets the
 //! same bodies as styled runs, so it never parses markup.
 
-use rv_core::markdown::{self, Block};
+use rv_core::markdown::Block;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, uniffi::Record)]
 pub struct Run {
@@ -54,114 +54,29 @@ pub fn blocks(rendered: Vec<Block>) -> Vec<BodyBlock> {
 }
 
 pub fn runs(markup: &str) -> Vec<Run> {
-    let mut out = Vec::new();
-    for piece in markdown::pieces(markup) {
-        match piece {
-            markdown::Piece::Markup(m) => parse(m, &mut out),
-            markdown::Piece::Custom(code) => {
-                out.push(Run { text: format!(":{code}:"), custom_emoji: Some(code.to_owned()), ..Default::default() })
-            }
-        }
-    }
-    out
-}
-
-fn attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
-    let start = tag.find(&format!("{name}=\""))? + name.len() + 2;
-    tag[start..].split('"').next()
-}
-
-fn unescape(text: &str) -> String {
-    text.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&")
-}
-
-fn parse(markup: &str, out: &mut Vec<Run>) {
-    let mut stack: Vec<Run> = vec![Run::default()];
-    let mut rest = markup;
-    while !rest.is_empty() {
-        if rest.starts_with('<') {
-            let Some(end) = rest.find('>') else { break };
-            let tag = &rest[1..end];
-            rest = &rest[end + 1..];
-            if tag.starts_with('/') {
-                if stack.len() > 1 {
-                    stack.pop();
-                }
-                continue;
-            }
-            let mut style = stack.last().cloned().unwrap_or_default();
-            style.text.clear();
-            match tag.split(' ').next().unwrap_or_default() {
-                "b" => style.bold = true,
-                "i" => style.italic = true,
-                "a" => style.link = attribute(tag, "href").map(unescape),
-                "span" => {
-                    if attribute(tag, "strikethrough") == Some("true") {
-                        style.strike = true;
-                    }
-                    if attribute(tag, "font_family") == Some("monospace") {
-                        style.code = true;
-                    }
-                    if attribute(tag, "weight") == Some("bold") {
-                        style.mention = true;
-                    }
-                    if attribute(tag, "foreground").is_some() && attribute(tag, "background").is_some() {
-                        style.highlight = true;
-                    }
-                }
-                _ => {}
-            }
-            stack.push(style);
-            continue;
-        }
-        let end = rest.find('<').unwrap_or(rest.len());
-        let mut run = stack.last().cloned().unwrap_or_default();
-        run.text = unescape(&rest[..end]);
-        rest = &rest[end..];
-        match out.last_mut() {
-            Some(last) if Run { text: String::new(), ..last.clone() } == Run { text: String::new(), ..run.clone() } => {
-                last.text.push_str(&run.text)
-            }
-            _ => out.push(run),
-        }
-    }
+    rv_core::runs::runs(markup)
+        .into_iter()
+        .map(|r| Run {
+            text: r.text,
+            bold: r.bold,
+            italic: r.italic,
+            strike: r.strike,
+            code: r.code,
+            link: r.link,
+            mention: r.mention,
+            highlight: r.highlight,
+            custom_emoji: r.custom_emoji,
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rv_core::markdown;
 
     fn plain(text: &str) -> Run {
         Run { text: text.into(), ..Default::default() }
-    }
-
-    #[test]
-    fn styles_nest_and_entities_resolve() {
-        let r = runs("a <b>bold <i>both</i></b> &amp; <span strikethrough=\"true\">gone</span>");
-        assert_eq!(
-            r,
-            [
-                plain("a "),
-                Run { text: "bold ".into(), bold: true, ..Default::default() },
-                Run { text: "both".into(), bold: true, italic: true, ..Default::default() },
-                plain(" & "),
-                Run { text: "gone".into(), strike: true, ..Default::default() },
-            ]
-        );
-    }
-
-    #[test]
-    fn code_links_and_mentions() {
-        let r = runs(concat!(
-            "<span font_family=\"monospace\" background=\"#1E1B33\">x &lt; y</span>",
-            "<a href=\"https://a.example/?q=1&amp;r=2\">site</a>",
-            "<a href=\"rv-user:bob\"><span foreground=\"#FF7AB4\" weight=\"bold\">@bob</span></a>",
-            "<span foreground=\"#FF7AB4\" weight=\"bold\" background=\"#4A2140\">@all</span>",
-        ));
-        assert!(r[0].code && r[0].text == "x < y");
-        assert_eq!(r[1].link.as_deref(), Some("https://a.example/?q=1&r=2"));
-        assert_eq!((r[2].link.as_deref(), r[2].mention, r[2].highlight), (Some("rv-user:bob"), true, false));
-        assert_eq!((r[3].text.as_str(), r[3].mention, r[3].highlight), ("@all", true, true));
     }
 
     #[test]

@@ -14,6 +14,12 @@ section here.
 - Shift+Enter continues a list in the composer: the same bullet, or the next number, at the
   same indentation; on an empty item it ends the list.
 
+### Changed
+
+- Text selects across messages as in a browser: drag from one message into others and the
+  selection runs through them in reading order, scrolling the list at its edges; Ctrl+C
+  copies it. The selection of whole messages from the avatar column is gone.
+
 ### Fixed
 
 - Logs could grow without bound: a GTK critical repeated four million times made a 300 MB
@@ -32,6 +38,13 @@ section here.
   posted as a list or with stray backticks: the fences now get lines of their own.
 - Long lines in code blocks wrapped with inserted hyphens, which also ended up in copies.
 - The room list turned grey while the window was not focused.
+- Server emoji showed as boxes in headings and list items, and a message of server emoji
+  alone showed them small; in bold or struck text the words around them disappeared (the
+  "Invalid markup" warnings in the log).
+- Messages that come without the server's parsed form (bots, integrations) showed their raw
+  text: `[label](url)` links, `:emoji:` codes and formatting now render.
+- Pinned and starred messages showed raw markdown; they render as in the room.
+- Room list previews showed markdown syntax (fences, stars, link brackets); they read as text.
 
 ## [0.4.1] - 2026-09-29
 

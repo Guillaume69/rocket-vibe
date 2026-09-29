@@ -5,7 +5,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use adw::prelude::*;
-use gtk::{glib, pango};
+use gtk::glib;
 use rv_core::session::Session;
 use rv_core::store::MessageRow;
 
@@ -13,21 +13,19 @@ use crate::i18n::t;
 use crate::on_tokio;
 use crate::rows::{label, local};
 
-fn entry(row: &MessageRow) -> gtk::Widget {
+fn entry(row: &MessageRow, me: &str) -> gtk::Widget {
     let column =
         gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(2).css_classes(["marked-row"]).build();
     let header = gtk::Box::new(gtk::Orientation::Horizontal, 7);
     header.append(&label(row.author.as_deref().unwrap_or_default(), &["author"]));
     header.append(&label(&local(row.ts).format("%d/%m/%Y %H:%M").to_string(), &["message-time"]));
     column.append(&header);
-    let text = rv_core::actions::copyable_text(row.text.as_deref())
-        .map_or_else(|| t("marked.attachment").to_owned(), rv_core::emoji::replace_shortcodes);
-    let body = label(&text, &["message-body"]);
-    body.set_wrap(true);
-    body.set_wrap_mode(pango::WrapMode::WordChar);
-    body.set_lines(3);
-    body.set_ellipsize(pango::EllipsizeMode::End);
-    column.append(&body);
+    let blocks = rv_core::markdown::render(row.md.as_deref(), row.text.as_deref(), &rv_core::markdown::Context { me });
+    if blocks.is_empty() {
+        column.append(&label(t("marked.attachment"), &["message-body"]));
+    } else {
+        column.append(&crate::markdown_view::view(&blocks, &[]));
+    }
     column.upcast()
 }
 
@@ -50,7 +48,7 @@ fn page(session: &Arc<Session>, rid: &str, starred: bool, go: Rc<dyn Fn(String)>
     let failed = adw::StatusPage::builder().icon_name("dialog-warning-symbolic").title(t("info.failed")).build();
     stack.add_named(&failed, Some("failed"));
 
-    let (s, r) = (session.clone(), rid.to_owned());
+    let (s, r, me) = (session.clone(), rid.to_owned(), session.info.username.clone());
     glib::spawn_future_local(glib::clone!(
         #[weak]
         stack,
@@ -62,7 +60,7 @@ fn page(session: &Arc<Session>, rid: &str, starred: bool, go: Rc<dyn Fn(String)>
                 Ok(rows) if rows.is_empty() => stack.set_visible_child_name("empty"),
                 Ok(rows) => {
                     for row in &rows {
-                        let item = gtk::ListBoxRow::builder().child(&entry(row)).activatable(true).build();
+                        let item = gtk::ListBoxRow::builder().child(&entry(row, &me)).activatable(true).build();
                         list.append(&item);
                     }
                     let ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();

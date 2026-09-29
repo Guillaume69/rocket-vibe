@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { arbreDuMessage, texteDe, unicodeDEmoji } from './markdown.ts';
+import { apercuTexte, arbreDuMessage, texteDe, unicodeDEmoji } from './markdown.ts';
 
 describe('arbreDuMessage', () => {
   test('préfère le `md` du serveur quand il est présent', () => {
@@ -96,5 +96,14 @@ describe('unicodeDEmoji', () => {
     assert.equal(unicodeDEmoji({ type: 'PLAIN_TEXT', value: 'smile' }), null);
     assert.equal(unicodeDEmoji(null), null);
     assert.equal(unicodeDEmoji('smile'), null);
+  });
+});
+
+describe('apercuTexte', () => {
+  test('un aperçu se lit comme du texte, sans syntaxe markdown', () => {
+    assert.equal(apercuTexte('```\nZOB\n```'), 'ZOB');
+    assert.equal(apercuTexte('[t.gg](http://t.gg) *gras* ~barré~ `code`'), 't.gg gras barré code');
+    assert.equal(apercuTexte('salut @bob #general\n\n- un\n- deux'), 'salut @bob #general • un • deux');
+    assert.equal(apercuTexte(':kkk: :smile:'), ':kkk: 😄');
   });
 });

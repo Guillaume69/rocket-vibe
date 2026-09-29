@@ -13,6 +13,11 @@ release, et ses notes sont la section de la version ici.
   sur le serveur (comme dans le client officiel) ; la fiche d'un salon l'y ajoute ou l'en
   retire.
 
+### Corrigé
+
+- L'aperçu du dernier message dans la liste des salons montrait la syntaxe markdown
+  (délimiteurs de code, étoiles, crochets des liens) : il se lit désormais comme du texte.
+
 ## [0.3.1] - 2026-09-29
 
 ### Corrigé

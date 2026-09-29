@@ -1,4 +1,5 @@
-//! The unread count on the app's icon. On Linux, docks that read the Unity
+//! The unread count on the app's icon: the Windows taskbar and the macOS dock
+//! through rv-native; on Linux, docks that read the Unity
 //! launcher protocol (KDE Plasma, Dash to Dock, Plank) show it.
 
 use std::cell::Cell;
@@ -13,6 +14,8 @@ pub fn set(count: i64) {
     }
     #[cfg(target_os = "linux")]
     unity(count);
+    #[cfg(not(target_os = "linux"))]
+    rv_native::badge(count);
 }
 
 #[cfg(target_os = "linux")]

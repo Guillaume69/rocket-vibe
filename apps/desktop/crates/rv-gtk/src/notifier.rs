@@ -43,6 +43,21 @@ thread_local! {
     static CURRENT: RefCell<std::rc::Weak<Notifier>> = RefCell::default();
 }
 
+#[cfg(any(windows, target_os = "macos"))]
+thread_local! {
+    /// Where clicks and replies on the system's own notifications go (Windows, macOS).
+    static NATIVE: RefCell<Option<(OnOpen, OnReply)>> = const { RefCell::new(None) };
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn native_event(event: rv_native::Event) {
+    let Some((open, reply)) = NATIVE.with_borrow(Clone::clone) else { return };
+    match event {
+        rv_native::Event::Open { room, message } => open(room, message),
+        rv_native::Event::Reply { room, text, .. } => reply(room, text),
+    }
+}
+
 /// The window's notifier, for the settings' test and diagnostics.
 pub fn current() -> Option<Rc<Notifier>> {
     CURRENT.with_borrow(std::rc::Weak::upgrade)
@@ -67,6 +82,15 @@ impl Notifier {
     ) -> Rc<Self> {
         let (open, reply): (OnOpen, OnReply) = (Rc::new(open), Rc::new(reply));
         let app = app.clone().upcast::<gio::Application>();
+        #[cfg(any(windows, target_os = "macos"))]
+        if session_bus().is_none() {
+            NATIVE.with_borrow_mut(|n| *n = Some((open.clone(), reply.clone())));
+            rv_native::init(
+                crate::APP_ID,
+                "rocket-vibe",
+                Box::new(|event| glib::MainContext::default().invoke(move || native_event(event))),
+            );
+        }
         let Some(connection) = session_bus() else {
             let action = gio::SimpleAction::new("open-message", Some(&glib::VariantType::new("(ss)").expect("type")));
             action.connect_activate(move |_, target| {
@@ -211,6 +235,18 @@ impl Notifier {
         };
         let body = incoming.body.clone().unwrap_or_else(|| t("message.encrypted").to_owned());
         let Some(connection) = self.connection.clone() else {
+            if rv_native::available() {
+                let labels =
+                    rv_native::ReplyLabels { placeholder: t("notify.reply_placeholder"), send: t("notify.reply") };
+                rv_native::show(&rv_native::Toast {
+                    room: &incoming.rid,
+                    message: &incoming.id,
+                    title: &summary,
+                    body: &body,
+                    reply: Some(labels),
+                });
+                return;
+            }
             let notification = gio::Notification::new(&summary);
             notification.set_body(Some(&body));
             let target = (incoming.rid.as_str(), incoming.id.as_str()).to_variant();
@@ -253,6 +289,7 @@ impl Notifier {
     /// Opening a room clears what it had on screen.
     pub fn withdraw(&self, rid: &str) {
         let Some(connection) = self.connection.clone() else {
+            rv_native::withdraw(rid);
             self.app.withdraw_notification(rid);
             return;
         };

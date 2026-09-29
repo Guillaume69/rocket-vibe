@@ -38,8 +38,8 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 Source: "rocket-vibe.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\rocket-vibe"; Filename: "{app}\bin\rocket-vibe-gtk.exe"; WorkingDir: "{app}\bin"; IconFilename: "{app}\rocket-vibe.ico"
-Name: "{autodesktop}\rocket-vibe"; Filename: "{app}\bin\rocket-vibe-gtk.exe"; WorkingDir: "{app}\bin"; IconFilename: "{app}\rocket-vibe.ico"; Tasks: desktopicon
+Name: "{group}\rocket-vibe"; Filename: "{app}\bin\rocket-vibe-gtk.exe"; WorkingDir: "{app}\bin"; IconFilename: "{app}\rocket-vibe.ico"; AppUserModelID: "com.rocketvibe.app"
+Name: "{autodesktop}\rocket-vibe"; Filename: "{app}\bin\rocket-vibe-gtk.exe"; WorkingDir: "{app}\bin"; IconFilename: "{app}\rocket-vibe.ico"; AppUserModelID: "com.rocketvibe.app"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked

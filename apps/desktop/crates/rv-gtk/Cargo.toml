@@ -19,6 +19,7 @@ gtk = { version = "0.11.5", package = "gtk4", features = ["v4_12"] }
 gstreamer = "0.24"
 pango = { version = "0.22", features = ["v1_56"] }
 rv-core = { path = "../rv-core" }
+rv-native = { path = "../rv-native" }
 serde_json = "1.0.151"
 sha2 = "0.11.0"
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "time", "sync", "macros"] }

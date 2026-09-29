@@ -247,8 +247,16 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("notify.reply_yes", "oui", "yes"),
     ("notify.reply_no", "non", "no"),
     ("notify.backend_none", "Aucun serveur de notifications ne répond", "No notification server answers"),
-    ("notify.backend_windows", "Zone de notification de Windows", "Windows notification area"),
-    ("notify.backend_macos", "Centre de notifications de macOS", "macOS Notification Center"),
+    (
+        "notify.backend_windows",
+        "Notifications de Windows · réponse depuis la notification : oui",
+        "Windows notifications · reply from the notification: yes",
+    ),
+    (
+        "notify.backend_macos",
+        "Centre de notifications de macOS · réponse depuis la notification : oui",
+        "macOS Notification Center · reply from the notification: yes",
+    ),
     ("notify.reply", "Répondre", "Reply"),
     ("notify.reply_placeholder", "Répondre…", "Reply…"),
     ("login.probe_failed", "Pas de Rocket.Chat joignable à cette adresse", "No Rocket.Chat reachable at this address"),

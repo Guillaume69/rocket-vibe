@@ -224,10 +224,6 @@ button.file-action, button.call-join { background: linear-gradient(135deg, #FF5F
 .video-bar { background: linear-gradient(0deg, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0)); padding: 18px 8px 4px 8px; color: #FFFFFF; }
 .video-bar button { color: #FFFFFF; }
 .image-attachment { background: #171529; border-radius: 10px; }
-.message.picked { background: rgba(92, 200, 255, 0.14); border-radius: 12px; }
-.pick-bar { background: #2C2946; border-radius: 999px; padding: 4px 6px 4px 16px; box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.8); }
-.pick-count { font-weight: 700; font-size: 13px; }
-button.pick-copy { background: linear-gradient(135deg, #FF5FA2, #A78BFA); color: #0D0B1A; font-weight: 800; border-radius: 999px; min-height: 0; padding: 3px 14px; }
 .message.revealed { background: rgba(167, 139, 250, 0.16); border-radius: 12px; transition: background 400ms; }
 .message .row-more { opacity: 0; min-height: 24px; min-width: 28px; padding: 0; color: #8F89AB; transition: opacity 120ms; }
 .message:hover .row-more { opacity: 1; }

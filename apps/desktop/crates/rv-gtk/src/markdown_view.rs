@@ -21,6 +21,18 @@ thread_local! {
 fn selected(widget: &impl IsA<gtk::Widget>) {
     let widget = widget.upcast_ref::<gtk::Widget>();
     SELECTED.with_borrow(|s| s.set(Some(widget)));
+    drop_editor_selection(widget);
+}
+
+/// A selection now runs across messages: the one made in a single text and
+/// an editor's give way to it.
+pub fn spanning(widget: &gtk::Widget) {
+    clear_selection();
+    SELECTED.with_borrow(|s| s.set(None));
+    drop_editor_selection(widget);
+}
+
+fn drop_editor_selection(widget: &gtk::Widget) {
     let focus = widget.root().and_then(|root| root.focus());
     if let Some(editor) = focus.as_ref().and_then(|f| f.downcast_ref::<gtk::TextView>()) {
         let buffer = editor.buffer();

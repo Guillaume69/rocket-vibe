@@ -482,11 +482,11 @@ impl Composer {
     /// Ties the composer to a room (`thread` None) or a thread: restores its
     /// draft, saves it as it changes, and offers the room's authors after `@`.
     pub fn bind(&self, session: &Arc<Session>, rid: &str, thread: Option<&str>) {
-        self.staged.clear();
         let key = match thread {
             Some(tmid) => format!("{rid}:{tmid}"),
             None => rid.to_owned(),
         };
+        self.staged.switch(&key);
         self.on_changed.replace(None);
         self.set_text(&session.store.draft(&key).unwrap_or_default());
         self.completion.popdown();

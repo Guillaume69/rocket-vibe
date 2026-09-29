@@ -58,3 +58,54 @@ pub fn mark_new(rows: &mut [Display], seen: i64, me: &str) {
         first.new_marker = true;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MIN: i64 = 60 * 1000;
+
+    fn at(ts: i64, author: &str) -> MessageRow {
+        MessageRow { id: format!("{author}{ts}"), ts, author_id: author.into(), ..Default::default() }
+    }
+
+    fn noon() -> i64 {
+        Local.with_ymd_and_hms(2026, 9, 29, 12, 0, 0).unwrap().timestamp_millis()
+    }
+
+    #[test]
+    fn same_author_within_five_minutes_groups() {
+        let t = noon();
+        let rows = group(vec![at(t, "a"), at(t + 10_000, "a"), at(t + 2 * MIN, "a"), at(t + 8 * MIN, "a")]);
+        let headers: Vec<bool> = rows.iter().map(|d| d.show_header).collect();
+        assert_eq!(headers, [true, false, false, true]);
+        assert!(!rows[1].gutter_time, "same minute as the row above");
+        assert!(rows[2].gutter_time);
+        assert!(!rows[3].gutter_time, "a header row carries its own time");
+    }
+
+    #[test]
+    fn another_author_a_system_message_or_a_new_day_breaks_the_group() {
+        let t = noon();
+        let mut joined = at(t + 2 * MIN, "a");
+        joined.system_type = Some("uj".into());
+        let mut e2e = at(t + 3 * MIN, "a");
+        e2e.system_type = Some("e2e".into());
+        let rows = group(vec![at(t, "a"), at(t + MIN, "b"), joined, e2e, at(t + 24 * 60 * MIN, "a")]);
+        let headers: Vec<bool> = rows.iter().map(|d| d.show_header).collect();
+        assert_eq!(headers, [true, true, true, true, true]);
+        let days: Vec<bool> = rows.iter().map(|d| d.show_day).collect();
+        assert_eq!(days, [true, false, false, false, true]);
+    }
+
+    #[test]
+    fn the_marker_goes_on_the_first_unread_message_from_someone_else() {
+        let t = noon();
+        let mut pending = at(t + 2 * MIN, "b");
+        pending.outbox_status = Some("pending".into());
+        let mut rows = group(vec![at(t, "b"), at(t + MIN, "me"), pending, at(t + 3 * MIN, "b"), at(t + 4 * MIN, "b")]);
+        mark_new(&mut rows, t, "me");
+        let marked: Vec<bool> = rows.iter().map(|d| d.new_marker).collect();
+        assert_eq!(marked, [false, false, false, true, false]);
+    }
+}

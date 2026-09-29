@@ -30,7 +30,7 @@ const base = {
   },
   moi: 'moi',
   regles,
-  permissions: [] as string[],
+  permissions: null as string[] | null,
   lectureSeule: false,
   chiffre: false,
   dansUnFil: false,
@@ -197,6 +197,46 @@ describe('reglesDepuisReglages', () => {
       reglesDepuisReglages([{ _id: 'Message_AllowStarring', value: false }]).etoilageAutorise,
       false,
     );
+  });
+});
+
+describe('actionsPossibles — permissions chargées', () => {
+  const autrui = { ...base.message, auteurId: 'lui' };
+
+  test('simple membre : ses messages oui, pas d’épingle', () => {
+    const membre = { ...base, permissions: ['delete-own-message'] };
+    const actions = actionsPossibles(membre);
+    assert.ok(actions.includes('modifier') && actions.includes('supprimer'));
+    assert.ok(!actions.includes('epingler'));
+  });
+
+  test('sans delete-own-message, même son propre message ne se supprime pas', () => {
+    assert.ok(!actionsPossibles({ ...base, permissions: [] }).includes('supprimer'));
+  });
+
+  test('modérateur : modifie, supprime et épingle le message d’autrui, dans le délai', () => {
+    const moderateur = {
+      ...base,
+      message: autrui,
+      permissions: ['edit-message', 'delete-message', 'pin-message'],
+    };
+    const actions = actionsPossibles(moderateur);
+    for (const x of ['modifier', 'supprimer', 'epingler'] as const) assert.ok(actions.includes(x), x);
+
+    const tard = actionsPossibles({ ...moderateur, maintenant: base.message.horodatage + 6 * 60_000 });
+    assert.ok(!tard.includes('modifier'), 'le délai vaut aussi pour edit-message');
+    assert.ok(tard.includes('supprimer'), 'délai de suppression illimité (0)');
+  });
+
+  test('force-delete-message supprime même hors délai et suppression désactivée', () => {
+    const proprio = {
+      ...base,
+      message: autrui,
+      regles: { ...regles, suppressionAutorisee: false, minutesBlocageSuppression: 1 },
+      maintenant: base.message.horodatage + 60 * 60_000,
+      permissions: ['force-delete-message'],
+    };
+    assert.ok(actionsPossibles(proprio).includes('supprimer'));
   });
 });
 

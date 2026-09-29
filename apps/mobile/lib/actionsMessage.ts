@@ -3,9 +3,12 @@
  *
  * Le délai d'édition vient des SETTINGS (`Message_AllowEditing_BlockEditInMinutes`),
  * pas des permissions : c'est le piège noté dans EXECUTION.md. Les permissions
- * par rôle (`force-edit-messages`…) arrivent en paramètre pour ne pas figer la
- * signature ; tant qu'on ne les charge pas, le serveur reste l'autorité — une
- * action affichée à tort échoue proprement avec son message d'erreur.
+ * accordées (`lib/permissions.ts`) arrivent en paramètre, et les règles sont
+ * celles du serveur 8.5 (`canDeleteMessageAsync`, `updateMessage`,
+ * `pinMessage`). Tant qu'elles ne sont pas chargées (`null`), on propose ce
+ * que peut un membre sur ses messages, plus l'épingle, et le serveur reste
+ * l'autorité — une action affichée à tort échoue proprement avec son message
+ * d'erreur.
  */
 
 import { sansPrefixeCitation } from './citation.ts';
@@ -41,7 +44,8 @@ export type ContexteAction = {
   };
   moi: string;
   regles: ReglesMessages;
-  permissions: string[];
+  /** Permissions accordées dans ce salon ; `null` : pas (encore) connues. */
+  permissions: string[] | null;
   lectureSeule: boolean;
   /** Salon chiffré : on ne peut pas y ENVOYER (donc pas répondre) — réagir, si. */
   chiffre: boolean;
@@ -98,28 +102,31 @@ export function actionsPossibles(contexte: ContexteAction): ActionMessage[] {
   if (fichier) actions.push('enregistrer');
 
   const mien = message.auteurId === moi;
-  // Noms RÉELS des permissions Rocket.Chat : `bypass-time-limit-edit-and-delete`
-  // lève les délais (édition ET suppression), `edit-message` /
-  // `force-delete-message` portent sur les messages d'autrui.
-  const sansDelai = permissions.includes('bypass-time-limit-edit-and-delete');
+  // Inconnues : ses propres messages et l'épingle restent proposés, rien de plus.
+  const a = (permission: string, siInconnue: boolean): boolean =>
+    permissions === null ? siInconnue : permissions.includes(permission);
+  // `bypass-time-limit-edit-and-delete` lève les délais (édition ET
+  // suppression) ; `edit-message` et `delete-message` ouvrent les messages
+  // d'autrui, DANS le délai ; `force-delete-message` supprime sans condition.
+  const sansDelai = a('bypass-time-limit-edit-and-delete', false);
   if (
     !chiffreLisible &&
-    ((mien &&
-      regles.editionAutorisee &&
-      (sansDelai || dansLeDelai(contexte, regles.minutesBlocageEdition))) ||
-      permissions.includes('edit-message'))
+    (a('edit-message', false) || (mien && regles.editionAutorisee)) &&
+    (sansDelai || dansLeDelai(contexte, regles.minutesBlocageEdition))
   ) {
     actions.push('modifier');
   }
   if (
-    (mien &&
-      regles.suppressionAutorisee &&
-      (sansDelai || dansLeDelai(contexte, regles.minutesBlocageSuppression))) ||
-    permissions.includes('force-delete-message')
+    a('force-delete-message', false) ||
+    (regles.suppressionAutorisee &&
+      (a('delete-message', false) || (mien && a('delete-own-message', true))) &&
+      (sansDelai || dansLeDelai(contexte, regles.minutesBlocageSuppression)))
   ) {
     actions.push('supprimer');
   }
-  if (regles.epinglageAutorise) actions.push(message.epingle ? 'desepingler' : 'epingler');
+  if (regles.epinglageAutorise && a('pin-message', true)) {
+    actions.push(message.epingle ? 'desepingler' : 'epingler');
+  }
   if (regles.etoilageAutorise) actions.push(message.etoile ? 'desetoiler' : 'etoiler');
 
   return actions;

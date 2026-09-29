@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { messages, salons } from '../db/schema.ts';
+import { abonnements, messages, salons } from '../db/schema.ts';
 import {
   actionsPossibles,
   messageDisparuDuServeur,
@@ -33,6 +33,7 @@ import {
 import { unicodeDeCodeCourt } from '../lib/emojis.ts';
 import { jointeAPartager } from '../lib/fichierJoint.ts';
 import { etoilePar, etoilesApres } from '../lib/marques.ts';
+import { permissionsAccordees, rolesDuSalon, sourcesPermissions } from '../lib/permissions.ts';
 import { listeReactions } from '../lib/reactions.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { urlFichierProtege } from '../lib/upload.ts';
@@ -141,6 +142,8 @@ export default function EcranActionsMessage() {
       // Les règles ne dépendent de rien de local : la requête part tout de
       // suite, en parallèle des lectures SQLite.
       const promesseRegles = lireRegles(client);
+      // Hors ligne ou refusées : `null`, les droits d'un simple membre.
+      const promesseSources = sourcesPermissions(client).catch(() => null);
       const lignes = await base.select().from(messages).where(eq(messages.id, id)).limit(1);
       const brut = lignes[0];
       if (annule) return;
@@ -149,9 +152,15 @@ export default function EcranActionsMessage() {
         setErreur(t('actionsMessage.messageIntrouvable'));
         return;
       }
-      const [lignesSalon, regles] = await Promise.all([
+      const [lignesSalon, lignesAbonnement, regles, sources] = await Promise.all([
         base.select().from(salons).where(eq(salons.rid, brut.rid)).limit(1),
+        base
+          .select({ roles: abonnements.roles })
+          .from(abonnements)
+          .where(eq(abonnements.rid, brut.rid))
+          .limit(1),
         promesseRegles,
+        promesseSources,
       ]);
       if (annule) return;
       setCharge({
@@ -181,7 +190,10 @@ export default function EcranActionsMessage() {
           },
           moi,
           regles,
-          permissions: [],
+          permissions:
+            sources === null
+              ? null
+              : permissionsAccordees(sources, rolesDuSalon(lignesAbonnement[0]?.roles)),
           lectureSeule: lignesSalon[0]?.lectureSeule === true,
           chiffre: lignesSalon[0]?.chiffre === true,
           dansUnFil: typeof fil === 'string',

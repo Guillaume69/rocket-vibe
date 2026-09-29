@@ -29,6 +29,8 @@ release, et ses notes sont la section de la version ici.
 
 ### Corrigé
 
+- Les actions d’un message suivent vos droits réels sur le serveur : plus d’« Épingler » sans
+  la permission, et un modérateur peut modifier ou supprimer les messages des autres.
 - Un fichier envoyé garde son nom d’origine ; une copie faite par le sélecteur partait sous un
   nom de cache aléatoire.
 - Un partage vers l’app alors qu’elle n’était pas lancée ouvre bien l’écran de partage, du

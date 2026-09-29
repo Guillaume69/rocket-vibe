@@ -87,7 +87,7 @@ pub async fn local_copy(session: Arc<Session>, file: FileAttachment) -> Option<P
 }
 
 /// A free name for `name` in the Downloads folder: `n-name` when taken.
-fn download_path(name: &str) -> PathBuf {
+pub fn download_path(name: &str) -> PathBuf {
     let dir = glib::user_special_dir(glib::UserDirectory::Downloads).unwrap_or_else(glib::home_dir);
     let safe: String = name.chars().map(|c| if c == '/' || c == '\\' || c == '\0' { '_' } else { c }).collect();
     let mut path = dir.join(&safe);

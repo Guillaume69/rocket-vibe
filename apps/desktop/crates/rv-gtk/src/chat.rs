@@ -75,6 +75,7 @@ fn load_collapsed() -> Vec<Section> {
 
 pub struct ChatPage {
     split: adw::NavigationSplitView,
+    update_slot: gtk::Box,
     account_name: gtk::Label,
     account_host: gtk::Label,
     account_tile: gtk::Box,
@@ -220,6 +221,8 @@ impl ChatPage {
                 .margin_top(6)
                 .build(),
         ));
+        let update_slot = gtk::Box::builder().orientation(gtk::Orientation::Vertical).build();
+        sidebar_toolbar.add_bottom_bar(&update_slot);
         sidebar_toolbar.add_bottom_bar(&account);
         let sidebar_page = adw::NavigationPage::new(&sidebar_toolbar, "rocket-vibe");
 
@@ -326,6 +329,7 @@ impl ChatPage {
 
         let this = Rc::new(ChatPage {
             split,
+            update_slot,
             account_name,
             account_host,
             account_tile,
@@ -695,6 +699,16 @@ impl ChatPage {
 
     pub fn widget(&self) -> &adw::NavigationSplitView {
         &self.split
+    }
+
+    /// Above the account, at the foot of the room list: the update card.
+    pub fn set_update_notice(&self, notice: Option<&gtk::Widget>) {
+        while let Some(child) = self.update_slot.first_child() {
+            self.update_slot.remove(&child);
+        }
+        if let Some(notice) = notice {
+            self.update_slot.append(notice);
+        }
     }
 
     pub fn connect_toast(&self, f: impl Fn(String) + 'static) {

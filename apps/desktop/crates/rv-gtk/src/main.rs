@@ -31,6 +31,7 @@ mod staged;
 mod style;
 mod thread;
 mod unlock;
+mod updater;
 mod video;
 mod widgets;
 mod window;

@@ -52,3 +52,11 @@ Root: HKCU; Subkey: "Software\Classes\rocketvibe\shell\open\command"; ValueType:
 
 [Run]
 Filename: "{app}\bin\rocket-vibe-gtk.exe"; WorkingDir: "{app}\bin"; Description: "{cm:LaunchProgram,rocket-vibe}"; Flags: nowait postinstall skipifsilent
+; The app's own updater runs this installer silently with /relaunch=1 and quits.
+Filename: "{app}\bin\rocket-vibe-gtk.exe"; WorkingDir: "{app}\bin"; Flags: nowait; Check: Relaunch
+
+[Code]
+function Relaunch: Boolean;
+begin
+  Result := ExpandConstant('{param:relaunch|0}') = '1';
+end;

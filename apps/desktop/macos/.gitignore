@@ -1,0 +1,5 @@
+/.build/
+/dist/
+# Written by scripts/generate.sh from rv-ffi.
+/Sources/rv_ffiFFI/include/rv_ffiFFI.h
+/Sources/RocketVibeCore/rv_ffi.swift

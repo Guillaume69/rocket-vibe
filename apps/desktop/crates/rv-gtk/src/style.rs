@@ -216,6 +216,8 @@ button.retry { color: #FF7A8A; font-weight: 700; font-size: 12px; padding: 0 4px
 button.file-action, button.call-join { background: linear-gradient(135deg, #FF5FA2, #A78BFA); color: #0D0B1A; font-weight: 800; border-radius: 999px; padding: 2px 14px; min-height: 28px; }
 .link-title { font-weight: 800; color: #E7E3F5; }
 .attachment-title { font-size: 13px; font-weight: 700; }
+.attachment-card { border-left: 4px solid #5C5680; }
+.card-field-name { font-size: 12px; font-weight: 700; color: #8F89AB; }
 .link-description { font-size: 13px; color: #BDB7D6; }
 .preview-image { background: #0D0B1A; border-radius: 10px; }
 .call-title { font-weight: 800; }

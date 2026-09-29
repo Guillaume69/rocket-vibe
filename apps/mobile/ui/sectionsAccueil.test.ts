@@ -10,21 +10,42 @@ import {
   replierSections,
 } from './sectionsAccueil.ts';
 
-const TITRES = { nonLus: 'Non lus', salons: 'Salons', messagesPrives: 'Messages privés' };
+const TITRES = {
+  nonLus: 'Non lus',
+  favoris: 'Favoris',
+  salons: 'Salons',
+  messagesPrives: 'Messages privés',
+};
 
 /** Un salon minimal — l'ordre du tableau EST l'ordre de récence (requête triée). */
 const salon = (rid: string, type: string) => ({ rid, type });
 
 const abonnement = (
   rid: string,
-  extra: Partial<{ nonLus: number; alerte: boolean; ouvert: boolean }> = {},
-) => ({ rid, nonLus: 0, alerte: false, ouvert: true, ...extra });
+  extra: Partial<{ nonLus: number; alerte: boolean; ouvert: boolean; favori: boolean }> = {},
+) => ({ rid, nonLus: 0, alerte: false, ouvert: true, favori: false, ...extra });
 
 /** Projection compacte pour les assertions : `titre: rid1, rid2`. */
 const resume = (sections: { titre: string; data: { salon: { rid: string } }[] }[]): string[] =>
   sections.map((s) => `${s.titre}: ${s.data.map((e) => e.salon.rid).join(', ')}`);
 
 describe('construireSections', () => {
+  test('les favoris ont leur section après les non-lus, tous types confondus', () => {
+    // f1 (canal) et f2 (DM) sont en favori ; f3 aussi mais a des non-lus : il
+    // reste dans « Non lus », comme tout salon qui a un message.
+    const sections = construireSections(
+      [salon('f1', 'c'), salon('c1', 'c'), salon('f2', 'd'), salon('f3', 'p')],
+      [
+        abonnement('f1', { favori: true }),
+        abonnement('c1'),
+        abonnement('f2', { favori: true }),
+        abonnement('f3', { favori: true, nonLus: 1 }),
+      ],
+      TITRES,
+    );
+    assert.deepEqual(resume(sections), ['Non lus: f3', 'Favoris: f1, f2', 'Salons: c1']);
+  });
+
   test('répartition Salons / Messages privés, ordre de récence préservé, sections vides retirées', () => {
     const sections = construireSections(
       [salon('c1', 'c'), salon('d1', 'd'), salon('p1', 'p'), salon('d2', 'd')],
@@ -124,6 +145,6 @@ describe('sections repliées', () => {
     assert.equal(lireSectionsRepliees(null).size, 0);
     assert.equal(lireSectionsRepliees('{pas du json').size, 0);
     assert.equal(lireSectionsRepliees('{"salons":true}').size, 0);
-    assert.deepEqual([...lireSectionsRepliees('["salons","favoris",3]')], ['salons']);
+    assert.deepEqual([...lireSectionsRepliees('["salons","archives",3]')], ['salons']);
   });
 });

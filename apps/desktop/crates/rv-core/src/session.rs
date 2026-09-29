@@ -796,6 +796,13 @@ impl Session {
         Ok(())
     }
 
+    /// Stars a room, or takes the star away: it moves to the Favorites section.
+    pub async fn set_favorite(&self, rid: &str, on: bool) -> Result<(), RestError> {
+        actions::favorite(&self.rest, rid, on).await?;
+        self.store.write(|w| w.set_favorite(rid, on));
+        Ok(())
+    }
+
     pub async fn pin(&self, msg_id: &str) -> Result<(), RestError> {
         actions::pin(&self.rest, msg_id).await?;
         self.refresh_message(msg_id).await;

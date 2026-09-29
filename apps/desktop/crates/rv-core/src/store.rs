@@ -694,6 +694,11 @@ impl Writer<'_> {
         self.conn.execute("UPDATE uploads SET status = 'pending' WHERE status = 'sending'", []).expect("rearm");
     }
 
+    pub fn set_favorite(&mut self, rid: &str, on: bool) {
+        self.conn.execute("UPDATE subscriptions SET favorite = ?2 WHERE rid = ?1", params![rid, on]).expect("favorite");
+        self.touch_rooms();
+    }
+
     /// A room's photo changed (or went: `NO_PHOTO`).
     pub fn set_room_avatar(&mut self, rid: &str, etag: &str) {
         self.conn.execute("UPDATE rooms SET avatar_etag = ?2 WHERE rid = ?1", [rid, etag]).expect("room avatar");

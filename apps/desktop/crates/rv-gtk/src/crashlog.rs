@@ -29,7 +29,9 @@ pub fn install() {
             std::env::consts::OS,
             std::env::consts::ARCH,
         );
-        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(dir().join("crash.log")) {
+        let path = dir().join("crash.log");
+        let full = std::fs::metadata(&path).is_ok_and(|m| m.len() > crate::logs::CAP);
+        if !full && let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
             let _ = file.write_all(entry.as_bytes());
         }
         default(info);

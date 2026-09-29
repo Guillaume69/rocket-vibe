@@ -3,6 +3,7 @@ mod actions_menu;
 mod attach;
 mod background;
 mod badge;
+mod bundle;
 mod cards;
 mod chat;
 mod composer;

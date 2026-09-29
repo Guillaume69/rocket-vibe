@@ -19,11 +19,8 @@ fn personal_file() -> PathBuf {
 
 fn search_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(bin) = exe.parent()
-    {
-        dirs.push(bin.join("../share/hunspell"));
-        dirs.push(bin.join("../Resources/share/hunspell"));
+    for share in crate::bundle::share_dirs() {
+        dirs.push(share.join("hunspell"));
     }
     dirs.push(glib::user_data_dir().join("hunspell"));
     for dir in glib::system_data_dirs() {

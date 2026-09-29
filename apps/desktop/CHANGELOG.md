@@ -18,6 +18,12 @@ section here.
   message; the count stays for those (Windows taskbar and notification area, macOS Dock).
 - On Windows, opening the app, or a `rocketvibe://` link, while it already runs brings its
   window back instead of starting a second one.
+- A Linux AppImage that runs on any distribution, Ubuntu LTS and Debian stable included,
+  with nothing installed: GTK, GStreamer and its video codecs, the dictionaries and the
+  emoji font are all inside. One line installs it for the current user, with its launcher
+  entry and `rocketvibe://` links:
+  `curl -fsSL https://raw.githubusercontent.com/Guillaume69/rocket-vibe/master/apps/desktop/scripts/install.sh | sh`
+  (`| sh -s -- --uninstall` removes it). The update card replaces the AppImage in place.
 
 ### Fixed
 

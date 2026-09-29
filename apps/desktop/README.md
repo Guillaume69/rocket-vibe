@@ -51,25 +51,47 @@ compare). With `MACOS_SIGN_IDENTITY` the script signs with that Developer ID
 and staples the ticket, so it opens without any prompt. Without an identity it signs
 ad-hoc, and the app needs one "Open Anyway" in Privacy & Security the first time.
 
-On Linux:
+On Linux, the AppImage runs on any distribution, old ones included, and needs
+nothing installed: to install it for the current user (no root), with a launcher
+entry, its icon and `rocketvibe://` links, and to update it later:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Guillaume69/rocket-vibe/master/apps/desktop/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Guillaume69/rocket-vibe/master/apps/desktop/scripts/install.sh | sh -s -- --uninstall
+```
+
+The script (`scripts/install.sh`, curl or wget) takes the newest `desktop-v*`
+release's `rocket-vibe-desktop-<version>-linux-x86_64.AppImage` into
+`~/.local/bin/rocket-vibe.AppImage`; the app's update card then replaces that file in
+place. The AppImage is built by `scripts/package-appimage.sh`, in pkgforge-dev's Arch
+Linux image (`scripts/appimage-build.sh`): Anylinux's quick-sharun gathers the binary
+with every library it loads, glibc and its loader included, GTK, libadwaita, GStreamer
+with its codecs (H.264 and AAC through libav, Opus and Ogg for voice messages), Mesa,
+the Adwaita icons, the Hunspell dictionaries and Noto Color Emoji; its runtime mounts
+it with FUSE when there is one, and otherwise runs it from namespaces or a temporary
+extraction. A bug report from the AppImage therefore runs the same libraries everywhere.
+Uninstalling leaves the accounts and messages in `~/.config/rocket-vibe-rs` and
+`~/.local/share/rocket-vibe-rs`.
+
+The release also carries a tarball of the bare binary, which uses the system's
+libraries: GTK 4.12 and libadwaita 1.6 or later, Pango 1.56, and a C library as recent
+as Fedora 44's (a rolling distribution: Arch, Fedora). From a checkout:
 
 ```sh
 PROFILE=release scripts/build.sh
 scripts/install-desktop.sh        # launcher entry, rocketvibe:// links
 ```
 
-Voice messages record through GStreamer: the host needs its Opus, Ogg and
-PulseAudio or PipeWire plugins (Fedora ships them with a desktop install).
-
-Video plays through GStreamer too: H.264, the most common format, needs a decoder
-Fedora does not install by default, `gstreamer1-plugin-openh264` (Cisco's repository,
-enabled on Fedora Workstation) or `gstreamer1-plugin-libav` (RPM Fusion); Debian and
-Ubuntu ship `gstreamer1.0-libav`. Without one, a video card says it cannot play the
-format and offers another application.
-
-The spell check reads the system's Hunspell dictionaries (`fr_FR`, `en_US`: the
-`hunspell-fr` and `hunspell-en` packages); the Windows and macOS packages carry
-their own (`scripts/fetch-dictionaries.sh`).
+Run that way, voice messages record through the system's GStreamer: the host needs
+its Opus, Ogg and PulseAudio or PipeWire plugins (Fedora ships them with a desktop
+install). Video plays through GStreamer too: H.264, the most common format, needs a
+decoder Fedora does not install by default, `gstreamer1-plugin-openh264` (Cisco's
+repository, enabled on Fedora Workstation) or `gstreamer1-plugin-libav` (RPM Fusion);
+Debian and Ubuntu ship `gstreamer1.0-libav`. Without one, a video card says it cannot
+play the format and offers another application. The spell check reads the system's
+Hunspell dictionaries (`fr_FR`, `en_US`: the `hunspell-fr` and `hunspell-en`
+packages); the AppImage, Windows and macOS packages carry their own
+(`scripts/fetch-dictionaries.sh`).
 
 ## Headless smoke run
 

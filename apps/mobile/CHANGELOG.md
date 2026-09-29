@@ -7,6 +7,11 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+### Corrigé
+
+- L'aperçu du dernier message dans la liste des salons montrait la syntaxe markdown
+  (délimiteurs de code, étoiles, crochets des liens) : il se lit désormais comme du texte.
+
 ## [0.3.1] - 2026-09-29
 
 ### Corrigé

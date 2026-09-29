@@ -7,6 +7,22 @@ section here.
 
 ## [Unreleased]
 
+### Changed
+
+- Text selects across messages as in a browser: drag from one message into others and the
+  selection runs through them in reading order, scrolling the list at its edges; Ctrl+C
+  copies it. The selection of whole messages from the avatar column is gone.
+
+### Fixed
+
+- Server emoji showed as boxes in headings and list items, and a message of server emoji
+  alone showed them small; in bold or struck text the words around them disappeared (the
+  "Invalid markup" warnings in the log).
+- Messages that come without the server's parsed form (bots, integrations) showed their raw
+  text: `[label](url)` links, `:emoji:` codes and formatting now render.
+- Pinned and starred messages showed raw markdown; they render as in the room.
+- Room list previews showed markdown syntax (fences, stars, link brackets); they read as text.
+
 ## [0.4.1] - 2026-09-29
 
 ### Added

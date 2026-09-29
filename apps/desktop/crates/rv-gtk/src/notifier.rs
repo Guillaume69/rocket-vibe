@@ -292,8 +292,11 @@ impl Notifier {
     /// Opening a room clears what it had on screen.
     pub fn withdraw(&self, rid: &str) {
         let Some(connection) = self.connection.clone() else {
-            rv_native::withdraw(rid);
-            self.app.withdraw_notification(rid);
+            if rv_native::available() {
+                rv_native::withdraw(rid);
+            } else {
+                self.app.withdraw_notification(rid);
+            }
             return;
         };
         let Some(id) = self.by_room.borrow_mut().remove(rid) else { return };

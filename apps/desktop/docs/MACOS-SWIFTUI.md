@@ -43,29 +43,36 @@ rv-core (Rust)                  protocol, SQLite store, sync, outbox, uploads, E
                                 and the display rules both UIs share
 rv-ffi  (Rust, new crate)       a UniFFI façade over Session: records, async calls,
                                 one listener for changes and events, accounts
-RocketVibe.xcframework          rv-ffi built for arm64 (and x86_64 if wanted)
-RocketVibeMac (Swift, new)      SwiftPM package in macos/: SwiftUI views,
-                                notifications, dock
+RocketVibeMac (Swift, new)      SwiftPM package in macos/:
+  rv_ffiFFI                       C target: rv-ffi's header, its static library linked by path
+  RocketVibeCore                  the generated Swift bindings
+  RocketVibeKit                   view models (sign-in, rooms, a room, media); builds on Linux too
+  RocketVibe                      the SwiftUI app: views, notifications, dock
+  rv-rooms                        a command line that signs in and lists the rooms
 rv-gtk  (Rust, unchanged)       Linux and Windows
 ```
 
 ### What moves into rv-core first
 
-Some display rules live in rv-gtk today and would otherwise be written twice:
-the grouping of a message list (`rows::Display`: header, day separator, time
-in the gutter, the "new messages" marker) and the day labels. They move to
-rv-core as a mechanical step before rv-ffi exposes them. The French and
-English strings (`i18n.rs`) stay per UI: SwiftUI has its own string catalogs,
-and the keys are copied, not shared.
+Some display rules lived in rv-gtk and would otherwise be written twice. They
+moved to rv-core as mechanical steps before rv-ffi exposed them: the grouping
+of a message list (`timeline`: header, day separator, time in the gutter, the
+"new messages" marker), the room avatar rule (`media::room_avatar_path`), and
+the French and English catalog (`i18n`). The catalog was first meant to be
+copied into Swift string catalogs; it is plain data, a copy would drift, so
+both UIs read the one table (Swift through rv-ffi's `t`, `tf`, `tn`). The
+language choice stays per UI, in the same `language` file.
 
 ### rv-ffi
 
 - UniFFI with proc-macros (`#[uniffi::export]`, `#[derive(uniffi::Record)]`),
   no UDL file.
-- Async methods run on tokio: `#[uniffi::export(async_runtime = "tokio")]`.
-  `Session::start` must itself run inside a runtime (it spawns its tasks), so
-  rv-ffi keeps one multi-threaded runtime for the process and enters it
-  there. Swift sees `async throws`.
+- rv-ffi keeps one multi-threaded tokio runtime for the process. Its async
+  methods spawn their work there and await the `JoinHandle`, which any
+  executor can poll: Swift's, or a plain `block_on` in the Rust tests. UniFFI's
+  own `async_runtime = "tokio"` is not used: it would run futures on a
+  runtime of its own, beside the one `Session::start` spawned its tasks on.
+  Swift sees `async throws`.
 - The façade is wider than `Session`'s 54 methods: rv-gtk also reads the store
   (`rooms`, `messages`, `thread_messages`, `uploads`, `draft`, `last_seen`),
   the media cache (`fetch`: protected files come back as bytes, so Swift never
@@ -82,6 +89,9 @@ and the keys are copied, not shared.
   implements and hops to `@MainActor`. Both are broadcast channels: a slow
   receiver gets `Lagged`, which rv-ffi turns into "everything changed" rather
   than dropping it.
+- A SwiftUI context menu builds its items synchronously: `prepare_actions`
+  reads the server's settings and my room permissions when a room opens, and
+  `actions` answers from them at once.
 - Accounts stay where the GTK app keeps them, written by Rust, not by Swift's
   `Security` framework: the `keyring` crate's Keychain items (service
   `me.barrut.RocketVibe`, account `<base URL>|<user id>`, a JSON secret), the
@@ -92,19 +102,30 @@ and the keys are copied, not shared.
   rv-ffi computes the same. A GTK install and
   a SwiftUI install then share sessions and caches. The Keychain asks once
   ("Always Allow") when one app reads an item the other wrote: its access
-  list is per signed app.
+  list is per signed app. Since the e2ee merge the item also carries my E2E
+  key while unlocked (`e2eKey`): rv-ffi restores it at start and writes it
+  back when the lock changes, as rv-gtk does.
 
 ### Build
 
-- `cargo build --target aarch64-apple-darwin -p rv-ffi --release` into a
-  static library, `uniffi-bindgen` (library mode) for the Swift file and module
-  map, `xcodebuild -create-xcframework` to pack them.
-- A SwiftPM package (`macos/`) links the framework as a `binaryTarget`, and a
-  script lays out the `.app` (Info.plist, icon, entitlements) around the built
-  executable, as `scripts/package-macos.sh` does for GTK. No Xcode project to
-  maintain by hand; SwiftUI's `@main` app runs from a SwiftPM executable.
-  CI's macOS job builds it next to the GTK bundle, signs it with the same
-  Developer ID and notarizes the DMG the same way.
+- `macos/scripts/generate.sh` builds rv-ffi (release) and runs
+  `uniffi-bindgen-swift` (library mode, rv-ffi's own binary) for the Swift
+  file and C header, written into the package (gitignored).
+- The package's `rv_ffiFFI` C target links `librv_ffi.a` by path. No
+  xcframework: one arm64 target needs none, and linking by path keeps the
+  linker from picking the dylib built beside it.
+- `macos/scripts/check-linux.sh` builds and tests every target but the
+  SwiftUI app in a Swift container on Linux, with rv-ffi built there too.
+- `macos/scripts/package.sh` lays out the `.app` (Info.plist, icon,
+  entitlements) around the built executable, signs it and packs the DMG. No
+  Xcode project to maintain by hand; SwiftUI's `@main` app runs from a
+  SwiftPM executable. During the beta it is its own app, `rocket-vibe
+  SwiftUI` (`com.rocketvibe.app.swiftui`), installable beside the GTK one.
+- CI: `.github/workflows/desktop-swiftui.yml` on a macOS runner (tags,
+  manual runs, feature branches touching it): tests, the CLI's self-check,
+  package, the same Developer ID signing and notarization as the GTK bundle,
+  screenshots of the login screen and of sample messages
+  (`RV_SMOKE_GALLERY=1`, no server needed), and a 45-second soak.
 - No GTK, GStreamer or fontconfig in the bundle any more: a far smaller app.
 
 ### SwiftUI side, screen by screen
@@ -113,12 +134,13 @@ and the keys are copied, not shared.
 |---|---|
 | `login.rs` | `LoginView`: server probe, credentials, 2FA step |
 | `window.rs`, `chat.rs` (split view) | `NavigationSplitView`: sidebar and room |
-| room list, sections, badges | `List` with `Section`s, folding by `DisclosureGroup` |
+| room list, sections, badges | `List` with `Section(isExpanded:)`, folds kept in the same `collapsed-sections` file |
 | `message_list.rs`, `rows.rs` | `ScrollView` + `LazyVStack`, rows as views, `ScrollViewReader` for jumps and the latest-messages button |
 | `markdown_view.rs` | `AttributedString` built from rv-core's markdown blocks |
-| `composer.rs`, `staged.rs` | `TextEditor` (or an `NSTextView` wrapper for formatting and the system spell checker), chips above it |
-| `cards.rs`, `video.rs` | link cards, `AVPlayerView` for video, `AVAudioPlayer` for voice |
-| `actions_menu.rs` | `.contextMenu` on rows |
+| `composer.rs`, `staged.rs` | an `NSTextView` wrapper (the system spell checker, Return sends), chips above it |
+| `cards.rs`, `video.rs` | link cards, AVKit's `VideoPlayer` for audio and video (a local copy first: protected files need the token) |
+| `actions_menu.rs` | `.contextMenu` on rows, edit in place, a confirmed delete |
+| `unlock.rs` | a banner on a locked encrypted room, an unlock sheet |
 | `details.rs`, `settings.rs`, `spotlight.rs`, `marked.rs` | sheets and `Settings` scene |
 | `notifier.rs`, `badge.rs` | `UNUserNotificationCenter` with a reply action; `NSApp.dockTile.badgeLabel` |
 | `recorder.rs` | `AVAudioRecorder` to AAC in `.m4a` (`audio/mp4`), as the Android app sends |
@@ -126,6 +148,20 @@ and the keys are copied, not shared.
 What comes for free: native scrolling and text input, the system spell checker
 and text services, notification actions (click to the message, inline reply),
 the dock badge, and Retina rendering on the GPU.
+
+## Status (2026-09-29)
+
+Phases 1 to 4 are built, on the branch `feature/macos-swiftui`. What is
+proven, and where:
+
+- rv-ffi, against the test server from Rust and from Swift on Linux: sign-in
+  (a wrong password refused), the room list, going online, send, react,
+  actions, delete, media, drafts, sign-out.
+- The app, on CI's macOS runner: it compiles, is signed with the Developer
+  ID and notarized, starts on its sign-in screen, draws the sample messages
+  (`RV_SMOKE_GALLERY=1`) and survives a 45-second soak.
+- Not yet: the SwiftUI views against a real server on a Mac. The runner has
+  none, and step 0 is still undone. Both are for the testers' beta.
 
 ## Phases
 
@@ -140,7 +176,8 @@ the dock badge, and Retina rendering on the GPU.
    the message, dock badge, `rocketvibe://` links, sessions shared with the
    GTK install.
 5. **Parity and release** (two weeks): walk `docs/PARITY.md` and
-   `docs/FEEDBACK.md`, CI packaging and notarization, a beta for the testers.
+   `docs/FEEDBACK.md` on a Mac, a beta for the testers. CI packaging and
+   notarization are done: a desktop release carries the SwiftUI DMG.
 
 About two months for one developer, most of it in the room view and composer.
 
@@ -158,8 +195,9 @@ About two months for one developer, most of it in the room view and composer.
 - **Voice messages.** AVFoundation does not write Ogg/Opus, which the GTK app
   records through GStreamer; the SwiftUI app records AAC in `.m4a`, the
   Android app's format, which Rocket.Chat's clients all play.
-- **Testing.** No Mac in CI's regular runs (packages are built on tags and
-  manual runs). rv-ffi is tested in Rust on Linux like rv-core; the Swift view
-  models get XCTest cases in the package; the app itself is smoke-launched
-  and screenshotted on the runner like the GTK bundle. XCUITest would need an
-  Xcode project, which this plan avoids.
+- **Testing.** No Mac in CI's regular runs. rv-ffi is tested in Rust on
+  Linux like rv-core, with a live test against the test server polled
+  outside tokio; the view models get XCTest cases, run on Linux too, one of
+  them live; the app itself is smoke-launched, screenshotted and soaked on
+  the macOS runner. The SwiftUI views compile only there. XCUITest would need
+  an Xcode project, which this plan avoids.

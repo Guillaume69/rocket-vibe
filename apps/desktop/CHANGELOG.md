@@ -7,6 +7,14 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- A native macOS app, in SwiftUI over the same Rust core, for testers who find the GTK app
+  laggy on a Mac: `rocket-vibe SwiftUI`, its own DMG, installable beside the GTK one. It
+  shares the GTK app's accounts, caches, language and E2E key. Rooms, threads, markdown,
+  images, files, cards, reactions, editing, the actions menu, uploads, voice messages (AAC),
+  encrypted rooms, notifications with a reply field and the dock badge.
+
 ## [0.3.0] - 2026-09-29
 
 ### Added

@@ -5,8 +5,14 @@
 use std::io::Write;
 use std::path::PathBuf;
 
+/// On Windows, GLib's cache folder is the browser cache, which Disk Cleanup
+/// empties: the logs go in the local app data folder instead.
 pub fn dir() -> PathBuf {
-    let dir = gtk::glib::user_cache_dir().join("rocket-vibe-rs");
+    #[cfg(windows)]
+    let base = gtk::glib::user_data_dir();
+    #[cfg(not(windows))]
+    let base = gtk::glib::user_cache_dir();
+    let dir = base.join("rocket-vibe-rs");
     let _ = std::fs::create_dir_all(&dir);
     dir
 }

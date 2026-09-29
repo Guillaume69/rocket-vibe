@@ -31,3 +31,5 @@ keyring = { version = "3.6", features = ["apple-native"] }
 keyring = "3.6"
 
 
+[dev-dependencies]
+futures = { version = "0.3.31", default-features = false, features = ["executor", "std"] }

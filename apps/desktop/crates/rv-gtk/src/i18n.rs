@@ -155,6 +155,11 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("attach.remove", "Retirer", "Remove"),
     ("attach.too_large", "{name} dépasse {max} Mo", "{name} is over {max} MB"),
     (
+        "attach.encrypted_off",
+        "{name} : ce serveur n'accepte pas de fichiers dans un salon chiffré",
+        "{name}: this server accepts no files in an encrypted room",
+    ),
+    (
         "attach.type_refused",
         "Le serveur refuse les fichiers {type} ({name})",
         "The server refuses {type} files ({name})",
@@ -285,11 +290,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("e2e.wrong", "Mot de passe de chiffrement incorrect", "Wrong encryption password"),
     ("e2e.no_keys", "Ce compte n'a pas encore de clés de chiffrement", "This account has no encryption keys yet"),
     ("e2e.failed", "Déverrouillage impossible", "Couldn't unlock"),
-    (
-        "e2e.read_only",
-        "Écrire dans un salon chiffré n'est pas encore possible ici.",
-        "Writing in encrypted rooms isn't supported here yet.",
-    ),
+    ("e2e.read_only", "Déverrouillez le salon pour y écrire.", "Unlock the room to write in it."),
     ("e2e.status", "Chiffrement de bout en bout", "End-to-end encryption"),
     ("e2e.locked", "Verrouillé", "Locked"),
     ("e2e.unlocked", "Déverrouillé", "Unlocked"),

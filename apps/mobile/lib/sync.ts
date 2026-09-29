@@ -19,7 +19,7 @@ export interface DechiffreurE2E {
   dechiffrerContenu(
     rid: string,
     content: { algorithm: string; ciphertext: string; kid?: string; iv?: string },
-  ): string | null;
+  ): { texte: string; piecesJointes: string | null } | null;
   enregistrerCleSalon(rid: string, e2eKey: string | null): void;
 }
 
@@ -68,8 +68,8 @@ export interface Depot {
   listerClesSalon(): Promise<{ rid: string; e2eKey: string }[]>;
   /** Messages chiffrés encore illisibles (`chiffre_brut` présent, `texte` null). */
   messagesADechiffrer(): Promise<{ id: string; rid: string; chiffreBrut: string }[]>;
-  /** Pose le clair d'un message après déchiffrement au déverrouillage. */
-  majTexteMessage(id: string, texte: string): Promise<void>;
+  /** Pose le clair d'un message (et ses pièces jointes) après déchiffrement au déverrouillage. */
+  majTexteMessage(id: string, texte: string, piecesJointes: string | null): Promise<void>;
   /** Épinglage et étoiles posés localement après un geste réussi (`lib/marques.ts`). */
   majMarquesMessage(id: string, epingle: boolean, etoiles: string | null): Promise<void>;
   /**
@@ -179,7 +179,7 @@ export class MoteurSynchro {
       }
       const clair = this.dechiffreur.dechiffrerContenu(m.rid, content);
       if (clair !== null) {
-        await this.depot.majTexteMessage(m.id, clair);
+        await this.depot.majTexteMessage(m.id, clair.texte, clair.piecesJointes);
         n++;
       }
     }
@@ -209,7 +209,9 @@ export class MoteurSynchro {
       return;
     }
     const clair = this.dechiffreur.dechiffrerContenu(message.rid, content);
-    if (clair !== null) message.texte = clair;
+    if (clair === null) return;
+    message.texte = clair.texte;
+    if (clair.piecesJointes !== null) message.piecesJointes = clair.piecesJointes;
   }
 
   /**

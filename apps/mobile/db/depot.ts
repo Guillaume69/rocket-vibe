@@ -60,6 +60,7 @@ import {
   MAJ_APERCU_CHIFFRE,
   MASQUER_APERCU_CHIFFRE,
   LISTER_SORTIE_A_ENVOYER,
+  SALON_CHIFFRE,
   MARQUER_SORTIE_ECHEC,
   PURGER_ABONNEMENTS_ABSENTS,
   PURGER_MESSAGES_ABSENTS,
@@ -242,9 +243,9 @@ export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot
     },
     // La passe de déverrouillage écrit le clair : elle passe par la file, comme
     // toute écriture, pour ne pas s'intercaler dans une transaction ouverte.
-    majTexteMessage: (id, texte) =>
+    majTexteMessage: (id, texte, piecesJointes) =>
       enSerie(async () => {
-        await brute.runAsync(MAJ_TEXTE_MESSAGE, [texte, id]);
+        await brute.runAsync(MAJ_TEXTE_MESSAGE, [texte, piecesJointes, id]);
       }),
     majMarquesMessage: (id, epingle, etoiles) =>
       enSerie(async () => {
@@ -368,6 +369,10 @@ export function creerDepotEnvoi(brute: SQLiteDatabase, enSerie: FileEcritures): 
     },
     supprimerMessageOptimiste(id) {
       return enSerie(() => brute.runAsync(SUPPRIMER_MESSAGE_OPTIMISTE, [id]).then(() => {}));
+    },
+    async salonChiffre(rid) {
+      const ligne = await brute.getFirstAsync<{ chiffre: number }>(SALON_CHIFFRE, [rid]);
+      return ligne?.chiffre === 1;
     },
   };
 }

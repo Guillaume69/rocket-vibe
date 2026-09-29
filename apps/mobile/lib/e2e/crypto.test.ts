@@ -3,8 +3,13 @@ import { webcrypto } from 'node:crypto';
 import { describe, test } from 'node:test';
 
 import {
+  chiffrementDeJointe,
+  chiffrerFichier,
+  chiffrerMessage,
+  dechiffrerCharge,
   dechiffrerClePrivee,
   dechiffrerCleSalon,
+  dechiffrerFichier,
   dechiffrerMessage,
   ErreurE2E,
   importerClePriveeRSA,
@@ -137,8 +142,8 @@ async function fabriquerV1(): Promise<{
   inner.set(ct, iv.length);
   const privateKey = JSON.stringify({ $binary: b64(inner) }); // emballage EJSON comme en prod
 
-  // clé de salon v1 : keyID de 12 caractères + base64(RSA(sessionJWK)) → E2EKey de 356.
-  const cleSalon = await subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+  // clé de salon v1 : AES-128, keyID de 12 caractères + base64(RSA(sessionJWK)) → E2EKey de 356.
+  const cleSalon = await subtle.generateKey({ name: 'AES-GCM', length: 128 }, true, ['encrypt', 'decrypt']);
   const jwkSalon = JSON.stringify(await subtle.exportKey('jwk', cleSalon));
   const rk = new Uint8Array(await subtle.encrypt({ name: 'RSA-OAEP' }, paire.publicKey, bytes(jwkSalon)));
   const keyId = 'af587341640c'; // 12 caractères, comme le relevé prod
@@ -166,7 +171,7 @@ describe('crypto e2e — format hérité v1', () => {
     assert.equal(keyIdDeE2EKey(e2eKey), 'af587341640c'); // keyID de 12 calculé, pas 36
 
     const cle = dechiffrerCleSalon(e2eKey, priv);
-    assert.equal(cle.length, 32);
+    assert.equal(cle.length, 16); // A128, comme le relevé prod
     assert.equal(dechiffrerMessage(contenu, cle), MESSAGE);
   });
 
@@ -176,16 +181,20 @@ describe('crypto e2e — format hérité v1', () => {
   });
 });
 
-/** Octets bruts d'une clé AES (Buffer) + clé WebCrypto AES-CBC. */
-async function cleAes() {
-  const raw = rand(32);
+/**
+ * Octets bruts d'une clé AES (Buffer) + clé WebCrypto AES-CBC. Une clé de salon
+ * créée par l'ancien client web fait 16 octets (JWK `A128CBC`, relevé sur
+ * chat.barrut.me) ; un salon récent, 32.
+ */
+async function cleAes(taille: 16 | 32) {
+  const raw = rand(taille);
   const wc = await subtle.importKey('raw', raw, { name: 'AES-CBC' }, false, ['encrypt']);
   return { octets: Buffer.from(raw), wc };
 }
 
-describe('crypto e2e — messages CBC (compte ancien)', () => {
+for (const taille of [16, 32] as const) describe(`crypto e2e — messages CBC, clé de salon de ${taille} octets`, () => {
   test('rc.v1 : ciphertext = keyID(12) + base64(IV(16) || CBC) → clair', async () => {
-    const { octets, wc } = await cleAes();
+    const { octets, wc } = await cleAes(taille);
     const iv = rand(16);
     const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-CBC', iv }, wc, bytes(JSON.stringify({ msg: MESSAGE }))));
     const blob = new Uint8Array(16 + ct.length);
@@ -196,7 +205,7 @@ describe('crypto e2e — messages CBC (compte ancien)', () => {
   });
 
   test('rc.v2 CBC : iv de 16 octets séparé → clair', async () => {
-    const { octets, wc } = await cleAes();
+    const { octets, wc } = await cleAes(taille);
     const iv = rand(16);
     const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-CBC', iv }, wc, bytes(JSON.stringify({ msg: MESSAGE }))));
     const contenu: ContenuChiffre = { algorithm: 'rc.v2.aes-sha2', kid: 'eyJhbGciOiJB', iv: b64(iv), ciphertext: b64(ct) };
@@ -204,12 +213,26 @@ describe('crypto e2e — messages CBC (compte ancien)', () => {
   });
 
   test('message hérité au texte brut (pas de JSON) → texte tel quel', async () => {
-    const { octets, wc } = await cleAes();
+    const { octets, wc } = await cleAes(taille);
     const iv = rand(16);
     const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-CBC', iv }, wc, bytes('coucou sans json')));
     const contenu: ContenuChiffre = { algorithm: 'rc.v1.aes-sha2', ciphertext: 'af587341640c' + b64(new Uint8Array([...iv, ...ct])) };
     assert.equal(dechiffrerMessage(contenu, octets), 'coucou sans json');
   });
+
+  test('rc.v2 GCM : iv de 12 octets → clair', async () => {
+    const raw = rand(taille);
+    const wc = await subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt']);
+    const iv = rand(12);
+    const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-GCM', iv }, wc, bytes(JSON.stringify({ msg: MESSAGE }))));
+    const contenu: ContenuChiffre = { algorithm: 'rc.v2.aes-sha2', kid: 'eyJhbGciOiJB', iv: b64(iv), ciphertext: b64(ct) };
+    assert.equal(dechiffrerMessage(contenu, Buffer.from(raw)), MESSAGE);
+  });
+});
+
+test('clé de salon de taille inattendue → ErreurE2E, pas un crash', () => {
+  const contenu: ContenuChiffre = { algorithm: 'rc.v2.aes-sha2', kid: 'k', iv: b64(rand(16)), ciphertext: b64(rand(32)) };
+  assert.throws(() => dechiffrerMessage(contenu, Buffer.from(rand(20))), ErreurE2E);
 });
 
 describe('crypto e2e — chaîne complète', () => {
@@ -247,5 +270,102 @@ describe('crypto e2e — chaîne complète', () => {
     octets[0] ^= 0xff;
     const falsifie: ContenuChiffre = { ...contenu, ciphertext: octets.toString('base64') };
     assert.throws(() => dechiffrerMessage(falsifie, cleSalon), ErreurE2E);
+  });
+});
+
+describe('crypto e2e — chiffrement des messages envoyés', () => {
+  const cas = [
+    { taille: 16, algo: { name: 'AES-CBC' }, tailleIv: 16 },
+    { taille: 32, algo: { name: 'AES-GCM' }, tailleIv: 12 },
+  ] as const;
+
+  for (const { taille, algo, tailleIv } of cas) {
+    test(`clé de ${taille} octets : WebCrypto (le client web) relit ce que l'on chiffre`, async () => {
+      const raw = rand(taille);
+      const charge = { msg: 'réponse chiffrée 🔒' };
+      const contenu = chiffrerMessage(charge, Buffer.from(raw), 'eyJhbGciOiJB');
+
+      assert.equal(contenu.algorithm, 'rc.v2.aes-sha2');
+      assert.equal(contenu.kid, 'eyJhbGciOiJB');
+      const iv = new Uint8Array(Buffer.from(contenu.iv ?? '', 'base64'));
+      assert.equal(iv.length, tailleIv);
+
+      const cle = await subtle.importKey('raw', raw, algo, false, ['decrypt']);
+      const clair = await subtle.decrypt({ ...algo, iv }, cle, new Uint8Array(Buffer.from(contenu.ciphertext, 'base64')));
+      assert.deepEqual(JSON.parse(new TextDecoder().decode(clair)), charge);
+      assert.equal(dechiffrerMessage(contenu, Buffer.from(raw)), charge.msg);
+    });
+  }
+
+  test('deux envois du même texte ne se ressemblent pas (IV neuf)', () => {
+    const cle = Buffer.from(rand(32));
+    const a = chiffrerMessage({ msg: 'pareil' }, cle, 'k');
+    const b = chiffrerMessage({ msg: 'pareil' }, cle, 'k');
+    assert.notEqual(a.iv, b.iv);
+    assert.notEqual(a.ciphertext, b.ciphertext);
+  });
+
+  test('clé de taille inattendue → ErreurE2E', () => {
+    assert.throws(() => chiffrerMessage({ msg: 'x' }, Buffer.from(rand(20)), 'k'), ErreurE2E);
+  });
+});
+
+test('la charge d’un fichier : texte et pièces jointes, clé du fichier comprise', () => {
+  const cle = Buffer.from(rand(32));
+  const attachments = [{ title: 'photo.jpg', encryption: { key: { k: 'abc' }, iv: 'aXY=' } }];
+  const contenu = chiffrerMessage({ msg: 'légende', attachments }, cle, 'k');
+  assert.deepEqual(dechiffrerCharge(contenu, cle), { msg: 'légende', attachments });
+  assert.deepEqual(dechiffrerCharge(chiffrerMessage({ msg: 'rien' }, cle, 'k'), cle), { msg: 'rien', attachments: null });
+});
+
+describe('crypto e2e — fichiers', () => {
+  /** Ce que fait le client web : clé AES-CTR 256 neuve, compteur de 16 octets, empreinte du clair. */
+  async function fichierDuWeb(clair: Uint8Array<ArrayBuffer>) {
+    const cle = await subtle.generateKey({ name: 'AES-CTR', length: 256 }, true, ['encrypt']);
+    const iv = rand(16);
+    const chiffre = new Uint8Array(await subtle.encrypt({ name: 'AES-CTR', counter: iv, length: 64 }, cle, clair));
+    const empreinte = Buffer.from(await subtle.digest('SHA-256', clair)).toString('hex');
+    const jwk = await subtle.exportKey('jwk', cle);
+    const jointe = { title: 'photo.jpg', encryption: { key: jwk, iv: b64(iv) }, hashes: { sha256: empreinte } };
+    return { chiffre: Buffer.from(chiffre), jointe };
+  }
+
+  test('ce que le client web chiffre, on le relit', async () => {
+    const clair = rand(60_000);
+    const { chiffre, jointe } = await fichierDuWeb(clair);
+    const chiffrement = chiffrementDeJointe(jointe);
+    assert.notEqual(chiffrement, null);
+    assert.deepEqual(dechiffrerFichier(chiffre, chiffrement!), Buffer.from(clair));
+  });
+
+  test('un octet altéré ou une autre clé : refusé par l’empreinte', async () => {
+    const { chiffre, jointe } = await fichierDuWeb(rand(1000));
+    const chiffrement = chiffrementDeJointe(jointe)!;
+    const altere = Buffer.from(chiffre);
+    altere[10] ^= 1;
+    assert.throws(() => dechiffrerFichier(altere, chiffrement), ErreurE2E);
+    const autre = await fichierDuWeb(rand(1000));
+    assert.throws(() => dechiffrerFichier(chiffre, chiffrementDeJointe(autre.jointe)!), ErreurE2E);
+  });
+
+  test('ce que l’on chiffre, le client web le relit (clé JWK réimportable)', async () => {
+    const clair = rand(50_000);
+    const { chiffre, cle, iv, sha256 } = chiffrerFichier(Buffer.from(clair));
+    const cleWeb = await subtle.importKey('jwk', cle, { name: 'AES-CTR' }, true, ['encrypt', 'decrypt']);
+    const relu = await subtle.decrypt(
+      { name: 'AES-CTR', counter: new Uint8Array(Buffer.from(iv, 'base64')), length: 64 },
+      cleWeb,
+      new Uint8Array(chiffre),
+    );
+    assert.deepEqual(Buffer.from(relu), Buffer.from(clair));
+    assert.equal(sha256, Buffer.from(await subtle.digest('SHA-256', clair)).toString('hex'));
+    const jointe = { encryption: { key: cle, iv }, hashes: { sha256 } };
+    assert.deepEqual(dechiffrerFichier(chiffre, chiffrementDeJointe(jointe)!), Buffer.from(clair));
+  });
+
+  test('une pièce jointe ordinaire n’a pas de chiffrement', () => {
+    assert.equal(chiffrementDeJointe({ title: 'a.pdf', title_link: '/file-upload/x/a.pdf' }), null);
+    assert.equal(chiffrementDeJointe({ encryption: { iv: 'x' } }), null);
+    assert.equal(chiffrementDeJointe(null), null);
   });
 });

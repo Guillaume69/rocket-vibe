@@ -68,7 +68,7 @@ export function avecPiegeTransaction(nu: Omit<Depot, 'transaction'>): Depot {
     ecrireCurseur: piege('ecrireCurseur', (p, f, v) => nu.ecrireCurseur(p, f, v)),
     purgerSalonsAbsents: piege('purgerSalonsAbsents', (v, c) => nu.purgerSalonsAbsents(v, c)),
     appliquerRetention: piege('appliquerRetention', (n) => nu.appliquerRetention(n)),
-    majTexteMessage: piege('majTexteMessage', (id, t) => nu.majTexteMessage(id, t)),
+    majTexteMessage: piege('majTexteMessage', (id, t, p) => nu.majTexteMessage(id, t, p)),
     majMarquesMessage: piege('majMarquesMessage', (id, p, e) => nu.majMarquesMessage(id, p, e)),
     masquerMessagesChiffres: piege('masquerMessagesChiffres', () => nu.masquerMessagesChiffres()),
     majApercuChiffre: piege('majApercuChiffre', () => nu.majApercuChiffre()),

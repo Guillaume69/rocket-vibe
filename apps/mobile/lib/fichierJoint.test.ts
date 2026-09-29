@@ -275,6 +275,7 @@ describe('jointeAPartager', () => {
       titre: 'photo.jpg',
       type: 'image/jpeg',
       taille: null,
+      chiffrement: null,
     });
   });
 
@@ -287,7 +288,20 @@ describe('jointeAPartager', () => {
       titre: null,
       type: 'video/mp4',
       taille: 5_000_000,
+      chiffrement: null,
     });
+  });
+
+  test('fichier d’un salon chiffré : sa clé suit, pour le rendre en clair', () => {
+    const jointes = JSON.stringify([
+      {
+        title: 'rapport.pdf',
+        title_link: '/file-upload/f1/5f2b.bin',
+        encryption: { key: { kty: 'oct', k: 'Y2xl' }, iv: 'aXY=' },
+        hashes: { sha256: 'abc' },
+      },
+    ]);
+    assert.deepEqual(jointeAPartager(jointes)?.chiffrement, { cle: { k: 'Y2xl' }, iv: 'aXY=', sha256: 'abc' });
   });
 
   test('une citation n’est pas un fichier du message', () => {

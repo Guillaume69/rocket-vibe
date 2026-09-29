@@ -7,6 +7,7 @@
 
 import { Alert } from 'react-native';
 
+import type { ChiffrementFichier } from '../lib/e2e/crypto.ts';
 import { enregistrerJointeProtegee, ouvrirJointeProtegee } from './fichierJoint.ts';
 import type { Traducteur } from './messages.ts';
 import { transferer } from './transferts.ts';
@@ -21,6 +22,7 @@ export type JointeATransferer = {
   type: string | null;
   /** Poids annoncé par le message, en octets. */
   taille: number | null;
+  chiffrement?: ChiffrementFichier | null;
 };
 
 export function enregistrerEnFond(jointe: JointeATransferer, t: Traducteur): void {

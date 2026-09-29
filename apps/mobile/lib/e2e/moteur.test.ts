@@ -123,7 +123,7 @@ describe('MoteurE2E', () => {
     assert.notEqual(lu(), null); // clé privée persistée
 
     m.enregistrerCleSalon(RID, e2eKey);
-    assert.equal(m.dechiffrerContenu(RID, contenu), MESSAGE);
+    assert.equal(m.dechiffrerContenu(RID, contenu)?.texte, MESSAGE);
   });
 
   test('déchiffre même si enregistrerCleSalon a lieu avant le déverrouillage', async () => {
@@ -132,7 +132,7 @@ describe('MoteurE2E', () => {
     const m = new MoteurE2E({ client, stockage, uid: 'osR3JzQEiM2H77m46' });
     m.enregistrerCleSalon(RID, e2eKey); // E2EKey connu avant d'avoir la clé privée
     await m.deverrouiller(MOT_DE_PASSE);
-    assert.equal(m.dechiffrerContenu(RID, contenu), MESSAGE);
+    assert.equal(m.dechiffrerContenu(RID, contenu)?.texte, MESSAGE);
   });
 
   test('une ROTATION de clé de salon est prise en compte, pas ignorée', async () => {
@@ -146,12 +146,12 @@ describe('MoteurE2E', () => {
     const m = new MoteurE2E({ client, stockage, uid: 'osR3JzQEiM2H77m46' });
     await m.deverrouiller(MOT_DE_PASSE);
     m.enregistrerCleSalon(RID, e2eKey);
-    assert.equal(m.dechiffrerContenu(RID, contenu), MESSAGE);
+    assert.equal(m.dechiffrerContenu(RID, contenu)?.texte, MESSAGE);
 
     const APRES = 'message posté après la rotation';
     const rot = await fabriquerCleSalon(fetchMyKeys.public_key, APRES);
     m.enregistrerCleSalon(RID, rot.e2eKey);
-    assert.equal(m.dechiffrerContenu(RID, rot.contenu), APRES);
+    assert.equal(m.dechiffrerContenu(RID, rot.contenu)?.texte, APRES);
     assert.equal(m.keyIdSalon(RID), rot.e2eKey.slice(0, 36));
   });
 
@@ -163,7 +163,7 @@ describe('MoteurE2E', () => {
     m.enregistrerCleSalon(RID, e2eKey);
     m.enregistrerCleSalon(RID, e2eKey);
     m.enregistrerCleSalon(RID, e2eKey);
-    assert.equal(m.dechiffrerContenu(RID, contenu), MESSAGE);
+    assert.equal(m.dechiffrerContenu(RID, contenu)?.texte, MESSAGE);
   });
 
   test('reprendre() réimporte la clé du Keystore sans mot de passe', async () => {
@@ -175,7 +175,7 @@ describe('MoteurE2E', () => {
     assert.equal(await m2.reprendre(), true);
     assert.equal(m2.estDeverrouille, true);
     m2.enregistrerCleSalon(RID, e2eKey);
-    assert.equal(m2.dechiffrerContenu(RID, contenu), MESSAGE);
+    assert.equal(m2.dechiffrerContenu(RID, contenu)?.texte, MESSAGE);
   });
 
   test('verrouiller() oublie tout et vide le Keystore', async () => {
@@ -209,5 +209,45 @@ describe('MoteurE2E', () => {
     await m.deverrouiller(MOT_DE_PASSE);
     await m.verrouiller();
     assert.equal(n, 2);
+  });
+});
+
+describe('MoteurE2E — chiffrer', () => {
+  test('verrouillé ou sans clé de salon → null, jamais de clair', async () => {
+    const { fetchMyKeys, e2eKey } = await fabriquer();
+    const { client, stockage } = faux(fetchMyKeys);
+    const m = new MoteurE2E({ client, stockage, uid: 'osR3JzQEiM2H77m46' });
+    m.enregistrerCleSalon(RID, e2eKey);
+    assert.equal(m.chiffrer(RID, { msg: 'x' }), null);
+    await m.deverrouiller(MOT_DE_PASSE);
+    assert.equal(m.chiffrer('autre-salon', { msg: 'x' }), null);
+  });
+
+  test('chiffre sous la clé et le keyID du salon — relu par dechiffrerContenu', async () => {
+    const { fetchMyKeys, e2eKey } = await fabriquer();
+    const { client, stockage } = faux(fetchMyKeys);
+    const m = new MoteurE2E({ client, stockage, uid: 'osR3JzQEiM2H77m46' });
+    await m.deverrouiller(MOT_DE_PASSE);
+    m.enregistrerCleSalon(RID, e2eKey);
+
+    const contenu = m.chiffrer(RID, { msg: 'envoyé chiffré' });
+    assert.notEqual(contenu, null);
+    assert.equal(contenu?.kid, e2eKey.slice(0, 36));
+    assert.equal(m.dechiffrerContenu(RID, contenu as ContenuChiffre)?.texte, 'envoyé chiffré');
+  });
+
+  test('après une rotation, chiffre sous la NOUVELLE clé', async () => {
+    const { fetchMyKeys, e2eKey } = await fabriquer();
+    const { client, stockage } = faux(fetchMyKeys);
+    const m = new MoteurE2E({ client, stockage, uid: 'osR3JzQEiM2H77m46' });
+    await m.deverrouiller(MOT_DE_PASSE);
+    m.enregistrerCleSalon(RID, e2eKey);
+    m.chiffrer(RID, { msg: 'avant' });
+
+    const rot = await fabriquerCleSalon(fetchMyKeys.public_key, 'ignoré');
+    m.enregistrerCleSalon(RID, rot.e2eKey);
+    const contenu = m.chiffrer(RID, { msg: 'après' });
+    assert.equal(contenu?.kid, rot.e2eKey.slice(0, 36));
+    assert.equal(m.dechiffrerContenu(RID, contenu as ContenuChiffre)?.texte, 'après');
   });
 });

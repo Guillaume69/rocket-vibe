@@ -1,7 +1,8 @@
 /**
  * Composer commun aux écrans salon et fil : champ, brouillon persistant,
  * pièces jointes (caméra, bibliothèque, fichier, vocal), complétions
- * emoji/mention, citation, et les variantes lecture seule / salon chiffré.
+ * emoji/mention, citation, et les variantes lecture seule / salon chiffré
+ * verrouillé.
  *
  * Extrait de `app/salon/[rid].tsx` (chantier 14). Le composer du fil en était
  * une copie DIVERGÉE — police système faute de `POLICES`, pas de fermeture du
@@ -113,6 +114,8 @@ export function Composer({
   sauverBrouillon: (texte: string) => void;
   effacerBrouillon: () => void;
 }) {
+  const synchro = useSynchro();
+  const deverrouille = useE2EDeverrouille(synchro.phase === 'pret' ? synchro.e2e : null);
   const [brouillon, setBrouillon] = useState(brouillonInitial);
   // Le texte COURANT, lisible depuis une continuation asynchrone. Un
   // téléversement prend des secondes et le champ reste éditable pendant tout ce
@@ -339,10 +342,13 @@ export function Composer({
       let refus: unknown = null;
       for (const piece of pieces) {
         try {
-          await fichiers.valider({
-            type: piece.type,
-            taille: reductionProposable(piece) ? null : piece.taille,
-          });
+          await fichiers.valider(
+            {
+              type: piece.type,
+              taille: reductionProposable(piece) ? null : piece.taille,
+            },
+            rid,
+          );
           acceptees.push({ ...piece, cle: prochaineCle.current++ });
         } catch (e) {
           refus ??= e;
@@ -364,7 +370,7 @@ export function Composer({
       if (enAttenteRef.current.length === 0) setQualite('reduite');
       setEnAttente((prev) => [...prev, ...acceptees]);
     },
-    [fichiers, t],
+    [fichiers, rid, t],
   );
 
   const ouvrirPiece = useCallback(
@@ -519,11 +525,10 @@ export function Composer({
     }
   }, [routeur, depuisCamera, depuisBibliotheque, depuisFichier, fermerFeuilleJoindre, fermerEmoji, t]);
 
-  // Salon chiffré : lecture désormais possible (E2EE, étape 10), mais PAS
-  // l'envoi (le serveur rejette un clair, `error-not-allowed`). Verrouillé, on
-  // propose de déverrouiller ; déverrouillé, on explique la lecture seule.
-  if (chiffre) {
-    return <ComposerChiffre c={c} />;
+  // Salon chiffré verrouillé : sans clé, rien ne peut partir — on propose de
+  // déverrouiller. Déverrouillé, c'est le composer ordinaire, et l'outbox chiffre.
+  if (chiffre && !deverrouille) {
+    return <ComposerVerrouille c={c} />;
   }
   if (lectureSeule) {
     return (
@@ -669,26 +674,12 @@ export function Composer({
 }
 
 /**
- * Zone composer d'un salon chiffré. Verrouillé : un bouton qui ouvre la feuille
- * de déverrouillage (les messages s'éclairent ensuite tout seuls). Déverrouillé :
- * une note de lecture seule — l'envoi chiffré n'est pas encore pris en charge.
+ * Zone composer d'un salon chiffré verrouillé : un bouton qui ouvre la feuille
+ * de déverrouillage (les messages s'éclairent ensuite tout seuls).
  */
-function ComposerChiffre({ c }: { c: Couleurs }) {
+function ComposerVerrouille({ c }: { c: Couleurs }) {
   const t = useT();
   const routeur = useRouter();
-  const synchro = useSynchro();
-  // Composer monté seulement en phase 'pret' (garde de l'écran) ; le hook
-  // tolère null pour rester inconditionnel.
-  const e2e = synchro.phase === 'pret' ? synchro.e2e : null;
-  const deverrouille = useE2EDeverrouille(e2e);
-
-  if (deverrouille) {
-    return (
-      <View style={[styles.composer, { borderTopColor: c.bordureDouce }]}>
-        <Text style={[styles.noteComposer, { color: c.attenue }]}>{t('salon.chiffreLecture')}</Text>
-      </View>
-    );
-  }
   return (
     <Appuyable
       onPress={() => routeur.push('/deverrouiller-e2e')}

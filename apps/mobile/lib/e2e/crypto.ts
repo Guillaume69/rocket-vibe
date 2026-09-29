@@ -1,5 +1,6 @@
 /**
- * Primitives de déchiffrement E2EE Rocket.Chat (schéma `rc.v2.aes-sha2`).
+ * Primitives E2EE Rocket.Chat (schéma `rc.v2.aes-sha2`) : déchiffrement, et
+ * chiffrement des messages envoyés.
  *
  * Fonctions PURES, sans React ni réseau — testables sous Node. Tout le savoir
  * cryptographique du client tient ici ; l'orchestration (session, clés en
@@ -24,7 +25,17 @@
  * `setAuthTag` — d'où le découpage.
  */
 
-import { constants, createDecipheriv, createPrivateKey, pbkdf2Sync, privateDecrypt, type KeyObject } from 'crypto';
+import {
+  constants,
+  createCipheriv,
+  createHash,
+  createDecipheriv,
+  createPrivateKey,
+  pbkdf2Sync,
+  privateDecrypt,
+  randomBytes,
+  type KeyObject,
+} from 'crypto';
 import { Buffer } from 'buffer';
 
 /** Enveloppe de la clé privée telle que renvoyée par `e2e.fetchMyKeys`. */
@@ -90,27 +101,39 @@ function base64urlVersOctets(s: string): Buffer {
 }
 
 /**
- * Déchiffre un bloc AES-GCM 256. `ctAvecTag` porte le tag de 16 octets en fin
+ * Le chiffre AES qui correspond à la taille de la clé : une clé de salon créée
+ * par l'ancien client web est un JWK `A128CBC` de 16 octets, pas 32.
+ */
+function bitsAes(cle: Buffer): 128 | 192 | 256 | null {
+  const bits = cle.length * 8;
+  return bits === 128 || bits === 192 || bits === 256 ? bits : null;
+}
+
+/**
+ * Déchiffre un bloc AES-GCM. `ctAvecTag` porte le tag de 16 octets en fin
  * (convention WebCrypto). Rend `null` si l'authentification échoue — la seule
  * façon fiable de détecter un mauvais mot de passe / une clé fausse.
  */
 function dechiffrerGcm(cle: Buffer, iv: Buffer, ctAvecTag: Buffer): Buffer | null {
-  if (ctAvecTag.length < TAILLE_TAG_GCM) return null;
+  const bits = bitsAes(cle);
+  if (bits === null || ctAvecTag.length < TAILLE_TAG_GCM) return null;
   const corps = ctAvecTag.subarray(0, ctAvecTag.length - TAILLE_TAG_GCM);
   const tag = ctAvecTag.subarray(ctAvecTag.length - TAILLE_TAG_GCM);
-  const dechiffreur = createDecipheriv('aes-256-gcm', cle, iv);
-  dechiffreur.setAuthTag(tag);
   try {
+    const dechiffreur = createDecipheriv(`aes-${bits}-gcm`, cle, iv);
+    dechiffreur.setAuthTag(tag);
     return Buffer.concat([dechiffreur.update(corps), dechiffreur.final()]);
   } catch {
     return null;
   }
 }
 
-/** Déchiffre un bloc AES-CBC 256 (remplissage PKCS#7 vérifié par `final`). */
+/** Déchiffre un bloc AES-CBC (remplissage PKCS#7 vérifié par `final`). */
 function dechiffrerCbc(cle: Buffer, iv: Buffer, ct: Buffer): Buffer | null {
-  const dechiffreur = createDecipheriv('aes-256-cbc', cle, iv);
+  const bits = bitsAes(cle);
+  if (bits === null) return null;
   try {
+    const dechiffreur = createDecipheriv(`aes-${bits}-cbc`, cle, iv);
     return Buffer.concat([dechiffreur.update(ct), dechiffreur.final()]);
   } catch {
     return null;
@@ -206,10 +229,22 @@ export function dechiffrerCleSalon(e2eKey: string, clePrivee: ClePriveeRSA): Buf
 }
 
 /**
- * Objet `content` + clé de salon (octets) → texte clair du message. Le clair est
- * un JSON `{"msg": "..."}` (parfois `text`). Lève `ErreurE2E` si l'auth échoue.
+ * Ce que porte un message chiffré une fois ouvert : son texte, et pour un
+ * fichier ses pièces jointes, qui détiennent la clé du fichier.
  */
+export type ChargeClaire = { msg: string; attachments: unknown[] | null };
+
+/** Objet `content` + clé de salon (octets) → texte clair du message. */
 export function dechiffrerMessage(contenu: ContenuChiffre, cleSalonOctets: Buffer): string {
+  return dechiffrerCharge(contenu, cleSalonOctets).msg;
+}
+
+/**
+ * Objet `content` + clé de salon (octets) → charge claire. Le clair est un JSON
+ * `{"msg": "...", "attachments": [...]}` (parfois `text`). Lève `ErreurE2E` si
+ * l'auth échoue.
+ */
+export function dechiffrerCharge(contenu: ContenuChiffre, cleSalonOctets: Buffer): ChargeClaire {
   let clair: Buffer | null;
   if (typeof contenu.iv === 'string' && contenu.iv !== '') {
     // Structure moderne : iv et ciphertext séparés. IV de 12 octets → GCM
@@ -227,11 +262,110 @@ export function dechiffrerMessage(contenu: ContenuChiffre, cleSalonOctets: Buffe
   // Le clair est en général un JSON `{"msg": "..."}` ; certains messages
   // hérités portent le texte brut — on retombe dessus.
   try {
-    const obj = JSON.parse(texte) as { msg?: unknown; text?: unknown };
-    if (typeof obj.msg === 'string') return obj.msg;
-    if (typeof obj.text === 'string') return obj.text;
+    const obj = JSON.parse(texte) as { msg?: unknown; text?: unknown; attachments?: unknown };
+    const attachments = Array.isArray(obj.attachments) ? obj.attachments : null;
+    if (typeof obj.msg === 'string') return { msg: obj.msg, attachments };
+    if (typeof obj.text === 'string') return { msg: obj.text, attachments };
+    if (attachments !== null) return { msg: '', attachments };
   } catch {
     // pas du JSON : texte brut.
   }
-  return texte;
+  return { msg: texte, attachments: null };
+}
+
+/**
+ * Charge claire (`{msg}`, plus `attachments`/`files`/`file` pour un fichier) →
+ * objet `content` `rc.v2.aes-sha2`, tel que le client web le produit. Le mode
+ * suit la clé de salon, comme WebCrypto côté web où la clé est importée selon
+ * l'`alg` de son JWK : `A128CBC` (16 octets) → CBC, IV de 16 ; `A256GCM` (32)
+ * → GCM, IV de 12, tag collé en fin de `ciphertext`.
+ */
+export function chiffrerMessage(charge: object, cleSalonOctets: Buffer, kid: string): ContenuChiffre {
+  const clair = Buffer.from(JSON.stringify(charge), 'utf8');
+  let iv: Buffer;
+  let ct: Buffer;
+  if (cleSalonOctets.length === 16) {
+    iv = randomBytes(TAILLE_IV_CBC);
+    const chiffreur = createCipheriv('aes-128-cbc', cleSalonOctets, iv);
+    ct = Buffer.concat([chiffreur.update(clair), chiffreur.final()]);
+  } else if (cleSalonOctets.length === 32) {
+    iv = randomBytes(12);
+    const chiffreur = createCipheriv('aes-256-gcm', cleSalonOctets, iv);
+    ct = Buffer.concat([chiffreur.update(clair), chiffreur.final(), chiffreur.getAuthTag()]);
+  } else {
+    throw new ErreurE2E('clé de salon de taille inattendue');
+  }
+  return { algorithm: 'rc.v2.aes-sha2', kid, iv: iv.toString('base64'), ciphertext: ct.toString('base64') };
+}
+
+/**
+ * Le chiffrement d'un fichier, tel que sa pièce jointe le décrit (dans le
+ * clair du message) : une clé AES-CTR à lui (JWK), un compteur initial de 16
+ * octets, et l'empreinte SHA-256 du fichier clair.
+ */
+export type ChiffrementFichier = { cle: { k: string }; iv: string; sha256: string | null };
+
+/** La description de chiffrement d'une pièce jointe, ou `null` si elle n'est pas chiffrée. */
+export function chiffrementDeJointe(jointe: unknown): ChiffrementFichier | null {
+  if (typeof jointe !== 'object' || jointe === null) return null;
+  const { encryption, hashes } = jointe as { encryption?: unknown; hashes?: unknown };
+  if (typeof encryption !== 'object' || encryption === null) return null;
+  const { key, iv } = encryption as { key?: unknown; iv?: unknown };
+  const k = typeof key === 'object' && key !== null ? (key as { k?: unknown }).k : undefined;
+  if (typeof k !== 'string' || typeof iv !== 'string') return null;
+  const sha256 =
+    typeof hashes === 'object' && hashes !== null ? (hashes as { sha256?: unknown }).sha256 : undefined;
+  return { cle: { k }, iv, sha256: typeof sha256 === 'string' ? sha256 : null };
+}
+
+/**
+ * Octets téléchargés → fichier clair. AES-CTR : pas de remplissage ni de tag,
+ * donc une clé fausse rend du bruit sans erreur — c'est l'empreinte SHA-256
+ * qui tranche, quand l'expéditeur l'a fournie. Lève `ErreurE2E` sinon.
+ */
+export function dechiffrerFichier(octets: Buffer, chiffrement: ChiffrementFichier): Buffer {
+  const cle = base64urlVersOctets(chiffrement.cle.k);
+  const bits = bitsAes(cle);
+  const iv = base64VersOctets(chiffrement.iv);
+  if (bits === null || iv.length !== 16) throw new ErreurE2E('chiffrement de fichier illisible');
+  const dechiffreur = createDecipheriv(`aes-${bits}-ctr`, cle, iv);
+  const clair = Buffer.concat([dechiffreur.update(octets), dechiffreur.final()]);
+  if (chiffrement.sha256 !== null && empreinteSha256(clair) !== chiffrement.sha256.toLowerCase()) {
+    throw new ErreurE2E('fichier altéré ou clé fausse');
+  }
+  return clair;
+}
+
+/** SHA-256 en hexadécimal, la forme des `hashes.sha256` de Rocket.Chat. */
+export function empreinteSha256(octets: Buffer): string {
+  return createHash('sha256').update(octets).digest('hex');
+}
+
+/** La clé d'un fichier envoyé, sous la forme JWK que le client web réimporte (AES-CTR, extractible). */
+export type JwkFichier = { kty: 'oct'; alg: 'A256CTR'; k: string; ext: true; key_ops: ['encrypt', 'decrypt'] };
+
+/**
+ * Fichier clair → octets à téléverser, et de quoi le relire : une clé AES-CTR
+ * 256 neuve, un compteur initial de 16 octets, l'empreinte SHA-256 du clair —
+ * ce que le client web met dans la pièce jointe.
+ */
+export function chiffrerFichier(clair: Buffer): {
+  chiffre: Buffer;
+  cle: JwkFichier;
+  iv: string;
+  sha256: string;
+} {
+  const cle = randomBytes(32);
+  const iv = randomBytes(16);
+  const chiffreur = createCipheriv('aes-256-ctr', cle, iv);
+  return {
+    chiffre: Buffer.concat([chiffreur.update(clair), chiffreur.final()]),
+    cle: { kty: 'oct', alg: 'A256CTR', k: versBase64url(cle), ext: true, key_ops: ['encrypt', 'decrypt'] },
+    iv: iv.toString('base64'),
+    sha256: empreinteSha256(clair),
+  };
+}
+
+function versBase64url(octets: Buffer): string {
+  return octets.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }

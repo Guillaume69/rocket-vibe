@@ -7,6 +7,24 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- Encrypted rooms, once unlocked, are written in like any other: messages leave encrypted (mentions
+  still notify), and a message sent while locked waits for the unlock. Edit and Reply in thread
+  work there too.
+- Unlocking an encrypted room lasts: the E2E key is kept in the system keychain with the
+  session, as the web client keeps it, so the next launch opens unlocked. Locking or signing
+  out forgets it; the password itself is never kept.
+- Photos, sounds, videos and files sent encrypted show in their room once unlocked, under their
+  real name, and open or save in clear.
+- Files can be sent in an encrypted room too: they leave encrypted, name and caption included.
+  A server that refuses encrypted files says so as soon as the file is attached.
+
+### Fixed
+
+- An encrypted room created by an older web client (AES-128 room key) reads once unlocked,
+  instead of showing every message as undecipherable.
+
 ## [0.2.0] - 2026-09-29
 
 ### Changed

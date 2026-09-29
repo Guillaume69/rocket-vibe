@@ -118,3 +118,43 @@ async fn unknown_verdict_stops_the_pass() {
     assert_eq!(sends(&f.server), 1);
     assert_eq!(count(&f.store, "SELECT COUNT(*) FROM outbox WHERE status = 'pending'"), 2);
 }
+
+fn encrypted_room(store: &Store) {
+    let room = rv_core::normalize::Room { rid: "r".into(), kind: "p".into(), encrypted: true, ..Default::default() };
+    store.write(|w| w.upsert_room(&room));
+}
+
+#[tokio::test]
+async fn encrypted_room_sends_content_never_text() {
+    let f = fixture(|_| respond(200, &server_message(ID))).await;
+    encrypted_room(&f.store);
+    f.outbox.set_encryptor(|rid, payload| Some(json!({"kid": rid, "ciphertext": payload["msg"]})));
+    f.outbox.enqueue("r", "hi @bob", Some("root"));
+    assert_eq!(scalar(&f.store, "SELECT system_type FROM messages").as_deref(), Some("e2e"));
+    f.outbox.process().await;
+    let body: serde_json::Value = serde_json::from_str(&f.server.requests()[0].body).unwrap();
+    let message = &body["message"];
+    assert_eq!(message["msg"], serde_json::Value::Null);
+    assert_eq!(
+        (message["t"].as_str(), message["e2e"].as_str(), message["tmid"].as_str()),
+        (Some("e2e"), Some("pending"), Some("root"))
+    );
+    assert_eq!(message["content"], json!({"kid": "r", "ciphertext": "hi @bob"}));
+    assert_eq!(message["e2eMentions"]["e2eUserMentions"], json!(["@bob"]));
+    assert_eq!(count(&f.store, "SELECT COUNT(*) FROM outbox"), 0);
+}
+
+#[tokio::test]
+async fn locked_encrypted_room_waits_without_failing() {
+    let f = fixture(|_| respond(200, &server_message(ID))).await;
+    encrypted_room(&f.store);
+    f.outbox.enqueue("r", "secret", None);
+    f.outbox.process().await;
+    f.outbox.set_encryptor(|_, _| None);
+    f.outbox.process().await;
+    assert_eq!(sends(&f.server), 0);
+    assert_eq!(scalar(&f.store, "SELECT status FROM outbox").as_deref(), Some("pending"));
+    f.outbox.set_encryptor(|_, payload| Some(payload.clone()));
+    f.outbox.process().await;
+    assert_eq!(sends(&f.server), 1);
+}

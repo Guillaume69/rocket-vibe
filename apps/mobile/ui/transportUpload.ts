@@ -39,7 +39,7 @@ async function copieNommee(
 }
 
 function transportExpoAvec(champ: string): TransportUpload {
-  return async (url, entetes, fichier, surProgression, surAnnulable) => {
+  return async (url, entetes, fichier, surProgression, surAnnulable, champs) => {
     // Un fichier de cache purgé par l'OS (kill entre la sélection et le rejeu)
     // n'est PAS une panne réseau : erreur franche → statut « échec »,
     // abandonnable — pas une attente éternelle.
@@ -59,7 +59,7 @@ function transportExpoAvec(champ: string): TransportUpload {
         fieldName: champ,
         mimeType: fichier.type,
         headers: entetes,
-        parameters: {},
+        parameters: champs ?? {},
       },
       (progression) => {
         if (progression.totalBytesExpectedToSend > 0) {

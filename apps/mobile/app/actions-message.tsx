@@ -33,6 +33,7 @@ import {
 import { unicodeDeCodeCourt } from '../lib/emojis.ts';
 import { jointeAPartager } from '../lib/fichierJoint.ts';
 import { etoilePar, etoilesApres } from '../lib/marques.ts';
+import { TYPE_CHIFFRE } from '../lib/normaliser.ts';
 import { permissionsAccordees, rolesDuSalon, sourcesPermissions } from '../lib/permissions.ts';
 import { listeReactions } from '../lib/reactions.ts';
 import type { ClientRest } from '../lib/rest.ts';
@@ -89,6 +90,7 @@ type Charge = {
     rid: string;
     /** `tmid` : la racine du fil si ce message en est déjà une réponse. */
     filId: string | null;
+    typeSysteme: string | null;
     texte: string | null;
     auteurNom: string | null;
     piecesJointes: string | null;
@@ -128,6 +130,7 @@ export default function EcranActionsMessage() {
   const base = synchro.phase === 'pret' ? synchro.base : null;
   const moteur = synchro.phase === 'pret' ? synchro.moteur : null;
   const actionneur = synchro.phase === 'pret' ? synchro.actions : null;
+  const e2e = synchro.phase === 'pret' ? synchro.e2e : null;
   const client = etat.phase === 'connecte' ? etat.client : null;
   const moi = etat.phase === 'connecte' ? etat.session.userId : null;
   const siteUrl = etat.phase === 'connecte' ? etat.session.siteUrl : null;
@@ -168,6 +171,7 @@ export default function EcranActionsMessage() {
           id: brut.id,
           rid: brut.rid,
           filId: brut.filId,
+          typeSysteme: brut.typeSysteme,
           texte: brut.texte,
           auteurNom: brut.auteurNom,
           piecesJointes: brut.piecesJointes,
@@ -302,6 +306,7 @@ export default function EcranActionsMessage() {
           titre: jointe.titre,
           type: jointe.type,
           taille: jointe.taille,
+          chiffrement: jointe.chiffrement,
         };
   const partager = async () => {
     if (aTransferer === null) {
@@ -386,7 +391,14 @@ export default function EcranActionsMessage() {
             <Pressable
               disabled={occupe}
               onPress={() =>
-                void agir(() => actionneur.modifier(message.rid, message.id, edition ?? ''))
+                void agir(() =>
+                  actionneur.modifier(
+                    message.rid,
+                    message.id,
+                    edition ?? '',
+                    message.typeSysteme === TYPE_CHIFFRE ? (e2e ?? undefined) : undefined,
+                  ),
+                )
               }
               style={({ pressed }) => [
                 styles.boutonPrincipal,

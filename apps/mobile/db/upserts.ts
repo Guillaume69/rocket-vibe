@@ -38,7 +38,13 @@ ON CONFLICT(id) DO UPDATE SET
   fil_affiche = excluded.fil_affiche,
   modifie_le = excluded.modifie_le,
   md = excluded.md,
-  pieces_jointes = excluded.pieces_jointes,
+  -- Les pièces jointes d'un fichier chiffré vivent dans son content : comme
+  -- le texte, elles ne se gardent que déchiffrées, et une resynchro sans clé
+  -- ne doit pas les effacer.
+  pieces_jointes = CASE
+    WHEN excluded.type_systeme = 'e2e' THEN COALESCE(excluded.pieces_jointes, messages.pieces_jointes)
+    ELSE excluded.pieces_jointes
+  END,
   reactions = excluded.reactions,
   urls = excluded.urls,
   appel_id = excluded.appel_id,
@@ -203,21 +209,22 @@ UPDATE salons SET avatar_etag = ? WHERE rid = ? AND avatar_etag IS NOT ?
 export const LISTER_CLES_SALON = `SELECT rid, e2e_key FROM abonnements WHERE e2e_key IS NOT NULL`;
 /** Messages chiffrés encore illisibles : ciphertext gardé, clair pas encore posé. */
 export const MESSAGES_A_DECHIFFRER = `SELECT id, rid, chiffre_brut FROM messages WHERE chiffre_brut IS NOT NULL AND texte IS NULL`;
-/** Pose le clair d'un message une fois déchiffré. */
-export const MAJ_TEXTE_MESSAGE = `UPDATE messages SET texte = ? WHERE id = ?`;
+/** Pose le clair d'un message une fois déchiffré, et les pièces jointes d'un fichier. */
+export const MAJ_TEXTE_MESSAGE = `UPDATE messages SET texte = ?, pieces_jointes = COALESCE(?, pieces_jointes) WHERE id = ?`;
 /**
  * Pose l'épinglage et les étoiles après un geste réussi (voir `lib/marques.ts`).
  * `mis_a_jour_le` n'avance pas : la prochaine version du serveur fait foi.
  */
 export const MAJ_MARQUES_MESSAGE = `UPDATE messages SET epingle = ?, etoiles = ? WHERE id = ?`;
 /** Re-masque tout message chiffré au verrouillage : le clair local disparaît,
- *  le ciphertext (`chiffre_brut`) reste pour re-déchiffrer au prochain déverrou.
+ *  pièces jointes comprises (elles portent la clé de chaque fichier), le
+ *  ciphertext (`chiffre_brut`) reste pour re-déchiffrer au prochain déverrou.
  *
  *  `texte IS NOT NULL` n'est pas cosmétique, comme partout ailleurs ici : un
  *  verrouillage rejoué (`reverrouillageE2E`) sur des messages DÉJÀ masqués
  *  toucherait toute la table sans rien changer, et réveillerait chaque
  *  `useLiveQuery` assise dessus — donc re-rendrait le salon ouvert. */
-export const MASQUER_MESSAGES_CHIFFRES = `UPDATE messages SET texte = NULL WHERE chiffre_brut IS NOT NULL AND texte IS NOT NULL`;
+export const MASQUER_MESSAGES_CHIFFRES = `UPDATE messages SET texte = NULL, pieces_jointes = NULL WHERE chiffre_brut IS NOT NULL AND texte IS NOT NULL`;
 /**
  * Aperçu de la liste pour les salons chiffrés DÉVERROUILLÉS : le dernier
  * message déchiffré. Sans déchiffrement, `dernier_message` reste null (le
@@ -453,6 +460,9 @@ VALUES (?, ?, ?, ?, 'en-attente', 0, NULL, ?)
 `;
 
 /** Les échecs aussi : le rejeu au retour du réseau retente tout ce qui reste. */
+/** Le salon est-il chiffré ? Décide du chemin d'envoi d'un message. */
+export const SALON_CHIFFRE = `SELECT chiffre FROM salons WHERE rid = ?`;
+
 export const LISTER_SORTIE_A_ENVOYER = `
 SELECT id, rid, texte, fil_id, statut, tentatives FROM sortie
 WHERE statut IN ('en-attente', 'echec') ORDER BY cree_le

@@ -11,11 +11,17 @@
  * prochain démarrage ou retour de réseau l'emportera. Refus du serveur
  * (4xx/5xx) : `echec`, actionnable depuis l'UI.
  *
+ * Salon chiffré : le texte est chiffré au moment de partir, jamais avant — la
+ * file garde le clair, comme la base garde les messages déchiffrés. Sans clé
+ * (verrouillé), la ligne attend le déverrouillage au lieu d'échouer.
+ *
  * Pur : la base est derrière `DepotEnvoi`, le REST derrière `ClientRest` —
  * tout se teste sous Node.
  */
 
-import type { MessageLocal } from './normaliser.ts';
+import type { ContenuChiffre } from './e2e/crypto.ts';
+import { mentionsE2E } from './e2e/mentions.ts';
+import { TYPE_CHIFFRE, type MessageLocal } from './normaliser.ts';
 import { ErreurRest, type ClientRest } from './rest.ts';
 
 export type LigneSortie = {
@@ -35,6 +41,12 @@ export interface DepotEnvoi {
   upsertMessage(m: MessageLocal): Promise<void>;
   /** N'efface le message que s'il est encore optimiste (jamais livré). */
   supprimerMessageOptimiste(id: string): Promise<void>;
+  salonChiffre(rid: string): Promise<boolean>;
+}
+
+/** Le chiffrement E2EE d'une charge, ou `null` tant qu'il est impossible (verrouillé, clé absente). */
+export interface ChiffreurEnvoi {
+  chiffrer(rid: string, charge: object): ContenuChiffre | null;
 }
 
 /** 24 hexadécimaux depuis 12 octets — le format des `_id` Rocket.Chat. */
@@ -55,6 +67,7 @@ export class MoteurEnvoi {
   private readonly maintenant: () => number;
   /** Réconciliation : le document renvoyé par le serveur repasse par la synchro. */
   private readonly ingerer: (doc: Record<string, unknown>) => Promise<void>;
+  private readonly chiffreur: ChiffreurEnvoi | null;
   private enVol = false;
 
   constructor(options: {
@@ -63,6 +76,7 @@ export class MoteurEnvoi {
     moi: { id: string; username: string };
     genererId: () => string;
     ingerer: (doc: Record<string, unknown>) => Promise<void>;
+    chiffreur?: ChiffreurEnvoi | null;
     maintenant?: () => number;
   }) {
     this.depot = options.depot;
@@ -70,6 +84,7 @@ export class MoteurEnvoi {
     this.moi = options.moi;
     this.genererId = options.genererId;
     this.ingerer = options.ingerer;
+    this.chiffreur = options.chiffreur ?? null;
     this.maintenant = options.maintenant ?? (() => Date.now());
   }
 
@@ -96,7 +111,7 @@ export class MoteurEnvoi {
       horodatage: quand,
       auteurId: this.moi.id,
       auteurNom: this.moi.username,
-      typeSysteme: null,
+      typeSysteme: (await this.depot.salonChiffre(rid)) ? TYPE_CHIFFRE : null,
       filId,
       filReponses: 0,
       filDernier: null,
@@ -146,16 +161,11 @@ export class MoteurEnvoi {
   /** Rend `false` si le réseau est injoignable — inutile d'insister. */
   private async unePasse(): Promise<boolean> {
     for (const ligne of await this.depot.listerAEnvoyer()) {
+      const message = await this.corpsDuMessage(ligne);
+      if (message === null) continue;
       try {
         const reponse = await this.client.post<ReponseEnvoi>('chat.sendMessage', {
-          corps: {
-            message: {
-              _id: ligne.id,
-              rid: ligne.rid,
-              msg: ligne.texte,
-              ...(ligne.filId === null ? {} : { tmid: ligne.filId }),
-            },
-          },
+          corps: { message },
         });
         await this.depot.supprimerSortie(ligne.id);
         if (reponse.message !== undefined) await this.ingerer(reponse.message);
@@ -191,6 +201,19 @@ export class MoteurEnvoi {
       }
     }
     return true;
+  }
+
+  /** Le message tel qu'il part, ou `null` s'il doit attendre une clé de salon. */
+  private async corpsDuMessage(ligne: LigneSortie): Promise<Record<string, unknown> | null> {
+    const base = {
+      _id: ligne.id,
+      rid: ligne.rid,
+      ...(ligne.filId === null ? {} : { tmid: ligne.filId }),
+    };
+    if (!(await this.depot.salonChiffre(ligne.rid))) return { ...base, msg: ligne.texte };
+    const content = this.chiffreur?.chiffrer(ligne.rid, { msg: ligne.texte }) ?? null;
+    if (content === null) return null;
+    return { ...base, t: TYPE_CHIFFRE, e2e: 'pending', content, e2eMentions: mentionsE2E(ligne.texte) };
   }
 
   /** Abandon d'un échec définitif : la ligne de sortie ET l'optimiste s'en vont. */

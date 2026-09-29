@@ -67,7 +67,7 @@ describe('avecPiegeTransaction', () => {
     // sur SQLite, elles passent par la même file (`db/depot.ts`).
     await assert.rejects(
       depot.transaction(async () => {
-        await depot.majTexteMessage('m1', 'clair');
+        await depot.majTexteMessage('m1', 'clair', null);
       }),
       /hors file pendant une transaction/,
     );

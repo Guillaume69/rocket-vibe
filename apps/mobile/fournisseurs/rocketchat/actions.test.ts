@@ -37,6 +37,29 @@ describe('ActionsRC', () => {
     assert.deepEqual(appels[1], { chemin: 'chat.delete', corps: { roomId: 'r1', msgId: 'm1' } });
   });
 
+  test('modifier un message chiffré envoie `content` et les mentions, jamais `text`', async () => {
+    const { client, appels } = fauxClient();
+    const contenu = { algorithm: 'rc.v2.aes-sha2', kid: 'k', iv: 'aXY=', ciphertext: 'Y3Q=' };
+    await new ActionsRC(client).modifier('r1', 'm1', 'salut @bob', { chiffrer: () => contenu });
+    assert.deepEqual(appels, [
+      {
+        chemin: 'chat.update',
+        corps: {
+          roomId: 'r1',
+          msgId: 'm1',
+          content: contenu,
+          e2eMentions: { e2eUserMentions: ['@bob'], e2eChannelMentions: [] },
+        },
+      },
+    ]);
+  });
+
+  test('modifier un message chiffré sans clé échoue sans rien envoyer', async () => {
+    const { client, appels } = fauxClient();
+    await assert.rejects(new ActionsRC(client).modifier('r1', 'm1', 'x', { chiffrer: () => null }));
+    assert.equal(appels.length, 0);
+  });
+
   test('epingler et marquerLu', async () => {
     const { client, appels } = fauxClient();
     const a = new ActionsRC(client);

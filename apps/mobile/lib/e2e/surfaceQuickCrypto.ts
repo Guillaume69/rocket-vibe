@@ -68,14 +68,15 @@ export function surfaceEmployeeParCryptoTs(): void {
   void concat.subarray(0, 16);
   void concat.toString('utf8');
 
-  // dechiffrerGcm : GCM 256, tag séparé via setAuthTag, update/final → Buffer.
-  const gcm = qc.createDecipheriv('aes-256-gcm', octets, octets);
+  // dechiffrerGcm : GCM à taille de clé variable, tag séparé via setAuthTag, update/final → Buffer.
+  const chiffre: string = `aes-${octets.length * 8}-gcm`;
+  const gcm = qc.createDecipheriv(chiffre, octets, octets);
   gcm.setAuthTag(octets);
   const clairGcm: BufferEmbarque = moduleBuffer.Buffer.concat([gcm.update(octets), gcm.final()]);
   void clairGcm;
 
-  // dechiffrerCbc : CBC 256, remplissage vérifié par final.
-  const cbc = qc.createDecipheriv('aes-256-cbc', octets, octets);
+  // dechiffrerCbc : CBC à taille de clé variable, remplissage vérifié par final.
+  const cbc = qc.createDecipheriv(chiffre, octets, octets);
   const clairCbc: BufferEmbarque = moduleBuffer.Buffer.concat([cbc.update(octets), cbc.final()]);
   void clairCbc;
 
@@ -93,4 +94,28 @@ export function surfaceEmployeeParCryptoTs(): void {
     octets,
   );
   void jwkSalon.toString('utf8');
+
+  // chiffrerMessage : IV aléatoire, CBC 128 ou GCM 256 (tag lu après final).
+  const iv: BufferEmbarque = qc.randomBytes(16);
+  const versCbc = qc.createCipheriv('aes-128-cbc', octets, iv);
+  const chiffreCbc: BufferEmbarque = moduleBuffer.Buffer.concat([versCbc.update(octets), versCbc.final()]);
+  void chiffreCbc.toString('base64');
+  const versGcm = qc.createCipheriv('aes-256-gcm', octets, iv);
+  const chiffreGcm: BufferEmbarque = moduleBuffer.Buffer.concat([
+    versGcm.update(octets),
+    versGcm.final(),
+    versGcm.getAuthTag(),
+  ]);
+  void chiffreGcm;
+
+  // dechiffrerFichier : AES-CTR à taille de clé variable, empreinte SHA-256 en hexadécimal.
+  const ctr = qc.createDecipheriv(`aes-${octets.length * 8}-ctr`, octets, iv);
+  const fichier: BufferEmbarque = moduleBuffer.Buffer.concat([ctr.update(octets), ctr.final()]);
+  const empreinte: string = qc.createHash('sha256').update(fichier).digest('hex');
+  void empreinte;
+
+  // chiffrerFichier : AES-256-CTR, clé et compteur aléatoires.
+  const versCtr = qc.createCipheriv('aes-256-ctr', qc.randomBytes(32), iv);
+  const chiffreCtr: BufferEmbarque = moduleBuffer.Buffer.concat([versCtr.update(octets), versCtr.final()]);
+  void chiffreCtr;
 }

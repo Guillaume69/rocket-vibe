@@ -98,18 +98,16 @@ describe('actionsPossibles', () => {
   // d'un salon chiffré porte toujours le marqueur `e2e`, que `db/upserts.ts` ne
   // retire pas au déchiffrement. Le test affirmait donc « réagir reste » alors
   // que la sortie sèche sur `typeSysteme !== null` rendait un tableau vide.
-  test('salon chiffré, message DÉCHIFFRÉ : réagir/supprimer/épingler, mais ni modifier ni répondre', () => {
+  test('salon chiffré, message DÉCHIFFRÉ : tout, sauf répondre en citant', () => {
     const lisible = actionsPossibles({
       ...base,
       chiffre: true,
       message: { ...base.message, typeSysteme: 'e2e', texte: 'clair' },
     });
-    assert.deepEqual(lisible, ['reagir', 'copier', 'partager', 'supprimer', 'epingler', 'etoiler']);
-    // `modifier` posterait du clair par `chat.update`, que le serveur rejette
-    // (`error-not-allowed`) ; `repondre` est fermé par `chiffre`.
-    assert.ok(!lisible.includes('modifier'));
+    assert.deepEqual(lisible, ['reagir', 'repondreFil', 'copier', 'partager', 'modifier', 'supprimer', 'epingler', 'etoiler']);
+    // La carte de citation est bâtie par le serveur depuis le texte, qu'il ne
+    // lit pas dans un salon chiffré.
     assert.ok(!lisible.includes('repondre'));
-    assert.ok(!lisible.includes('repondreFil'));
   });
 
   test('salon chiffré, message ENCORE OPAQUE : aucune action', () => {

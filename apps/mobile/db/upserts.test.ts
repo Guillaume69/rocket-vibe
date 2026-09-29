@@ -41,6 +41,7 @@ import {
   PURGER_TELEVERSEMENTS_ABSENTS,
   MAJ_APERCU_CHIFFRE,
   MASQUER_APERCU_CHIFFRE,
+  MAJ_TEXTE_MESSAGE,
   MASQUER_MESSAGES_CHIFFRES,
   MAJ_AVATAR_SALON,
   MAJ_MARQUES_MESSAGE,
@@ -1355,5 +1356,40 @@ describe('brouillons', () => {
 
   test('supprimer une clé absente ne lève pas', () => {
     db.prepare(SUPPRIMER_BROUILLON).run('jamais-ecrit');
+  });
+});
+
+describe('pièces jointes d’un fichier chiffré', () => {
+  const lire = 'SELECT texte, pieces_jointes FROM messages WHERE id = ?';
+  const jointes = JSON.stringify([{ title: 'photo.jpg', encryption: { iv: 'aXY=' } }]);
+  const chiffre = { typeSysteme: 'e2e', texte: null, chiffreBrut: '{"ciphertext":"x"}' } as const;
+
+  test('posées au déchiffrement, gardées par une resynchro sans clé', () => {
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', ...chiffre, misAJourLe: 1 }));
+    db.prepare(MAJ_TEXTE_MESSAGE).run('', jointes, 'm1');
+    assert.deepEqual(ligne(db.prepare(lire).get('m1')), { texte: '', pieces_jointes: jointes });
+
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', ...chiffre, misAJourLe: 2 }));
+    assert.deepEqual(ligne(db.prepare(lire).get('m1')), { texte: '', pieces_jointes: jointes });
+  });
+
+  test('un texte déchiffré sans pièce jointe ne les efface pas', () => {
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', ...chiffre, misAJourLe: 1 }));
+    db.prepare(MAJ_TEXTE_MESSAGE).run('', jointes, 'm1');
+    db.prepare(MAJ_TEXTE_MESSAGE).run('légende', null, 'm1');
+    assert.deepEqual(ligne(db.prepare(lire).get('m1')), { texte: 'légende', pieces_jointes: jointes });
+  });
+
+  test('effacées au verrouillage : elles portent la clé du fichier', () => {
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', ...chiffre, misAJourLe: 1 }));
+    db.prepare(MAJ_TEXTE_MESSAGE).run('', jointes, 'm1');
+    db.prepare(MASQUER_MESSAGES_CHIFFRES).run();
+    assert.deepEqual(ligne(db.prepare(lire).get('m1')), { texte: null, pieces_jointes: null });
+  });
+
+  test('un message ordinaire suit toujours le serveur', () => {
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', piecesJointes: jointes, misAJourLe: 1 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', piecesJointes: null, misAJourLe: 2 }));
+    assert.deepEqual(ligne(db.prepare(lire).get('m1')), { texte: 'bonjour', pieces_jointes: null });
   });
 });

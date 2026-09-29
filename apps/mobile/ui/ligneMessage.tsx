@@ -7,8 +7,9 @@
  */
 
 import { useRouter } from 'expo-router';
-import { memo, useMemo } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Image,
   Pressable,
   StyleSheet,
@@ -25,6 +26,7 @@ import {
   PROFONDEUR_MAX_CITATION,
   sansPrefixeCitation,
 } from '../lib/citation.ts';
+import { chiffrementDeJointe, type ChiffrementFichier } from '../lib/e2e/crypto.ts';
 import { unicodeDeCodeCourt } from '../lib/emojis.ts';
 import { urlEmojiCustom } from '../lib/emojisCustom.ts';
 import { arbreDuMessage } from '../lib/markdown.ts';
@@ -37,6 +39,7 @@ import { LiensEmbed } from './carteEmbed.tsx';
 import { ApercusLien } from './carteLien.tsx';
 import { proposerTelechargerOuPartager } from './actionsJointe.ts';
 import { BarreTransfert } from './barreTransfert.tsx';
+import { fichierDechiffre } from './fichierJoint.ts';
 import { useEtagsAvatars, useIdentites } from './identites.tsx';
 import { useHeure, useT } from './i18n.ts';
 import { TuileAvatar } from './kit.tsx';
@@ -553,6 +556,7 @@ function ImageJointe({
   hauteurMax,
   style,
   surAppuiLong,
+  local,
 }: {
   jointe: PieceJointe;
   client: ClientRest;
@@ -563,13 +567,15 @@ function ImageJointe({
   /** L'habillage (rayon, marges, fond d'attente) reste à l'appelant. */
   style: StyleProp<ImageStyle>;
   surAppuiLong: (() => void) | undefined;
+  /** Fichier clair déjà dans le cache (image chiffrée) : affiché tel quel. */
+  local?: string;
 }) {
   const visionneuse = useVisionneuse();
   const t = useT();
   const c = useCouleurs();
   if (typeof jointe.image_url !== 'string') return null;
   const source = typeof jointe.title_link === 'string' ? jointe.title_link : jointe.image_url;
-  const url = urlFichierProtege(client, source);
+  const url = local ?? urlFichierProtege(client, source);
   const reelLargeur = jointe.image_dimensions?.width ?? null;
   const reelHauteur = jointe.image_dimensions?.height ?? null;
   const largeur = Math.max(Math.min(reelLargeur ?? largeurMax, largeurMax), largeurMin);
@@ -643,8 +649,14 @@ type PieceJointe = {
   /** Poids d'une pièce « fichier », en octets. */
   size?: number;
   audio_url?: string;
+  audio_type?: string;
+  audio_size?: number;
   video_url?: string;
   video_type?: string;
+  video_size?: number;
+  /** Fichier d'un salon chiffré : sa clé et son compteur (`lib/e2e/crypto.ts`). */
+  encryption?: unknown;
+  hashes?: unknown;
   image_dimensions?: { width?: number; height?: number };
   /** Citation (reply-quote) : permalien du message cité — voir lib/citation.ts. */
   message_link?: string;
@@ -692,6 +704,20 @@ function PiecesJointes({
   return (
     <View style={styles.jointes}>
       {jointes.map((jointe, i) => {
+        const chiffrement = chiffrementDeJointe(jointe);
+        if (chiffrement !== null) {
+          return (
+            <JointeChiffree
+              key={i}
+              c={c}
+              jointe={jointe}
+              chiffrement={chiffrement}
+              client={client}
+              largeurMax={dispoLargeur}
+              surAppuiLong={surAppuiLong}
+            />
+          );
+        }
         if (typeof jointe?.image_url === 'string') {
           return (
             <ImageJointe
@@ -772,6 +798,7 @@ function JointeFichier({
   titre,
   taille,
   surAppuiLong,
+  chiffrement = null,
 }: {
   c: Couleurs;
   client: ClientRest;
@@ -779,13 +806,14 @@ function JointeFichier({
   titre: string | null;
   taille: number | null;
   surAppuiLong: (() => void) | undefined;
+  chiffrement?: ChiffrementFichier | null;
 }) {
   const t = useT();
   // Pas de MIME : \`attachments\` n'en porte pas pour un fichier (son \`type\`
   // vaut « file »). C'est l'extension du nom qui oriente le système.
   const choisir = () =>
     proposerTelechargerOuPartager(
-      { cle: chemin, url: urlFichierProtege(client, chemin), titre, type: null, taille },
+      { cle: chemin, url: urlFichierProtege(client, chemin), titre, type: null, taille, chiffrement },
       t,
     );
 
@@ -797,6 +825,111 @@ function JointeFichier({
       <BarreTransfert cle={chemin} c={c} />
     </Pressable>
   );
+}
+
+/** Au-delà, un média chiffré ne se déchiffre pas pour l'aperçu : il se partage ou s'enregistre. */
+const APERCU_CHIFFRE_MAX = 25 * 1024 * 1024;
+
+/**
+ * Pièce jointe d'un salon chiffré. Le serveur ne détient que du chiffré : une
+ * image, un son ou une vidéo se télécharge et se déchiffre dans le cache avant
+ * d'être montré, puis se rend comme en clair. Un autre fichier (ou un média
+ * trop lourd) reste une carte, déchiffrée au partage ou à l'enregistrement.
+ */
+function JointeChiffree({
+  c,
+  jointe,
+  chiffrement,
+  client,
+  largeurMax,
+  surAppuiLong,
+}: {
+  c: Couleurs;
+  jointe: PieceJointe;
+  chiffrement: ChiffrementFichier;
+  client: ClientRest;
+  largeurMax: number;
+  surAppuiLong: (() => void) | undefined;
+}) {
+  const t = useT();
+  const chemin = jointe.title_link ?? jointe.image_url ?? jointe.video_url ?? jointe.audio_url;
+  const genre =
+    typeof jointe.image_url === 'string'
+      ? 'image'
+      : typeof jointe.video_url === 'string'
+        ? 'video'
+        : typeof jointe.audio_url === 'string'
+          ? 'audio'
+          : null;
+  const taille = jointe.image_size ?? jointe.video_size ?? jointe.audio_size ?? jointe.size ?? null;
+  const type = jointe.image_type ?? jointe.video_type ?? jointe.audio_type ?? null;
+  const apercu = genre !== null && chemin !== undefined && (taille ?? 0) <= APERCU_CHIFFRE_MAX;
+  const [local, setLocal] = useState<string | null>(null);
+  const [echec, setEchec] = useState(false);
+
+  useEffect(() => {
+    if (!apercu || chemin === undefined) return;
+    let actif = true;
+    fichierDechiffre({
+      url: urlFichierProtege(client, chemin),
+      titre: jointe.title,
+      type,
+      taille,
+      chiffrement,
+    }).then(
+      (uri) => {
+        if (actif) setLocal(uri);
+      },
+      () => {
+        if (actif) setEchec(true);
+      },
+    );
+    return () => {
+      actif = false;
+    };
+  }, [apercu, chemin, client, jointe.title, type, taille, chiffrement]);
+
+  if (chemin === undefined) return null;
+  if (!apercu) {
+    return (
+      <JointeFichier
+        c={c}
+        client={client}
+        chemin={chemin}
+        titre={jointe.title ?? null}
+        taille={taille}
+        surAppuiLong={surAppuiLong}
+        chiffrement={chiffrement}
+      />
+    );
+  }
+  if (echec) return <Substitut c={c} texte={t('ligneMessage.fichierIllisible')} />;
+  if (local === null) {
+    return (
+      <View style={[styles.imageJointe, styles.attenteChiffree]}>
+        <ActivityIndicator color={c.attenue} />
+      </View>
+    );
+  }
+  if (genre === 'image') {
+    return (
+      <ImageJointe
+        jointe={jointe}
+        client={client}
+        largeurMin={120}
+        largeurMax={largeurMax}
+        hauteurMin={0}
+        hauteurMax={400}
+        style={styles.imageJointe}
+        surAppuiLong={surAppuiLong}
+        local={local}
+      />
+    );
+  }
+  if (genre === 'audio') {
+    return <LecteurAudio c={c} url={local} titre={jointe.title ?? null} surAppuiLong={surAppuiLong} />;
+  }
+  return <LecteurVideo c={c} url={local} titre={jointe.title ?? null} surAppuiLong={surAppuiLong} />;
 }
 
 const styles = StyleSheet.create({
@@ -856,6 +989,7 @@ const styles = StyleSheet.create({
   reactionCode: { fontFamily: POLICES.corps, fontSize: 11, maxWidth: 90 },
   reactionTotal: { fontFamily: POLICES.corpsGras, fontSize: 12 },
   imageJointe: { borderRadius: 10, backgroundColor: '#00000010' },
+  attenteChiffree: { width: 160, height: 120, alignItems: 'center', justifyContent: 'center' },
   puceFil: {
     alignSelf: 'flex-start',
     borderRadius: 999,

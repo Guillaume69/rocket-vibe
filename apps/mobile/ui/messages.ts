@@ -30,6 +30,7 @@ const fr = {
   // partagée entre le composer du salon et l'écran de partage.
   'commun.fichierTropLourd': 'Fichier trop lourd (maximum {mo} Mo).',
   'commun.typeFichierRefuse': 'Type {type} refusé par le serveur.',
+  'commun.fichiersChiffresDesactives': 'Ce serveur n’accepte pas de fichiers dans un salon chiffré.',
   // Présence, en minuscule — la casse d'un contexte (sélecteur) est à
   // l'appelant. Table statut → clé : CLES_PRESENCE (ui/presence.ts).
   'commun.presenceEnLigne': 'en ligne',
@@ -78,6 +79,7 @@ const fr = {
   'ligneMessage.rejoindre': 'Rejoindre',
   'ligneMessage.imageAgrandir': 'Image, toucher pour agrandir',
   'ligneMessage.fichier': 'Fichier',
+  'ligneMessage.fichierIllisible': '🔒 Fichier chiffré illisible',
   'ligneMessage.fichierOuvertureEchouee': "Impossible d'ouvrir ce fichier.",
 
   // ── Connexion (serveur → identifiants → second facteur)
@@ -131,7 +133,6 @@ const fr = {
   'salon.reessayer': 'réessayer',
   'salon.abandonner': 'abandonner',
   'salon.chiffreVerrouille': '🔓 Déverrouiller pour lire ce salon chiffré',
-  'salon.chiffreLecture': '🔒 Chiffré — lecture seule (envoi non pris en charge)',
   'e2e.titre': 'Déverrouiller le chiffrement',
   'e2e.explication':
     'Entre ton mot de passe de chiffrement E2E pour lire les salons chiffrés. Il déverrouille cet appareil une fois pour toutes.',
@@ -431,6 +432,7 @@ const en: Record<CleTraduction, string> = {
   'commun.pieceJointe': 'Attachment',
   'commun.fichierTropLourd': 'File too large ({mo} MB maximum).',
   'commun.typeFichierRefuse': 'Type {type} rejected by the server.',
+  'commun.fichiersChiffresDesactives': 'This server accepts no files in an encrypted room.',
   'commun.presenceEnLigne': 'online',
   'commun.presenceAbsent': 'away',
   'commun.presenceOccupe': 'busy',
@@ -472,6 +474,7 @@ const en: Record<CleTraduction, string> = {
   'ligneMessage.rejoindre': 'Join',
   'ligneMessage.imageAgrandir': 'Image, tap to enlarge',
   'ligneMessage.fichier': 'File',
+  'ligneMessage.fichierIllisible': '🔒 Encrypted file could not be read',
   'ligneMessage.fichierOuvertureEchouee': 'Cannot open this file.',
 
   'connexion.titre': 'Sign in',
@@ -521,7 +524,6 @@ const en: Record<CleTraduction, string> = {
   'salon.reessayer': 'retry',
   'salon.abandonner': 'discard',
   'salon.chiffreVerrouille': '🔓 Unlock to read this encrypted channel',
-  'salon.chiffreLecture': '🔒 Encrypted — read-only (sending not supported)',
   'e2e.titre': 'Unlock encryption',
   'e2e.explication':
     'Enter your E2E encryption password to read encrypted channels. It unlocks this device once and for all.',

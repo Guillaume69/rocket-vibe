@@ -11,8 +11,8 @@
  */
 
 import type { Evenement, EtatDdp } from './ddp.ts';
-import type { DepotEnvoi } from './envoi.ts';
-import type { DepotTeleversements } from './envoiFichiers.ts';
+import type { ChiffreurEnvoi, DepotEnvoi } from './envoi.ts';
+import type { ChiffrementTeleversement, DepotTeleversements } from './envoiFichiers.ts';
 import type { AbonnementLocal, MessageLocal, SalonLocal } from './normaliser.ts';
 import type { MoteurSynchro } from './sync.ts';
 import type { FichierAEnvoyer, TransportUpload } from './upload.ts';
@@ -141,7 +141,8 @@ export interface Traducteur {
  */
 export interface ActionsFournisseur {
   reagir(rid: string, mid: string, emoji: string, mettre: boolean): Promise<void>;
-  modifier(rid: string, mid: string, texte: string): Promise<void>;
+  /** `chiffreur` : le message est chiffré, sa nouvelle version aussi. */
+  modifier(rid: string, mid: string, texte: string, chiffreur?: ChiffreurEnvoi): Promise<void>;
   supprimer(rid: string, mid: string): Promise<void>;
   epingler(rid: string, mid: string): Promise<void>;
   desepingler(rid: string, mid: string): Promise<void>;
@@ -196,7 +197,7 @@ export interface OutboxFichiers {
   /** S'abonner aux changements de `progression` — rend le désabonnement. */
   abonner(auditeur: () => void): () => void;
   /** Rejette (`ErreurValidation`) une pièce que le serveur refuserait — sans rien envoyer. */
-  valider(fichier: { type: string; taille: number | null }): Promise<void>;
+  valider(fichier: { type: string; taille: number | null }, rid?: string): Promise<void>;
   envoyer(
     rid: string,
     fichier: FichierAEnvoyer & { taille: number | null },
@@ -255,7 +256,7 @@ export interface Fournisseur {
    * Rejouable — mêmes upserts idempotents que le reste de la synchro.
    */
   chargerFil(moteur: MoteurSynchro, filId: string, estAbandonne: () => boolean): Promise<void>;
-  creerEnvoi(depot: DepotEnvoi, ingerer: Ingerer): Outbox;
+  creerEnvoi(depot: DepotEnvoi, ingerer: Ingerer, chiffreur?: ChiffreurEnvoi): Outbox;
   creerTeleversement(
     depot: DepotTeleversements,
     transport: TransportUpload,
@@ -269,6 +270,8 @@ export interface Fournisseur {
     crochets?: {
       supprimerFichierLocal?: (uri: string) => Promise<void>;
       rafraichirSalon?: (rid: string) => Promise<void>;
+      /** Envoi dans un salon chiffré : sans lui, un fichier y attend indéfiniment. */
+      chiffrement?: ChiffrementTeleversement;
     },
   ): OutboxFichiers;
   /** Rattrapage REST global (salons + abonnements delta). */

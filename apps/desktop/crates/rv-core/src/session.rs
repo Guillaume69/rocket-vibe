@@ -161,6 +161,8 @@ pub struct Session {
 
 struct E2eUnlocked {
     key: crate::e2e::PrivateKey,
+    /// The same key as its JWK, for the keychain.
+    jwk: String,
     rooms: HashMap<String, (String, Vec<u8>)>,
 }
 
@@ -213,6 +215,10 @@ impl Session {
             synced: Arc::default(),
             presence: Mutex::default(),
         });
+        let weak = Arc::downgrade(&session);
+        session.outbox.set_encryptor(move |rid, payload| weak.upgrade()?.encrypt(rid, payload));
+        let weak = Arc::downgrade(&session);
+        session.uploads.set_encryptor(move |rid, payload| weak.upgrade()?.encrypt(rid, payload));
         let listener = tokio::spawn(Self::listen(Arc::downgrade(&session), ddp_events));
         let watcher = tokio::spawn(Self::watch_token(Arc::downgrade(&session), session.rest.token_rejected()));
         let progress = tokio::spawn(Self::forward_uploads(Arc::downgrade(&session), session.uploads.changes()));
@@ -416,14 +422,38 @@ impl Session {
         Ok(info::search_results(&self.rest.get("chat.search", options).await?))
     }
 
-    /// Opens my private key with the E2E password; it stays in memory only.
+    /// Opens my private key with the E2E password. The password is not kept;
+    /// the key is, by the app, through `e2e_export`.
     pub async fn e2e_unlock(&self, password: &str) -> Result<(), UnlockError> {
         let keys = self.rest.get("e2e.fetchMyKeys", CallOptions::default()).await.map_err(UnlockError::Server)?;
         let private = keys.get("private_key").and_then(Value::as_str).unwrap_or_default();
-        let key = crate::e2e::unlock_private_key(private, password, &self.info.user_id).map_err(UnlockError::Key)?;
-        self.e2e.lock().unwrap().replace(E2eUnlocked { key, rooms: HashMap::new() });
-        let _ = self.events.send(SessionEvent::E2e);
+        let (key, jwk) =
+            crate::e2e::unlock_private_key_jwk(private, password, &self.info.user_id).map_err(UnlockError::Key)?;
+        self.unlocked_with(key, jwk);
         Ok(())
+    }
+
+    /// Unlocks with a key kept from an earlier session. False when it does not import.
+    pub fn e2e_resume(&self, jwk: &str) -> bool {
+        if self.e2e_unlocked() {
+            return true;
+        }
+        let Ok(key) = crate::e2e::import_private_key(jwk) else { return false };
+        self.unlocked_with(key, jwk.to_owned());
+        true
+    }
+
+    /// My private key as a JWK, while unlocked.
+    pub fn e2e_export(&self) -> Option<String> {
+        self.e2e.lock().unwrap().as_ref().map(|u| u.jwk.clone())
+    }
+
+    fn unlocked_with(&self, key: crate::e2e::PrivateKey, jwk: String) {
+        self.e2e.lock().unwrap().replace(E2eUnlocked { key, jwk, rooms: HashMap::new() });
+        let _ = self.events.send(SessionEvent::E2e);
+        let (outbox, uploads) = (self.outbox.clone(), self.uploads.clone());
+        tokio::spawn(async move { outbox.process().await });
+        tokio::spawn(async move { uploads.process().await });
     }
 
     pub fn e2e_lock(&self) {
@@ -436,8 +466,8 @@ impl Session {
         self.e2e.lock().unwrap().is_some()
     }
 
-    /// An encrypted `content` of the room in clear, when unlocked and the key fits.
-    pub fn decrypt(&self, rid: &str, content: &str) -> Option<String> {
+    /// The room's key id and AES key, when unlocked and my wrapped copy opens.
+    fn room_key(&self, rid: &str) -> Option<(String, Vec<u8>)> {
         let mut guard = self.e2e.lock().unwrap();
         let unlocked = guard.as_mut()?;
         let wrapped = self.store.e2e_key(rid)?;
@@ -446,7 +476,41 @@ impl Session {
             let key = crate::e2e::room_key(&wrapped, &unlocked.key).ok()?;
             unlocked.rooms.insert(rid.to_owned(), (kid, key));
         }
-        crate::e2e::decrypt_message(content, &unlocked.rooms.get(rid)?.1).ok()
+        unlocked.rooms.get(rid).cloned()
+    }
+
+    /// An encrypted `content` of the room in clear, when unlocked and the key fits.
+    pub fn decrypt(&self, rid: &str, content: &str) -> Option<String> {
+        self.decrypt_payload(rid, content).map(|p| p.text)
+    }
+
+    /// The text of an encrypted `content`, and the attachments of a file.
+    pub fn decrypt_payload(&self, rid: &str, content: &str) -> Option<crate::e2e::Payload> {
+        crate::e2e::decrypt_payload(content, &self.room_key(rid)?.1).ok()
+    }
+
+    /// A row as it reads: an encrypted one opened when unlocked (its text, and
+    /// the attachments of a file, whose keys the media cache learns), closed
+    /// when locked. My message still in the outbox keeps its own text.
+    pub fn open_row(&self, mut row: crate::store::MessageRow) -> crate::store::MessageRow {
+        if row.system_type.as_deref() != Some(crate::normalize::ENCRYPTED_TYPE) {
+            return row;
+        }
+        let Some(raw) = row.encrypted_raw.as_deref() else { return row };
+        let payload = self.decrypt_payload(&row.rid, raw);
+        let attachments = payload.as_ref().and_then(|p| p.attachments.as_ref());
+        if let Some(attachments) = attachments {
+            self.media.learn_keys(attachments);
+        }
+        row.attachments = attachments.map(Value::to_string);
+        row.text = payload.map(|p| p.text);
+        row
+    }
+
+    /// A payload encrypted under the room's current key, or None while locked.
+    pub fn encrypt(&self, rid: &str, payload: &Value) -> Option<Value> {
+        let (kid, key) = self.room_key(rid)?;
+        crate::e2e::encrypt_message(payload, &key, &kid).ok()
     }
 
     /// The server path of a custom emoji's image.
@@ -490,7 +554,7 @@ impl Session {
     pub async fn set_avatar(&self, file: &Path, mime: &str) -> Result<(), RestError> {
         let bytes = tokio::fs::read(file).await.map_err(|e| RestError::incomplete(&e.to_string()))?;
         let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "avatar".into());
-        self.rest.upload("users.setAvatar", "image", bytes, &name, mime, |_, _| {}).await.map(|_| ())
+        self.rest.upload("users.setAvatar", "image", bytes, &name, mime, Vec::new(), |_, _| {}).await.map(|_| ())
     }
 
     pub async fn reset_avatar(&self) -> Result<(), RestError> {
@@ -560,7 +624,7 @@ impl Session {
         temporary: bool,
     ) -> Result<(), uploads::Refusal> {
         let size = std::fs::metadata(file).map(|m| m.len()).unwrap_or(0);
-        uploads::validate(self.settings().await, size, mime)?;
+        uploads::validate(self.settings().await, size, mime, self.store.room_encrypted(rid))?;
         self.uploads.enqueue(rid, &file.to_string_lossy(), name, mime, caption, temporary);
         let uploads = self.uploads.clone();
         tokio::spawn(async move { uploads.process().await });
@@ -703,7 +767,14 @@ impl Session {
     }
 
     pub async fn edit(&self, rid: &str, msg_id: &str, text: &str) -> Result<(), RestError> {
-        let doc = actions::edit(&self.rest, rid, msg_id, text).await?;
+        let doc = if self.store.message_type(msg_id).as_deref() == Some(crate::normalize::ENCRYPTED_TYPE) {
+            let content = self
+                .encrypt(rid, &serde_json::json!({"msg": text}))
+                .ok_or_else(|| RestError::incomplete("chat.update: room key unavailable"))?;
+            actions::edit_encrypted(&self.rest, rid, msg_id, content, crate::e2e::mentions(text)).await?
+        } else {
+            actions::edit(&self.rest, rid, msg_id, text).await?
+        };
         if doc.is_object() {
             self.sync.ingest_messages(std::slice::from_ref(&doc));
         }
@@ -757,6 +828,7 @@ impl Session {
     /// transfer never leaves a truncated file where a complete one is expected.
     pub async fn download_to(&self, path_or_url: &str, dest: &std::path::Path) -> Result<(), RestError> {
         let (bytes, _) = self.rest.fetch_protected(path_or_url).await?;
+        let bytes = self.media.open(path_or_url, bytes)?;
         let partial = dest.with_extension("part");
         let written = std::fs::write(&partial, &bytes).and_then(|()| std::fs::rename(&partial, dest));
         written.map_err(|e| RestError::incomplete(&format!("{}: {e}", dest.display())))

@@ -68,13 +68,38 @@ pub async fn load_all() -> Vec<SessionInfo> {
 }
 
 pub async fn save(info: &SessionInfo) {
-    let secret = json!({
+    save_with(info, None).await;
+}
+
+/// The account's E2E private key (a JWK) rides in its item, beside the
+/// session, or leaves it when `None`: an unlock survives the next launch, as
+/// in the web client, and locking or signing out forgets it.
+pub async fn save_e2e(info: &SessionInfo, jwk: Option<&str>) {
+    save_with(info, jwk).await;
+}
+
+/// The E2E private key kept for this account, if any.
+pub async fn e2e_key(info: &SessionInfo) -> Option<String> {
+    let secrets = tokio::time::timeout(TIMEOUT, keychain::all()).await.ok()?;
+    secrets.iter().find_map(|s| {
+        let v: Value = serde_json::from_slice(s).ok()?;
+        let mine = v.get("baseUrl").and_then(Value::as_str) == Some(info.base_url.as_str())
+            && v.get("userId").and_then(Value::as_str) == Some(info.user_id.as_str());
+        mine.then(|| v.get("e2eKey").and_then(Value::as_str).map(str::to_owned)).flatten()
+    })
+}
+
+async fn save_with(info: &SessionInfo, jwk: Option<&str>) {
+    let mut secret = json!({
         "baseUrl": info.base_url,
         "userId": info.user_id,
         "username": info.username,
         "authToken": info.auth_token,
-    })
-    .to_string();
+    });
+    if let Some(jwk) = jwk {
+        secret["e2eKey"] = json!(jwk);
+    }
+    let secret = secret.to_string();
     match tokio::time::timeout(TIMEOUT, keychain::put(&account_key(info), secret.into_bytes())).await {
         Ok(Ok(())) => {}
         Ok(Err(e)) => eprintln!("Keychain write failed: {e}"),

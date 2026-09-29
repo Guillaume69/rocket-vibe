@@ -39,6 +39,8 @@ export type TransportUpload = (
    * salon, après que l'utilisateur l'avait explicitement abandonné.
    */
   surAnnulable?: (annuler: () => Promise<void>) => void,
+  /** Champs texte ajoutés au multipart (le `content` chiffré d'un fichier de salon chiffré). */
+  champs?: Record<string, string>,
 ) => Promise<{ statut: number; corps: string }>;
 
 export class ErreurUpload extends Error {
@@ -71,8 +73,9 @@ export async function televerserOctets(options: {
   fichier: FichierAEnvoyer;
   surProgression?: (fraction: number) => void;
   surAnnulable?: (annuler: () => Promise<void>) => void;
+  champs?: Record<string, string>;
 }): Promise<string> {
-  const { client, transport, rid, fichier, surProgression, surAnnulable } = options;
+  const { client, transport, rid, fichier, surProgression, surAnnulable, champs } = options;
 
   const entetes: Record<string, string> = {};
   if (client.identifiants !== null) {
@@ -86,6 +89,7 @@ export async function televerserOctets(options: {
     fichier,
     surProgression,
     surAnnulable,
+    champs,
   );
 
   let media: ReponseMedia & { success?: boolean; error?: string };
@@ -114,10 +118,12 @@ export async function confirmerMedia(options: {
   rid: string;
   fileId: string;
   message?: string;
+  /** Corps complet, à la place de `message` : celui d'un fichier chiffré. */
+  corps?: Record<string, unknown>;
 }): Promise<Record<string, unknown>> {
   const { client, rid, fileId, message } = options;
   const confirmation = await client.post<ReponseConfirm>(`rooms.mediaConfirm/${rid}/${fileId}`, {
-    corps: message === undefined || message === '' ? {} : { msg: message },
+    corps: options.corps ?? (message === undefined || message === '' ? {} : { msg: message }),
   });
   if (confirmation.message === undefined) {
     throw new ErreurUpload('rooms.mediaConfirm : pas de message dans la réponse.');

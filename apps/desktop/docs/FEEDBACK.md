@@ -9,8 +9,8 @@ for the Android app too and are fixed there as well.
 - [x] Small window: messages cropped (images, cards and files kept a fixed width wider than the window)
 - [x] Small window: no composer (pushed off the right edge by the same widths)
 - [x] Collapsed (one pane) and on the room list: no way back to the open room (forward arrow in the list header)
-- [~] Message times cropped at the top: name and time now share a centred baseline; not reproduced on Linux, to check on Windows and macOS
-- [ ] Emoji not aligned with the text around them: aligned on Linux (Noto Color Emoji), need a Windows / macOS screenshot
+- [x] Message times cropped at the top: name and time share a centred baseline; CI's sample-message screenshots show them whole on Windows and macOS
+- [x] Emoji not aligned with the text around them: macOS's emoji font sat raised above the line and Windows' had no flags (CI screenshots); the packages now carry Noto Color Emoji, as Linux draws it, and both line up
 - [x] Emoji button not aligned with the microphone button (now a symbolic icon like its neighbours)
 - [x] The play button on videos and YouTube cards is not a circle (drawn)
 - [x] No pointer cursor on the call card and the header call button
@@ -40,7 +40,7 @@ for the Android app too and are fixed there as well.
 
 ## Desktop integration
 
-- [~] No app icon (Linux launcher, Windows, macOS): Linux entry and window icon done; Windows exe icon embedded, to confirm on a CI build; macOS already had its .icns
+- [x] No app icon (Linux launcher, Windows, macOS): Linux entry and window icon; the Windows exe embeds its icon (checked in the CI build) and the taskbar shows it; the macOS dock shows the .icns (CI screenshot)
 - [x] App id `me.barrut.RocketVibe` differs from mobile's `com.rocketvibe.app` (keychain items stay under the old name: nobody is signed out)
 - [~] No unread count on the dock / taskbar icon: Linux docks (Unity launcher protocol: KDE, Dash to Dock, Plank) done; Windows taskbar overlay and macOS dock badge to do with the native notification work
 - [~] Notifications do not show on Windows and macOS, and nothing in the app tells why: Settings now says what shows them, sends a test and opens the system settings. The cause: GLib only has a tray-balloon backend on Windows (no click) and the deprecated NSUserNotification on macOS; native backends (WinRT toasts, UNUserNotificationCenter) need building and testing on those systems

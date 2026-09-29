@@ -155,6 +155,11 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("attach.remove", "Retirer", "Remove"),
     ("attach.too_large", "{name} dépasse {max} Mo", "{name} is over {max} MB"),
     (
+        "attach.encrypted_off",
+        "{name} : ce serveur n'accepte pas de fichiers dans un salon chiffré",
+        "{name}: this server accepts no files in an encrypted room",
+    ),
+    (
         "attach.type_refused",
         "Le serveur refuse les fichiers {type} ({name})",
         "The server refuses {type} files ({name})",

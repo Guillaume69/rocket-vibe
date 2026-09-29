@@ -5,6 +5,10 @@
 //! first; replayed later, it refuses with `invalid-file` although the file was
 //! delivered. Only the local database can tell, so it is asked (after a
 //! refresh of the room when it knows nothing) before any replay.
+//!
+//! In an encrypted room the file goes up encrypted under a key of its own and
+//! the SHA-256 of its name; its real name, type, key and the caption travel
+//! only in contents encrypted under the room key, as the web client sends them.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -23,11 +27,15 @@ use crate::sync::SyncEngine;
 pub enum Refusal {
     TooLarge { max_mb: String },
     TypeNotAllowed { mime: String },
+    EncryptedFilesOff,
 }
 
 /// `FileUpload_MaxFileSize` and `FileUpload_MediaTypeWhiteList`, where
 /// `image/*` accepts any image.
-pub fn validate(settings: &ServerSettings, size: u64, mime: &str) -> Result<(), Refusal> {
+pub fn validate(settings: &ServerSettings, size: u64, mime: &str, encrypted_room: bool) -> Result<(), Refusal> {
+    if encrypted_room && !settings.encrypted_files {
+        return Err(Refusal::EncryptedFilesOff);
+    }
     if let Some(max) = settings.max_file_size
         && size > max as u64
     {
@@ -47,6 +55,52 @@ enum Outcome {
     Done,
     /// The server is out of reach: stop the pass, the row waits for the next.
     Offline,
+    /// No room key (locked): this row waits, the others go on.
+    Waiting,
+}
+
+type Encryptor = dyn Fn(&str, &Value) -> Option<Value> + Send + Sync;
+
+/// What goes up to `rooms.media`: the file's bytes under a name and type, and text fields beside it.
+struct Upload {
+    bytes: Vec<u8>,
+    name: String,
+    mime: String,
+    texts: Vec<(String, String)>,
+}
+
+/// A file encrypted and uploaded, waiting for its confirm. In memory only:
+/// a process killed in between loses its key, and the file goes up again.
+struct Sealed {
+    key: Value,
+    iv: String,
+    sha256: String,
+    size: usize,
+    hashed_name: String,
+}
+
+/// The attachment of an encrypted file, as the web client builds and reads
+/// it: `title_link` is the ciphertext, the key and hash make it readable, and
+/// an image, sound or video announces itself as such.
+fn encrypted_attachment(file_id: &str, row: &UploadRow, sealed: &Sealed) -> Value {
+    let (name, mime, size) = (&row.name, &row.mime, sealed.size);
+    let url = format!("/file-upload/{file_id}/{}", sealed.hashed_name);
+    let mut attachment = json!({
+        "title": name, "type": "file", "title_link": url, "title_link_download": true,
+        "encryption": {"key": sealed.key, "iv": sealed.iv}, "hashes": {"sha256": sealed.sha256}, "fileId": file_id,
+    });
+    match mime.split('/').next().filter(|g| matches!(*g, "image" | "audio" | "video")) {
+        Some(group) => {
+            attachment[format!("{group}_url")] = json!(url);
+            attachment[format!("{group}_type")] = json!(mime);
+            attachment[format!("{group}_size")] = json!(size);
+        }
+        None => {
+            attachment["size"] = json!(size);
+            attachment["format"] = json!(name.rsplit_once('.').map(|(_, e)| e.to_lowercase()).unwrap_or_default());
+        }
+    }
+    attachment
 }
 
 pub struct Uploads {
@@ -58,6 +112,8 @@ pub struct Uploads {
     again: AtomicBool,
     abandoned: Mutex<HashSet<String>>,
     tasks: Mutex<HashMap<String, AbortHandle>>,
+    encryptor: Mutex<Option<Arc<Encryptor>>>,
+    sealed: Mutex<HashMap<String, Sealed>>,
     /// The rid whose upload progressed.
     changed: broadcast::Sender<String>,
 }
@@ -77,8 +133,15 @@ impl Uploads {
             again: AtomicBool::new(false),
             abandoned: Mutex::default(),
             tasks: Mutex::default(),
+            encryptor: Mutex::new(None),
+            sealed: Mutex::default(),
             changed,
         }
+    }
+
+    /// How a payload is encrypted for a room: None while it cannot be.
+    pub fn set_encryptor(&self, encryptor: impl Fn(&str, &Value) -> Option<Value> + Send + Sync + 'static) {
+        *self.encryptor.lock().unwrap() = Some(Arc::new(encryptor));
     }
 
     pub fn changes(&self) -> broadcast::Receiver<String> {
@@ -130,6 +193,7 @@ impl Uploads {
     /// message exists and nothing can take it back.
     pub fn discard(&self, id: &str) {
         self.abandoned.lock().unwrap().insert(id.to_owned());
+        self.sealed.lock().unwrap().remove(id);
         let row = self.store.upload(id);
         self.store.write(|w| w.delete_upload(id));
         if let Some(task) = self.tasks.lock().unwrap().remove(id) {
@@ -159,6 +223,7 @@ impl Uploads {
                     self.store.write(|w| w.set_upload_status(&row.id, "pending"));
                     return false;
                 }
+                Ok(Outcome::Waiting) => self.store.write(|w| w.set_upload_status(&row.id, "pending")),
                 Err(_) => self.store.write(|w| w.set_upload_status(&row.id, "failed")),
             }
         }
@@ -173,17 +238,26 @@ impl Uploads {
     }
 
     async fn post(self: &Arc<Self>, row: &UploadRow) -> Result<Outcome, RestError> {
+        if self.store.room_encrypted(&row.rid) {
+            return self.post_encrypted(row).await;
+        }
         let file_id = match &row.file_id {
             Some(file_id) if self.already_posted(&row.rid, file_id).await => {
                 self.settle(row);
                 return Ok(Outcome::Done);
             }
             Some(file_id) => file_id.clone(),
-            None => match self.send_bytes(row).await {
-                Ok(file_id) => file_id,
-                Err(e) if e.status == 0 => return Ok(Outcome::Offline),
-                Err(e) => return Err(e),
-            },
+            None => {
+                let bytes = tokio::fs::read(&row.path)
+                    .await
+                    .map_err(|e| RestError::incomplete(&format!("{}: {e}", row.path)))?;
+                let upload = Upload { bytes, name: row.name.clone(), mime: row.mime.clone(), texts: Vec::new() };
+                match self.send_bytes(row, upload).await {
+                    Ok(file_id) => file_id,
+                    Err(e) if e.status == 0 => return Ok(Outcome::Offline),
+                    Err(e) => return Err(e),
+                }
+            }
         };
         if self.abandoned.lock().unwrap().contains(&row.id) {
             return Ok(Outcome::Done);
@@ -207,10 +281,91 @@ impl Uploads {
         Ok(Outcome::Done)
     }
 
+    /// The encrypted counterpart of `post`, same two steps. Nothing leaves
+    /// while the room key is missing, neither the bytes nor the message.
+    async fn post_encrypted(self: &Arc<Self>, row: &UploadRow) -> Result<Outcome, RestError> {
+        let Some(encrypt) = self.encryptor.lock().unwrap().clone() else { return Ok(Outcome::Waiting) };
+        if encrypt(&row.rid, &json!({})).is_none() {
+            return Ok(Outcome::Waiting);
+        }
+        let mut file_id = row.file_id.clone();
+        if let Some(known) = &file_id
+            && !self.sealed.lock().unwrap().contains_key(&row.id)
+        {
+            if self.already_posted(&row.rid, known).await {
+                self.settle(row);
+                return Ok(Outcome::Done);
+            }
+            file_id = None;
+        }
+        let meta = |s: &Sealed| {
+            json!({"type": row.mime, "typeGroup": row.mime.split('/').next().unwrap_or_default(), "name": row.name,
+                "encryption": {"key": s.key, "iv": s.iv}, "hashes": {"sha256": s.sha256}})
+        };
+        let file_id = match file_id {
+            Some(id) => id,
+            None => {
+                let plain = tokio::fs::read(&row.path)
+                    .await
+                    .map_err(|e| RestError::incomplete(&format!("{}: {e}", row.path)))?;
+                let encrypted = crate::e2e::encrypt_file(&plain)
+                    .map_err(|e| RestError::incomplete(&format!("{}: {e}", row.name)))?;
+                let sealed = Sealed {
+                    key: encrypted.key,
+                    iv: encrypted.iv,
+                    sha256: encrypted.sha256,
+                    size: plain.len(),
+                    hashed_name: crate::e2e::hashed_name(&row.name),
+                };
+                let Some(content) = encrypt(&row.rid, &meta(&sealed)) else { return Ok(Outcome::Waiting) };
+                let upload = Upload {
+                    bytes: encrypted.data,
+                    name: sealed.hashed_name.clone(),
+                    mime: "application/octet-stream".to_owned(),
+                    texts: vec![("content".to_owned(), content.to_string())],
+                };
+                let id = match self.send_bytes(row, upload).await {
+                    Ok(id) => id,
+                    Err(e) if e.status == 0 => return Ok(Outcome::Offline),
+                    Err(e) => return Err(e),
+                };
+                self.sealed.lock().unwrap().insert(row.id.clone(), sealed);
+                id
+            }
+        };
+        if self.abandoned.lock().unwrap().contains(&row.id) {
+            return Ok(Outcome::Done);
+        }
+        let body = {
+            let sealed = self.sealed.lock().unwrap();
+            let Some(s) = sealed.get(&row.id) else { return Ok(Outcome::Waiting) };
+            let attachment = encrypted_attachment(&file_id, row, s);
+            let file = json!({"_id": file_id, "name": row.name, "type": row.mime, "size": s.size});
+            let payload = json!({"msg": row.caption.clone().unwrap_or_default(), "attachments": [attachment],
+                "files": [file], "file": file});
+            let (Some(content), Some(file_content)) = (encrypt(&row.rid, &payload), encrypt(&row.rid, &meta(s))) else {
+                return Ok(Outcome::Waiting);
+            };
+            json!({"msg": "", "t": crate::normalize::ENCRYPTED_TYPE, "content": content, "fileContent": file_content})
+        };
+        let confirmed =
+            match self.rest.post(&format!("rooms.mediaConfirm/{}/{file_id}", row.rid), CallOptions::body(body)).await {
+                Ok(v) => v,
+                Err(e) if e.status == 0 => return Ok(Outcome::Offline),
+                Err(e) => return Err(e),
+            };
+        self.sealed.lock().unwrap().remove(&row.id);
+        self.settle(row);
+        if let Some(message) = confirmed.get("message").filter(|m| m.is_object())
+            && !self.abandoned.lock().unwrap().contains(&row.id)
+        {
+            self.sync.ingest_messages(std::slice::from_ref(message));
+        }
+        Ok(Outcome::Done)
+    }
+
     /// The bytes, in a task of their own so that Discard can cut them off.
-    async fn send_bytes(self: &Arc<Self>, row: &UploadRow) -> Result<String, RestError> {
-        let bytes =
-            tokio::fs::read(&row.path).await.map_err(|e| RestError::incomplete(&format!("{}: {e}", row.path)))?;
+    async fn send_bytes(self: &Arc<Self>, row: &UploadRow, upload: Upload) -> Result<String, RestError> {
         let (this, task_row) = (self.clone(), row.clone());
         let task = tokio::spawn(async move {
             let (progress_of, progress_row) = (this.clone(), task_row.clone());
@@ -218,9 +373,10 @@ impl Uploads {
                 .upload(
                     &format!("rooms.media/{}", task_row.rid),
                     "file",
-                    bytes,
-                    &task_row.name,
-                    &task_row.mime,
+                    upload.bytes,
+                    &upload.name,
+                    &upload.mime,
+                    upload.texts,
                     move |sent, total| progress_of.set_progress(&progress_row, sent as f64 / total.max(1) as f64),
                 )
                 .await
@@ -273,10 +429,19 @@ mod tests {
             media_whitelist: vec!["image/*".into(), "application/pdf".into()],
             ..ServerSettings::from_list(&[])
         };
-        assert_eq!(validate(&settings, 10, "image/png"), Ok(()));
-        assert_eq!(validate(&settings, 10, "application/pdf"), Ok(()));
-        assert_eq!(validate(&settings, 10, "video/mp4"), Err(Refusal::TypeNotAllowed { mime: "video/mp4".into() }));
-        assert_eq!(validate(&settings, 2 * 1024 * 1024, "image/png"), Err(Refusal::TooLarge { max_mb: "1.0".into() }));
-        assert_eq!(validate(&ServerSettings::from_list(&[]), u64::MAX, "x/y"), Ok(()));
+        assert_eq!(validate(&settings, 10, "image/png", false), Ok(()));
+        assert_eq!(validate(&settings, 10, "application/pdf", false), Ok(()));
+        assert_eq!(
+            validate(&settings, 10, "video/mp4", false),
+            Err(Refusal::TypeNotAllowed { mime: "video/mp4".into() })
+        );
+        assert_eq!(
+            validate(&settings, 2 * 1024 * 1024, "image/png", false),
+            Err(Refusal::TooLarge { max_mb: "1.0".into() })
+        );
+        assert_eq!(validate(&ServerSettings::from_list(&[]), u64::MAX, "x/y", false), Ok(()));
+        assert_eq!(validate(&ServerSettings::from_list(&[]), 10, "image/png", true), Err(Refusal::EncryptedFilesOff));
+        let on = ServerSettings::from_list(&[json!({"_id": "E2E_Enable_Encrypt_Files", "value": true})]);
+        assert_eq!(validate(&on, 10, "image/png", true), Ok(()));
     }
 }

@@ -140,9 +140,10 @@ impl RestClient {
         self.call(reqwest::Method::POST, path, options).await
     }
 
-    /// POSTs a file as a `multipart/form-data` field, reporting
-    /// `(sent, total)` bytes as the body streams out. The client's 15 s cap
-    /// would cut any real upload: the timeout here grows with the size.
+    /// POSTs a file as a `multipart/form-data` field, with `texts` beside it,
+    /// reporting `(sent, total)` bytes as the body streams out. The client's
+    /// 15 s cap would cut any real upload: the timeout here grows with the size.
+    #[allow(clippy::too_many_arguments)]
     pub async fn upload(
         &self,
         path: &str,
@@ -150,6 +151,7 @@ impl RestClient {
         bytes: Vec<u8>,
         name: &str,
         mime: &str,
+        texts: Vec<(String, String)>,
         progress: impl Fn(u64, u64) + Send + Sync + 'static,
     ) -> Result<Value, RestError> {
         const CHUNK: usize = 64 * 1024;
@@ -166,7 +168,10 @@ impl RestClient {
             .file_name(name.to_owned())
             .mime_str(mime)
             .map_err(|_| RestError::incomplete(&format!("{mime}: not a media type")))?;
-        let form = reqwest::multipart::Form::new().part(field.to_owned(), part);
+        let form = texts
+            .into_iter()
+            .fold(reqwest::multipart::Form::new(), |form, (k, v)| form.text(k, v))
+            .part(field.to_owned(), part);
         let mut request = self
             .http
             .post(self.url_for(path, &CallOptions::default()))

@@ -28,6 +28,8 @@ section here.
   out forgets it; the password itself is never kept.
 - Photos, sounds, videos and files sent encrypted show in their room once unlocked, under their
   real name, and open or save in clear.
+- Files can be sent in an encrypted room too: they leave encrypted, name and caption included.
+  A server that refuses encrypted files says so as soon as the file is attached.
 - Mouse back and forward buttons, and Alt+Left / Alt+Right: out of a thread, between the
   room list and the room in a narrow window, then through the rooms opened before.
 - The mouse selects across the lines of a message, and a selection is plainly visible.

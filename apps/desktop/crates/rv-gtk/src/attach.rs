@@ -98,6 +98,7 @@ fn refusal_text(refusal: &Refusal, name: &str) -> String {
     match refusal {
         Refusal::TooLarge { max_mb } => tf("attach.too_large", &[("name", name), ("max", max_mb)]),
         Refusal::TypeNotAllowed { mime } => tf("attach.type_refused", &[("name", name), ("type", mime)]),
+        Refusal::EncryptedFilesOff => tf("attach.encrypted_off", &[("name", name)]),
     }
 }
 

@@ -129,3 +129,53 @@ async fn discard_removes_the_row() {
     assert!(f.store.uploads("r").is_empty());
     assert!(f.server.requests().is_empty());
 }
+
+fn encrypted_room(store: &Store) {
+    let room = rv_core::normalize::Room { rid: "r".into(), kind: "p".into(), encrypted: true, ..Default::default() };
+    store.write(|w| w.upsert_room(&room));
+}
+
+#[tokio::test]
+async fn encrypted_room_sends_the_file_encrypted_under_a_hashed_name() {
+    let f = fixture(media_then_confirm).await;
+    encrypted_room(&f.store);
+    let payloads = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = payloads.clone();
+    f.uploads.set_encryptor(move |_, payload| {
+        seen.lock().unwrap().push(payload.clone());
+        Some(json!({"sealed": true}))
+    });
+    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", Some("la légende"), false);
+    f.uploads.process().await;
+
+    let media = calls(&f.server, "rooms.media/r");
+    assert_eq!(media.len(), 1);
+    assert!(!media[0].body.contains("hello upload"), "the bytes never go up in clear");
+    assert!(media[0].body.contains(&rv_core::e2e::hashed_name("a.txt")));
+    assert!(!media[0].body.contains("a.txt\""), "nor the real name");
+    assert!(media[0].body.contains("name=\"content\""));
+    let confirm = calls(&f.server, &format!("rooms.mediaConfirm/r/{FILE_ID}"));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&confirm[0].body).unwrap(),
+        json!({"msg": "", "t": "e2e", "content": {"sealed": true}, "fileContent": {"sealed": true}})
+    );
+    let payloads = payloads.lock().unwrap();
+    let message = payloads.iter().find(|p| p.get("attachments").is_some()).unwrap();
+    assert_eq!(message["msg"], "la légende");
+    let attachment = &message["attachments"][0];
+    assert_eq!(attachment["title"], "a.txt");
+    assert_eq!(attachment["title_link"], format!("/file-upload/{FILE_ID}/{}", rv_core::e2e::hashed_name("a.txt")));
+    assert_eq!(attachment["encryption"]["key"]["alg"], "A256CTR");
+    assert!(f.store.uploads("r").is_empty());
+}
+
+#[tokio::test]
+async fn locked_encrypted_room_holds_the_file() {
+    let f = fixture(media_then_confirm).await;
+    encrypted_room(&f.store);
+    f.uploads.set_encryptor(|_, _| None);
+    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", None, false);
+    f.uploads.process().await;
+    assert!(calls(&f.server, "rooms.media").is_empty());
+    assert_eq!(f.store.uploads("r").len(), 1);
+}

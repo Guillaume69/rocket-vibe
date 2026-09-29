@@ -19,6 +19,8 @@ pub struct ServerSettings {
     pub site_url: Option<String>,
     pub max_file_size: Option<i64>,
     pub media_whitelist: Vec<String>,
+    /// `E2E_Enable_Encrypt_Files`: without it an encrypted room takes no file.
+    pub encrypted_files: bool,
 }
 
 impl ServerSettings {
@@ -40,6 +42,7 @@ impl ServerSettings {
                 .and_then(Value::as_str)
                 .map(|s| s.split(',').map(str::trim).filter(|t| !t.is_empty()).map(str::to_owned).collect())
                 .unwrap_or_default(),
+            encrypted_files: get("E2E_Enable_Encrypt_Files") == Some(&Value::Bool(true)),
         }
     }
 

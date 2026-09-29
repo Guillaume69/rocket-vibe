@@ -217,6 +217,8 @@ impl Session {
         });
         let weak = Arc::downgrade(&session);
         session.outbox.set_encryptor(move |rid, payload| weak.upgrade()?.encrypt(rid, payload));
+        let weak = Arc::downgrade(&session);
+        session.uploads.set_encryptor(move |rid, payload| weak.upgrade()?.encrypt(rid, payload));
         let listener = tokio::spawn(Self::listen(Arc::downgrade(&session), ddp_events));
         let watcher = tokio::spawn(Self::watch_token(Arc::downgrade(&session), session.rest.token_rejected()));
         let progress = tokio::spawn(Self::forward_uploads(Arc::downgrade(&session), session.uploads.changes()));
@@ -449,8 +451,9 @@ impl Session {
     fn unlocked_with(&self, key: crate::e2e::PrivateKey, jwk: String) {
         self.e2e.lock().unwrap().replace(E2eUnlocked { key, jwk, rooms: HashMap::new() });
         let _ = self.events.send(SessionEvent::E2e);
-        let outbox = self.outbox.clone();
+        let (outbox, uploads) = (self.outbox.clone(), self.uploads.clone());
         tokio::spawn(async move { outbox.process().await });
+        tokio::spawn(async move { uploads.process().await });
     }
 
     pub fn e2e_lock(&self) {
@@ -551,7 +554,7 @@ impl Session {
     pub async fn set_avatar(&self, file: &Path, mime: &str) -> Result<(), RestError> {
         let bytes = tokio::fs::read(file).await.map_err(|e| RestError::incomplete(&e.to_string()))?;
         let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "avatar".into());
-        self.rest.upload("users.setAvatar", "image", bytes, &name, mime, |_, _| {}).await.map(|_| ())
+        self.rest.upload("users.setAvatar", "image", bytes, &name, mime, Vec::new(), |_, _| {}).await.map(|_| ())
     }
 
     pub async fn reset_avatar(&self) -> Result<(), RestError> {
@@ -621,7 +624,7 @@ impl Session {
         temporary: bool,
     ) -> Result<(), uploads::Refusal> {
         let size = std::fs::metadata(file).map(|m| m.len()).unwrap_or(0);
-        uploads::validate(self.settings().await, size, mime)?;
+        uploads::validate(self.settings().await, size, mime, self.store.room_encrypted(rid))?;
         self.uploads.enqueue(rid, &file.to_string_lossy(), name, mime, caption, temporary);
         let uploads = self.uploads.clone();
         tokio::spawn(async move { uploads.process().await });

@@ -86,7 +86,7 @@ export function LecteurVideo({
   );
 }
 
-function ModaleVideo({
+export function ModaleVideo({
   c,
   url,
   titre,

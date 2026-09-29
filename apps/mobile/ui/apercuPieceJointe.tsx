@@ -32,7 +32,7 @@ export type FichierEnAttente = {
   taille: number | null;
 };
 
-function formaterTaille(octets: number | null, t: Traducteur): string | null {
+export function formaterTaille(octets: number | null, t: Traducteur): string | null {
   if (octets === null || octets <= 0) return null;
   if (octets < 1024) return t('apercuPieceJointe.octets', { taille: octets });
   if (octets < 1024 * 1024) return t('apercuPieceJointe.kilooctets', { taille: Math.round(octets / 1024) });
@@ -148,7 +148,7 @@ export function ApercuPieceJointe({
  * la version qui part est déjà en cours de préparation, changer d'avis ici ne
  * serait qu'un mensonge d'affichage.
  */
-function PastilleQualite({
+export function PastilleQualite({
   c,
   quelle,
   choisie,

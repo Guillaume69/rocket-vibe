@@ -29,6 +29,15 @@ What the Android app does and where this one stands: `docs/PARITY.md`.
 
 ## Desktop integration
 
+Calls open in a window of the app, locked on the meeting's origin: WebView2 on
+Windows (the Edge runtime Windows 10 and 11 carry; the package ships its loader,
+`WebView2Loader.dll`), WKWebView on macOS (camera and microphone entitlements and
+usage strings in the bundle). Linux distributions build WebKitGTK without WebRTC,
+so there a call opens as an app window of Chromium, Chrome, Brave, Edge or
+Vivaldi (`--app`, with its own profile in the data folder) when one is on the
+PATH, and in the default browser otherwise. The call card's info button gives
+the meeting link without the joiner's token.
+
 On Windows, the installer from CI (`rocket-vibe-desktop-<version>-windows-x86_64-setup.exe`,
 built from `data/windows/rocket-vibe.iss`) installs for the current user, adds a Start
 menu entry and registers `rocketvibe://` links. On Windows the app is not

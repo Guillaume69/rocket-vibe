@@ -7,6 +7,16 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- Calls open in a window of the app instead of a browser tab: WebView2 on Windows, WKWebView
+  on macOS (the SwiftUI app too). The window stays on the meeting's own site: only that site
+  gets the camera and the microphone, any other link opens in the browser. On Linux, where
+  distributions build WebKitGTK without the WebRTC a meeting needs, the call opens as an app
+  window of Chromium, Chrome, Brave, Edge or Vivaldi when one is installed, else in the browser.
+- An information button on the call card shows the meeting link, to copy or open in the
+  browser, like the official client's.
+
 ## [0.4.1] - 2026-09-29
 
 ### Added

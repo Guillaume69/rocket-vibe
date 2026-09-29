@@ -456,13 +456,9 @@ pub fn message_widget(
     let blocks = if is_call {
         Vec::new()
     } else if encrypted {
-        // My own message still in the outbox has no ciphertext yet: its text is mine.
-        let clear = session
-            .zip(row.encrypted_raw.as_deref())
-            .and_then(|(s, raw)| s.decrypt(&row.rid, raw))
-            .or_else(|| row.text.clone());
-        match clear {
-            Some(text) => markdown::render(None, Some(&text), &markdown::Context { me: &me }),
+        // Opened by the list (`Session::open_row`): in clear when unlocked.
+        match &row.text {
+            Some(text) => markdown::render(None, Some(text), &markdown::Context { me: &me }),
             None => {
                 vec![markdown::Block::Paragraph(format!("<i>{}</i>", markdown::escape(t("message.encrypted_locked"))))]
             }

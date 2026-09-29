@@ -473,7 +473,8 @@ fn file_checks(chat: std::rc::Rc<crate::chat::ChatPage>) {
     let files: Vec<_> = session
         .store
         .messages(&rid, 200)
-        .iter()
+        .into_iter()
+        .map(|r| session.open_row(r))
         .flat_map(|r| rv_core::content::files(r.attachments.as_deref()))
         .collect();
     check("files attached", !files.is_empty(), files.len());

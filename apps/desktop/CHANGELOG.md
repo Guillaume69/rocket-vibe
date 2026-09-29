@@ -26,6 +26,8 @@ section here.
 - Unlocking an encrypted room lasts: the E2E key is kept in the system keychain with the
   session, as the web client keeps it, so the next launch opens unlocked. Locking or signing
   out forgets it; the password itself is never kept.
+- Photos, sounds, videos and files sent encrypted show in their room once unlocked, under their
+  real name, and open or save in clear.
 - Mouse back and forward buttons, and Alt+Left / Alt+Right: out of a thread, between the
   room list and the room in a narrow window, then through the rooms opened before.
 - The mouse selects across the lines of a message, and a selection is plainly visible.

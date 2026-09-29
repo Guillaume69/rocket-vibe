@@ -486,6 +486,24 @@ impl Session {
         crate::e2e::decrypt_payload(content, &self.room_key(rid)?.1).ok()
     }
 
+    /// A row as it reads: an encrypted one opened when unlocked (its text, and
+    /// the attachments of a file, whose keys the media cache learns), closed
+    /// when locked. My message still in the outbox keeps its own text.
+    pub fn open_row(&self, mut row: crate::store::MessageRow) -> crate::store::MessageRow {
+        if row.system_type.as_deref() != Some(crate::normalize::ENCRYPTED_TYPE) {
+            return row;
+        }
+        let Some(raw) = row.encrypted_raw.as_deref() else { return row };
+        let payload = self.decrypt_payload(&row.rid, raw);
+        let attachments = payload.as_ref().and_then(|p| p.attachments.as_ref());
+        if let Some(attachments) = attachments {
+            self.media.learn_keys(attachments);
+        }
+        row.attachments = attachments.map(Value::to_string);
+        row.text = payload.map(|p| p.text);
+        row
+    }
+
     /// A payload encrypted under the room's current key, or None while locked.
     pub fn encrypt(&self, rid: &str, payload: &Value) -> Option<Value> {
         let (kid, key) = self.room_key(rid)?;
@@ -807,6 +825,7 @@ impl Session {
     /// transfer never leaves a truncated file where a complete one is expected.
     pub async fn download_to(&self, path_or_url: &str, dest: &std::path::Path) -> Result<(), RestError> {
         let (bytes, _) = self.rest.fetch_protected(path_or_url).await?;
+        let bytes = self.media.open(path_or_url, bytes)?;
         let partial = dest.with_extension("part");
         let written = std::fs::write(&partial, &bytes).and_then(|()| std::fs::rename(&partial, dest));
         written.map_err(|e| RestError::incomplete(&format!("{}: {e}", dest.display())))

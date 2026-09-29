@@ -125,11 +125,34 @@ impl Media {
 pub struct MediaCache {
     rest: RestClient,
     entries: Mutex<HashMap<String, Arc<Media>>>,
+    /// Files of encrypted rooms by path: the server holds only their ciphertext.
+    keys: Mutex<HashMap<String, crate::e2e::FileEncryption>>,
 }
 
 impl MediaCache {
     pub fn new(rest: RestClient) -> Self {
-        MediaCache { rest, entries: Mutex::default() }
+        MediaCache { rest, entries: Mutex::default(), keys: Mutex::default() }
+    }
+
+    /// The keys of a decrypted message's files, each under every path that
+    /// designates it: fetched from then on, they come out in clear.
+    pub fn learn_keys(&self, attachments: &Value) {
+        let mut keys = self.keys.lock().unwrap();
+        for attachment in attachments.as_array().into_iter().flatten() {
+            let Some(encryption) = crate::e2e::file_encryption(attachment) else { continue };
+            for field in ["title_link", "image_url", "audio_url", "video_url"] {
+                if let Some(path) = attachment.get(field).and_then(Value::as_str) {
+                    keys.insert(path.to_owned(), encryption.clone());
+                }
+            }
+        }
+    }
+
+    /// Downloaded bytes in clear: decrypted when the path is an encrypted file's.
+    pub fn open(&self, path_or_url: &str, bytes: Vec<u8>) -> Result<Vec<u8>, RestError> {
+        let Some(encryption) = self.keys.lock().unwrap().get(path_or_url).cloned() else { return Ok(bytes) };
+        crate::e2e::decrypt_file(&bytes, &encryption)
+            .map_err(|_| RestError::incomplete(&format!("{path_or_url}: undecipherable")))
     }
 
     pub async fn fetch(&self, path_or_url: &str) -> Result<Arc<Media>, RestError> {
@@ -137,6 +160,7 @@ impl MediaCache {
             return Ok(hit.clone());
         }
         let (bytes, content_type) = self.rest.fetch_protected(path_or_url).await?;
+        let bytes = self.open(path_or_url, bytes)?;
         let media = Arc::new(Media { bytes, content_type });
         let mut entries = self.entries.lock().unwrap();
         if entries.len() >= CACHE_LIMIT {
@@ -200,6 +224,22 @@ mod tests {
         assert_eq!(display_size(Some(80), Some(80), 120, 360, 300), (120, 120));
         assert_eq!(display_size(Some(300), Some(1200), 120, 360, 300), (300, 300));
         assert_eq!(display_size(None, None, 120, 360, 300), (360, 300));
+    }
+
+    #[test]
+    fn files_of_encrypted_rooms_come_out_in_clear() {
+        let cache = MediaCache::new(RestClient::new("https://chat.example.com".parse().unwrap()));
+        let plain = b"%PDF-1.4 secret".repeat(50);
+        let sent = crate::e2e::encrypt_file(&plain).unwrap();
+        cache.learn_keys(&serde_json::json!([{
+            "title_link": "/file-upload/f1/h", "image_url": "/file-upload/f1/h",
+            "encryption": {"key": sent.key, "iv": sent.iv}, "hashes": {"sha256": sent.sha256},
+        }]));
+        assert_eq!(cache.open("/file-upload/f1/h", sent.data.clone()).unwrap(), plain);
+        assert_eq!(cache.open("/file-upload/other/x.png", b"clear".to_vec()).unwrap(), b"clear");
+        let mut altered = sent.data;
+        altered[0] ^= 1;
+        assert!(cache.open("/file-upload/f1/h", altered).is_err());
     }
 
     #[test]

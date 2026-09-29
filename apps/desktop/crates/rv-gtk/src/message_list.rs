@@ -331,7 +331,7 @@ impl MessageList {
 
     /// Applies the new rows as splices, keeping the scroll position.
     pub fn set_rows(self: &Rc<Self>, fresh: Vec<MessageRow>) {
-        let mut fresh = rows::group(fresh);
+        let mut fresh = rows::group(self.opened(fresh));
         if let Some((seen, me)) = self.unread_after.borrow().as_ref()
             && let Some(first) =
                 fresh.iter_mut().find(|d| d.row.ts > *seen && d.row.author_id != *me && d.row.outbox_status.is_none())
@@ -379,6 +379,11 @@ impl MessageList {
     /// Every row built again, same data: a list view only rebuilds rows
     /// for items it has not seen, so they are all replaced.
     pub fn rebind(&self) {
+        if let Some(session) = self.session.borrow().as_ref() {
+            for d in self.rows.borrow_mut().iter_mut() {
+                d.row = session.open_row(d.row.clone());
+            }
+        }
         let objects: Vec<glib::BoxedAnyObject> =
             self.rows.borrow().iter().cloned().map(glib::BoxedAnyObject::new).collect();
         self.store.splice(0, self.store.n_items(), &objects);
@@ -506,13 +511,16 @@ impl MessageList {
         self.rows.borrow().len()
     }
 
+    /// Encrypted rows opened when unlocked: everything downstream reads them as clear ones.
+    fn opened(&self, rows: Vec<MessageRow>) -> Vec<MessageRow> {
+        match self.session.borrow().as_ref() {
+            Some(session) => rows.into_iter().map(|r| session.open_row(r)).collect(),
+            None => rows,
+        }
+    }
+
     /// What each row reads as, encrypted ones in clear when unlocked.
     pub fn texts(&self) -> Vec<String> {
-        let session = self.session.borrow().clone();
-        let clear = |r: &MessageRow| {
-            let raw = r.encrypted_raw.as_deref()?;
-            session.as_ref()?.decrypt(&r.rid, raw)
-        };
-        self.rows.borrow().iter().map(|d| clear(&d.row).or_else(|| d.row.text.clone()).unwrap_or_default()).collect()
+        self.rows.borrow().iter().map(|d| d.row.text.clone().unwrap_or_default()).collect()
     }
 }

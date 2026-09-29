@@ -32,6 +32,7 @@ import {
 } from '../lib/citation.ts';
 import { unicodeDeCodeCourt } from '../lib/emojis.ts';
 import { jointeAPartager } from '../lib/fichierJoint.ts';
+import { etoilePar, etoilesApres } from '../lib/marques.ts';
 import { listeReactions } from '../lib/reactions.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { urlFichierProtege } from '../lib/upload.ts';
@@ -91,6 +92,8 @@ type Charge = {
     auteurNom: string | null;
     piecesJointes: string | null;
     reactions: string | null;
+    epingle: boolean;
+    etoiles: string | null;
   };
   /** De quoi bâtir le permalien d'une citation (`lib/citation.ts`). */
   salon: { type: string; nom: string | null };
@@ -160,6 +163,8 @@ export default function EcranActionsMessage() {
           auteurNom: brut.auteurNom,
           piecesJointes: brut.piecesJointes,
           reactions: brut.reactions,
+          epingle: brut.epingle,
+          etoiles: brut.etoiles,
         },
         // Ligne de salon absente (lien profond avant synchro) : repli `c`/rid —
         // le serveur ne lit de toute façon que le `?msg=` du permalien.
@@ -171,6 +176,8 @@ export default function EcranActionsMessage() {
             typeSysteme: brut.typeSysteme,
             texte: brut.texte,
             piecesJointes: brut.piecesJointes,
+            epingle: brut.epingle,
+            etoile: etoilePar(brut.etoiles, moi),
           },
           moi,
           regles,
@@ -293,6 +300,23 @@ export default function EcranActionsMessage() {
   };
   const enregistrer = async () => {
     if (aTransferer !== null) enregistrerEnFond(aTransferer, t);
+  };
+
+  // Le serveur ne rediffuse pas toujours le message marqué (voir
+  // `lib/marques.ts`) : l'état local se pose ici, après le succès.
+  const epingler = async (mettre: boolean) => {
+    if (mettre) await actionneur.epingler(message.rid, message.id);
+    else await actionneur.desepingler(message.rid, message.id);
+    await moteur.depotSynchro.majMarquesMessage(message.id, mettre, message.etoiles);
+  };
+  const etoiler = async (mettre: boolean) => {
+    await actionneur.etoiler(message.rid, message.id, mettre);
+    if (moi === null) return;
+    await moteur.depotSynchro.majMarquesMessage(
+      message.id,
+      message.epingle,
+      etoilesApres(message.etoiles, moi, mettre),
+    );
   };
 
   return (
@@ -439,7 +463,34 @@ export default function EcranActionsMessage() {
               disabled={occupe}
               icone="📌"
               libelle={t('actionsMessage.epingler')}
-              onPress={() => void agir(() => actionneur.epingler(message.rid, message.id))}
+              onPress={() => void agir(() => epingler(true))}
+            />
+          )}
+          {actions.includes('desepingler') && (
+            <ActionLigne
+              c={c}
+              disabled={occupe}
+              icone="📌"
+              libelle={t('actionsMessage.desepingler')}
+              onPress={() => void agir(() => epingler(false))}
+            />
+          )}
+          {actions.includes('etoiler') && (
+            <ActionLigne
+              c={c}
+              disabled={occupe}
+              icone="⭐"
+              libelle={t('actionsMessage.etoiler')}
+              onPress={() => void agir(() => etoiler(true))}
+            />
+          )}
+          {actions.includes('desetoiler') && (
+            <ActionLigne
+              c={c}
+              disabled={occupe}
+              icone="⭐"
+              libelle={t('actionsMessage.desetoiler')}
+              onPress={() => void agir(() => etoiler(false))}
             />
           )}
           {actions.includes('supprimer') && (

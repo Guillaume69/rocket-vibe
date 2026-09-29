@@ -20,6 +20,7 @@ export type ReglesMessages = {
   suppressionAutorisee: boolean;
   minutesBlocageSuppression: number;
   epinglageAutorise: boolean;
+  etoilageAutorise: boolean;
 };
 
 export type ContexteAction = {
@@ -34,6 +35,9 @@ export type ContexteAction = {
     typeSysteme: string | null;
     texte: string | null;
     piecesJointes: string | null;
+    epingle: boolean;
+    /** Étoilé par MOI (`lib/marques.ts`). */
+    etoile: boolean;
   };
   moi: string;
   regles: ReglesMessages;
@@ -55,7 +59,10 @@ export type ActionMessage =
   | 'enregistrer'
   | 'modifier'
   | 'supprimer'
-  | 'epingler';
+  | 'epingler'
+  | 'desepingler'
+  | 'etoiler'
+  | 'desetoiler';
 
 function dansLeDelai(contexte: ContexteAction, minutes: number): boolean {
   if (minutes <= 0) return true; // 0 = illimité
@@ -112,7 +119,8 @@ export function actionsPossibles(contexte: ContexteAction): ActionMessage[] {
   ) {
     actions.push('supprimer');
   }
-  if (regles.epinglageAutorise) actions.push('epingler');
+  if (regles.epinglageAutorise) actions.push(message.epingle ? 'desepingler' : 'epingler');
+  if (regles.etoilageAutorise) actions.push(message.etoile ? 'desetoiler' : 'etoiler');
 
   return actions;
 }
@@ -169,5 +177,6 @@ export function reglesDepuisReglages(reglages: ReglagePublic[]): ReglesMessages 
     suppressionAutorisee: valeurs.get('Message_AllowDeleting') !== false,
     minutesBlocageSuppression: nombre('Message_AllowDeleting_BlockDeleteInMinutes'),
     epinglageAutorise: valeurs.get('Message_AllowPinning') !== false,
+    etoilageAutorise: valeurs.get('Message_AllowStarring') !== false,
   };
 }

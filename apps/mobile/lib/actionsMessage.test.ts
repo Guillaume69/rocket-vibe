@@ -15,10 +15,19 @@ const regles = {
   suppressionAutorisee: true,
   minutesBlocageSuppression: 0,
   epinglageAutorise: true,
+  etoilageAutorise: true,
 };
 
 const base = {
-  message: { auteurId: 'moi', horodatage: 1_000_000, typeSysteme: null, texte: 'coucou', piecesJointes: null as string | null },
+  message: {
+    auteurId: 'moi',
+    horodatage: 1_000_000,
+    typeSysteme: null,
+    texte: 'coucou',
+    piecesJointes: null as string | null,
+    epingle: false,
+    etoile: false,
+  },
   moi: 'moi',
   regles,
   permissions: [] as string[],
@@ -39,6 +48,7 @@ describe('actionsPossibles', () => {
       'modifier',
       'supprimer',
       'epingler',
+      'etoiler',
     ]);
   });
 
@@ -46,7 +56,7 @@ describe('actionsPossibles', () => {
     // 6 minutes après, avec BlockEditInMinutes = 5 : plus d'édition —
     // mais la suppression (délai 0 = illimité) reste.
     const tard = { ...base, maintenant: base.message.horodatage + 6 * 60_000 };
-    assert.deepEqual(actionsPossibles(tard), ['reagir', 'repondre', 'repondreFil', 'copier', 'partager', 'supprimer', 'epingler']);
+    assert.deepEqual(actionsPossibles(tard), ['reagir', 'repondre', 'repondreFil', 'copier', 'partager', 'supprimer', 'epingler', 'etoiler']);
   });
 
   test('`bypass-time-limit-edit-and-delete` rouvre l’édition après le délai', () => {
@@ -69,7 +79,7 @@ describe('actionsPossibles', () => {
 
   test('le message d’AUTRUI ne se modifie ni ne se supprime (sans permission)', () => {
     const autrui = { ...base, message: { ...base.message, auteurId: 'lui' } };
-    assert.deepEqual(actionsPossibles(autrui), ['reagir', 'repondre', 'repondreFil', 'copier', 'partager', 'epingler']);
+    assert.deepEqual(actionsPossibles(autrui), ['reagir', 'repondre', 'repondreFil', 'copier', 'partager', 'epingler', 'etoiler']);
   });
 
   test('lecture seule : ni réaction ni réponse ; message système : rien du tout', () => {
@@ -94,7 +104,7 @@ describe('actionsPossibles', () => {
       chiffre: true,
       message: { ...base.message, typeSysteme: 'e2e', texte: 'clair' },
     });
-    assert.deepEqual(lisible, ['reagir', 'copier', 'partager', 'supprimer', 'epingler']);
+    assert.deepEqual(lisible, ['reagir', 'copier', 'partager', 'supprimer', 'epingler', 'etoiler']);
     // `modifier` posterait du clair par `chat.update`, que le serveur rejette
     // (`error-not-allowed`) ; `repondre` est fermé par `chiffre`.
     assert.ok(!lisible.includes('modifier'));
@@ -182,6 +192,31 @@ describe('reglesDepuisReglages', () => {
     assert.equal(r.minutesBlocageEdition, 5);
     assert.equal(r.suppressionAutorisee, false);
     assert.equal(r.epinglageAutorise, true, 'absent = permis, le serveur tranchera');
+    assert.equal(r.etoilageAutorise, true);
+    assert.equal(
+      reglesDepuisReglages([{ _id: 'Message_AllowStarring', value: false }]).etoilageAutorise,
+      false,
+    );
+  });
+});
+
+describe('actionsPossibles — épingler, étoiler', () => {
+  test('un message épinglé propose Désépingler, un message étoilé par moi Retirer des favoris', () => {
+    const marque = { ...base, message: { ...base.message, epingle: true, etoile: true } };
+    const actions = actionsPossibles(marque);
+    assert.ok(actions.includes('desepingler') && !actions.includes('epingler'));
+    assert.ok(actions.includes('desetoiler') && !actions.includes('etoiler'));
+  });
+
+  test('réglages fermés : ni épingle ni étoile', () => {
+    const ferme = {
+      ...base,
+      regles: { ...regles, epinglageAutorise: false, etoilageAutorise: false },
+    };
+    const actions = actionsPossibles(ferme);
+    for (const a of ['epingler', 'desepingler', 'etoiler', 'desetoiler'] as const) {
+      assert.ok(!actions.includes(a), a);
+    }
   });
 });
 

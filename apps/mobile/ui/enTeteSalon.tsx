@@ -37,6 +37,7 @@ export function EnTeteSalon({
   insetTop,
   onRetour,
   onRecherche,
+  onMarques,
 }: {
   c: Couleurs;
   rid: string;
@@ -46,6 +47,8 @@ export function EnTeteSalon({
   insetTop: number;
   onRetour: () => void;
   onRecherche: () => void;
+  /** Ouvre les messages épinglés et favoris du salon. */
+  onMarques: () => void;
 }) {
   const nom = salon ? (salon.nomAffiche ?? salon.nom ?? salon.rid) : '…';
   const estDM = salon?.type === 'd';
@@ -150,6 +153,15 @@ export function EnTeteSalon({
           <Text style={styles.iconeEntete}>📞</Text>
         </Appuyable>
       )}
+      <Appuyable
+        onPress={onMarques}
+        hitSlop={8}
+        android_ripple={{ color: c.ondulation, borderless: true }}
+        accessibilityRole="button"
+        accessibilityLabel={t('salon.marques')}
+      >
+        <Text style={styles.iconeEntete}>📌</Text>
+      </Appuyable>
       <Appuyable
         onPress={onRecherche}
         hitSlop={8}

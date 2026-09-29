@@ -6,6 +6,7 @@
  */
 
 import type { ActionsFournisseur } from '../../lib/fournisseur.ts';
+import { versMessage, type MessageLocal } from '../../lib/normaliser.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 
 export class ActionsRC implements ActionsFournisseur {
@@ -38,6 +39,34 @@ export class ActionsRC implements ActionsFournisseur {
 
   async epingler(_rid: string, mid: string): Promise<void> {
     await this.client.post('chat.pinMessage', { corps: { messageId: mid } });
+  }
+
+  async desepingler(_rid: string, mid: string): Promise<void> {
+    await this.client.post('chat.unPinMessage', { corps: { messageId: mid } });
+  }
+
+  async etoiler(_rid: string, mid: string, mettre: boolean): Promise<void> {
+    await this.client.post(mettre ? 'chat.starMessage' : 'chat.unStarMessage', {
+      corps: { messageId: mid },
+    });
+  }
+
+  listerEpingles(rid: string): Promise<MessageLocal[]> {
+    return this.lister('chat.getPinnedMessages', rid);
+  }
+
+  listerEtoiles(rid: string): Promise<MessageLocal[]> {
+    return this.lister('chat.getStarredMessages', rid);
+  }
+
+  private async lister(chemin: string, rid: string): Promise<MessageLocal[]> {
+    const reponse = await this.client.get<{ messages?: Record<string, unknown>[] }>(chemin, {
+      params: { roomId: rid, count: 50 },
+    });
+    return (reponse.messages ?? [])
+      .map((brut) => versMessage(brut))
+      .filter((m): m is MessageLocal => m !== null)
+      .sort((a, b) => b.horodatage - a.horodatage);
   }
 
   async marquerLu(rid: string): Promise<void> {

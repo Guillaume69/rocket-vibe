@@ -1,5 +1,5 @@
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
-import { and, desc, eq, isNull, or } from 'drizzle-orm';
+import { and, count, desc, eq, gt, isNull, min, or } from 'drizzle-orm';
 import { useRequeteVive } from '../../ui/requeteVive.ts';
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -36,6 +36,7 @@ import type {
 } from '../../lib/fournisseur.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSaisie, resumerSaisie } from '../../lib/saisie.ts';
+import { amenerMessage } from '../../ui/amenerMessage.ts';
 import { useBrouillon } from '../../ui/brouillons.ts';
 import { useProgressionFichiers } from '../../ui/progressionFichiers.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
@@ -56,6 +57,8 @@ import {
   surGlisseRetour,
 } from '../../ui/retourAuPlusRecent.ts';
 import { garderAuChaud, salonCouvert } from '../../ui/salonChaud.ts';
+import { consommerSaut, useSaut } from '../../ui/sautMessage.ts';
+import { signaler } from '../../ui/toast.tsx';
 import { marquerSalonCharge, salonChargeSous } from '../../ui/salonsCharges.ts';
 import { BoutonPrincipal, IndicateurSaisie, SeparateurJour } from '../../ui/kit.tsx';
 import { Appuyable } from '../../ui/appuyable.tsx';
@@ -665,6 +668,92 @@ function Salon({
       });
   }, [fraiches, limite, type, chargerHistorique, rid]);
 
+  // Saut vers un message choisi dans les épinglés/favoris (`ui/sautMessage.ts`) :
+  // l'amener dans la fenêtre (`ui/amenerMessage.ts`), attendre qu'il figure
+  // dans les données de la liste, défiler jusqu'à lui et le surligner.
+  const cibleSaut = useSaut(rid);
+  const [sautVise, setSautVise] = useState<string | null>(null);
+  useEffect(() => {
+    if (cibleSaut === null || type === undefined) return;
+    let annule = false;
+    const cible = cibleSaut;
+    const fluxPrincipal = and(
+      eq(messages.rid, rid),
+      or(isNull(messages.filId), eq(messages.filAffiche, true)),
+    );
+    const echouer = () => {
+      if (annule) return;
+      consommerSaut(rid, cible.id);
+      signaler(t('salon.sautImpossible'));
+    };
+    amenerMessage({
+      horodatage: cible.horodatage,
+      rang: async () => {
+        const trouve = await base
+          .select({ horodatage: messages.horodatage })
+          .from(messages)
+          .where(and(eq(messages.id, cible.id), fluxPrincipal))
+          .limit(1);
+        if (trouve.length === 0) return null;
+        const [plusRecents] = await base
+          .select({ n: count() })
+          .from(messages)
+          .where(and(fluxPrincipal, gt(messages.horodatage, trouve[0].horodatage)));
+        return plusRecents?.n ?? 0;
+      },
+      plusVieux: async () => {
+        const [ligne] = await base
+          .select({ h: min(messages.horodatage) })
+          .from(messages)
+          .where(eq(messages.rid, rid));
+        return ligne?.h ?? null;
+      },
+      chargerPage: (latest) =>
+        activite.suivre(rid, chargerHistorique(type, new Date(latest).toISOString())),
+    }).then((rang) => {
+      if (annule) return;
+      if (rang === null) {
+        echouer();
+        return;
+      }
+      consommerSaut(rid, cible.id);
+      setLimite((l) => Math.max(l, rang + PAGE));
+      setSautVise(cible.id);
+    }, echouer);
+    return () => {
+      annule = true;
+    };
+  }, [cibleSaut, type, base, rid, activite, chargerHistorique, t]);
+  const indexSaut = useMemo(
+    () =>
+      sautVise === null
+        ? -1
+        : donneesListe.findIndex((l) => !('barre' in l) && !('jour' in l) && l.id === sautVise),
+    [sautVise, donneesListe],
+  );
+  const dejaDefile = useRef<string | null>(null);
+  useEffect(() => {
+    if (sautVise === null || indexSaut < 0) return;
+    const defiler = () =>
+      liste.current?.scrollToIndex({ index: indexSaut, animated: true, viewPosition: 0.5 });
+    let recaler: ReturnType<typeof setTimeout> | undefined;
+    if (dejaDefile.current !== sautVise) {
+      dejaDefile.current = sautVise;
+      defiler();
+      // Les hauteurs au-delà de la zone rendue sont estimées : le premier
+      // défilement tombe à peu près, le second, lignes mesurées, juste.
+      recaler = setTimeout(defiler, 450);
+    }
+    const eteindre = setTimeout(() => {
+      dejaDefile.current = null;
+      setSautVise(null);
+    }, 2_500);
+    return () => {
+      clearTimeout(recaler);
+      clearTimeout(eteindre);
+    };
+  }, [sautVise, indexSaut]);
+
   const routeur = useRouter();
   const ouvrirActions = useCallback(
     (id: string) => {
@@ -703,6 +792,7 @@ function Salon({
     () => new Map((lignesSortie ?? []).map((s) => [s.id, s])),
     [lignesSortie],
   );
+  const surligne = indexSaut >= 0 ? sautVise : null;
   const rendreLigne = useCallback(
     ({ item }: { item: LigneListe }) => {
       if ('barre' in item) {
@@ -719,26 +809,33 @@ function Salon({
       }
       const etatEnvoi = sortieParId.get(item.id);
       return (
-        <LigneMessage
-          c={c}
-          message={item}
-          client={client}
-          statutEnvoi={etatEnvoi?.statut ?? null}
-          surReessayer={etatEnvoi?.statut === 'echec' ? reessayer : null}
-          surAbandonner={etatEnvoi?.statut === 'echec' ? abandonner : null}
-          // Pas d'actions sur une ligne d'outbox : son `_id` client n'a pas
-          // été accepté par le serveur — `chat.delete`/`chat.update` dessus ne
-          // peuvent qu'échouer. Ses vraies actions sont réessayer/abandonner.
-          surAppuiLong={etatEnvoi === undefined ? ouvrirActions : null}
-          surOuvrirFil={ouvrirFil}
-          moi={moi}
-          surReagir={etatEnvoi === undefined ? reagir : null}
-          suite={suites.has(item.id)}
-          heureRepetee={heuresRepetees.has(item.id)}
-        />
+        <View
+          style={[
+            styles.ligneSurlignable,
+            item.id === surligne && { backgroundColor: c.surfaceActive },
+          ]}
+        >
+          <LigneMessage
+            c={c}
+            message={item}
+            client={client}
+            statutEnvoi={etatEnvoi?.statut ?? null}
+            surReessayer={etatEnvoi?.statut === 'echec' ? reessayer : null}
+            surAbandonner={etatEnvoi?.statut === 'echec' ? abandonner : null}
+            // Pas d'actions sur une ligne d'outbox : son `_id` client n'a pas
+            // été accepté par le serveur — `chat.delete`/`chat.update` dessus ne
+            // peuvent qu'échouer. Ses vraies actions sont réessayer/abandonner.
+            surAppuiLong={etatEnvoi === undefined ? ouvrirActions : null}
+            surOuvrirFil={ouvrirFil}
+            moi={moi}
+            surReagir={etatEnvoi === undefined ? reagir : null}
+            suite={suites.has(item.id)}
+            heureRepetee={heuresRepetees.has(item.id)}
+          />
+        </View>
       );
     },
-    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, ouvrirFil, t, moi, reagir, suites, heuresRepetees],
+    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, ouvrirFil, t, moi, reagir, suites, heuresRepetees, surligne],
   );
 
   return (
@@ -755,6 +852,7 @@ function Salon({
         // alors aucune cible et laisserait l'utilisateur coincé.
         onRetour={() => (routeur.canGoBack() ? routeur.back() : routeur.replace('/'))}
         onRecherche={() => routeur.push({ pathname: '/recherche-messages', params: { rid } })}
+        onMarques={() => routeur.push({ pathname: '/messages-marques', params: { rid } })}
       />
       {donneesListe.length === 0 ? (
         // Vide : indicateur, puis mention explicite. (L'ancien piège mVCP
@@ -798,6 +896,7 @@ function Salon({
                     : 'message'
             }
             renderItem={rendreLigne}
+            extraData={surligne}
             onScroll={surDefilement}
             scrollEventThrottle={16}
             // Inversé : la fin des DONNÉES est le haut visuel — le passé.
@@ -922,6 +1021,7 @@ const styles = StyleSheet.create({
   contenu: { paddingHorizontal: 16, paddingVertical: 8 },
   heure: { fontSize: 11 },
   basComposer: { position: 'relative' },
+  ligneSurlignable: { borderRadius: 12, marginHorizontal: -8, paddingHorizontal: 8 },
   retourPlusRecent: {
     position: 'absolute',
     right: 16,

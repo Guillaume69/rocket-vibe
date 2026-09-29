@@ -14,6 +14,10 @@ release, et ses notes sont la section de la version ici.
   d'un lancement à l'autre.
 - Salon : remonté de plus d'un écran dans l'historique, un bouton rond en bas à droite ramène
   d'un geste aux derniers messages.
+- Messages : épingler et désépingler, ajouter aux favoris et en retirer, depuis les actions
+  d'un message. Un bouton 📌 dans l'en-tête du salon ouvre ses messages épinglés et vos
+  favoris ; toucher l'un d'eux ramène la conversation jusqu'à lui et le surligne, en chargeant
+  l'historique plus ancien au besoin.
 
 ### Corrigé
 

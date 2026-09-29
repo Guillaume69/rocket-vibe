@@ -114,6 +114,8 @@ const fr = {
   // ── Salon (écran d'un salon : liste + composer + en-tête)
   'salon.nouveauxMessages': '✦ nouveaux messages',
   'salon.allerAuPlusRecent': 'Aller aux derniers messages',
+  'salon.marques': 'Messages épinglés et favoris',
+  'salon.sautImpossible': 'Message introuvable dans l’historique récent.',
   'separateurJour.aujourdhui': "Aujourd'hui",
   'separateurJour.hier': 'Hier',
   'salon.aucunMessage': 'Aucun message.',
@@ -239,6 +241,14 @@ const fr = {
   'rechercheMessages.rechercheImpossible': 'Recherche impossible.',
   'rechercheMessages.aucunMessage': 'Aucun message trouvé.',
 
+  // ── Messages épinglés et favoris (app/messages-marques.tsx)
+  'marques.titre': 'Épinglés et favoris',
+  'marques.epingles': 'Épinglés',
+  'marques.favoris': 'Mes favoris',
+  'marques.aucunEpingle': 'Aucun message épinglé.',
+  'marques.aucunFavori': 'Aucun message en favori.',
+  'marques.chargementImpossible': 'Chargement impossible.',
+
   // ── Fil de discussion — le composer commun (ui/composer.tsx) parle avec
   // les clés `salon.*` : les doublons `fil.*` ont été fusionnés (chantier 14).
   'fil.titre': 'Fil',
@@ -260,6 +270,9 @@ const fr = {
   'enregistrement.echec': "Impossible d'enregistrer ce fichier.",
   'actionsMessage.modifier': 'Modifier',
   'actionsMessage.epingler': 'Épingler',
+  'actionsMessage.desepingler': 'Désépingler',
+  'actionsMessage.etoiler': 'Ajouter aux favoris',
+  'actionsMessage.desetoiler': 'Retirer des favoris',
 
   // ── Joindre (menu de sources)
   'joindre.photo': 'Prendre une photo',
@@ -491,6 +504,8 @@ const en: Record<CleTraduction, string> = {
 
   'salon.nouveauxMessages': '✦ new messages',
   'salon.allerAuPlusRecent': 'Jump to latest messages',
+  'salon.marques': 'Pinned and starred messages',
+  'salon.sautImpossible': 'Message not found in recent history.',
   'separateurJour.aujourdhui': 'Today',
   'separateurJour.hier': 'Yesterday',
   'salon.aucunMessage': 'No messages.',
@@ -601,6 +616,13 @@ const en: Record<CleTraduction, string> = {
   'rechercheMessages.rechercheImpossible': 'Search failed.',
   'rechercheMessages.aucunMessage': 'No messages found.',
 
+  'marques.titre': 'Pinned and starred',
+  'marques.epingles': 'Pinned',
+  'marques.favoris': 'Starred',
+  'marques.aucunEpingle': 'No pinned messages.',
+  'marques.aucunFavori': 'No starred messages.',
+  'marques.chargementImpossible': "Couldn't load.",
+
   'fil.titre': 'Thread',
   'fil.introuvable': 'Thread not found.',
   'fil.repondre': 'Reply in thread',
@@ -619,6 +641,9 @@ const en: Record<CleTraduction, string> = {
   'enregistrement.echec': "Couldn't save this file.",
   'actionsMessage.modifier': 'Edit',
   'actionsMessage.epingler': 'Pin',
+  'actionsMessage.desepingler': 'Unpin',
+  'actionsMessage.etoiler': 'Star',
+  'actionsMessage.desetoiler': 'Unstar',
 
   'joindre.photo': 'Take a photo',
   'joindre.video': 'Record a video',

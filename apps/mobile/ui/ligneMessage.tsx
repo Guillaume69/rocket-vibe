@@ -65,6 +65,7 @@ export const LigneMessage = memo(function LigneMessage({
   surReessayer,
   surAbandonner,
   surAppuiLong,
+  surAppui,
   surOuvrirFil,
   moi,
   surReagir,
@@ -78,6 +79,8 @@ export const LigneMessage = memo(function LigneMessage({
   surReessayer: (() => void) | null;
   surAbandonner: ((id: string) => void) | null;
   surAppuiLong: ((id: string) => void) | null;
+  /** Toucher la ligne (liste des épinglés/favoris). Absent dans un flux. */
+  surAppui?: ((id: string) => void) | undefined;
   /** Ouvre l'écran du fil. `null` dans l'écran fil lui-même. */
   surOuvrirFil: ((id: string) => void) | null;
   /** Mon username — marque mes réactions. `null` : rien n'est marqué mien. */
@@ -144,6 +147,7 @@ export const LigneMessage = memo(function LigneMessage({
   return (
     <Pressable
       onLongPress={appuiLong}
+      onPress={surAppui === undefined ? undefined : () => surAppui(message.id)}
       delayLongPress={350}
       // Sans quoi le Pressable fusionne la ligne en UN nœud d'accessibilité :
       // TalkBack ne peut plus atteindre « réessayer », « abandonner » ni les

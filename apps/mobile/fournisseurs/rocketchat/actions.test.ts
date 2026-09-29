@@ -46,6 +46,50 @@ describe('ActionsRC', () => {
     assert.deepEqual(appels[1], { chemin: 'subscriptions.read', corps: { rid: 'r1' } });
   });
 
+  test('desepingler et etoiler (poser, retirer)', async () => {
+    const { client, appels } = fauxClient();
+    const a = new ActionsRC(client);
+    await a.desepingler('r1', 'm1');
+    await a.etoiler('r1', 'm1', true);
+    await a.etoiler('r1', 'm1', false);
+    assert.deepEqual(appels, [
+      { chemin: 'chat.unPinMessage', corps: { messageId: 'm1' } },
+      { chemin: 'chat.starMessage', corps: { messageId: 'm1' } },
+      { chemin: 'chat.unStarMessage', corps: { messageId: 'm1' } },
+    ]);
+  });
+
+  test('listerEpingles / listerEtoiles : un GET par liste, normalisé, le plus récent en tête', async () => {
+    const lus: { chemin: string; params: unknown }[] = [];
+    const u = { _id: 'u1', username: 'alice' };
+    const client = {
+      get: async (chemin: string, options: { params?: unknown } = {}) => {
+        lus.push({ chemin, params: options.params });
+        return {
+          messages: [
+            { _id: 'a', rid: 'r1', ts: '2026-01-01T00:00:00.000Z', msg: 'vieux', u, pinned: true },
+            { _id: 'illisible' },
+            { _id: 'b', rid: 'r1', ts: '2026-02-01T00:00:00.000Z', msg: 'récent', u, pinned: true },
+          ],
+        };
+      },
+    } as unknown as ClientRest;
+    const a = new ActionsRC(client);
+    const epingles = await a.listerEpingles('r1');
+    await a.listerEtoiles('r1');
+    assert.deepEqual(
+      epingles.map((m) => [m.id, m.texte, m.epingle]),
+      [
+        ['b', 'récent', true],
+        ['a', 'vieux', true],
+      ],
+    );
+    assert.deepEqual(lus, [
+      { chemin: 'chat.getPinnedMessages', params: { roomId: 'r1', count: 50 } },
+      { chemin: 'chat.getStarredMessages', params: { roomId: 'r1', count: 50 } },
+    ]);
+  });
+
   test('ouvrirOuCreerDm rend le rid ET le document brut à ingérer', async () => {
     const salon = { _id: 'dm1', t: 'd' };
     const { client, appels } = fauxClient({ room: salon });

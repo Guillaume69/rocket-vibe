@@ -144,6 +144,12 @@ export interface ActionsFournisseur {
   modifier(rid: string, mid: string, texte: string): Promise<void>;
   supprimer(rid: string, mid: string): Promise<void>;
   epingler(rid: string, mid: string): Promise<void>;
+  desepingler(rid: string, mid: string): Promise<void>;
+  etoiler(rid: string, mid: string, mettre: boolean): Promise<void>;
+  /** Les messages épinglés d'un salon, les plus récents d'abord. Une requête par appel. */
+  listerEpingles(rid: string): Promise<MessageLocal[]>;
+  /** Mes messages favoris dans un salon, les plus récents d'abord. */
+  listerEtoiles(rid: string): Promise<MessageLocal[]>;
   marquerLu(rid: string): Promise<void>;
   /**
    * Ouvre (ou crée — idempotent côté serveur) le DM avec `username`. Rend le

@@ -68,14 +68,15 @@ export function surfaceEmployeeParCryptoTs(): void {
   void concat.subarray(0, 16);
   void concat.toString('utf8');
 
-  // dechiffrerGcm : GCM 256, tag séparé via setAuthTag, update/final → Buffer.
-  const gcm = qc.createDecipheriv('aes-256-gcm', octets, octets);
+  // dechiffrerGcm : GCM à taille de clé variable, tag séparé via setAuthTag, update/final → Buffer.
+  const chiffre: string = `aes-${octets.length * 8}-gcm`;
+  const gcm = qc.createDecipheriv(chiffre, octets, octets);
   gcm.setAuthTag(octets);
   const clairGcm: BufferEmbarque = moduleBuffer.Buffer.concat([gcm.update(octets), gcm.final()]);
   void clairGcm;
 
-  // dechiffrerCbc : CBC 256, remplissage vérifié par final.
-  const cbc = qc.createDecipheriv('aes-256-cbc', octets, octets);
+  // dechiffrerCbc : CBC à taille de clé variable, remplissage vérifié par final.
+  const cbc = qc.createDecipheriv(chiffre, octets, octets);
   const clairCbc: BufferEmbarque = moduleBuffer.Buffer.concat([cbc.update(octets), cbc.final()]);
   void clairCbc;
 

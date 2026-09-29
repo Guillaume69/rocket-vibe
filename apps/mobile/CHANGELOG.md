@@ -35,6 +35,8 @@ release, et ses notes sont la section de la version ici.
   nom de cache aléatoire.
 - Un partage vers l’app alors qu’elle n’était pas lancée ouvre bien l’écran de partage, du
   premier coup ; et un partage n’est plus rejoué à chaque ouverture suivante de l’app.
+- Un salon chiffré créé par un ancien client web (clé de salon AES-128) se lit de nouveau une
+  fois déverrouillé, au lieu de n’afficher que des messages « chiffrés, non pris en charge ».
 
 ## [0.1.0] - 2026-09-27
 

@@ -137,8 +137,8 @@ async function fabriquerV1(): Promise<{
   inner.set(ct, iv.length);
   const privateKey = JSON.stringify({ $binary: b64(inner) }); // emballage EJSON comme en prod
 
-  // clé de salon v1 : keyID de 12 caractères + base64(RSA(sessionJWK)) → E2EKey de 356.
-  const cleSalon = await subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+  // clé de salon v1 : AES-128, keyID de 12 caractères + base64(RSA(sessionJWK)) → E2EKey de 356.
+  const cleSalon = await subtle.generateKey({ name: 'AES-GCM', length: 128 }, true, ['encrypt', 'decrypt']);
   const jwkSalon = JSON.stringify(await subtle.exportKey('jwk', cleSalon));
   const rk = new Uint8Array(await subtle.encrypt({ name: 'RSA-OAEP' }, paire.publicKey, bytes(jwkSalon)));
   const keyId = 'af587341640c'; // 12 caractères, comme le relevé prod
@@ -166,7 +166,7 @@ describe('crypto e2e — format hérité v1', () => {
     assert.equal(keyIdDeE2EKey(e2eKey), 'af587341640c'); // keyID de 12 calculé, pas 36
 
     const cle = dechiffrerCleSalon(e2eKey, priv);
-    assert.equal(cle.length, 32);
+    assert.equal(cle.length, 16); // A128, comme le relevé prod
     assert.equal(dechiffrerMessage(contenu, cle), MESSAGE);
   });
 
@@ -176,16 +176,20 @@ describe('crypto e2e — format hérité v1', () => {
   });
 });
 
-/** Octets bruts d'une clé AES (Buffer) + clé WebCrypto AES-CBC. */
-async function cleAes() {
-  const raw = rand(32);
+/**
+ * Octets bruts d'une clé AES (Buffer) + clé WebCrypto AES-CBC. Une clé de salon
+ * créée par l'ancien client web fait 16 octets (JWK `A128CBC`, relevé sur
+ * chat.barrut.me) ; un salon récent, 32.
+ */
+async function cleAes(taille: 16 | 32) {
+  const raw = rand(taille);
   const wc = await subtle.importKey('raw', raw, { name: 'AES-CBC' }, false, ['encrypt']);
   return { octets: Buffer.from(raw), wc };
 }
 
-describe('crypto e2e — messages CBC (compte ancien)', () => {
+for (const taille of [16, 32] as const) describe(`crypto e2e — messages CBC, clé de salon de ${taille} octets`, () => {
   test('rc.v1 : ciphertext = keyID(12) + base64(IV(16) || CBC) → clair', async () => {
-    const { octets, wc } = await cleAes();
+    const { octets, wc } = await cleAes(taille);
     const iv = rand(16);
     const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-CBC', iv }, wc, bytes(JSON.stringify({ msg: MESSAGE }))));
     const blob = new Uint8Array(16 + ct.length);
@@ -196,7 +200,7 @@ describe('crypto e2e — messages CBC (compte ancien)', () => {
   });
 
   test('rc.v2 CBC : iv de 16 octets séparé → clair', async () => {
-    const { octets, wc } = await cleAes();
+    const { octets, wc } = await cleAes(taille);
     const iv = rand(16);
     const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-CBC', iv }, wc, bytes(JSON.stringify({ msg: MESSAGE }))));
     const contenu: ContenuChiffre = { algorithm: 'rc.v2.aes-sha2', kid: 'eyJhbGciOiJB', iv: b64(iv), ciphertext: b64(ct) };
@@ -204,12 +208,26 @@ describe('crypto e2e — messages CBC (compte ancien)', () => {
   });
 
   test('message hérité au texte brut (pas de JSON) → texte tel quel', async () => {
-    const { octets, wc } = await cleAes();
+    const { octets, wc } = await cleAes(taille);
     const iv = rand(16);
     const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-CBC', iv }, wc, bytes('coucou sans json')));
     const contenu: ContenuChiffre = { algorithm: 'rc.v1.aes-sha2', ciphertext: 'af587341640c' + b64(new Uint8Array([...iv, ...ct])) };
     assert.equal(dechiffrerMessage(contenu, octets), 'coucou sans json');
   });
+
+  test('rc.v2 GCM : iv de 12 octets → clair', async () => {
+    const raw = rand(taille);
+    const wc = await subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt']);
+    const iv = rand(12);
+    const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-GCM', iv }, wc, bytes(JSON.stringify({ msg: MESSAGE }))));
+    const contenu: ContenuChiffre = { algorithm: 'rc.v2.aes-sha2', kid: 'eyJhbGciOiJB', iv: b64(iv), ciphertext: b64(ct) };
+    assert.equal(dechiffrerMessage(contenu, Buffer.from(raw)), MESSAGE);
+  });
+});
+
+test('clé de salon de taille inattendue → ErreurE2E, pas un crash', () => {
+  const contenu: ContenuChiffre = { algorithm: 'rc.v2.aes-sha2', kid: 'k', iv: b64(rand(16)), ciphertext: b64(rand(32)) };
+  assert.throws(() => dechiffrerMessage(contenu, Buffer.from(rand(20))), ErreurE2E);
 });
 
 describe('crypto e2e — chaîne complète', () => {

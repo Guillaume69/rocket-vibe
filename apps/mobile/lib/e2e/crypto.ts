@@ -90,27 +90,39 @@ function base64urlVersOctets(s: string): Buffer {
 }
 
 /**
- * Déchiffre un bloc AES-GCM 256. `ctAvecTag` porte le tag de 16 octets en fin
+ * Le chiffre AES qui correspond à la taille de la clé : une clé de salon créée
+ * par l'ancien client web est un JWK `A128CBC` de 16 octets, pas 32.
+ */
+function bitsAes(cle: Buffer): 128 | 192 | 256 | null {
+  const bits = cle.length * 8;
+  return bits === 128 || bits === 192 || bits === 256 ? bits : null;
+}
+
+/**
+ * Déchiffre un bloc AES-GCM. `ctAvecTag` porte le tag de 16 octets en fin
  * (convention WebCrypto). Rend `null` si l'authentification échoue — la seule
  * façon fiable de détecter un mauvais mot de passe / une clé fausse.
  */
 function dechiffrerGcm(cle: Buffer, iv: Buffer, ctAvecTag: Buffer): Buffer | null {
-  if (ctAvecTag.length < TAILLE_TAG_GCM) return null;
+  const bits = bitsAes(cle);
+  if (bits === null || ctAvecTag.length < TAILLE_TAG_GCM) return null;
   const corps = ctAvecTag.subarray(0, ctAvecTag.length - TAILLE_TAG_GCM);
   const tag = ctAvecTag.subarray(ctAvecTag.length - TAILLE_TAG_GCM);
-  const dechiffreur = createDecipheriv('aes-256-gcm', cle, iv);
-  dechiffreur.setAuthTag(tag);
   try {
+    const dechiffreur = createDecipheriv(`aes-${bits}-gcm`, cle, iv);
+    dechiffreur.setAuthTag(tag);
     return Buffer.concat([dechiffreur.update(corps), dechiffreur.final()]);
   } catch {
     return null;
   }
 }
 
-/** Déchiffre un bloc AES-CBC 256 (remplissage PKCS#7 vérifié par `final`). */
+/** Déchiffre un bloc AES-CBC (remplissage PKCS#7 vérifié par `final`). */
 function dechiffrerCbc(cle: Buffer, iv: Buffer, ct: Buffer): Buffer | null {
-  const dechiffreur = createDecipheriv('aes-256-cbc', cle, iv);
+  const bits = bitsAes(cle);
+  if (bits === null) return null;
   try {
+    const dechiffreur = createDecipheriv(`aes-${bits}-cbc`, cle, iv);
     return Buffer.concat([dechiffreur.update(ct), dechiffreur.final()]);
   } catch {
     return null;

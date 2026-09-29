@@ -29,6 +29,8 @@ release, et ses notes sont la section de la version ici.
 
 ### Corrigé
 
+- Un fichier envoyé garde son nom d’origine ; une copie faite par le sélecteur partait sous un
+  nom de cache aléatoire.
 - Un partage vers l’app alors qu’elle n’était pas lancée ouvre bien l’écran de partage, du
   premier coup ; et un partage n’est plus rejoué à chaque ouverture suivante de l’app.
 

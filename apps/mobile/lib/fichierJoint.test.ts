@@ -8,6 +8,7 @@ import {
   jointeAPartager,
   telechargerFichierJoint,
   versGalerie,
+  nomATeleverser,
   nomDeFichierSur,
   ouvrirFichierJoint,
   type CreerDossier,
@@ -366,5 +367,23 @@ describe('fractionTelechargee', () => {
   test('plafonnée à 1, et null quand on ne sait rien', () => {
     assert.equal(fractionTelechargee(1500, -1, 1000), 1);
     assert.equal(fractionTelechargee(10, -1, null), null);
+  });
+});
+
+describe('nomATeleverser', () => {
+  test('une copie de cache au nom aléatoire part sous le nom d’origine', () => {
+    assert.equal(
+      nomATeleverser('file:///data/cache/DocumentPicker/5852b590-3933.pdf', 'Scan 2026-09-24.pdf'),
+      'Scan 2026-09-24.pdf',
+    );
+  });
+
+  test('le fichier porte déjà son nom : rien à copier', () => {
+    assert.equal(nomATeleverser('file:///data/cache/Scan%202026.pdf', 'Scan 2026.pdf'), null);
+    assert.equal(nomATeleverser('file:///data/cache/vocal-1.m4a', 'vocal-1.m4a'), null);
+  });
+
+  test('un nom hostile est assaini avant de devenir un chemin', () => {
+    assert.equal(nomATeleverser('file:///c/x.png', '../../evil.png'), 'evil.png');
   });
 });

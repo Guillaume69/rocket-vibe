@@ -9,9 +9,34 @@
 
 import * as FileSystem from 'expo-file-system/legacy';
 
+import { nomATeleverser } from '../lib/fichierJoint.ts';
 import { ErreurRest } from '../lib/rest.ts';
 import type { TransportUpload } from '../lib/upload.ts';
 import { signalerFinUpload } from './sondeUpload.ts';
+
+/**
+ * Copie le fichier sous son vrai nom, dans un dossier à lui : le multipart part
+ * sous le nom du fichier sur le disque. Rend `null` quand l'URI le porte déjà
+ * ou que la copie échoue — le fichier part alors sous son nom de cache.
+ */
+async function copieNommee(
+  uri: string,
+  nom: string,
+): Promise<{ dossier: string; fichier: string } | null> {
+  const voulu = nomATeleverser(uri, nom);
+  const cache = FileSystem.cacheDirectory;
+  if (voulu === null || cache === null) return null;
+  const dossier = `${cache}envoi-nomme/${Date.now()}-${Math.random().toString(36).slice(2)}/`;
+  try {
+    await FileSystem.makeDirectoryAsync(dossier, { intermediates: true });
+    const fichier = dossier + encodeURIComponent(voulu);
+    await FileSystem.copyAsync({ from: uri, to: fichier });
+    return { dossier, fichier };
+  } catch {
+    await FileSystem.deleteAsync(dossier, { idempotent: true }).catch(() => {});
+    return null;
+  }
+}
 
 function transportExpoAvec(champ: string): TransportUpload {
   return async (url, entetes, fichier, surProgression, surAnnulable) => {
@@ -23,9 +48,11 @@ function transportExpoAvec(champ: string): TransportUpload {
       throw new Error(`Fichier introuvable (${fichier.nom}) — cache purgé ?`);
     }
 
+    const copie = await copieNommee(fichier.uri, fichier.nom);
+
     const tache = FileSystem.createUploadTask(
       url,
-      fichier.uri,
+      copie?.fichier ?? fichier.uri,
       {
         httpMethod: 'POST',
         uploadType: FileSystem.FileSystemUploadType.MULTIPART,
@@ -57,6 +84,9 @@ function transportExpoAvec(champ: string): TransportUpload {
       // Réussi comme échoué : c'est le passage des octets qui fait tomber la
       // socket, pas le verdict du serveur.
       signalerFinUpload();
+      if (copie !== null) {
+        void FileSystem.deleteAsync(copie.dossier, { idempotent: true }).catch(() => {});
+      }
     }
     if (resultat == null) {
       throw new Error('Téléversement annulé.');

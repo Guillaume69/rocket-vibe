@@ -294,3 +294,15 @@ export function fractionTelechargee(
   const total = attendus > 0 ? attendus : (taille ?? 0);
   return total > 0 ? Math.min(ecrits / total, 1) : null;
 }
+
+/**
+ * Le nom sous lequel téléverser un fichier local, quand celui de son URI n'est
+ * pas le sien. Le multipart d'`expo-file-system` prend le nom du fichier sur
+ * le disque, et le serveur le garde tel quel : une copie de cache (sélecteur,
+ * réduction) partirait sous un nom aléatoire. `null` : l'URI porte déjà le bon.
+ */
+export function nomATeleverser(uri: string, nom: string): string | null {
+  const voulu = nomDeFichierSur(nom);
+  const actuel = decoder(uri.split(/[?#]/)[0]!.split('/').pop() ?? '');
+  return actuel === voulu ? null : voulu;
+}

@@ -5,7 +5,8 @@ import SwiftUI
 
 /// `RV_SMOKE_GALLERY=1`: sample messages drawn by the real rows, without a
 /// server, for CI's screenshots. `RV_SMOKE_SOAK=<seconds>` churns them and
-/// the dock badge, then says it survived.
+/// the dock badge, then says it survived; `RV_SMOKE_SCROLL=1` times a long
+/// scroll (`ScrollBench`).
 enum SmokeGallery {
     static var requested: Bool { ProcessInfo.processInfo.environment["RV_SMOKE_GALLERY"] == "1" }
     static var soakSeconds: Int? { ProcessInfo.processInfo.environment["RV_SMOKE_SOAK"].flatMap(Int.init) }
@@ -76,7 +77,7 @@ let galleryGroups: [RoomGroup] = [
 /// The chat window as it is signed in, drawn from samples: the real sidebar
 /// sections and rows beside the real message rows.
 struct GalleryView: View {
-    @State var messages = gallerySamples
+    @State var messages = ScrollBench.requested ? ScrollBench.messages : gallerySamples
     @State var selected: String? = "general"
     @State var collapsed: Set<RoomSection> = []
     @State var rounds = 0
@@ -102,6 +103,9 @@ struct GalleryView: View {
                 .padding(.vertical, 8)
             }
             .defaultScrollAnchor(.bottom)
+            .background {
+                if ScrollBench.requested { ScrollDriver().frame(width: 1, height: 1) }
+            }
         }
         .navigationTitle(galleryGroups.flatMap(\.rooms).first { $0.rid == selected }.map { "(2) \($0.name) - rocket-vibe" } ?? "rocket-vibe")
         .frame(minWidth: 900, minHeight: 560)

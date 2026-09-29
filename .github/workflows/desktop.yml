@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: desktop-${{ github.ref }}
+  group: desktop-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 env:

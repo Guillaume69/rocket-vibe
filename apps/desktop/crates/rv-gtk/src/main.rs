@@ -11,6 +11,7 @@ mod crashlog;
 mod details;
 mod emoji_picker;
 mod fonts;
+mod gst_stream;
 mod i18n;
 mod icon;
 mod login;

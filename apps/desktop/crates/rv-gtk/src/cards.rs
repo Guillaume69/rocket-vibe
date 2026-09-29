@@ -132,7 +132,7 @@ pub fn open_file(widget: &impl IsA<gtk::Widget>, path: &std::path::Path, failed:
 }
 
 fn audio_player(path: &std::path::Path) -> gtk::Widget {
-    let stream = gtk::MediaFile::for_filename(path);
+    let stream = crate::gst_stream::for_file(path);
     let player = gtk::Box::new(gtk::Orientation::Vertical, 4);
     player.append(&gtk::MediaControls::new(Some(&stream)));
     let failed = label(t("video.unsupported"), &["file-detail"]);

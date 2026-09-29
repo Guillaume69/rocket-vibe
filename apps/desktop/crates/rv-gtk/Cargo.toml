@@ -17,6 +17,8 @@ async-channel = "2.5.0"
 chrono = { version = "0.4.45", features = ["unstable-locales"] }
 gtk = { version = "0.11.5", package = "gtk4", features = ["v4_12"] }
 gstreamer = "0.24"
+gstreamer-app = "0.24"
+gstreamer-video = "0.24"
 pango = { version = "0.22", features = ["v1_56"] }
 rv-core = { path = "../rv-core" }
 rv-native = { path = "../rv-native" }

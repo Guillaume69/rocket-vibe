@@ -924,7 +924,7 @@ pub fn ime_unpinned() -> bool {
 /// no sound card, so how far it got is only reported.
 fn media(files: Vec<String>) {
     for file in files {
-        let stream = gtk::MediaFile::for_filename(&file);
+        let stream = crate::gst_stream::for_file(std::path::Path::new(&file));
         stream.set_muted(true);
         stream.play();
         glib::timeout_add_local_once(Duration::from_millis(4000), move || {

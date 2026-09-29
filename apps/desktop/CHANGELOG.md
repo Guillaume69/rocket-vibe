@@ -7,6 +7,21 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows: the app crashed after a keyboard layout change (Win+Space, Alt+Shift, or Windows
+  switching layouts per window) while typing: GTK left its input method behind. The input
+  method is now fixed, so a layout change no longer swaps it.
+- Windows: audio and video files did not play; the package lacked GTK's media module. It
+  now plays Ogg (voice messages from this app), AAC (from the Android app) and H.264 video.
+  An audio file that cannot play says so.
+- Windows: the logs moved to `%LOCALAPPDATA%\rocket-vibe-rs`, out of the Internet cache that
+  Disk Cleanup empties. Settings, Logs opens the folder.
+- A code block closed at the end of its last line, or opened and closed on one line, was
+  posted as a list or with stray backticks: the fences now get lines of their own.
+- Long lines in code blocks wrapped with inserted hyphens, which also ended up in copies.
+- The room list turned grey while the window was not focused.
+
 ## [0.4.1] - 2026-09-29
 
 ### Added

@@ -127,7 +127,7 @@ button.cta:active, button.cta:disabled { opacity: 0.75; }
 .room-preview { font-size: 12.5px; color: #8F89AB; }
 .room-preview.unread { color: #C9C3E0; }
 .room-preview.encrypted { font-style: italic; }
-.room-time { font-size: 11px; color: #6E6890; }
+.room-time { font-size: 11.5px; font-weight: 600; color: #7C76A0; font-feature-settings: "tnum"; }
 .room-time.unread { color: #FFD34E; font-weight: 700; }
 .account { border-top: 1px solid #1E1B33; padding: 10px 14px; }
 .account-name { font-weight: 800; font-size: 13.5px; }
@@ -186,8 +186,8 @@ textview.inline-images, textview.inline-images text { background: transparent; c
 
 .author { font-weight: 800; font-size: 13.5px; color: #F3F0FF; }
 .author.mine { color: #FF5FA2; }
-.message-time { color: #6E6890; font-size: 10.5px; }
-.gutter-time { color: #6E6890; font-size: 9px; }
+.message-time { color: #7C76A0; font-size: 11px; font-weight: 600; font-feature-settings: "tnum"; }
+.gutter-time { color: #7C76A0; font-size: 10px; font-weight: 600; font-feature-settings: "tnum"; }
 .message-body { color: #E7E3F5; font-size: 14px; }
 .message-body.pending { opacity: 0.55; }
 .message-body link, .message-body a { color: #5CC8FF; }

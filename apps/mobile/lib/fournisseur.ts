@@ -141,7 +141,8 @@ export interface Traducteur {
  */
 export interface ActionsFournisseur {
   reagir(rid: string, mid: string, emoji: string, mettre: boolean): Promise<void>;
-  modifier(rid: string, mid: string, texte: string): Promise<void>;
+  /** `chiffreur` : le message est chiffré, sa nouvelle version aussi. */
+  modifier(rid: string, mid: string, texte: string, chiffreur?: ChiffreurEnvoi): Promise<void>;
   supprimer(rid: string, mid: string): Promise<void>;
   epingler(rid: string, mid: string): Promise<void>;
   desepingler(rid: string, mid: string): Promise<void>;

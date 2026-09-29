@@ -23,6 +23,7 @@ release, et ses notes sont la section de la version ici.
   et le texte tapé part en légende de la première.
 - Salon chiffré : une fois déverrouillé, on y écrit comme ailleurs. Le message part chiffré
   (les mentions notifient toujours) ; verrouillé, il attend le déverrouillage au lieu d'échouer.
+  On peut aussi y modifier ses messages et répondre dans un fil.
 
 ### Modifié
 

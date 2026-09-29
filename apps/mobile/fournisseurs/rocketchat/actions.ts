@@ -5,6 +5,8 @@
  * fournira son propre `ActionsFournisseur` (endpoints `/posts`, `/reactions`, …).
  */
 
+import { mentionsE2E } from '../../lib/e2e/mentions.ts';
+import type { ChiffreurEnvoi } from '../../lib/envoi.ts';
 import type { ActionsFournisseur } from '../../lib/fournisseur.ts';
 import { versMessage, type MessageLocal } from '../../lib/normaliser.ts';
 import type { ClientRest } from '../../lib/rest.ts';
@@ -29,8 +31,20 @@ export class ActionsRC implements ActionsFournisseur {
     });
   }
 
-  async modifier(rid: string, mid: string, texte: string): Promise<void> {
-    await this.client.post('chat.update', { corps: { roomId: rid, msgId: mid, text: texte } });
+  /**
+   * Un message chiffré se modifie par `content`, que le serveur n'accepte que
+   * sur un message `e2e` — et un `text` y serait refusé.
+   */
+  async modifier(rid: string, mid: string, texte: string, chiffreur?: ChiffreurEnvoi): Promise<void> {
+    if (chiffreur === undefined) {
+      await this.client.post('chat.update', { corps: { roomId: rid, msgId: mid, text: texte } });
+      return;
+    }
+    const content = chiffreur.chiffrer(rid, { msg: texte });
+    if (content === null) throw new Error('chat.update: clé du salon indisponible');
+    await this.client.post('chat.update', {
+      corps: { roomId: rid, msgId: mid, content, e2eMentions: mentionsE2E(texte) },
+    });
   }
 
   async supprimer(rid: string, mid: string): Promise<void> {

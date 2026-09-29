@@ -47,7 +47,10 @@ export type ContexteAction = {
   /** Permissions accordées dans ce salon ; `null` : pas (encore) connues. */
   permissions: string[] | null;
   lectureSeule: boolean;
-  /** Salon chiffré : on ne peut pas y ENVOYER (donc pas répondre) — réagir, si. */
+  /**
+   * Salon chiffré : on y répond dans un fil, pas en citant — la citation est
+   * une carte que le serveur bâtit depuis le texte, et il ne lit pas celui-ci.
+   */
   chiffre: boolean;
   /** Feuille ouverte depuis l'écran d'un fil : on y répond déjà. */
   dansUnFil: boolean;
@@ -85,8 +88,7 @@ export function actionsPossibles(contexte: ContexteAction): ActionMessage[] {
   // que `texte` au déchiffrement — le marqueur, lui, reste. Une fois lisible,
   // ui/ligneMessage.tsx le rend comme n'importe quel autre message ; la sortie
   // sèche ci-dessous ouvrait donc une feuille d'actions VIDE sur la totalité
-  // d'un salon chiffré. `modifier` reste fermé (`chat.update` posterait du
-  // CLAIR, que le serveur rejette), et `repondre` l'est déjà par `chiffre`.
+  // d'un salon chiffré.
   const chiffreLisible = message.typeSysteme === TYPE_CHIFFRE && message.texte !== null;
   if (message.typeSysteme !== null && !chiffreLisible) return actions;
 
@@ -94,7 +96,7 @@ export function actionsPossibles(contexte: ContexteAction): ActionMessage[] {
   // Répondre en citant (`lib/citation.ts`) : n'importe quel message d'autrui ou
   // de soi, tant qu'on PEUT poster dans le salon.
   if (!lectureSeule && !chiffre) actions.push('repondre');
-  if (!lectureSeule && !chiffre && !dansUnFil) actions.push('repondreFil');
+  if (!lectureSeule && !dansUnFil) actions.push('repondreFil');
   const texte = texteACopier(message.texte) !== null;
   if (texte) actions.push('copier');
   const fichier = jointeAPartager(message.piecesJointes) !== null;
@@ -110,7 +112,6 @@ export function actionsPossibles(contexte: ContexteAction): ActionMessage[] {
   // d'autrui, DANS le délai ; `force-delete-message` supprime sans condition.
   const sansDelai = a('bypass-time-limit-edit-and-delete', false);
   if (
-    !chiffreLisible &&
     (a('edit-message', false) || (mien && regles.editionAutorisee)) &&
     (sansDelai || dansLeDelai(contexte, regles.minutesBlocageEdition))
   ) {

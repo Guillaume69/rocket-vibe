@@ -32,7 +32,7 @@ for the Android app too and are fixed there as well.
 - [x] The image viewer does not close on a click outside the image
 - [x] Videos: no poster, no controls, no fullscreen; the player pops in on play
 - [x] Files: no Download button; Open fails on Linux outside GNOME (falls back to GIO, then xdg-open)
-- [~] Files and images dropped on the window are not sent: the composer took dropped files as text, and pictures dragged from a browser were refused; fixed, to confirm by hand (no way to synthesize a drop headless)
+- [x] Files and images dropped on the window are not sent: the composer took dropped files as text, and pictures dragged from a browser were refused; fixed, and checked by a real X11 drag from another GTK app onto the text field (the file lands as a chip, the field stays empty)
 - [x] No spell check (Hunspell dictionaries through spellbook: French and English, suggestions and a personal list on right click)
 - [x] No formatting toolbar: a WYSIWYG composer with bold, italic, strike, heading, link, code, quote and lists: toolbar and shortcuts, the draft shown formatted with its markers hidden except on the line being edited
 - [x] "Nothing to do with this message" menu on system messages (no menu where nothing is possible)

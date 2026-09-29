@@ -19,9 +19,11 @@ pub struct Staged {
     items: RefCell<Vec<(Picked, String)>>,
 }
 
-fn kind_label(mime: &str) -> String {
-    let subtype = mime.rsplit('/').next().unwrap_or(mime);
-    subtype.trim_start_matches("x-").to_uppercase()
+/// The file's kind as people know it: its extension, else the MIME subtype.
+fn kind_label(name: &str, mime: &str) -> String {
+    let extension = std::path::Path::new(name).extension().and_then(|e| e.to_str()).filter(|e| e.len() <= 5);
+    let subtype = mime.rsplit('/').next().unwrap_or(mime).trim_start_matches("x-");
+    extension.unwrap_or(subtype).to_uppercase()
 }
 
 impl Staged {
@@ -130,7 +132,7 @@ fn chip(item: &Picked, mime: &str, on_remove: impl Fn() + 'static) -> gtk::Widge
     let size = std::fs::metadata(&item.path).map(|m| human_size(m.len() as i64)).unwrap_or_default();
     names.append(
         &gtk::Label::builder()
-            .label(format!("{} {size}", kind_label(mime)))
+            .label(format!("{} {size}", kind_label(&item.name, mime)))
             .xalign(0.0)
             .css_classes(["file-detail"])
             .build(),

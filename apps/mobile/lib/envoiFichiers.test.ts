@@ -3,6 +3,7 @@ import { describe, test } from 'node:test';
 
 import {
   ErreurValidation,
+  jointeDeFichierChiffre,
   MoteurTeleversement,
   lireReglesUpload,
   validerFichier,
@@ -10,11 +11,12 @@ import {
   type LigneTeleversement,
 } from './envoiFichiers.ts';
 import { ClientRest, ErreurRest } from './rest.ts';
+import type { JwkFichier } from './e2e/crypto.ts';
 import type { TransportUpload } from './upload.ts';
 
 describe('validerFichier', () => {
   test('la taille maximale du serveur est respectée AVANT le moindre octet', () => {
-    const regles = { tailleMax: 1000, typesAcceptes: null };
+    const regles = { tailleMax: 1000, typesAcceptes: null, fichiersChiffres: true };
     validerFichier(regles, { type: 'image/png', taille: 999 });
     // Le refus porte une DONNÉE (code + params), pas une phrase : c'est le
     // contrat du point d'affichage (ui/validationFichiers.ts).
@@ -28,7 +30,7 @@ describe('validerFichier', () => {
   });
 
   test('la liste blanche accepte les jokers `image/*`', () => {
-    const regles = { tailleMax: null, typesAcceptes: ['image/*', 'application/pdf'] };
+    const regles = { tailleMax: null, typesAcceptes: ['image/*', 'application/pdf'], fichiersChiffres: true };
     validerFichier(regles, { type: 'image/png', taille: null });
     validerFichier(regles, { type: 'application/pdf', taille: null });
     assert.throws(
@@ -39,7 +41,7 @@ describe('validerFichier', () => {
   });
 
   test('sans réglage, tout passe — le serveur tranchera', () => {
-    validerFichier({ tailleMax: null, typesAcceptes: null }, { type: 'x/y', taille: 1e12 });
+    validerFichier({ tailleMax: null, typesAcceptes: null, fichiersChiffres: true }, { type: 'x/y', taille: 1e12 });
   });
 });
 
@@ -816,5 +818,166 @@ describe('MoteurTeleversement', () => {
 
     assert.deepEqual(vues, [1], 'la fraction est bien tenue à jour pendant l’envoi');
     assert.equal(moteur.progression.size, 0, 'et retirée ensuite — sinon la barre reste à 100 %');
+  });
+});
+
+describe('MoteurTeleversement — salon chiffré', () => {
+  const CONTENU = { algorithm: 'rc.v2.aes-sha2', kid: 'k', iv: 'aXY=', ciphertext: 'Y3Q=' };
+  const JWK: JwkFichier = { kty: 'oct', alg: 'A256CTR', k: 'Y2xl', ext: true, key_ops: ['encrypt', 'decrypt'] };
+
+  function chiffrement(options: { cle?: () => boolean } = {}) {
+    const charges: object[] = [];
+    const fichiersChiffres: string[] = [];
+    return {
+      charges,
+      fichiersChiffres,
+      chiffrement: {
+        salonChiffre: async (rid: string) => rid === 'p1',
+        chiffrer: (_rid: string, charge: object) => {
+          if (options.cle && !options.cle()) return null;
+          charges.push(charge);
+          return CONTENU;
+        },
+        chiffrerFichier: async (uri: string) => {
+          fichiersChiffres.push(uri);
+          return { uri: `${uri}.chiffre`, cle: JWK, iv: 'Y3RyMTY=', sha256: 'abc', taille: 10 };
+        },
+        empreinteNom: (nom: string) => `hache(${nom})`,
+      },
+    };
+  }
+
+  function clientQuiConfirme(corpsConfirmes: unknown[], reglages: unknown[] = []) {
+    return new ClientRest('http://x', {
+      fetch: async (url, init) => {
+        const confirm = String(url).includes('mediaConfirm');
+        if (confirm) corpsConfirmes.push(JSON.parse(String(init?.body)));
+        const corps = confirm ? { success: true, message: { _id: 'm1', rid: 'p1' } } : { settings: reglages };
+        return new Response(JSON.stringify(corps), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      },
+      dormir: async () => {},
+    });
+  }
+
+  test('le fichier part chiffré sous l’empreinte de son nom ; nom, clé et légende ne voyagent que chiffrés', async () => {
+    const { depot, lignes } = fauxDepot();
+    const { chiffrement: c, charges } = chiffrement();
+    const envois: { fichier: unknown; champs: unknown }[] = [];
+    const confirmes: unknown[] = [];
+    const effaces: string[] = [];
+    const moteur = new MoteurTeleversement({
+      depot,
+      client: clientQuiConfirme(confirmes, [{ _id: 'E2E_Enable_Encrypt_Files', value: true }]),
+      transport: async (_url, _entetes, fichier, _p, _a, champs) => {
+        envois.push({ fichier, champs });
+        return { statut: 200, corps: JSON.stringify({ file: { _id: 'f1' } }) };
+      },
+      genererId: () => 'id-fichier-000000000000',
+      ingerer: async () => {},
+      supprimerFichierLocal: async (uri) => void effaces.push(uri),
+      chiffrement: c,
+    });
+
+    await moteur.envoyer('p1', { uri: 'file:///cache/a.png', nom: 'vacances.png', type: 'image/png', taille: 10 }, 'la plage');
+
+    assert.deepEqual(envois, [
+      {
+        fichier: { uri: 'file:///cache/a.png.chiffre', nom: 'hache(vacances.png)', type: 'application/octet-stream' },
+        champs: { content: JSON.stringify(CONTENU) },
+      },
+    ]);
+    assert.deepEqual(confirmes, [{ msg: '', t: 'e2e', content: CONTENU, fileContent: CONTENU }]);
+    const message = charges.find((ch) => 'attachments' in ch) as { msg: string; attachments: Record<string, unknown>[] };
+    assert.equal(message.msg, 'la plage');
+    assert.equal(message.attachments[0].title, 'vacances.png');
+    assert.equal(message.attachments[0].image_url, '/file-upload/f1/hache(vacances.png)');
+    assert.deepEqual(message.attachments[0].encryption, { key: JWK, iv: 'Y3RyMTY=' });
+    assert.deepEqual(effaces, ['file:///cache/a.png.chiffre', 'file:///cache/a.png']);
+    assert.equal(lignes.size, 0);
+  });
+
+  test('verrouillé : rien ne part, la ligne attend sans échouer', async () => {
+    const { depot, lignes, appels } = fauxDepot();
+    let cle = false;
+    const { chiffrement: c } = chiffrement({ cle: () => cle });
+    let envois = 0;
+    const moteur = new MoteurTeleversement({
+      depot,
+      client: clientQuiConfirme([], [{ _id: 'E2E_Enable_Encrypt_Files', value: true }]),
+      transport: async () => {
+        envois++;
+        return { statut: 200, corps: JSON.stringify({ file: { _id: 'f1' } }) };
+      },
+      genererId: () => 'id-fichier-000000000000',
+      ingerer: async () => {},
+      chiffrement: c,
+    });
+
+    await moteur.envoyer('p1', FICHIER);
+    assert.equal(envois, 0);
+    assert.equal([...lignes.values()][0].statut, 'en-attente');
+    assert.ok(!appels.some((a) => a.startsWith('echec')));
+
+    cle = true;
+    await moteur.traiter();
+    assert.equal(envois, 1);
+    assert.equal(lignes.size, 0);
+  });
+
+  test('clé perdue entre les deux temps (processus tué) : le fichier repart, chiffré à neuf', async () => {
+    const { depot, lignes } = fauxDepot();
+    const { chiffrement: c, fichiersChiffres } = chiffrement();
+    await depot.inserer({ id: 'l1', rid: 'p1', uri: 'file:///cache/a.png', nom: 'a.png', type: 'image/png', legende: null });
+    await depot.noterFileId('l1', 'f-ancien');
+    const confirmes: unknown[] = [];
+    const moteur = new MoteurTeleversement({
+      depot,
+      client: clientQuiConfirme(confirmes),
+      transport: async () => ({ statut: 200, corps: JSON.stringify({ file: { _id: 'f-neuf' } }) }),
+      genererId: () => 'x',
+      ingerer: async () => {},
+      chiffrement: c,
+    });
+
+    await moteur.traiter();
+    assert.deepEqual(fichiersChiffres, ['file:///cache/a.png']);
+    assert.equal(confirmes.length, 1);
+    assert.equal(lignes.size, 0);
+  });
+
+  test('serveur sans fichiers chiffrés : refusé dès la pose', async () => {
+    const { depot } = fauxDepot();
+    const moteur = new MoteurTeleversement({
+      depot,
+      client: clientQuiConfirme([], [{ _id: 'E2E_Enable_Encrypt_Files', value: false }]),
+      transport: async () => assert.fail('rien ne part'),
+      genererId: () => 'x',
+      ingerer: async () => {},
+      chiffrement: chiffrement().chiffrement,
+    });
+    await assert.rejects(moteur.valider({ type: 'image/png', taille: 1 }, 'p1'), (e: unknown) => {
+      return e instanceof ErreurValidation && e.detail.code === 'chiffre';
+    });
+    await moteur.valider({ type: 'image/png', taille: 1 }, 'r-clair');
+  });
+});
+
+describe('jointeDeFichierChiffre', () => {
+  const cle: JwkFichier = { kty: 'oct', alg: 'A256CTR', k: 'k', ext: true, key_ops: ['encrypt', 'decrypt'] };
+  const commun = { fileId: 'f1', url: '/file-upload/f1/h', taille: 42, cle, iv: 'iv', sha256: 'abc' };
+
+  test('une image s’annonce comme image', () => {
+    const j = jointeDeFichierChiffre({ ...commun, nom: 'a.jpg', type: 'image/jpeg' });
+    assert.equal(j.image_url, '/file-upload/f1/h');
+    assert.equal(j.image_type, 'image/jpeg');
+    assert.equal(j.image_size, 42);
+    assert.equal(j.title_link, '/file-upload/f1/h');
+  });
+
+  test('un autre fichier porte son poids et son format', () => {
+    const j = jointeDeFichierChiffre({ ...commun, nom: 'Rapport.PDF', type: 'application/pdf' });
+    assert.equal(j.size, 42);
+    assert.equal(j.format, 'pdf');
+    assert.equal(j.image_url, undefined);
   });
 });

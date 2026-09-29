@@ -77,6 +77,7 @@ import { oublierFilsCharges } from './filsCharges.ts';
 import { libererSalonsChauds } from './salonChaud.ts';
 import { oublierSalonsCharges } from './salonsCharges.ts';
 import { creerPileSalonsOuverts } from './salonsOuverts.ts';
+import { chiffrerFichierLocal, empreinteNom } from './chiffrementFichier.ts';
 import { supprimerSiTemporaire } from './fichiersTemporaires.ts';
 import { transportExpo } from './transportUpload.ts';
 
@@ -222,6 +223,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         fournisseur.traducteur,
         e2e,
       );
+      const depotEnvoi = creerDepotEnvoi(brute, fileEcritures);
       const fichiers = fournisseur.creerTeleversement(
         creerDepotTeleversements(brute, fileEcritures),
         transportExpo,
@@ -246,10 +248,16 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           // une route plafonnée à 10 appels/min, et écrivait dans la base du
           // compte quitté. Elle contaminait en plus toute demande fondue dedans.
           rafraichirSalon: (rid) => fournisseur.rattraperSalon(moteur, rid, estAbandonne),
+          chiffrement: {
+            salonChiffre: (rid) => depotEnvoi.salonChiffre(rid),
+            chiffrer: (rid, charge) => e2e.chiffrer(rid, charge),
+            chiffrerFichier: chiffrerFichierLocal,
+            empreinteNom,
+          },
         },
       );
       const envoi = fournisseur.creerEnvoi(
-        creerDepotEnvoi(brute, fileEcritures),
+        depotEnvoi,
         async (doc) => {
           await moteur.ingererMessages([doc]);
         },
@@ -296,6 +304,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         await moteur.deverrouillageE2E(); // éclaire les messages déjà en base
         rafraichirE2E();
         envoi.traiter().catch(() => {}); // ce qui attendait une clé de salon
+        fichiers.traiter().catch(() => {});
       };
       const verrouillerE2E = async (): Promise<void> => {
         await e2e.verrouiller();
@@ -346,6 +355,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           await moteur.deverrouillageE2E();
           if (!abandonne) rafraichirE2E();
           envoi.traiter().catch(() => {});
+          fichiers.traiter().catch(() => {});
         })
         .catch(() => {});
 

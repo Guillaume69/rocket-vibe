@@ -1,5 +1,6 @@
 /**
- * Mise en phrase des refus de validation d'upload (taille, type MIME).
+ * Mise en phrase des refus de validation d'upload (taille, type MIME, fichiers
+ * chiffrés désactivés sur le serveur).
  *
  * `lib/envoiFichiers.ts` est pur et testé sous Node : il n'embarque aucune
  * langue et porte le refus en DONNÉE (`ErreurValidation.detail`). C'est ici,
@@ -13,7 +14,7 @@ import type { Traducteur } from './messages.ts';
 /** `null` si l'erreur n'est pas un refus de validation — au repli de l'appelant. */
 export function phraseValidation(e: unknown, t: Traducteur): string | null {
   if (!(e instanceof ErreurValidation)) return null;
-  return e.detail.code === 'taille'
-    ? t('commun.fichierTropLourd', { mo: e.detail.maxMo })
-    : t('commun.typeFichierRefuse', { type: e.detail.type });
+  if (e.detail.code === 'taille') return t('commun.fichierTropLourd', { mo: e.detail.maxMo });
+  if (e.detail.code === 'type') return t('commun.typeFichierRefuse', { type: e.detail.type });
+  return t('commun.fichiersChiffresDesactives');
 }

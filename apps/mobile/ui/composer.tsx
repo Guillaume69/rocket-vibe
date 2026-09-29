@@ -81,7 +81,7 @@ export function Composer({
   rid,
   filId = null,
   envoi,
-  fichiers: fichiersDuSalon,
+  fichiers,
   client,
   candidatsMention,
   lectureSeule,
@@ -116,8 +116,6 @@ export function Composer({
 }) {
   const synchro = useSynchro();
   const deverrouille = useE2EDeverrouille(synchro.phase === 'pret' ? synchro.e2e : null);
-  // Pas encore de pièce jointe chiffrée : un salon chiffré n'envoie que du texte.
-  const fichiers = chiffre ? null : fichiersDuSalon;
   const [brouillon, setBrouillon] = useState(brouillonInitial);
   // Le texte COURANT, lisible depuis une continuation asynchrone. Un
   // téléversement prend des secondes et le champ reste éditable pendant tout ce
@@ -344,10 +342,13 @@ export function Composer({
       let refus: unknown = null;
       for (const piece of pieces) {
         try {
-          await fichiers.valider({
-            type: piece.type,
-            taille: reductionProposable(piece) ? null : piece.taille,
-          });
+          await fichiers.valider(
+            {
+              type: piece.type,
+              taille: reductionProposable(piece) ? null : piece.taille,
+            },
+            rid,
+          );
           acceptees.push({ ...piece, cle: prochaineCle.current++ });
         } catch (e) {
           refus ??= e;
@@ -369,7 +370,7 @@ export function Composer({
       if (enAttenteRef.current.length === 0) setQualite('reduite');
       setEnAttente((prev) => [...prev, ...acceptees]);
     },
-    [fichiers, t],
+    [fichiers, rid, t],
   );
 
   const ouvrirPiece = useCallback(

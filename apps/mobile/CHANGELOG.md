@@ -26,6 +26,7 @@ release, et ses notes sont la section de la version ici.
   On peut aussi y modifier ses messages et répondre dans un fil.
 - Salon chiffré : les photos, sons et vidéos envoyés chiffrés s'affichent (déchiffrés sur
   l'appareil, jusqu'à 25 Mo), et tout fichier chiffré se partage ou s'enregistre en clair.
+  On y joint aussi des fichiers : ils partent chiffrés, nom et légende compris.
 
 ### Modifié
 

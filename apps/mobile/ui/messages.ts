@@ -30,6 +30,7 @@ const fr = {
   // partagée entre le composer du salon et l'écran de partage.
   'commun.fichierTropLourd': 'Fichier trop lourd (maximum {mo} Mo).',
   'commun.typeFichierRefuse': 'Type {type} refusé par le serveur.',
+  'commun.fichiersChiffresDesactives': 'Ce serveur n’accepte pas de fichiers dans un salon chiffré.',
   // Présence, en minuscule — la casse d'un contexte (sélecteur) est à
   // l'appelant. Table statut → clé : CLES_PRESENCE (ui/presence.ts).
   'commun.presenceEnLigne': 'en ligne',
@@ -431,6 +432,7 @@ const en: Record<CleTraduction, string> = {
   'commun.pieceJointe': 'Attachment',
   'commun.fichierTropLourd': 'File too large ({mo} MB maximum).',
   'commun.typeFichierRefuse': 'Type {type} rejected by the server.',
+  'commun.fichiersChiffresDesactives': 'This server accepts no files in an encrypted room.',
   'commun.presenceEnLigne': 'online',
   'commun.presenceAbsent': 'away',
   'commun.presenceOccupe': 'busy',

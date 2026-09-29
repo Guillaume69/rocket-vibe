@@ -22,7 +22,7 @@ import { rattraperGlobal, rattraperSalon, reconcilierSalons } from '../../lib/ra
 import type { ClientRest } from '../../lib/rest.ts';
 import { STREAM_MESSAGES, STREAM_NOTIFY_ROOM, STREAM_NOTIFY_USER } from '../../lib/sync.ts';
 import type { ChiffreurEnvoi, DepotEnvoi } from '../../lib/envoi.ts';
-import type { DepotTeleversements } from '../../lib/envoiFichiers.ts';
+import type { ChiffrementTeleversement, DepotTeleversements } from '../../lib/envoiFichiers.ts';
 import type { TransportUpload } from '../../lib/upload.ts';
 import { ActionsRC } from './actions.ts';
 import { chargerFil, chargerHistorique } from './historique.ts';
@@ -86,6 +86,7 @@ export function creerFournisseurRC(
       crochets?: {
         supprimerFichierLocal?: (uri: string) => Promise<void>;
         rafraichirSalon?: (rid: string) => Promise<void>;
+        chiffrement?: ChiffrementTeleversement;
       },
     ): OutboxFichiers {
       return new MoteurTeleversement({
@@ -96,6 +97,7 @@ export function creerFournisseurRC(
         ingerer,
         supprimerFichierLocal: crochets?.supprimerFichierLocal,
         rafraichirSalon: crochets?.rafraichirSalon,
+        chiffrement: crochets?.chiffrement,
       });
     },
     rattraperGlobal: (moteur, estAbandonne) => rattraperGlobal(client, moteur, estAbandonne),

@@ -7,8 +7,14 @@
  * `FileUpload_MediaTypeWhiteList` sont lus dans `settings.public` et vérifiés
  * AVANT de pousser le moindre octet — refuser après coup gaspille le réseau
  * et laisse des orphelins.
+ *
+ * Salon chiffré : le fichier part chiffré (une clé AES-CTR à lui), sous
+ * l'empreinte de son nom ; son vrai nom, son type, sa clé et la légende ne
+ * voyagent que dans le contenu chiffré sous la clé du salon — ce que fait le
+ * client web.
  */
 
+import type { ContenuChiffre, JwkFichier } from './e2e/crypto.ts';
 import type { ClientRest } from './rest.ts';
 import { ErreurRest } from './rest.ts';
 import {
@@ -51,7 +57,58 @@ export type ReglesUpload = {
   tailleMax: number | null;
   /** Liste blanche MIME, `null` = tout accepté. */
   typesAcceptes: string[] | null;
+  /** `E2E_Enable_Encrypt_Files` : sans lui, un salon chiffré n'accepte aucun fichier. */
+  fichiersChiffres: boolean;
 };
+
+/** Un fichier chiffré dans un fichier temporaire, prêt à téléverser. */
+export type FichierChiffre = { uri: string; cle: JwkFichier; iv: string; sha256: string; taille: number };
+
+/** Ce que la file demande pour envoyer dans un salon chiffré. */
+export interface ChiffrementTeleversement {
+  salonChiffre(rid: string): Promise<boolean>;
+  /** Contenu chiffré pour ce salon, `null` sans clé (verrouillé). */
+  chiffrer(rid: string, charge: object): ContenuChiffre | null;
+  chiffrerFichier(uri: string): Promise<FichierChiffre>;
+  /** Empreinte SHA-256 (hexadécimal) d'un texte : le nom sous lequel le fichier part. */
+  empreinteNom(nom: string): string;
+}
+
+/** La clé du salon manque : la ligne attend le déverrouillage, elle n'échoue pas. */
+class AttenteCle extends Error {}
+
+/**
+ * La pièce jointe d'un fichier chiffré, telle que le client web la bâtit et la
+ * relit : `title_link` désigne le chiffré, la clé et l'empreinte le rendent
+ * lisible, et une image, un son ou une vidéo s'annonce comme tel.
+ */
+export function jointeDeFichierChiffre(options: {
+  fileId: string;
+  url: string;
+  nom: string;
+  type: string;
+  taille: number;
+  cle: JwkFichier;
+  iv: string;
+  sha256: string;
+}): Record<string, unknown> {
+  const { fileId, url, nom, type, taille } = options;
+  const base = {
+    title: nom,
+    type: 'file',
+    title_link: url,
+    title_link_download: true,
+    encryption: { key: options.cle, iv: options.iv },
+    hashes: { sha256: options.sha256 },
+    fileId,
+  };
+  const genre = /^(image|audio|video)\//.exec(type)?.[1];
+  if (genre !== undefined) {
+    return { ...base, [`${genre}_url`]: url, [`${genre}_type`]: type, [`${genre}_size`]: taille };
+  }
+  const point = nom.lastIndexOf('.');
+  return { ...base, size: taille, format: point > 0 ? nom.slice(point + 1).toLowerCase() : '' };
+}
 
 type ReglagePublic = { _id?: string; value?: unknown };
 
@@ -70,7 +127,9 @@ export async function lireReglesUpload(client: ClientRest): Promise<ReglesUpload
   });
   let tailleMax: number | null = null;
   let typesAcceptes: string[] | null = null;
+  let fichiersChiffres = false;
   for (const reglage of reponse.settings ?? []) {
+    if (reglage._id === 'E2E_Enable_Encrypt_Files') fichiersChiffres = reglage.value === true;
     if (reglage._id === 'FileUpload_MaxFileSize' && typeof reglage.value === 'number') {
       tailleMax = reglage.value > 0 ? reglage.value : null;
     }
@@ -82,7 +141,7 @@ export async function lireReglesUpload(client: ClientRest): Promise<ReglesUpload
       typesAcceptes = liste.length > 0 ? liste : null;
     }
   }
-  return { tailleMax, typesAcceptes };
+  return { tailleMax, typesAcceptes, fichiersChiffres };
 }
 
 /**
@@ -99,14 +158,23 @@ const EN_VOL_ICI = new Set<string>();
  * ce module est pur et testé sous Node, il n'embarque aucune langue. La mise en
  * phrase se fait au point d'affichage (`phraseValidation`, ui/validationFichiers.ts).
  */
-export type DetailValidation = { code: 'taille'; maxMo: string } | { code: 'type'; type: string };
+export type DetailValidation =
+  | { code: 'taille'; maxMo: string }
+  | { code: 'type'; type: string }
+  | { code: 'chiffre' };
 
 export class ErreurValidation extends Error {
   readonly detail: DetailValidation;
 
   constructor(detail: DetailValidation) {
     // `message` est un diagnostic (logs) — jamais la chaîne affichée.
-    super(detail.code === 'taille' ? `taille > ${detail.maxMo} Mo` : `type ${detail.type} refusé`);
+    super(
+      detail.code === 'taille'
+        ? `taille > ${detail.maxMo} Mo`
+        : detail.code === 'type'
+          ? `type ${detail.type} refusé`
+          : 'fichiers chiffrés désactivés',
+    );
     this.name = 'ErreurValidation';
     this.detail = detail;
   }
@@ -116,7 +184,9 @@ export class ErreurValidation extends Error {
 export function validerFichier(
   regles: ReglesUpload,
   fichier: { type: string; taille: number | null },
+  salonChiffre = false,
 ): void {
+  if (salonChiffre && !regles.fichiersChiffres) throw new ErreurValidation({ code: 'chiffre' });
   if (regles.tailleMax !== null && fichier.taille !== null && fichier.taille > regles.tailleMax) {
     const mo = (regles.tailleMax / 1024 / 1024).toFixed(1);
     throw new ErreurValidation({ code: 'taille', maxMo: mo });
@@ -141,6 +211,13 @@ export class MoteurTeleversement {
   private readonly ingerer: (doc: Record<string, unknown>) => Promise<void>;
   private readonly supprimerFichierLocal: ((uri: string) => Promise<void>) | undefined;
   private readonly rafraichirSalon: ((rid: string) => Promise<void>) | undefined;
+  private readonly chiffrement: ChiffrementTeleversement | undefined;
+  /**
+   * Clé de chaque fichier chiffré déjà téléversé, en attente de son confirm.
+   * En mémoire seulement : un processus tué entre les deux temps la perd, et
+   * le fichier repart alors, chiffré sous une clé neuve.
+   */
+  private readonly chiffres = new Map<string, FichierChiffre & { nomHache: string }>();
   private enVol = false;
   private repasser = false;
   /** Progression 0..1 du téléversement en cours, par id — pour l'UI. */
@@ -174,6 +251,7 @@ export class MoteurTeleversement {
      * base locale ne le sait pas — donc jamais sur le chemin nominal.
      */
     rafraichirSalon?: (rid: string) => Promise<void>;
+    chiffrement?: ChiffrementTeleversement;
   }) {
     this.depot = options.depot;
     this.client = options.client;
@@ -182,6 +260,7 @@ export class MoteurTeleversement {
     this.ingerer = options.ingerer;
     this.supprimerFichierLocal = options.supprimerFichierLocal;
     this.rafraichirSalon = options.rafraichirSalon;
+    this.chiffrement = options.chiffrement;
   }
 
   /**
@@ -207,7 +286,7 @@ export class MoteurTeleversement {
     } catch {
       // — un repli permissif mis en cache après un passage hors ligne
       // désactiverait la validation pour toute la session.
-      return { tailleMax: null, typesAcceptes: null };
+      return { tailleMax: null, typesAcceptes: null, fichiersChiffres: true };
     }
   }
 
@@ -216,8 +295,9 @@ export class MoteurTeleversement {
    * dès qu'on la pose, pas au moment d'envoyer. `envoyer` revalide de toute
    * façon — la pièce a pu être réduite entre-temps.
    */
-  async valider(fichier: { type: string; taille: number | null }): Promise<void> {
-    validerFichier(await this.reglesUpload(), fichier);
+  async valider(fichier: { type: string; taille: number | null }, rid?: string): Promise<void> {
+    const chiffre = rid !== undefined && (await this.chiffrement?.salonChiffre(rid)) === true;
+    validerFichier(await this.reglesUpload(), fichier, chiffre);
   }
 
   /** Valide (7.3) PUIS persiste l'intention PUIS tente l'envoi. */
@@ -226,7 +306,8 @@ export class MoteurTeleversement {
     fichier: FichierAEnvoyer & { taille: number | null },
     legende?: string,
   ): Promise<void> {
-    validerFichier(await this.reglesUpload(), fichier);
+    const chiffre = (await this.chiffrement?.salonChiffre(rid)) === true;
+    validerFichier(await this.reglesUpload(), fichier, chiffre);
 
     await this.depot.inserer({
       id: this.genererId(),
@@ -285,6 +366,10 @@ export class MoteurTeleversement {
           // la ligne est déjà supprimée, il n'y a rien à marquer.
           continue;
         }
+        if (e instanceof AttenteCle) {
+          await this.depot.rearmer(ligne.id);
+          continue;
+        }
         if (e instanceof ErreurRest && e.statut === 0) {
           // Injoignable. La ligne doit REDEVENIR `en-attente` : la laisser en
           // `envoi` la sortirait du listage jusqu'au prochain lancement.
@@ -310,6 +395,9 @@ export class MoteurTeleversement {
    * réseau est mort et qu'il faut arrêter la passe.
    */
   private async poster(ligne: LigneTeleversement): Promise<boolean> {
+    if ((await this.chiffrement?.salonChiffre(ligne.rid)) === true) {
+      return this.posterChiffre(ligne, this.chiffrement as ChiffrementTeleversement);
+    }
     let fileId = ligne.fileId;
 
     if (fileId === null) {
@@ -342,6 +430,90 @@ export class MoteurTeleversement {
       fileId,
       message: ligne.legende ?? undefined,
     });
+    await this.solder(ligne);
+    if (!this.abandonnes.has(ligne.id)) await this.ingerer(message);
+    return true;
+  }
+
+  /**
+   * Le pendant chiffré de `poster`, mêmes deux temps. Rien ne part tant que la
+   * clé du salon manque : ni les octets, ni le message.
+   */
+  private async posterChiffre(
+    ligne: LigneTeleversement,
+    chiffrement: ChiffrementTeleversement,
+  ): Promise<boolean> {
+    if (chiffrement.chiffrer(ligne.rid, {}) === null) throw new AttenteCle();
+    let fileId = ligne.fileId;
+    let fichier = this.chiffres.get(ligne.id);
+
+    if (fileId !== null && fichier === undefined) {
+      if (await this.dejaPoste(ligne.rid, fileId)) {
+        await this.solder(ligne);
+        return true;
+      }
+      fileId = null;
+    }
+
+    const meta = (f: FichierChiffre) => ({
+      type: ligne.type,
+      typeGroup: ligne.type.split('/')[0],
+      name: ligne.nom,
+      encryption: { key: f.cle, iv: f.iv },
+      hashes: { sha256: f.sha256 },
+    });
+
+    if (fileId === null || fichier === undefined) {
+      const chiffre = await chiffrement.chiffrerFichier(ligne.uri);
+      fichier = { ...chiffre, nomHache: chiffrement.empreinteNom(ligne.nom) };
+      const contenuFichier = chiffrement.chiffrer(ligne.rid, meta(fichier));
+      if (contenuFichier === null) throw new AttenteCle();
+      try {
+        fileId = await televerserOctets({
+          client: this.client,
+          transport: this.transport,
+          rid: ligne.rid,
+          fichier: { uri: fichier.uri, nom: fichier.nomHache, type: 'application/octet-stream' },
+          surProgression: (fraction) => this.noterProgression(ligne.id, fraction),
+          surAnnulable: (annuler) => void this.annulations.set(ligne.id, annuler),
+          champs: { content: JSON.stringify(contenuFichier) },
+        });
+      } finally {
+        await this.supprimerFichierLocal?.(fichier.uri).catch(() => {});
+      }
+      this.chiffres.set(ligne.id, fichier);
+      await this.depot.noterFileId(ligne.id, fileId);
+    }
+
+    if (this.abandonnes.has(ligne.id)) return true;
+
+    const piece = { _id: fileId, name: ligne.nom, type: ligne.type, size: fichier.taille };
+    const jointe = jointeDeFichierChiffre({
+      fileId,
+      url: `/file-upload/${fileId}/${fichier.nomHache}`,
+      nom: ligne.nom,
+      type: ligne.type,
+      taille: fichier.taille,
+      cle: fichier.cle,
+      iv: fichier.iv,
+      sha256: fichier.sha256,
+    });
+    const content = chiffrement.chiffrer(ligne.rid, {
+      msg: ligne.legende ?? '',
+      attachments: [jointe],
+      files: [piece],
+      file: piece,
+    });
+    const fileContent = chiffrement.chiffrer(ligne.rid, meta(fichier));
+    if (content === null || fileContent === null) throw new AttenteCle();
+
+    const message = await confirmerMedia({
+      client: this.client,
+      rid: ligne.rid,
+      fileId,
+      corps: { msg: '', t: 'e2e', content, fileContent },
+    });
+    this.chiffres.delete(ligne.id);
     await this.solder(ligne);
     if (!this.abandonnes.has(ligne.id)) await this.ingerer(message);
     return true;
@@ -404,6 +576,7 @@ export class MoteurTeleversement {
    */
   async abandonner(id: string, uri?: string): Promise<void> {
     this.abandonnes.add(id);
+    this.chiffres.delete(id);
     await this.depot.supprimer(id);
     const annuler = this.annulations.get(id);
     if (annuler !== undefined) await annuler().catch(() => {});

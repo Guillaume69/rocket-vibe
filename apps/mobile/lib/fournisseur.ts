@@ -12,7 +12,7 @@
 
 import type { Evenement, EtatDdp } from './ddp.ts';
 import type { ChiffreurEnvoi, DepotEnvoi } from './envoi.ts';
-import type { DepotTeleversements } from './envoiFichiers.ts';
+import type { ChiffrementTeleversement, DepotTeleversements } from './envoiFichiers.ts';
 import type { AbonnementLocal, MessageLocal, SalonLocal } from './normaliser.ts';
 import type { MoteurSynchro } from './sync.ts';
 import type { FichierAEnvoyer, TransportUpload } from './upload.ts';
@@ -197,7 +197,7 @@ export interface OutboxFichiers {
   /** S'abonner aux changements de `progression` — rend le désabonnement. */
   abonner(auditeur: () => void): () => void;
   /** Rejette (`ErreurValidation`) une pièce que le serveur refuserait — sans rien envoyer. */
-  valider(fichier: { type: string; taille: number | null }): Promise<void>;
+  valider(fichier: { type: string; taille: number | null }, rid?: string): Promise<void>;
   envoyer(
     rid: string,
     fichier: FichierAEnvoyer & { taille: number | null },
@@ -270,6 +270,8 @@ export interface Fournisseur {
     crochets?: {
       supprimerFichierLocal?: (uri: string) => Promise<void>;
       rafraichirSalon?: (rid: string) => Promise<void>;
+      /** Envoi dans un salon chiffré : sans lui, un fichier y attend indéfiniment. */
+      chiffrement?: ChiffrementTeleversement;
     },
   ): OutboxFichiers;
   /** Rattrapage REST global (salons + abonnements delta). */

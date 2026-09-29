@@ -6,7 +6,7 @@
 
 use std::sync::OnceLock;
 
-use std::sync::atomic::{AtomicI64, AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicIsize, Ordering};
 use windows::Data::Xml::Dom::XmlDocument;
 use windows::Foundation::{IPropertyValue, TypedEventHandler};
 
@@ -132,11 +132,12 @@ pub fn delivered() -> Option<usize> {
 
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
 static BADGE: AtomicI64 = AtomicI64::new(0);
+static DOT: AtomicBool = AtomicBool::new(false);
 
 /// The window whose taskbar button carries the badge.
 pub fn set_window(hwnd: isize) {
     WINDOW.store(hwnd, Ordering::SeqCst);
-    badge(BADGE.load(Ordering::SeqCst));
+    badge(BADGE.load(Ordering::SeqCst), DOT.load(Ordering::SeqCst));
 }
 
 const SIDE: i32 = 32;
@@ -229,14 +230,16 @@ pub(crate) fn icon_with_disc(side: i32, base: Option<&[u32]>, disc: &Disc) -> wi
     }
 }
 
-/// A red disc with the count in white, as an icon Windows lays over the taskbar button.
+/// A red disc with the count in white, or a smaller one alone, as an icon
+/// Windows lays over the taskbar button.
 fn badge_icon(count: i64) -> windows::core::Result<HICON> {
-    let text = if count > 99 { "99+".to_owned() } else { count.to_string() };
     let half = SIDE as f32 / 2.0;
-    icon_with_disc(SIDE, None, &Disc { cx: half, cy: half, r: half, text: &text })
+    let text = crate::badge_text(count);
+    let r = if text.is_empty() { half * 0.6 } else { half };
+    icon_with_disc(SIDE, None, &Disc { cx: half, cy: half, r, text: &text })
 }
 
-fn try_badge(count: i64) -> windows::core::Result<()> {
+fn try_badge(count: i64, dot: bool) -> windows::core::Result<()> {
     let hwnd = WINDOW.load(Ordering::SeqCst);
     if hwnd == 0 {
         return Ok(());
@@ -247,21 +250,22 @@ fn try_badge(count: i64) -> windows::core::Result<()> {
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
         let taskbar: ITaskbarList3 = CoCreateInstance(&TaskbarList, None, CLSCTX_INPROC_SERVER)?;
         taskbar.HrInit()?;
-        if count <= 0 {
+        if count <= 0 && !dot {
             return taskbar.SetOverlayIcon(hwnd, HICON::default(), PCWSTR::null());
         }
         let icon = badge_icon(count)?;
-        let description = HSTRING::from(count.to_string());
+        let description = HSTRING::from(if count > 0 { count.to_string() } else { "•".to_owned() });
         let set = taskbar.SetOverlayIcon(hwnd, icon, &description);
         let _ = DestroyIcon(icon);
         set
     }
 }
 
-/// The count on the taskbar button (Windows keeps no badge for a classic app).
-pub fn badge(count: i64) {
+/// The count, or a dot, on the taskbar button (Windows keeps no badge for a classic app).
+pub fn badge(count: i64, dot: bool) {
     BADGE.store(count, Ordering::SeqCst);
-    if let Err(e) = try_badge(count) {
+    DOT.store(dot, Ordering::SeqCst);
+    if let Err(e) = try_badge(count, dot) {
         eprintln!("Badge not set: {e}");
     }
 }

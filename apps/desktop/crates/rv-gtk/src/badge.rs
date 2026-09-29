@@ -1,21 +1,32 @@
-//! The unread count on the app's icon: the Windows taskbar and the macOS dock
-//! through rv-native; on Linux, docks that read the Unity
-//! launcher protocol (KDE Plasma, Dash to Dock, Plank) show it.
+//! The unread count on the app's icon, or a dot for plain unread: the Windows
+//! taskbar and the macOS dock through rv-native. On Linux, docks that read
+//! the Unity launcher protocol (KDE Plasma, Dash to Dock, Plank) show the
+//! count; it has no dot.
 
 use std::cell::Cell;
 
+use rv_core::rooms::Badge;
+
 thread_local! {
-    static SHOWN: Cell<Option<i64>> = const { Cell::new(None) };
+    static SHOWN: Cell<Option<Badge>> = const { Cell::new(None) };
 }
 
-pub fn set(count: i64) {
-    if SHOWN.replace(Some(count)) == Some(count) {
+pub fn set(badge: Badge) {
+    if SHOWN.replace(Some(badge)) == Some(badge) {
         return;
     }
+    let (count, dot) = match badge {
+        Badge::Count(n) => (n, false),
+        Badge::Dot => (0, true),
+        Badge::None => (0, false),
+    };
     #[cfg(target_os = "linux")]
-    unity(count);
+    {
+        let _ = dot;
+        unity(count);
+    }
     #[cfg(not(target_os = "linux"))]
-    rv_native::badge(count);
+    rv_native::badge(count, dot);
 }
 
 #[cfg(target_os = "linux")]

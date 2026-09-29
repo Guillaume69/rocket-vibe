@@ -851,7 +851,7 @@ pub fn gallery(app: &adw::Application) -> bool {
     rv_native::init(crate::APP_ID, "rocket-vibe", Box::new(|event| println!("smoke: native event {event:?}")));
     crate::widgets::badge_follows(&window);
     glib::timeout_add_local_once(Duration::from_millis(2000), || {
-        rv_native::badge(3);
+        rv_native::badge(3, false);
         glib::timeout_add_local_once(Duration::from_millis(1500), || {
             println!("smoke: native toasts delivered {:?}", rv_native::delivered());
         });
@@ -885,7 +885,7 @@ fn soak(column: gtk::Box, samples: Vec<crate::rows::Display>, seconds: u32) {
         for d in &samples {
             column.append(&crate::rows::message_widget(d, "alice", None, None, std::rc::Rc::new(|_| {})));
         }
-        rv_native::badge(i64::from(round % 12));
+        rv_native::badge(i64::from(round % 12), round.is_multiple_of(3));
         if round.is_multiple_of(5) {
             let body = format!("Soak round {round} 🎉");
             rv_native::show(&rv_native::Toast {

@@ -50,7 +50,7 @@ mod other {
     }
     pub fn show(_toast: &Toast) {}
     pub fn withdraw(_room: &str) {}
-    pub fn badge(_count: i64) {}
+    pub fn badge(_count: i64, _dot: bool) {}
     pub fn delivered() -> Option<usize> {
         None
     }
@@ -58,6 +58,15 @@ mod other {
 }
 #[cfg(not(any(windows, target_os = "macos")))]
 pub use other::{available, badge, delivered, init, set_window, show, withdraw};
+
+/// A badge's number: empty when there is none to show, capped at "99+".
+pub fn badge_text(count: i64) -> String {
+    match count {
+        ..=0 => String::new(),
+        100.. => "99+".to_owned(),
+        n => n.to_string(),
+    }
+}
 
 /// Toast arguments carry the room and the message, `|`-separated; ids never hold one.
 pub fn encode(room: &str, message: &str) -> String {
@@ -128,6 +137,13 @@ mod tests {
         assert!(xml.contains("hint-inputId=\"reply\""));
         let plain = toast_xml(&Toast { reply: None, ..toast });
         assert!(!plain.contains("<actions>"));
+    }
+
+    #[test]
+    fn badge_numbers_are_capped() {
+        assert_eq!(badge_text(0), "");
+        assert_eq!(badge_text(7), "7");
+        assert_eq!(badge_text(100), "99+");
     }
 
     #[test]

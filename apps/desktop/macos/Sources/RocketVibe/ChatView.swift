@@ -118,7 +118,7 @@ struct RoomListView: View {
                 Comet(active: app.connection != .online)
             }
             .padding(.horizontal, 14)
-            .padding(.top, 2)
+            .padding(.top, 8)
             .padding(.bottom, 4)
         }
         .safeAreaInset(edge: .bottom) { AccountBar() }

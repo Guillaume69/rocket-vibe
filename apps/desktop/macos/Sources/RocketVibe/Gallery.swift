@@ -100,6 +100,7 @@ struct GalleryView: View {
                     Comet(active: !ScrollBench.requested)
                 }
                 .padding(.horizontal, 14)
+                .padding(.top, 8)
                 .padding(.bottom, 4)
             }
             .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 400)

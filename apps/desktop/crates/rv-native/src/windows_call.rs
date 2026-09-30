@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_PERMISSION_KIND, COREWEBVIEW2_PERMISSION_KIND_CAMERA, COREWEBVIEW2_PERMISSION_KIND_MICROPHONE,
     COREWEBVIEW2_PERMISSION_STATE_ALLOW, COREWEBVIEW2_PERMISSION_STATE_DENY, CreateCoreWebView2EnvironmentWithOptions,
-    GetAvailableCoreWebView2BrowserVersionString, ICoreWebView2Controller,
+    GetAvailableCoreWebView2BrowserVersionString, ICoreWebView2Controller, ICoreWebView2Environment,
 };
 use webview2_com::{
     CoTaskMemPWSTR, CreateCoreWebView2ControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler,
@@ -23,8 +23,8 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, IDC_ARROW,
-    LoadCursorW, LoadIconW, RegisterClassW, SW_SHOWNORMAL, WM_CLOSE, WM_DESTROY, WM_SIZE, WNDCLASSW,
-    WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    LoadCursorW, LoadIconW, PostMessageW, RegisterClassW, SW_SHOWNORMAL, WM_APP, WM_CLOSE, WM_DESTROY, WM_SIZE,
+    WNDCLASSW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
 use windows::core::{PCWSTR, PWSTR, w};
 
@@ -32,8 +32,35 @@ use crate::call_event;
 
 type Allowed = fn(&str, &str) -> bool;
 
+/// Posted to a call window once its engine is ready: the page is made from
+/// the window's own message, not from inside the engine's creation, which
+/// can answer before it returns and hang when called back into.
+const WM_ENGINE_READY: u32 = WM_APP + 1;
+
+struct Pending {
+    environment: ICoreWebView2Environment,
+    url: String,
+    allowed: Allowed,
+}
+
 thread_local! {
     static CONTROLLERS: RefCell<HashMap<isize, ICoreWebView2Controller>> = RefCell::default();
+    static PENDING: RefCell<HashMap<isize, Pending>> = RefCell::default();
+}
+
+fn make_page(hwnd: HWND) {
+    let Some(pending) = PENDING.with_borrow_mut(|p| p.remove(&(hwnd.0 as isize))) else { return };
+    let Pending { environment, url, allowed } = pending;
+    let controller_ready = CreateCoreWebView2ControllerCompletedHandler::create(Box::new(move |error, controller| {
+        error?;
+        let Some(controller) = controller else { return Ok(()) };
+        // SAFETY: the controller and its page answer on this thread.
+        unsafe { attach(hwnd, &controller, &url, allowed) }
+    }));
+    // SAFETY: the window outlives the request, which answers on this thread.
+    if let Err(e) = unsafe { environment.CreateCoreWebView2Controller(hwnd, &controller_ready) } {
+        call_event("page", &format!("not made: {e}"));
+    }
 }
 
 fn wide(text: &str) -> Vec<u16> {
@@ -66,7 +93,12 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             fit(hwnd);
             LRESULT(0)
         }
+        WM_ENGINE_READY => {
+            make_page(hwnd);
+            LRESULT(0)
+        }
         WM_CLOSE => {
+            PENDING.with_borrow_mut(|p| p.remove(&(hwnd.0 as isize)));
             if let Some(controller) = CONTROLLERS.with_borrow_mut(|c| c.remove(&(hwnd.0 as isize))) {
                 // SAFETY: closing the engine before its window goes.
                 let _ = unsafe { controller.Close() };
@@ -161,15 +193,10 @@ pub fn call_window(url: &str, title: &str, allowed: Allowed) -> Result<(), Strin
             error?;
             call_event("engine", "ready");
             let Some(environment) = environment else { return Ok(()) };
-            let controller_ready =
-                CreateCoreWebView2ControllerCompletedHandler::create(Box::new(move |error, controller| {
-                    error?;
-                    let Some(controller) = controller else { return Ok(()) };
-                    // SAFETY: the controller and its page answer on this thread.
-                    unsafe { attach(hwnd, &controller, &call_url, allowed) }
-                }));
-            // SAFETY: the window outlives the request, which answers on this thread.
-            unsafe { environment.CreateCoreWebView2Controller(hwnd, &controller_ready) }
+            let pending = Pending { environment, url: call_url.clone(), allowed };
+            PENDING.with_borrow_mut(|p| p.insert(hwnd.0 as isize, pending));
+            // SAFETY: a message to our own window, handled by its procedure.
+            unsafe { PostMessageW(Some(hwnd), WM_ENGINE_READY, WPARAM(0), LPARAM(0)) }
         }));
     // SAFETY: the folder string outlives the call; the answer comes through the handler.
     unsafe {

@@ -1,5 +1,5 @@
-//! What the composer offers while typing: `@` mentions and `:` emoji, and
-//! the emoji picker's categories.
+//! What the composer offers while typing: `/` commands, `@` mentions and
+//! `:` emoji, and the emoji picker's categories.
 
 use rv_core::completion::{self, Trigger};
 
@@ -13,11 +13,13 @@ pub struct Suggestion {
     pub glyph: Option<String>,
     /// A server emoji's image path, for `Chat::media`.
     pub image: Option<String>,
+    /// Under the label: what a command does.
+    pub detail: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct Suggestions {
-    /// Where the `@` or `:` is, in Unicode scalars from the text's start.
+    /// Where the `/`, `@` or `:` is, in Unicode scalars from the text's start.
     pub start: u32,
     pub items: Vec<Suggestion>,
 }
@@ -34,9 +36,28 @@ const SUGGESTED: usize = 8;
 
 #[uniffi::export]
 impl Chat {
-    /// What to offer for the text before the cursor, or None when it ends
-    /// in neither `@word` nor `:word`.
+    /// What to offer for the text before the cursor, or None when it is
+    /// neither a `/command` being typed nor ends in `@word` or `:word`.
     pub fn suggestions(&self, rid: String, before_cursor: String) -> Option<Suggestions> {
+        if let Some(prefix) = rv_core::commands::query(&before_cursor) {
+            let commands = self.commands.lock().unwrap();
+            let granted = self.rules.lock().unwrap().1.get(&rid).cloned();
+            let items: Vec<Suggestion> = rv_core::commands::complete(&commands, prefix, granted.as_deref(), SUGGESTED)
+                .into_iter()
+                .map(|c| Suggestion {
+                    insert: format!("/{} ", c.name),
+                    label: if c.params.is_empty() {
+                        format!("/{}", c.name)
+                    } else {
+                        format!("/{}  {}", c.name, c.params)
+                    },
+                    glyph: None,
+                    image: None,
+                    detail: (!c.description.is_empty()).then(|| c.description.clone()),
+                })
+                .collect();
+            return (!items.is_empty()).then_some(Suggestions { start: 0, items });
+        }
         let q = completion::query(&before_cursor)?;
         let items: Vec<Suggestion> = match q.trigger {
             Trigger::Mention => {
@@ -48,6 +69,7 @@ impl Chat {
                         label: format!("@{name}"),
                         glyph: None,
                         image: None,
+                        detail: None,
                     })
                     .collect()
             }
@@ -62,6 +84,7 @@ impl Chat {
                         label: format!(":{code}:"),
                         glyph: None,
                         image: self.session.custom_emoji(&code),
+                        detail: None,
                     })
                     .collect();
                 items.extend(rv_core::emoji::complete(&q.prefix, SUGGESTED).into_iter().map(|(code, glyph)| {
@@ -70,6 +93,7 @@ impl Chat {
                         label: format!(":{code}:"),
                         glyph: Some(glyph.to_owned()),
                         image: None,
+                        detail: None,
                     }
                 }));
                 items.truncate(SUGGESTED);

@@ -82,6 +82,11 @@ pub enum Event {
     Incoming {
         incoming: Incoming,
     },
+    /// What the server told me alone in a room: a slash command's answer.
+    PrivateNote {
+        rid: String,
+        text: String,
+    },
 }
 
 #[uniffi::export(with_foreign)]
@@ -191,6 +196,7 @@ impl Client {
             database: path,
             forward: Mutex::default(),
             rules: Mutex::default(),
+            commands: Mutex::default(),
         }))
     }
 }
@@ -250,6 +256,8 @@ pub struct Chat {
     forward: Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// The server's settings and my permissions by room, for `actions`.
     rules: Mutex<ActionRules>,
+    /// The server's slash commands, for `suggestions`.
+    commands: Mutex<Vec<rv_core::commands::Command>>,
 }
 
 type ActionRules = (Option<rv_core::actions::ServerSettings>, std::collections::HashMap<String, Vec<String>>);
@@ -271,9 +279,8 @@ fn state(c: Connection) -> ConnectionState {
     }
 }
 
-/// None for what the SwiftUI app has no use for: it runs no slash commands.
-fn event(e: SessionEvent) -> Option<Event> {
-    Some(match e {
+fn event(e: SessionEvent) -> Event {
+    match e {
         SessionEvent::Connection(c) => Event::Connection { state: state(c) },
         SessionEvent::Expired => Event::Expired,
         SessionEvent::Typing(rid) => Event::Typing { rid },
@@ -292,8 +299,8 @@ fn event(e: SessionEvent) -> Option<Event> {
                 mentions_me: i.mentions_me,
             },
         },
-        SessionEvent::Private { .. } => return None,
-    })
+        SessionEvent::Private { rid, text } => Event::PrivateNote { rid, text },
+    }
 }
 
 #[uniffi::export]
@@ -318,10 +325,7 @@ impl Chat {
                         Err(RecvError::Closed) => return,
                     },
                     e = events.recv() => match e {
-                        Ok(e) => match event(e) {
-                            Some(e) => e,
-                            None => continue,
-                        },
+                        Ok(e) => event(e),
                         Err(RecvError::Lagged(_)) => continue,
                         Err(RecvError::Closed) => return,
                     },
@@ -445,6 +449,17 @@ impl Chat {
         on_tokio(async move { s.send_in(&rid, &text, thread_id.as_deref()).await }).await
     }
 
+    /// Runs `text` as a slash command when it names one the server knows:
+    /// false when it is a message to send instead. The server's answer comes
+    /// as `Event::PrivateNote`.
+    pub async fn run_command(&self, rid: String, text: String, thread_id: Option<String>) -> Result<bool, RvError> {
+        let s = self.session.clone();
+        match on_tokio(async move { s.run_command(&rid, &text, thread_id.as_deref()).await }).await {
+            None => Ok(false),
+            Some(result) => result.map(|()| true).map_err(Into::into),
+        }
+    }
+
     pub async fn retry(&self, id: String) {
         let s = self.session.clone();
         on_tokio(async move { s.retry(&id).await }).await
@@ -489,15 +504,18 @@ impl Chat {
         rv_core::actions::quote(&link, &text)
     }
 
-    /// Reads, once, what `actions` needs from the server for this room: its
-    /// settings and my permissions there.
+    /// Reads, once, what `actions` and the `/` suggestions need from the
+    /// server for this room: its settings, its slash commands and my
+    /// permissions there.
     pub async fn prepare_actions(&self, rid: String) {
         let s = self.session.clone();
-        let (settings, permissions) = on_tokio(async move {
+        let (settings, commands, permissions) = on_tokio(async move {
             let settings = s.settings().await.clone();
-            (settings, s.permissions(&rid).await.map(|p| (rid, p)))
+            let commands = s.commands().await.map(<[_]>::to_vec).unwrap_or_default();
+            (settings, commands, s.permissions(&rid).await.map(|p| (rid, p)))
         })
         .await;
+        *self.commands.lock().unwrap() = commands;
         let mut rules = self.rules.lock().unwrap();
         rules.0 = Some(settings);
         if let Some((rid, granted)) = permissions {

@@ -19,6 +19,8 @@ public final class RoomModel {
     public private(set) var uploads: [Upload] = []
     /// Set to scroll to a message (a notification, a pinned one): cleared by the view.
     public var reveal: String?
+    /// What the server told me alone here, such as a slash command's answer.
+    public var note: String?
     let unreadAfter: Int64?
     var limit = historyPage
     var draftSave: Task<Void, Never>?
@@ -113,13 +115,27 @@ public final class RoomModel {
         return found
     }
 
-    public func send() async {
+    /// Sends the draft, or runs it when it names a slash command. A refused
+    /// command goes back into the draft, and the refusal is returned.
+    @discardableResult
+    public func send() async -> String? {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty else { return nil }
         draft = ""
         draftSave?.cancel()
         chat.setDraft(rid: room.rid, threadId: threadId, text: "")
+        if text.hasPrefix("/") {
+            do {
+                if try await chat.runCommand(rid: room.rid, text: text, threadId: threadId) { return nil }
+            } catch {
+                if draft.isEmpty { draft = text }
+                let reason: String
+                if case let RvError.Server(_, message, _, _) = error { reason = message } else { reason = error.localizedDescription }
+                return L("command.failed", ["error": reason])
+            }
+        }
         await chat.send(rid: room.rid, text: text, threadId: threadId)
+        return nil
     }
 
     public func retry(_ id: String) async {

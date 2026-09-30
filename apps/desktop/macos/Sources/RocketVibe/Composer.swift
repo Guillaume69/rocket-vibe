@@ -56,6 +56,9 @@ struct Composer: View {
     var body: some View {
         @Bindable var model = model
         VStack(alignment: .leading, spacing: 6) {
+            if let note = model.note {
+                PrivateNote(text: note) { model.note = nil }
+            }
             if let suggestions {
                 SuggestionList(items: suggestions.items, selected: selected) { accept($0) }
             }
@@ -175,7 +178,9 @@ struct Composer: View {
         staged = []
         suggestions = nil
         if files.isEmpty {
-            Task { await model.send() }
+            Task {
+                if let refusal = await model.send() { app.notice = refusal }
+            }
             return
         }
         let caption = model.draft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -269,7 +274,12 @@ struct SuggestionList: View {
                     } else if let image = item.image {
                         RemoteImage(path: image, width: 18, height: 18)
                     }
-                    Text(item.label)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(item.label)
+                        if let detail = item.detail {
+                            Text(detail).font(.vibe(11.5)).foregroundStyle(Vibe.muted).lineLimit(1)
+                        }
+                    }
                     Spacer()
                 }
                 .padding(.horizontal, 10)
@@ -281,6 +291,34 @@ struct SuggestionList: View {
         }
         .vibeCard(radius: 10)
         .frame(maxWidth: 320, alignment: .leading)
+    }
+}
+
+/// A slash command's answer, which the server shows to me alone.
+struct PrivateNote: View {
+    let text: String
+    let close: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L("command.only_you")).font(.vibe(12, .bold)).foregroundStyle(Vibe.mint)
+                Text(markdown).font(.vibe(13)).textSelection(.enabled)
+            }
+            Spacer()
+            Button(action: close) { Image(systemName: "xmark").foregroundStyle(Vibe.muted) }
+                .buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Vibe.card, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(alignment: .leading) { Rectangle().fill(Vibe.mint).frame(width: 3) }
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    var markdown: AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
     }
 }
 

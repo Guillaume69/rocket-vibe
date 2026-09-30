@@ -762,6 +762,30 @@ pub fn system_message(kind: String, param: String) -> String {
 
 /// `:smile:` to 😄 wherever a shortcode has a glyph.
 /// Where a call window may go: the call's own origin (see `rv_core::call`).
+/// Where the inline player's page lives: the base address it is loaded at.
+#[uniffi::export]
+pub fn player_origin() -> String {
+    format!("{}/", rv_core::player::ORIGIN)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum PlayerNavigation {
+    Allow,
+    /// Cancelled in the player, opened in the browser.
+    Browser,
+    Block,
+}
+
+/// What the inline player does with a navigation to `target`.
+#[uniffi::export]
+pub fn player_navigation(target: String, main_frame: bool, clicked: bool) -> PlayerNavigation {
+    match rv_core::player::navigation(&target, main_frame, clicked) {
+        rv_core::player::Navigation::Allow => PlayerNavigation::Allow,
+        rv_core::player::Navigation::Browser => PlayerNavigation::Browser,
+        rv_core::player::Navigation::Block => PlayerNavigation::Block,
+    }
+}
+
 #[uniffi::export]
 pub fn call_allowed(url: String, call_url: String) -> bool {
     rv_core::call::allowed(&url, &call_url)

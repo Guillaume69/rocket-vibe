@@ -94,6 +94,82 @@ async fn user(app: &App, username: &str) -> rv_protocol::User {
 }
 
 #[sqlx::test]
+async fn sends_and_direct_creation_allow_foreign_key_checks(pool: PgPool) {
+    let app = App::from_pool(pool.clone()).await.unwrap();
+    let alice = user(&app, "alice").await;
+    let bob = user(&app, "bob").await;
+    let server = Server::start(pool.clone()).await;
+    let session = server.login("alice").await;
+    let room: Room = server
+        .post(
+            &session.token,
+            "/api/v1/rooms",
+            json!({"name":"Lock regression","private":true}),
+        )
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    for direct in [false, true] {
+        // Hold the journal counter so the HTTP operation keeps its domain locks.
+        let mut blocker = pool.begin().await.unwrap();
+        sqlx::query("SELECT position FROM instance WHERE singleton FOR UPDATE")
+            .execute(&mut *blocker)
+            .await
+            .unwrap();
+        let path = if direct {
+            "/api/v1/direct-messages".into()
+        } else {
+            format!("/api/v1/rooms/{}/messages", room.id)
+        };
+        let body = if direct {
+            json!({"user_id":bob.id})
+        } else {
+            json!({"operation_id":"lock-regression-send","text":"Concurrent membership"})
+        };
+        let request = server
+            .client
+            .post(format!("{}{path}", server.base))
+            .bearer_auth(&session.token)
+            .json(&body);
+        let pending = tokio::spawn(async move { request.send().await.unwrap() });
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let waiting: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'UPDATE instance SET position=position+1%')",
+                )
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+                if waiting {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("operation should reach the blocked journal counter");
+
+        // Membership/message/journal foreign keys use KEY SHARE on users. A
+        // stronger FOR UPDATE lock would deadlock with a concurrent room change.
+        let compatible = sqlx::query("SELECT id FROM users WHERE id=ANY($1) FOR KEY SHARE NOWAIT")
+            .bind(vec![alice.id.clone(), bob.id.clone()])
+            .execute(&pool)
+            .await;
+        blocker.rollback().await.unwrap();
+        let response = pending.await.unwrap();
+        assert!(
+            compatible.is_ok(),
+            "domain locks must allow foreign-key checks"
+        );
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+}
+
+#[sqlx::test]
 async fn exchange_replay_restart_and_privacy(pool: PgPool) {
     let app = App::from_pool(pool.clone()).await.unwrap();
     user(&app, "alice").await;

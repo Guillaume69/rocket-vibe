@@ -24,15 +24,18 @@ ne signifie pas que sa première exécution distante a déjà réussi.
 ### Vérifications exécutées le 30 septembre 2026
 
 - Formatage et Clippy sur tout le workspace natif, sans avertissement.
-- 9 tests Rust réussis, dont 7 contre PostgreSQL réel ; le test client exerce aussi
+- 10 tests Rust réussis, dont 8 contre PostgreSQL réel ; le test client exerce aussi
   le transport TypeScript contre le même serveur via HTTP et WebSocket.
 - 5 tests du contrat / transport TypeScript et vérification TypeScript stricte réussis.
 - JSON Schema et types TypeScript régénérés sans divergence.
+- Régression de concurrence couverte : les envois et créations de DM ne bloquent
+  pas les vérifications de clés étrangères utilisées par les changements d'adhésion.
 - 12 tests existants du fournisseur Rocket.Chat réussis.
 - Image de production construite et démarrée localement : readiness HTTP 204 et
   découverte native correcte sur `127.0.0.1:3400`.
 
-La validation distante de la CI est à suivre sur la branche. Aucun parcours dans
+La première CI distante est verte ; chaque correctif suit le même workflow sur la
+branche. Aucun parcours dans
 les interfaces Android, GTK ou SwiftUI n'a encore été validé avec le serveur natif.
 
 ## Pour fermer J0

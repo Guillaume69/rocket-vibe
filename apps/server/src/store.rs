@@ -153,8 +153,9 @@ pub async fn direct(app: &App, account: &Account, target: &str) -> Result<Room> 
     let mut users = [account.id.as_str(), target];
     users.sort_unstable();
     // Serialize concurrent creation in both directions, with a consistent lock order.
+    // Keep foreign-key KEY SHARE checks compatible with these domain locks.
     let found: Vec<String> = sqlx::query_scalar(
-        "SELECT id FROM users WHERE id=ANY($1) AND NOT disabled ORDER BY id FOR UPDATE",
+        "SELECT id FROM users WHERE id=ANY($1) AND NOT disabled ORDER BY id FOR NO KEY UPDATE",
     )
     .bind(users.to_vec())
     .fetch_all(&mut *tx)
@@ -300,7 +301,7 @@ pub async fn send(
     let mut tx = app.pool.begin().await?;
     // All sends by a user serialize before room / journal locks. This also protects
     // operation IDs across rooms, including malicious cross-room replays.
-    sqlx::query("SELECT id FROM users WHERE id=$1 FOR UPDATE")
+    sqlx::query("SELECT id FROM users WHERE id=$1 FOR NO KEY UPDATE")
         .bind(&account.id)
         .execute(&mut *tx)
         .await?;

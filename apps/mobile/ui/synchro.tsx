@@ -148,7 +148,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
   const [synchro, setSynchro] = useState<EtatSynchro>({ phase: 'inactif' });
 
   useEffect(() => {
-    if (etat.phase !== 'connecte') {
+    if (etat.phase !== 'connecte' || etat.session.genre === 'rocketvibe') {
       // L'index emoji du serveur quitté ne doit pas servir au prochain.
       viderEmojisCustom();
       setSynchro({ phase: 'inactif' });

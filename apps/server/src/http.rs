@@ -264,6 +264,7 @@ async fn socket(
 async fn stream(app: App, mut ws: WebSocket, session_hash: String, mut cursor: String) {
     let mut interval = tokio::time::interval(Duration::from_millis(250));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut last_sent = tokio::time::Instant::now();
     // The database journal is the queue. No unbounded in-memory broadcast channel.
     loop {
         tokio::select! {
@@ -276,10 +277,13 @@ async fn stream(app: App, mut ws: WebSocket, session_hash: String, mut cursor: S
                 let account = match auth::authenticate(&app, &session_hash).await { Ok(a) => a, Err(_) => break };
                 let batch = match sync::changes(&app, &account, &cursor, 100).await { Ok(b) => b, Err(_) => break };
                 // Send empty batches too when their cursor advanced over private events.
-                if batch.cursor == cursor { continue; }
+                // An idle batch is also a heartbeat. Clients can detect a half-open
+                // socket without advancing their durable cursor or sending a token.
+                if batch.cursor == cursor && last_sent.elapsed() < Duration::from_secs(15) { continue; }
                 cursor = batch.cursor.clone();
                 let Ok(text) = serde_json::to_string(&batch) else { break };
                 if !matches!(tokio::time::timeout(Duration::from_secs(5), ws.send(WsMessage::Text(text.into()))).await, Ok(Ok(()))) { break; }
+                last_sent = tokio::time::Instant::now();
             }
         }
     }

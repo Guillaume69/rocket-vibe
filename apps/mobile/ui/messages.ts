@@ -16,6 +16,25 @@
 import { cleJour } from './separateurJour.ts';
 
 const fr = {
+  'native.title': 'Serveur RocketVibe',
+  'native.message': 'Message',
+  'native.online': 'Connecté',
+  'native.offline': 'Hors ligne — messages conservés',
+  'native.empty': 'Aucune conversation. Créez un salon ou ouvrez un message privé.',
+  'native.roomName': 'Nom du salon',
+  'native.private': 'Salon privé',
+  'native.create': 'Créer le salon',
+  'native.username': 'Pseudo du correspondant',
+  'native.direct': 'Ouvrir un message privé',
+  'native.invite': 'Ajouter au salon',
+  'native.ownerOnly': 'L’ajout de membres est réservé au propriétaire.',
+  'native.older': 'Messages plus anciens',
+  'native.pending': 'En attente',
+  'native.failed': 'Échec',
+  'native.identityChanged': 'L’identité ou les données du serveur ont changé. Reconnectez-vous pour continuer.',
+  'native.error': 'Action impossible. Vérifiez la connexion et les droits du compte.',
+  'native.loading': 'Préparation des conversations…',
+  'native.changeServer': 'Changer de serveur',
   // ── Commun — réutilisé par plusieurs écrans. Préférer une clé d'écran
   //    quand la formulation est propre à un contexte.
   'commun.enregistrer': 'Enregistrer',
@@ -426,6 +445,25 @@ export type CleTraduction = keyof typeof fr;
  * casse la compilation. Garder le MÊME ordre que `fr` facilite la relecture.
  */
 const en: Record<CleTraduction, string> = {
+  'native.title': 'RocketVibe server',
+  'native.message': 'Message',
+  'native.online': 'Connected',
+  'native.offline': 'Offline — messages saved',
+  'native.empty': 'No conversations yet. Create a room or open a direct message.',
+  'native.roomName': 'Room name',
+  'native.private': 'Private room',
+  'native.create': 'Create room',
+  'native.username': 'Recipient username',
+  'native.direct': 'Open direct message',
+  'native.invite': 'Add to room',
+  'native.ownerOnly': 'Only the room owner can add members.',
+  'native.older': 'Older messages',
+  'native.pending': 'Pending',
+  'native.failed': 'Failed',
+  'native.identityChanged': 'The server identity or data has changed. Sign in again to continue.',
+  'native.error': 'Action failed. Check your connection and account permissions.',
+  'native.loading': 'Preparing conversations…',
+  'native.changeServer': 'Change server',
   'commun.enregistrer': 'Save',
   'commun.annuler': 'Cancel',
   'commun.reessayer': 'Retry',

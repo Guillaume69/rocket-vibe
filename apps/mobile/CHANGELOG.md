@@ -7,6 +7,18 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+### Ajouté
+
+- Connexion aux serveurs RocketVibe natifs et parcours de messagerie pilote :
+  salons publics / privés, ajout de membres, DM et messages texte. Les sessions
+  restent dans le Keystore ; SQLite conserve messages, curseurs et file d'envoi.
+- Reprise du journal après coupure, rejeu des envois avec le même identifiant et
+  purge locale au retrait d'un salon. Un changement d'identité / génération du
+  serveur demande une nouvelle connexion.
+
+Ce parcours expérimental est distinct de l'interface Rocket.Chat. Fils, fichiers,
+réactions, push, appels, Markdown enrichi et bureau natif restent à raccorder.
+
 ## [0.4.0] - 2026-09-30
 
 ### Ajouté

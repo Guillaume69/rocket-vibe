@@ -43,9 +43,9 @@ export type ChangementSync =
  * instancier au démarrage. Un seul membre aujourd'hui ; `mattermost` s'ajoute
  * avec son driver (kChat).
  */
-export type Genre = 'rocketchat';
+export type Genre = 'rocketchat' | 'rocketvibe';
 
-const GENRES: readonly Genre[] = ['rocketchat'];
+const GENRES: readonly Genre[] = ['rocketchat', 'rocketvibe'];
 
 /**
  * Ramène une valeur stockée à un `Genre` connu. Les sessions d'avant l'ajout du

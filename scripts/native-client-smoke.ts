@@ -4,6 +4,11 @@ import { randomBytes } from 'node:crypto';
 import { NativeTransport } from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
 import { decodeNative } from '../apps/mobile/fournisseurs/rocketvibe/validation.ts';
 import type { SyncBatch } from '../apps/mobile/fournisseurs/rocketvibe/protocol.generated.ts';
+import type { Session as AppSession } from '../apps/mobile/lib/auth.ts';
+import { NativeChat } from '../apps/mobile/fournisseurs/rocketvibe/chat.ts';
+import { NativeStore } from '../apps/mobile/fournisseurs/rocketvibe/store.ts';
+import { nativeTestDatabase } from '../apps/mobile/fournisseurs/rocketvibe/testDatabase.ts';
+import { creerFileEcritures } from '../apps/mobile/db/fileEcritures.ts';
 
 const base = process.env.RV_SMOKE_URL;
 const password = process.env.RV_SMOKE_PASSWORD;
@@ -53,3 +58,65 @@ assert(replay.changes.some(change => change.type==='message_upsert' && change.da
 resumed.close();
 assert((await bob.history(room.id)).messages.some(message => message.id===first.id));
 console.log('Native TypeScript client: live exchange, idempotent replay and reconnect passed');
+
+// The actual mobile runner, with the application's migrations and SQL on real SQLite.
+const discovery = await alice.discover();
+const aliceLogin = await alice.login('alice',password);
+const bobLogin = await bob.login('bob',password);
+function appSession(login: typeof aliceLogin): AppSession {
+  return {baseUrl:base!,genre:'rocketvibe',siteUrl:null,userId:login.user.id,username:login.user.username,authToken:login.token,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+}
+async function until(check: () => Promise<boolean>) {
+  const deadline = Date.now() + 7000;
+  while (!(await check())) {
+    if (Date.now() > deadline) throw new Error('Mobile SQLite integration timed out');
+    await new Promise(resolve => setTimeout(resolve,20));
+  }
+}
+const aliceDb = nativeTestDatabase(); const bobDb = nativeTestDatabase();
+const aliceQueue = creerFileEcritures(); const bobQueue = creerFileEcritures();
+const aliceStore = new NativeStore(aliceDb.adapter,aliceQueue,appSession(aliceLogin));
+const bobStore = new NativeStore(bobDb.adapter,bobQueue,appSession(bobLogin));
+const id = () => randomBytes(12).toString('hex');
+let mobileAlice = new NativeChat(appSession(aliceLogin),aliceStore,id);
+let mobileBob = new NativeChat(appSession(bobLogin),bobStore,id);
+try {
+  await mobileAlice.connect(); await mobileBob.connect();
+  mobileAlice.suspend();
+  const queuedId = await mobileAlice.send(room.id,'Queued by the actual mobile outbox');
+  assert.equal((await aliceStore.pending()).length,1);
+  mobileAlice.stop();
+  mobileAlice = new NativeChat(appSession(aliceLogin),new NativeStore(aliceDb.adapter,aliceQueue,appSession(aliceLogin)),id);
+  await mobileAlice.connect();
+  await until(async () => (await bobStore.messages(room.id)).some(message => message.id === queuedId));
+  assert.equal((await aliceStore.pending()).length,0);
+  assert.equal((await bobStore.messages(room.id)).filter(message => message.id === queuedId).length,1);
+
+  mobileBob.suspend();
+  const missedId = await mobileAlice.send(room.id,'Missed while the mobile reader was offline');
+  mobileBob.stop();
+  mobileBob = new NativeChat(appSession(bobLogin),new NativeStore(bobDb.adapter,bobQueue,appSession(bobLogin)),id);
+  await mobileBob.connect();
+  assert((await bobStore.messages(room.id)).some(message => message.id === missedId));
+
+  const privateId = await mobileAlice.createRoom('Mobile SQLite private room',true);
+  await until(async () => mobileAlice.status.online && (await aliceStore.rooms()).some(room => room.rid === privateId));
+  await mobileAlice.invite(privateId,'bob');
+  await until(async () => (await bobStore.rooms()).some(room => room.rid === privateId));
+  const privateMessage = await mobileAlice.send(privateId,'Visible only while Bob is a member');
+  await until(async () => (await bobStore.messages(privateId)).some(message => message.id === privateMessage));
+  mobileBob.suspend();
+  await mobileBob.send(privateId,'Must be purged if membership was revoked while offline');
+  const removal = await fetch(`${base}/api/v1/rooms/${privateId}/members/${bobLogin.user.id}`,{method:'DELETE',headers:{authorization:`Bearer ${aliceLogin.token}`}});
+  assert.equal(removal.status,204);
+  mobileBob.stop();
+  mobileBob = new NativeChat(appSession(bobLogin),new NativeStore(bobDb.adapter,bobQueue,appSession(bobLogin)),id);
+  await mobileBob.connect();
+  assert.equal((await bobStore.messages(privateId)).length,0);
+  assert.equal((await bobStore.pending()).length,0);
+  assert(!(await bobStore.rooms()).some(room => room.rid === privateId));
+  console.log('Mobile runner + SQLite: live exchange, persisted outbox, restart, reconnect and membership withdrawal passed');
+} finally {
+  mobileAlice.stop(); mobileBob.stop();
+  aliceDb.db.close(); bobDb.db.close();
+}

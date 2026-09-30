@@ -21,6 +21,8 @@
 
 import { desenregistrerJeton } from './pushToken.ts';
 import { ClientRest, estJetonRefuse } from './rest.ts';
+import { logoutSession } from './sessionTransport.ts';
+import type { Genre } from './fournisseur.ts';
 
 export type DeconnexionEnSuspens = {
   baseUrl: string;
@@ -28,6 +30,9 @@ export type DeconnexionEnSuspens = {
   authToken: string;
   /** Jeton FCM à retirer. `null` si l'appareil n'en avait pas à enregistrer. */
   jetonPush: string | null;
+  genre?: Genre;
+  nativeInstanceId?: string;
+  nativeDataEpoch?: string;
 };
 
 export type FileDeconnexions = {
@@ -59,6 +64,10 @@ export async function terminerDeconnexions(
   const entrees = await file.lister();
   for (const entree of entrees) {
     const client = creerClient(entree);
+    if (entree.genre === 'rocketvibe') {
+      if (await logoutSession(client, {...entree,username:'',genre:'rocketvibe',siteUrl:null})) await file.retirer(entree.baseUrl);
+      continue;
+    }
     let echecReseau = false;
     // Séquentiel et non `Promise.all` : `logout` invalide le jeton dont le
     // `DELETE` a besoin. L'ordre est le même qu'à la déconnexion nominale.

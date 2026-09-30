@@ -6,7 +6,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SERVEUR_PAR_DEFAUT } from '../db/migrer.ts';
 import { demanderCodeParEmail, preparerCodeDeuxFacteurs, seConnecter } from '../lib/auth.ts';
 import { ClientRest, ErreurDeuxFacteurs, ErreurRest, type CodeDeuxFacteurs } from '../lib/rest.ts';
-import { sonderServeur, type ProfilServeur } from '../lib/server.ts';
+import { discoverServer, type ServerProfile as ProfilServeur } from '../lib/serverKind.ts';
+import { nativeLogin } from '../fournisseurs/rocketvibe/auth.ts';
 import { hacher, lireDernierServeur, listerServeursConnus } from '../lib/sessionStore.ts';
 import { VueEvitantLeClavier } from '../ui/clavier.tsx';
 import { useT } from '../ui/i18n.ts';
@@ -120,7 +121,7 @@ export default function EcranConnexion() {
     setOccupe(true);
     setMessage(null);
     try {
-      const profil = await sonderServeur(adresse, controleur.signal);
+      const profil = await discoverServer(adresse, controleur.signal);
       if (controleur.signal.aborted) return;
       if (!profil.formulaireDeConnexion) {
         // `Accounts_ShowFormLogin = false` : le serveur ne propose que du SSO.
@@ -146,7 +147,9 @@ export default function EcranConnexion() {
       setOccupe(true);
       setMessage(null);
       try {
-        const session = await seConnecter(
+        const session = phase.profil.native
+          ? await nativeLogin(phase.profil.baseUrl, phase.profil.native, { utilisateur: utilisateur.trim(), motDePasse })
+          : await seConnecter(
           phase.client,
           { utilisateur: utilisateur.trim(), motDePasse },
           deuxFacteurs,

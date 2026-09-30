@@ -59,11 +59,15 @@ pas les positions globales des événements inaccessibles. Une suppression d'adh
 produit `room_removed` pour son ancien membre ; replay et historique filtrent les
 messages avec les droits présents. Après logout la socket est fermée au prochain tick.
 
+Une socket inactive reçoit au moins toutes les 15 secondes un `SyncBatch` vide,
+avec son curseur courant et `has_more: false`. Le pilote mobile ferme et reprend
+une connexion n'ayant reçu aucune trame pendant plus de 45 secondes.
+
 ## Limites connues
 
-- Le raccordement aux écrans, au stockage sécurisé et aux transactions SQLite des
-  apps reste à faire. Les transports TypeScript et Rust sont des pilotes indépendants,
-  non activés dans le registre des fournisseurs des apps.
+- Le mobile dispose d'un [écran pilote dédié](../NATIVE_MOBILE_PILOT.md), avec stockage
+  sécurisé et transactions SQLite. Le raccordement au contrat `Fournisseur`, aux
+  écrans partagés et aux clients bureau reste à faire.
 - Snapshot non paginé, maximum 100 salons (refus explicite au-delà) et 50 messages
   récents par salon ; les autres messages se chargent par l'historique.
 - Tickets et curseurs n'ont pas encore de politique de nettoyage. Le journal est
@@ -71,7 +75,8 @@ messages avec les droits présents. Après logout la socket est fermée au proch
 - Sessions valables 30 jours ; renouvellement et 2FA non livrés. La concurrence des
   calculs Argon2 est bornée, mais la limitation d'essais par compte / IP reste à faire.
 - Le suivi WebSocket interroge le journal toutes les 250 ms et ferme les clients
-  dont un envoi dépasse 5 s. Heartbeats, limites globales et charge restent à qualifier.
+  dont un envoi dépasse 5 s. Les heartbeats sont présents ; les limites globales et
+  la charge restent à qualifier.
 - Les réponses historiques / snapshots utilisent des transactions cohérentes,
   mais la garantie stricte de retrait en cours de diffusion exige encore un test
   et un ordonnancement de révocation avec les sockets. Ne pas annoncer cette

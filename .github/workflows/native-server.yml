@@ -8,7 +8,7 @@ on:
       - 'Cargo.lock'
       - 'apps/server/**'
       - 'crates/**'
-      - 'apps/mobile/fournisseurs/rocketvibe/**'
+      - 'apps/mobile/**'
       - 'docs/protocol/**'
       - 'docker/compose.rocketvibe.yml'
       - 'scripts/*native*'
@@ -19,7 +19,7 @@ on:
       - 'Cargo.lock'
       - 'apps/server/**'
       - 'crates/**'
-      - 'apps/mobile/fournisseurs/rocketvibe/**'
+      - 'apps/mobile/**'
       - 'docs/protocol/**'
       - 'scripts/*native*'
       - '.github/workflows/native-server.yml'
@@ -64,11 +64,15 @@ jobs:
             target
           key: native-server-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
       - run: bash apps/server/scripts/check.sh
-      - name: Typecheck native mobile transport
-        run: >-
-          npx --yes --package typescript@6.0.3 tsc --noEmit --strict
-          --target ES2022 --module nodenext --lib ES2022,DOM
-          --allowImportingTsExtensions --ignoreConfig
-          apps/mobile/fournisseurs/rocketvibe/transport.ts
-          apps/mobile/fournisseurs/rocketvibe/validation.ts
-          apps/mobile/fournisseurs/rocketvibe/protocol.generated.ts
+      - name: Install locked mobile dependencies
+        working-directory: apps/mobile
+        run: npm ci --no-audit --no-fund
+      - name: Typecheck mobile app
+        working-directory: apps/mobile
+        run: npm run typecheck
+      - name: Mobile regression tests
+        working-directory: apps/mobile
+        run: npm test
+      - name: Export Android JavaScript bundle
+        working-directory: apps/mobile
+        run: npx expo export --platform android --output-dir ../../artifacts/native-mobile-android

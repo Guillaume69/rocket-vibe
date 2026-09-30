@@ -4,6 +4,10 @@ Client mobile **Rocket.Chat** tiers — **Android d'abord**, en Expo / React Nat
 Objectif : un client **plus rapide et plus fiable** que l'application officielle, pour
 un usage personnel sur un serveur Rocket.Chat auto-hébergé.
 
+La branche `feature/rocketvibe-server` ajoute un [parcours mobile pilote](../../docs/NATIVE_MOBILE_PILOT.md)
+pour le serveur Rust RocketVibe : la même connexion détecte le serveur, puis ouvre
+une messagerie texte dédiée. La parité avec les écrans Rocket.Chat reste en chantier.
+
 > Ce README explique l'app mobile et comment la faire tourner en local ; **toutes les
 > commandes se lancent depuis `apps/mobile/`**. Les **décisions** et leur justification
 > vivent dans [`ROADMAP.md`](../../ROADMAP.md) ; l'**état d'avancement** détaillé dans

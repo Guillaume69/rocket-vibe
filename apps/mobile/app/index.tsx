@@ -45,6 +45,7 @@ export default function EcranAccueil() {
   }
 
   if (etat.phase === 'deconnecte') return <Redirect href="/connexion" />;
+  if (etat.session.genre === 'rocketvibe') return <Redirect href="/native" />;
 
   return (
     // Pas de saisie sur cet écran ; s'il en gagne une, passer à

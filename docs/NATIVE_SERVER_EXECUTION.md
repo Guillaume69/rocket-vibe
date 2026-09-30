@@ -35,8 +35,40 @@ ne signifie pas que sa première exécution distante a déjà réussi.
   découverte native correcte sur `127.0.0.1:3400`.
 
 La première CI distante est verte ; chaque correctif suit le même workflow sur la
-branche. Aucun parcours dans
-les interfaces Android, GTK ou SwiftUI n'a encore été validé avec le serveur natif.
+branche. Le premier incrément ne comportait aucun écran natif connecté.
+
+## Deuxième incrément : parcours mobile pilote
+
+- [x] Sonde native avant authentification, sans repli Rocket.Chat si le protocole
+  RocketVibe annoncé est incompatible.
+- [x] Connexion, reprise et déconnexion natives ; genre, identité / génération et
+  jeton conservés dans le stockage sécurisé existant.
+- [x] Écran React Native dédié : salons privés / publics, invitation par le
+  propriétaire, DM, texte, historique, retry / abandon et changement de serveur.
+- [x] Projection SQLite : lot et curseur atomiques, outbox durable, écho idempotent
+  et ordre exact des positions dépassant la précision JavaScript.
+- [x] Reprise HTTP puis WebSocket, reconnexion, suspension au passage en arrière-plan
+  et heartbeats ; file de trames bornée.
+- [x] Purge locale au retrait d'un salon ; cache et envois d'une ancienne génération
+  masqués avant le nouveau snapshot et jamais rejoués sur la suivante.
+- [x] Test de deux moteurs mobiles et de leurs vraies migrations SQLite contre
+  PostgreSQL : coupure, recréation, rejeu, retrait privé avant renvoi de l'outbox.
+- [x] CI étendue aux changements mobiles, aux tests et à l'export Android.
+
+### Vérifications locales du deuxième incrément
+
+- 946 tests mobiles réussis, dont 18 tests natifs ; typecheck et ESLint des fichiers
+  concernés réussis.
+- 10 tests Rust réussis, formatage / Clippy et génération des contrats sans diff.
+- Export Android Expo réussi : bundle Hermes et assets. Ce n'est pas un APK.
+- Image serveur reconstruite ; readiness et découverte locale vérifiées.
+
+La validation visuelle Android n'a pas été exécutée : aucun appareil n'est
+connecté et les fichiers Firebase du build natif ne sont pas présents dans ce
+checkout. Les tests clients recréent le moteur sous Node et un test SQLite ferme
+puis rouvre une base sur disque ; ils ne prouvent pas encore le comportement d'un
+processus Android réellement tué.
+Les instructions et limites sont dans le [guide pilote](NATIVE_MOBILE_PILOT.md).
 
 ## Pour fermer J0
 
@@ -48,17 +80,20 @@ les interfaces Android, GTK ou SwiftUI n'a encore été validé avec le serveur 
 
 ## Pour fermer J1
 
-- [ ] Fournisseur RocketVibe mobile : sonde, connexion, stockage sécurisé, SQLite et outbox.
+- [x] Pilote mobile : sonde, connexion, stockage sécurisé, SQLite et outbox.
+- [ ] Intégration mobile au contrat fournisseur et aux écrans partagés, brouillons
+  persistants et navigation native complète.
 - [ ] Fournisseur bureau dans `rv-core`, exposition GTK / `rv-ffi` / SwiftUI.
-- [ ] Application atomique des lots et curseurs dans les caches locaux.
+- [x] Application atomique des lots et curseurs dans le cache SQLite mobile pilote.
+- [ ] Même garantie dans les caches bureau.
 - [ ] Parcours réel Android ↔ Windows, avec réseau coupé et processus clients tués.
 - [ ] Heartbeats, rythme de diffusion, limites et essais d'authentification bornés.
 - [ ] Snapshot paginé / tailles maximales et nettoyage des tickets / curseurs.
 - [ ] Ordonnancement strict des révocations avec les réponses / sockets actives.
 - [ ] Création de salon idempotente et découverte / adhésion aux salons publics.
 
-Les transports pilotes et tests sans UI ne ferment pas J1 : il exige les parcours
-dans les apps et les garanties restantes ci-dessus.
+Le parcours mobile pilote et les tests sans appareil ne ferment pas J1 : il exige
+les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
@@ -68,4 +103,4 @@ dans les apps et les garanties restantes ci-dessus.
 - [ ] J5 : import reprenable, exploitation, sauvegarde / restauration et pilote de bascule.
 
 Le fournisseur Rocket.Chat et son Compose restent disponibles. Aucun merge vers
-`master`, changement d'instance réelle ou import utilisateur n'appartient au premier incrément.
+`master`, changement d'instance réelle ou import utilisateur n'appartient à ces incréments.

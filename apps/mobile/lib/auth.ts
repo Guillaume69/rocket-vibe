@@ -32,6 +32,9 @@ export type Session = {
    * alors sur `baseUrl`, le comportement historique.
    */
   siteUrl: string | null;
+  /** Identity pinned during native login; never infer it from a stored URL. */
+  nativeInstanceId?: string;
+  nativeDataEpoch?: string;
 };
 
 /** SHA-256 hexadécimal, en minuscules. */

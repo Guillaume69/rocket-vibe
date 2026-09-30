@@ -288,3 +288,18 @@ export const etatSynchro = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.portee, t.flux] })],
 );
+
+/** Native cursors and sequence numbers are opaque / decimal strings, never JS numbers. */
+export const nativeSyncState = sqliteTable('native_sync_state', {
+  singleton: integer('singleton').primaryKey(),
+  instanceId: text('instance_id').notNull(),
+  dataEpoch: text('data_epoch').notNull(),
+  cursor: text('cursor').notNull(),
+});
+
+export const nativePositions = sqliteTable('native_positions', {
+  id: text('id').primaryKey(),
+  rid: text('rid').notNull(),
+  position: text('position').notNull(),
+  revision: text('revision').notNull(),
+}, (t) => [index('idx_native_positions_room').on(t.rid)]);

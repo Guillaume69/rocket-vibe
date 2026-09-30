@@ -10,11 +10,12 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
-import { appliquerSession, reprendreSession, seDeconnecter, type Session } from '../lib/auth.ts';
+import type { Session } from '../lib/auth.ts';
 import { terminerDeconnexions } from '../lib/deconnexionDifferee.ts';
 import { definirClientProfil } from '../lib/profilPreload.ts';
 import { desenregistrerJeton } from '../lib/pushToken.ts';
-import { ClientRest, estJetonRefuse } from '../lib/rest.ts';
+import { ClientRest } from '../lib/rest.ts';
+import { clientForSession, resumeSession, logoutSession, sessionRejected } from '../lib/sessionTransport.ts';
 import {
   ajouterDeconnexionEnSuspens,
   effacerClePriveeE2E,
@@ -66,10 +67,7 @@ const Contexte = createContext<ContexteSession | null>(null);
  * appels de l'app, sans toucher un seul site d'appel.
  */
 function clientPour(session: Session, surJetonRefuse: (jeton: string) => void): ClientRest {
-  const client = new ClientRest(session.baseUrl);
-  client.surJetonRefuse = surJetonRefuse;
-  appliquerSession(client, session);
-  return client;
+  return clientForSession(session, surJetonRefuse);
 }
 
 /**
@@ -102,7 +100,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     jetonCourant.current = etat.phase === 'connecte' ? etat.session.authToken : null;
     // Le préchargement de fiche (`lib/profilPreload`) ouvre `/profil` depuis des
     // fonctions de rendu sans client sous la main : on lui pose le client actif.
-    definirClientProfil(etat.phase === 'connecte' ? etat.client : null);
+    definirClientProfil(etat.phase === 'connecte' && etat.session.genre === 'rocketchat' ? etat.client : null);
   }, [etat]);
 
   /**
@@ -184,7 +182,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         // fermée), on l'adopte — sinon l'ancienne valeur stockée resterait
         // affichée dans Paramètres jusqu'à une reconnexion. Le jeton et l'uid ne
         // bougent pas, donc le `client` reste valable tel quel.
-        const frais = await reprendreSession(client, session.authToken);
+        const frais = await resumeSession(client, session);
         if (
           !abandonne &&
           jetonCourant.current === session.authToken &&
@@ -204,7 +202,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         // `surJetonRefuse` ne la couvre pas — cette validation garde sa propre
         // détection, et elle doit être la même. Un 401 de proxy en HTML tombait
         // ici en plein, et déconnectait une session valide.
-        if (abandonne || perime || !estJetonRefuse(e)) return;
+        if (abandonne || perime || !sessionRejected(e)) return;
         // La clé privée E2EE part avec la session : rangée par (serveur,
         // compte), elle n'a plus de compte à qui appartenir.
         await effacerTraces(session);
@@ -255,8 +253,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     // Même règle qu'au démarrage : validation en arrière-plan, seul un 401
     // (jeton révoqué) déconnecte — et seulement si cette session est encore
     // celle affichée.
-    reprendreSession(client, session.authToken).catch(async (e: unknown) => {
-      if (estJetonRefuse(e) && jetonCourant.current === session.authToken) {
+    resumeSession(client, session).catch(async (e: unknown) => {
+      if (sessionRejected(e) && jetonCourant.current === session.authToken) {
         await effacerTraces(session);
         if (jetonCourant.current === session.authToken) setEtat({ phase: 'deconnecte' });
       }
@@ -280,8 +278,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       // Dé-enregistrer le jeton push AVANT le logout : l'appel exige encore
       // l'authentification. Un 404 est un succès (`lib/pushToken.ts`).
       const pushRetire =
-        jetonPush === null ? true : await desenregistrerJeton(client, jetonPush).then(() => true, () => false);
-      const sessionFermee = await seDeconnecter(client);
+        session.genre === 'rocketvibe' || jetonPush === null ? true : await desenregistrerJeton(client, jetonPush).then(() => true, () => false);
+      const sessionFermee = await logoutSession(client, session);
 
       // Ce que le réseau n'a pas laissé aboutir se rejoue au prochain
       // démarrage. Sans cette file, un logout hors ligne laissait la session
@@ -294,6 +292,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           userId: session.userId,
           authToken: session.authToken,
           jetonPush: pushRetire ? null : jetonPush,
+          genre: session.genre,
+          nativeInstanceId: session.nativeInstanceId,
+          nativeDataEpoch: session.nativeDataEpoch,
         });
       }
 

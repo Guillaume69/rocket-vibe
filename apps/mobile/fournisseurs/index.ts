@@ -21,5 +21,7 @@ export function creerFournisseur(
   switch (session.genre) {
     case 'rocketchat':
       return creerFournisseurRC(session, client, genererId);
+    case 'rocketvibe':
+      throw new Error('The native pilot uses its durable NativeChat runner');
   }
 }

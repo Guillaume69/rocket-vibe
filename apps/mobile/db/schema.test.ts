@@ -101,6 +101,8 @@ describe('migrations', () => {
       'emojis_custom',
       'etat_synchro',
       'messages',
+      'native_positions',
+      'native_sync_state',
       'salons',
       'sortie',
       'televersements',
@@ -119,6 +121,7 @@ describe('migrations', () => {
     assert.deepEqual(index, [
       'idx_messages_fil',
       'idx_messages_salon_date',
+      'idx_native_positions_room',
       'idx_salons_activite',
       'idx_sortie_statut',
       'idx_televersements_statut',

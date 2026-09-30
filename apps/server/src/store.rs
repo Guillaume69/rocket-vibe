@@ -154,8 +154,8 @@ pub async fn direct(app: &App, account: &Account, target: &str) -> Result<Room> 
     users.sort_unstable();
     // Serialize concurrent creation in both directions, with a consistent lock order.
     // Keep foreign-key KEY SHARE checks compatible with these domain locks.
-    let found: Vec<String> = sqlx::query_scalar(
-        "SELECT id FROM users WHERE id=ANY($1) AND NOT disabled ORDER BY id FOR NO KEY UPDATE",
+    let found: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id,username FROM users WHERE id=ANY($1) AND NOT disabled ORDER BY id FOR NO KEY UPDATE",
     )
     .bind(users.to_vec())
     .fetch_all(&mut *tx)
@@ -163,6 +163,7 @@ pub async fn direct(app: &App, account: &Account, target: &str) -> Result<Room> 
     if found.len() != 2 {
         return Err(Error::missing());
     }
+    let name = format!("{} / {}", found[0].1, found[1].1);
     let pair = format!("{}:{}", users[0], users[1]);
     if let Some(room) =
         sqlx::query_as::<_, RoomRow>("SELECT id,name,kind,revision FROM rooms WHERE direct_pair=$1")
@@ -174,13 +175,12 @@ pub async fn direct(app: &App, account: &Account, target: &str) -> Result<Room> 
         return Ok(room.wire());
     }
     let id = random_token()[..24].to_owned();
-    sqlx::query(
-        "INSERT INTO rooms(id,name,kind,direct_pair) VALUES($1,'Direct message','direct',$2)",
-    )
-    .bind(&id)
-    .bind(pair)
-    .execute(&mut *tx)
-    .await?;
+    sqlx::query("INSERT INTO rooms(id,name,kind,direct_pair) VALUES($1,$3,'direct',$2)")
+        .bind(&id)
+        .bind(pair)
+        .bind(&name)
+        .execute(&mut *tx)
+        .await?;
     for user in users {
         sqlx::query("INSERT INTO members(room_id,user_id,role) VALUES($1,$2,'member')")
             .bind(&id)
@@ -196,7 +196,7 @@ pub async fn direct(app: &App, account: &Account, target: &str) -> Result<Room> 
         .await?;
     let room = RoomRow {
         id,
-        name: "Direct message".into(),
+        name,
         kind: "direct".into(),
         revision: position,
     }

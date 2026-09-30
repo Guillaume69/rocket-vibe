@@ -56,6 +56,8 @@ export async function lireSession(baseUrl: string): Promise<Session | null> {
     // Un stockage corrompu ou d'une ancienne version ne doit pas faire planter
     // le démarrage : on le traite comme une absence de session.
     if (typeof session?.authToken !== 'string' || typeof session?.userId !== 'string') return null;
+    if (session.genre != null && session.genre !== 'rocketchat' && session.genre !== 'rocketvibe') return null;
+    if (session.genre === 'rocketvibe' && (!session.nativeInstanceId || !session.nativeDataEpoch || typeof session.nativeInstanceId !== 'string' || typeof session.nativeDataEpoch !== 'string')) return null;
     // La clé dérive d'un condensé tronqué : on ne se fie pas à elle seule pour
     // affirmer que cette session appartient bien au serveur demandé.
     if (sansSlashFinal(session.baseUrl) !== sansSlashFinal(baseUrl)) return null;

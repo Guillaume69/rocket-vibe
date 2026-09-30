@@ -9,8 +9,10 @@ Disponible : comptes créés par CLI, connexion par mot de passe, sessions révo
 salons privés / publics avec adhésions contrôlées, DM uniques, messages idempotents,
 historique paginé, snapshot cohérent et reprise du journal par HTTP / WebSocket.
 
-Les interfaces Android / GTK / SwiftUI ne sont pas encore raccordées. Les transports
-Rust et TypeScript sont testés contre le serveur réel. Fichiers, push, appels, 2FA,
+Un [parcours mobile pilote](../../docs/NATIVE_MOBILE_PILOT.md) est raccordé à la
+connexion, au Keystore et à SQLite. Les interfaces GTK / SwiftUI et les écrans
+partagés du mobile restent à raccorder. Les transports Rust et TypeScript sont
+testés contre le serveur réel. Fichiers, push, appels, 2FA,
 chiffrement et parité complète restent au backlog. Les limites sont explicites dans
 le [contrat du pilote](../../docs/protocol/README.md).
 
@@ -64,8 +66,9 @@ n'est effacée. Ils vérifient HTTP réel, WebSocket, concurrence, refus de droi
 redémarrage applicatif et échanges par les transports Rust et TypeScript.
 
 Le script vérifie aussi les fixtures et l'absence de divergence du schéma / des
-types générés. La CI native exécute les mêmes checks, avec un typecheck TypeScript
-supplémentaire. Ce n'est pas une validation des interfaces natives des apps.
+types générés. La CI native exécute les mêmes checks, avec le typecheck, les tests
+mobiles et l'export du bundle JavaScript Android. Cet export n'est ni un APK ni une
+validation visuelle sur appareil.
 
 ## Contrat et génération
 

@@ -13,3 +13,5 @@ GoogleService-Info.plist
 # Système
 .DS_Store
 /target/
+/artifacts/
+/native-mobile-tests.log

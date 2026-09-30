@@ -970,10 +970,12 @@ impl ChatPage {
                 this.handle_event(event, true);
             }
         });
-        let (s, rid, root) = (session.clone(), open.rid.clone(), root_id.to_owned());
+        let (weak, rid, root) = (Rc::downgrade(self), open.rid.clone(), root_id.to_owned());
+        let composer = Rc::downgrade(&thread.composer);
         thread.composer.connect_submit(move |text| {
-            let (s, rid, root) = (s.clone(), rid.clone(), root.clone());
-            runtime().spawn(async move { s.send_in(&rid, &text, Some(&root)).await });
+            if let (Some(this), Some(composer)) = (weak.upgrade(), composer.upgrade()) {
+                this.send_or_run(&composer, &rid, Some(&root), text);
+            }
         });
         let weak = Rc::downgrade(self);
         thread.composer.connect_edit_last(move || {
@@ -1609,11 +1611,52 @@ impl ChatPage {
         });
     }
 
-    pub fn send_text(&self, text: &str) {
+    pub fn send_text(self: &Rc<Self>, text: &str) {
         let Some(open) = self.current.borrow().clone() else { return };
+        self.send_or_run(&self.composer, &open.rid, None, text.to_owned());
+    }
+
+    /// Sends `text`, or runs it when it names a slash command; a command the
+    /// server refuses goes back into `composer`.
+    fn send_or_run(self: &Rc<Self>, composer: &Rc<Composer>, rid: &str, thread: Option<&str>, text: String) {
         let Some(session) = self.session.borrow().clone() else { return };
-        let text = text.to_owned();
-        runtime().spawn(async move { session.send(&open.rid, &text).await });
+        let (rid, thread) = (rid.to_owned(), thread.map(str::to_owned));
+        if rv_core::commands::split(&text).is_none() {
+            runtime().spawn(async move { session.send_in(&rid, &text, thread.as_deref()).await });
+            return;
+        }
+        let (weak, composer) = (Rc::downgrade(self), Rc::downgrade(composer));
+        glib::spawn_future_local(async move {
+            let draft = text.clone();
+            let failed = on_tokio(async move {
+                match session.run_command(&rid, &text, thread.as_deref()).await {
+                    Some(result) => result.err(),
+                    None => {
+                        session.send_in(&rid, &text, thread.as_deref()).await;
+                        None
+                    }
+                }
+            })
+            .await;
+            let (Some(this), Some(error)) = (weak.upgrade(), failed) else { return };
+            this.toast(tf("command.failed", &[("error", &error.message)]));
+            if let Some(composer) = composer.upgrade().filter(|c| c.text().is_empty()) {
+                composer.set_text(&draft);
+            }
+        });
+    }
+
+    /// A slash command's answer, shown under the page it was typed in.
+    pub fn on_private(&self, rid: &str, text: &str) {
+        let Some(session) = self.session.borrow().clone() else { return };
+        let me = &session.info.username;
+        if let Some(thread) = self.thread.borrow().as_ref().filter(|t| t.rid == rid) {
+            thread.composer.show_private(text, me);
+            return;
+        }
+        if self.current.borrow().as_ref().is_some_and(|open| open.rid == rid) {
+            self.composer.show_private(text, me);
+        }
     }
 
     fn retry(&self, id: String) {

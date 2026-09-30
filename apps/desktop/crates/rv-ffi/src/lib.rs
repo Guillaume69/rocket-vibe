@@ -271,8 +271,9 @@ fn state(c: Connection) -> ConnectionState {
     }
 }
 
-fn event(e: SessionEvent) -> Event {
-    match e {
+/// None for what the SwiftUI app has no use for: it runs no slash commands.
+fn event(e: SessionEvent) -> Option<Event> {
+    Some(match e {
         SessionEvent::Connection(c) => Event::Connection { state: state(c) },
         SessionEvent::Expired => Event::Expired,
         SessionEvent::Typing(rid) => Event::Typing { rid },
@@ -291,7 +292,8 @@ fn event(e: SessionEvent) -> Event {
                 mentions_me: i.mentions_me,
             },
         },
-    }
+        SessionEvent::Private { .. } => return None,
+    })
 }
 
 #[uniffi::export]
@@ -316,7 +318,10 @@ impl Chat {
                         Err(RecvError::Closed) => return,
                     },
                     e = events.recv() => match e {
-                        Ok(e) => event(e),
+                        Ok(e) => match event(e) {
+                            Some(e) => e,
+                            None => continue,
+                        },
                         Err(RecvError::Lagged(_)) => continue,
                         Err(RecvError::Closed) => return,
                     },

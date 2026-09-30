@@ -121,6 +121,12 @@ final class LiveTests: XCTestCase {
         try await room.delete(mine)
         try await until { !room.messages.contains { $0.id == mine.id } }
 
+        try await until { app.chat?.suggestions(rid: rid, beforeCursor: "/shr")?.items.first?.insert == "/shrug " }
+        room.draft = "/join #kit-missing-\(getpid())"
+        let refusal = await room.send()
+        XCTAssertNil(refusal)
+        try await until { room.note?.contains("kit-missing-\(getpid())") ?? false }
+
         let avatar = await app.media?.load(app.media!.avatar(user: "alice"))
         XCTAssertFalse(avatar?.bytes.isEmpty ?? true)
         await app.signOut()

@@ -7,6 +7,18 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- YouTube, Dailymotion and Vimeo videos play in their card: a click on the thumbnail starts
+  the player in place, the title still opens the video in the browser. WebKitGTK on Linux
+  (now bundled in the AppImage, needed by the tarball), WebView2 on Windows, WKWebView on
+  macOS. The player keeps to the video: a link out of it opens in the browser, and nothing
+  it stores outlives the app.
+- Slash commands: `/` at the start of a message offers the server's commands that you may
+  run in the room, with their parameters and what they do; sending one runs it, in the
+  thread when typed there. The server's answer (an unknown channel, `/help`) shows above
+  the composer, seen only by you. A refused command goes back into the composer.
+
 ## [0.5.0] - 2026-09-30
 
 ### Added

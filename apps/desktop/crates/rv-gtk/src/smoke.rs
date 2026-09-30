@@ -37,6 +37,8 @@
 //!   RV_SMOKE_FOLD=1       folds the channels section: its rooms leave the list, then come back
 //!                          (`keep`: left folded, for a screenshot)
 //!   RV_SMOKE_VIDEO=1      plays the last video card built; it must be playing, controls shown
+//!   RV_SMOKE_PLAYER=1     plays the last YouTube, Dailymotion or Vimeo card built, in the card;
+//!                          with the gallery, `<provider>:<id>` plays that video in a frame of its own
 //!   RV_SMOKE_DRAFT_TEXT=<text>  typed in the composer (\n breaks lines), for a screenshot
 //!   RV_SMOKE_NAV=<other room>  opens the other room, then mouse back and forward between the two;
 //!                          in a narrow window, back to the list and forward into the room again
@@ -287,6 +289,15 @@ pub fn install(window: &Rc<AppWindow>) {
                             FAILED.store(true, Ordering::SeqCst);
                         }
                     });
+                });
+            }
+            if std::env::var("RV_SMOKE_PLAYER").as_deref() == Ok("1") {
+                glib::timeout_add_local_once(Duration::from_millis(5000), || {
+                    let started = crate::player::play_last();
+                    println!("smoke: player started={started}");
+                    if !started {
+                        FAILED.store(true, Ordering::SeqCst);
+                    }
                 });
             }
             if std::env::var("RV_SMOKE_REENTER").as_deref() == Ok("1") {
@@ -904,6 +915,22 @@ pub fn gallery(app: &adw::Application) -> bool {
     let column = gtk::Box::builder().orientation(gtk::Orientation::Vertical).margin_top(12).build();
     for d in &samples {
         column.append(&crate::rows::message_widget(d, "alice", None, None, std::rc::Rc::new(|_| {})));
+    }
+    if let Some((provider, id)) = std::env::var("RV_SMOKE_PLAYER").ok().and_then(|p| {
+        let (provider, id) = p.split_once(':')?;
+        Some((provider.to_owned(), id.to_owned()))
+    }) {
+        let frame = crate::widgets::media_frame(480, 270, &["preview-image", "player-frame"]);
+        frame.set_margin_start(60);
+        column.append(&frame);
+        glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+            let provider = match provider.as_str() {
+                "Dailymotion" => "Dailymotion",
+                "Vimeo" => "Vimeo",
+                _ => "YouTube",
+            };
+            crate::player::start(&frame, provider, &id);
+        });
     }
     let composer = crate::composer::Composer::new();
     composer.set_text("Draft 😊 with emoji");

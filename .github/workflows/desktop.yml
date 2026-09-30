@@ -319,6 +319,20 @@ jobs:
             Get-Content "$env:LOCALAPPDATA\rocket-vibe-rs\rocket-vibe.log" -Tail 40 -ErrorAction SilentlyContinue
             throw "the call window did not load its page"
           }
+          # The inline player: WebView2 laid over a frame of the list, on the embed page.
+          $env:RV_SMOKE_PLAYER = "YouTube:aqz-KE-bpKQ"
+          $player = Start-Process $exe -WorkingDirectory "$app\bin" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\player-out.txt"
+          Start-Sleep -Seconds 20
+          $shot = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
+          [System.Drawing.Graphics]::FromImage($shot).CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
+          $shot.Save("$env:RUNNER_TEMP\player.png")
+          if (-not $player.HasExited) { Stop-Process -Id $player.Id -Force }
+          Remove-Item Env:RV_SMOKE_PLAYER
+          Get-Content "$env:RUNNER_TEMP\player-out.txt" -ErrorAction SilentlyContinue
+          if (-not (Select-String -Path "$env:RUNNER_TEMP\player-out.txt" -Pattern "native: player loaded https://player.rocket-vibe.invalid/" -Quiet)) {
+            Get-Content "$env:LOCALAPPDATA\rocket-vibe-rs\rocket-vibe.log" -Tail 40 -ErrorAction SilentlyContinue
+            throw "the player did not load its page"
+          }
           # Soak: rows, toasts and the badge churned for 45 s; the app must still be there, with no panic recorded.
           $env:RV_SMOKE_SOAK = "45"
           $soak = Start-Process $exe -WorkingDirectory "$app\bin" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\soak-out.txt"
@@ -344,6 +358,7 @@ jobs:
             ${{ runner.temp }}/screenshot.png
             ${{ runner.temp }}/gallery.png
             ${{ runner.temp }}/call.png
+            ${{ runner.temp }}/player.png
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: ${{ failure() }}
@@ -474,6 +489,14 @@ jobs:
           kill "$call" 2>/dev/null || true
           cat "$RUNNER_TEMP/call.log"
           if ! grep -q "native: call loaded https://example.org" "$RUNNER_TEMP/call.log"; then echo "::error::the call window did not load its page"; alive=0; fi
+          # The inline player: WKWebView laid over a frame of the list, on the embed page.
+          RV_SMOKE_GALLERY=1 RV_SMOKE_PLAYER=YouTube:aqz-KE-bpKQ "$app/Contents/MacOS/rocket-vibe-gtk" > "$RUNNER_TEMP/player.log" 2>&1 &
+          player=$!
+          sleep 20
+          screencapture -x "$RUNNER_TEMP/player.png" || true
+          kill "$player" 2>/dev/null || true
+          cat "$RUNNER_TEMP/player.log"
+          if ! grep -q "native: player loaded https://player.rocket-vibe.invalid/" "$RUNNER_TEMP/player.log"; then echo "::error::the player did not load its page"; alive=0; fi
           # Soak: rows, toasts and the badge churned for 45 s; the app must still be there, with no panic recorded.
           RV_SMOKE_GALLERY=1 RV_SMOKE_SOAK=45 "$app/Contents/MacOS/rocket-vibe-gtk" > "$RUNNER_TEMP/soak.log" 2>&1 &
           soak=$!
@@ -518,6 +541,7 @@ jobs:
             ${{ runner.temp }}/screenshot.png
             ${{ runner.temp }}/gallery.png
             ${{ runner.temp }}/call.png
+            ${{ runner.temp }}/player.png
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:

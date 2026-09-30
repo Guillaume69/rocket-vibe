@@ -1,0 +1,4 @@
+[workspace]
+members = ["apps/server", "crates/rv-protocol", "crates/rv-client"]
+exclude = ["apps/desktop"]
+resolver = "3"

@@ -1,6 +1,7 @@
 # Secrets — jamais dans le dépôt, à la racine comme dans chaque app.
 .env
 .env.local
+.env.native
 google-services.json
 GoogleService-Info.plist
 *-service-account*.json
@@ -11,3 +12,4 @@ GoogleService-Info.plist
 
 # Système
 .DS_Store
+/target/

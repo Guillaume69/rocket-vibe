@@ -13,6 +13,10 @@ bureau avec le mobile est suivie dans [`apps/desktop/docs/PARITY.md`](apps/deskt
 
 ## Partagé
 
+- [Serveur RocketVibe natif — expérimental](apps/server/README.md) — chantier Rust
+  indépendant de Rocket.Chat ; [suivi J0/J1](docs/NATIVE_SERVER_EXECUTION.md).
+- [RFC 0001 — Serveur RocketVibe autonome en Rust](docs/rfcs/0001-serveur-rocketvibe-rust.md)
+  — proposition de serveur, protocole, parité des clients et migration depuis Rocket.Chat.
 - [`ROADMAP.md`](ROADMAP.md) — les décisions produit et leur justification.
 - [`docs/`](docs) — l'environnement de développement et le relevé du serveur cible
   (`DEV.md`), le push (`PUSH.md`).

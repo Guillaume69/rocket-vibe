@@ -1,0 +1,36 @@
+{
+  "discovery": {
+    "product": "rocketvibe",
+    "instance_id": "fixture-instance",
+    "data_epoch": "fixture-epoch",
+    "server_version": "0.1.0",
+    "protocol_versions": [1],
+    "api_path": "/api/v1",
+    "capabilities": {
+      "text_messages": true, "private_rooms": true, "direct_messages": true,
+      "durable_sync": true, "threads": false, "reactions": false,
+      "uploads": false, "push": false, "e2ee": false, "calls": false
+    }
+  },
+  "login": { "username": "alice", "password": "fixture-only-not-a-credential" },
+  "session": {
+    "token": "fixture-token",
+    "expires_at": "2026-10-30T12:00:00+00:00",
+    "user": { "id": "alice-id", "username": "alice", "display_name": "Alice" }
+  },
+  "room": { "id": "room-id", "name": "A room", "kind": "private", "revision": "9007199254740993" },
+  "create_room": { "name": "A room", "private": true },
+  "direct_message": { "user_id": "bob-id" },
+  "send_message": { "operation_id": "message-id", "text": "Bonjour 🚀" },
+  "message": {
+    "id": "message-id", "room_id": "room-id",
+    "author": { "id": "alice-id", "username": "alice", "display_name": "Alice" },
+    "text": "Bonjour 🚀", "created_at": "2026-09-30T12:00:00+00:00",
+    "position": "9007199254740993", "revision": "9007199254740993"
+  },
+  "message_page": { "messages": [], "has_more": false },
+  "snapshot": { "protocol_version": 1, "rooms": [], "messages": [], "cursor": "opaque-fixture" },
+  "sync_batch": { "protocol_version": 1, "changes": [{ "type": "room_removed", "data": { "room_id": "room-id" } }], "cursor": "opaque-fixture", "has_more": false },
+  "socket_ticket": { "ticket": "fixture-ticket", "expires_at": "2026-09-30T12:00:30+00:00" },
+  "error": { "code": "session_rejected", "request_id": "fixture-request" }
+}

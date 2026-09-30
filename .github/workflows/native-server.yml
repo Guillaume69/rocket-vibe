@@ -1,0 +1,74 @@
+name: native-server
+
+on:
+  push:
+    branches: [master, 'feature/rocketvibe-server']
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'apps/server/**'
+      - 'crates/**'
+      - 'apps/mobile/fournisseurs/rocketvibe/**'
+      - 'docs/protocol/**'
+      - 'docker/compose.rocketvibe.yml'
+      - 'scripts/*native*'
+      - '.github/workflows/native-server.yml'
+  pull_request:
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'apps/server/**'
+      - 'crates/**'
+      - 'apps/mobile/fournisseurs/rocketvibe/**'
+      - 'docs/protocol/**'
+      - 'scripts/*native*'
+      - '.github/workflows/native-server.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: native-server-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: rocketvibe
+          POSTGRES_PASSWORD: native-ci-disposable-password
+          POSTGRES_DB: rocketvibe
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U rocketvibe -d rocketvibe"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      DATABASE_URL: postgres://rocketvibe:native-ci-disposable-password@localhost/rocketvibe
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: native-server-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+      - run: bash apps/server/scripts/check.sh
+      - name: Typecheck native mobile transport
+        run: >-
+          npx --yes --package typescript@6.0.3 tsc --noEmit --strict
+          --target ES2022 --module nodenext --lib ES2022,DOM
+          --allowImportingTsExtensions --ignoreConfig
+          apps/mobile/fournisseurs/rocketvibe/transport.ts
+          apps/mobile/fournisseurs/rocketvibe/validation.ts
+          apps/mobile/fournisseurs/rocketvibe/protocol.generated.ts

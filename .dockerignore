@@ -1,0 +1,9 @@
+.git
+**/target
+**/node_modules
+**/.env
+**/.env.local
+**/.env.native
+**/google-services.json
+**/*service-account*.json
+**/*firebase-adminsdk*.json

@@ -1,0 +1,32 @@
+[package]
+name = "rv-server"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+argon2 = "0.5.3"
+axum = { version = "0.8.9", features = ["ws"] }
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive", "env"] }
+futures-util = "0.3"
+rand_core = { version = "0.6", features = ["getrandom"] }
+rv-protocol = { path = "../../crates/rv-protocol" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres", "chrono", "json", "macros", "migrate"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+rv-client = { path = "../../crates/rv-client" }
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+tokio-tungstenite = "0.28"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

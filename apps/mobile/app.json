@@ -2,7 +2,7 @@
   "expo": {
     "name": "rocket-vibe",
     "slug": "rocket-vibe",
-    "version": "0.3.1",
+    "version": "0.4.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -17,7 +17,7 @@
     },
     "android": {
       "package": "com.rocketvibe.app",
-      "versionCode": 301,
+      "versionCode": 400,
       "adaptiveIcon": {
         "backgroundColor": "#0C0B16",
         "foregroundImage": "./assets/android-icon-foreground.png",

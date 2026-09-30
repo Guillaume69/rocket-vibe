@@ -14,7 +14,10 @@ public final class AppModel {
     public let client: Client
     public let login = LoginModel()
     public private(set) var screen = Screen.starting
-    public private(set) var chat: Chat?
+    public private(set) var provider: ChatProvider?
+    public var chat: Chat? { provider?.legacy }
+    public var native: NativeChat? { provider?.native }
+    public var signedIn: Bool { provider != nil }
     public private(set) var account: Account?
     public private(set) var accounts: [Account] = []
     public private(set) var groups: [RoomGroup] = []
@@ -35,6 +38,8 @@ public final class AppModel {
     var historyAt = -1
     @ObservationIgnored var pending = Pending()
     @ObservationIgnored var flush: Task<Void, Never>?
+    @ObservationIgnored var sessionId = UUID()
+    @ObservationIgnored var selectionId = UUID()
 
     public var onIncoming: ((Incoming) -> Void)?
     /// The dock badge: mentions and direct messages.
@@ -59,47 +64,76 @@ public final class AppModel {
 
     @discardableResult
     public func resume(_ account: Account) async -> Bool {
-        guard let chat = try? await client.resume(key: account.key) else { return false }
-        begin(chat)
-        return true
+        let selected = UUID()
+        selectionId = selected
+        do {
+            let provider: ChatProvider
+            if account.genre == "rocketvibe" {
+                provider = .rocketVibe(try await client.nativeResume(key: account.key))
+            } else {
+                provider = .rocketChat(try await client.resume(key: account.key))
+            }
+            guard selected == selectionId else { provider.shutdown(); return false }
+            begin(provider)
+            return true
+        } catch { return false }
     }
 
     public func submitLogin() async {
+        guard !login.busy else { return }
+        let selected = UUID()
+        selectionId = selected
         if let chat = await login.submit(client: client) {
-            accounts = await client.accounts()
+            let fresh = await client.accounts()
+            guard selected == selectionId else { chat.shutdown(); return }
+            accounts = fresh
             begin(chat)
         }
     }
 
     public func showLogin(error: String?) {
+        selectionId = UUID()
         login.reset(known: client.knownServers(), error: error)
         screen = .login
     }
 
     /// Back to the account in use, from the form opened to add another.
     public func cancelLogin() {
-        if chat != nil { screen = .chat }
+        selectionId = UUID()
+        if signedIn { screen = .chat }
     }
 
-    func begin(_ chat: Chat) {
+    func begin(_ provider: ChatProvider) {
         end()
-        self.chat = chat
-        account = chat.account()
-        media = MediaStore(chat: chat)
+        self.provider = provider
+        account = provider.account()
+        if let chat { media = MediaStore(chat: chat) }
         connection = .connecting
-        chat.setListener(listener: Relay { [weak self] event in self?.handle(event) })
-        e2eUnlocked = chat.e2eUnlocked()
+        let expected = sessionId
+        provider.listen(Relay { [weak self] event in
+            guard let self, self.sessionId == expected else { return }
+            self.handle(event)
+        })
+        e2eUnlocked = chat?.e2eUnlocked() ?? false
         reloadRooms()
         screen = .chat
     }
 
     func end() {
+        sessionId = UUID()
+        selectionId = UUID()
+        room?.deactivate()
+        thread?.deactivate()
+        provider?.shutdown()
         flush?.cancel()
         flush = nil
         pending = Pending()
         room = nil
         thread = nil
-        chat = nil
+        provider = nil
+        account = nil
+        e2eUnlocked = false
+        connection = .offline
         media = nil
         groups = []
         history = []
@@ -107,9 +141,12 @@ public final class AppModel {
     }
 
     public func signOut() async {
-        guard let chat else { return }
+        guard let provider else { return }
+        let expected = sessionId
+        do { try await provider.signOut() }
+        catch { notice = error.localizedDescription; return }
+        guard expected == sessionId else { return }
         end()
-        await chat.signOut()
         accounts = await client.accounts()
         if let next = accounts.first, await resume(next) { return }
         showLogin(error: nil)
@@ -122,7 +159,16 @@ public final class AppModel {
         case .resync:
             later(everything: true)
         case let .connection(state):
+            let wasOnline = connection == .online
             connection = state
+            if let native {
+                if let error = native.status().error {
+                    notice = L(error == "server_identity_changed" ? "native.identity_changed" : error == "session_rejected" ? "login.expired" : "native.error")
+                }
+                if state == .online && !wasOnline, let room {
+                    Task { await room.load() }
+                }
+            }
         case .expired:
             end()
             Task {
@@ -164,22 +210,30 @@ public final class AppModel {
     }
 
     func reloadRooms() {
-        guard let chat else { return }
-        let fresh = chat.rooms()
+        guard let provider, let fresh = try? provider.rooms() else { return }
         if fresh != groups { groups = fresh }
-        if let room, let fresh = rooms.first(where: { $0.rid == room.rid }) { room.update(room: fresh) }
-        onAttention?(chat.attention())
+        if let room {
+            if let fresh = rooms.first(where: { $0.rid == room.rid }) { room.update(room: fresh) }
+            else {
+                room.deactivate()
+                self.room = nil
+                closeThread()
+            }
+        }
+        onAttention?(chat?.attention() ?? 0)
     }
 
     public func open(_ rid: String, remember: Bool = true) {
-        guard let chat, let found = rooms.first(where: { $0.rid == rid }) else { return }
+        guard let provider, let found = rooms.first(where: { $0.rid == rid }) else { return }
         if room?.rid == rid { return }
+        selectionId = UUID()
         if remember {
             history = Array(history.prefix(historyAt + 1)) + [rid]
             historyAt = history.count - 1
         }
-        thread = nil
-        let model = RoomModel(chat: chat, room: found)
+        room?.deactivate()
+        closeThread()
+        let model = RoomModel(provider: provider, room: found)
         room = model
         Task { await model.load() }
     }
@@ -195,11 +249,13 @@ public final class AppModel {
     public func openThread(_ rootId: String) {
         guard let chat, let room else { return }
         let model = RoomModel(chat: chat, room: room.room, threadId: rootId)
+        thread?.deactivate()
         thread = model
         Task { await model.load() }
     }
 
     public func closeThread() {
+        thread?.deactivate()
         thread = nil
     }
 
@@ -247,26 +303,32 @@ public final class AppModel {
 
     public func reconnect() {
         chat?.reconnectNow()
+        native?.reconnect()
     }
 
     /// Opens what the spotlight found: a direct room with a person, or a channel (joined if need be).
     public func go(to found: Found) async {
-        guard let chat else { return }
+        guard let provider else { return }
+        let expected = sessionId
+        let selected = UUID()
+        selectionId = selected
         do {
             let rid: String
             switch found {
             case let .user(_, username, _):
-                rid = try await chat.openDm(username: username)
+                rid = try await provider.direct(username: username)
             case let .room(id, _, _):
-                if !rooms.contains(where: { $0.rid == id }) { try await chat.joinChannel(rid: id) }
+                if !rooms.contains(where: { $0.rid == id }), let chat { try await chat.joinChannel(rid: id) }
                 rid = id
             }
             for _ in 0..<40 where !rooms.contains(where: { $0.rid == rid }) {
+                guard expected == sessionId, selected == selectionId else { return }
                 try? await Task.sleep(nanoseconds: 100_000_000)
             }
+            guard expected == sessionId, selected == selectionId else { return }
             open(rid)
         } catch {
-            notice = L("spotlight.open_failed")
+            if expected == sessionId, selected == selectionId { notice = L("spotlight.open_failed") }
         }
     }
 

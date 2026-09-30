@@ -67,7 +67,7 @@ struct LoginView: View {
             HStack {
                 if login.method != nil {
                     Button(L("actions.cancel")) { login.cancelCode() }
-                } else if app.chat != nil {
+                } else if app.signedIn {
                     Button(L("login.cancel_add")) { app.cancelLogin() }
                 }
                 Button(login.busy ? L("login.signing_in") : (login.method == nil ? L("login.sign_in") : L("login.confirm")), action: submit)

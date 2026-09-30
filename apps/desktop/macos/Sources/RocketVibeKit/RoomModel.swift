@@ -11,7 +11,13 @@ public final class RoomModel {
     public private(set) var room: Room
     /// The thread's root message id, None for the room itself.
     public let threadId: String?
-    let chat: Chat
+    public let provider: ChatProvider
+    var chat: Chat? { provider.legacy }
+    public var supportsFiles: Bool { provider.supportsFiles }
+    public var supportsEditing: Bool { provider.supportsEditing }
+    public var canAbandon: Bool { provider.native != nil }
+    public private(set) var error: String?
+    var active = true
     public private(set) var messages: [MessageItem] = []
     public private(set) var hasOlder = true
     public private(set) var loading = false
@@ -27,22 +33,37 @@ public final class RoomModel {
 
     public var draft: String {
         didSet {
-            let (chat, rid, thread, text) = (chat, room.rid, threadId, draft)
+            guard active else { return }
+            let (provider, rid, thread, text) = (provider, room.rid, threadId, draft)
             draftSave?.cancel()
             draftSave = Task {
                 try? await Task.sleep(nanoseconds: 400_000_000)
-                if !Task.isCancelled { chat.setDraft(rid: rid, threadId: thread, text: text) }
+                if !Task.isCancelled { try? provider.setDraft(rid: rid, thread: thread, text: text) }
             }
         }
     }
 
-    init(chat: Chat, room: Room, threadId: String? = nil) {
-        self.chat = chat
+    convenience init(chat: Chat, room: Room, threadId: String? = nil) {
+        self.init(provider: .rocketChat(chat), room: room, threadId: threadId)
+    }
+
+    init(provider: ChatProvider, room: Room, threadId: String? = nil) {
+        self.provider = provider
         self.room = room
         self.threadId = threadId
         let unread = room.unread > 0 || room.alert
-        unreadAfter = unread && threadId == nil ? chat.lastSeen(rid: room.rid) : nil
-        draft = chat.draft(rid: room.rid, threadId: threadId)
+        unreadAfter = unread && threadId == nil ? provider.legacy?.lastSeen(rid: room.rid) : nil
+        draft = (try? provider.draft(rid: room.rid, thread: threadId)) ?? ""
+    }
+
+    /// Flush before leaving; a delayed save must not outlive this visible room.
+    func deactivate() {
+        guard active else { return }
+        draftSave?.cancel()
+        try? provider.setDraft(rid: room.rid, thread: threadId, text: draft)
+        active = false
+        messages = []
+        actionsOf.removeAll()
     }
 
     public var rid: String { room.rid }
@@ -53,8 +74,7 @@ public final class RoomModel {
 
     /// Publishes only what changed: an equal list leaves every row alone.
     public func reload() {
-        let fresh = threadId.map { chat.threadMessages(rootId: $0) }
-            ?? chat.messages(rid: room.rid, limit: limit, unreadAfter: unreadAfter)
+        guard active, let fresh = try? provider.messages(rid: room.rid, limit: limit, thread: threadId, unreadAfter: unreadAfter) else { return }
         if fresh != messages {
             messages = fresh
             actionsOf.removeAll()
@@ -63,26 +83,26 @@ public final class RoomModel {
     }
 
     func refreshTyping() {
-        let fresh = threadId == nil ? chat.typing(rid: room.rid) : []
+        let fresh = threadId == nil ? (chat?.typing(rid: room.rid) ?? []) : []
         if fresh != typing { typing = fresh }
     }
 
     func refreshUploads() {
-        let fresh = chat.uploads(rid: room.rid)
+        let fresh = chat?.uploads(rid: room.rid) ?? []
         if fresh != uploads { uploads = fresh }
     }
 
     /// Shows what the store has, then the server's newest page.
     func load() async {
+        guard active, !loading else { return }
         reload()
-        let (chat, rid) = (chat, room.rid)
-        Task { await chat.prepareActions(rid: rid) }
+        if let chat {
+            let rid = room.rid
+            Task { await chat.prepareActions(rid: rid) }
+        }
         loading = true
         defer { loading = false }
-        if let threadId {
-            try? await chat.loadThread(rootId: threadId)
-            hasOlder = false
-        } else if let more = try? await chat.openRoom(rid: room.rid, kind: room.kind) {
+        if let more = try? await provider.load(room: room, thread: threadId), active {
             hasOlder = more
         }
         reload()
@@ -91,10 +111,10 @@ public final class RoomModel {
     /// One more page of history. False when there is none or one is coming.
     @discardableResult
     public func loadOlder() async -> Bool {
-        guard !loading, hasOlder, threadId == nil, let oldest = messages.first?.ts else { return false }
+        guard active, !loading, hasOlder, threadId == nil, let oldest = messages.first?.ts else { return false }
         loading = true
         defer { loading = false }
-        guard let more = try? await chat.loadOlder(rid: room.rid, kind: room.kind, oldestTs: oldest) else {
+        guard let more = try? await provider.loadOlder(room: room, oldestTs: oldest), active else {
             return false
         }
         hasOlder = more
@@ -114,49 +134,76 @@ public final class RoomModel {
     }
 
     public func send() async {
+        guard active else { return }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         draft = ""
         draftSave?.cancel()
-        chat.setDraft(rid: room.rid, threadId: threadId, text: "")
-        await chat.send(rid: room.rid, text: text, threadId: threadId)
+        do {
+            // Clear before awaiting the transport: words typed during an RC send must survive.
+            try provider.setDraft(rid: room.rid, thread: threadId, text: "")
+            try await provider.send(rid: room.rid, text: text, thread: threadId)
+            reload()
+        } catch {
+            if active {
+                draft = draft.isEmpty ? text : text + "\n" + draft
+                self.error = error.localizedDescription
+            }
+        }
     }
 
     public func retry(_ id: String) async {
-        await chat.retry(id: id)
+        guard active else { return }
+        do { try await provider.retry(id); reload() }
+        catch { self.error = error.localizedDescription }
+    }
+
+    public func abandon(_ id: String) {
+        guard active, let native = provider.native else { return }
+        do { try native.abandon(id: id); reload() }
+        catch { self.error = error.localizedDescription }
     }
 
     public func react(_ message: MessageItem, shortcode: String, add: Bool) async {
+        guard active, let chat else { return }
         try? await chat.react(messageId: message.id, shortcode: shortcode, add: add)
     }
 
     public func actions(for message: MessageItem) -> [MessageAction] {
+        guard active else { return [] }
+        guard let chat else { return [.copy] }
         if let known = actionsOf[message.id] { return known }
         let actions = chat.actions(rid: room.rid, messageId: message.id, inThread: threadId != nil)
         actionsOf[message.id] = actions
         return actions
     }
 
-    public var quickReactions: [String] { chat.quickReactions() }
+    public var quickReactions: [String] { chat?.quickReactions() ?? [] }
+
+    private func editableChat() throws -> Chat {
+        guard active, let chat else { throw RvError.Local(message: L("native.error")) }
+        return chat
+    }
 
     public func edit(_ message: MessageItem, text: String) async throws {
-        try await chat.edit(rid: room.rid, messageId: message.id, text: text)
+        try await editableChat().edit(rid: room.rid, messageId: message.id, text: text)
     }
 
     public func delete(_ message: MessageItem) async throws {
-        try await chat.delete(rid: room.rid, messageId: message.id)
+        try await editableChat().delete(rid: room.rid, messageId: message.id)
     }
 
     public func pin(_ message: MessageItem, _ on: Bool) async throws {
-        try await chat.pin(messageId: message.id, on: on)
+        try await editableChat().pin(messageId: message.id, on: on)
     }
 
     public func star(_ message: MessageItem, _ on: Bool) async throws {
-        try await chat.star(messageId: message.id, on: on)
+        try await editableChat().star(messageId: message.id, on: on)
     }
 
     /// Puts a quote of the message at the start of the draft.
     public func quote(_ message: MessageItem) async {
+        guard active, let chat else { return }
         let q = await chat.quote(
             kind: room.kind, slug: room.slug, rid: room.rid, messageId: message.id, text: message.text ?? "")
         draft = q + draft
@@ -164,10 +211,12 @@ public final class RoomModel {
 
     /// My latest message still editable, for the Up arrow in an empty composer.
     public func lastMine() -> MessageItem? {
-        messages.last { $0.mine && $0.system == nil && $0.delivery == .sent }
+        guard active, supportsEditing else { return nil }
+        return messages.last { $0.mine && $0.system == nil && $0.delivery == .sent }
     }
 
     public func attach(path: String, name: String, mime: String, caption: String?, temporary: Bool) async -> String? {
+        guard active, let chat else { return L("native.error") }
         do {
             try await chat.attach(
                 rid: room.rid, path: path, name: name, mime: mime, caption: caption, temporary: temporary)
@@ -187,11 +236,13 @@ public final class RoomModel {
     }
 
     public func retryUpload(_ id: String) async {
-        await chat.retryUpload(id: id)
+        guard active else { return }
+        await chat?.retryUpload(id: id)
     }
 
     public func discardUpload(_ id: String) {
-        chat.discardUpload(id: id)
+        guard active else { return }
+        chat?.discardUpload(id: id)
         refreshUploads()
     }
 }

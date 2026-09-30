@@ -308,6 +308,13 @@ fn event(e: SessionEvent) -> Event {
 
 #[uniffi::export]
 impl Chat {
+    /// Stop this account's event forwarding and transport when switching providers.
+    pub fn shutdown(&self) {
+        if let Some(task) = self.forward.lock().unwrap().take() {
+            task.abort();
+        }
+        self.session.shutdown();
+    }
     pub fn account(&self) -> Account {
         account(&self.session.info)
     }

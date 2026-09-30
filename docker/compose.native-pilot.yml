@@ -50,3 +50,12 @@ services:
       RV_PEER_PASSWORD: native-pilot-test-password
     command: [bash, scripts/native-smoke.sh]
     depends_on: [mobile]
+  swift:
+    image: rocket-vibe-swift
+    working_dir: /workspace/apps/desktop
+    volumes: ['..:/workspace']
+    environment:
+      RV_NATIVE_TEST_SERVER: http://server:3400
+      RV_NATIVE_TEST_PASSWORD: native-pilot-test-password
+    command: [bash, macos/scripts/native-smoke.sh]
+    depends_on: [server]

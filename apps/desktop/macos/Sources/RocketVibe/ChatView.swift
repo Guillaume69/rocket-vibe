@@ -112,6 +112,7 @@ struct RoomListView: View {
         .background(Vibe.deep.opacity(0.78))
         .searchable(text: $query, placement: .sidebar, prompt: L("spotlight.placeholder"))
         .task(id: query) { await search() }
+        .task(id: app.account?.key) { query = ""; found = [] }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 Wordmark(size: 21)
@@ -126,7 +127,7 @@ struct RoomListView: View {
 
     func search() async {
         let q = query.trimmingCharacters(in: .whitespaces)
-        guard !q.isEmpty, let chat = app.chat else {
+        guard !q.isEmpty, let provider = app.provider else {
             found = []
             return
         }
@@ -134,9 +135,13 @@ struct RoomListView: View {
         guard !Task.isCancelled else { return }
         searching = true
         defer { searching = false }
+        let expected = app.account?.key
         do {
-            found = try await chat.spotlight(query: q)
+            let results = try await provider.spotlight(query: q)
+            guard !Task.isCancelled, expected == app.account?.key else { return }
+            found = results
         } catch {
+            guard !Task.isCancelled, expected == app.account?.key else { return }
             found = []
             app.notice = L("spotlight.failed")
         }

@@ -45,8 +45,20 @@ La déconnexion révoque le jeton en ligne puis retire le compte local.
 `Client.native_login` et `native_resume` exposent le moteur par `NativeChat` :
 statut, messages, salons, brouillons, historique, outbox, DM et gestion des salons.
 L'API historique refuse d'envoyer des identifiants natifs aux routes Rocket.Chat.
-**Le raccordement aux modèles et vues SwiftUI reste ouvert** : le parcours natif
-est raccordé à GTK, pas encore à l'interface macOS SwiftUI.
+`ChatProvider` raccorde les deux transports aux modèles `AppModel` et `RoomModel` :
+les vues SwiftUI de connexion, salons, messages, recherche de personnes, DM,
+composeur et comptes restent communes. Le rendu Markdown, les groupes d'auteurs
+et les séparateurs de jour utilisent les mêmes objets UniFFI que Rocket.Chat,
+en conservant l'ordre du journal natif. Les avatars natifs restent des initiales.
+Les fonctions absentes du serveur sont désactivées dans ces vues.
+
+Le banc Swift utilise le vrai serveur PostgreSQL et un Secret Service déverrouillé,
+avec un compte jetable. Après génération et compilation par
+`apps/desktop/macos/scripts/check-linux.sh`, démarrer uniquement les services
+`postgres bootstrap server` du Compose pilote puis lancer
+`docker compose -f docker/compose.native-pilot.yml run --rm --no-deps swift`.
+Il exerce les modèles Swift et les bindings Rust réels ; l'affichage AppKit /
+SwiftUI complet est construit et lancé séparément par la CI macOS.
 
 ## Banc reproductible
 

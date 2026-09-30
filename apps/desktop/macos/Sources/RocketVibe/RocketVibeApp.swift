@@ -35,7 +35,7 @@ struct RocketVibeApp: App {
             Task { await app.open(rid, message: message) }
         }
         notifier.onReply = { [app] rid, text in
-            Task { await app.chat?.send(rid: rid, text: text, threadId: nil) }
+            Task { try? await app.provider?.send(rid: rid, text: text) }
         }
         app.onIncoming = { [app] incoming in
             let watching = NSApp.isActive && app.room?.rid == incoming.rid

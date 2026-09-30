@@ -354,6 +354,12 @@ impl NativeSession {
     fn ready(&self) -> Result<(), Error> {
         if self.verified.load(Ordering::SeqCst) { Ok(()) } else { Err(Error::Protocol("offline")) }
     }
+    pub async fn users(&self) -> Result<Vec<rv_protocol::User>, Error> {
+        self.ready()?;
+        let users = self.client.users().await?;
+        self.ready()?;
+        Ok(users)
+    }
     pub async fn history(&self, rid: &str, older: bool) -> Result<bool, Error> {
         self.ready()?;
         let before = if older { self.store.oldest(rid)? } else { None };

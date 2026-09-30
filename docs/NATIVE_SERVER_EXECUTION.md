@@ -82,12 +82,12 @@ Les instructions et limites sont dans le [guide pilote](NATIVE_MOBILE_PILOT.md).
 - [x] Bascule entre comptes et transports, capacités absentes désactivées.
 - [x] Brouillons mobiles persistants, protégés contre les écritures d'une ancienne génération.
 - [x] API UniFFI explicite ; la connexion historique ne remet pas un jeton natif à RC.
-- [ ] Raccordement de cette API aux modèles et écrans SwiftUI.
+- [x] Raccordement de cette API aux modèles et écrans SwiftUI.
 - [x] Banc PostgreSQL éphémère mobile / bureau et smoke test du vrai binaire GTK.
 - [x] CI étendue au workspace bureau, au banc GTK et aux tests du cœur sous Windows.
 
 Le [guide bureau](NATIVE_DESKTOP_PILOT.md) décrit le parcours et le banc. La validation
-Android / Windows sur appareils et le raccordement SwiftUI restent ouverts.
+Android / Windows sur appareils reste ouverte.
 
 ### Vérifications locales du troisième incrément
 
@@ -105,6 +105,27 @@ Android / Windows sur appareils et le raccordement SwiftUI restent ouverts.
 Le banc ne fournit pas de trousseau système : la connexion fonctionne pendant
 le test, mais la reprise d'un jeton depuis le stockage sécurisé réel reste à exercer.
 
+## Quatrième incrément : SwiftUI partagé
+
+- [x] Connexion et reprise par genre de compte, avant remise des identifiants.
+- [x] Même AppModel / RoomModel et mêmes vues SwiftUI pour les deux fournisseurs.
+- [x] Même rendu de message UniFFI, regroupement et Markdown, ordre natif conservé.
+- [x] Brouillons persistants, envoi hors ligne, reprise d'outbox et DM.
+- [x] Arrêt des anciens transports, gardes de session et modèles quittés inactifs.
+- [x] Fonctions natives absentes désactivées, compte / langue et navigation conservés.
+- [x] Backend Secret Service réel pour les bindings Linux du banc de tests.
+- [x] Banc Swift / PostgreSQL / stockage sécurisé ajouté à la CI.
+
+Le banc Swift vérifie la connexion refusée puis réussie, l'envoi, l'intention hors
+ligne reprise une seule fois, le brouillon au changement de compte, le rejet d'un
+ancien modèle, le DM et la suppression du compte à la déconnexion. Il utilise les
+vrais modèles et le vrai cœur, sans serveur factice. Il ne remplace pas un essai
+manuel de l'interface native sur un Mac connecté au serveur.
+
+Vérification locale : 200 tests Rust du cœur / bindings, Clippy et formatage sans
+erreur ; compilation Swift, 6 tests locaux et scénario natif réel réussis. Les deux
+tests d'intégration Rocket.Chat sont ignorés en l'absence de son serveur de test.
+
 ## Pour fermer J0
 
 - [ ] Inventaire exhaustif des appels Rocket.Chat dans les écrans et modules natifs.
@@ -118,8 +139,7 @@ le test, mais la reprise d'un jeton depuis le stockage sécurisé réel reste à
 - [x] Pilote mobile : sonde, connexion, stockage sécurisé, SQLite et outbox.
 - [x] Intégration mobile au contrat fournisseur et aux écrans partagés, brouillons
   persistants et navigation salon / DM / comptes.
-- [ ] Fournisseur bureau dans `rv-core`, exposition GTK / `rv-ffi` / SwiftUI.
-  Le moteur, GTK commun et l'API UniFFI sont livrés ; SwiftUI reste à raccorder.
+- [x] Fournisseur bureau dans `rv-core`, exposition GTK / `rv-ffi` / SwiftUI.
 - [x] Application atomique des lots et curseurs dans le cache SQLite mobile pilote.
 - [x] Même garantie dans le cache bureau pilote.
 - [ ] Parcours réel Android ↔ Windows, avec réseau coupé et processus clients tués.

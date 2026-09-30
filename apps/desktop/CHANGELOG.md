@@ -16,6 +16,11 @@ section here.
   exercising the mobile runner and actual GTK application.
 - Formatting controls scroll horizontally in narrow windows so the send button
   stays visible.
+- Rocket.Chat and RocketVibe in the existing SwiftUI interface: shared login,
+  room and message views, account switching, durable offline sends, drafts and DMs.
+  Missing native capabilities are disabled; callbacks from a previous account stop
+  affecting the active view. A real Secret Service keyring exercises secure resume
+  in the Linux view-model integration bench.
 
 ## [0.5.0] - 2026-09-30
 

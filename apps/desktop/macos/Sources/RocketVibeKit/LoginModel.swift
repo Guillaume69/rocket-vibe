@@ -63,15 +63,26 @@ public final class LoginModel {
     }
 
     /// Signs in, or asks for the code the server wants.
-    func submit(client: Client) async -> Chat? {
+    func submit(client: Client) async -> ChatProvider? {
+        guard !busy else { return nil }
+        let (address, username, secret, challenge, answer) =
+            (server, user.trimmingCharacters(in: .whitespaces), password, method, code)
         let asking = method != nil
         error = nil
         busy = true
         defer { busy = false }
         do {
-            let chat = try await client.login(
-                server: server, user: user.trimmingCharacters(in: .whitespaces), password: password,
-                method: method, code: asking ? code : nil)
+            let chat: ChatProvider
+            let native = try await client.isNativeServer(server: address)
+            guard address == server else { return nil }
+            if native {
+                chat = .rocketVibe(try await client.nativeLogin(
+                    server: address, user: username, password: secret))
+            } else {
+                chat = .rocketChat(try await client.login(
+                    server: address, user: username, password: secret,
+                    method: challenge, code: asking ? answer : nil))
+            }
             method = nil
             code = ""
             password = ""

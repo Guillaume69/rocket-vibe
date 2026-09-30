@@ -36,7 +36,7 @@ struct RoomView: View {
         }
         .onDrop(of: [.fileURL, .plainText], isTargeted: nil) { providers in
             for provider in providers {
-                if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) && model.supportsFiles {
                     _ = provider.loadObject(ofClass: URL.self) { url, _ in
                         if let url { DispatchQueue.main.async { staged.append(url) } }
                     }
@@ -51,6 +51,7 @@ struct RoomView: View {
         .environment(\.openURL, OpenURLAction { url in handle(url) })
         .sheet(item: $panel) { PanelView(panel: $0, model: model) }
         .navigationSubtitle(subtitle)
+        .onChange(of: model.error) { _, error in if let error { app.notice = error } }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 if model.loading || app.connection != .online {
@@ -60,14 +61,21 @@ struct RoomView: View {
                     Button(action: call) { Image(systemName: "video") }.help(L("room.call"))
                 }
                 Button { panel = .marked } label: { Image(systemName: "pin") }.help(L("marked.title"))
+                    .disabled(app.chat == nil)
                 Button { panel = .search } label: { Image(systemName: "magnifyingglass") }.help(L("search.title"))
                     .keyboardShortcut("f", modifiers: .command)
+                    .disabled(app.chat == nil)
                 Button { panel = .info } label: { Image(systemName: "info.circle") }.help(L("info.room"))
+                    .disabled(app.chat == nil)
             }
         }
         .task(id: model.rid) {
             callable = false
-            if !model.room.readOnly, let chat = app.chat { callable = await chat.callAvailable() }
+            let expected = app.account?.key
+            if !model.room.readOnly, let chat = app.chat {
+                let available = await chat.callAvailable()
+                if !Task.isCancelled, expected == app.account?.key { callable = available }
+            }
         }
     }
 
@@ -106,6 +114,7 @@ struct RoomView: View {
     func handle(_ url: URL) -> OpenURLAction.Result {
         let text = url.absoluteString
         if text.hasPrefix("rv-user:") {
+            guard app.chat != nil else { return .handled }
             panel = .profile(String(text.dropFirst("rv-user:".count)))
             return .handled
         }
@@ -492,6 +501,9 @@ struct MessageRow: View, Equatable {
         }
         ForEach(actions.filter { $0 != .react }, id: \.self) { action in
             Button(title(action), role: action == .delete ? .destructive : nil) { run(action) }
+        }
+        if message.delivery == .failed, model?.canAbandon == true {
+            Button(L("native.abandon")) { model?.abandon(message.id) }
         }
     }
 

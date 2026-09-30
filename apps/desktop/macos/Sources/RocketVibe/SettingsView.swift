@@ -28,18 +28,20 @@ struct SettingsView: View {
                     Button(L("settings.add_account")) { app.showLogin(error: nil) }
                     Spacer()
                     Button(L("rooms.sign_out"), role: .destructive) { Task { await app.signOut() } }
-                        .disabled(app.chat == nil)
+                        .disabled(!app.signedIn)
                 }
             }
             if app.chat != nil {
                 MyProfileSection()
             }
-            Section(L("e2e.status")) {
-                HStack {
-                    Text(app.e2eUnlocked ? L("e2e.unlocked") : L("e2e.locked"))
-                    Spacer()
-                    if app.e2eUnlocked {
-                        Button(L("e2e.lock")) { app.lock() }
+            if app.chat != nil {
+                Section(L("e2e.status")) {
+                    HStack {
+                        Text(app.e2eUnlocked ? L("e2e.unlocked") : L("e2e.locked"))
+                        Spacer()
+                        if app.e2eUnlocked {
+                            Button(L("e2e.lock")) { app.lock() }
+                        }
                     }
                 }
             }
@@ -55,7 +57,7 @@ struct SettingsView: View {
                 Text(L("settings.language_restart")).font(.caption).foregroundStyle(.secondary)
             }
             Section(L("settings.notifications")) {
-                NotificationPreference()
+                if app.chat != nil { NotificationPreference() }
                 Button(L("notify.test")) { Notifier.shared.test() }
                 Button(L("notify.system_settings")) {
                     if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {

@@ -74,6 +74,7 @@ struct Composer: View {
                     Button(action: pick) { Image(systemName: "paperclip").foregroundStyle(Vibe.muted) }
                         .buttonStyle(.borderless)
                         .help(L("attach.choose"))
+                        .disabled(!model.supportsFiles)
                         .padding(.bottom, 5)
                     ComposerField(
                         text: $model.draft,
@@ -81,7 +82,7 @@ struct Composer: View {
                         bridge: bridge,
                         onSubmit: send,
                         onUpInEmpty: editLast,
-                        onPasteFiles: { staged.append(contentsOf: $0) },
+                        onPasteFiles: { if model.supportsFiles { staged.append(contentsOf: $0) } },
                         onCursor: suggest,
                         onKey: key
                     )
@@ -106,6 +107,7 @@ struct Composer: View {
                         Button { Task { await startVoice() } } label: { Image(systemName: "mic").foregroundStyle(Vibe.muted) }
                             .buttonStyle(.borderless)
                             .help(L("voice.record"))
+                            .disabled(!model.supportsFiles)
                             .padding(.bottom, 5)
                     }
                 }
@@ -201,6 +203,7 @@ struct Composer: View {
     }
 
     func pick() {
+        guard model.supportsFiles else { return }
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
@@ -212,6 +215,7 @@ struct Composer: View {
     }
 
     func startVoice() async {
+        guard model.supportsFiles else { return }
         let dir = URL(fileURLWithPath: app.client.cacheDir()).appendingPathComponent("outgoing")
         if let error = await recorder.start(in: dir) { app.notice = error }
     }

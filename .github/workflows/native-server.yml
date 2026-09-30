@@ -148,3 +148,49 @@ jobs:
             apps/desktop/target
           key: native-desktop-core-windows-${{ hashFiles('apps/desktop/Cargo.lock') }}
       - run: cargo test --locked -p rv-core
+
+  native-swift-models:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .cache/native-swift-cargo
+            apps/desktop/target/swift-linux
+            apps/desktop/macos/.build/linux
+          key: native-swift-linux-${{ hashFiles('apps/desktop/Cargo.lock', 'apps/desktop/macos/Package.swift') }}
+          restore-keys: native-swift-linux-
+      - name: Build Swift toolchain and disposable native server
+        run: |
+          docker build -t rocket-vibe-swift apps/desktop/macos/docker
+          docker build -t rocketvibe-native-server -f apps/server/Dockerfile .
+      - name: Generate actual bindings and test shared view models
+        run: |
+          mkdir -p .cache/native-swift-cargo artifacts
+          docker run --rm -v "$PWD:/workspace" -v "$PWD/.cache/native-swift-cargo:/cargo" \
+            -w /workspace/apps/desktop -e CARGO_HOME=/cargo \
+            -e CARGO_TARGET_DIR=/workspace/apps/desktop/target/swift-linux \
+            -e CC=clang -e CXX=clang++ -e CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=clang \
+            rocket-vibe-swift bash -ec '
+              lib=$(macos/scripts/generate.sh | tail -1)
+              cd macos
+              export RV_FFI_LIB_DIR="$lib"
+              swift build --scratch-path .build/linux
+              swift test --scratch-path .build/linux
+            '
+      - name: Swift models against PostgreSQL with real secure storage
+        run: |
+          docker compose -f docker/compose.native-pilot.yml up -d postgres bootstrap server
+          docker compose -f docker/compose.native-pilot.yml run --rm --no-deps swift
+      - name: Integration logs and cleanup
+        if: always()
+        run: |
+          docker compose -f docker/compose.native-pilot.yml logs --no-color > artifacts/native-swift-pilot.log
+          docker compose -f docker/compose.native-pilot.yml down
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-swift-pilot
+          path: artifacts/native-swift-*

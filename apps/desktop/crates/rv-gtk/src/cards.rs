@@ -307,7 +307,8 @@ pub fn link_preview(session: &Arc<Session>, preview: &LinkPreview) -> gtk::Widge
     }
 }
 
-/// A YouTube, Dailymotion or Vimeo link: thumbnail and title, opened in the browser.
+/// A YouTube, Dailymotion or Vimeo link: thumbnail and title. The thumbnail
+/// plays the video in the card, the title opens it in the browser.
 pub fn video_link(session: &Arc<Session>, video: &VideoLink) -> gtk::Widget {
     let card = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -315,13 +316,18 @@ pub fn video_link(session: &Arc<Session>, video: &VideoLink) -> gtk::Widget {
         .css_classes(["link-card"])
         .halign(gtk::Align::Start)
         .build();
-    card.append(&label(video.provider, &["link-site"]));
+    let heading = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(3).build();
+    heading.append(&label(video.provider, &["link-site"]));
     if let Some(title) = &video.title {
-        card.append(&label(title, &["link-title"]));
+        heading.append(&label(title, &["link-title"]));
     }
     if let Some(author) = &video.author {
-        card.append(&label(author, &["link-description"]));
+        heading.append(&label(author, &["link-description"]));
     }
+    heading.set_tooltip_text(Some(&video.url));
+    let url = video.url.clone();
+    on_click(&heading, move |w| open_uri(w, &url));
+    card.append(&heading);
     let frame = match &video.thumbnail {
         Some(thumbnail) => external_image(session, thumbnail, 300, 169),
         None => widgets::media_frame(300, 169, &["preview-image"]),
@@ -329,9 +335,29 @@ pub fn video_link(session: &Arc<Session>, video: &VideoLink) -> gtk::Widget {
     frame.add_overlay(&widgets::play_badge(56));
     frame.set_margin_top(4);
     card.append(&frame);
-    card.set_tooltip_text(Some(&video.url));
-    let url = video.url.clone();
-    on_click(&card, move |w| open_uri(w, &url));
+    let (weak_card, weak_frame) = (card.downgrade(), frame.downgrade());
+    let (provider, id, url) = (video.provider, video.id.clone(), video.url.clone());
+    let play: std::rc::Rc<dyn Fn() -> bool> = std::rc::Rc::new(move || {
+        let (Some(card), Some(thumbnail)) = (weak_card.upgrade(), weak_frame.upgrade()) else { return false };
+        if thumbnail.parent().as_ref() != Some(card.upcast_ref()) {
+            return false;
+        }
+        let player = widgets::media_frame(480, 270, &["preview-image", "player-frame"]);
+        player.set_margin_top(4);
+        card.insert_child_after(&player, Some(&thumbnail));
+        card.remove(&thumbnail);
+        if crate::player::start(&player, provider, &id) {
+            return true;
+        }
+        card.insert_child_after(&thumbnail, Some(&player));
+        card.remove(&player);
+        open_uri(&card, &url);
+        false
+    });
+    crate::player::set_last(play.clone());
+    on_click(&frame, move |_| {
+        play();
+    });
     card.upcast()
 }
 

@@ -63,11 +63,11 @@ fn make_page(hwnd: HWND) {
     }
 }
 
-fn wide(text: &str) -> Vec<u16> {
+pub(crate) fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-fn open_in_browser(url: &str) {
+pub(crate) fn open_in_browser(url: &str) {
     let url = wide(url);
     // SAFETY: NUL-terminated wide strings that outlive the call.
     unsafe {

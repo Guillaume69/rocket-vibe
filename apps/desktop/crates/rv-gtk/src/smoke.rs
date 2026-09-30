@@ -12,6 +12,8 @@
 //!                          replies in a thread, then opens the actions menu; texts carry <tag>
 //!   RV_SMOKE_DRAFTS=<other room>  completes `@bo` and `:smil`, leaves a draft, opens the
 //!                          other room and comes back: the draft must be restored
+//!   RV_SMOKE_COMMANDS=<tag>  completes `/shr`, runs `/join` on a missing channel (the
+//!                          server's private answer must show), then sends `/shrug <tag>`
 //!   RV_SMOKE_FILES=1       fetches every file attached in the room to the local cache
 //!   RV_SMOKE_UPLOAD="<path>|<caption>"  stages the file in the composer, types the caption and
 //!                          sends (RV_SMOKE_UPLOAD_HOLD=1: left staged, for a screenshot)
@@ -158,6 +160,12 @@ pub fn install(window: &Rc<AppWindow>) {
                 let chat = w.chat.clone();
                 let back = rid.clone();
                 glib::timeout_add_local_once(Duration::from_millis(2000), move || draft_checks(chat, back, other));
+            }
+            if let Ok(tag) = std::env::var("RV_SMOKE_COMMANDS")
+                && !tag.is_empty()
+            {
+                let chat = w.chat.clone();
+                glib::timeout_add_local_once(Duration::from_millis(3000), move || command_checks(chat, tag));
             }
             if std::env::var("RV_SMOKE_FILES").as_deref() == Ok("1") {
                 let chat = w.chat.clone();
@@ -495,6 +503,38 @@ fn draft_checks(chat: std::rc::Rc<crate::chat::ChatPage>, back: String, other: S
         c.open_room(&back);
         check("draft restored", c.composer().text() == kept, c.composer().text());
         c.composer().set_text("");
+    }));
+    in_sequence(chat, steps);
+}
+
+fn command_checks(chat: std::rc::Rc<crate::chat::ChatPage>, tag: String) {
+    let mut steps: std::collections::VecDeque<Check> = std::collections::VecDeque::new();
+    steps.push_back(Box::new(|c| {
+        c.composer().set_text("");
+        c.composer().type_text("/shr");
+    }));
+    steps.push_back(Box::new(|c| {
+        let offered = c.composer().offered();
+        check("command offered", offered.first().is_some_and(|o| o == "/shrug"), &offered);
+        c.composer().accept_first();
+        check("command inserted", c.composer().text() == "/shrug ", c.composer().text());
+        c.composer().set_text("");
+    }));
+    let missing = format!("{tag}-missing");
+    steps.push_back(Box::new(move |c| {
+        c.composer().set_text(&format!("/join #{missing}"));
+        c.composer().submit_now();
+    }));
+    for _ in 0..75 {
+        steps.push_back(Box::new(|_| {}));
+    }
+    let answered = format!("{tag}-missing");
+    steps.push_back(Box::new(move |c| {
+        let note = c.composer().private_note();
+        check("command answered", note.as_deref().is_some_and(|n| n.contains(&answered)), &note);
+        check("command draft cleared", c.composer().text().is_empty(), c.composer().text());
+        c.composer().set_text(&format!("/shrug {tag}"));
+        c.composer().submit_now();
     }));
     in_sequence(chat, steps);
 }

@@ -14,8 +14,6 @@ the same rv-core, with these differences:
   Emoji & Symbols also works in its composer.
 - Voice messages leave as AAC (`.m4a`), as the Android app sends them, not
   Ogg/Opus.
-- No slash commands, and its video cards open the browser instead of
-  playing in the card.
 - Proven so far by rv-ffi's and the view models' tests against the test
   server, and by CI on a Mac (build, signature, notarization, sample
   messages, soak): its screens have not yet been walked against a server

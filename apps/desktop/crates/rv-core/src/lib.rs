@@ -23,6 +23,7 @@ pub mod normalize;
 pub mod notify;
 pub mod outbox;
 pub mod parse;
+pub mod player;
 pub mod rest;
 pub mod rooms;
 pub mod runs;

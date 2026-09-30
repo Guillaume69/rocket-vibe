@@ -13,7 +13,12 @@
 Ajouter au monorepo un serveur de messagerie RocketVibe en Rust, auto-hébergeable,
 avec une API HTTP et un protocole WebSocket propres. Les clients existants accèdent
 à ce serveur par un nouveau fournisseur `rocketvibe`, tout en conservant le
-fournisseur Rocket.Chat pendant la transition.
+fournisseur Rocket.Chat. Les deux restent utilisables dans la même application,
+par compte, y compris après la transition.
+
+**Contrainte d'interface :** les clients bureau et mobile conservent leurs écrans
+et composants actuels. Le fournisseur change le transport, les données et les
+capacités ; il ne crée pas de nouveau client ni de messagerie parallèle.
 
 Le serveur utilise Axum, Tokio et PostgreSQL via SQLx. Il porte les comptes, les
 permissions, les salons, les messages, les fichiers, le journal de synchronisation

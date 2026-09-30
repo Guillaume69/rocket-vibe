@@ -38,14 +38,7 @@ pub fn set_active(info: &SessionInfo) {
 
 fn parse(secret: &[u8]) -> Option<SessionInfo> {
     let v: Value = serde_json::from_slice(secret).ok()?;
-    let field = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
-    let info = SessionInfo {
-        base_url: field("baseUrl"),
-        user_id: field("userId"),
-        username: field("username"),
-        auth_token: field("authToken"),
-    };
-    (!info.base_url.is_empty() && !info.auth_token.is_empty() && !info.user_id.is_empty()).then_some(info)
+    SessionInfo::from_secret(&v)
 }
 
 /// Every account signed in on this machine, the active one first.
@@ -90,12 +83,7 @@ pub async fn e2e_key(info: &SessionInfo) -> Option<String> {
 }
 
 async fn save_with(info: &SessionInfo, jwk: Option<&str>) {
-    let mut secret = json!({
-        "baseUrl": info.base_url,
-        "userId": info.user_id,
-        "username": info.username,
-        "authToken": info.auth_token,
-    });
+    let mut secret = info.secret();
     if let Some(jwk) = jwk {
         secret["e2eKey"] = json!(jwk);
     }

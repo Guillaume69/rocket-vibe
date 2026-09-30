@@ -70,6 +70,8 @@ export class NativeChat {
       if (!state || state.instance_id !== this.session.nativeInstanceId || state.data_epoch !== this.session.nativeDataEpoch) {
         const snapshot = await this.transport.snapshot();
         if (!alive()) return;
+        checkIdentity(this.session, await this.transport.discover());
+        if (!alive()) return;
         await this.store.applySnapshot(snapshot);
       } else {
         try {
@@ -83,6 +85,8 @@ export class NativeChat {
         } catch (error) {
           if (!(error instanceof NativeError) || error.code !== 'sync_reset_required') throw error;
           const snapshot = await this.transport.snapshot();
+          if (!alive()) return;
+          checkIdentity(this.session, await this.transport.discover());
           if (!alive()) return;
           await this.store.applySnapshot(snapshot);
         }
@@ -191,10 +195,12 @@ export class NativeChat {
   }
   async direct(username: string): Promise<string> {
     this.ready();
+    const generation = this.generation;
     const user = (await this.transport.users()).find(user => user.username === username.trim());
     if (!user) throw new NativeError(404,'user_not_found');
     this.ready();
     const room = await this.transport.direct({user_id:user.id});
+    if (this.stopped || generation !== this.generation) throw new NativeError(0,'session_closed');
     this.refresh(); return room.id;
   }
   async invite(rid: string, username: string): Promise<void> {
@@ -203,5 +209,12 @@ export class NativeChat {
     if (!user) throw new NativeError(404,'user_not_found');
     this.ready();
     await this.transport.addMember(rid,user.id);
+  }
+  async users(): Promise<import('./protocol.generated.ts').User[]> {
+    this.ready();
+    const generation = this.generation;
+    const users = await this.transport.users();
+    if (this.stopped || generation !== this.generation) throw new NativeError(0,'session_closed');
+    return users;
   }
 }

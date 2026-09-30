@@ -42,7 +42,7 @@ public final class LoginModel {
                 probeBad = true
                 return
             }
-            var facts = ["Rocket.Chat \(p.version)"]
+            var facts = ["\(p.genre == "rocketvibe" ? "RocketVibe" : "Rocket.Chat") \(p.version)"]
             if p.twoFactor { facts.append(L("login.probe_2fa")) }
             if p.e2e { facts.append(L("login.probe_e2e")) }
             probeLine = facts.joined(separator: " · ")

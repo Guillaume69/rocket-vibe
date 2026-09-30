@@ -18,6 +18,7 @@ pub mod links;
 pub mod live;
 pub mod markdown;
 pub mod media;
+pub mod native;
 pub mod normalize;
 pub mod notify;
 pub mod outbox;

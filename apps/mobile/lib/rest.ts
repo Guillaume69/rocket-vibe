@@ -199,6 +199,7 @@ function erreurAnnulation(): Error {
 }
 
 export class ClientRest {
+  genre: import('./fournisseur.ts').Genre = 'rocketchat';
   readonly baseUrl: string;
   identifiants: Identifiants | null = null;
 

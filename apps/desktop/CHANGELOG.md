@@ -7,6 +7,16 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- Rocket.Chat and RocketVibe accounts in the existing GTK chat interface: login, rooms, invitations,
+  DMs, text, history, persistent drafts and a durable SQLite outbox. Native identity
+  pins and caches are kept separate from Rocket.Chat accounts.
+- Explicit UniFFI native-chat API and a disposable PostgreSQL integration bench
+  exercising the mobile runner and actual GTK application.
+- Formatting controls scroll horizontally in narrow windows so the send button
+  stays visible.
+
 ## [0.5.0] - 2026-09-30
 
 ### Added

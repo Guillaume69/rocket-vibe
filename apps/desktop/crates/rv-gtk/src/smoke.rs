@@ -6,6 +6,7 @@
 //!   RV_SMOKE_EXPECT        `|`-separated texts the open room must show by then
 //!   RV_SMOKE_EXPECT_ABSENT `|`-separated texts it must NOT show
 //!   RV_SMOKE_SIZE          `WIDTHxHEIGHT` of the window
+//!   RV_SMOKE_NATIVE=1      asserts the native provider in the existing chat UI
 //!   RV_SMOKE_COMPOSER=1    checks the composer: no window handle around it, a scrollbar
 //!                          only once it overflows, one line high when short
 //!   RV_SMOKE_ACTIONS=<tag>  reacts to bob's last message, quotes it, edits my last one,
@@ -131,6 +132,7 @@ pub fn install(window: &Rc<AppWindow>) {
         second_account(window, server, user, password);
     }
 
+    let native = std::env::var("RV_SMOKE_NATIVE").as_deref() == Ok("1");
     if !room.is_empty() {
         let weak = Rc::downgrade(window);
         let opened = Rc::new(Cell::new(false));
@@ -318,6 +320,14 @@ pub fn install(window: &Rc<AppWindow>) {
             w.chat.has_new_marker()
         );
         let texts = w.chat.message_texts();
+        if native {
+            check("native session", w.chat.native_session().is_some(), texts.len());
+            let root = w.chat.composer_rc().root.clone();
+            let fits = root
+                .compute_bounds(&w.window)
+                .is_some_and(|r| r.x() >= 0.0 && r.x() + r.width() <= w.window.width() as f32);
+            check("composer fits window", fits, root.width() as usize);
+        }
         for wanted in list("RV_SMOKE_EXPECT") {
             let found = texts.iter().filter(|t| t.contains(&wanted)).count();
             println!(
@@ -348,6 +358,9 @@ pub fn install(window: &Rc<AppWindow>) {
             gtk::gdk::Display::default().is_some_and(|d| gtk::IconTheme::for_display(&d).has_icon(crate::APP_ID));
         println!("smoke: app icon found {icon}");
         println!("smoke: screenshot saved {}", saved.unwrap_or(false));
+        if native && !saved.unwrap_or(false) {
+            FAILED.store(true, Ordering::SeqCst);
+        }
         w.window.application().expect("application").quit();
     });
 }

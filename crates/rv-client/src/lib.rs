@@ -125,6 +125,42 @@ impl NativeClient {
     pub async fn me(&self) -> Result<User, Error> {
         self.get("/api/v1/me").await
     }
+    pub async fn users(&self) -> Result<Vec<User>, Error> {
+        self.get("/api/v1/users").await
+    }
+    pub async fn add_member(&self, room: &str, user: &str) -> Result<(), Error> {
+        if !path_segment(room) || !path_segment(user) {
+            return Err(Error::InvalidUrl);
+        }
+        self.empty(
+            Method::POST,
+            &format!("/api/v1/rooms/{room}/members/{user}"),
+            true,
+        )
+        .await
+    }
+    pub async fn logout(&self) -> Result<(), Error> {
+        self.empty(Method::POST, "/api/v1/auth/logout", true).await
+    }
+    async fn empty(&self, method: Method, path: &str, body: bool) -> Result<(), Error> {
+        let mut request = self
+            .http
+            .request(method, format!("{}{path}", self.base))
+            .bearer_auth(self.token.as_ref().ok_or(Error::SessionMissing)?);
+        if body {
+            request = request.json(&());
+        }
+        let response = request.send().await?;
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let error: ApiError = response.json().await?;
+            return Err(Error::Server {
+                status,
+                code: error.code,
+            });
+        }
+        Ok(())
+    }
     pub async fn rooms(&self) -> Result<Vec<Room>, Error> {
         self.get("/api/v1/rooms").await
     }

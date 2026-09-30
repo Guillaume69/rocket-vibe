@@ -1,5 +1,5 @@
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
-import { and, count, desc, eq, gt, isNull, min, or } from 'drizzle-orm';
+import { and, count, eq, gt, isNull, min, or } from 'drizzle-orm';
 import { useRequeteVive } from '../../ui/requeteVive.ts';
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -69,6 +69,7 @@ import { usePresence } from '../../ui/presence.ts';
 import { useT } from '../../ui/i18n.ts';
 import { useSession } from '../../ui/session.tsx';
 import { useSynchro } from '../../ui/synchro.tsx';
+import { ordreMessages } from '../../ui/ordreMessages.ts';
 import { type Couleurs, POLICES, useCouleurs } from '../../ui/theme.ts';
 
 /**
@@ -311,7 +312,7 @@ function Salon({
       // `id` rend l'ordre DÉTERMINISTE, identique quel que soit le chargement.
       // (Rocket.Chat n'expose aucun signal sous la milliseconde : l'ordre exact
       // d'un vrai ex æquo reste indécidable, mais au moins il est stable.)
-      .orderBy(desc(messages.horodatage), desc(messages.id))
+      .orderBy(...ordreMessages(fournisseur.ordreMessages))
       .limit(limite),
     [rid, limite],
   );
@@ -655,8 +656,8 @@ function Salon({
     }
     enVol.current = true;
     chargerHistorique(type, new Date(plusVieux.horodatage).toISOString())
-      .then(({ plusAncien }) => {
-        if (pageARecule(plusAncien, plusVieux.horodatage)) {
+      .then(({ plusAncien, aRecule }) => {
+        if (aRecule ?? pageARecule(plusAncien, plusVieux.horodatage)) {
           setLimite((l) => l + PAGE);
         } else {
           passeEpuise.current = true;
@@ -770,8 +771,8 @@ function Salon({
     [routeur],
   );
 
-  const reessayer = useCallback(() => {
-    envoi.traiter().catch(() => {});
+  const reessayer = useCallback((id?: string) => {
+    (id && envoi.reessayer ? envoi.reessayer(id) : envoi.traiter()).catch(() => {});
   }, [envoi]);
   const abandonner = useCallback(
     (id: string) => {
@@ -820,22 +821,22 @@ function Salon({
             message={item}
             client={client}
             statutEnvoi={etatEnvoi?.statut ?? null}
-            surReessayer={etatEnvoi?.statut === 'echec' ? reessayer : null}
+            surReessayer={etatEnvoi?.statut === 'echec' ? () => reessayer(item.id) : null}
             surAbandonner={etatEnvoi?.statut === 'echec' ? abandonner : null}
             // Pas d'actions sur une ligne d'outbox : son `_id` client n'a pas
             // été accepté par le serveur — `chat.delete`/`chat.update` dessus ne
             // peuvent qu'échouer. Ses vraies actions sont réessayer/abandonner.
             surAppuiLong={etatEnvoi === undefined ? ouvrirActions : null}
-            surOuvrirFil={ouvrirFil}
+            surOuvrirFil={fournisseur.capacites.fils === false ? null : ouvrirFil}
             moi={moi}
-            surReagir={etatEnvoi === undefined ? reagir : null}
+            surReagir={etatEnvoi === undefined && fournisseur.capacites.reactions !== false ? reagir : null}
             suite={suites.has(item.id)}
             heureRepetee={heuresRepetees.has(item.id)}
           />
         </View>
       );
     },
-    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, ouvrirFil, t, moi, reagir, suites, heuresRepetees, surligne],
+    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, ouvrirFil, t, moi, reagir, suites, heuresRepetees, surligne, fournisseur],
   );
 
   return (
@@ -973,7 +974,7 @@ function Salon({
                 {t('salon.reponseFilNonEnvoyee')}
               </Text>
             </Pressable>
-            <Pressable onPress={reessayer}>
+            <Pressable onPress={() => reessayer()}>
               <Text style={[styles.heure, { color: c.accent }]}>{t('salon.reessayer')}</Text>
             </Pressable>
             <Pressable onPress={() => abandonner(s.id)}>
@@ -999,7 +1000,7 @@ function Salon({
             c={c}
             rid={rid}
             envoi={envoi}
-            fichiers={fichiers}
+            fichiers={fournisseur.capacites.fichiers === false ? null : fichiers}
             client={client}
             candidatsMention={candidatsMention}
             lectureSeule={salon.lectureSeule}

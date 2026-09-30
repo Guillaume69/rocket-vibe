@@ -221,9 +221,37 @@ pub struct MessageList {
     revealing: RefCell<Option<String>>,
     /// The message marked by the last reveal.
     highlighted: RefCell<Option<String>>,
+    native_me: RefCell<String>,
 }
 
 impl MessageList {
+    /// The existing renderer, preserving native server sequence order.
+    pub fn set_native_rows(self: &Rc<Self>, fresh: Vec<MessageRow>, me: &str) {
+        let fresh = rows::group(fresh);
+        if *self.rows.borrow() == fresh {
+            return;
+        }
+        self.native_me.replace(me.to_owned());
+        let old = self.rows.replace(fresh.clone());
+        let prefix = old.iter().zip(&fresh).take_while(|(a, b)| a == b).count();
+        let suffix = old[prefix..].iter().rev().zip(fresh[prefix..].iter().rev()).take_while(|(a, b)| a == b).count();
+        let objects: Vec<_> =
+            fresh[prefix..fresh.len() - suffix].iter().cloned().map(glib::BoxedAnyObject::new).collect();
+        self.settling.set(self.settling.get() + 1);
+        self.store.splice(prefix as u32, (old.len() - prefix - suffix) as u32, &objects);
+        if self.pinned.get() {
+            self.scroll_to_bottom();
+        }
+        let (view, store, pinned, settling) =
+            (self.view.clone(), self.store.clone(), self.pinned.clone(), self.settling.clone());
+        glib::timeout_add_local_once(std::time::Duration::from_millis(120), move || {
+            let n = store.n_items();
+            if pinned.get() && n > 0 {
+                view.scroll_to(n - 1, gtk::ListScrollFlags::NONE, None);
+            }
+            settling.set(settling.get() - 1);
+        });
+    }
     pub fn new(session: Shared<Arc<Session>>) -> Rc<Self> {
         let store = gio::ListStore::new::<glib::BoxedAnyObject>();
         let view = gtk::ListView::new(Some(gtk::NoSelection::new(Some(store.clone()))), None::<gtk::ListItemFactory>);
@@ -266,6 +294,7 @@ impl MessageList {
             editing: RefCell::default(),
             revealing: RefCell::default(),
             highlighted: RefCell::default(),
+            native_me: RefCell::default(),
         });
         this.wire_selection();
         this.wire(session);
@@ -286,7 +315,10 @@ impl MessageList {
             let item = item.downcast_ref::<gtk::ListItem>().expect("list item");
             let object = item.item().and_downcast::<glib::BoxedAnyObject>().expect("message");
             let session = session.borrow().clone();
-            let my_id = session.as_ref().map(|s| s.info.user_id.clone()).unwrap_or_default();
+            let my_id = session
+                .as_ref()
+                .map(|s| s.info.user_id.clone())
+                .unwrap_or_else(|| w.upgrade().map(|this| this.native_me.borrow().clone()).unwrap_or_default());
             let w2 = w.clone();
             let on_event: rows::OnRowEvent = Rc::new(move |event| {
                 if let Some(handler) = w2.upgrade().and_then(|this| this.on_event.borrow().clone()) {

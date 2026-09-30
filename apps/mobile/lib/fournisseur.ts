@@ -66,6 +66,13 @@ export function normaliserGenre(valeur: unknown): Genre {
  * Mattermost aplatit par `root_id` — les deux se ramènent à « id du post parent ».
  */
 export type Capacites = {
+  fichiers?: boolean;
+  fils?: boolean;
+  reactions?: boolean;
+  marques?: boolean;
+  profil?: boolean;
+  infosSalon?: boolean;
+  citations?: boolean;
   typing: boolean;
   presence: boolean;
   push: boolean;
@@ -178,6 +185,7 @@ export type Ingerer = (doc: Record<string, unknown>) => Promise<void>;
 
 /** File d'envoi de texte persistée (outbox), rejouée à la reconnexion. */
 export interface Outbox {
+  reessayer?(id: string): Promise<void>;
   /** Rend l'`_id` client du message posé. `filId` = post parent (fil), ou null.
    *  `jointesLocales` : pièces jointes (JSON) pour le seul affichage optimiste
    *  (aperçu d'une citation) — jamais envoyées, écrasées par l'écho serveur. */
@@ -222,6 +230,8 @@ export interface OutboxFichiers {
  * restent hors de cette façade en 4a, gardés par `capacites`, à absorber ensuite.
  */
 export interface Fournisseur {
+  readonly ordreMessages?: 'sequence';
+  readonly native?: { chat: import('../fournisseurs/rocketvibe/chat.ts').NativeChat; store: import('../fournisseurs/rocketvibe/store.ts').NativeStore };
   readonly capacites: Capacites;
   /** Transport temps réel (RC : DDP ; MM : WebSocket JSON). */
   readonly listener: Listener;
@@ -250,7 +260,7 @@ export interface Fournisseur {
     rid: string,
     type: string,
     latest?: string,
-  ): Promise<{ plusAncien: number | null }>;
+  ): Promise<{ plusAncien: number | null; aRecule?: boolean }>;
   /**
    * Le fil `filId` en entier (racine comprise), ingéré dans le moteur.
    * Rejouable — mêmes upserts idempotents que le reste de la synchro.

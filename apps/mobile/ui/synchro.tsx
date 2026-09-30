@@ -80,6 +80,8 @@ import { creerPileSalonsOuverts } from './salonsOuverts.ts';
 import { chiffrerFichierLocal, empreinteNom } from './chiffrementFichier.ts';
 import { supprimerSiTemporaire } from './fichiersTemporaires.ts';
 import { transportExpo } from './transportUpload.ts';
+import { NativeStore } from '../fournisseurs/rocketvibe/store.ts';
+import { signaler } from './toast.tsx';
 
 export type EtatSynchro =
   | { phase: 'inactif' }
@@ -148,13 +150,67 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
   const [synchro, setSynchro] = useState<EtatSynchro>({ phase: 'inactif' });
 
   useEffect(() => {
-    if (etat.phase !== 'connecte' || etat.session.genre === 'rocketvibe') {
+    if (etat.phase !== 'connecte') {
       // L'index emoji du serveur quitté ne doit pas servir au prochain.
       viderEmojisCustom();
       setSynchro({ phase: 'inactif' });
       return;
     }
     const { session, client } = etat;
+    if (session.genre === 'rocketvibe') {
+      viderEmojisCustom();
+      oublierIdentites();
+      oublierFilsCharges();
+      libererSalonsChauds();
+      oublierSalonsCharges();
+      oublierReponses();
+      setSynchro({phase:'preparation'});
+      let alive = true;
+      let stop: (() => void) | undefined;
+      let runner: import('../fournisseurs/rocketvibe/chat.ts').NativeChat | undefined;
+      const appState = AppState.addEventListener('change',state => {
+        if (state === 'active') runner?.resume(); else runner?.suspend();
+      });
+      void (async () => {
+        const {base,brute,fileEcritures} = ouvrirBase(session.baseUrl,session.userId);
+        await migrerBase(session.baseUrl,session.userId);
+        if (!alive) return;
+        const store = new NativeStore(brute,fileEcritures,session);
+        await store.prepare();
+        if (!alive) return;
+        const fournisseur = creerFournisseur(session,client,() => idDepuisOctets(Crypto.getRandomBytes(12)),store);
+        const chat = fournisseur.native!.chat;
+        runner = chat;
+        const moteur = new MoteurSynchro(creerDepot(brute,fileEcritures),fournisseur.traducteur);
+        const envoi = fournisseur.creerEnvoi(creerDepotEnvoi(brute,fileEcritures),async () => {});
+        // Passive local read models: no RC initialization, push, REST or DDP on this branch.
+        const e2e = new MoteurE2E({client,uid:session.userId,stockage:{lire:async () => null,enregistrer:async () => {},effacer:async () => {}}});
+        const activite = new MoteurActivite();
+        const presence = new MoteurPresence();
+        const salonsOuverts = creerPileSalonsOuverts();
+        let online = false;
+        let lastError: string | null = null;
+        const unlisten = chat.subscribe(() => {
+          if (!alive) return;
+          if (chat.status.online && !online) setSynchro(s => s.phase === 'pret' ? {...s,generation:s.generation+1} : s);
+          online = chat.status.online;
+          if (chat.status.error && chat.status.error !== lastError) {
+            signaler(traduireCourant(chat.status.error === 'server_identity_changed' ? 'native.identityChanged' : 'native.error'));
+          }
+          lastError = chat.status.error;
+        });
+        stop = () => { unlisten(); chat.stop(); };
+        setSynchro({
+          phase:'pret',base,brouillons:store.drafts(),moteur,envoi,
+          fichiers:fournisseur.creerTeleversement(creerDepotTeleversements(brute,fileEcritures),transportExpo,async () => {}),
+          ddp:fournisseur.listener,fournisseur,actions:fournisseur.actions,capacites:fournisseur.capacites,
+          declarerSalonOuvert:salonsOuverts.declarer,presence,activite,e2e,
+          deverrouillerE2E:async () => { throw new Error('Unsupported native feature'); },verrouillerE2E:async () => {},generation:0,
+        });
+        if (AppState.currentState === 'active') chat.start(); else chat.suspend();
+      })().catch(() => { if (alive) setSynchro({phase:'erreur',message:traduireCourant('native.error')}); });
+      return () => { alive = false; appState.remove(); stop?.(); };
+    }
     let abandonne = false;
     const estAbandonne = () => abandonne;
     const fournisseur = creerFournisseur(session, client, () =>

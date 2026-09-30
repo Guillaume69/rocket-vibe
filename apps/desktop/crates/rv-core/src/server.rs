@@ -7,6 +7,7 @@ use crate::rest::{CallOptions, RestClient, RestError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerProfile {
+    pub genre: String,
     pub base_url: String,
     /// Minor version only when anonymous (`8.5`).
     pub version: String,
@@ -31,6 +32,7 @@ pub fn profile_from(base_url: &str, info: &Value, settings: &Value) -> Option<Se
         .collect();
     oauth.sort();
     Some(ServerProfile {
+        genre: "rocketchat".into(),
         base_url: base_url.to_owned(),
         version,
         password_login: get("Accounts_ShowFormLogin").and_then(Value::as_bool).unwrap_or(true),
@@ -43,6 +45,17 @@ pub fn profile_from(base_url: &str, info: &Value, settings: &Value) -> Option<Se
 /// `/api/info` for the version (proof it is a Rocket.Chat), `settings.public`
 /// (every page: `count=0`, `query` is ignored since 7.0) for the rest.
 pub async fn probe(base: &Url) -> Result<ServerProfile, RestError> {
+    if let Some(native) = crate::native::probe(base).await.map_err(crate::native::rest_error)? {
+        return Ok(ServerProfile {
+            genre: "rocketvibe".into(),
+            base_url: base.as_str().trim_end_matches('/').into(),
+            version: native.server_version,
+            password_login: true,
+            two_factor: false,
+            e2e: native.capabilities.e2ee,
+            oauth: vec![],
+        });
+    }
     let rest = RestClient::new(base.clone());
     let info = CallOptions { anonymous: true, outside_api_v1: true, ..Default::default() };
     let settings = CallOptions { anonymous: true, ..CallOptions::params([("count", "0")]) };

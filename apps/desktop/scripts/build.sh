@@ -10,7 +10,8 @@ docker volume create rv-cargo >/dev/null
 docker run --rm -v rv-cargo:/cargo "$image" chown "$(id -u):$(id -g)" /cargo
 
 profile=${PROFILE:-dev}
-docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/src" -v rv-cargo:/cargo -w /src -e PROFILE="$profile" "$image" bash -c '
+repo=$(cd ../.. && pwd)
+docker run --rm -u "$(id -u):$(id -g)" -v "$repo:/workspace" -v rv-cargo:/cargo -w /workspace/apps/desktop -e PROFILE="$profile" "$image" bash -c '
   set -euo pipefail
   cargo fmt --all -- --check
   cargo clippy --workspace --all-targets --profile "$PROFILE" -- -D warnings

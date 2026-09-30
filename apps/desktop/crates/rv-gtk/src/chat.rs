@@ -19,6 +19,9 @@ use crate::widgets::Handler;
 use crate::widgets::{self, TileSize};
 use crate::{actions_menu, on_tokio};
 
+#[path = "chat_native.rs"]
+mod native;
+
 #[derive(Debug, Clone)]
 struct OpenRoom {
     rid: String,
@@ -108,6 +111,10 @@ fn load_collapsed() -> Vec<Section> {
 }
 
 pub struct ChatPage {
+    native: RefCell<Option<Arc<rv_core::native::NativeSession>>>,
+    native_forward: RefCell<Option<tokio::task::JoinHandle<()>>>,
+    search_button: gtk::Button,
+    marked_button: gtk::Button,
     split: adw::NavigationSplitView,
     update_slot: gtk::Box,
     account_name: gtk::Label,
@@ -366,6 +373,10 @@ impl ChatPage {
         split.set_max_sidebar_width(400.0);
 
         let this = Rc::new(ChatPage {
+            native: RefCell::default(),
+            native_forward: RefCell::default(),
+            search_button: search_button.clone(),
+            marked_button: marked_button.clone(),
             split,
             update_slot,
             account_name,
@@ -428,6 +439,10 @@ impl ChatPage {
         let weak = Rc::downgrade(&this);
         account_click.connect_released(move |_, _, _, _| {
             let Some(this) = weak.upgrade() else { return };
+            if this.native_session().is_some() {
+                this.native_settings();
+                return;
+            }
             let Some(session) = this.session() else { return };
             let signer = Rc::downgrade(&this);
             let accounts = this.account_actions.borrow().clone();
@@ -743,6 +758,10 @@ impl ChatPage {
 
         let w = weak.clone();
         status_button.connect_clicked(move |_| {
+            if let Some(s) = w.upgrade().and_then(|t| t.native_session()) {
+                s.reconnect();
+                return;
+            }
             if let Some(s) = w.upgrade().and_then(|t| t.session.borrow().clone()) {
                 s.reconnect_now();
             }
@@ -805,6 +824,10 @@ impl ChatPage {
     }
 
     fn handle_event(self: &Rc<Self>, event: RowEvent, in_thread: bool) {
+        if self.native_session().is_some() {
+            self.native_row_event(event);
+            return;
+        }
         let Some(session) = self.session.borrow().clone() else { return };
         match event {
             RowEvent::Retry(id) => self.retry(id),
@@ -1012,6 +1035,15 @@ impl ChatPage {
     }
 
     pub fn set_session(&self, session: Option<Arc<Session>>) {
+        if let Some(forward) = self.native_forward.take() {
+            forward.abort();
+        }
+        if let Some(native) = self.native.take() {
+            native.shutdown();
+        }
+        self.search_button.set_sensitive(true);
+        self.marked_button.set_sensitive(true);
+        self.set_loading(false);
         if let Some(s) = &session {
             let host = url::Url::parse(&s.info.base_url).ok().and_then(|u| u.host_str().map(str::to_owned));
             self.account_name.set_label(&s.info.username);
@@ -1112,6 +1144,10 @@ impl ChatPage {
     }
 
     pub fn show_room_info(self: &Rc<Self>) {
+        if self.native_session().is_some() {
+            self.native_conversation(true);
+            return;
+        }
         let (Some(session), Some(open)) = (self.session(), self.current.borrow().clone()) else { return };
         match (&open.dm_other_uid, open.kind.as_str()) {
             (Some(uid), "d") => self.show_profile(uid, true),
@@ -1192,6 +1228,10 @@ impl ChatPage {
     }
 
     fn new_conversation(self: &Rc<Self>) {
+        if self.native_session().is_some() {
+            self.native_conversation(false);
+            return;
+        }
         let Some(session) = self.session() else { return };
         let (w1, w2) = (Rc::downgrade(self), Rc::downgrade(self));
         crate::spotlight::open(
@@ -1344,7 +1384,11 @@ impl ChatPage {
     /// `force` builds every row again even when the data did not change:
     /// what they show also depends on presence, photos and the E2E lock.
     fn load_rooms(&self, force: bool) {
-        let rows = self.session.borrow().as_ref().map(|s| s.store.rooms()).unwrap_or_default();
+        let rows = if self.native_session().is_some() {
+            self.native_rooms()
+        } else {
+            self.session.borrow().as_ref().map(|s| s.store.rooms()).unwrap_or_default()
+        };
         if force || *self.rooms.borrow() != rows {
             let sections = rv_core::rooms::sections(&rows);
             let titled = sections.len() > 1;
@@ -1460,11 +1504,38 @@ impl ChatPage {
 
     fn reload_messages(&self) {
         let Some(open) = self.current.borrow().clone() else { return };
+        if let Some(session) = self.native_session() {
+            match session.store.messages(&open.rid, self.limit.get() as usize) {
+                Ok(rows) => self.list.set_native_rows(
+                    rows.into_iter()
+                        .map(|r| rv_core::store::MessageRow {
+                            id: r.id,
+                            rid: open.rid.clone(),
+                            ts: r.ts,
+                            text: Some(r.text),
+                            author: Some(r.author),
+                            author_id: if r.status.is_some() { session.info.user_id.clone() } else { r.author_id },
+                            outbox_status: r
+                                .status
+                                .map(|s| if s == "failed" { "failed".to_owned() } else { "pending".to_owned() }),
+                            ..Default::default()
+                        })
+                        .collect(),
+                    &session.info.user_id,
+                ),
+                Err(error) => self.toast(error.to_string()),
+            }
+            return;
+        }
         let Some(session) = self.session.borrow().clone() else { return };
         self.list.set_rows(session.store.messages(&open.rid, self.limit.get()));
     }
 
     pub fn open_room(self: &Rc<Self>, rid: &str) {
+        if self.native_session().is_some() {
+            self.open_native_room(rid);
+            return;
+        }
         let Some(session) = self.session.borrow().clone() else { return };
         let Some(room) = self.rooms.borrow().iter().find(|r| r.rid == rid).cloned() else { return };
         for f in self.on_room_opened.borrow().iter() {
@@ -1492,9 +1563,11 @@ impl ChatPage {
         self.call_button.set_visible(false);
         if !room.read_only {
             let (weak, s, rid) = (Rc::downgrade(self), session.clone(), rid.to_owned());
+            let expected = session.clone();
             glib::spawn_future_local(async move {
                 let available = on_tokio(async move { s.call_available().await }).await;
                 if let Some(this) = weak.upgrade()
+                    && this.session().is_some_and(|s| Arc::ptr_eq(&s, &expected))
                     && this.current_rid().as_deref() == Some(rid.as_str())
                 {
                     this.call_button.set_visible(available);
@@ -1530,6 +1603,7 @@ impl ChatPage {
         self.set_loading(true);
         let weak = Rc::downgrade(self);
         let (rid, kind) = (room.rid, room.kind);
+        let expected = session.clone();
         glib::spawn_future_local(async move {
             let page = crate::on_tokio({
                 let (rid, kind) = (rid.clone(), kind.clone());
@@ -1537,6 +1611,9 @@ impl ChatPage {
             })
             .await;
             let Some(this) = weak.upgrade() else { return };
+            if this.session().is_none_or(|s| !Arc::ptr_eq(&s, &expected)) {
+                return;
+            }
             if this.current.borrow().as_ref().is_some_and(|c| c.rid == rid) {
                 if let Ok(page) = page {
                     this.has_older.set(page.count as i64 >= HISTORY_PAGE);
@@ -1567,6 +1644,9 @@ impl ChatPage {
 
     /// One more page of history; false when there is none, or one is already coming.
     async fn older_page(self: &Rc<Self>) -> bool {
+        if self.native_session().is_some() {
+            return self.native_history(true).await;
+        }
         if self.loading.get() || !self.has_older.get() {
             return false;
         }
@@ -1575,7 +1655,11 @@ impl ChatPage {
         let Some(oldest) = self.list.oldest_ts() else { return false };
         self.set_loading(true);
         let (rid, kind) = (open.rid.clone(), open.kind.clone());
+        let expected = session.clone();
         let page = crate::on_tokio(async move { session.sync.load_history(&rid, &kind, Some(oldest)).await }).await;
+        if self.session().is_none_or(|s| !Arc::ptr_eq(&s, &expected)) {
+            return false;
+        }
         let mut loaded = false;
         if self.current.borrow().as_ref().is_some_and(|c| c.rid == open.rid)
             && let Ok(page) = page
@@ -1611,12 +1695,25 @@ impl ChatPage {
 
     pub fn send_text(&self, text: &str) {
         let Some(open) = self.current.borrow().clone() else { return };
+        if let Some(session) = self.native_session() {
+            if let Err(error) = session.send(&open.rid, text) {
+                self.composer.set_text(text);
+                self.toast(error.to_string());
+            }
+            return;
+        }
         let Some(session) = self.session.borrow().clone() else { return };
         let text = text.to_owned();
         runtime().spawn(async move { session.send(&open.rid, &text).await });
     }
 
     fn retry(&self, id: String) {
+        if let Some(session) = self.native_session() {
+            if let Err(error) = session.retry(&id) {
+                self.toast(error.to_string());
+            }
+            return;
+        }
         if let Some(session) = self.session.borrow().clone() {
             runtime().spawn(async move { session.retry(&id).await });
         }

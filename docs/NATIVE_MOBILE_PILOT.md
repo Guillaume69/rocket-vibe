@@ -1,102 +1,73 @@
-# Pilote mobile du serveur RocketVibe
+# RocketVibe natif dans l'app mobile existante
 
-Branche : `feature/rocketvibe-server`. Ce deuxième incrément raccorde le serveur
-Rust au mobile, via une messagerie React Native dédiée. Il ne ferme pas J1 de la
-[RFC](rfcs/0001-serveur-rocketvibe-rust.md).
+Branche : `feature/rocketvibe-server`. La connexion reconnaît Rocket.Chat ou
+RocketVibe. Les deux fournisseurs utilisent les mêmes écrans d'accueil, de salon,
+la même liste de messages, le même composeur et les paramètres existants. L'ancienne
+route `/native` redirige vers l'accueil ; elle n'est plus une messagerie séparée.
 
-## Essayer en développement
+Les sessions des deux types cohabitent via le sélecteur de serveurs existant.
+Genre, identité et génération sont persistés avec le jeton dans le Keystore /
+Keychain. Les sessions anciennes sans genre restent Rocket.Chat.
 
-1. Démarrer le [serveur natif](../apps/server/README.md) et créer deux comptes avec
-   la CLI `create-user`. Les mots de passe passent par `RV_USER_PASSWORD`, sans
-   les mettre dans les arguments ni dans un fichier versionné.
-2. Installer un build de développement du mobile en suivant son
-   [README](../apps/mobile/README.md). Les exigences natives habituelles, dont
-   `google-services.json`, s'appliquent toujours au build ; le serveur natif
-   n'utilise pas encore Firebase pour le push.
-3. Avec l'appareil connecté par ADB, rediriger le port du serveur :
+## Essayer
 
-   ```sh
-   adb reverse tcp:3400 tcp:3400
-   ```
+1. Démarrer le [serveur natif](../apps/server/README.md) et créer ses comptes avec
+   `create-user` et `RV_USER_PASSWORD`.
+2. Installer le mobile en suivant son [README](../apps/mobile/README.md).
+3. En debug avec un appareil ADB : `adb reverse tcp:3400 tcp:3400`.
+4. Saisir `http://127.0.0.1:3400`, le pseudo et le mot de passe dans le formulaire
+   habituel. Un build release exige HTTPS.
+5. Les salons existants apparaissent dans l'accueil habituel. Nouvelle conversation
+   cherche l'annuaire natif et ouvre un DM. Créer / inviter dans un salon se fait
+   pour l'instant par le client GTK ou l'API serveur.
+6. Envoyer dans un salon, couper le réseau, envoyer encore, puis reconnecter.
+   L'envoi conserve son identifiant et le brouillon est conservé par salon.
 
-4. Saisir `http://127.0.0.1:3400` dans la connexion de l'app **debug**, puis le
-   pseudo et le mot de passe créés par CLI. La sonde identifie RocketVibe et ouvre
-   automatiquement le parcours natif. Un build release exige HTTPS ; le Compose
-   conserve son écoute locale et ne publie pas PostgreSQL.
-5. Créer un salon, inviter l'autre pseudo depuis le compte propriétaire, ouvrir
-   un DM et échanger des messages. Couper le réseau, envoyer, puis reconnecter :
-   l'envoi reste en attente et conserve son identifiant d'opération.
+Le serveur neuf n'a aucun compte par défaut. Les exigences de build Android,
+dont `google-services.json`, restent celles de l'app actuelle ; RocketVibe natif
+n'utilise pas encore Firebase pour les notifications.
 
-Le serveur neuf n'a aucun compte par défaut. Les utilisateurs créés par les tests
-SQLx vivent dans des bases temporaires et ne servent pas à la connexion manuelle.
-L'annuaire est limité aux 100 premiers comptes ; les invitations / DM du pilote
-recherchent un pseudo exact dans cet annuaire.
+## Fournisseur et données
 
-## Fonctionnement livré
+`SynchroProvider` sélectionne le fournisseur du compte. Rocket.Chat conserve son
+transport DDP et ses moteurs. RocketVibe utilise `NativeChat` / `NativeStore` :
+aucune initialisation DDP, présence REST, E2EE, upload ou push Rocket.Chat ne part
+sur cette branche. Le client REST de compatibilité bloque localement ces endpoints
+et ne produit pas d'URL d'avatar Rocket.Chat avec le jeton natif.
 
-La session native contient le genre du serveur, son `instance_id` et son
-`data_epoch`. La découverte vérifie ces deux valeurs avant les appels authentifiés.
-Une identité changée impose une nouvelle connexion. Les jetons restent dans le
-Keystore / Keychain via le stockage sécurisé existant.
+Le moteur écrit dans les tables SQLite que les écrans actuels projettent. Snapshot,
+journal, curseur, écho et outbox sont atomiques. La requête de messages commune
+utilise les positions décimales natives, même au-delà de `2^53`, tandis que les
+dates affichées restent réelles. La pagination utilise la position et ne dépend
+pas de la progression des horodatages.
 
-SQLite est la source des messages affichés. Le snapshot, chaque lot du journal
-et leur curseur sont écrits atomiquement dans la base du compte. L'outbox et le
-message optimiste sont aussi écrits ensemble. Un écho HTTP ou WebSocket supprime
-l'intention dans la même transaction que le message confirmé. Les positions sont
-des chaînes décimales ordonnées exactement, même au-delà de `2^53`.
+Les retraits d'accès purgent salon, messages, brouillons et outbox avant le renvoi.
+Une autre génération est purgée avant que l'UI lise les tables communes. Les lots,
+historiques et brouillons d'une ancienne génération ne peuvent pas repeupler la
+nouvelle. Les sockets sont suspendues en arrière-plan et arrêtées à la bascule.
 
-Après une coupure, le client rattrape les changements avant de vider l'outbox,
-puis ouvre la socket depuis le dernier curseur committé. Un retrait de salon
-purge messages, brouillons et envois locaux avant ce renvoi. Le snapshot d'une
-nouvelle génération purge les anciennes intentions ; son cache reste masqué
-avant cette reconstruction. Les sockets sont suspendues en arrière-plan et
-reprises au premier plan.
+Les composants existants rendent le Markdown, la sélection, les dates et l'état
+d'envoi. Copier / partager du texte reste local. Les fonctionnalités absentes du
+serveur natif sont désactivées : fils, réactions, édition, favoris, non-lus, profils,
+fichiers / vocaux, recherche de messages, présence, push, E2EE et appels. Les
+fonctions Rocket.Chat restent disponibles sur un compte Rocket.Chat.
 
-Le parcours utilise des primitives React Native, le thème et les traductions de
-l'app. Le moteur Rocket.Chat reste réservé aux sessions Rocket.Chat. Le client
-REST de compatibilité d'une session native refuse localement les anciens
-endpoints ; il ne transmet pas le jeton natif à ces routes.
+## Vérification et limites
 
-## Limites du pilote
-
-- Interface dédiée : pas encore de raccordement au contrat `Fournisseur` ni aux
-  écrans communs, et aucun raccordement des clients bureau.
-- Texte brut uniquement ; fichiers, Markdown enrichi, fils, actions, réactions,
-  non-lus, présence, recherche, push, appels et E2EE restent au backlog.
-- Les brouillons du composeur ne sont pas encore persistés. Les messages déjà
-  envoyés à la file d'attente le sont.
-- Invitation réservée au propriétaire côté serveur ; l'écran explique le refus
-  si un autre membre tente cette action. Retrait de membre et administration
-  n'ont pas encore de commandes dans cet écran.
-- Pas d'annuaire public des salons ni d'adhésion libre. Les créations de salon
-  ne sont pas idempotentes.
-- L'historique affiche d'abord 100 messages locaux, puis élargit sa fenêtre par
-  50. Le cache natif n'a pas encore de politique de rétention. Snapshot serveur
-  limité à 100 salons, 50 messages récents chacun ; pagination du snapshot à venir.
-- La validation visuelle et les kills réels sur Android restent à faire. L'export
-  Expo vérifie le bundle JavaScript / Hermes, pas l'installation d'un APK.
-
-Les limites de sécurité, de charge et d'exploitation du serveur sont détaillées
-dans le [contrat du pilote](protocol/README.md).
-
-## Vérifications reproductibles
-
-Depuis la racine, les vérifications Rust / PostgreSQL et le scénario de deux
-moteurs mobiles SQLite sont lancés par le service `check` du Compose natif :
+Depuis `apps/mobile` :
 
 ```sh
-docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm check bash apps/server/scripts/check.sh
-```
-
-Depuis `apps/mobile/` :
-
-```sh
-npm ci --no-audit --no-fund
 npm run typecheck
+npm run lint
 npm test
 npx expo export --platform android --output-dir ../../artifacts/native-mobile-android
 ```
 
-La CI dédiée exécute les deux suites et l'export. Le
-[suivi du chantier](NATIVE_SERVER_EXECUTION.md) conserve les résultats et la suite
-requise pour fermer J1.
+Les tests du fournisseur exercent SQLite, outbox / retry, génération, la vraie
+requête de l'écran commun et sa pagination. Le [banc bureau](NATIVE_DESKTOP_PILOT.md)
+exerce la façade mobile réelle contre PostgreSQL avec le desktop GTK.
+
+L'export compile JavaScript / Hermes, sans installer un APK. Le rendu sur Android,
+les kills réels et les échanges Android / Windows restent à exercer. L'annuaire
+est limité à 100 comptes ; snapshot et cache n'ont pas encore leur pagination /
+politique de rétention finale. J1 reste ouvert dans le [suivi](NATIVE_SERVER_EXECUTION.md).

@@ -20,6 +20,47 @@ use crate::widgets::{self, TileSize};
 const NOTIFICATION_CHOICES: [&str; 4] = ["default", "all", "mention", "nothing"];
 const LANGUAGE_CHOICES: [&str; 3] = ["auto", "fr", "en"];
 
+/// Account selection and local preferences are shared by both providers.
+pub fn open_native(
+    parent: &impl IsA<gtk::Widget>,
+    info: &rv_core::session::SessionInfo,
+    accounts: Option<Rc<AccountActions>>,
+    sign_out: impl Fn() + 'static,
+) {
+    let dialog = adw::PreferencesDialog::builder().title(t("settings.title")).build();
+    let page = adw::PreferencesPage::builder().title(t("settings.title")).icon_name("emblem-system-symbolic").build();
+    let profile = adw::PreferencesGroup::new();
+    let row = adw::ActionRow::builder().title(&info.username).subtitle(&info.base_url).build();
+    row.add_prefix(&widgets::tile(&info.username, &widgets::initial(&info.username), TileSize::Room, false));
+    profile.add(&row);
+    page.add(&profile);
+    if let Some(actions) = accounts {
+        page.add(&accounts_group(&dialog, info, actions));
+    }
+    if crate::background::SUPPORTED {
+        page.add(&background_group(&dialog));
+    }
+    let group = adw::PreferencesGroup::builder().title(t("settings.language")).build();
+    let labels: Vec<_> = LANGUAGE_CHOICES.iter().map(|c| t(&format!("settings.lang_{c}"))).collect();
+    let current = LANGUAGE_CHOICES.iter().position(|c| *c == i18n::saved_choice()).unwrap_or(0);
+    let language = combo(t("settings.language"), &labels, current);
+    language.set_subtitle(t("settings.language_restart"));
+    language.connect_selected_notify(|row| i18n::save_choice(LANGUAGE_CHOICES[row.selected() as usize]));
+    group.add(&language);
+    page.add(&group);
+    let group = adw::PreferencesGroup::builder().title(t("settings.account")).build();
+    let logout = adw::ButtonRow::builder().title(t("rooms.sign_out")).css_classes(["destructive-action"]).build();
+    let d = dialog.clone();
+    logout.connect_activated(move |_| {
+        d.close();
+        sign_out();
+    });
+    group.add(&logout);
+    page.add(&group);
+    dialog.add(&page);
+    dialog.present(Some(parent));
+}
+
 fn combo(title: &str, labels: &[&str], selected: usize) -> adw::ComboRow {
     let model = gtk::StringList::new(labels);
     adw::ComboRow::builder().title(title).model(&model).selected(selected as u32).build()
@@ -151,7 +192,7 @@ pub fn open(
     ));
 
     if let Some(actions) = accounts {
-        page.add(&accounts_group(&dialog, &session, actions));
+        page.add(&accounts_group(&dialog, &session.info, actions));
     }
 
     let account = adw::PreferencesGroup::builder().title(t("settings.account")).build();
@@ -315,11 +356,11 @@ fn background_group(dialog: &adw::PreferencesDialog) -> adw::PreferencesGroup {
 
 fn accounts_group(
     dialog: &adw::PreferencesDialog,
-    session: &Arc<Session>,
+    info: &rv_core::session::SessionInfo,
     actions: Rc<AccountActions>,
 ) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::builder().title(t("settings.accounts")).build();
-    let current = crate::secrets::account_key(&session.info);
+    let current = crate::secrets::account_key(info);
     let list = gtk::ListBox::builder().selection_mode(gtk::SelectionMode::None).css_classes(["boxed-list"]).build();
     group.add(&list);
     let add = adw::ButtonRow::builder().title(t("settings.add_account")).start_icon_name("list-add-symbolic").build();

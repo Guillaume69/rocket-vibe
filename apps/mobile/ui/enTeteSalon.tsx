@@ -58,6 +58,7 @@ export function EnTeteSalon({
   const routeur = useRouter();
   const t = useT();
   const synchro = useSynchro();
+  const capacites = synchro.phase === 'pret' ? synchro.capacites : null;
   const deverrouille = useE2EDeverrouille(synchro.phase === 'pret' ? synchro.e2e : null);
 
   // Disponibilité de la visioconférence : masque le bouton là où aucun
@@ -65,6 +66,7 @@ export function EnTeteSalon({
   const [appelDispo, setAppelDispo] = useState(false);
   const [demarrage, setDemarrage] = useState(false);
   useEffect(() => {
+    if (capacites?.appelVideo === false) { setAppelDispo(false); return; }
     let vivant = true;
     void sonderAppelDisponible(client).then((ok) => {
       if (vivant) setAppelDispo(ok);
@@ -72,7 +74,7 @@ export function EnTeteSalon({
     return () => {
       vivant = false;
     };
-  }, [client]);
+  }, [client,capacites?.appelVideo]);
 
   const demarrerAppel = useCallback(() => {
     if (demarrage) return;
@@ -101,6 +103,7 @@ export function EnTeteSalon({
           celle du salon sinon. */}
       <View style={styles.enveloppeEntete}>
         <Appuyable
+          disabled={capacites?.infosSalon === false}
           onPress={() =>
             estDM && salon?.dmAutreUid != null
               ? void ouvrirFicheProfil({ uid: salon.dmAutreUid })
@@ -155,6 +158,7 @@ export function EnTeteSalon({
       )}
       <Appuyable
         onPress={onMarques}
+        disabled={capacites?.marques === false}
         hitSlop={8}
         android_ripple={{ color: c.ondulation, borderless: true }}
         accessibilityRole="button"
@@ -164,6 +168,7 @@ export function EnTeteSalon({
       </Appuyable>
       <Appuyable
         onPress={onRecherche}
+        disabled={capacites?.recherche === false}
         hitSlop={8}
         android_ripple={{ color: c.ondulation, borderless: true }}
       >

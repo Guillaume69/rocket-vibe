@@ -45,6 +45,7 @@ branche. Le premier incrément ne comportait aucun écran natif connecté.
   jeton conservés dans le stockage sécurisé existant.
 - [x] Écran React Native dédié : salons privés / publics, invitation par le
   propriétaire, DM, texte, historique, retry / abandon et changement de serveur.
+  Cet écran de pilote a été retiré au troisième incrément, au profit des écrans existants.
 - [x] Projection SQLite : lot et curseur atomiques, outbox durable, écho idempotent
   et ordre exact des positions dépassant la précision JavaScript.
 - [x] Reprise HTTP puis WebSocket, reconnexion, suspension au passage en arrière-plan
@@ -70,6 +71,40 @@ puis rouvre une base sur disque ; ils ne prouvent pas encore le comportement d'u
 processus Android réellement tué.
 Les instructions et limites sont dans le [guide pilote](NATIVE_MOBILE_PILOT.md).
 
+## Troisième incrément : deux fournisseurs dans les interfaces actuelles
+
+- [x] Sonde native et genre / identité conservés dans les comptes bureau.
+- [x] Moteur `NativeSession` dans `rv-core`, cache SQLite séparé, brouillons et outbox.
+- [x] Transactions atomiques projection / curseur / écho, ordre exact, purge des
+  retraits et protection contre les réponses d'historique tardives.
+- [x] Même ChatPage / MessageList / Composer GTK pour Rocket.Chat et RocketVibe.
+- [x] Même accueil / salon / liste / composeur mobile, via le contrat Fournisseur.
+- [x] Bascule entre comptes et transports, capacités absentes désactivées.
+- [x] Brouillons mobiles persistants, protégés contre les écritures d'une ancienne génération.
+- [x] API UniFFI explicite ; la connexion historique ne remet pas un jeton natif à RC.
+- [ ] Raccordement de cette API aux modèles et écrans SwiftUI.
+- [x] Banc PostgreSQL éphémère mobile / bureau et smoke test du vrai binaire GTK.
+- [x] CI étendue au workspace bureau, au banc GTK et aux tests du cœur sous Windows.
+
+Le [guide bureau](NATIVE_DESKTOP_PILOT.md) décrit le parcours et le banc. La validation
+Android / Windows sur appareils et le raccordement SwiftUI restent ouverts.
+
+### Vérifications locales du troisième incrément
+
+- Formatage / Clippy sans avertissement et 212 tests du workspace bureau réussis.
+- 949 tests mobiles réussis, typecheck, lint et export Android / Hermes.
+- Contrat de connexion Rocket.Chat historique vérifié après la découverte native.
+- Fournisseur natif mobile vérifié : requête UI par séquence, pagination indépendante
+  des dates, outbox / retry, purge et brouillons de génération.
+- Banc réel PostgreSQL / moteur mobile / cœur bureau réussi : réouverture SQLite,
+  rejeu unique, message manqué, brouillon, DM, création / invitation, retrait privé
+  et révocation de la session.
+- Binaire GTK connecté via son formulaire, envoi et réponse mobile vérifiés dans
+  les widgets affichés ; captures en largeur normale et à 435 pixels.
+
+Le banc ne fournit pas de trousseau système : la connexion fonctionne pendant
+le test, mais la reprise d'un jeton depuis le stockage sécurisé réel reste à exercer.
+
 ## Pour fermer J0
 
 - [ ] Inventaire exhaustif des appels Rocket.Chat dans les écrans et modules natifs.
@@ -81,11 +116,12 @@ Les instructions et limites sont dans le [guide pilote](NATIVE_MOBILE_PILOT.md).
 ## Pour fermer J1
 
 - [x] Pilote mobile : sonde, connexion, stockage sécurisé, SQLite et outbox.
-- [ ] Intégration mobile au contrat fournisseur et aux écrans partagés, brouillons
-  persistants et navigation native complète.
+- [x] Intégration mobile au contrat fournisseur et aux écrans partagés, brouillons
+  persistants et navigation salon / DM / comptes.
 - [ ] Fournisseur bureau dans `rv-core`, exposition GTK / `rv-ffi` / SwiftUI.
+  Le moteur, GTK commun et l'API UniFFI sont livrés ; SwiftUI reste à raccorder.
 - [x] Application atomique des lots et curseurs dans le cache SQLite mobile pilote.
-- [ ] Même garantie dans les caches bureau.
+- [x] Même garantie dans le cache bureau pilote.
 - [ ] Parcours réel Android ↔ Windows, avec réseau coupé et processus clients tués.
 - [ ] Heartbeats, rythme de diffusion, limites et essais d'authentification bornés.
 - [ ] Snapshot paginé / tailles maximales et nettoyage des tickets / curseurs.

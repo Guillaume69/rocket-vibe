@@ -128,7 +128,7 @@ export const LigneMessage = memo(function LigneMessage({
   // `ouvrirFicheProfil` précharge la fiche AVANT d'ouvrir la sheet (hauteur
   // finale dès la première frame, pas de saut) — voir lib/profilPreload.
   const ouvrirProfil =
-    message.auteurNom === null
+    message.auteurNom === null || client.genre === 'rocketvibe'
       ? undefined
       : () => void ouvrirFicheProfil({ uid: message.auteurId });
 

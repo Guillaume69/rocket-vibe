@@ -144,9 +144,9 @@ export default function EcranActionsMessage() {
     (async () => {
       // Les règles ne dépendent de rien de local : la requête part tout de
       // suite, en parallèle des lectures SQLite.
-      const promesseRegles = lireRegles(client);
+      const promesseRegles = client.genre === 'rocketvibe' ? Promise.resolve(reglesDepuisReglages([])) : lireRegles(client);
       // Hors ligne ou refusées : `null`, les droits d'un simple membre.
-      const promesseSources = sourcesPermissions(client).catch(() => null);
+      const promesseSources = client.genre === 'rocketvibe' ? Promise.resolve(null) : sourcesPermissions(client).catch(() => null);
       const lignes = await base.select().from(messages).where(eq(messages.id, id)).limit(1);
       const brut = lignes[0];
       if (annule) return;
@@ -182,7 +182,7 @@ export default function EcranActionsMessage() {
         // Ligne de salon absente (lien profond avant synchro) : repli `c`/rid —
         // le serveur ne lit de toute façon que le `?msg=` du permalien.
         salon: { type: lignesSalon[0]?.type ?? 'c', nom: lignesSalon[0]?.nom ?? null },
-        actions: actionsPossibles({
+        actions: client.genre === 'rocketvibe' ? (brut.texte ? ['copier', 'partager'] : []) : actionsPossibles({
           message: {
             auteurId: brut.auteurId,
             horodatage: brut.horodatage,

@@ -1,6 +1,7 @@
 /** SQLite projection for the native protocol. Batches and their cursor commit together. */
 import type { Session as AppSession } from '../../lib/auth.ts';
 import type { FileEcritures } from '../../db/fileEcritures.ts';
+import type { DepotBrouillons } from '../../db/depot.ts';
 import { UPSERT_MESSAGE, UPSERT_SALON, UPSERT_ABONNEMENT, INSERER_SORTIE, SUPPRIMER_SORTIE, MARQUER_SORTIE_ECHEC, SUPPRIMER_BROUILLONS_SALON, paramsMessage, paramsSalon, paramsAbonnement } from '../../db/upserts.ts';
 import type { MessageLocal } from '../../lib/normaliser.ts';
 import type { Message, Room, Snapshot, SyncBatch } from './protocol.generated.ts';
@@ -46,6 +47,28 @@ export class NativeStore {
     const state = await this.db.getFirstAsync<NativeState>('SELECT instance_id,data_epoch,cursor FROM native_sync_state WHERE singleton=1', []);
     return state?.instance_id === this.session.nativeInstanceId && state?.data_epoch === this.session.nativeDataEpoch;
   }
+  /** Shared UI queries must never see a predecessor generation's cache. */
+  prepare(): Promise<void> {
+    return this.atomic(async () => {
+      if (await this.sameGeneration()) return;
+      for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+    });
+  }
+  drafts(): DepotBrouillons {
+    return {
+      lire:rid => this.queue(async () => {
+        if (!await this.sameGeneration()) return null;
+        return (await this.db.getFirstAsync<{texte:string}>('SELECT texte FROM brouillons WHERE cle=?',[rid]))?.texte ?? null;
+      }),
+      ecrire:(rid,text) => this.queue(async () => {
+        if (!await this.sameGeneration() || !await this.db.getFirstAsync('SELECT rid FROM salons WHERE rid=?',[rid])) return;
+        await this.db.runAsync('INSERT INTO brouillons(cle,texte,mis_a_jour_le) VALUES(?,?,?) ON CONFLICT(cle) DO UPDATE SET texte=excluded.texte,mis_a_jour_le=excluded.mis_a_jour_le',[rid,text,Date.now()]);
+      }),
+      supprimer:rid => this.queue(async () => {
+        if (await this.sameGeneration()) await this.db.runAsync('DELETE FROM brouillons WHERE cle=?',[rid]);
+      }),
+    };
+  }
   private async cursor(cursor: string): Promise<void> {
     await this.db.runAsync('INSERT INTO native_sync_state(singleton,instance_id,data_epoch,cursor) VALUES(1,?,?,?) ON CONFLICT(singleton) DO UPDATE SET instance_id=excluded.instance_id,data_epoch=excluded.data_epoch,cursor=excluded.cursor', [this.session.nativeInstanceId!, this.session.nativeDataEpoch!, cursor]);
   }
@@ -61,6 +84,8 @@ export class NativeStore {
       ouvert: true, favori: false, luJusquA: null, e2eKey: null, e2eKeyId: null,
       roles: null, misAJourLe: Date.now(),
     }));
+    const last = await this.db.getFirstAsync<{texte:string;horodatage:number}>('SELECT m.texte,m.horodatage FROM messages m JOIN native_positions p ON p.id=m.id WHERE m.rid=? ORDER BY length(p.position) DESC,p.position DESC LIMIT 1',[room.id]);
+    if (last) await this.db.runAsync('UPDATE salons SET dernier_message=?,horodatage_dernier_message=? WHERE rid=?',[last.texte,last.horodatage,room.id]);
   }
   private async message(message: Message): Promise<void> {
     // An HTTP echo/history response may arrive after a committed room_removed.
@@ -97,6 +122,7 @@ export class NativeStore {
   }
   applyBatch(batch: SyncBatch): Promise<void> {
     return this.atomic(async () => {
+      if (!await this.sameGeneration()) throw new Error('Native generation unavailable');
       for (const change of batch.changes) {
         switch (change.type) {
           case 'room_upsert': await this.room(change.data); break;
@@ -108,7 +134,10 @@ export class NativeStore {
     });
   }
   ingest(messages: Message[]): Promise<void> {
-    return this.atomic(async () => { for (const message of messages) await this.message(message); });
+    return this.atomic(async () => {
+      if (!await this.sameGeneration()) throw new Error('Native generation unavailable');
+      for (const message of messages) await this.message(message);
+    });
   }
   rooms(): Promise<NativeRoomRow[]> {
     return this.queue(async () => await this.sameGeneration() ? this.db.getAllAsync<NativeRoomRow>('SELECT rid,COALESCE(nom_affiche,nom,rid) AS nom,type,dernier_message FROM salons ORDER BY COALESCE(horodatage_dernier_message,0) DESC,rid', []) : []);

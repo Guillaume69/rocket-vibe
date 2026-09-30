@@ -38,6 +38,10 @@ impl Dirs {
     }
 
     pub fn database(&self, info: &SessionInfo) -> PathBuf {
+        if info.native.is_some() {
+            let _ = std::fs::create_dir_all(&self.data);
+            return self.data.join(rv_core::native::database_name(info));
+        }
         let url: url::Url = info.base_url.parse().expect("base URL");
         let host = match url.port() {
             Some(port) => format!("{}_{port}", url.host_str().unwrap_or_default()),
@@ -64,14 +68,7 @@ fn entry(key: &str) -> keyring::Result<keyring::Entry> {
 
 fn parse(secret: &str) -> Option<SessionInfo> {
     let v: Value = serde_json::from_str(secret).ok()?;
-    let field = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
-    let info = SessionInfo {
-        base_url: field("baseUrl"),
-        user_id: field("userId"),
-        username: field("username"),
-        auth_token: field("authToken"),
-    };
-    (!info.base_url.is_empty() && !info.auth_token.is_empty() && !info.user_id.is_empty()).then_some(info)
+    SessionInfo::from_secret(&v)
 }
 
 /// Every account signed in on this machine, the active one first. Blocking.
@@ -93,12 +90,7 @@ pub fn load_all(dirs: &Dirs) -> Vec<SessionInfo> {
 /// Blocking. `e2e_key`: my E2E private key (a JWK) while unlocked, kept
 /// beside the session as the GTK app keeps it.
 pub fn save(dirs: &Dirs, info: &SessionInfo, e2e_key: Option<&str>) -> Result<(), String> {
-    let mut secret = json!({
-        "baseUrl": info.base_url,
-        "userId": info.user_id,
-        "username": info.username,
-        "authToken": info.auth_token,
-    });
+    let mut secret = info.secret();
     if let Some(jwk) = e2e_key {
         secret["e2eKey"] = json!(jwk);
     }
@@ -167,6 +159,7 @@ mod tests {
             user_id: "U1".into(),
             username: "me".into(),
             auth_token: "t".into(),
+            native: None,
         };
         assert_eq!(dirs.database(&info("https://chat.example.com")), dirs.data.join("chat.example.com-U1.sqlite"));
         assert_eq!(dirs.database(&info("http://localhost:3000")), dirs.data.join("localhost_3000-U1.sqlite"));

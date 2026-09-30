@@ -49,6 +49,7 @@ impl RvError {
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct Account {
+    pub genre: String,
     pub key: String,
     pub base_url: String,
     pub user_id: String,
@@ -57,6 +58,7 @@ pub struct Account {
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct ServerProfile {
+    pub genre: String,
     pub base_url: String,
     pub version: String,
     pub password_login: bool,
@@ -68,6 +70,7 @@ pub struct ServerProfile {
 impl From<rv_core::server::ServerProfile> for ServerProfile {
     fn from(p: rv_core::server::ServerProfile) -> Self {
         ServerProfile {
+            genre: p.genre,
             base_url: p.base_url,
             version: p.version,
             password_login: p.password_login,

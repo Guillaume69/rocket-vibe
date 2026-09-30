@@ -5,8 +5,9 @@ Objectif : un client **plus rapide et plus fiable** que l'application officielle
 un usage personnel sur un serveur Rocket.Chat auto-hébergé.
 
 La branche `feature/rocketvibe-server` ajoute un [parcours mobile pilote](../../docs/NATIVE_MOBILE_PILOT.md)
-pour le serveur Rust RocketVibe : la même connexion détecte le serveur, puis ouvre
-une messagerie texte dédiée. La parité avec les écrans Rocket.Chat reste en chantier.
+pour le serveur Rust RocketVibe : la connexion choisit le fournisseur du compte
+et les mêmes écrans affichent Rocket.Chat ou RocketVibe. La parité fonctionnelle
+du serveur natif reste en chantier.
 
 > Ce README explique l'app mobile et comment la faire tourner en local ; **toutes les
 > commandes se lancent depuis `apps/mobile/`**. Les **décisions** et leur justification

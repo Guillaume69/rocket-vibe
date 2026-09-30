@@ -188,7 +188,8 @@ impl LoginPage {
                                 probe.set_label(t("login.probe_no_password"));
                             }
                             Ok(p) => {
-                                let mut facts = vec![format!("Rocket.Chat {}", p.version)];
+                                let product = if p.genre == "rocketvibe" { "RocketVibe" } else { "Rocket.Chat" };
+                                let mut facts = vec![format!("{product} {}", p.version)];
                                 if p.two_factor {
                                     facts.push(t("login.probe_2fa").to_owned());
                                 }

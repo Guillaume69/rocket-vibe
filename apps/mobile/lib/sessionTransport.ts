@@ -9,6 +9,7 @@ export function clientForSession(session: Session, revoke: (token: string) => vo
     fetch: async () => new Response(JSON.stringify({success:false,status:'error',error:'Unsupported native feature',errorType:'not-supported'}), {status:501,headers:{'content-type':'application/json'}}),
   } : undefined);
   client.surJetonRefuse = revoke;
+  client.genre = session.genre;
   appliquerSession(client, session);
   return client;
 }

@@ -232,6 +232,7 @@ export function urlAvatar(
     etag?: string | null;
   },
 ): string | null {
+  if (client.genre === 'rocketvibe') return null;
   const { uid, username, rid, etag } = cible;
   let chemin: string;
   if (typeof username === 'string' && username !== '') {

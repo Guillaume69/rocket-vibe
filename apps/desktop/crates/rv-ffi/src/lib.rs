@@ -4,6 +4,7 @@
 mod accounts;
 pub mod markup;
 pub mod model;
+mod native;
 pub mod people;
 pub mod writing;
 
@@ -139,6 +140,16 @@ impl Client {
         code: Option<String>,
     ) -> Result<Arc<Chat>, RvError> {
         let url = session::normalize_server(&server).ok_or_else(|| RvError::local("invalid server address"))?;
+        if on_tokio({
+            let url = url.clone();
+            async move { rv_core::native::probe(&url).await }
+        })
+        .await
+        .map_err(RvError::local)?
+        .is_some()
+        {
+            return Err(RvError::local("Use native_login for the native pilot"));
+        }
         let two_factor = method.zip(code).map(|(m, c)| session::two_factor_code(&m, &c));
         let info = on_tokio(async move { session::login(&url, &user, &password, two_factor).await }).await?;
         let (dirs, saved) = (self.dirs.clone(), info.clone());
@@ -197,6 +208,7 @@ impl Client {
 
 fn account(info: &SessionInfo) -> Account {
     Account {
+        genre: if info.native.is_some() { "rocketvibe" } else { "rocketchat" }.into(),
         key: accounts::key(info),
         base_url: info.base_url.clone(),
         user_id: info.user_id.clone(),

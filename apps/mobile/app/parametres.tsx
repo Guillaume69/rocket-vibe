@@ -73,6 +73,7 @@ function usePreferencePush(client: ClientRest) {
   const [erreur, setErreur] = useState<CleTraduction | null>(null);
 
   useEffect(() => {
+    if (client.genre === 'rocketvibe') return;
     let vivant = true;
     client
       .get<ReponseMe>('me')
@@ -153,6 +154,7 @@ function Parametres({
       <Stack.Screen options={{ title: t('parametres.titre') }} />
 
       <Appuyable
+        disabled={client.genre === 'rocketvibe'}
         onPress={() => routeur.push('/mon-profil')}
         android_ripple={{ color: c.ondulation }}
         unstable_pressDelay={DELAI_PRESSION_LISTE}
@@ -173,11 +175,12 @@ function Parametres({
           <Text style={[styles.profilNom, { color: c.texte }]} numberOfLines={1}>
             @{username}
           </Text>
-          <Text style={[styles.profilLien, { color: c.cyan }]}>{t('parametres.modifierProfil')}</Text>
+          {client.genre !== 'rocketvibe' && <Text style={[styles.profilLien, { color: c.cyan }]}>{t('parametres.modifierProfil')}</Text>}
         </View>
-        <Text style={[styles.chevron, { color: c.attenue }]}>›</Text>
+        {client.genre !== 'rocketvibe' && <Text style={[styles.chevron, { color: c.attenue }]}>›</Text>}
       </Appuyable>
 
+      {client.genre !== 'rocketvibe' && <>
       <Text style={[styles.sectionTitre, { color: c.attenue }]}>{t('parametres.sectionNotifications')}</Text>
       <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
         <Text style={[styles.reglageTitre, { color: c.texte }]}>{t('parametres.push')}</Text>
@@ -187,6 +190,7 @@ function Parametres({
           <Text style={[styles.erreur, { color: c.texteErreur }]}>{t(push.erreur)}</Text>
         )}
       </View>
+      </>}
 
       <Text style={[styles.sectionTitre, { color: c.attenue }]}>{t('parametres.sectionLangue')}</Text>
       <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
@@ -194,7 +198,7 @@ function Parametres({
         <SelecteurLangue c={c} t={t} />
       </View>
 
-      <SectionE2E c={c} t={t} />
+      {client.genre !== 'rocketvibe' && <SectionE2E c={c} t={t} />}
 
       <Text style={[styles.sectionTitre, { color: c.attenue }]}>{t('parametres.sectionCompte')}</Text>
       <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
@@ -202,8 +206,10 @@ function Parametres({
         <Paire c={c} cle={t('parametres.serveur')} valeur={baseUrl} />
       </View>
 
-      <Text style={[styles.sectionTitre, { color: c.attenue }]}>{t('parametres.sectionDiagnostic')}</Text>
-      <SectionJetonFcm c={c} t={t} />
+      {client.genre !== 'rocketvibe' && <>
+        <Text style={[styles.sectionTitre, { color: c.attenue }]}>{t('parametres.sectionDiagnostic')}</Text>
+        <SectionJetonFcm c={c} t={t} />
+      </>}
 
       <Link href="/connexion?changer=1" style={[styles.lien, { color: c.cyan }]}>
         {t('parametres.changerServeur')}

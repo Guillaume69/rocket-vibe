@@ -61,6 +61,9 @@ fn last_server_file() -> PathBuf {
 }
 
 fn database_path(info: &SessionInfo) -> PathBuf {
+    if info.native.is_some() {
+        return data_dir().join(rv_core::native::database_name(info));
+    }
     let url: url::Url = info.base_url.parse().expect("base URL");
     let host = match url.port() {
         Some(port) => format!("{}_{port}", url.host_str().unwrap_or_default()),
@@ -344,6 +347,21 @@ impl AppWindow {
     fn start_session(self: &Rc<Self>, info: SessionInfo) {
         self.stop_session(false);
         let path = database_path(&info);
+        if info.native.is_some() {
+            let started = {
+                let _guard = runtime().enter();
+                rv_core::native::NativeSession::start(info, &path)
+            };
+            match started {
+                Ok(session) => {
+                    self.db_path.replace(Some(path));
+                    self.chat.set_native_session(session);
+                    self.stack.set_visible_child_name("chat");
+                }
+                Err(error) => self.show_login(Some(&error.to_string())),
+            }
+            return;
+        }
         let started = {
             let _guard = runtime().enter();
             Session::start(info, &path)
@@ -388,9 +406,13 @@ impl AppWindow {
         self.forward.replace(Some(forward));
 
         let weak = Rc::downgrade(self);
+        let visible_session = session.clone();
         glib::spawn_future_local(async move {
             while let Ok(event) = rx.recv().await {
                 let Some(this) = weak.upgrade() else { return };
+                if this.session.borrow().as_ref().is_none_or(|s| !Arc::ptr_eq(s, &visible_session)) {
+                    return;
+                }
                 match event {
                     UiEvent::Store(change) => this.chat.on_change(&change),
                     UiEvent::Resync => this.chat.reload_all(),
@@ -440,6 +462,12 @@ impl AppWindow {
     }
 
     fn stop_session(&self, delete_cache: bool) {
+        if let Some(session) = self.chat.native_session() {
+            session.shutdown();
+            if delete_cache {
+                let _ = session.store.clear();
+            }
+        }
         if let Some(forward) = self.forward.take() {
             forward.abort();
         }
@@ -461,6 +489,30 @@ impl AppWindow {
 
     /// Signs this account out; another one signed in on this machine takes over.
     fn logout(self: &Rc<Self>) {
+        if let Some(session) = self.chat.native_session() {
+            let this = self.clone();
+            glib::spawn_future_local(async move {
+                let info = session.info.clone();
+                let saved = session.clone();
+                let result = on_tokio(async move { session.logout().await }).await;
+                if this.chat.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &saved)) {
+                    return;
+                }
+                if let Err(error) = result
+                    && !matches!(error.code(), "session_rejected" | "server_identity_changed")
+                {
+                    this.chat.native_error(&error);
+                    return;
+                }
+                this.stop_session(true);
+                on_tokio(async move { secrets::remove(&info).await }).await;
+                match on_tokio(secrets::load_all()).await.into_iter().next() {
+                    Some(next) => this.switch_to(next),
+                    None => this.show_login(None),
+                }
+            });
+            return;
+        }
         let Some(session) = self.session.borrow().clone() else { return };
         self.stop_session(true);
         let this = self.clone();
@@ -482,7 +534,12 @@ impl AppWindow {
     /// that server (switching to it if another one is open).
     pub fn open_link(self: &Rc<Self>, uri: &str) {
         let Some(link) = rv_core::links::parse(uri) else { return };
-        let current = self.session.borrow().as_ref().map(|s| s.info.base_url.clone());
+        let current = self
+            .session
+            .borrow()
+            .as_ref()
+            .map(|s| s.info.base_url.clone())
+            .or_else(|| self.chat.native_session().map(|s| s.info.base_url.clone()));
         if current.as_deref().is_some_and(|base| rv_core::links::fits(&link, base)) {
             self.pending_link.replace(Some(link));
             self.follow_link();
@@ -500,7 +557,15 @@ impl AppWindow {
 
     /// Opens the waiting link's room once the rooms of its server are there.
     fn follow_link(&self) {
-        let Some(base) = self.session.borrow().as_ref().map(|s| s.info.base_url.clone()) else { return };
+        let Some(base) = self
+            .session
+            .borrow()
+            .as_ref()
+            .map(|s| s.info.base_url.clone())
+            .or_else(|| self.chat.native_session().map(|s| s.info.base_url.clone()))
+        else {
+            return;
+        };
         let link = self.pending_link.borrow().clone();
         if let Some(link) = link.filter(|l| rv_core::links::fits(l, &base))
             && self.chat.has_room(&link.rid)
@@ -519,6 +584,7 @@ impl AppWindow {
     /// The login page, with a way back to the account signed in now.
     pub fn add_account(self: &Rc<Self>) {
         let current = self.session.borrow().as_ref().map(|s| s.info.clone());
+        let current = current.or_else(|| self.chat.native_session().map(|s| s.info.clone()));
         self.previous.replace(current);
         self.stop_session(false);
         self.login.fill("", "", "");

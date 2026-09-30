@@ -41,6 +41,8 @@ pub struct Composer {
     on_error: Handler<String>,
     on_edit_last: Handler<()>,
     staged: Rc<crate::staged::Staged>,
+    attach: gtk::Button,
+    mic: gtk::Button,
     on_send_files: Handler<Outgoing>,
 }
 
@@ -239,7 +241,14 @@ impl Composer {
         root.append(&reply_bar);
         root.append(&staged.root);
         root.append(&field);
-        root.append(&toolbar(&text));
+        root.append(
+            &gtk::ScrolledWindow::builder()
+                .hscrollbar_policy(gtk::PolicyType::External)
+                .vscrollbar_policy(gtk::PolicyType::Never)
+                .propagate_natural_width(false)
+                .child(&toolbar(&text))
+                .build(),
+        );
         root.append(&record_bar);
 
         let this = Rc::new(Composer {
@@ -266,6 +275,8 @@ impl Composer {
             on_error: RefCell::default(),
             on_edit_last: RefCell::default(),
             staged,
+            attach: attach.clone(),
+            mic: mic.clone(),
             on_send_files: RefCell::default(),
         });
         let weak = Rc::downgrade(&this);
@@ -446,6 +457,9 @@ impl Composer {
     }
 
     pub fn start_recording(self: &Rc<Self>) {
+        if !self.mic.is_sensitive() {
+            return;
+        }
         if self.recorder.borrow().is_some() {
             return;
         }
@@ -503,6 +517,9 @@ impl Composer {
     }
 
     pub fn emit_files(&self, picked: Vec<Picked>) {
+        if !self.attach.is_sensitive() {
+            return;
+        }
         if let Some(f) = self.on_files.borrow().clone() {
             f(picked);
         }
@@ -511,6 +528,8 @@ impl Composer {
     /// Ties the composer to a room (`thread` None) or a thread: restores its
     /// draft, saves it as it changes, and offers the room's authors after `@`.
     pub fn bind(&self, session: &Arc<Session>, rid: &str, thread: Option<&str>) {
+        self.attach.set_sensitive(true);
+        self.mic.set_sensitive(true);
         let key = match thread {
             Some(tmid) => format!("{rid}:{tmid}"),
             None => rid.to_owned(),
@@ -539,6 +558,22 @@ impl Composer {
         self.custom_emoji.replace(Some(Rc::new(move |prefix: &str| s.custom_emoji_codes(prefix))));
         let s = session.clone();
         self.custom_names.replace(Some(Rc::new(move || s.custom_emoji_names())));
+    }
+
+    pub fn bind_native(&self, session: &Arc<rv_core::native::NativeSession>, rid: &str) {
+        self.attach.set_sensitive(false);
+        self.mic.set_sensitive(false);
+        self.staged.switch(rid);
+        self.on_changed.replace(None);
+        self.set_text(&session.store.draft(rid).unwrap_or_default());
+        self.completion.popdown();
+        self.mentions.replace(None);
+        self.custom_emoji.replace(None);
+        self.custom_names.replace(None);
+        let (store, rid) = (session.store.clone(), rid.to_owned());
+        self.connect_changed(move |text| {
+            let _ = store.set_draft(&rid, &text);
+        });
     }
 
     /// Usernames offered after `@`, given the prefix typed.
@@ -693,6 +728,9 @@ impl Composer {
 
     /// Adds files to those waiting to be sent.
     pub fn stage(&self, picked: Vec<Picked>) {
+        if !self.attach.is_sensitive() {
+            return;
+        }
         self.staged.add(picked);
         self.grab_focus();
     }

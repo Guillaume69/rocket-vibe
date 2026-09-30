@@ -33,6 +33,8 @@ pub struct SessionInfo {
     pub user_id: String,
     pub username: String,
     pub auth_token: String,
+    /// None for legacy Rocket.Chat accounts; pinned for the native pilot.
+    pub native: Option<crate::native::Identity>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,6 +93,9 @@ pub async fn login(
     password: &str,
     two_factor: Option<TwoFactorCode>,
 ) -> Result<SessionInfo, RestError> {
+    if let Some(discovery) = crate::native::probe(server).await.map_err(crate::native::rest_error)? {
+        return crate::native::login(server, &discovery, user, password).await.map_err(crate::native::rest_error);
+    }
     let rest = RestClient::new(server.clone());
     let options = CallOptions {
         anonymous: true,
@@ -106,6 +111,7 @@ pub async fn login(
         user_id: field("/userId"),
         username: field("/me/username"),
         auth_token: field("/authToken"),
+        native: None,
     };
     if info.auth_token.is_empty() || info.user_id.is_empty() {
         return Err(RestError {
@@ -176,6 +182,10 @@ pub enum UnlockError {
 impl Session {
     /// Must run inside a tokio runtime.
     pub fn start(info: SessionInfo, db_path: &Path) -> rusqlite::Result<Arc<Session>> {
+        // A native account must never enter the Rocket.Chat REST/DDP engine.
+        if info.native.is_some() {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
         let base: Url = info.base_url.parse().expect("stored base URL");
         let store = Arc::new(Store::open(db_path)?);
         let rest = RestClient::new(base.clone());

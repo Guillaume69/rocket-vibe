@@ -9,8 +9,10 @@ on:
       - 'apps/server/**'
       - 'crates/**'
       - 'apps/mobile/**'
+      - 'apps/desktop/**'
       - 'docs/protocol/**'
       - 'docker/compose.rocketvibe.yml'
+      - 'docker/compose.native-pilot.yml'
       - 'scripts/*native*'
       - '.github/workflows/native-server.yml'
   pull_request:
@@ -20,7 +22,9 @@ on:
       - 'apps/server/**'
       - 'crates/**'
       - 'apps/mobile/**'
+      - 'apps/desktop/**'
       - 'docs/protocol/**'
+      - 'docker/compose.native-pilot.yml'
       - 'scripts/*native*'
       - '.github/workflows/native-server.yml'
   workflow_dispatch:
@@ -63,10 +67,10 @@ jobs:
             ~/.cargo/git
             target
           key: native-server-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
-      - run: bash apps/server/scripts/check.sh
       - name: Install locked mobile dependencies
         working-directory: apps/mobile
         run: npm ci --no-audit --no-fund
+      - run: bash apps/server/scripts/check.sh
       - name: Typecheck mobile app
         working-directory: apps/mobile
         run: npm run typecheck
@@ -76,3 +80,71 @@ jobs:
       - name: Export Android JavaScript bundle
         working-directory: apps/mobile
         run: npx expo export --platform android --output-dir ../../artifacts/native-mobile-android
+
+  native-desktop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install mobile provider dependencies for the integration peer
+        working-directory: apps/mobile
+        run: npm ci --no-audit --no-fund
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .cache/native-desktop-cargo
+            apps/desktop/target
+          key: native-desktop-fedora-${{ hashFiles('apps/desktop/Cargo.lock') }}
+          restore-keys: native-desktop-fedora-
+      - name: Build Fedora toolchain and disposable server images
+        run: |
+          docker build -t rocket-vibe-rs-build apps/desktop/docker
+          docker build -t rocketvibe-native-server -f apps/server/Dockerfile .
+          docker build -t rocketvibe-native-check -f apps/server/docker/Dockerfile.check .
+      - name: Desktop workspace checks and pilot binaries
+        run: |
+          mkdir -p .cache/native-desktop-cargo artifacts
+          docker run --rm -v "$PWD:/workspace" -v "$PWD/.cache/native-desktop-cargo:/cargo" \
+            -w /workspace/apps/desktop rocket-vibe-rs-build bash -ec '
+              cargo fmt --all -- --check
+              cargo clippy --locked --workspace --all-targets -- -D warnings
+              cargo test --locked --workspace
+              cargo build --locked -p rv-core --example native-smoke
+              cargo build --locked -p rocket-vibe-gtk
+            '
+      - name: Actual mobile SQLite runner and GTK desktop against PostgreSQL
+        run: |
+          docker compose -f docker/compose.native-pilot.yml up -d postgres bootstrap server mobile
+          docker compose -f docker/compose.native-pilot.yml run --rm --no-deps desktop
+          test "$(docker inspect -f '{{.State.ExitCode}}' rocketvibe-pilot-mobile-1)" = 0
+          test "$(docker inspect -f '{{.State.Running}}' rocketvibe-pilot-mobile-1)" = false
+      - name: Integration logs and cleanup
+        if: always()
+        run: |
+          docker compose -f docker/compose.native-pilot.yml logs --no-color > artifacts/native-pilot.log
+          docker compose -f docker/compose.native-pilot.yml down
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-desktop-pilot
+          path: artifacts/native-*
+          if-no-files-found: error
+
+  native-desktop-core-windows:
+    runs-on: windows-2025
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            apps/desktop/target
+          key: native-desktop-core-windows-${{ hashFiles('apps/desktop/Cargo.lock') }}
+      - run: cargo test --locked -p rv-core

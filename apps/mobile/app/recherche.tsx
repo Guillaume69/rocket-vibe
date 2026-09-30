@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native';
 
-import type { ActionsFournisseur } from '../lib/fournisseur.ts';
+import type { ActionsFournisseur, Fournisseur } from '../lib/fournisseur.ts';
 import type { MoteurSynchro } from '../lib/sync.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { VueEvitantLeClavier } from '../ui/clavier.tsx';
@@ -55,7 +55,7 @@ export default function EcranRecherche() {
     );
   }
   return (
-    <Recherche c={c} client={etat.client} moteur={synchro.moteur} actions={synchro.actions} />
+    <Recherche c={c} client={etat.client} moteur={synchro.moteur} actions={synchro.actions} fournisseur={synchro.fournisseur} />
   );
 }
 
@@ -64,11 +64,13 @@ function Recherche({
   client,
   moteur,
   actions,
+  fournisseur,
 }: {
   c: Couleurs;
   client: ClientRest;
   moteur: MoteurSynchro;
   actions: ActionsFournisseur;
+  fournisseur: Fournisseur;
 }) {
   const routeur = useRouter();
   const t = useT();
@@ -77,8 +79,14 @@ function Recherche({
   const enVol = useRef(false);
 
   const chercherSpotlight = useCallback(
-    (propre: string) => client.get<ReponseSpotlight>('spotlight', { params: { query: propre } }),
-    [client],
+    async (propre: string): Promise<ReponseSpotlight> => {
+      if (!fournisseur.native) return client.get<ReponseSpotlight>('spotlight', { params: { query: propre } });
+      const users = await fournisseur.native.chat.users();
+      return {users: users.filter(user => user.id !== client.identifiants?.userId &&
+        (user.username + ' ' + user.display_name).toLowerCase().includes(propre.toLowerCase()))
+        .slice(0,20).map(user => ({_id:user.id,username:user.username,name:user.display_name}))};
+    },
+    [client,fournisseur],
   );
   const { resultats, message, setMessage } = useRechercheDebouncee(
     requete,

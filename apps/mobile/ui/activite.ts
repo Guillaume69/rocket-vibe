@@ -18,16 +18,17 @@ const RIEN = () => {};
 export function useActivite(cle: string): boolean {
   const synchro = useSynchro();
   const activite = synchro.phase === 'pret' ? synchro.activite : null;
+  const native = synchro.phase === 'pret' && cle === 'global' ? synchro.fournisseur.native?.chat : undefined;
 
   // Identités STABLES (cf. usePresence) : un `subscribe` recréé à chaque rendu
   // ferait désabonner/réabonner l'en-tête à chaque re-rendu.
   const abonner = useCallback(
-    (relire: () => void) => (activite === null ? RIEN : activite.surChangement(relire)),
-    [activite],
+    (relire: () => void) => (native ? native.subscribe(relire) : activite === null ? RIEN : activite.surChangement(relire)),
+    [activite,native],
   );
   const lire = useCallback(
-    () => (activite === null ? false : activite.actif(cle)),
-    [activite, cle],
+    () => (native ? !native.status.online : activite === null ? false : activite.actif(cle)),
+    [activite, cle,native],
   );
   return useSyncExternalStore(abonner, lire);
 }

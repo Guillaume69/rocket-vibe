@@ -12,16 +12,20 @@ import type { Session } from '../lib/auth.ts';
 import type { Fournisseur } from '../lib/fournisseur.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { creerFournisseurRC } from './rocketchat/index.ts';
+import { creerFournisseurRV } from './rocketvibe/index.ts';
+import type { NativeStore } from './rocketvibe/store.ts';
 
 export function creerFournisseur(
   session: Session,
   client: ClientRest,
   genererId: () => string,
+  nativeStore?: NativeStore,
 ): Fournisseur {
   switch (session.genre) {
     case 'rocketchat':
       return creerFournisseurRC(session, client, genererId);
     case 'rocketvibe':
-      throw new Error('The native pilot uses its durable NativeChat runner');
+      if (!nativeStore) throw new Error('Native provider requires its account store');
+      return creerFournisseurRV(session,client,genererId,nativeStore);
   }
 }

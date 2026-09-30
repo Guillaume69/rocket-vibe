@@ -54,7 +54,7 @@ jobs:
         run: >
           dnf install -y --setopt=install_weak_deps=False
           git tar rust cargo clippy rustfmt gcc pkgconf-pkg-config
-          gtk4-devel libadwaita-devel gstreamer1-devel gstreamer1-plugins-base-devel
+          gtk4-devel libadwaita-devel webkitgtk6.0-devel gstreamer1-devel gstreamer1-plugins-base-devel
       - uses: actions/checkout@v5
       - uses: actions/cache@v4
         with:

@@ -18,7 +18,7 @@ QUICK_SHARUN="$base/quick-sharun.sh" DEBLOATED_PACKAGES="$base/get-debloated-pkg
   MAKE_AUR_PACKAGE="$base/make-aur-package.sh" sh /tmp/anylinux-setup.sh
 
 pacman -S --needed --noconfirm \
-  rust clang pkgconf gtk4 libadwaita \
+  rust clang pkgconf gtk4 libadwaita webkitgtk-6.0 \
   gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-libav
 get-debloated-pkgs --add-mesa --prefer-nano icu-mini libxml2-mini opus-mini
 

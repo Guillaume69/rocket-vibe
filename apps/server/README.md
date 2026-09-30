@@ -9,10 +9,10 @@ Disponible : comptes créés par CLI, connexion par mot de passe, sessions révo
 salons privés / publics avec adhésions contrôlées, DM uniques, messages idempotents,
 historique paginé, snapshot cohérent et reprise du journal par HTTP / WebSocket.
 
-Un [parcours mobile pilote](../../docs/NATIVE_MOBILE_PILOT.md) est raccordé à la
-connexion, au Keystore et à SQLite. Les interfaces GTK / SwiftUI et les écrans
-partagés du mobile restent à raccorder. Les transports Rust et TypeScript sont
-testés contre le serveur réel. Fichiers, push, appels, 2FA,
+Les [écrans mobiles existants](../../docs/NATIVE_MOBILE_PILOT.md) et les interfaces
+[GTK / SwiftUI existantes](../../docs/NATIVE_DESKTOP_PILOT.md) accueillent les deux
+fournisseurs, avec stockage sécurisé, SQLite, brouillons et outbox. Les transports
+Rust et TypeScript sont testés contre le serveur réel. Fichiers, push, appels, 2FA,
 chiffrement et parité complète restent au backlog. Les limites sont explicites dans
 le [contrat du pilote](../../docs/protocol/README.md).
 
@@ -83,6 +83,30 @@ UTC et les positions longues restent des chaînes, y compris au-delà de la pré
 des nombres JavaScript. Ne pas modifier à la main les fichiers générés.
 
 ## État et suite
+
+Les limites du pilote sont fixées dans `src/limits.rs` : connexion 10 essais par
+pseudo, 30 par IP du pair TCP et 120 au total par fenêtre de 60 secondes, budgets
+partagés en PostgreSQL ; 4 vérifications Argon2 simultanées par processus. Même une
+requête annulée conserve sa place jusqu'à la fin du calcul. Un refus rend `429`
+avec `Retry-After` ; les transports natifs empêchent les retries précoces.
+
+Les en-têtes `Forwarded` / `X-Forwarded-For` ne sont pas utilisés comme identité
+du pair : derrière un proxy, ses clients partagent le quota de son IP. La gestion
+de proxies explicitement approuvés reste à définir avant une exposition publique.
+
+Maximum 4 tickets non consommés par session, 128 sockets par processus et 4 par
+session. Les sockets restent vérifiées toutes les 250 ms, avec heartbeat à 15 s et
+délai d'envoi / fermeture de 5 s. Snapshot : 100 salons, 50 messages par salon et
+8 Mio de JSON ; refus `409 snapshot_limit` sans vue partielle au-delà. Les lots de
+journal sont limités à 100 événements et 1 Mio, sans sauter l'événement qui ne tient
+pas dans le lot. La pagination de snapshots matérialisés reste à développer.
+
+Un curseur expire après 7 jours sans renouvellement ; 512 curseurs au maximum par
+compte. Un curseur expiré / élagué exige un nouveau snapshot via
+`409 sync_reset_required`, sans effacer les intentions locales encore autorisées.
+Au démarrage puis chaque minute, le serveur supprime jusqu'à 1 000 entrées périmées
+par famille (sessions, tickets, curseurs, quotas), en sautant les lignes verrouillées.
+Il ne purge ni journal ni messages. Ces bornes ne remplacent pas un essai de charge.
 
 Le [suivi du chantier](../../docs/NATIVE_SERVER_EXECUTION.md) détaille ce qui est
 livré et ce qui reste à faire pour fermer J0 et J1. La

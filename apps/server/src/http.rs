@@ -1,7 +1,7 @@
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     extract::{
-        DefaultBodyLimit, Path, Query, State, WebSocketUpgrade,
+        ConnectInfo, DefaultBodyLimit, Path, Query, State, WebSocketUpgrade,
         ws::{Message as WsMessage, WebSocket},
     },
     http::{HeaderMap, StatusCode},
@@ -14,12 +14,12 @@ use rv_protocol::{
     CreateRoom, DirectMessage, Discovery, Login, SendMessage, SocketTicket, VERSION,
 };
 use serde::Deserialize;
-use std::time::Duration;
+use std::{net::SocketAddr, time::Duration};
 
 use crate::{
     App, auth,
     error::{Error, Result},
-    store, sync,
+    limits, store, sync,
 };
 
 pub fn router(app: App) -> Router {
@@ -79,10 +79,20 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
     }))
 }
 
-async fn login(State(app): State<App>, input: Input<Login>) -> Result<Json<rv_protocol::Session>> {
+async fn login(
+    State(app): State<App>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    input: Input<Login>,
+) -> Result<Json<rv_protocol::Session>> {
     let login = body(input)?;
     Ok(Json(
-        auth::login(&app, login.username, login.password).await?,
+        auth::login_from(
+            &app,
+            login.username,
+            login.password,
+            peer.map(|p| p.0.0.ip()),
+        )
+        .await?,
     ))
 }
 
@@ -220,14 +230,37 @@ async fn changes(
 async fn ticket(State(app): State<App>, headers: HeaderMap) -> Result<Json<SocketTicket>> {
     let hash = auth::bearer(&headers)?;
     auth::authenticate(&app, &hash).await?;
+    app.socket_slots.check(&hash)?;
     let ticket = auth::random_token();
     let expires_at = Utc::now() + chrono::Duration::seconds(30);
+    let mut tx = app.pool.begin().await?;
+    // Serialize ticket reservations with each other and session deletion. A
+    // retained ticket cannot resurrect a session that expired during admission.
+    let active: Option<String> = sqlx::query_scalar(
+        "SELECT token_hash FROM sessions WHERE token_hash=$1 AND expires_at>now() FOR NO KEY UPDATE",
+    ).bind(&hash).fetch_optional(&mut *tx).await?;
+    if active.is_none() {
+        return Err(Error::unauthorized());
+    }
+    sqlx::query("DELETE FROM socket_tickets WHERE session_hash=$1 AND expires_at<=now()")
+        .bind(&hash)
+        .execute(&mut *tx)
+        .await?;
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM socket_tickets WHERE session_hash=$1")
+            .bind(&hash)
+            .fetch_one(&mut *tx)
+            .await?;
+    if count >= limits::TICKETS_PER_SESSION {
+        return Err(Error::throttled("ticket_limit", 30));
+    }
     sqlx::query("INSERT INTO socket_tickets(token_hash,session_hash,expires_at) VALUES($1,$2,$3)")
         .bind(auth::hash_token(&ticket))
         .bind(hash)
         .bind(expires_at)
-        .execute(&app.pool)
+        .execute(&mut *tx)
         .await?;
+    tx.commit().await?;
     Ok(Json(SocketTicket {
         ticket,
         expires_at: expires_at.to_rfc3339(),
@@ -253,15 +286,22 @@ async fn socket(
         return Err(Error::unauthorized());
     };
     let user = auth::authenticate(&app, &session_hash).await?;
+    let slot = app.socket_slots.acquire(&session_hash)?;
     sync::changes(&app, &user, &input.cursor, 1).await?;
     Ok(upgrade
         .max_message_size(1024)
         .max_frame_size(1024)
-        .on_upgrade(move |ws| stream(app, ws, session_hash, input.cursor))
+        .on_upgrade(move |ws| stream(app, ws, session_hash, input.cursor, slot))
         .into_response())
 }
 
-async fn stream(app: App, mut ws: WebSocket, session_hash: String, mut cursor: String) {
+async fn stream(
+    app: App,
+    mut ws: WebSocket,
+    session_hash: String,
+    mut cursor: String,
+    _slot: limits::SocketSlot,
+) {
     let mut interval = tokio::time::interval(Duration::from_millis(250));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut last_sent = tokio::time::Instant::now();
@@ -287,5 +327,5 @@ async fn stream(app: App, mut ws: WebSocket, session_hash: String, mut cursor: S
             }
         }
     }
-    let _ = ws.close().await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), ws.close()).await;
 }

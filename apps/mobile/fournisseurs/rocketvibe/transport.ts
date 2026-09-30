@@ -5,11 +5,13 @@ import { decodeNative } from './validation.ts';
 export class NativeError extends Error {
   readonly status: number;
   readonly code: string;
-  constructor(status: number, code: string) {
+  readonly retryAfter: number | undefined;
+  constructor(status: number, code: string, retryAfter?: number) {
     super(code);
     this.name = 'NativeError';
     this.status = status;
     this.code = code;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -17,6 +19,7 @@ export class NativeTransport {
   readonly baseUrl: string;
   private readonly fetcher: typeof fetch;
   private token: string | null = null;
+  private readonly cooldowns = new Map<string, {until:number; code:string}>();
   surJetonRefuse: ((token: string) => void) | null = null;
 
   constructor(baseUrl: string, fetcher: typeof fetch = fetch) {
@@ -29,6 +32,9 @@ export class NativeTransport {
   private async value(path: string, input?: unknown, anonymous = false, signal?: AbortSignal): Promise<unknown> {
     if (!anonymous && this.token === null) throw new NativeError(401, 'session_rejected');
     const sent = anonymous ? null : this.token;
+    const budget = path === '/api/v1/auth/login' ? 'login' : path === '/api/v1/sync/ticket' ? 'ticket' : null;
+    const cooldown = budget === null ? undefined : this.cooldowns.get(budget);
+    if (cooldown && cooldown.until > Date.now()) throw new NativeError(429,cooldown.code,Math.ceil((cooldown.until-Date.now())/1000));
     const controller = new AbortController();
     const relay = () => controller.abort();
     signal?.addEventListener('abort', relay);
@@ -45,7 +51,10 @@ export class NativeTransport {
     if (!response.ok) {
       const error = decodeNative('ApiError', await response.json());
       if (response.status === 401 && error.code === 'session_rejected' && sent !== null) this.surJetonRefuse?.(sent);
-      throw new NativeError(response.status, error.code);
+      const header = response.headers.get('retry-after');
+      const retry = Math.min(300,Math.max(1,header && /^\d+$/.test(header) ? Number(header) : 1));
+      if (response.status === 429 && budget !== null) this.cooldowns.set(budget,{until:Date.now()+retry*1000,code:error.code});
+      throw new NativeError(response.status, error.code, response.status === 429 ? retry : undefined);
     }
       return response.status === 204 ? undefined : await response.json();
     } catch (error) {

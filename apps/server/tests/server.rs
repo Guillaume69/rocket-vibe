@@ -26,7 +26,13 @@ impl Server {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let task = tokio::spawn(async move {
-            axum::serve(listener, app.router()).await.unwrap();
+            axum::serve(
+                listener,
+                app.router()
+                    .into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap();
         });
         Self {
             base,
@@ -652,5 +658,533 @@ async fn auth_validation_and_generation_reset(pool: PgPool) {
     assert_eq!(
         reset.json::<rv_protocol::ApiError>().await.unwrap().code,
         "sync_reset_required"
+    );
+}
+
+#[sqlx::test]
+async fn login_budgets_survive_restart_and_ignore_forwarded_ip(pool: PgPool) {
+    let app = App::from_pool(pool.clone()).await.unwrap();
+    user(&app, "alice").await;
+    user(&app, "bob").await;
+    let server = Server::start(pool.clone()).await;
+    for username in ["alice", "unknown"] {
+        for _ in 0..10 {
+            let response = server
+                .client
+                .post(format!("{}/api/v1/auth/login", server.base))
+                .json(&json!({"username":username,"password":"wrong"}))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        }
+        let response = server
+            .client
+            .post(format!("{}/api/v1/auth/login", server.base))
+            .json(&json!({"username":username,"password":"test-password-2026"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        let delay: u64 = response.headers()["retry-after"]
+            .to_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!((1..=60).contains(&delay));
+        assert_eq!(
+            response.json::<rv_protocol::ApiError>().await.unwrap().code,
+            "auth_rate_limited"
+        );
+    }
+    drop(server);
+    let server = Server::start(pool.clone()).await;
+    let limited = server
+        .client
+        .post(format!("{}/api/v1/auth/login", server.base))
+        .json(&json!({"username":"alice","password":"test-password-2026"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+    let bob = server.login("bob").await;
+    // Prime the actual TCP peer's last IP allowance, not a forwarded header.
+    sqlx::query("UPDATE login_windows SET attempts=30 WHERE key=$1")
+        .bind(format!("ip:{}", auth::hash_token("127.0.0.1")))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let spoofed = server
+        .client
+        .post(format!("{}/api/v1/auth/login", server.base))
+        .header("x-forwarded-for", "203.0.113.123")
+        .header("forwarded", "for=203.0.113.123")
+        .json(&json!({"username":"another-unknown","password":"wrong"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(spoofed.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        server.get(&bob.token, "/api/v1/me").await.status(),
+        StatusCode::OK
+    );
+    // Expired windows release the budget; rejected attempts never extend it.
+    sqlx::query(
+        "UPDATE login_windows SET expires_at=now()-interval '1 second' WHERE key<> 'global'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let alice = server.login("alice").await;
+    assert_eq!(alice.user.username, "alice");
+    sqlx::query("UPDATE login_windows SET attempts=120 WHERE key='global'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let global = server
+        .client
+        .post(format!("{}/api/v1/auth/login", server.base))
+        .json(&json!({"username":"new-key","password":"wrong"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(global.status(), StatusCode::TOO_MANY_REQUESTS);
+    let inserted: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM login_windows WHERE key=$1)")
+            .bind(format!("user:{}", auth::hash_token("new-key")))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(
+        !inserted,
+        "rejected requests must not grow the limiter table"
+    );
+}
+
+#[sqlx::test]
+async fn simultaneous_logins_cannot_overrun_a_username_budget(pool: PgPool) {
+    let app = App::from_pool(pool.clone()).await.unwrap();
+    user(&app, "alice").await;
+    let server = Server::start(pool.clone()).await;
+    sqlx::query("INSERT INTO login_windows(key,attempts,expires_at) VALUES($1,9,now()+interval '60 seconds')")
+        .bind(format!("user:{}",auth::hash_token("alice"))).execute(&pool).await.unwrap();
+    let requests = (0..8).map(|_| {
+        server
+            .client
+            .post(format!("{}/api/v1/auth/login", server.base))
+            .json(&json!({"username":"alice","password":"test-password-2026"}))
+            .send()
+    });
+    let responses = futures_util::future::join_all(requests).await;
+    assert_eq!(
+        responses
+            .iter()
+            .filter(|r| r.as_ref().unwrap().status() == StatusCode::OK)
+            .count(),
+        1
+    );
+    for response in responses {
+        let response = response.unwrap();
+        assert!(matches!(
+            response.status(),
+            StatusCode::OK | StatusCode::TOO_MANY_REQUESTS
+        ));
+    }
+    let attempts: i32 = sqlx::query_scalar("SELECT attempts FROM login_windows WHERE key=$1")
+        .bind(format!("user:{}", auth::hash_token("alice")))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(attempts, 10);
+}
+
+#[sqlx::test]
+async fn ticket_and_socket_slots_are_bounded_and_released(pool: PgPool) {
+    let app = App::from_pool(pool.clone()).await.unwrap();
+    user(&app, "alice").await;
+    let server = Server::start(pool.clone()).await;
+    let alice = server.login("alice").await;
+    let snapshot = server.snapshot(&alice.token).await;
+    let replies = futures_util::future::join_all(
+        (0..8).map(|_| server.post(&alice.token, "/api/v1/sync/ticket", json!({}))),
+    )
+    .await;
+    let mut tickets = Vec::new();
+    for reply in replies {
+        if reply.status() == StatusCode::OK {
+            tickets.push(reply.json::<SocketTicket>().await.unwrap());
+        } else {
+            assert_eq!(reply.status(), StatusCode::TOO_MANY_REQUESTS);
+            assert_eq!(reply.headers()["retry-after"], "30");
+        }
+    }
+    assert_eq!(tickets.len(), 4);
+    let url = |ticket: &str| {
+        format!(
+            "{}/api/v1/sync/socket?ticket={ticket}&cursor={}",
+            server.base.replace("http://", "ws://"),
+            snapshot.cursor
+        )
+    };
+    let (first, _) = tokio_tungstenite::connect_async(url(&tickets[0].ticket))
+        .await
+        .unwrap();
+    let replay = tokio_tungstenite::connect_async(url(&tickets[0].ticket))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(replay,tokio_tungstenite::tungstenite::Error::Http(r) if r.status()==StatusCode::UNAUTHORIZED)
+    );
+    sqlx::query(
+        "UPDATE socket_tickets SET expires_at=now()-interval '1 second' WHERE token_hash=$1",
+    )
+    .bind(auth::hash_token(&tickets[1].ticket))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let expired = tokio_tungstenite::connect_async(url(&tickets[1].ticket))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(expired,tokio_tungstenite::tungstenite::Error::Http(r) if r.status()==StatusCode::UNAUTHORIZED)
+    );
+    let fresh: SocketTicket = server
+        .post(&alice.token, "/api/v1/sync/ticket", json!({}))
+        .await
+        .json()
+        .await
+        .unwrap();
+    let mut sockets = vec![first];
+    for ticket in [&tickets[2].ticket, &tickets[3].ticket] {
+        sockets.push(
+            tokio_tungstenite::connect_async(url(ticket))
+                .await
+                .unwrap()
+                .0,
+        );
+    }
+    let excess: SocketTicket = server
+        .post(&alice.token, "/api/v1/sync/ticket", json!({}))
+        .await
+        .json()
+        .await
+        .unwrap();
+    // Reserve this ticket while a socket slot is still available, then fill it:
+    // the upgrade must also enforce the limit when admissions race.
+    sockets.push(
+        tokio_tungstenite::connect_async(url(&fresh.ticket))
+            .await
+            .unwrap()
+            .0,
+    );
+    let ticket_refused = server
+        .post(&alice.token, "/api/v1/sync/ticket", json!({}))
+        .await;
+    assert_eq!(ticket_refused.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(ticket_refused.headers()["retry-after"], "5");
+    assert_eq!(
+        ticket_refused
+            .json::<rv_protocol::ApiError>()
+            .await
+            .unwrap()
+            .code,
+        "socket_limit"
+    );
+    let limited = tokio_tungstenite::connect_async(url(&excess.ticket))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(limited,tokio_tungstenite::tungstenite::Error::Http(r) if r.status()==StatusCode::TOO_MANY_REQUESTS && r.headers()["retry-after"]=="5")
+    );
+    sockets.pop().unwrap().close(None).await.unwrap();
+    let replacement = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let response = server
+                .post(&alice.token, "/api/v1/sync/ticket", json!({}))
+                .await;
+            if response.status() == StatusCode::TOO_MANY_REQUESTS {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                continue;
+            }
+            let ticket: SocketTicket = response.error_for_status().unwrap().json().await.unwrap();
+            if let Ok((ws, _)) = tokio_tungstenite::connect_async(url(&ticket.ticket)).await {
+                break ws;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("closed socket must release its reservation");
+    sockets.push(replacement);
+    server
+        .post(&alice.token, "/api/v1/auth/logout", json!({}))
+        .await
+        .error_for_status()
+        .unwrap();
+    for mut socket in sockets {
+        let closed = tokio::time::timeout(Duration::from_secs(5), async {
+            while let Some(Ok(message)) = socket.next().await {
+                if message.is_close() {
+                    return;
+                }
+            }
+        })
+        .await;
+        assert!(closed.is_ok(), "logout must close active sockets");
+    }
+}
+
+#[sqlx::test]
+async fn expired_cursors_reset_without_resurrecting_and_records_are_pruned(pool: PgPool) {
+    let app = App::from_pool(pool.clone()).await.unwrap();
+    user(&app, "alice").await;
+    let server = Server::start(pool.clone()).await;
+    let alice = server.login("alice").await;
+    let old = server.snapshot(&alice.token).await;
+    sqlx::query("UPDATE sync_cursors SET expires_at=now()-interval '1 second' WHERE token=$1")
+        .bind(&old.cursor)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let reset = server
+        .get(
+            &alice.token,
+            &format!("/api/v1/sync/changes?cursor={}", old.cursor),
+        )
+        .await;
+    assert_eq!(reset.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        reset.json::<rv_protocol::ApiError>().await.unwrap().code,
+        "sync_reset_required"
+    );
+    let fresh = server.snapshot(&alice.token).await;
+    assert_ne!(
+        fresh.cursor, old.cursor,
+        "an expired token must stay expired at the same watermark"
+    );
+    assert_eq!(
+        server
+            .get(
+                &alice.token,
+                &format!("/api/v1/sync/changes?cursor={}", old.cursor)
+            )
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    // Simulate retained cursors from many devices / historical watermarks.
+    sqlx::query("INSERT INTO sync_cursors(token,user_id,data_epoch,position,expires_at) SELECT lpad(n::text,64,'0'),$1,data_epoch,n,now()+interval '1 day' FROM instance CROSS JOIN generate_series(1,600) n")
+        .bind(&alice.user.id).execute(&pool).await.unwrap();
+    let current = server.snapshot(&alice.token).await;
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM sync_cursors WHERE user_id=$1")
+        .bind(&alice.user.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 512);
+    assert_eq!(current.cursor, fresh.cursor);
+    let pruned = format!("{:0>64}", 1);
+    assert_eq!(
+        server
+            .get(
+                &alice.token,
+                &format!("/api/v1/sync/changes?cursor={pruned}")
+            )
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let active_ticket: SocketTicket = server
+        .post(&alice.token, "/api/v1/sync/ticket", json!({}))
+        .await
+        .json()
+        .await
+        .unwrap();
+    let expired_session = auth::random_token();
+    sqlx::query("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()-interval '1 second')")
+        .bind(&expired_session).bind(&alice.user.id).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO socket_tickets(token_hash,session_hash,expires_at) VALUES($1,$2,now()+interval '20 seconds')")
+        .bind(auth::random_token()).bind(&expired_session).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO socket_tickets(token_hash,session_hash,expires_at) VALUES($1,$2,now()-interval '1 second')")
+        .bind(auth::random_token()).bind(auth::hash_token(&alice.token)).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE sync_cursors SET expires_at=now()-interval '1 second' WHERE token<>$1")
+        .bind(&current.cursor)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE login_windows SET expires_at=now()-interval '1 second'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    // Startup cleanup skips work held by another transaction instead of blocking
+    // login / cursor creation behind a cycle of row locks.
+    let mut held = pool.begin().await.unwrap();
+    sqlx::query("SELECT token FROM sync_cursors WHERE token<>$1 LIMIT 1 FOR UPDATE")
+        .bind(&current.cursor)
+        .fetch_one(&mut *held)
+        .await
+        .unwrap();
+    let restarted = tokio::time::timeout(Duration::from_secs(5), App::from_pool(pool.clone()))
+        .await
+        .expect("cleanup must skip a locked cursor")
+        .unwrap();
+    let retained: i64 = sqlx::query_scalar("SELECT count(*) FROM sync_cursors")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(retained, 2, "live and locked cursor must remain");
+    held.rollback().await.unwrap();
+    restarted.cleanup().await.unwrap();
+    for (table, expected) in [
+        ("sessions", 1_i64),
+        ("socket_tickets", 1),
+        ("sync_cursors", 1),
+        ("login_windows", 0),
+    ] {
+        let query = format!("SELECT count(*) FROM {table}");
+        let count: i64 = sqlx::query_scalar(&query).fetch_one(&pool).await.unwrap();
+        assert_eq!(count, expected, "cleanup of {table}");
+    }
+    assert!(
+        server
+            .changes(&alice.token, &current.cursor)
+            .await
+            .changes
+            .is_empty()
+    );
+    let ticket_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM socket_tickets WHERE token_hash=$1)")
+            .bind(auth::hash_token(&active_ticket.ticket))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(ticket_exists, "cleanup must keep valid tickets");
+}
+
+#[sqlx::test]
+async fn large_json_is_bounded_without_skipping_replay_events(pool: PgPool) {
+    let app = App::from_pool(pool.clone()).await.unwrap();
+    user(&app, "alice").await;
+    let server = Server::start(pool.clone()).await;
+    let alice = server.login("alice").await;
+    let initial = server.snapshot(&alice.token).await;
+    // Quotes double their wire size: limits must measure JSON, not raw text.
+    let text = "\"".repeat(30_000);
+    let mut ids = Vec::new();
+    let mut last_room = String::new();
+    for n in 0..3 {
+        let room: Room = server
+            .post(
+                &alice.token,
+                "/api/v1/rooms",
+                json!({"name":format!("Large {n}"),"private":true}),
+            )
+            .await
+            .error_for_status()
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        last_room = room.id.clone();
+        for m in 0..50 {
+            let id = format!("large-{n}-{m}");
+            server
+                .post(
+                    &alice.token,
+                    &format!("/api/v1/rooms/{}/messages", room.id),
+                    json!({"operation_id":id,"text":text}),
+                )
+                .await
+                .error_for_status()
+                .unwrap();
+            ids.push(id);
+        }
+        if n == 1 {
+            let response = server.get(&alice.token, "/api/v1/sync/snapshot").await;
+            assert_eq!(response.status(), StatusCode::OK);
+            let bytes = response.bytes().await.unwrap();
+            assert!(bytes.len() <= 8 * 1024 * 1024);
+            assert_eq!(
+                serde_json::from_slice::<Snapshot>(&bytes)
+                    .unwrap()
+                    .messages
+                    .len(),
+                100
+            );
+        }
+    }
+    let cursors_before: i64 = sqlx::query_scalar("SELECT count(*) FROM sync_cursors")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let oversized = server.get(&alice.token, "/api/v1/sync/snapshot").await;
+    assert_eq!(oversized.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        oversized
+            .json::<rv_protocol::ApiError>()
+            .await
+            .unwrap()
+            .code,
+        "snapshot_limit"
+    );
+    let cursors_after: i64 = sqlx::query_scalar("SELECT count(*) FROM sync_cursors")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        cursors_before, cursors_after,
+        "a partial snapshot must not publish a cursor"
+    );
+    let mut cursor = initial.cursor;
+    let mut delivered = Vec::new();
+    let mut batches = 0;
+    loop {
+        let response = server
+            .get(
+                &alice.token,
+                &format!("/api/v1/sync/changes?cursor={cursor}"),
+            )
+            .await
+            .error_for_status()
+            .unwrap();
+        let bytes = response.bytes().await.unwrap();
+        assert!(bytes.len() <= 1024 * 1024);
+        let batch: SyncBatch = serde_json::from_slice(&bytes).unwrap();
+        for change in batch.changes {
+            if let Change::MessageUpsert(message) = change {
+                delivered.push(message.id);
+            }
+        }
+        assert_ne!(batch.cursor, cursor);
+        cursor = batch.cursor;
+        batches += 1;
+        if !batch.has_more {
+            break;
+        }
+        assert!(batches < 30, "byte-bounded batches must keep advancing");
+    }
+    assert!(batches > 2, "large messages must produce smaller batches");
+    assert_eq!(
+        delivered, ids,
+        "replay must preserve every event exactly once in journal order"
+    );
+    let page: MessagePage = server
+        .get(
+            &alice.token,
+            &format!("/api/v1/rooms/{last_room}/messages?limit=1"),
+        )
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(page.messages[0].id, *ids.last().unwrap());
+    assert!(
+        server
+            .changes(&alice.token, &cursor)
+            .await
+            .changes
+            .is_empty()
     );
 }

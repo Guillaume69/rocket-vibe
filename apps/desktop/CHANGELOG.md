@@ -9,6 +9,9 @@ section here.
 
 ### Added
 
+- Native login / socket-ticket retries honor the server's `Retry-After` delay,
+  including across cloned transports, without discarding the saved account.
+
 - Rocket.Chat and RocketVibe accounts in the existing GTK chat interface: login, rooms, invitations,
   DMs, text, history, persistent drafts and a durable SQLite outbox. Native identity
   pins and caches are kept separate from Rocket.Chat accounts.

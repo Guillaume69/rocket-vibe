@@ -9,6 +9,10 @@ release, et ses notes sont la section de la version ici.
 
 ### Ajouté
 
+- Respect du délai serveur après un refus `429` RocketVibe, sans perte du compte
+  ni relance prématurée de la connexion ; reprise testée après expiration réelle
+  du curseur, avec brouillon et envoi hors ligne conservés.
+
 - Connexion aux serveurs Rocket.Chat et RocketVibe dans les mêmes écrans :
   liste des salons, recherche de correspondants / DM, Markdown, texte, historique
   et brouillons persistants. Les sessions

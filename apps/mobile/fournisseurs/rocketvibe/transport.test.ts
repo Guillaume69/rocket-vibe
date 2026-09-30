@@ -43,4 +43,36 @@ describe('native protocol contract', () => {
     assert.equal(calls,0);
     await assert.rejects(client.login('alice','wrong'),(e: unknown) => e instanceof NativeError && e.status===401);
   });
+  test('a recognized 429 suppresses early retries without rejecting the saved session', async t => {
+    t.mock.timers.enable({apis:['Date']});
+    let calls = 0;
+    let revoked = false;
+    const client = new NativeTransport('https://example.org',async url => {
+      calls++;
+      return String(url).endsWith('/me') ? Response.json(fixture.session.user)
+        : Response.json({code:'ticket_limit',request_id:'test'},{status:429,headers:{'retry-after':'30'}});
+    });
+    client.restore('saved-token');
+    client.surJetonRefuse = () => { revoked = true; };
+    const limited = (e: unknown) => e instanceof NativeError && e.status === 429 && e.retryAfter === 30;
+    await assert.rejects(client.socketUrl('cursor'),limited);
+    await assert.rejects(client.socketUrl('cursor'),limited);
+    assert.equal(calls,1);
+    assert.equal(revoked,false);
+    assert.equal((await client.me()).id,fixture.session.user.id);
+    assert.equal(calls,2);
+    t.mock.timers.tick(30_000);
+    await assert.rejects(client.socketUrl('cursor'),limited);
+    assert.equal(calls,3,'the cooldown must expire and allow a new request');
+  });
+  test('a malformed 429 does not install a server cooldown', async () => {
+    let calls = 0;
+    const client = new NativeTransport('https://example.org',async () => {
+      calls++;
+      return Response.json({message:'proxy error'},{status:429,headers:{'retry-after':'999999'}});
+    });
+    for (let n=0;n<2;n++) await assert.rejects(client.login('alice','wrong'),
+      (e: unknown) => e instanceof NativeError && e.status === 0);
+    assert.equal(calls,2);
+  });
 });

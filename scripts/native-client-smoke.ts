@@ -1,7 +1,8 @@
 /** Executed by a SQLx integration test against its disposable database. */
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { NativeTransport } from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
+import { NativeError, NativeTransport } from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
+import { createInterface } from 'node:readline';
 import { decodeNative } from '../apps/mobile/fournisseurs/rocketvibe/validation.ts';
 import type { SyncBatch } from '../apps/mobile/fournisseurs/rocketvibe/protocol.generated.ts';
 import type { Session as AppSession } from '../apps/mobile/lib/auth.ts';
@@ -85,12 +86,25 @@ try {
   mobileAlice.suspend();
   const queuedId = await mobileAlice.send(room.id,'Queued by the actual mobile outbox');
   assert.equal((await aliceStore.pending()).length,1);
+  await aliceStore.drafts().ecrire(room.id,'Draft across expired cursor');
+  if (process.env.RV_SMOKE_EXPIRE_CURSOR) {
+    const oldCursor = (await aliceStore.state())!.cursor;
+    const input = createInterface({input:process.stdin});
+    try {
+      const ready = new Promise<void>(resolve => input.once('line',() => resolve()));
+      console.log('Mobile runner awaiting cursor expiry');
+      await ready;
+      await assert.rejects(alice.changes(oldCursor),
+        (error: unknown) => error instanceof NativeError && error.code==='sync_reset_required');
+    } finally { input.close(); }
+  }
   mobileAlice.stop();
   mobileAlice = new NativeChat(appSession(aliceLogin),new NativeStore(aliceDb.adapter,aliceQueue,appSession(aliceLogin)),id);
   await mobileAlice.connect();
   await until(async () => (await bobStore.messages(room.id)).some(message => message.id === queuedId));
   assert.equal((await aliceStore.pending()).length,0);
   assert.equal((await bobStore.messages(room.id)).filter(message => message.id === queuedId).length,1);
+  assert.equal(await aliceStore.drafts().lire(room.id),'Draft across expired cursor');
 
   mobileBob.suspend();
   const missedId = await mobileAlice.send(room.id,'Missed while the mobile reader was offline');
@@ -115,7 +129,7 @@ try {
   assert.equal((await bobStore.messages(privateId)).length,0);
   assert.equal((await bobStore.pending()).length,0);
   assert(!(await bobStore.rooms()).some(room => room.rid === privateId));
-  console.log('Mobile runner + SQLite: live exchange, persisted outbox, restart, reconnect and membership withdrawal passed');
+  console.log(`Mobile runner + SQLite: live exchange, persisted outbox, ${process.env.RV_SMOKE_EXPIRE_CURSOR ? 'expired cursor reset, ' : ''}draft, restart and membership withdrawal passed`);
 } finally {
   mobileAlice.stop(); mobileBob.stop();
   aliceDb.db.close(); bobDb.db.close();

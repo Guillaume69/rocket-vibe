@@ -17,6 +17,9 @@ sont versionnés et vérifiés sans diff en CI.
 - Les versions, types et capacités inconnus ne sont pas assimilés à Rocket.Chat.
 - Dates RFC 3339 UTC ; IDs opaques ; positions / révisions en chaînes décimales.
 - Erreurs métier : `{ code, request_id }`. Aucun texte SQL ou secret dans la réponse.
+- `429` conserve cette enveloppe et ajoute `Retry-After` en secondes entières.
+  Les transports natifs gardent le délai (borné à 5 min) par famille login / ticket,
+  sans révoquer la session ni bloquer la consultation ou le logout.
 
 ## Routes disponibles
 
@@ -54,7 +57,8 @@ peut rejouer les lots. L'intégrateur client doit appliquer le lot et son curseu
 dans une même transaction locale avant de reprendre à ce curseur.
 
 Les curseurs sont aléatoires et liés au compte / génération. Un curseur d'un autre
-compte ou d'une autre génération produit `409 sync_reset_required`. Ils ne révèlent
+compte, d'une autre génération, expiré (7 jours sans renouvellement) ou élagué
+(512 curseurs maximum par compte) produit `409 sync_reset_required`. Ils ne révèlent
 pas les positions globales des événements inaccessibles. Une suppression d'adhésion
 produit `room_removed` pour son ancien membre ; replay et historique filtrent les
 messages avec les droits présents. Après logout la socket est fermée au prochain tick.
@@ -65,18 +69,29 @@ une connexion n'ayant reçu aucune trame pendant plus de 45 secondes.
 
 ## Limites connues
 
-- Le mobile dispose d'un [écran pilote dédié](../NATIVE_MOBILE_PILOT.md), avec stockage
-  sécurisé et transactions SQLite. Le raccordement au contrat `Fournisseur`, aux
-  écrans partagés et aux clients bureau reste à faire.
+- Le [mobile](../NATIVE_MOBILE_PILOT.md) et les clients [GTK / SwiftUI](../NATIVE_DESKTOP_PILOT.md)
+  utilisent leurs écrans existants pour les deux fournisseurs. Les essais manuels
+  sur appareils restent ouverts.
 - Snapshot non paginé, maximum 100 salons (refus explicite au-delà) et 50 messages
-  récents par salon ; les autres messages se chargent par l'historique.
-- Tickets et curseurs n'ont pas encore de politique de nettoyage. Le journal est
-  conservé entièrement ; la rétention / reset automatique restent à livrer.
+  récents par salon ; taille JSON maximum 8 Mio, refus `409 snapshot_limit` sans
+  création de curseur ni réponse partielle. Les autres messages se chargent par
+  l'historique. La pagination de snapshots matérialisés reste à livrer.
+- Lots HTTP / WebSocket : maximum 100 événements scannés et 1 Mio de JSON. Le
+  curseur n'avance pas au-delà d'un événement livré dans le lot suivant.
+- Tickets valables 30 s, maximum 4 non consommés par session. Le démarrage et un
+  passage chaque minute nettoient par lots de 1 000 les sessions, tickets, curseurs
+  et quotas périmés, sans attendre les lignes verrouillées. Le journal reste conservé.
 - Sessions valables 30 jours ; renouvellement et 2FA non livrés. La concurrence des
-  calculs Argon2 est bornée, mais la limitation d'essais par compte / IP reste à faire.
+  calculs Argon2 reste bornée à 4 par processus après annulation HTTP. Connexion :
+  10 essais par pseudo, 30 par IP TCP et 120 au total par fenêtre de 60 s, en base
+  et conservés après redémarrage ; `429 auth_busy` / `auth_rate_limited` avec délai.
+  Aucun en-tête de proxy n'est accepté comme preuve d'IP ; derrière un proxy,
+  ses clients partagent le quota. La configuration de proxies approuvés reste ouverte.
 - Le suivi WebSocket interroge le journal toutes les 250 ms et ferme les clients
-  dont un envoi dépasse 5 s. Les heartbeats sont présents ; les limites globales et
-  la charge restent à qualifier.
+  dont un envoi / une fermeture dépasse 5 s. Limite de 128 sockets par processus,
+  4 par session ; `429 socket_limit` avec délai dès la demande de ticket, puis
+  nouveau contrôle à l'upgrade pour les courses concurrentes. Les heartbeats sont
+  présents ; la charge et les déploiements multiprocessus restent à qualifier.
 - Les réponses historiques / snapshots utilisent des transactions cohérentes,
   mais la garantie stricte de retrait en cours de diffusion exige encore un test
   et un ordonnancement de révocation avec les sockets. Ne pas annoncer cette

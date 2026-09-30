@@ -5,6 +5,7 @@ use rand_core::{OsRng, RngCore};
 use rv_protocol::{Session, User};
 use sha2::{Digest, Sha256};
 use sqlx::FromRow;
+use std::net::IpAddr;
 
 use crate::{
     App,
@@ -102,15 +103,25 @@ pub async fn create_user(app: &App, username: &str, password: String, admin: boo
 }
 
 pub async fn login(app: &App, username: String, password: String) -> Result<Session> {
+    login_from(app, username, password, None).await
+}
+
+pub async fn login_from(
+    app: &App,
+    username: String,
+    password: String,
+    peer: Option<IpAddr>,
+) -> Result<Session> {
     if username.len() > 128 || password.len() > 1024 {
         return Err(Error::invalid());
     }
     // Limit expensive Argon2 work independently of the HTTP connection count.
-    let _permit = app
+    let permit = app
         .password_slots
         .clone()
         .try_acquire_owned()
-        .map_err(|_| Error(axum::http::StatusCode::TOO_MANY_REQUESTS, "auth_busy"))?;
+        .map_err(|_| Error::throttled("auth_busy", 1))?;
+    crate::limits::login_attempt(app, &username, peer).await?;
     let record: Option<(String,String,String,String)> = sqlx::query_as("SELECT id,username,display_name,password_hash FROM users WHERE username=$1 AND NOT disabled")
         .bind(username).fetch_optional(&app.pool).await?;
     let hash = record
@@ -118,6 +129,9 @@ pub async fn login(app: &App, username: String, password: String) -> Result<Sess
         .map(|r| r.3.clone())
         .unwrap_or_else(|| app.dummy_password_hash.clone());
     let valid = tokio::task::spawn_blocking(move || {
+        // Dropping a cancelled HTTP future must not release the slot while
+        // Argon2 is still running in the blocking thread pool.
+        let _permit = permit;
         PasswordHash::new(&hash).ok().is_some_and(|h| {
             Argon2::default()
                 .verify_password(password.as_bytes(), &h)

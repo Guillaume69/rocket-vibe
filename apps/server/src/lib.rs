@@ -1,6 +1,7 @@
 pub mod auth;
 mod error;
 mod http;
+mod limits;
 mod store;
 mod sync;
 
@@ -14,6 +15,7 @@ pub struct App {
     pub pool: PgPool,
     password_slots: Arc<tokio::sync::Semaphore>,
     dummy_password_hash: String,
+    socket_slots: Arc<limits::SocketSlots>,
 }
 
 impl App {
@@ -41,11 +43,27 @@ impl App {
                 .to_string()
         })
         .await?;
-        Ok(Self {
+        let app = Self {
             pool,
             password_slots: Arc::new(tokio::sync::Semaphore::new(4)),
             dummy_password_hash,
-        })
+            socket_slots: Arc::default(),
+        };
+        app.cleanup().await?;
+        Ok(app)
+    }
+
+    /// Startup and periodic maintenance only touches expired ephemeral records.
+    pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
+        for query in [
+            "DELETE FROM sessions WHERE token_hash IN (SELECT token_hash FROM sessions WHERE expires_at<=now() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
+            "DELETE FROM socket_tickets WHERE token_hash IN (SELECT token_hash FROM socket_tickets WHERE expires_at<=now() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
+            "DELETE FROM sync_cursors WHERE token IN (SELECT token FROM sync_cursors WHERE expires_at<=now() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
+            "DELETE FROM login_windows WHERE key IN (SELECT key FROM login_windows WHERE expires_at<=now() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
+        ] {
+            sqlx::query(query).execute(&self.pool).await?;
+        }
+        Ok(())
     }
 
     pub fn router(self) -> axum::Router {

@@ -1,42 +1,66 @@
 use axum::{
     Json,
-    http::StatusCode,
+    http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
 use rv_protocol::ApiError;
 
 #[derive(Debug)]
-pub struct Error(pub StatusCode, pub &'static str);
+pub struct Error {
+    pub status: StatusCode,
+    pub code: &'static str,
+    retry_after: Option<u64>,
+}
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl Error {
+    pub fn new(status: StatusCode, code: &'static str) -> Self {
+        Self {
+            status,
+            code,
+            retry_after: None,
+        }
+    }
+    pub fn throttled(code: &'static str, seconds: u64) -> Self {
+        Self {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            code,
+            retry_after: Some(seconds.max(1)),
+        }
+    }
     pub fn invalid() -> Self {
-        Self(StatusCode::BAD_REQUEST, "invalid_request")
+        Self::new(StatusCode::BAD_REQUEST, "invalid_request")
     }
     pub fn unauthorized() -> Self {
-        Self(StatusCode::UNAUTHORIZED, "session_rejected")
+        Self::new(StatusCode::UNAUTHORIZED, "session_rejected")
     }
     pub fn forbidden() -> Self {
-        Self(StatusCode::FORBIDDEN, "permission_denied")
+        Self::new(StatusCode::FORBIDDEN, "permission_denied")
     }
     pub fn missing() -> Self {
-        Self(StatusCode::NOT_FOUND, "not_found")
+        Self::new(StatusCode::NOT_FOUND, "not_found")
     }
     pub fn conflict() -> Self {
-        Self(StatusCode::CONFLICT, "operation_conflict")
+        Self::new(StatusCode::CONFLICT, "operation_conflict")
     }
     pub fn internal() -> Self {
-        Self(StatusCode::INTERNAL_SERVER_ERROR, "internal_error")
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error")
     }
 }
 
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let body = ApiError {
-            code: self.1.into(),
+            code: self.code.into(),
             request_id: crate::auth::random_token(),
         };
-        (self.0, Json(body)).into_response()
+        let mut response = (self.status, Json(body)).into_response();
+        if let Some(seconds) = self.retry_after {
+            response
+                .headers_mut()
+                .insert(header::RETRY_AFTER, seconds.into());
+        }
+        response
     }
 }
 

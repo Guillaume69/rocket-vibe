@@ -126,6 +126,34 @@ Vérification locale : 200 tests Rust du cœur / bindings, Clippy et formatage s
 erreur ; compilation Swift, 6 tests locaux et scénario natif réel réussis. Les deux
 tests d'intégration Rocket.Chat sont ignorés en l'absence de son serveur de test.
 
+## Cinquième incrément : limites et données temporaires
+
+- [x] Quotas de connexion par pseudo / IP TCP / instance en PostgreSQL, conservés
+  au redémarrage, sans confiance dans les en-têtes de proxy.
+- [x] Calcul Argon2 borné même après annulation d'une requête HTTP.
+- [x] `429` avec délai, respecté par les transports Rust et mobile sans révocation.
+- [x] Tickets non consommés et sockets simultanées bornés ; réservations libérées
+  à la fermeture / annulation, fermeture elle-même limitée en durée.
+- [x] Snapshot limité à 8 Mio ; refus explicite sans publier de curseur partiel.
+- [x] Lots du journal limités à 1 Mio, sans sauter les événements restants.
+- [x] Expiration des curseurs, rotation d'un token périmé et plafond de 512 par compte.
+- [x] Nettoyage au démarrage et périodique par lots, sans attendre les lignes verrouillées.
+- [x] Reprise du moteur mobile SQLite après expiration réelle en PostgreSQL,
+  brouillon conservé et même intention hors ligne livrée une fois.
+
+Les tests exercent concurrence / redémarrage des quotas, IP usurpée par en-tête,
+expiration / élagage, nettoyage pendant un verrou concurrent, tickets rejoués,
+limite et libération des sockets, révocation active et gros messages dont le JSON
+est plus volumineux que le texte. La pagination de snapshots et la qualification
+de charge restent ouvertes ; les bornes exactes sont dans le [contrat](protocol/README.md).
+
+Vérifications locales le 1er octobre 2026 : 17 tests Rust du workspace natif,
+23 tests du fournisseur TypeScript, 951 tests mobiles et 200 tests du cœur bureau /
+bindings réussis ; formatage, Clippy, typecheck et lint des fichiers mobiles modifiés.
+L'image de production a été construite et démarrée dans un PostgreSQL jetable :
+readiness 204, découverte correcte et suppression périodique des lignes périmées
+par le processus serveur lui-même. Ces tests ne ferment pas les essais sur appareils.
+
 ## Pour fermer J0
 
 - [ ] Inventaire exhaustif des appels Rocket.Chat dans les écrans et modules natifs.
@@ -143,8 +171,9 @@ tests d'intégration Rocket.Chat sont ignorés en l'absence de son serveur de te
 - [x] Application atomique des lots et curseurs dans le cache SQLite mobile pilote.
 - [x] Même garantie dans le cache bureau pilote.
 - [ ] Parcours réel Android ↔ Windows, avec réseau coupé et processus clients tués.
-- [ ] Heartbeats, rythme de diffusion, limites et essais d'authentification bornés.
-- [ ] Snapshot paginé / tailles maximales et nettoyage des tickets / curseurs.
+- [x] Heartbeats, rythme de diffusion, limites et essais d'authentification bornés.
+- [x] Tailles maximales de snapshot / lots et nettoyage des tickets / curseurs.
+- [ ] Pagination d'un snapshot matérialisé pour dépasser les bornes du pilote.
 - [ ] Ordonnancement strict des révocations avec les réponses / sockets actives.
 - [ ] Création de salon idempotente et découverte / adhésion aux salons publics.
 

@@ -7,6 +7,12 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows: opening a call could leave a blank window and freeze the app: the page was made
+  from inside the engine's own start-up, which sometimes hung. It is now made once start-up
+  has returned.
+
 ## [0.5.0] - 2026-09-30
 
 ### Added

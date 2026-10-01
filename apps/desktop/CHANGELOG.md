@@ -7,6 +7,12 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- A large video (tens of MB) plays: its download no longer stops after 15 seconds, leaving the
+  card black. Video and file cards show the download's progress; a video already downloaded
+  shows its first image, whatever its size.
+
 ## [0.6.0] - 2026-10-01
 
 ### Added

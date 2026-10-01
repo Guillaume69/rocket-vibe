@@ -4,10 +4,11 @@ import {useFocusEffect} from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import type {NativeChat} from '../fournisseurs/rocketvibe/chat.ts';
 import type {FactorView} from '../fournisseurs/rocketvibe/factorVault.ts';
+import type {EmailView} from '../fournisseurs/rocketvibe/emailVault.ts';
 import type {FactorStatus,SecondFactor} from '../fournisseurs/rocketvibe/protocol.generated.ts';
 import type {ReauthenticationView,SecurityGuard} from '../fournisseurs/rocketvibe/reauthenticationVault.ts';
 import {NativeError} from '../fournisseurs/rocketvibe/transport.ts';
-import {nativeFactorVault,nativeReauthenticationVault} from '../lib/nativeSecurityStore.ts';
+import {nativeEmailVault,nativeFactorVault,nativeReauthenticationVault} from '../lib/nativeSecurityStore.ts';
 import {Appuyable} from './appuyable.tsx';
 import {useT} from './i18n.ts';
 import {ChampPilule} from './kit.tsx';
@@ -26,6 +27,7 @@ export function ConfirmerIdentiteNative({c,chat,onConfirmed}:{c:Couleurs;chat:Na
   return <SecuriteNative c={c} chat={chat} reauthOnly onConfirmed={onConfirmed}/>;
 }
 type Access=Awaited<ReturnType<NativeChat['security']>>;
+const deliveryLabels={queued:'email.queued',sending:'email.sending',deferred:'email.deferred',accepted:'email.accepted',exhausted:'email.exhausted'} as const;
 function Action({c,label,onPress,disabled}:{c:Couleurs;label:CleTraduction;onPress:()=>void;disabled:boolean}) {
   const t=useT();return <Appuyable disabled={disabled} accessibilityRole="button" onPress={onPress}><Text style={[styles.action,{color:c.cyan,opacity:disabled?0.5:1}]}>{t(label)}</Text></Appuyable>;
 }
@@ -35,8 +37,10 @@ function SecuriteNative({c,chat,reauthOnly=false,onConfirmed}:{c:Couleurs;chat:N
   const [factor,setFactor]=useState<FactorStatus|null>(null),[view,setView]=useState<FactorView>({kind:'idle'});
   const [proof,setProof]=useState<ReauthenticationView>({kind:'password'});
   const [password,setPassword]=useState(''),[code,setCode]=useState(''),[method,setMethod]=useState<SecondFactor>('totp');
+  const [emailView,setEmailView]=useState<EmailView|null>(null),[emailAddress,setEmailAddress]=useState(''),[emailCode,setEmailCode]=useState('');
+  useEffect(()=>{if(proof.kind!=='ready')setEmailCode('');},[proof.kind]);
   const confirmed=useRef(onConfirmed);useEffect(()=>{confirmed.current=onConfirmed;},[onConfirmed]);
-  const clear=useCallback(()=>{setPassword('');setCode('');setView({kind:'idle'});setProof({kind:'password'});},[]);
+  const clear=useCallback(()=>{setPassword('');setCode('');setView({kind:'idle'});setProof({kind:'password'});setEmailView(null);setEmailAddress('');setEmailCode('');},[]);
   const run=useCallback(async(action:(access:Access,guard:SecurityGuard)=>Promise<void>)=>{
     if(!focused.current || job.current!==null || AppState.currentState!=='active')return;
     const n=epoch.current;job.current=n;setBusy(true);setError(null);
@@ -53,6 +57,9 @@ function SecuriteNative({c,chat,reauthOnly=false,onConfirmed}:{c:Couleurs;chat:N
     }catch(e){
       if(visible()){
         if(e instanceof NativeError && e.code==='reauthentication_required'){setProof({kind:'password'});setError('security.required');}
+        else if(e instanceof NativeError && e.code==='invalid_email_address')setError('email.invalid');
+        else if(e instanceof NativeError && e.code==='email_verification_rejected')setError('email.rejected');
+        else if(e instanceof NativeError && ['email_delivery_limit','email_queue_limit'].includes(e.code))setError('email.limited');
         else if(e instanceof NativeError && ['factor_rejected','reauthentication_rejected'].includes(e.code))setError('security.rejected');
         else setError('security.failed');
         if(e instanceof NativeError && ['session_closed','server_identity_changed','session_rejected'].includes(e.code))clear();
@@ -65,7 +72,8 @@ function SecuriteNative({c,chat,reauthOnly=false,onConfirmed}:{c:Couleurs;chat:N
     if(result.kind==='ready' && reauthOnly)confirmed.current?.();
     if(result.kind==='challenge')setMethod(result.attempt.challenge?.methods.includes('totp')?'totp':'recovery_code');
     if(!reauthOnly){const restored=await nativeFactorVault.resume(access.scope,access.remote,guard);if(guard())setView(restored);}
-  }),[reauthOnly,run]);
+    if(!reauthOnly && chat.capabilities?.email_verification){const restored=await nativeEmailVault.resume(access.scope,access.email,guard);if(guard())setEmailView(restored);}
+  }),[chat,reauthOnly,run]);
   useFocusEffect(useCallback(()=>{
     focused.current=true;epoch.current++;job.current=null;setBusy(false);void reload();
     return ()=>{focused.current=false;epoch.current++;job.current=null;clear();};
@@ -80,9 +88,16 @@ function SecuriteNative({c,chat,reauthOnly=false,onConfirmed}:{c:Couleurs;chat:N
     if(result.kind==='challenge')setMethod(result.attempt.challenge?.methods.includes('totp')?'totp':'recovery_code');
     if(result.kind==='ready' && reauthOnly)confirmed.current?.();
   };
-  const startProof=()=>{const entered=password;setPassword('');void run(async(access,guard)=>acceptProof(await nativeReauthenticationVault.prepare(access.scope,access.remote.proof,entered,guard),guard));};
+  const updateEmail=async(access:Access,guard:SecurityGuard)=>{if(!reauthOnly && chat.capabilities?.email_verification){const result=await nativeEmailVault.resume(access.scope,access.email,guard);if(guard())setEmailView(result);}};
+  const startProof=()=>{const entered=password;setPassword('');void run(async(access,guard)=>{
+    const result=await nativeReauthenticationVault.prepare(access.scope,access.remote.proof,entered,guard);acceptProof(result,guard);
+    if(result.kind==='ready' && guard())await updateEmail(access,guard);
+  });};
   const finishProof=()=>{const entered=code;setCode('');const expected=proof;
-    if(expected.kind==='challenge')void run(async(access,guard)=>acceptProof(await nativeReauthenticationVault.finish(expected.attempt,access.remote.proof,method,entered,guard),guard));
+    if(expected.kind==='challenge')void run(async(access,guard)=>{
+      const result=await nativeReauthenticationVault.finish(expected.attempt,access.remote.proof,method,entered,guard);acceptProof(result,guard);
+      if(result.kind==='ready' && guard())await updateEmail(access,guard);
+    });
   };
   const start=(kind:'setup'|'regenerate'|'disable')=>void run(async(access,guard)=>{
     const result=await nativeFactorVault.start(access.scope,access.remote,kind,guard);if(guard())setView(result);
@@ -111,6 +126,17 @@ function SecuriteNative({c,chat,reauthOnly=false,onConfirmed}:{c:Couleurs;chat:N
     if(kind!=='codes' && latest.kind==='setup' && expected.kind==='setup' && latest.setup.setup_id===expected.setup.setup_id){await Clipboard.setStringAsync(kind==='secret'?latest.setup.secret:latest.setup.provisioning_uri);return;}
     throw new NativeError(409,'credentials_changed');
   });};
+  const startEmail=()=>{const expected=emailView,entered=emailAddress;setEmailAddress('');setEmailCode('');
+    if(expected?.kind==='idle')void run(async(access,guard)=>{const next=await nativeEmailVault.start(access.scope,access.email,entered,expected.status,guard);if(guard())setEmailView(next);});
+  };
+  const confirmEmail=()=>{const expected=emailView,entered=emailCode;setEmailCode('');
+    if(expected?.kind==='pending')void run(async(access,guard)=>{const next=await nativeEmailVault.confirm(access.scope,access.email,expected.receipt,entered,guard);if(guard())setEmailView(next);});
+  };
+  const closeEmail=()=>{const expected=emailView;setEmailCode('');
+    if(expected && expected.kind!=='idle')void run(async(access,guard)=>{
+      const next=await (expected.kind==='verified'?nativeEmailVault.acknowledge(access.scope,access.email,expected.receipt,guard):nativeEmailVault.cancel(access.scope,access.email,expected.receipt,guard));if(guard())setEmailView(next);
+    });
+  };
   return <>
     <Text style={[styles.heading,{color:c.attenue}]}>{t('security.title')}</Text>
     <View style={[styles.card,{backgroundColor:c.carteProfonde,borderColor:c.bordure}]}>
@@ -146,6 +172,24 @@ function SecuriteNative({c,chat,reauthOnly=false,onConfirmed}:{c:Couleurs;chat:N
       {!reauthOnly && view.kind==='stale' && <><Text style={[styles.text,{color:c.texteSecondaire}]}>{t('security.stale')}</Text><Action c={c} label="security.discard" onPress={acknowledge} disabled={busy}/></>}
       {!reauthOnly && view.kind==='idle' && factor && <>
         {factor.totp? <><Action c={c} label="security.regenerate" onPress={()=>confirm('regenerate')} disabled={busy}/><Action c={c} label="security.disable" onPress={()=>confirm('disable')} disabled={busy}/></> : <Action c={c} label="security.setup" onPress={()=>start('setup')} disabled={busy}/>}
+      </>}
+      {!reauthOnly && chat.capabilities?.email_verification && emailView && <>
+        <Text style={[styles.text,{color:c.texte}]}>{t('email.title')}</Text>
+        <Text style={[styles.text,{color:c.texteSecondaire}]}>{t('email.private')}</Text>
+        <Text selectable style={[styles.text,{color:c.texte}]}>{emailView.status.address?t('email.current',{address:emailView.status.address}):t('email.none')}</Text>
+        {emailView.kind==='idle' && <>
+          <ChampPilule c={c} etiquette={t('email.address')} valeur={emailAddress} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} maxLength={254} editable={!busy} onChangeText={setEmailAddress}/>
+          <Action c={c} label="email.start" onPress={startEmail} disabled={busy || proof.kind!=='ready' || !emailAddress}/>
+        </>}
+        {emailView.kind==='pending' && <>
+          <Text selectable style={[styles.text,{color:c.texteSecondaire}]}>{t('email.pending',{address:emailView.address})}</Text>
+          <Text style={[styles.text,{color:c.texteSecondaire}]}>{t(deliveryLabels[emailView.delivery])}</Text>
+          <ChampPilule c={c} etiquette={t('email.code')} valeur={emailCode} keyboardType="number-pad" autoCapitalize="none" autoCorrect={false} maxLength={8} editable={!busy && proof.kind==='ready'} onChangeText={setEmailCode}/>
+          <Action c={c} label="email.confirm" onPress={confirmEmail} disabled={busy || proof.kind!=='ready' || !/^\d{8}$/.test(emailCode)}/>
+          <Action c={c} label="email.cancel" onPress={closeEmail} disabled={busy}/>
+        </>}
+        {emailView.kind==='verified' && <><Text style={[styles.text,{color:c.texteSecondaire}]}>{t('email.verified')}</Text><Action c={c} label="email.done" onPress={closeEmail} disabled={busy}/></>}
+        {emailView.kind==='stale' && <><Text style={[styles.text,{color:c.texteSecondaire}]}>{t('email.stale')}</Text><Action c={c} label="email.restart" onPress={closeEmail} disabled={busy}/></>}
       </>}
       {error && <Text accessibilityRole="alert" style={[styles.text,{color:c.texteErreur}]}>{t(error)}</Text>}
       <Action c={c} label="security.refresh" onPress={()=>void reload()} disabled={busy}/>

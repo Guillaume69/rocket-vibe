@@ -8,6 +8,7 @@ import { decodeNative } from './validation.ts';
 import type { Capabilities } from './protocol.generated.ts';
 import { canonicalEmoji } from './emojis.ts';
 import type {FactorRemote} from './factorVault.ts';
+import type {EmailRemote} from './emailVault.ts';
 import {checkSecurityScope,type SecurityScope} from './reauthenticationVault.ts';
 
 export type NativeStatus = { online: boolean; error: string | null };
@@ -178,7 +179,7 @@ export class NativeChat {
   }
   /** Capture the connected runner generation, never expose a raw transport to
    * a retained settings callback after logout, suspension or account switch. */
-  async security(visible:()=>boolean=()=>true):Promise<{scope:SecurityScope;remote:FactorRemote;alive:()=>boolean}> {
+  async security(visible:()=>boolean=()=>true):Promise<{scope:SecurityScope;remote:FactorRemote;email:EmailRemote;alive:()=>boolean}> {
     this.ready();
     if(!this.capabilities?.reauthentication || !this.capabilities.reauthentication_retirement)throw new NativeError(501,'unsupported_feature');
     const generation=this.generation,alive=()=>visible() && !this.stopped && this.verified && generation===this.generation;
@@ -197,7 +198,15 @@ export class NativeChat {
       if(!this.capabilities?.second_factors)throw new NativeError(501,'unsupported_feature');
       return call(action);
     };
-    return {scope,alive,remote:{
+    const emailCall=async<T>(action:()=>Promise<T>):Promise<T>=>{
+      if(!this.capabilities?.email_verification)throw new NativeError(501,'unsupported_feature');
+      return call(action);
+    };
+    return {scope,alive,email:{
+      status:()=>emailCall(()=>this.transport.emailStatus()),begin:input=>emailCall(()=>this.transport.beginEmailVerification(input)),
+      resume:input=>emailCall(()=>this.transport.resumeEmailVerification(input)),confirm:input=>emailCall(()=>this.transport.confirmEmailVerification(input)),
+      retire:input=>emailCall(()=>this.transport.retireEmailVerification(input)),
+    },remote:{
       proof:{status:()=>call(async()=>{const next=await this.transport.reauthenticationStatus();checkSecurityScope(scope,next);return next;}),
         begin:input=>call(()=>this.transport.beginReauthentication(input)),resume:input=>call(()=>this.transport.resumeReauthentication(input)),
         finish:input=>call(()=>this.transport.finishReauthentication(input)),retire:input=>call(()=>this.transport.retireReauthentication(input))},

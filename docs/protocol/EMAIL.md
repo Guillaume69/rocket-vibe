@@ -11,10 +11,22 @@ PostgreSQL ; le worker reprend leur livraison après restart. Les SDK Rust et
 TypeScript exposent le parcours. La capacité additive `email_verification` est
 annoncée seulement avec transport SMTP et clé opérateur configurés.
 
-Les formulaires mobile / GTK / SwiftUI, le retrait d'une adresse, le second
+Le formulaire mobile rejoint la section Sécurité existante, avec coffre privé
+SecureStore et reprise de l'intention initiale. Les formulaires GTK / SwiftUI,
+le retrait d'une adresse, le second
 facteur e-mail et la récupération par e-mail restent à implémenter. La présence
 de `SecondFactor::Email` dans les types et de `FactorStatus.email=false` ne
 signifie pas que ces deux dernières opérations soient disponibles.
+
+Le fournisseur mobile vérifie identité, génération du runner et visibilité
+avant et après chaque appel. Le coffre partage la file locale des opérations
+de sécurité, épingle les cinq champs de portée et sauvegarde le candidat avant
+start. Une autre adresse ne peut pas remplacer une vérification en attente.
+La saisie du code reste en mémoire et disparaît à la fermeture / suspension.
+Le retrait est conditionnel et reprend d'abord un reçu qui aurait gagné la
+course ; un ancien bouton ne peut effacer la tentative suivante. Le reçu
+accepté reste privé jusqu'à Terminer. L'horloge du serveur décide l'expiration,
+même si l'appareil corrige son horloge.
 
 ## Configuration du transport
 
@@ -152,7 +164,17 @@ expirations, quotas persistants, essais erronés et confidentialité de l'annuai
 Les tests TypeScript couvrent portée HTTP, candidat original, validation des
 états et accès aux lectures / reprises pendant un cooldown de livraison.
 
-Il reste à qualifier les trois parcours clients et le relais réel avec accès
+Le banc `scripts/native-email-mobile-pilot.ts`, lancé par un test SQLx privé,
+fait tourner le vrai `NativeChat` avec SQLite, HTTP et WebSocket contre
+PostgreSQL. Il perd les réponses start / confirm, simule une écriture de reçu
+refusée, reprend avec un nouveau coffre et conserve une seule famille, une
+vérification et une admission. Sa boîte SMTP et sa route de lecture de code
+existent uniquement dans le serveur de test ; aucun envoi extérieur ne part.
+Le stockage privé de ce banc est simulé. Typecheck, lint, tests mobiles et
+export du bundle Android passent ; ils ne prouvent pas le SecureStore ou les
+widgets d'une app installée. ADB ne signale actuellement aucun appareil connecté.
+
+Il reste à qualifier les parcours installés et le relais réel avec accès
 opérateur. Un test SMTP / TLS loopback ne valide pas la délivrabilité d'un
 fournisseur extérieur. P02 reste ouvert pour les fonctionnalités listées dans
 l'état réel et la qualification sur appareils.

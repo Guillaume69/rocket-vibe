@@ -315,6 +315,25 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, adresse e-mail mobile : la section Sécurité existante affiche le contact
+  privé, propose un code et son état de livraison, puis reprend / annule une
+  vérification ou confirme son reçu. Les saisies disparaissent à la sortie /
+  suspension ; le candidat et les versions restent dans SecureStore par cinq
+  champs de portée. La file de sécurité sérialise HTTP et stockage. Les anciens
+  callbacks, remplacements d'adresse, identités ou délais altérés sont refusés.
+  Dix tests de coffre et un test des gardes fournisseur couvrent ces invariants.
+  Le banc connecté utilise le vrai fournisseur, SQLite, HTTP / WebSocket,
+  PostgreSQL et SMTP loopback : pertes d'ACK start / confirm, échec d'écriture
+  du reçu, reprise sans second code ni nouvelle famille. Sa route de lecture
+  de code est privée à la construction des tests ; son stockage privé est
+  simulé. Vérifications : 105 tests serveur, 7 tests contrat / client, 109 tests
+  SDK TypeScript et 1 059 tests mobiles ; typecheck, lint, contrats, inventaire
+  et export Android passent. La qualification des widgets / SecureStore sur
+  app installée reste ouverte. ADB voit zéro appareil connecté, un AVD
+  `Medium_Phone_API_36.1` est disponible pour le prochain banc installé.
+  Les paramètres GTK / SwiftUI, le retrait de contact, les défis e-mail et la
+  récupération restent la suite de P02.
+
 - P02, nettoyage des défis e-mail : migration 0017 et réservation durable de la
   tête de l'appareil. Le nettoyage d'un défi expiré ne peut plus autoriser le
   rejeu d'un ancien start avec une nouvelle échéance, ni un nouveau candidat

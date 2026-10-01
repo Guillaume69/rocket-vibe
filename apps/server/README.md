@@ -28,7 +28,8 @@ Rust et TypeScript sont testés contre le serveur réel. Le socle 2FA TOTP / sec
 et ses SDK sont décrits dans [l'authentification native](../../docs/protocol/AUTHENTICATION.md) ;
 ses formulaires clients et paramètres sont raccordés. Le
 [parcours d'adresse e-mail vérifiée](../../docs/protocol/EMAIL.md) dispose de routes
-privées, SDK et file SMTP chiffrée durable. Ses formulaires, le second facteur
+privées, SDK et file SMTP chiffrée durable. Le formulaire mobile est raccordé ;
+les formulaires bureau, le second facteur
 e-mail et la récupération e-mail restent à livrer. Fichiers, push, appels,
 chiffrement et parité complète restent au backlog. Les limites sont explicites dans
 le [contrat du pilote](../../docs/protocol/README.md).

@@ -9,6 +9,9 @@ release, et ses notes sont la section de la version ici.
 
 ### Sécurité RocketVibe
 
+- Adresse e-mail privée dans les paramètres existants : code de vérification,
+  état de livraison et reprise depuis SecureStore après une coupure. Le code
+  saisi reste transitoire et une ancienne vérification ne remplace pas la suivante.
 - Configuration TOTP, codes de secours privés, remplacement et désactivation
   dans les paramètres existants. Les opérations interrompues reprennent depuis
   SecureStore et les codes restent récupérables jusqu’à leur confirmation.

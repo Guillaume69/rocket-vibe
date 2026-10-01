@@ -1,6 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import {FactorVault} from '../fournisseurs/rocketvibe/factorVault.ts';
+import {EmailVault} from '../fournisseurs/rocketvibe/emailVault.ts';
 import {ReauthenticationVault} from '../fournisseurs/rocketvibe/reauthenticationVault.ts';
 import {hacher} from './sessionStore.ts';
 
@@ -12,3 +13,4 @@ const dependencies={hash:hacher,
 };
 export const nativeReauthenticationVault=new ReauthenticationVault(dependencies);
 export const nativeFactorVault=new FactorVault(dependencies);
+export const nativeEmailVault=new EmailVault(dependencies);

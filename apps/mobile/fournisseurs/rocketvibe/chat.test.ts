@@ -9,6 +9,46 @@ import { NativeChat } from './chat.ts';
 import { NativeStore } from './store.ts';
 import { nativeTestDatabase } from './testDatabase.ts';
 import { NativeError, NativeTransport } from './transport.ts';
+import {EmailVault} from './emailVault.ts';
+import {createHash} from 'node:crypto';
+
+test('private e-mail access rejects changed identity, disabled capability and callbacks from a closed runner',async()=>{
+  const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:fixture.session.user.id,username:'alice',genre:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  for(const scenario of ['normal','disabled','other-account','changed-epoch','hidden','closed-during-start'] as const){
+    const {db,adapter}=nativeTestDatabase(),store=new NativeStore(adapter,creerFileEcritures(),session);
+    await store.applySnapshot({protocol_version:1,rooms:[],messages:[],cursor:'initial'});
+    let visible=true,changed=false,hidden=false,mutations=0,serial=0;
+    let started:()=>void=()=>{},release:()=>void=()=>{};const waiting=new Promise<void>(resolve=>{started=resolve;});
+    const context={user_id:session.userId,device_id:'mobile',instance_id:session.nativeInstanceId!,data_epoch:session.nativeDataEpoch!};
+    const transport={
+      discover:async()=>{if(hidden)visible=false;return {...fixture.discovery,data_epoch:changed?'another-epoch':fixture.discovery.data_epoch,capabilities:{...fixture.discovery.capabilities,reauthentication:true,reauthentication_retirement:true,email_verification:scenario!=='disabled'}};},
+      me:async()=>fixture.session.user,changes:async()=>({protocol_version:1,changes:[],cursor:'initial',has_more:false}),socketUrl:async()=>'ws://localhost/fake',
+      reauthenticationStatus:async()=>({...context,proof_version:'proof',recent:true}),
+      emailStatus:async()=>({context:{...context,user_id:scenario==='other-account'?'other':context.user_id},version:'contact',verification_version:'head',address:null,verified_at:null}),
+      beginEmailVerification:async(input:import('./protocol.generated.ts').BeginEmailVerification)=>{mutations++;started();if(scenario==='closed-during-start')await new Promise<void>(resolve=>{release=resolve;});
+        return {...input,state:'pending',delivery:'queued',expires_at:new Date(Date.now()+900_000).toISOString()};},
+    } as unknown as NativeTransport;
+    const chat=new NativeChat(session,store,()=>{throw new Error('No send');},{transport,socket:()=>{
+      const socket={readyState:0,onopen:null,onclose:null,onerror:null,onmessage:null,close:()=>{}} as unknown as WebSocket;
+      queueMicrotask(()=>socket.onopen?.(new Event('open')));return socket;
+    }});
+    const values=new Map<string,string>(),vault=new EmailVault({hash:async(value:string)=>createHash('sha256').update(value).digest('hex'),token:async()=>String(++serial).padStart(64,'0'),
+      storage:{read:async key=>values.get(key)??null,write:async(key,value)=>{values.set(key,value);},remove:async key=>{values.delete(key);}}});
+    try {
+      await chat.connect();const access=await chat.security(()=>visible);
+      if(scenario==='disabled'){await assert.rejects(vault.resume(access.scope,access.email,access.alive),/unsupported_feature/);continue;}
+      if(scenario==='other-account'){await assert.rejects(vault.resume(access.scope,access.email,access.alive),/server_identity_changed/);continue;}
+      const initial=await vault.resume(access.scope,access.email,access.alive);
+      changed=scenario==='changed-epoch';hidden=scenario==='hidden';
+      if(changed || hidden){await assert.rejects(vault.start(access.scope,access.email,'owner@example.org',initial.status,access.alive),changed?/server_identity_changed/:/session_closed/);assert.equal(values.size,0);assert.equal(mutations,0);continue;}
+      const request=vault.start(access.scope,access.email,'owner@example.org',initial.status,access.alive);
+      if(scenario==='closed-during-start'){await waiting;chat.stop();release();await assert.rejects(request,/session_closed/);assert.equal(values.size,1);}
+      else {await request;chat.stop();await assert.rejects(access.email.status(),/session_closed/);}
+      assert.equal(mutations,1);
+    } finally {chat.stop();await store.state();db.close();}
+  }
+});
 
 test('security callbacks pin account, epoch and runner/focus generation before and after HTTP',async()=>{
   const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));

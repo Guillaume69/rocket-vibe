@@ -11,6 +11,76 @@ use tokio::{
 };
 const PASSWORD: &str = "email-fixture-password-2026";
 const KEY: &str = "3737373737373737373737373737373737373737373737373737373737373737";
+
+#[sqlx::test]
+async fn actual_typescript_provider_and_private_vault_resume_lost_mail_replies(pool: sqlx::PgPool) {
+    let relay = Arc::new(Relay::start(false).await);
+    let app = App::from_pool_with_auth_key(pool.clone(), Some(AuthKey::from_hex(KEY).unwrap()))
+        .await
+        .unwrap()
+        .with_mail(Some(Sender::loopback_fixture(relay.port)));
+    let user = auth::create_user(&app, "owner", PASSWORD.into(), false)
+        .await
+        .unwrap();
+    let original: String = sqlx::query_scalar("SELECT activation_version FROM users WHERE id=$1")
+        .bind(&user.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let delivery_app = app.clone();
+    let owner = user.id.clone();
+    let router = app.router().route(
+        "/__email_fixture/deliver",
+        axum::routing::get(move |headers: axum::http::HeaderMap| {
+            let app = delivery_app.clone();
+            let relay = relay.clone();
+            let owner = owner.clone();
+            async move {
+                let account = auth::authenticate(&app, &auth::bearer(&headers)?).await?;
+                if account.id != owner {
+                    return Err(crate::error::Error::unauthorized());
+                }
+                let delivered = email_delivery::drain(&app).await?;
+                let code = relay.code("owner@example.test").await;
+                Ok::<_, crate::error::Error>(axum::Json(
+                    serde_json::json!({"delivered":delivered,"code":code}),
+                ))
+            }
+        }),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        tokio::process::Command::new("node")
+            .arg(root.join("scripts/native-email-mobile-pilot.ts"))
+            .arg(base)
+            .env("RV_EMAIL_PILOT_PASSWORD", PASSWORD)
+            .current_dir(root)
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .expect("native TypeScript pilot timed out")
+    .expect("Node 24 is required by the contract suite");
+    server.abort();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("native email mobile pilot: verified")
+    );
+    let result:(i64,i64,i64,i64,bool,bool)=sqlx::query_as("SELECT (SELECT count(*) FROM session_devices),(SELECT count(*) FROM sessions),(SELECT count(*) FROM email_verifications),(SELECT count(*) FROM email_delivery_admissions),(SELECT activation_version=$1 FROM users WHERE id=$2),(SELECT sent_at IS NOT NULL AND payload_cipher IS NULL FROM email_outbox)")
+        .bind(original).bind(user.id).fetch_one(&pool).await.unwrap();
+    assert_eq!(result, (1, 1, 1, 1, true, true));
+}
+
 struct Relay {
     port: u16,
     messages: Arc<Mutex<Vec<String>>>,

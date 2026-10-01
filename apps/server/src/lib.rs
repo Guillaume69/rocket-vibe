@@ -6,6 +6,7 @@ mod factors;
 mod http;
 pub mod invitations;
 mod limits;
+pub mod mail;
 mod marks;
 mod message_actions;
 mod permissions;
@@ -25,6 +26,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct App {
     pub pool: PgPool,
+    pub mail: Option<Arc<mail::Sender>>,
     password_slots: Arc<tokio::sync::Semaphore>,
     dummy_password_hash: String,
     socket_slots: Arc<limits::SocketSlots>,
@@ -72,6 +74,7 @@ impl App {
         .await?;
         let app = Self {
             pool,
+            mail: None,
             password_slots: Arc::new(tokio::sync::Semaphore::new(4)),
             dummy_password_hash,
             socket_slots: Arc::default(),
@@ -79,6 +82,11 @@ impl App {
         };
         app.cleanup().await?;
         Ok(app)
+    }
+
+    pub fn with_mail(mut self, mail: Option<mail::Sender>) -> Self {
+        self.mail = mail.map(Arc::new);
+        self
     }
 
     /// Startup and periodic maintenance only touches expired ephemeral records.

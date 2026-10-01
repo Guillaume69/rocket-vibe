@@ -13,6 +13,7 @@ clap = { version = "4", features = ["derive", "env"] }
 futures-util = "0.3"
 data-encoding = "2"
 hmac = "0.12"
+lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
 rv-protocol = { path = "../../crates/rv-protocol" }
 serde = { version = "1", features = ["derive"] }

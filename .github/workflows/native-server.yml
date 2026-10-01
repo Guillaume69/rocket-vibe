@@ -212,6 +212,11 @@ jobs:
           docker compose -f docker/compose.native-pilot.yml down -v
           docker compose -p rocketvibe-swift-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml logs --no-color > artifacts/native-swift-security-pilot.log
           docker compose -p rocketvibe-swift-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml down -v
+          # Swift's Docker compiler creates private ModuleCache/index directories.
+          # Let the runner save its generated build cache after successful tests.
+          for path in .cache/native-swift-cargo apps/desktop/target/swift-linux apps/desktop/macos/.build/linux; do
+            if [ -d "$path" ]; then sudo chown -R "$(id -u):$(id -g)" "$path"; fi
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -9,6 +9,8 @@ struct Args {
     database_url: String,
     #[arg(long, env = "RV_AUTH_KEY_FILE", hide_env_values = true)]
     auth_key_file: Option<std::path::PathBuf>,
+    #[arg(long, env = "RV_SMTP_CONFIG_FILE", hide_env_values = true)]
+    smtp_config_file: Option<std::path::PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
@@ -62,7 +64,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .as_deref()
         .map(rv_server::factor_crypto::AuthKey::from_file)
         .transpose()?;
-    let app = App::connect_with_auth_key(&args.database_url, auth_key).await?;
+    let mail = args
+        .smtp_config_file
+        .as_deref()
+        .map(rv_server::mail::Sender::from_file)
+        .transpose()?;
+    let app = App::connect_with_auth_key(&args.database_url, auth_key)
+        .await?
+        .with_mail(mail);
     match args.command {
         Command::Serve { bind } => {
             let maintenance = app.clone();

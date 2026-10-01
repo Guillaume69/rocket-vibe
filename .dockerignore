@@ -7,3 +7,4 @@
 **/google-services.json
 **/*service-account*.json
 **/*firebase-adminsdk*.json
+docker/smtp.json

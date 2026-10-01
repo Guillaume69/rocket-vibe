@@ -315,6 +315,19 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, socle SMTP : transport Rust avec TLS exigé, configuration JSON privée
+  montée, modèles de message bornés, quatre envois simultanés et échéance totale
+  de 30 s. Le travail Tokio conserve le permis après annulation de l'appelant.
+  Aucune route ou capacité e-mail n'est activée et aucun envoi automatique n'est
+  lancé. Les cinq tests du transport passent : configuration / injections,
+  fichier privé et symlink, refus du relais sans TLS, échange SMTP loopback et
+  annulation ; Clippy, 90 tests serveur, 7 tests protocole / client et 95 tests
+  SDK TypeScript passent, ainsi que schéma / génération / inventaire. Le
+  [contrat e-mail](protocol/EMAIL.md)
+  fixe la suite : adresse vérifiée, file chiffrée durable et quotas, défis
+  explicites, récupération conservant les facteurs et raccordement des trois
+  clients. SMTP avec certificat réel et délivrabilité restent à qualifier.
+
 - P02, paramètres SwiftUI / objet FFI : la section Sécurité rejoint les
   préférences groupées existantes, sur le `NativeChat` et la famille courante.
   L'objet opaque partage le coffre `rv-core::native::security` avec GTK ; les
@@ -333,8 +346,9 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   tests locaux passent et huit parcours restent conditionnels hors banc, dont
   ce nouveau parcours exécuté réellement deux fois. Les 240 tests cœur / FFI,
   Clippy et compilation GTK passent. Ce banc rejoint le job Swift de CI ; la
-  compilation de l'interface SwiftUI macOS et les trousseaux des apps installées
-  demeurent distincts du test Linux. SMTP / email vérifié restent à livrer.
+  CI macOS du commit `c45cdc6` a compilé et packagé l'interface SwiftUI puis
+  démarré l'app et ses parcours de galerie / soak. Les trousseaux des apps
+  installées demeurent distincts du test Linux. SMTP / email vérifié restent à livrer.
 
 - P02, paramètres GTK / coffre commun bureau : les préférences existantes et
   le dialogue Appareils ouvrent la confirmation d'identité sur la famille

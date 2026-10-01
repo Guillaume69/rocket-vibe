@@ -38,7 +38,7 @@ export class NativeTransport {
     this.fetcher = fetcher;
   }
 
-  private async value(path: string, input?: unknown, anonymous = false, signal?: AbortSignal): Promise<unknown> {
+  private async value(path: string, input?: unknown, anonymous = false, signal?: AbortSignal, method?: string): Promise<unknown> {
     if (!anonymous && this.token === null) throw new NativeError(401, 'session_rejected');
     const sent = anonymous ? null : this.token;
     const budget = path === '/api/v1/auth/login' ? 'login' : path === '/api/v1/sync/ticket' ? 'ticket' : path === '/api/v1/sync/snapshots' ? 'snapshot' : null;
@@ -51,7 +51,7 @@ export class NativeTransport {
     const timer = setTimeout(() => controller.abort(), 15_000);
     try {
       const response = await this.fetcher(`${this.baseUrl}${path}`, {
-      method: input === undefined ? 'GET' : 'POST',
+      method: method ?? (input === undefined ? 'GET' : 'POST'),
       headers: { ...(input === undefined ? {} : { 'content-type': 'application/json' }), ...(anonymous ? {} : { authorization: `Bearer ${this.token}` }) },
       body: input === undefined ? undefined : JSON.stringify(input),
       redirect: 'error',
@@ -89,8 +89,8 @@ export class NativeTransport {
     }
   }
 
-  private async request<K extends keyof NativeTypes>(name: K, path: string, input?: unknown, anonymous = false, signal?: AbortSignal): Promise<NativeTypes[K]> {
-    return decodeNative(name, await this.value(path, input, anonymous, signal));
+  private async request<K extends keyof NativeTypes>(name: K, path: string, input?: unknown, anonymous = false, signal?: AbortSignal, method?: string): Promise<NativeTypes[K]> {
+    return decodeNative(name, await this.value(path, input, anonymous, signal, method));
   }
 
   async discover(signal?: AbortSignal): Promise<Discovery> {
@@ -112,6 +112,9 @@ export class NativeTransport {
   accountPermissions(): Promise<NativeTypes['AccountPermissions']> { return this.request('AccountPermissions','/api/v1/me/permissions'); }
   roomPermissions(room: string): Promise<NativeTypes['RoomPermissions']> { return this.request('RoomPermissions',`/api/v1/rooms/${encodeURIComponent(room)}/permissions`); }
   messagePermissions(message: string): Promise<NativeTypes['MessagePermissions']> { return this.request('MessagePermissions',`/api/v1/messages/${encodeURIComponent(message)}/permissions`); }
+  message(id: string): Promise<Message> { return this.request('Message',`/api/v1/messages/${encodeURIComponent(id)}`); }
+  editMessage(id: string,input: NativeTypes['EditMessage']): Promise<Message> { return this.request('Message',`/api/v1/messages/${encodeURIComponent(id)}`,input,false,undefined,'PATCH'); }
+  deleteMessage(id: string,input: NativeTypes['DeleteMessage']): Promise<Message> { return this.request('Message',`/api/v1/messages/${encodeURIComponent(id)}`,input,false,undefined,'DELETE'); }
   async users(): Promise<NativeTypes['User'][]> {
     const users = await this.value('/api/v1/users');
     if (!Array.isArray(users)) throw new Error('Invalid native directory');

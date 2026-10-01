@@ -699,6 +699,169 @@ mod tests {
     }
 
     #[sqlx::test]
+    async fn message_mutations_wait_for_delivery_and_reject_prepared_content(pool: PgPool) {
+        use crate::message_actions::{self, Command};
+        use rv_protocol::parity::{DeleteMessage, EditMessage, MessageContent};
+        let f = fixture(pool.clone()).await;
+        let mut message = store::send(
+            &f.app,
+            &f.owner,
+            &f.room.id,
+            SendMessage {
+                operation_id: "protected-message".into(),
+                text: "Before".into(),
+            },
+        )
+        .await
+        .unwrap();
+        for deleting in [false, true] {
+            let proof = ReadProof::capture(&f.app, &f.reader, Scope::Room(&f.room.id))
+                .await
+                .unwrap();
+            let body = proof
+                .json(
+                    &f.app,
+                    &f.hash,
+                    &message,
+                    std::slice::from_ref(&f.room.id),
+                    None,
+                )
+                .await
+                .unwrap();
+            let (app, actor, id, revision) = (
+                f.app.clone(),
+                f.owner.clone(),
+                message.id.clone(),
+                message.revision.clone(),
+            );
+            let command = if deleting {
+                Command::Delete(DeleteMessage {
+                    operation_id: "protected-delete".into(),
+                    expected_revision: revision,
+                })
+            } else {
+                Command::Edit(EditMessage {
+                    operation_id: "protected-edit".into(),
+                    expected_revision: revision,
+                    content: MessageContent::Plain {
+                        markdown: "After".into(),
+                        mentions: vec![],
+                        quotes: vec![],
+                        files: vec![],
+                    },
+                })
+            };
+            let mut mutation = tokio::spawn(async move {
+                message_actions::apply(&app, &actor, &id, command)
+                    .await
+                    .unwrap();
+            });
+            tokio::time::timeout(Duration::from_secs(2),async {
+                loop {
+                    let blocked:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT read_only FROM rooms%')").fetch_one(&pool).await.unwrap();
+                    if blocked {break;}
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            }).await.unwrap();
+            assert!(
+                tokio::time::timeout(Duration::from_millis(30), &mut mutation)
+                    .await
+                    .is_err()
+            );
+            drop(body);
+            tokio::time::timeout(Duration::from_secs(2), mutation)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                proof
+                    .json(
+                        &f.app,
+                        &f.hash,
+                        &message,
+                        std::slice::from_ref(&f.room.id),
+                        None
+                    )
+                    .await
+                    .unwrap_err()
+                    .code,
+                "delivery_revalidate"
+            );
+            message = message_actions::read(&f.app, &f.owner, &message.id)
+                .await
+                .unwrap();
+        }
+        assert!(message.deleted && message.text.is_empty());
+    }
+
+    #[sqlx::test]
+    async fn deletion_waits_for_a_snapshot_with_unpublished_room_ids(pool: PgPool) {
+        use crate::message_actions::{self, Command};
+        use rv_protocol::parity::DeleteMessage;
+        let f = fixture(pool.clone()).await;
+        let message = store::send(
+            &f.app,
+            &f.owner,
+            &f.room.id,
+            SendMessage {
+                operation_id: "reserved-view-message".into(),
+                text: "Secret building page".into(),
+            },
+        )
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO snapshot_heads(id,user_id,data_epoch) SELECT 'building-view',$1,data_epoch FROM instance").bind(&f.reader.id).execute(&pool).await.unwrap();
+        let mut builder = pool.begin().await.unwrap();
+        sqlx::query("UPDATE snapshot_heads SET room_ids=ARRAY[$1] WHERE id='building-view'")
+            .bind(&f.room.id)
+            .execute(&mut *builder)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO snapshot_pages(token,snapshot_id,payload) VALUES('building-token','building-view',$1)").bind(sqlx::types::Json(&message)).execute(&mut *builder).await.unwrap();
+        let (app, actor, id, revision) =
+            (f.app.clone(), f.owner.clone(), message.id, message.revision);
+        let mut deletion = tokio::spawn(async move {
+            message_actions::apply(
+                &app,
+                &actor,
+                &id,
+                Command::Delete(DeleteMessage {
+                    operation_id: "delete-building-view".into(),
+                    expected_revision: revision,
+                }),
+            )
+            .await
+            .unwrap();
+        });
+        tokio::time::timeout(Duration::from_secs(2),async {
+            loop {
+                let blocked:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'DELETE FROM snapshot_heads WHERE user_id IN%')").fetch_one(&pool).await.unwrap();
+                if blocked {break;}
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }).await.expect("deletion must find a head whose old committed room_ids is empty");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(30), &mut deletion)
+                .await
+                .is_err()
+        );
+        builder.commit().await.unwrap();
+        tokio::time::timeout(Duration::from_secs(2), deletion)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM snapshot_pages WHERE token='building-token'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            0
+        );
+    }
+
+    #[sqlx::test]
     async fn generation_change_waits_for_delivery_but_sequence_increments_do_not(pool: PgPool) {
         let f = fixture(pool.clone()).await;
         let proof = ReadProof::capture(&f.app, &f.reader, Scope::None)

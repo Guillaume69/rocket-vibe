@@ -350,6 +350,7 @@ impl NativeSession {
     }
     async fn flush(&self) -> Result<(), Error> {
         for pending in self.store.pending()? {
+            let projection = self.store.projection_token();
             match self
                 .client
                 .send(
@@ -358,7 +359,11 @@ impl NativeSession {
                 )
                 .await
             {
-                Ok(message) => self.store.ingest(&[message])?,
+                Ok(message) => {
+                    if !self.store.ingest_at(&[message], projection)? {
+                        return Err(Error::Protocol("delivery_revalidate"));
+                    }
+                }
                 Err(error @ rv_client::Error::Server { status: 401, .. }) => return Err(error.into()),
                 Err(rv_client::Error::Server { status, code, .. })
                     if (400..500).contains(&status) && status != 429 && code != "delivery_revalidate" =>
@@ -403,10 +408,13 @@ impl NativeSession {
     }
     pub async fn history(&self, rid: &str, older: bool) -> Result<bool, Error> {
         self.ready()?;
+        let projection = self.store.projection_token();
         let before = if older { self.store.oldest(rid)? } else { None };
         let page = self.client.history(rid, before.as_deref()).await?;
         self.ready()?;
-        self.store.ingest(&page.messages)?;
+        if !self.store.ingest_at(&page.messages, projection)? {
+            return Err(Error::Protocol("delivery_revalidate"));
+        }
         Ok(page.has_more)
     }
     pub async fn create_room(&self, name: &str, private: bool) -> Result<String, Error> {

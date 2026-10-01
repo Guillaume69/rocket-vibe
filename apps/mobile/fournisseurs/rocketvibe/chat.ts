@@ -189,10 +189,12 @@ export class NativeChat {
       if (!this.verified || this.stopped) return;
       try {
         const generation = this.generation;
+        const projection=this.store.projectionToken();
         const message = await this.transport.send(pending.rid,{operation_id:pending.id,text:pending.texte});
         if (this.stopped || generation !== this.generation) return;
         // The echo and outbox deletion commit together; a failed commit remains retryable.
-        await this.store.ingest([message]); this.notify();
+        if (!await this.store.ingest([message],projection)) throw new NativeError(409,'delivery_revalidate');
+        this.notify();
         this.retryAttempt=0; this.retryAt=0;
       } catch (error) {
         if (this.stopped || !this.verified) return;
@@ -210,10 +212,12 @@ export class NativeChat {
   async history(rid: string, older = false): Promise<boolean> {
     this.ready();
     const generation = this.generation;
+    const projection=this.store.projectionToken();
     const before = older ? await this.store.oldestPosition(rid) : undefined;
     const page = await this.transport.history(rid,before);
     if (this.stopped || generation !== this.generation) throw new NativeError(0,'session_closed');
-    await this.store.ingest(page.messages); this.notify();
+    if (!await this.store.ingest(page.messages,projection)) throw new NativeError(409,'delivery_revalidate');
+    this.notify();
     return page.has_more;
   }
   async createRoom(name: string, privateRoom: boolean): Promise<string> {

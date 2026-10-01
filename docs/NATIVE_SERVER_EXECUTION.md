@@ -315,6 +315,22 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- J2, deuxième lot : API d'édition / suppression avec reçus persistants,
+  révision attendue, délai d'auteur, rôle de modération, tombstones et effacement
+  des anciennes charges du journal actif. Transport Rust / mobile disponible,
+  projections SQLite mobile / bureau et renderer partagé GTK / SwiftUI intégrés.
+  La fenêtre d'un reset remplace l'historique confirmé et protège contre les
+  réponses antérieures, en conservant brouillons / intentions des salons présents.
+  Un banc réel mobile / PostgreSQL / WebSocket / SQLite applique une édition,
+  manque la suppression et 51 messages, puis remplace le cache par le snapshot
+  borné sans conserver le message disparu. Tests de concurrence, restart,
+  idempotence, barrières de livraison et page en construction couverts.
+  L'activation des menus et les intentions clientes persistantes suivent.
+  Vérifications : 45 tests Rust natifs, 37 TypeScript natifs, 987 mobiles et
+  209 cœur / bindings bureau passent ; Clippy et compilation GTK, schéma /
+  génération / inventaire, typecheck et lint réussis. Bindings et modèles Swift
+  compilés avec 6 tests locaux réussis, 3 parcours connectés conditionnels.
+
 - J2, premier lot : droits fins de compte / salon / message, restrictions de
   création, rôles de modérateur et envoi en lecture seule appliqués en transaction.
   Les réponses protègent les versions de politique et détectent un changement

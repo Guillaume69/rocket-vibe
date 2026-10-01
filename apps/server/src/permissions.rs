@@ -48,25 +48,36 @@ pub async fn room(app: &App, actor: &Account, id: &str) -> Result<RoomPermission
 }
 
 pub async fn message(app: &App, actor: &Account, id: &str) -> Result<(String, MessagePermissions)> {
-    let (room, revision, author, created, role, read_only): (String,i64,String,DateTime<Utc>,String,bool) = sqlx::query_as("SELECT m.room_id,m.revision,m.author_id,m.created_at,g.role,r.read_only FROM messages m JOIN members g ON g.room_id=m.room_id AND g.user_id=$1 JOIN rooms r ON r.id=m.room_id WHERE m.id=$2")
+    let row: MessageGrant = sqlx::query_as("SELECT m.room_id,m.revision,m.author_id,m.created_at,g.role,r.read_only,m.deleted FROM messages m JOIN members g ON g.room_id=m.room_id AND g.user_id=$1 JOIN rooms r ON r.id=m.room_id WHERE m.id=$2")
         .bind(&actor.id).bind(id).fetch_optional(&app.pool).await?.ok_or_else(Error::missing)?;
-    let deadline = created + Duration::minutes(15);
-    let elevated = role == "owner" || role == "moderator";
-    let own = author == actor.id && deadline > Utc::now();
-    let send = !read_only || elevated;
+    let deadline = row.created_at + Duration::minutes(15);
+    let elevated = row.role == "owner" || row.role == "moderator";
+    let own = row.author_id == actor.id && deadline > Utc::now();
+    let send = !row.read_only || elevated;
     Ok((
-        room,
+        row.room_id,
         MessagePermissions {
             message_id: id.into(),
-            revision: revision.to_string(),
-            edit: own && send,
-            delete: own || elevated,
-            react: send,
-            pin: elevated,
-            star: true,
+            revision: row.revision.to_string(),
+            edit: !row.deleted && own && send,
+            delete: !row.deleted && (own || elevated),
+            react: !row.deleted && send,
+            pin: !row.deleted && elevated,
+            star: !row.deleted,
             edit_until: Some(deadline.to_rfc3339()),
         },
     ))
+}
+
+#[derive(sqlx::FromRow)]
+struct MessageGrant {
+    room_id: String,
+    revision: i64,
+    author_id: String,
+    created_at: DateTime<Utc>,
+    role: String,
+    read_only: bool,
+    deleted: bool,
 }
 
 pub(crate) async fn require_send(

@@ -253,6 +253,44 @@ impl NativeClient {
         self.get(&format!("/api/v1/messages/{message}/permissions"))
             .await
     }
+    pub async fn message(&self, id: &str) -> Result<Message, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!("/api/v1/messages/{id}")).await
+    }
+    pub async fn edit_message(
+        &self,
+        id: &str,
+        input: &rv_protocol::parity::EditMessage,
+    ) -> Result<Message, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.request(
+            Method::PATCH,
+            &format!("/api/v1/messages/{id}"),
+            Some(input),
+            false,
+        )
+        .await
+    }
+    pub async fn delete_message(
+        &self,
+        id: &str,
+        input: &rv_protocol::parity::DeleteMessage,
+    ) -> Result<Message, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.request(
+            Method::DELETE,
+            &format!("/api/v1/messages/{id}"),
+            Some(input),
+            false,
+        )
+        .await
+    }
     pub async fn add_member(&self, room: &str, user: &str) -> Result<(), Error> {
         if !path_segment(room) || !path_segment(user) {
             return Err(Error::InvalidUrl);

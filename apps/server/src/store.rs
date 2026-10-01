@@ -42,6 +42,8 @@ pub(crate) struct MessageRow {
     pub created_at: DateTime<Utc>,
     pub position: i64,
     pub revision: i64,
+    pub deleted: bool,
+    pub edited_at: Option<DateTime<Utc>>,
 }
 
 impl MessageRow {
@@ -58,11 +60,17 @@ impl MessageRow {
             created_at: self.created_at.to_rfc3339(),
             position: self.position.to_string(),
             revision: self.revision.to_string(),
+            deleted: self.deleted,
+            edited_at: self.edited_at.map(|time| time.to_rfc3339()),
         }
     }
 }
 
-pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,m.text,m.created_at,m.position,m.revision FROM messages m JOIN users u ON u.id=m.author_id";
+pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,m.text,m.created_at,m.position,m.revision,m.deleted,m.edited_at FROM messages m JOIN users u ON u.id=m.author_id";
+
+pub(crate) fn send_fingerprint(room: &str, text: &str) -> String {
+    crate::auth::hash_token(&serde_json::json!([room, text]).to_string())
+}
 
 /// Must be called after acquiring domain locks. The counter lock lasts until commit.
 pub(crate) async fn next_position(tx: &mut Transaction<'_, Postgres>) -> Result<i64> {
@@ -132,7 +140,7 @@ pub async fn create_room(app: &App, account: &Account, input: CreateRoom) -> Res
             return Ok(room);
         }
         let used: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM messages WHERE author_id=$1 AND operation_id=$2)",
+            "SELECT EXISTS(SELECT 1 FROM messages WHERE author_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM message_actions WHERE user_id=$1 AND operation_id=$2)",
         )
         .bind(&account.id)
         .bind(operation)
@@ -436,7 +444,7 @@ pub async fn send(
     lock_active(&mut tx, account).await?;
     require_member(&mut tx, room_id, &account.id).await?;
     let used: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM room_creation_requests WHERE user_id=$1 AND operation_id=$2)",
+        "SELECT EXISTS(SELECT 1 FROM room_creation_requests WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM message_actions WHERE user_id=$1 AND operation_id=$2)",
     )
     .bind(&account.id)
     .bind(&input.operation_id)
@@ -452,7 +460,16 @@ pub async fn send(
         .fetch_optional(&mut *tx)
         .await?
     {
-        if existing.room_id != room_id || existing.text != input.text {
+        let fingerprint: Option<String> =
+            sqlx::query_scalar("SELECT send_fingerprint FROM messages WHERE id=$1")
+                .bind(&existing.id)
+                .fetch_one(&mut *tx)
+                .await?;
+        let matches = fingerprint.map_or_else(
+            || existing.text == input.text,
+            |value| value == send_fingerprint(room_id, &input.text),
+        );
+        if existing.room_id != room_id || !matches {
             return Err(Error::conflict());
         }
         tx.commit().await?;
@@ -463,12 +480,13 @@ pub async fn send(
     // Client message IDs are globally unique. A collision belonging to another user
     // is a conflict, never a response exposing that user's message.
     let result = sqlx::query(
-        "INSERT INTO messages(id,room_id,author_id,operation_id,text) VALUES($1,$2,$3,$1,$4)",
+        "INSERT INTO messages(id,room_id,author_id,operation_id,text,send_fingerprint) VALUES($1,$2,$3,$1,$4,$5)",
     )
     .bind(&id)
     .bind(room_id)
     .bind(&account.id)
     .bind(&input.text)
+    .bind(send_fingerprint(room_id,&input.text))
     .execute(&mut *tx)
     .await;
     match result {

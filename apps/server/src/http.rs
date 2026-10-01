@@ -20,7 +20,7 @@ use crate::{
     App, auth,
     delivery::{ReadProof, Scope},
     error::{Error, Result},
-    limits, permissions, snapshots, store, sync,
+    limits, message_actions, permissions, snapshots, store, sync,
 };
 
 pub fn router(app: App) -> Router {
@@ -40,6 +40,10 @@ pub fn router(app: App) -> Router {
         .route(
             "/api/v1/messages/{message}/permissions",
             get(message_permissions),
+        )
+        .route(
+            "/api/v1/messages/{message}",
+            get(message).patch(edit_message).delete(delete_message),
         )
         .route("/api/v1/rooms/{room}/join", post(join_public))
         .route("/api/v1/direct-messages", post(direct))
@@ -115,6 +119,8 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             idempotent_room_creation: true,
             room_discovery: true,
             fine_permissions: true,
+            editing: true,
+            deletion: true,
             ..Default::default()
         },
     }))
@@ -194,6 +200,58 @@ async fn message_permissions(
     let (account, hash, proof) = read_access(&app, &headers, Scope::All).await?;
     let (room, permissions) = permissions::message(&app, &account, &message).await?;
     proof.json(&app, &hash, &permissions, &[room], None).await
+}
+
+async fn message(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(message): Path<String>,
+) -> Result<Response> {
+    let (account, hash, proof) = read_access(&app, &headers, Scope::All).await?;
+    let message = message_actions::read(&app, &account, &message).await?;
+    proof
+        .json(
+            &app,
+            &hash,
+            &message,
+            std::slice::from_ref(&message.room_id),
+            None,
+        )
+        .await
+}
+
+async fn edit_message(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    input: Input<rv_protocol::parity::EditMessage>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    message_actions::apply(
+        &app,
+        &actor,
+        &id,
+        message_actions::Command::Edit(body(input)?),
+    )
+    .await?;
+    message(State(app), headers, Path(id)).await
+}
+
+async fn delete_message(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    input: Input<rv_protocol::parity::DeleteMessage>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    message_actions::apply(
+        &app,
+        &actor,
+        &id,
+        message_actions::Command::Delete(body(input)?),
+    )
+    .await?;
+    message(State(app), headers, Path(id)).await
 }
 
 async fn rooms(State(app): State<App>, headers: HeaderMap) -> Result<Response> {

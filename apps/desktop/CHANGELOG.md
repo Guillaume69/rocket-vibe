@@ -9,6 +9,10 @@ section here.
 
 ### Added
 
+- Native edits and tombstones in the existing GTK / SwiftUI message renderer.
+  Cursor resets replace confirmed history while retaining live-room drafts and
+  outbox; older in-flight responses cannot restore discarded or deleted content.
+
 - Native request IDs and server retry delays remain available through provider
   errors, connection status and Swift bindings, including locally deferred retries.
 

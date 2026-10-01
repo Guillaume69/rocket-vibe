@@ -47,6 +47,9 @@ présence ne déclare pas les endpoints correspondants disponibles.
 | POST / DELETE | `/rooms/{room}/members/{user}` | Ajouter / retirer, propriétaire du salon uniquement |
 | GET | `/rooms/{room}/messages?before=…&limit=…` | Historique décroissant, keyset, limite 1–100 |
 | POST | `/rooms/{room}/messages` | `{ operation_id, text }` → message committé |
+| GET | `/messages/{id}` | Message courant ou tombstone, pour un membre actuel |
+| PATCH | `/messages/{id}` | `EditMessage` avec opération et révision attendue ; Markdown clair |
+| DELETE | `/messages/{id}` | Corps `DeleteMessage` avec opération et révision attendue ; tombstone |
 | GET | `/sync/snapshot` | Vue cohérente des salons, 50 messages récents par salon, curseur |
 | POST | `/sync/snapshots` | Matérialiser une vue immuable ; première `SnapshotPage` |
 | GET | `/sync/snapshots/{token}` | Page suivante liée au compte ; curseur uniquement sur la dernière |
@@ -63,7 +66,7 @@ Les droits d'administration ne donnent pas accès aux conversations privées.
 `fine_permissions` annonce les lectures de droits. Les booléens décrivent
 l'autorité du compte ; les capacités de fonctionnalité doivent également être
 disponibles avant d'offrir une action. La présence de `edit: true` ne déclare donc
-pas une route d'édition disponible. L'auteur dispose de 15 minutes pour éditer,
+pas, à lui seul, une route disponible. L'auteur dispose de 15 minutes pour éditer,
 le propriétaire / modérateur peut supprimer et épingler, et un salon en lecture
 seule bloque les nouveaux envois de membres ordinaires. Les propriétaires seuls
 invitent / retirent et règlent les salons hors DM. Chaque mutation revérifie ses
@@ -73,6 +76,38 @@ Les changements de rôle, politique de salon et droits du compte changent leur
 version ; une réponse préparée avant eux est revalidée et leurs mises à jour
 attendent la fin d'une livraison déjà autorisée. Aucune autorité cliente forgée
 n'est acceptée dans les commandes.
+
+### Édition et suppression
+
+L'édition accepte actuellement `MessageContent.plain` avec Markdown et listes
+de mentions / citations / fichiers vides. Les autres contenus sont refusés comme
+indisponibles. L'auteur édite pendant 15 minutes s'il peut envoyer ; auteur dans
+ce délai ou propriétaire / modérateur supprime. L'édition d'autrui n'est pas
+accordée par la propriété du salon. `409 revision_conflict` distingue un état
+concurrent de `409 operation_conflict`, qui signale une identité réutilisée.
+
+Un reçu appliqué se rejoue sans nouvelle publication et retourne l'état actuel,
+y compris un tombstone après suppression. Il reste lié au compte et à la commande
+complète. Création, envoi et actions ne peuvent réutiliser une identité entre eux.
+L'envoi initial conserve son empreinte même après édition ; son replay ne restaure
+ni l'ancien texte ni un message supprimé. Les reçus d'action gardent des empreintes,
+aucun texte. Ces empreintes servent à comparer les commandes.
+
+`Message.deleted: true` porte un texte vide ; `edited_at` marque une édition.
+Ces champs sont additifs dans v1 et la diffusion garde `message_upsert`. La position
+de création ne change pas, la révision avance. Les clients récents cachent le
+tombstone mais conservent sa révision pour refuser les anciennes réponses. Lors
+d'un reset, ils remplacent l'historique confirmé par la fenêtre du snapshot,
+conservent brouillons / outbox des salons présents et rejettent les réponses
+commencées avant cette projection. L'historique antérieur se recharge par pagination.
+Cette étape livre transport et intégration des événements ; les commandes
+persistantes et menus d'actions des trois clients sont le lot suivant.
+
+La mutation change la version d'autorité du salon, attend ses livraisons et
+invalide les vues matérialisées de ses participants. Une construction en cours
+est trouvée par son compte même si ses IDs de salon ne sont pas encore publiés.
+La suppression réserve le message et efface les charges antérieures du journal
+actif. Le traitement de la rétention des sauvegardes appartient à J5.
 
 ### Création et découverte des salons
 
@@ -101,8 +136,7 @@ journal. Les salons privés, DM et IDs absents renvoient le même `404`.
 Une intention d'envoi garde `operation_id`. Même intention → même message ; même
 ID avec un autre texte / salon → `409 operation_conflict`. La confirmation HTTP et
 l'événement viennent de la même transaction. Les opérations d'envoi sont conservées
-avec les messages ; pas de purge tant que la réservation durable des IDs supprimés
-n'est pas implémentée.
+avec les messages ; tombstones et reçus continuent de réserver leurs identifiants.
 
 Le séquenceur est transactionnel. La diffusion relit le journal PostgreSQL ; elle
 peut rejouer les lots. L'intégrateur client doit appliquer le lot et son curseur

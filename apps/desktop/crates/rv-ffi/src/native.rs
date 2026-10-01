@@ -304,6 +304,7 @@ fn native_message_items(
             id: row.id,
             rid: rid.into(),
             ts: row.ts,
+            edited: row.edited,
             text: Some(row.text),
             author: Some(row.author),
             author_id: if row.status.is_some() { uid.into() } else { row.author_id },
@@ -333,6 +334,7 @@ mod tests {
             author_id: "alice-id".into(),
             ts,
             status,
+            edited: false,
         };
         let items = native_message_items(
             vec![

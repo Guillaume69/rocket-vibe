@@ -14,7 +14,7 @@ export type EncryptedKeyBackup = { "ciphertext": string; "crypto_identity": stri
 export type FileDescriptor = { "bytes": string; "encrypted": boolean; "filename"?: string | null; "id": string; "media_type": string; "room_id": string; "sha256": string; };
 export type Login = { "password": string; "username": string; };
 export type MarkRead = { "reply_position": string; "root_position": string; };
-export type Message = { "author": User; "created_at": string; "id": string; "position": string; "revision": string; "room_id": string; "text": string; };
+export type Message = { "author": User; "created_at": string; "deleted"?: boolean; "edited_at"?: string | null; "id": string; "position": string; "revision": string; "room_id": string; "text": string; };
 export type MessageContent = { "files": (string)[]; "kind": "plain"; "markdown": string; "mentions": (string)[]; "quotes": (QuoteReference)[]; } | { "format": string; "key_version": string; "kind": "encrypted"; "payload": string; };
 export type MessagePage = { "has_more": boolean; "messages": (Message)[]; };
 export type MessagePermissions = { "delete": boolean; "edit": boolean; "edit_until"?: string | null; "message_id": string; "pin": boolean; "react": boolean; "revision": string; "star": boolean; };
@@ -532,6 +532,15 @@ export const nativeSchema = {
         },
         "created_at": {
           "type": "string"
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "edited_at": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "id": {
           "type": "string"

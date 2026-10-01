@@ -278,6 +278,45 @@ async fn mobile_retries_lost_acknowledgement_with_real_socket(pool: PgPool) {
     server.abort();
 }
 
+#[sqlx::test]
+async fn mobile_projects_message_actions_and_bounded_reset_on_real_server(pool: PgPool) {
+    let app = App::from_pool(pool).await.unwrap();
+    for user in ["alice", "bob"] {
+        auth::create_user(&app, user, "test-password-2026".into(), false)
+            .await
+            .unwrap();
+    }
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.router()
+                .into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(60),
+        tokio::process::Command::new("node")
+            .arg("../../scripts/native-actions-smoke.ts")
+            .env("RV_SMOKE_URL", base)
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .expect("mobile action projection must finish within 60 seconds")
+    .expect("Node 24 is required");
+    assert!(
+        output.status.success(),
+        "{} {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    server.abort();
+}
+
 #[tokio::test]
 async fn rust_transport_respects_retry_after_across_clones() {
     use axum::{Json, Router, routing::post};

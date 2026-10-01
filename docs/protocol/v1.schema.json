@@ -485,6 +485,15 @@
         "created_at": {
           "type": "string"
         },
+        "deleted": {
+          "type": "boolean"
+        },
+        "edited_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "id": {
           "type": "string"
         },

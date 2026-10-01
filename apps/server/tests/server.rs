@@ -367,6 +367,351 @@ async fn authority_hints_match_enforced_creation_and_read_only_policies(pool: Pg
 }
 
 #[sqlx::test]
+async fn edit_delete_receipts_revisions_and_erasure_survive_restart(pool: PgPool) {
+    use rv_protocol::parity::{DeleteMessage, EditMessage, MessageContent, MessagePermissions};
+    let app = App::from_pool(pool.clone()).await.unwrap();
+    user(&app, "alice").await;
+    user(&app, "bob").await;
+    let server = Server::start(pool.clone()).await;
+    let alice = server.login("alice").await;
+    let bob = server.login("bob").await;
+    let mut client = rv_client::NativeClient::new(&server.base).unwrap();
+    client.restore(alice.token.clone());
+    let room = client
+        .create_room(&rv_protocol::CreateRoom {
+            name: "Actions".into(),
+            private: true,
+            operation_id: Some("actions-room".into()),
+        })
+        .await
+        .unwrap();
+    client.add_member(&room.id, &bob.user.id).await.unwrap();
+    let original = rv_protocol::SendMessage {
+        operation_id: "reserved-message".into(),
+        text: "Original secret".into(),
+    };
+    let message = client.send(&room.id, &original).await.unwrap();
+    let cursor = client.snapshot().await.unwrap().cursor;
+    let view: SnapshotPage = server
+        .post(&alice.token, "/api/v1/sync/snapshots", json!({}))
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let page_token: String =
+        sqlx::query_scalar("SELECT token FROM snapshot_pages WHERE snapshot_id=$1 LIMIT 1")
+            .bind(&view.snapshot_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let edit = EditMessage {
+        operation_id: "edit-intent".into(),
+        expected_revision: message.revision.clone(),
+        content: MessageContent::Plain {
+            markdown: "Edited secret".into(),
+            mentions: vec![],
+            quotes: vec![],
+            files: vec![],
+        },
+    };
+    let edited = client.edit_message(&message.id, &edit).await.unwrap();
+    assert_eq!(edited.position, message.position);
+    assert_ne!(edited.revision, message.revision);
+    assert_eq!(edited.text, "Edited secret");
+    assert!(edited.edited_at.is_some());
+    assert_eq!(
+        client.send(&room.id, &original).await.unwrap(),
+        edited,
+        "the original intent still reconciles after editing"
+    );
+    assert_eq!(
+        server
+            .get(
+                &alice.token,
+                &format!("/api/v1/sync/snapshots/{page_token}")
+            )
+            .await
+            .status(),
+        StatusCode::CONFLICT,
+        "an immutable pre-edit page is invalidated"
+    );
+    let second = EditMessage {
+        operation_id: "second-edit".into(),
+        expected_revision: edited.revision.clone(),
+        content: MessageContent::Plain {
+            markdown: "Latest secret".into(),
+            mentions: vec![],
+            quotes: vec![],
+            files: vec![],
+        },
+    };
+    let competing = EditMessage {
+        operation_id: "competing-edit".into(),
+        expected_revision: edited.revision.clone(),
+        content: MessageContent::Plain {
+            markdown: "Competing secret".into(),
+            mentions: vec![],
+            quotes: vec![],
+            files: vec![],
+        },
+    };
+    let (a, b) = tokio::join!(
+        client.edit_message(&message.id, &second),
+        client.edit_message(&message.id, &competing)
+    );
+    let winner = match (a, b) {
+        (
+            Ok(message),
+            Err(rv_client::Error::Server {
+                status: 409, code, ..
+            }),
+        )
+        | (
+            Err(rv_client::Error::Server {
+                status: 409, code, ..
+            }),
+            Ok(message),
+        ) => {
+            assert_eq!(code, "revision_conflict");
+            message
+        }
+        _ => panic!("exactly one revision-checked concurrent edit must commit"),
+    };
+    assert_eq!(
+        client.edit_message(&message.id, &edit).await.unwrap(),
+        winner,
+        "an old receipt returns current authoritative content"
+    );
+    let conflict = EditMessage {
+        operation_id: edit.operation_id.clone(),
+        expected_revision: message.revision.clone(),
+        content: MessageContent::Plain {
+            markdown: "Forged replacement".into(),
+            mentions: vec![],
+            quotes: vec![],
+            files: vec![],
+        },
+    };
+    assert!(
+        matches!(client.edit_message(&message.id,&conflict).await,Err(rv_client::Error::Server{status:409,code,..}) if code=="operation_conflict")
+    );
+    let delete = DeleteMessage {
+        operation_id: "delete-intent".into(),
+        expected_revision: winner.revision.clone(),
+    };
+    let tombstone = client.delete_message(&message.id, &delete).await.unwrap();
+    assert!(tombstone.deleted && tombstone.text.is_empty());
+    assert_eq!(tombstone.position, message.position);
+    assert_eq!(
+        client.send(&room.id, &original).await.unwrap(),
+        tombstone,
+        "a deleted send ID remains reserved without resurrection"
+    );
+    assert_eq!(
+        client.edit_message(&message.id, &edit).await.unwrap(),
+        tombstone
+    );
+    let rights: MessagePermissions = server
+        .get(
+            &alice.token,
+            &format!("/api/v1/messages/{}/permissions", message.id),
+        )
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(!rights.edit && !rights.delete && !rights.react && !rights.pin && !rights.star);
+    let batch = client.changes(&cursor).await.unwrap();
+    assert!(batch.changes.iter().all(|change| match change {
+        Change::MessageUpsert(m) => m.deleted && m.text.is_empty(),
+        _ => true,
+    }));
+    let stored: String = sqlx::query_scalar("SELECT text FROM messages WHERE id=$1")
+        .bind(&message.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(stored.is_empty());
+    let journal: Vec<Value> = sqlx::query_scalar("SELECT change FROM journal WHERE room_id=$1")
+        .bind(&room.id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert!(
+        journal
+            .iter()
+            .all(|entry| !entry.to_string().contains("secret")),
+        "prior message payloads are redacted"
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM snapshot_heads WHERE $1=ANY(room_ids)")
+            .bind(&room.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    let restarted = Server::start(pool.clone()).await;
+    let mut resumed = rv_client::NativeClient::new(&restarted.base).unwrap();
+    resumed.restore(alice.token.clone());
+    assert_eq!(
+        resumed.delete_message(&message.id, &delete).await.unwrap(),
+        tombstone
+    );
+    assert_eq!(resumed.message(&message.id).await.unwrap(), tombstone);
+    for operation in ["edit-intent", "delete-intent"] {
+        assert!(matches!(
+            resumed
+                .send(
+                    &room.id,
+                    &rv_protocol::SendMessage {
+                        operation_id: operation.into(),
+                        text: "Wrong command kind".into()
+                    }
+                )
+                .await,
+            Err(rv_client::Error::Server { status: 409, .. })
+        ));
+        assert!(matches!(
+            resumed
+                .create_room(&rv_protocol::CreateRoom {
+                    name: "Wrong kind".into(),
+                    private: true,
+                    operation_id: Some(operation.into())
+                })
+                .await,
+            Err(rv_client::Error::Server { status: 409, .. })
+        ));
+    }
+    let collision = server
+        .post(
+            &bob.token,
+            &format!("/api/v1/rooms/{}/messages", room.id),
+            json!({"operation_id":message.id,"text":"Must not reuse a deleted ID"}),
+        )
+        .await;
+    assert_eq!(collision.status(), StatusCode::CONFLICT);
+}
+
+#[sqlx::test]
+async fn message_commands_enforce_membership_author_deadlines_and_read_only(pool: PgPool) {
+    use rv_protocol::parity::{DeleteMessage, EditMessage, MessageContent};
+    let app = App::from_pool(pool.clone()).await.unwrap();
+    user(&app, "owner").await;
+    let member = user(&app, "member").await;
+    let server = Server::start(pool.clone()).await;
+    let owner = server.login("owner").await;
+    let login = server.login("member").await;
+    let mut owner_client = rv_client::NativeClient::new(&server.base).unwrap();
+    owner_client.restore(owner.token.clone());
+    let mut member_client = rv_client::NativeClient::new(&server.base).unwrap();
+    member_client.restore(login.token.clone());
+    let room = owner_client
+        .create_room(&rv_protocol::CreateRoom {
+            name: "Authority".into(),
+            private: true,
+            operation_id: None,
+        })
+        .await
+        .unwrap();
+    owner_client.add_member(&room.id, &member.id).await.unwrap();
+    let message = member_client
+        .send(
+            &room.id,
+            &rv_protocol::SendMessage {
+                operation_id: "member-message".into(),
+                text: "Author body".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let edit = EditMessage {
+        operation_id: "restricted-edit".into(),
+        expected_revision: message.revision.clone(),
+        content: MessageContent::Plain {
+            markdown: "New body".into(),
+            mentions: vec![],
+            quotes: vec![],
+            files: vec![],
+        },
+    };
+    assert!(
+        matches!(
+            owner_client.edit_message(&message.id, &edit).await,
+            Err(rv_client::Error::Server { status: 403, .. })
+        ),
+        "ownership does not grant editing another author's words"
+    );
+    sqlx::query("UPDATE rooms SET read_only=true WHERE id=$1")
+        .bind(&room.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        member_client.edit_message(&message.id, &edit).await,
+        Err(rv_client::Error::Server { status: 403, .. })
+    ));
+    sqlx::query("UPDATE rooms SET read_only=false WHERE id=$1")
+        .bind(&room.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE messages SET created_at=now()-interval '16 minutes' WHERE id=$1")
+        .bind(&message.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        member_client.edit_message(&message.id, &edit).await,
+        Err(rv_client::Error::Server { status: 403, .. })
+    ));
+    let delete = DeleteMessage {
+        operation_id: "delete-expired".into(),
+        expected_revision: message.revision.clone(),
+    };
+    assert!(matches!(
+        member_client.delete_message(&message.id, &delete).await,
+        Err(rv_client::Error::Server { status: 403, .. })
+    ));
+    let removed = server
+        .client
+        .delete(format!(
+            "{}/api/v1/rooms/{}/members/{}",
+            server.base, room.id, member.id
+        ))
+        .bearer_auth(&owner.token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(removed.status(), StatusCode::NO_CONTENT);
+    assert!(matches!(
+        member_client.message(&message.id).await,
+        Err(rv_client::Error::Server { status: 404, .. })
+    ));
+    assert!(matches!(
+        member_client.edit_message(&message.id, &edit).await,
+        Err(rv_client::Error::Server { status: 404, .. })
+    ));
+    assert!(matches!(
+        member_client.delete_message(&message.id, &delete).await,
+        Err(rv_client::Error::Server { status: 404, .. })
+    ));
+    let forged=server.client.patch(format!("{}/api/v1/messages/{}",server.base,message.id)).bearer_auth(&owner.token).json(&json!({"operation_id":"forged","expected_revision":message.revision,"content":{"kind":"plain","markdown":"Forged","mentions":[],"quotes":[],"files":[]},"edit":true})).send().await.unwrap();
+    assert_eq!(forged.status(), StatusCode::BAD_REQUEST);
+    assert!(
+        owner_client
+            .delete_message(&message.id, &delete)
+            .await
+            .unwrap()
+            .deleted
+    );
+}
+
+#[sqlx::test]
 async fn room_creation_replays_after_restart_without_duplicate_events(pool: PgPool) {
     let app = App::from_pool(pool.clone()).await.unwrap();
     user(&app, "alice").await;

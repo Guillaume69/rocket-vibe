@@ -6,6 +6,11 @@ import { UPSERT_MESSAGE, UPSERT_SALON, UPSERT_ABONNEMENT, INSERER_SORTIE, SUPPRI
 import type { MessageLocal } from '../../lib/normaliser.ts';
 import type { Message, Room, Snapshot, SyncBatch } from './protocol.generated.ts';
 
+// Native revisions, checked below as exact decimal strings, order projection.
+// The shared RC statement's wall-clock condition would discard a valid edit
+// after a clock correction, even though its native revision is newer.
+const NATIVE_UPSERT_MESSAGE=UPSERT_MESSAGE.replace('WHERE excluded.mis_a_jour_le >= messages.mis_a_jour_le','');
+
 type Param = string | number | null;
 export interface NativeDatabase {
   runAsync(sql: string, params: Param[]): Promise<unknown>;
@@ -20,11 +25,13 @@ export type NativePending = { id: string; rid: string; texte: string };
 
 export function localMessage(message: Message): MessageLocal {
   const time = Date.parse(message.created_at);
+  const edited=message.edited_at==null?null:Date.parse(message.edited_at);
+  if ((edited!==null && !Number.isFinite(edited)) || (message.deleted && message.text!=='')) throw new Error('Invalid native message state');
   if (!Number.isFinite(time) || !/^\d+$/.test(message.position) || !/^\d+$/.test(message.revision)) throw new Error('Invalid native message ordering');
   return {
     id: message.id, rid: message.room_id, texte: message.text, horodatage: time,
     auteurId: message.author.id, auteurNom: message.author.username, typeSysteme: null,
-    filId: null, filReponses: 0, filDernier: null, filAffiche: false, modifieLe: null,
+    filId: null, filReponses: 0, filDernier: null, filAffiche: false, modifieLe: edited,
     md: null, piecesJointes: null, reactions: null, urls: null, appelId: null,
     chiffreBrut: null, epingle: false, etoiles: null, misAJourLe: time,
   };
@@ -34,12 +41,19 @@ export class NativeStore {
   private readonly db: NativeDatabase;
   private readonly queue: FileEcritures;
   private readonly session: AppSession;
+  private projection=0;
   constructor(db: NativeDatabase, queue: FileEcritures, session: AppSession) {
     this.db = db; this.queue = queue; this.session = session;
   }
-  private atomic(fn: () => Promise<void>): Promise<void> {
-    return this.queue(() => this.db.withTransactionAsync(fn));
+  private atomic<T>(fn: () => Promise<T>, rotate=false): Promise<T> {
+    return this.queue(async () => {
+      let result!: T;
+      await this.db.withTransactionAsync(async () => { result=await fn(); });
+      if (rotate) this.projection++;
+      return result;
+    });
   }
+  projectionToken(): number { return this.projection; }
   state(): Promise<NativeState | null> {
     return this.queue(() => this.db.getFirstAsync<NativeState>('SELECT instance_id,data_epoch,cursor FROM native_sync_state WHERE singleton=1', []));
   }
@@ -84,8 +98,11 @@ export class NativeStore {
       ouvert: true, favori: false, luJusquA: null, e2eKey: null, e2eKeyId: null,
       roles: null, misAJourLe: Date.now(),
     }));
-    const last = await this.db.getFirstAsync<{texte:string;horodatage:number}>('SELECT m.texte,m.horodatage FROM messages m JOIN native_positions p ON p.id=m.id WHERE m.rid=? ORDER BY length(p.position) DESC,p.position DESC LIMIT 1',[room.id]);
-    if (last) await this.db.runAsync('UPDATE salons SET dernier_message=?,horodatage_dernier_message=? WHERE rid=?',[last.texte,last.horodatage,room.id]);
+    await this.preview(room.id);
+  }
+  private async preview(rid: string): Promise<void> {
+    const last = await this.db.getFirstAsync<{texte:string;horodatage:number}>('SELECT m.texte,m.horodatage FROM messages m JOIN native_positions p ON p.id=m.id WHERE m.rid=? ORDER BY length(p.position) DESC,p.position DESC LIMIT 1',[rid]);
+    await this.db.runAsync('UPDATE salons SET dernier_message=?,horodatage_dernier_message=? WHERE rid=?',[last?.texte??null,last?.horodatage??null,rid]);
   }
   private async message(message: Message): Promise<void> {
     // An HTTP echo/history response may arrive after a committed room_removed.
@@ -93,11 +110,11 @@ export class NativeStore {
     const existing = await this.db.getFirstAsync<{revision: string}>('SELECT revision FROM native_positions WHERE id=?', [message.id]);
     if (existing && BigInt(existing.revision) > BigInt(message.revision)) return;
     const local = localMessage(message);
-    await this.db.runAsync(UPSERT_MESSAGE, paramsMessage(local));
+    if (message.deleted) await this.db.runAsync('DELETE FROM messages WHERE id=?',[message.id]);
+    else await this.db.runAsync(NATIVE_UPSERT_MESSAGE, paramsMessage(local));
     await this.db.runAsync('INSERT INTO native_positions(id,rid,position,revision) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET position=excluded.position,revision=excluded.revision', [message.id, message.room_id, message.position, message.revision]);
     await this.db.runAsync(SUPPRIMER_SORTIE, [message.id]);
-    // Sequence order, rather than wall-clock time, selects the room preview.
-    await this.db.runAsync('UPDATE salons SET dernier_message=?,horodatage_dernier_message=? WHERE rid=? AND ?=(SELECT id FROM native_positions WHERE rid=? ORDER BY length(position) DESC,position DESC LIMIT 1)', [message.text, local.horodatage, message.room_id, message.id, message.room_id]);
+    await this.preview(message.room_id);
   }
   private async remove(rid: string): Promise<void> {
     for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'native_positions']) await this.db.runAsync(`DELETE FROM ${table} WHERE rid=?`, [rid]);
@@ -114,11 +131,13 @@ export class NativeStore {
         const live = new Set(snapshot.rooms.map(room => room.id));
         const known = await this.db.getAllAsync<{rid:string}>('SELECT rid FROM salons', []);
         for (const {rid} of known) if (!live.has(rid)) await this.remove(rid);
+        await this.db.runAsync('DELETE FROM messages WHERE id IN (SELECT id FROM native_positions)',[]);
+        await this.db.runAsync('DELETE FROM native_positions',[]);
       }
       for (const room of snapshot.rooms) await this.room(room);
       for (const message of snapshot.messages) await this.message(message);
       await this.cursor(snapshot.cursor);
-    });
+    },true);
   }
   applyBatch(batch: SyncBatch): Promise<void> {
     return this.atomic(async () => {
@@ -131,12 +150,14 @@ export class NativeStore {
         }
       }
       await this.cursor(batch.cursor);
-    });
+    },batch.changes.some(change => change.type==='room_removed'));
   }
-  ingest(messages: Message[]): Promise<void> {
+  ingest(messages: Message[], token=this.projectionToken()): Promise<boolean> {
     return this.atomic(async () => {
       if (!await this.sameGeneration()) throw new Error('Native generation unavailable');
+      if (token!==this.projectionToken()) return false;
       for (const message of messages) await this.message(message);
+      return true;
     });
   }
   rooms(): Promise<NativeRoomRow[]> {

@@ -115,3 +115,34 @@ test('enqueue failure leaves neither an optimistic message nor a partial outbox 
   assert.deepEqual(await store.messages(room.id),[]); assert.deepEqual(await store.pending(),[]);
   db.close();
 });
+
+test('edits use exact revisions despite clock correction; tombstones erase text and block stale history',async () => {
+  const {db,store}=setup(); await store.applySnapshot(snapshot);
+  const edited={...message,text:'Edited',revision:'9007199254740994',edited_at:'2020-01-01T00:00:00Z'};
+  await store.ingest([edited]); await store.ingest([message]);
+  assert.equal((await store.messages(room.id))[0].texte,'Edited');
+  assert.equal(db.prepare('SELECT modifie_le FROM messages WHERE id=?').get(message.id)!.modifie_le,Date.parse(edited.edited_at));
+  const tombstone={...edited,text:'',deleted:true,revision:'9007199254740995'};
+  await store.ingest([tombstone]); await store.ingest([message]);
+  assert.deepEqual(await store.messages(room.id),[]);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM messages WHERE id=?').get(message.id)!.n,0);
+  assert.equal(db.prepare('SELECT revision FROM native_positions WHERE id=?').get(message.id)!.revision,tombstone.revision);
+  assert.equal((await store.rooms())[0].dernier_message,null);
+  await assert.rejects(store.ingest([{...tombstone,text:'Forbidden tombstone payload'}]));
+  db.close();
+});
+
+test('reset purges old confirmed history and rejects old responses while retaining draft and outbox',async () => {
+  const {db,store,failWhen}=setup(); await store.applySnapshot(snapshot);
+  await store.enqueue('unsent',room.id,'Pending'); await store.drafts().ecrire(room.id,'Draft');
+  const oldToken=store.projectionToken();
+  failWhen(sql => sql.startsWith('INSERT INTO native_sync_state'));
+  await assert.rejects(store.applySnapshot({...snapshot,messages:[],cursor:'failed-reset'}));
+  assert.equal(store.projectionToken(),oldToken,'a rollback cannot invalidate the current projection');
+  assert.equal((await store.messages(room.id)).length,2);
+  failWhen(null); await store.applySnapshot({...snapshot,messages:[],cursor:'reset'});
+  assert.equal(await store.ingest([message],oldToken),false);
+  assert.deepEqual((await store.messages(room.id)).map(m => m.id),['unsent']);
+  assert.equal((await store.pending())[0].id,'unsent'); assert.equal(await store.drafts().lire(room.id),'Draft');
+  db.close();
+});

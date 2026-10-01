@@ -3,6 +3,7 @@ mod delivery;
 mod error;
 mod http;
 mod limits;
+mod message_actions;
 mod permissions;
 mod snapshots;
 mod store;

@@ -4,6 +4,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use rv_protocol::{Change, Message, Room, Snapshot, SyncBatch, VERSION};
 use std::path::Path;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::broadcast;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,11 +21,13 @@ pub struct MessageRow {
     pub author_id: String,
     pub ts: i64,
     pub status: Option<String>,
+    pub edited: bool,
 }
 pub struct NativeStore {
     conn: Mutex<Connection>,
     identity: Identity,
     changes: broadcast::Sender<()>,
+    projection: AtomicU64,
 }
 fn json<T: serde::Serialize>(value: &T) -> rusqlite::Result<String> {
     serde_json::to_string(value).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
@@ -48,18 +51,23 @@ impl NativeStore {
             .prepare("PRAGMA table_info(native_messages)")?
             .query_map([], |r| r.get::<_, String>(1))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        for (name, declaration) in [("author_id", "TEXT NOT NULL DEFAULT ''"), ("ts", "INTEGER NOT NULL DEFAULT 0")] {
+        for (name, declaration) in [
+            ("author_id", "TEXT NOT NULL DEFAULT ''"),
+            ("ts", "INTEGER NOT NULL DEFAULT 0"),
+            ("deleted", "INTEGER NOT NULL DEFAULT 0"),
+            ("edited", "INTEGER NOT NULL DEFAULT 0"),
+        ] {
             if !columns.iter().any(|c| c == name) {
                 conn.execute_batch(&format!("ALTER TABLE native_messages ADD COLUMN {name} {declaration}"))?;
             }
         }
-        Ok(Self { conn: Mutex::new(conn), identity, changes })
+        Ok(Self { conn: Mutex::new(conn), identity, changes, projection: AtomicU64::new(0) })
     }
     pub fn changes(&self) -> broadcast::Receiver<()> {
         self.changes.subscribe()
     }
     pub fn clear(&self) -> rusqlite::Result<()> {
-        self.atomic(|tx| {
+        self.atomic_projection(true, |tx| {
             for table in [
                 "native_state",
                 "native_rooms",
@@ -84,13 +92,26 @@ impl NativeStore {
             }))
     }
     fn atomic<T>(&self, fnc: impl FnOnce(&Transaction) -> rusqlite::Result<T>) -> rusqlite::Result<T> {
+        self.atomic_projection(false, fnc)
+    }
+    fn atomic_projection<T>(
+        &self,
+        rotate: bool,
+        fnc: impl FnOnce(&Transaction) -> rusqlite::Result<T>,
+    ) -> rusqlite::Result<T> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
         let result = fnc(&tx)?;
         tx.commit()?;
+        if rotate {
+            self.projection.fetch_add(1, Ordering::SeqCst);
+        }
         drop(conn);
         let _ = self.changes.send(());
         Ok(result)
+    }
+    pub fn projection_token(&self) -> u64 {
+        self.projection.load(Ordering::SeqCst)
     }
     pub fn cursor(&self) -> rusqlite::Result<Option<String>> {
         let conn = self.conn.lock().unwrap();
@@ -149,6 +170,12 @@ impl NativeStore {
         }
         decimal(&message.position)?;
         let revision = decimal(&message.revision)?;
+        if message.deleted && !message.text.is_empty() {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        if let Some(edited) = &message.edited_at {
+            chrono::DateTime::parse_from_rfc3339(edited).map_err(|_| rusqlite::Error::InvalidQuery)?;
+        }
         chrono::DateTime::parse_from_rfc3339(&message.created_at).map_err(|_| rusqlite::Error::InvalidQuery)?;
         let old = tx
             .query_row("SELECT revision FROM native_messages WHERE id=?1", [&message.id], |r| {
@@ -162,7 +189,7 @@ impl NativeStore {
         let ts = chrono::DateTime::parse_from_rfc3339(&message.created_at)
             .map_err(|_| rusqlite::Error::InvalidQuery)?
             .timestamp_millis();
-        tx.execute("INSERT INTO native_messages(id,rid,position,revision,text,author,author_id,ts) VALUES(?1,?2,?3,?4,?5,?6,?7,?8) ON CONFLICT(id) DO UPDATE SET position=excluded.position,revision=excluded.revision,text=excluded.text,author=excluded.author,author_id=excluded.author_id,ts=excluded.ts",params![message.id,message.room_id,message.position,message.revision,message.text,message.author.username,message.author.id,ts])?;
+        tx.execute("INSERT INTO native_messages(id,rid,position,revision,text,author,author_id,ts,deleted,edited) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) ON CONFLICT(id) DO UPDATE SET position=excluded.position,revision=excluded.revision,text=excluded.text,author=excluded.author,author_id=excluded.author_id,ts=excluded.ts,deleted=excluded.deleted,edited=excluded.edited",params![message.id,message.room_id,message.position,message.revision,message.text,message.author.username,message.author.id,ts,message.deleted,message.edited_at.is_some()])?;
         tx.execute("DELETE FROM native_outbox WHERE id=?1", [&message.id])?;
         Ok(())
     }
@@ -177,7 +204,7 @@ impl NativeStore {
         if snapshot.protocol_version != VERSION {
             return Err(rusqlite::Error::InvalidQuery);
         }
-        self.atomic(|tx| {
+        self.atomic_projection(true, |tx| {
             if !self.same(tx)? {
                 for table in
                     ["native_rooms", "native_messages", "native_outbox", "native_drafts", "native_room_creations"]
@@ -194,6 +221,10 @@ impl NativeStore {
                         Self::remove(tx, &id)?;
                     }
                 }
+                // A reset snapshot only includes a bounded recent window. Old
+                // confirmed history may contain deletions missed by this cursor.
+                // Keep the unsent projection, drafts and outbox for live rooms.
+                tx.execute("DELETE FROM native_messages WHERE position IS NOT NULL", [])?;
             }
             for room in &snapshot.rooms {
                 Self::room(tx, room)?;
@@ -208,7 +239,7 @@ impl NativeStore {
         if batch.protocol_version != VERSION {
             return Err(rusqlite::Error::InvalidQuery);
         }
-        self.atomic(|tx| {
+        self.atomic_projection(batch.changes.iter().any(|c| matches!(c, Change::RoomRemoved { .. })), |tx| {
             if !self.same(tx)? {
                 return Err(rusqlite::Error::InvalidQuery);
             }
@@ -223,14 +254,20 @@ impl NativeStore {
         })
     }
     pub fn ingest(&self, messages: &[Message]) -> rusqlite::Result<()> {
+        self.ingest_at(messages, self.projection_token()).map(|_| ())
+    }
+    pub fn ingest_at(&self, messages: &[Message], token: u64) -> rusqlite::Result<bool> {
         self.atomic(|tx| {
             if !self.same(tx)? {
                 return Err(rusqlite::Error::InvalidQuery);
             }
+            if token != self.projection_token() {
+                return Ok(false);
+            }
             for message in messages {
                 Self::message(tx, message)?;
             }
-            Ok(())
+            Ok(true)
         })
     }
     pub fn rooms(&self) -> rusqlite::Result<Vec<Room>> {
@@ -251,7 +288,7 @@ impl NativeStore {
         if !self.same(&conn)? {
             return Ok(vec![]);
         }
-        let mut rows=conn.prepare("SELECT m.id,m.text,m.author,o.status,m.author_id,m.ts FROM native_messages m LEFT JOIN native_outbox o ON o.id=m.id WHERE m.rid=?1 ORDER BY m.position IS NULL DESC,o.created DESC,length(m.position) DESC,m.position DESC,m.id DESC LIMIT ?2")?.query_map(params![rid,limit as i64],|r|Ok(MessageRow {id:r.get(0)?,text:r.get(1)?,author:r.get(2)?,status:r.get(3)?,author_id:r.get(4)?,ts:r.get(5)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut rows=conn.prepare("SELECT m.id,m.text,m.author,o.status,m.author_id,m.ts,m.edited FROM native_messages m LEFT JOIN native_outbox o ON o.id=m.id WHERE m.rid=?1 AND NOT m.deleted ORDER BY m.position IS NULL DESC,o.created DESC,length(m.position) DESC,m.position DESC,m.id DESC LIMIT ?2")?.query_map(params![rid,limit as i64],|r|Ok(MessageRow {id:r.get(0)?,text:r.get(1)?,author:r.get(2)?,status:r.get(3)?,author_id:r.get(4)?,ts:r.get(5)?,edited:r.get(6)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
         rows.reverse();
         Ok(rows)
     }
@@ -434,6 +471,46 @@ mod tests {
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[1].id, "later");
         assert_eq!(store.oldest("room-id").unwrap().as_deref(), Some("9007199254740993"));
+    }
+    #[test]
+    fn edits_tombstones_and_reset_do_not_resurrect_stale_history() {
+        let store = store();
+        let initial = snapshot();
+        let original = initial.messages[0].clone();
+        store.snapshot(&initial).unwrap();
+        let mut edited = original.clone();
+        edited.text = "edited".into();
+        edited.revision = "9007199254740994".into();
+        edited.edited_at = Some("2020-01-01T00:00:00Z".into());
+        store.ingest(&[edited.clone()]).unwrap();
+        store.ingest(std::slice::from_ref(&original)).unwrap();
+        let row = store.messages("room-id", 10).unwrap().pop().unwrap();
+        assert_eq!(row.text, "edited");
+        assert!(row.edited);
+        let mut tombstone = edited;
+        tombstone.text.clear();
+        tombstone.deleted = true;
+        tombstone.revision = "9007199254740995".into();
+        store.ingest(&[tombstone]).unwrap();
+        store.ingest(std::slice::from_ref(&original)).unwrap();
+        assert!(store.messages("room-id", 10).unwrap().is_empty());
+        assert_eq!(
+            store
+                .conn
+                .lock()
+                .unwrap()
+                .query_row("SELECT text FROM native_messages WHERE id=?1", [&original.id], |r| r.get::<_, String>(0))
+                .unwrap(),
+            ""
+        );
+        store.enqueue("pending", "room-id", "unsent", "alice").unwrap();
+        store.set_draft("room-id", "draft").unwrap();
+        let old_token = store.projection_token();
+        store.snapshot(&Snapshot { messages: vec![], cursor: "reset".into(), ..initial }).unwrap();
+        assert!(!store.ingest_at(&[original], old_token).unwrap());
+        assert_eq!(store.messages("room-id", 10).unwrap().len(), 1);
+        assert_eq!(store.pending().unwrap()[0].id, "pending");
+        assert_eq!(store.draft("room-id").unwrap(), "draft");
     }
     #[test]
     fn reopening_disk_preserves_outbox_and_new_generation_hides_and_drops_it() {

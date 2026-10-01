@@ -9,6 +9,11 @@ release, et ses notes sont la section de la version ici.
 
 ### Ajouté
 
+- Projection des éditions et suppressions RocketVibe dans les écrans existants :
+  marqueur d'édition, effacement local et révisions empêchant un historique tardif
+  de rétablir le texte. Un reset remplace l'historique confirmé tout en conservant
+  brouillons et file d'envoi des salons encore accessibles.
+
 - Reprise des envois RocketVibe après panne temporaire ou réponse perdue, même
   lorsque la socket reste connectée. Les retries conservent l'identité SQLite,
   respectent `Retry-After` et s'arrêtent en suspension / déconnexion du compte.

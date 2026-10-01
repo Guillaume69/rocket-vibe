@@ -1552,6 +1552,7 @@ impl ChatPage {
                             id: r.id,
                             rid: open.rid.clone(),
                             ts: r.ts,
+                            edited: r.edited,
                             text: Some(r.text),
                             author: Some(r.author),
                             author_id: if r.status.is_some() { session.info.user_id.clone() } else { r.author_id },

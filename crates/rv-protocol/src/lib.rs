@@ -216,6 +216,14 @@ pub struct Message {
     pub created_at: String,
     pub position: String,
     pub revision: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub deleted: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edited_at: Option<String>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

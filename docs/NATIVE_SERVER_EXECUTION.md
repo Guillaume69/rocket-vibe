@@ -315,6 +315,24 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P01, invitations : CLI `invite` / `list-invitations` / `revoke-invitation` et
+  inscription dans les écrans de connexion mobile / GTK / SwiftUI existants.
+  Inscription publique fermée ; code aléatoire conservé sous empreinte seulement,
+  1–168 h, au plus 1 000 invitations actives par génération. Un code crée un
+  compte sans droit admin ; le login normal suit. Les confirmations perdues et
+  deux inscriptions concurrentes retrouvent le même UID avec son mot de passe.
+  Expiration après verrou PostgreSQL, révocation, compte désactivé / supprimé,
+  changement de génération et quotas persistants sont testés. Les clients
+  vérifient instance / génération et l'UID du login avant stockage sécurisé.
+  Vérifications : 4 tests PostgreSQL dédiés en plus des 27 API, 56 tests natifs
+  TypeScript, 1 006 tests mobiles, typecheck / lint / export Android ; Clippy,
+  tests cœur / bindings et compilation GTK ; bindings et modèles Swift.
+  Le banc jetable crée trois comptes invités : runner mobile avec SQLite réel,
+  widgets GTK avec reprise après redémarrage depuis Secret Service, modèle Swift
+  avec création / reprise / logout dans le trousseau. Ses codes restent dans un
+  volume privé supprimé en fin de banc. Récupération P01 et second facteur P02
+  restent ouverts, ainsi que les validations sur appareils physiques.
+
 - P01, appareils : les paramètres existants mobile / GTK / SwiftUI listent les
   sessions du compte, affichent l'appareil courant, les dates et permettent de
   renommer / révoquer un autre appareil. Le fournisseur relit les credentials

@@ -107,3 +107,12 @@ l'appareil courant et applique un nom par le véritable champ Adwaita. Il vérif
 la valeur serveur et que le champ tient dans la fenêtre. Les modèles Swift
 renomment l'appareil courant, révoquent une seconde session et vérifient son
 refus HTTP 401 ; les contrôles retenus du précédent compte restent inactifs.
+
+Le bootstrap jetable émet des invitations dans un volume privé, monté en lecture
+seule par les clients. GTK utilise le champ d'invitation de sa page de connexion,
+crée un compte, efface les secrets du formulaire puis reprend ce compte depuis
+Secret Service après un redémarrage. Le modèle Swift exerce le même parcours
+et le logout. Le pair mobile inscrit un compte, reprend la réponse puis connecte
+son fournisseur SQLite. Le volume d'invitations est supprimé avec `down -v` ;
+aucun code ne rejoint les logs ou les artifacts. Ces essais ne remplacent pas
+la qualification des appareils physiques.

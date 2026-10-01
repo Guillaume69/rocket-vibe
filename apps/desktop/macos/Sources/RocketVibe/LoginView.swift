@@ -6,7 +6,7 @@ struct LoginView: View {
     @FocusState var focus: Field?
 
     enum Field {
-        case server, user, password, code
+        case server, user, password, code, invitation
     }
 
     var body: some View {
@@ -50,9 +50,19 @@ struct LoginView: View {
                         .focused($focus, equals: .password)
                         .textContentType(.password)
                         .onSubmit(submit)
+                    if login.canRegister {
+                        Toggle(L("login.create_account"), isOn: $login.registering)
+                        if login.registering {
+                            Text(L("login.invitation_help")).font(.caption)
+                            SecureField(L("login.invitation"), text: $login.invitation)
+                                .focused($focus, equals: .invitation)
+                                .onSubmit(submit)
+                        }
+                    }
                 }
             }
             .formStyle(.grouped)
+            .disabled(login.busy)
             .scrollContentBackground(.hidden)
             .frame(maxWidth: 400)
             .fixedSize(horizontal: false, vertical: true)
@@ -70,7 +80,7 @@ struct LoginView: View {
                 } else if app.signedIn {
                     Button(L("login.cancel_add")) { app.cancelLogin() }
                 }
-                Button(login.busy ? L("login.signing_in") : (login.method == nil ? L("login.sign_in") : L("login.confirm")), action: submit)
+                Button(login.busy ? L("login.signing_in") : (login.method == nil ? L(login.registering && login.canRegister ? "login.create_account" : "login.sign_in") : L("login.confirm")), action: submit)
                     .buttonStyle(VibeButtonStyle())
                     .keyboardShortcut(.defaultAction)
                     .disabled(login.busy)
@@ -81,6 +91,7 @@ struct LoginView: View {
         .background { LoginSky() }
         .onAppear { focus = login.user.isEmpty ? .user : .password }
         .onChange(of: login.method) { _, method in if method != nil { focus = .code } }
+        .onChange(of: login.server) { _, _ in login.registering = false; login.invitation = "" }
         .task(id: login.server) {
             try? await Task.sleep(nanoseconds: 600_000_000)
             if !Task.isCancelled { await login.probe(client: app.client) }

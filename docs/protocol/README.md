@@ -36,6 +36,7 @@ présence ne déclare pas les endpoints correspondants disponibles.
 |---|---|---|
 | GET | `/health/live`, `/health/ready` | État du processus et de la base |
 | POST | `/auth/login` | `{ username, password }` → session, expiration, utilisateur |
+| POST | `/auth/invitations/accept` | `{ token, username, password }` → utilisateur ; anonyme, sans session ni droit admin |
 | POST | `/auth/logout` | Révoquer cette session et ses tickets WebSocket |
 | GET | `/me`, `/users` | Compte courant ; annuaire de l'instance limité à 100 entrées |
 | GET | `/me/permissions` | Droits effectifs de création et d'administration |
@@ -78,6 +79,33 @@ Les changements de rôle, politique de salon et droits du compte changent leur
 version ; une réponse préparée avant eux est revalidée et leurs mises à jour
 attendent la fin d'une livraison déjà autorisée. Aucune autorité cliente forgée
 n'est acceptée dans les commandes.
+
+### Inscription sur invitation
+
+La capacité additive `account_invitations` autorise le formulaire des clients
+natifs. Les anciens serveurs qui l'omettent et Rocket.Chat gardent leur parcours
+de connexion. La CLI opérateur émet un code CSPRNG de 32 octets, valide 1–168 h
+(7 jours par défaut). PostgreSQL conserve son SHA-256 et la génération des
+données. Aucun chemin d'inscription publique ni droit admin saisi par le client.
+
+`POST /auth/invitations/accept` est anonyme, strict et `no-store`. Il crée un
+utilisateur sans session, puis le client utilise le login normal. Mot de passe :
+au moins 12 caractères et au plus 1 024 octets ; identifiant ASCII, lettres,
+chiffres, tirets ou underscore, 1–128 octets. L'invitation lie un seul UID.
+Une confirmation perdue retrouve ce compte avec ses identifiants actuels tant
+que le code reste valide ; elle ne crée jamais un deuxième compte. Mot de passe
+vérifié avec Argon2, sans empreinte rapide de mot de passe. Une consommation
+survit à la suppression du compte et ne rend pas le code réutilisable.
+
+Le serveur revérifie génération, état du compte et expiration après les verrous.
+Codes invalides, expirés, révoqués ou liés à d'autres identifiants rendent
+`400 invitation_rejected` ; entrées mal formées : `400 invalid_request`.
+Les quotas persistants de connexion (global / IP / identifiant) sont partagés
+avec cette route, plus 10 admissions par code et minute. Argon2 partage les
+quatre places de connexion, retenues pendant le calcul malgré une annulation.
+Révoquer le code ne désactive pas le compte qu'il a déjà créé. Les clients
+vérifient instance / génération avant et après création / login et comparent
+l'UID avant de sauvegarder la session. Code et mot de passe restent transitoires.
 
 ### Renouvellement et appareils
 

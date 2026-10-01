@@ -259,6 +259,8 @@ pub struct RoomKeyEnvelope {
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct ParityContract {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accept_invitation: Option<AcceptInvitation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub renew_session: Option<RenewSession>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_session: Option<DeviceSession>,
@@ -283,4 +285,14 @@ pub struct ParityContract {
     pub public_device_key: PublicDeviceKey,
     pub key_backup: EncryptedKeyBackup,
     pub room_key_envelope: RoomKeyEnvelope,
+}
+
+/// Creating an account does not authenticate it; normal login follows, including
+/// any required second factor. Invitation/password are transient secrets.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AcceptInvitation {
+    pub token: String,
+    pub username: String,
+    pub password: String,
 }

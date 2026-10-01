@@ -28,6 +28,8 @@ pub struct LoginPage {
     server: gtk::Entry,
     user: gtk::Entry,
     password: gtk::Entry,
+    signup: gtk::CheckButton,
+    invitation: gtk::Entry,
     code_step: gtk::Box,
     code_intro: gtk::Label,
     code_caption: gtk::Label,
@@ -97,6 +99,14 @@ impl LoginPage {
         credentials.append(&known);
         credentials.append(&user_group);
         credentials.append(&password_group);
+        let signup = gtk::CheckButton::builder().label(t("login.create_account")).visible(false).build();
+        credentials.append(&signup);
+        let (invitation_group, invitation) = widgets::pill_field(t("login.invitation"), "", true);
+        invitation_group.set_visible(false);
+        let invitation_help =
+            gtk::Label::builder().label(t("login.invitation_help")).wrap(true).xalign(0.0).visible(false).build();
+        credentials.append(&invitation_group);
+        credentials.append(&invitation_help);
 
         let back = gtk::Button::builder().css_classes(["flat", "back-link"]).halign(gtk::Align::Start).build();
         let back_content = gtk::Box::builder().spacing(8).build();
@@ -121,6 +131,22 @@ impl LoginPage {
 
         let error = gtk::Label::builder().css_classes(["login-error"]).wrap(true).xalign(0.0).visible(false).build();
         let submit = widgets::cta(t("login.sign_in"));
+        signup.connect_toggled(glib::clone!(
+            #[weak]
+            invitation_group,
+            #[weak]
+            invitation_help,
+            #[weak]
+            invitation,
+            #[weak]
+            submit,
+            move |button| {
+                invitation_group.set_visible(button.is_active());
+                invitation_help.set_visible(button.is_active());
+                invitation.set_text("");
+                submit.set_label(t(if button.is_active() { "login.create_account" } else { "login.sign_in" }));
+            }
+        ));
         let cancel = gtk::Button::builder().label(t("login.cancel_add")).css_classes(["flat"]).visible(false).build();
 
         let column = gtk::Box::builder()
@@ -162,7 +188,11 @@ impl LoginPage {
         server.connect_changed(glib::clone!(
             #[weak]
             probe,
+            #[weak]
+            signup,
             move |entry| {
+                signup.set_active(false);
+                signup.set_visible(false);
                 let current = generation.get() + 1;
                 generation.set(current);
                 let text = entry.text().to_string();
@@ -188,6 +218,7 @@ impl LoginPage {
                                 probe.set_label(t("login.probe_no_password"));
                             }
                             Ok(p) => {
+                                signup.set_visible(p.genre == "rocketvibe" && p.account_invitations);
                                 let product = if p.genre == "rocketvibe" { "RocketVibe" } else { "Rocket.Chat" };
                                 let mut facts = vec![format!("{product} {}", p.version)];
                                 if p.two_factor {
@@ -214,6 +245,8 @@ impl LoginPage {
             server,
             user,
             password,
+            signup,
+            invitation,
             code_step,
             code_intro,
             code_caption,
@@ -283,6 +316,25 @@ impl LoginPage {
     pub fn password(&self) -> String {
         self.password.text().into()
     }
+    pub fn invitation(&self) -> Option<String> {
+        (self.signup.is_visible() && self.signup.is_active()).then(|| self.invitation.text().trim().to_owned())
+    }
+    pub fn fill_invitation(&self, token: &str) -> bool {
+        if !self.signup.is_visible() {
+            return false;
+        }
+        self.signup.set_active(true);
+        self.invitation.set_text(token);
+        true
+    }
+    pub fn clear_secrets(&self) {
+        self.password.set_text("");
+        self.invitation.set_text("");
+        self.signup.set_active(false);
+    }
+    pub fn is_busy(&self) -> bool {
+        !self.submit.is_sensitive()
+    }
 
     pub fn code(&self) -> String {
         self.code.text().into()
@@ -296,11 +348,14 @@ impl LoginPage {
 
     pub fn set_busy(&self, busy: bool) {
         self.submit.set_sensitive(!busy);
+        self.credentials.set_sensitive(!busy);
+        self.code_step.set_sensitive(!busy);
+        self.cancel.set_sensitive(!busy);
         let asking = self.code_step.is_visible();
         self.submit.set_label(match (busy, asking) {
             (true, _) => t("login.signing_in"),
             (false, true) => t("login.confirm"),
-            (false, false) => t("login.sign_in"),
+            (false, false) => t(if self.signup.is_active() { "login.create_account" } else { "login.sign_in" }),
         });
     }
 

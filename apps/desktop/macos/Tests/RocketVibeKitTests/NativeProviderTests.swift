@@ -182,6 +182,40 @@ final class NativeProviderTests: XCTestCase {
     }
 
     @MainActor
+    func testInvitationInExistingLoginModelAndKeychainResume() async throws {
+        guard let server = ProcessInfo.processInfo.environment["RV_NATIVE_TEST_SERVER"],
+              let password = ProcessInfo.processInfo.environment["RV_NATIVE_TEST_PASSWORD"],
+              let path = ProcessInfo.processInfo.environment["RV_NATIVE_TEST_INVITATION_FILE"] else {
+            throw XCTSkip("requires disposable native invitation bench")
+        }
+        let issued = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: path))) as! [String: Any]
+        let token = try XCTUnwrap(issued["token"] as? String)
+        let home = "/tmp/rv-swift-signup-\(UUID())"
+        let app = AppModel(home: home)
+        defer { app.end() }
+        app.login.server = server
+        app.login.user = "swift-invited"
+        app.login.password = password
+        await app.login.probe(client: app.client)
+        XCTAssertTrue(app.login.canRegister)
+        app.login.registering = true
+        app.login.invitation = token
+        await app.submitLogin()
+        XCTAssertEqual(app.screen, .chat, app.login.error ?? "no signup error")
+        XCTAssertEqual(app.account?.username, "swift-invited")
+        XCTAssertEqual(app.login.invitation, "")
+        XCTAssertEqual(app.login.password, "")
+        XCTAssertFalse(app.login.registering)
+        try await until { app.connection == .online }
+        let saved = try XCTUnwrap(app.account)
+        let resumed = await app.resume(saved)
+        XCTAssertTrue(resumed)
+        try await until { app.connection == .online }
+        await app.signOut()
+        XCTAssertTrue(app.accounts.isEmpty)
+    }
+
+    @MainActor
     private func makeExtraDevice(server: String, password: String) async throws -> (id: String, token: String) {
         var request = URLRequest(url: URL(string: server + "/api/v1/auth/login")!)
         request.httpMethod = "POST"

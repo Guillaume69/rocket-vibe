@@ -9,6 +9,10 @@ section here.
 
 ### Added
 
+- Invitation signup in the existing GTK and SwiftUI sign-in forms, offered only
+  by capable RocketVibe servers. Lost acknowledgements resume the same account;
+  instance, generation and user checks precede secure session storage.
+
 - Native signed-in devices in the existing settings, with names, activity and
   expiry dates. Another device can be revoked after a recent sign-in; retained
   controls cannot act after switching accounts.

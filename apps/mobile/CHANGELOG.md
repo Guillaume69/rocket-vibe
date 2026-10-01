@@ -9,6 +9,10 @@ release, et ses notes sont la section de la version ici.
 
 ### Ajouté
 
+- Création d'un compte RocketVibe sur invitation dans l'écran de connexion existant.
+  La reprise après réponse perdue conserve le même compte ; le parcours vérifie
+  l'identité et la génération du serveur avant de sauvegarder la session.
+
 - Appareils RocketVibe connectés dans les paramètres existants : noms, dates
   d’activité / expiration et révocation après connexion récente. Les alertes
   conservées d’un ancien compte ne peuvent agir sur le nouveau.

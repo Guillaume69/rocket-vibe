@@ -99,6 +99,18 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ),
     ("login.bad_code", "Code refusé. Réessaie.", "Code rejected. Try again."),
     ("login.rejected", "Identifiant ou mot de passe refusé.", "Username or password rejected."),
+    ("login.create_account", "Créer un compte sur invitation", "Create an account with an invitation"),
+    ("login.invitation", "Code d'invitation", "Invitation code"),
+    (
+        "login.invitation_help",
+        "Utilise le code fourni par l'administrateur. Identifiant : lettres, chiffres, tirets ou _. Mot de passe : au moins 12 caractères.",
+        "Use the administrator's invitation code. Username: letters, digits, hyphens or _. Password: at least 12 characters.",
+    ),
+    (
+        "login.invitation_rejected",
+        "Invitation refusée : vérifie le code, sa validité et les identifiants saisis. Si le compte a déjà été créé, connecte-toi normalement.",
+        "Invitation rejected: check the code, its validity and your credentials. If the account already exists, sign in normally.",
+    ),
     (
         "login.too_many",
         "Trop d'essais. Attends une minute et réessaie.",

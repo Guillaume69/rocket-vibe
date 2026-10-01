@@ -38,6 +38,24 @@ pub(crate) async fn message_action(
 /// locks out unrelated accounts. The global row is locked first in every process.
 /// It also bounds insertion of arbitrary username / IP keys (120 admissions/min).
 pub async fn login_attempt(app: &App, username: &str, peer: Option<IpAddr>) -> Result<()> {
+    auth_attempt(app, username, peer, None).await
+}
+
+pub async fn invitation_attempt(
+    app: &App,
+    username: &str,
+    peer: Option<IpAddr>,
+    token: &str,
+) -> Result<()> {
+    auth_attempt(app, username, peer, Some(token)).await
+}
+
+async fn auth_attempt(
+    app: &App,
+    username: &str,
+    peer: Option<IpAddr>,
+    invitation: Option<&str>,
+) -> Result<()> {
     let mut tx = app.pool.begin().await?;
     let mut keys = vec![
         ("global".to_owned(), 120),
@@ -45,6 +63,9 @@ pub async fn login_attempt(app: &App, username: &str, peer: Option<IpAddr>) -> R
     ];
     if let Some(peer) = peer {
         keys.push((format!("ip:{}", hash_token(&peer.to_string())), 30));
+    }
+    if let Some(token) = invitation {
+        keys.push((format!("invite:{}", hash_token(token)), 10));
     }
     for (key, maximum) in keys {
         let (attempts, retry): (i32, i64) = sqlx::query_as(

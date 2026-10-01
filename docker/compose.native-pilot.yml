@@ -15,11 +15,14 @@ services:
       retries: 30
   bootstrap:
     image: rocketvibe-native-server
+    # Root is only used to initialize this disposable shared invitation volume.
+    user: '0:0'
+    volumes: ['pilot-invitations:/pilot-invitations']
     environment:
       DATABASE_URL: postgres://pilot:native-pilot-disposable-db-password@postgres/pilot
       RV_USER_PASSWORD: native-pilot-test-password
     entrypoint: [/bin/sh, -ec]
-    command: ['rv-server create-user mobile && rv-server create-user desktop']
+    command: ['umask 077; rv-server create-user mobile && rv-server create-user desktop && rv-server invite > /pilot-invitations/mobile.json && rv-server invite > /pilot-invitations/desktop.json && rv-server invite > /pilot-invitations/swift.json']
     depends_on:
       postgres: {condition: service_healthy}
   session-policy:
@@ -47,10 +50,11 @@ services:
   mobile:
     image: rocketvibe-native-check
     working_dir: /src
-    volumes: ['..:/src']
+    volumes: ['..:/src', 'pilot-invitations:/pilot-invitations:ro']
     environment:
       RV_PEER_URL: http://server:3400
       RV_PEER_PASSWORD: native-pilot-test-password
+      RV_NATIVE_INVITATION_FILE: /pilot-invitations/mobile.json
     command: [node, scripts/native-desktop-peer.ts]
     depends_on: [server]
   desktop:
@@ -58,21 +62,26 @@ services:
     # Fedora's Secret Service daemon requires locked memory for its key material.
     cap_add: [IPC_LOCK]
     working_dir: /workspace/apps/desktop
-    volumes: ['..:/workspace']
+    volumes: ['..:/workspace', 'pilot-invitations:/pilot-invitations:ro']
     environment:
       HOME: /tmp/rv-native-pilot-home
       LANG: fr_FR.UTF-8
       LANGUAGE: fr
       RV_PEER_URL: http://server:3400
       RV_PEER_PASSWORD: native-pilot-test-password
+      RV_NATIVE_INVITATION_FILE: /pilot-invitations/desktop.json
     command: [bash, scripts/native-smoke.sh]
     depends_on: [mobile]
   swift:
     image: rocket-vibe-swift
     working_dir: /workspace/apps/desktop
-    volumes: ['..:/workspace']
+    volumes: ['..:/workspace', 'pilot-invitations:/pilot-invitations:ro']
     environment:
       RV_NATIVE_TEST_SERVER: http://server:3400
       RV_NATIVE_TEST_PASSWORD: native-pilot-test-password
+      RV_NATIVE_TEST_INVITATION_FILE: /pilot-invitations/swift.json
     command: [bash, macos/scripts/native-smoke.sh]
     depends_on: [server]
+
+volumes:
+  pilot-invitations:

@@ -17,7 +17,8 @@ appareils du compte. Les clients renouvellent leur session via SecureStore ou
 le trousseau système, avec reprise d'un successeur durable après réponse perdue.
 Les paramètres existants des trois clients exposent les noms, dates et la
 révocation d'un autre appareil après connexion récente. La qualification sur
-appareils, récupération et invitations restent suivies dans P01.
+appareils et la récupération restent suivies dans P01. Les écrans de connexion
+existants proposent la création d'un compte avec une invitation opérateur.
 
 Les [écrans mobiles existants](../../docs/NATIVE_MOBILE_PILOT.md) et les interfaces
 [GTK / SwiftUI existantes](../../docs/NATIVE_DESKTOP_PILOT.md) accueillent les deux
@@ -53,6 +54,25 @@ docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml ru
 Le flag administrateur est stocké pour la suite du chantier ; il ne permet pas
 de lire les salons privés ni de contourner leurs droits. La CLI exige un accès
 opérateur à la base. Aucune inscription publique n'est ouverte.
+
+Pour laisser la personne choisir ses identifiants dans l'app, émettre une invitation :
+
+```sh
+docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm server invite --hours 168
+docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm server list-invitations
+docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm server revoke-invitation IDENTIFIANT
+```
+
+`invite` affiche une seule fois un JSON contenant le code secret `token` et les
+métadonnées ; transmettre le code au destinataire par le canal choisi par l'opérateur.
+La liste (les 1 000 dernières invitations) et la révocation utilisent l'identifiant
+public, sans redonner le code. Durée : 1–168 heures, par défaut 7 jours ; au plus
+1 000 invitations actives par génération. Le compte créé n'a pas de droit admin.
+Le code crée un seul compte et ne fournit pas de session ; la connexion normale
+suit. Une réponse d'inscription perdue peut être reprise, avant expiration, avec
+le même identifiant et le mot de passe du compte créé. Révocation, désactivation,
+suppression du compte ou changement de génération ferment cette reprise.
+Aucun email n'est envoyé automatiquement.
 
 Découverte et état :
 

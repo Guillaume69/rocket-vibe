@@ -119,7 +119,27 @@ pub fn install(window: &Rc<AppWindow>) {
             let Some(w) = weak.upgrade() else { return };
             if !tried.replace(true) {
                 w.login.fill(&parts[0], &parts[1], &parts[2]);
-                glib::idle_add_local_once(move || w.submit_login());
+                if let Ok(path) = std::env::var("RV_SMOKE_INVITATION_FILE") {
+                    let data: serde_json::Value =
+                        serde_json::from_str(&std::fs::read_to_string(path).expect("pilot invitation file"))
+                            .expect("pilot invitation JSON");
+                    let token = data["token"].as_str().expect("pilot invitation token").to_owned();
+                    let mut polls = 0;
+                    glib::timeout_add_local(Duration::from_millis(250), move || {
+                        polls += 1;
+                        if w.login.fill_invitation(&token) {
+                            w.submit_login();
+                            return glib::ControlFlow::Break;
+                        }
+                        if polls >= 40 {
+                            check("signup offered by native discovery", false, polls);
+                            return glib::ControlFlow::Break;
+                        }
+                        glib::ControlFlow::Continue
+                    });
+                } else {
+                    glib::idle_add_local_once(move || w.submit_login());
+                }
             }
         });
     }
@@ -326,11 +346,20 @@ pub fn install(window: &Rc<AppWindow>) {
         let texts = w.chat.message_texts();
         if native {
             check("native session", w.chat.native_session().is_some(), texts.len());
-            let root = w.chat.composer_rc().root.clone();
-            let fits = root
-                .compute_bounds(&w.window)
-                .is_some_and(|r| r.x() >= 0.0 && r.x() + r.width() <= w.window.width() as f32);
-            check("composer fits window", fits, root.width() as usize);
+            if std::env::var_os("RV_SMOKE_INVITATION_FILE").is_some() {
+                check(
+                    "signup clears transient secrets",
+                    w.login.invitation().is_none() && w.login.password().is_empty(),
+                    0,
+                );
+            }
+            if w.chat.shows_room() {
+                let root = w.chat.composer_rc().root.clone();
+                let fits = root
+                    .compute_bounds(&w.window)
+                    .is_some_and(|r| r.x() >= 0.0 && r.x() + r.width() <= w.window.width() as f32);
+                check("composer fits window", fits, root.width() as usize);
+            }
         }
         for wanted in list("RV_SMOKE_EXPECT") {
             let found = texts.iter().filter(|t| t.contains(&wanted)).count();

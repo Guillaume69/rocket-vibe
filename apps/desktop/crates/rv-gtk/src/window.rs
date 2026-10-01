@@ -73,6 +73,12 @@ fn database_path(info: &SessionInfo) -> PathBuf {
 }
 
 fn describe(e: &RestError, asking_code: bool) -> String {
+    if e.error.as_deref() == Some("invitation_rejected") {
+        return t("login.invitation_rejected").into();
+    }
+    if e.error.as_deref() == Some("invalid_request") {
+        return t("login.invitation_help").into();
+    }
     match e.status {
         0 => t("login.unreachable").into(),
         401 if asking_code => t("login.bad_code").into(),
@@ -287,6 +293,10 @@ impl AppWindow {
     }
 
     pub fn submit_login(self: &Rc<Self>) {
+        if self.login.is_busy() {
+            return;
+        }
+        let invitation = self.login.invitation();
         let asking = self.pending.borrow().as_ref().is_some_and(|p| p.method.is_some());
         if !asking {
             let Some(server) = session::normalize_server(&self.login.server()) else {
@@ -312,10 +322,24 @@ impl AppWindow {
         let this = self.clone();
         glib::spawn_future_local(async move {
             let (s, u, p) = (server.clone(), user.clone(), password);
-            let result = on_tokio(async move { session::login(&s, &u, &p, two_factor).await }).await;
+            let result = on_tokio(async move {
+                if let Some(invitation) = invitation {
+                    let discovery =
+                        rv_core::native::probe(&s).await.map_err(rv_core::native::rest_error)?.ok_or_else(|| {
+                            rv_core::native::rest_error(rv_core::native::Error::Protocol("invitation_unavailable"))
+                        })?;
+                    rv_core::native::register(&s, &discovery, &invitation, &u, &p)
+                        .await
+                        .map_err(rv_core::native::rest_error)
+                } else {
+                    session::login(&s, &u, &p, two_factor).await
+                }
+            })
+            .await;
             this.login.set_busy(false);
             match result {
                 Ok(info) => {
+                    this.login.clear_secrets();
                     let _ = std::fs::write(last_server_file(), &info.base_url);
                     secrets::remember_server(&info.base_url);
                     secrets::set_active(&info);

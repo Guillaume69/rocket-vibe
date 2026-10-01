@@ -29,6 +29,7 @@ pub fn router(app: App) -> Router {
         .route("/health/live", get(|| async { StatusCode::NO_CONTENT }))
         .route("/health/ready", get(ready))
         .route("/api/v1/auth/login", post(login))
+        .route("/api/v1/auth/invitations/accept", post(accept_invitation))
         .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/auth/renew", post(renew_session))
         .route("/api/v1/me/sessions", get(device_sessions))
@@ -146,6 +147,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             stars: true,
             session_rotation: true,
             device_sessions: true,
+            account_invitations: true,
             ..Default::default()
         },
     }))
@@ -168,7 +170,16 @@ async fn login(
     ))
 }
 
-fn secret_session(session: rv_protocol::Session) -> Response {
+async fn accept_invitation(
+    State(app): State<App>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    input: Input<rv_protocol::parity::AcceptInvitation>,
+) -> Result<Response> {
+    let user = crate::invitations::accept(&app, body(input)?, peer.map(|p| p.0.0.ip())).await?;
+    Ok(secret_session(user))
+}
+
+fn secret_session(session: impl serde::Serialize) -> Response {
     let mut response = Json(session).into_response();
     response.headers_mut().insert(
         axum::http::header::CACHE_CONTROL,

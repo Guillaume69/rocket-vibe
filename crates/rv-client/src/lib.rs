@@ -162,7 +162,7 @@ impl NativeClient {
 
     fn budget(path: &str, method: &Method) -> Option<&'static str> {
         match path {
-            "/api/v1/auth/login" => Some("login"),
+            "/api/v1/auth/login" | "/api/v1/auth/invitations/accept" => Some("login"),
             "/api/v1/auth/renew" => Some("session_rotation"),
             "/api/v1/sync/ticket" => Some("ticket"),
             "/api/v1/sync/snapshots" => Some("snapshot"),
@@ -281,6 +281,19 @@ impl NativeClient {
         self.empty(Method::DELETE, &format!("/api/v1/me/sessions/{id}"), false)
             .await
     }
+    pub async fn accept_invitation(
+        &self,
+        input: &rv_protocol::parity::AcceptInvitation,
+    ) -> Result<User, Error> {
+        self.request(
+            Method::POST,
+            "/api/v1/auth/invitations/accept",
+            Some(input),
+            true,
+        )
+        .await
+    }
+
     pub async fn me(&self) -> Result<User, Error> {
         self.get("/api/v1/me").await
     }

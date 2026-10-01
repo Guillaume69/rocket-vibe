@@ -74,6 +74,7 @@ pub struct ServerProfile {
     pub two_factor: bool,
     pub e2e: bool,
     pub oauth: Vec<String>,
+    pub account_invitations: bool,
 }
 
 impl From<rv_core::server::ServerProfile> for ServerProfile {
@@ -86,6 +87,7 @@ impl From<rv_core::server::ServerProfile> for ServerProfile {
             two_factor: p.two_factor,
             e2e: p.e2e,
             oauth: p.oauth,
+            account_invitations: p.account_invitations,
         }
     }
 }

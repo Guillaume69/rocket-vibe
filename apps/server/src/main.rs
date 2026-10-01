@@ -23,6 +23,15 @@ enum Command {
         #[arg(long)]
         admin: bool,
     },
+    /// Issue a signup invitation; stdout contains its one-time secret.
+    Invite {
+        #[arg(long, default_value_t = 168)]
+        hours: u32,
+    },
+    /// List invitation metadata, without secrets.
+    ListInvitations,
+    /// Revoke an invitation by its public identifier (never its secret).
+    RevokeInvitation { id: String },
 }
 
 #[tokio::main]
@@ -68,6 +77,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 Ok(user) => println!("Created {} ({})", user.username, user.id),
                 Err(e) => return Err(format!("Cannot create user: {}", e.code).into()),
             }
+        }
+        Command::Invite { hours } => {
+            let issued = rv_server::invitations::issue(&app, hours)
+                .await
+                .map_err(|e| format!("Cannot issue invitation: {}", e.code))?;
+            println!("{}", serde_json::to_string(&issued)?);
+        }
+        Command::ListInvitations => {
+            let invitations = rv_server::invitations::list(&app)
+                .await
+                .map_err(|e| format!("Cannot list invitations: {}", e.code))?;
+            println!("{}", serde_json::to_string(&invitations)?);
+        }
+        Command::RevokeInvitation { id } => {
+            rv_server::invitations::revoke(&app, &id)
+                .await
+                .map_err(|e| format!("Cannot revoke invitation: {}", e.code))?;
+            println!("Invitation revoked");
         }
     }
     Ok(())

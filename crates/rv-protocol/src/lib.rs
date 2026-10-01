@@ -59,6 +59,8 @@ pub struct Capabilities {
     pub session_rotation: bool,
     #[serde(default)]
     pub device_sessions: bool,
+    #[serde(default)]
+    pub account_invitations: bool,
 }
 
 impl Default for Capabilities {
@@ -93,6 +95,7 @@ impl Default for Capabilities {
             fine_permissions: false,
             session_rotation: false,
             device_sessions: false,
+            account_invitations: false,
         }
     }
 }
@@ -133,7 +136,8 @@ impl Capabilities {
             custom_emojis,
             quotes,
             session_rotation,
-            device_sessions
+            device_sessions,
+            account_invitations
         );
         features
     }

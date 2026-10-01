@@ -52,3 +52,19 @@ unset RV_SMOKE_EDIT
 export RV_SMOKE_DEVICES=1 RV_SMOKE_EXPECT='' RV_SMOKE_EXPECT_ABSENT=''
 export RV_SMOKE_SHOT=/workspace/artifacts/native-desktop-devices.png
 run_with_keyring
+if [[ -n "${RV_NATIVE_INVITATION_FILE:-}" ]]; then
+  # A fresh account, through the existing sign-in form and real Secret Service.
+  unset RV_SMOKE_DEVICES RV_SMOKE_EDIT RV_SMOKE_ROOM
+  export HOME=/tmp/rv-native-signup-home XDG_RUNTIME_DIR=/tmp/rv-native-signup-home/runtime
+  mkdir -p "$XDG_RUNTIME_DIR"
+  chmod 700 "$XDG_RUNTIME_DIR"
+  export RV_SMOKE_LOGIN="$RV_PEER_URL|gtk-invited|$RV_PEER_PASSWORD"
+  export RV_SMOKE_INVITATION_FILE="$RV_NATIVE_INVITATION_FILE"
+  export RV_SMOKE_SEND='' RV_SMOKE_EXPECT='' RV_SMOKE_EXPECT_ABSENT=''
+  export RV_SMOKE_SHOT=/workspace/artifacts/native-desktop-signup.png
+  run_with_keyring
+  unset RV_SMOKE_LOGIN RV_SMOKE_INVITATION_FILE
+  export RV_SMOKE_SHOT=/workspace/artifacts/native-desktop-signup-resumed.png
+  run_with_keyring
+  echo 'GTK invitation: existing form creates account, clears secrets, resumes saved account after restart'
+fi

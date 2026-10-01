@@ -1,5 +1,26 @@
 {
   "$defs": {
+    "AcceptInvitation": {
+      "additionalProperties": false,
+      "description": "Creating an account does not authenticate it; normal login follows, including\nany required second factor. Invitation/password are transient secrets.",
+      "properties": {
+        "password": {
+          "type": "string"
+        },
+        "token": {
+          "type": "string"
+        },
+        "username": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "token",
+        "username",
+        "password"
+      ],
+      "type": "object"
+    },
     "AccountPermissions": {
       "properties": {
         "create_private_room": {
@@ -68,6 +89,10 @@
     },
     "Capabilities": {
       "properties": {
+        "account_invitations": {
+          "default": false,
+          "type": "boolean"
+        },
         "calls": {
           "type": "boolean"
         },
@@ -729,6 +754,16 @@
     "ParityContract": {
       "description": "Export root for the J0 fixture. Crypto `format` is opaque until the dedicated\nspecification/review; these types make no algorithm or trust guarantee.",
       "properties": {
+        "accept_invitation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AcceptInvitation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "account_permissions": {
           "$ref": "#/$defs/AccountPermissions"
         },

@@ -17,17 +17,31 @@ export function transportFor(session: Session, revoke?: (token: string) => void,
   transport.surJetonRefuse = revoke ?? null;
   return transport;
 }
-export async function nativeLogin(baseUrl: string, discovered: Discovery, credentials: Credentials): Promise<Session> {
-  const transport = new NativeTransport(baseUrl);
+export async function nativeLogin(baseUrl: string, discovered: Discovery, credentials: Credentials, fetcher?: typeof fetch): Promise<Session> {
+  const transport = new NativeTransport(baseUrl, fetcher);
   const fresh = await transport.discover();
   if (fresh.instance_id !== discovered.instance_id || fresh.data_epoch !== discovered.data_epoch) throw new NativeError(409, 'server_identity_changed');
   const result = await transport.login(credentials.utilisateur, credentials.motDePasse);
+  const after = await transport.discover();
+  if (after.instance_id !== fresh.instance_id || after.data_epoch !== fresh.data_epoch) throw new NativeError(409,'server_identity_changed');
   return {
     baseUrl: transport.baseUrl, userId: result.user.id, username: result.user.username,
     authToken: result.token, genre: 'rocketvibe', siteUrl: null,
     nativeInstanceId: fresh.instance_id, nativeDataEpoch: fresh.data_epoch,
     nativeExpiresAt: result.expires_at,
   };
+}
+export async function nativeRegister(baseUrl:string, discovered:Discovery, credentials:Credentials, token:string, fetcher?:typeof fetch):Promise<Session> {
+  const transport=new NativeTransport(baseUrl,fetcher);
+  const fresh=await transport.discover();
+  if (fresh.instance_id!==discovered.instance_id || fresh.data_epoch!==discovered.data_epoch) throw new NativeError(409,'server_identity_changed');
+  if (!fresh.capabilities.account_invitations) throw new NativeError(409,'invitation_unavailable');
+  const user=await transport.acceptInvitation({token,username:credentials.utilisateur,password:credentials.motDePasse});
+  const after=await transport.discover();
+  if (after.instance_id!==fresh.instance_id || after.data_epoch!==fresh.data_epoch) throw new NativeError(409,'server_identity_changed');
+  const session=await nativeLogin(baseUrl,discovered,credentials,fetcher);
+  if (session.userId!==user.id) throw new NativeError(409,'server_identity_changed');
+  return session;
 }
 export async function resumeNative(client: ClientRest, session: Session): Promise<Session> {
   const transport = transportFor(session, token => client.surJetonRefuse?.(token));

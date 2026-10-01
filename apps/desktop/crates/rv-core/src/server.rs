@@ -16,6 +16,7 @@ pub struct ServerProfile {
     pub e2e: bool,
     /// Providers configured, not supported here: shown so their absence is explained.
     pub oauth: Vec<String>,
+    pub account_invitations: bool,
 }
 
 pub fn profile_from(base_url: &str, info: &Value, settings: &Value) -> Option<ServerProfile> {
@@ -39,6 +40,7 @@ pub fn profile_from(base_url: &str, info: &Value, settings: &Value) -> Option<Se
         two_factor: on("Accounts_TwoFactorAuthentication_Enabled"),
         e2e: on("E2E_Enable"),
         oauth,
+        account_invitations: false,
     })
 }
 
@@ -54,6 +56,7 @@ pub async fn probe(base: &Url) -> Result<ServerProfile, RestError> {
             two_factor: false,
             e2e: native.capabilities.e2ee,
             oauth: vec![],
+            account_invitations: native.capabilities.account_invitations,
         });
     }
     let rest = RestClient::new(base.clone());

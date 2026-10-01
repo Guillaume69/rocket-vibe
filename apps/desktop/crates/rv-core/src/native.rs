@@ -113,6 +113,7 @@ pub async fn login(
     let identity = Identity { instance_id: discovery.instance_id.clone(), data_epoch: discovery.data_epoch.clone() };
     check(&identity, &fresh)?;
     let session = client.login(username, password).await?;
+    check(&identity, &client.discover().await?)?;
     Ok(SessionInfo {
         base_url: base.as_str().trim_end_matches('/').into(),
         user_id: session.user.id,
@@ -121,6 +122,36 @@ pub async fn login(
         native: Some(identity),
     })
 }
+/// Invitation/password stay transient. Normal login follows account creation.
+pub async fn register(
+    base: &url::Url,
+    discovery: &Discovery,
+    token: &str,
+    username: &str,
+    password: &str,
+) -> Result<SessionInfo, Error> {
+    let client = NativeClient::new(base.as_str())?;
+    let identity = Identity { instance_id: discovery.instance_id.clone(), data_epoch: discovery.data_epoch.clone() };
+    let fresh = client.discover().await?;
+    check(&identity, &fresh)?;
+    if !fresh.capabilities.account_invitations {
+        return Err(Error::Protocol("invitation_unavailable"));
+    }
+    let user = client
+        .accept_invitation(&rv_protocol::parity::AcceptInvitation {
+            token: token.into(),
+            username: username.into(),
+            password: password.into(),
+        })
+        .await?;
+    check(&identity, &client.discover().await?)?;
+    let info = login(base, discovery, username, password).await?;
+    if info.user_id != user.id {
+        return Err(Error::Protocol("server_identity_changed"));
+    }
+    Ok(info)
+}
+
 fn check(identity: &Identity, discovery: &Discovery) -> Result<(), Error> {
     if identity.instance_id != discovery.instance_id || identity.data_epoch != discovery.data_epoch {
         return Err(Error::Protocol("server_identity_changed"));

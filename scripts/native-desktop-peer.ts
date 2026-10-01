@@ -1,5 +1,6 @@
 // Disposable integration peer: the actual mobile runner + the application's SQLite migrations.
 import assert from 'node:assert/strict';
+import {invitationSmoke} from './native-invitations-smoke.ts';
 import {randomBytes} from 'node:crypto';
 import {NativeTransport} from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
 import {creerFournisseurRV} from '../apps/mobile/fournisseurs/rocketvibe/index.ts';
@@ -17,6 +18,7 @@ while (true) {
   assert(Date.now()<readyUntil,'Native server did not become ready');
   await new Promise(r=>setTimeout(r,100));
 }
+await invitationSmoke();
 const transport=new NativeTransport(base);const discovery=await transport.discover();const login=await transport.login('mobile',password);
 const desktop=(await transport.users()).find(u=>u.username==='desktop')!;assert(desktop);
 const publicRoom=await transport.createRoom({name:'native-pilot',private:false});

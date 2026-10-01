@@ -129,14 +129,25 @@ impl Client {
         })
         .await
         .map_err(native_error)?;
-        let (dirs, saved) = (self.dirs.clone(), info.clone());
-        blocking(move || {
-            accounts::remember_server(&dirs, &saved.base_url);
-            accounts::save(&dirs, &saved, None)
+        self.save_native_login(info).await
+    }
+    pub async fn native_register(
+        &self,
+        server: String,
+        user: String,
+        password: String,
+        invitation: String,
+    ) -> Result<Arc<NativeChat>, RvError> {
+        let url =
+            rv_core::session::normalize_server(&server).ok_or_else(|| RvError::local("invalid server address"))?;
+        let info = on_tokio(async move {
+            let discovery =
+                rv_core::native::probe(&url).await?.ok_or(rv_core::native::Error::Protocol("not_native"))?;
+            rv_core::native::register(&url, &discovery, &invitation, &user, &password).await
         })
         .await
-        .map_err(RvError::local)?;
-        self.start_native(info)
+        .map_err(native_error)?;
+        self.save_native_login(info).await
     }
     pub async fn native_resume(&self, key: String) -> Result<Arc<NativeChat>, RvError> {
         let dirs = self.dirs.clone();
@@ -150,6 +161,16 @@ impl Client {
     }
 }
 impl Client {
+    async fn save_native_login(&self, info: rv_core::session::SessionInfo) -> Result<Arc<NativeChat>, RvError> {
+        let (dirs, saved) = (self.dirs.clone(), info.clone());
+        blocking(move || {
+            accounts::remember_server(&dirs, &saved.base_url);
+            accounts::save(&dirs, &saved, None)
+        })
+        .await
+        .map_err(RvError::local)?;
+        self.start_native(info)
+    }
     fn start_native(&self, info: rv_core::session::SessionInfo) -> Result<Arc<NativeChat>, RvError> {
         let path = self.dirs.database(&info);
         let _guard = runtime().enter();

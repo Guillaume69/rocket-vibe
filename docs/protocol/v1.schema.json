@@ -130,6 +130,38 @@
         }
       ]
     },
+    "BeginEmailVerification": {
+      "additionalProperties": false,
+      "properties": {
+        "address": {
+          "type": "string"
+        },
+        "context": {
+          "$ref": "#/$defs/ReauthenticationContext"
+        },
+        "expected_version": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "verification_id": {
+          "type": "string"
+        },
+        "verification_version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "address",
+        "verification_id",
+        "operation_id",
+        "expected_version",
+        "verification_version",
+        "context"
+      ],
+      "type": "object"
+    },
     "BeginFactorSetup": {
       "additionalProperties": false,
       "properties": {
@@ -212,6 +244,10 @@
           "type": "boolean"
         },
         "editing": {
+          "default": false,
+          "type": "boolean"
+        },
+        "email_verification": {
           "default": false,
           "type": "boolean"
         },
@@ -402,6 +438,30 @@
       ],
       "type": "object"
     },
+    "ConfirmEmailVerification": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "context": {
+          "$ref": "#/$defs/ReauthenticationContext"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "verification_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "verification_id",
+        "operation_id",
+        "code",
+        "context"
+      ],
+      "type": "object"
+    },
     "CreateRoom": {
       "additionalProperties": false,
       "properties": {
@@ -555,6 +615,111 @@
         "content"
       ],
       "type": "object"
+    },
+    "EmailDeliveryState": {
+      "enum": [
+        "queued",
+        "sending",
+        "deferred",
+        "accepted",
+        "exhausted"
+      ],
+      "type": "string"
+    },
+    "EmailStatus": {
+      "properties": {
+        "address": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "context": {
+          "$ref": "#/$defs/ReauthenticationContext"
+        },
+        "verification_version": {
+          "type": "string"
+        },
+        "verified_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "verification_version",
+        "context"
+      ],
+      "type": "object"
+    },
+    "EmailVerificationStep": {
+      "oneOf": [
+        {
+          "properties": {
+            "address": {
+              "type": "string"
+            },
+            "delivery": {
+              "$ref": "#/$defs/EmailDeliveryState"
+            },
+            "expected_version": {
+              "type": "string"
+            },
+            "expires_at": {
+              "type": "string"
+            },
+            "operation_id": {
+              "type": "string"
+            },
+            "state": {
+              "const": "pending",
+              "type": "string"
+            },
+            "verification_id": {
+              "type": "string"
+            },
+            "verification_version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "state",
+            "verification_id",
+            "operation_id",
+            "address",
+            "expires_at",
+            "expected_version",
+            "verification_version",
+            "delivery"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "address": {
+              "type": "string"
+            },
+            "state": {
+              "const": "verified",
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "state",
+            "address",
+            "version"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "EnableFactor": {
       "additionalProperties": false,
@@ -1042,6 +1207,16 @@
             }
           ]
         },
+        "begin_email_verification": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BeginEmailVerification"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "begin_factor_setup": {
           "anyOf": [
             {
@@ -1064,6 +1239,16 @@
         },
         "complete_upload": {
           "$ref": "#/$defs/CompleteUpload"
+        },
+        "confirm_email_verification": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConfirmEmailVerification"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "delete_message": {
           "$ref": "#/$defs/DeleteMessage"
@@ -1090,6 +1275,26 @@
         },
         "edit_message": {
           "$ref": "#/$defs/EditMessage"
+        },
+        "email_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EmailStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "email_verification_step": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EmailVerificationStep"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "enable_factor": {
           "anyOf": [
@@ -1254,10 +1459,30 @@
             }
           ]
         },
+        "resume_email_verification": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResumeEmailVerification"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "resume_reauthentication": {
           "anyOf": [
             {
               "$ref": "#/$defs/ResumeReauthentication"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "retire_email_verification": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RetireEmailVerification"
             },
             {
               "type": "null"
@@ -1688,6 +1913,26 @@
       ],
       "type": "object"
     },
+    "ResumeEmailVerification": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/ReauthenticationContext"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "verification_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "verification_id",
+        "operation_id",
+        "context"
+      ],
+      "type": "object"
+    },
     "ResumeReauthentication": {
       "additionalProperties": false,
       "properties": {
@@ -1701,6 +1946,26 @@
       "required": [
         "challenge_id",
         "operation_id"
+      ],
+      "type": "object"
+    },
+    "RetireEmailVerification": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/ReauthenticationContext"
+        },
+        "expected_version": {
+          "type": "string"
+        },
+        "verification_version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "expected_version",
+        "verification_version",
+        "context"
       ],
       "type": "object"
     },

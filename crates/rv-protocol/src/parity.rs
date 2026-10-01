@@ -414,6 +414,18 @@ pub struct RoomKeyEnvelope {
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct ParityContract {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email_status: Option<EmailStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub begin_email_verification: Option<BeginEmailVerification>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_email_verification: Option<ResumeEmailVerification>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirm_email_verification: Option<ConfirmEmailVerification>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retire_email_verification: Option<RetireEmailVerification>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email_verification_step: Option<EmailVerificationStep>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authentication_step: Option<AuthenticationStep>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finish_factor: Option<FinishFactor>,
@@ -494,4 +506,72 @@ pub struct RecoverAccount {
     pub token: String,
     pub username: String,
     pub new_password: String,
+}
+
+// Email and operation candidates are private, never part of User/room profiles.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+pub struct EmailStatus {
+    pub address: Option<String>,
+    pub verified_at: Option<String>,
+    pub version: String,
+    pub verification_version: String,
+    pub context: ReauthenticationContext,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BeginEmailVerification {
+    pub address: String,
+    pub verification_id: String,
+    pub operation_id: String,
+    pub expected_version: String,
+    pub verification_version: String,
+    pub context: ReauthenticationContext,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ResumeEmailVerification {
+    pub verification_id: String,
+    pub operation_id: String,
+    pub context: ReauthenticationContext,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ConfirmEmailVerification {
+    pub verification_id: String,
+    pub operation_id: String,
+    pub code: String,
+    pub context: ReauthenticationContext,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RetireEmailVerification {
+    pub expected_version: String,
+    pub verification_version: String,
+    pub context: ReauthenticationContext,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum EmailVerificationStep {
+    Pending {
+        verification_id: String,
+        operation_id: String,
+        address: String,
+        expires_at: String,
+        expected_version: String,
+        verification_version: String,
+        delivery: EmailDeliveryState,
+    },
+    Verified {
+        address: String,
+        version: String,
+    },
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum EmailDeliveryState {
+    Queued,
+    Sending,
+    Deferred,
+    Accepted,
+    Exhausted,
 }

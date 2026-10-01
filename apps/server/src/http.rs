@@ -32,6 +32,11 @@ pub fn router(app: App) -> Router {
         .route("/api/v1/auth/start", post(start_login))
         .route("/api/v1/auth/factors/verify", post(finish_factor))
         .route("/api/v1/me/factors", get(factor_status))
+        .route("/api/v1/me/email", get(email_status))
+        .route("/api/v1/me/email/verification/start", post(begin_email))
+        .route("/api/v1/me/email/verification/resume", post(resume_email))
+        .route("/api/v1/me/email/verification/confirm", post(confirm_email))
+        .route("/api/v1/me/email/verification/retire", post(retire_email))
         .route("/api/v1/me/reauth/start", post(begin_reauthentication))
         .route("/api/v1/me/reauth", get(reauthentication_status))
         .route("/api/v1/me/reauth/finish", post(finish_reauthentication))
@@ -168,6 +173,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             second_factors: app.auth_key.is_some(),
             reauthentication: true,
             reauthentication_retirement: true,
+            email_verification: app.mail.is_some() && app.auth_key.is_some(),
             ..Default::default()
         },
     }))
@@ -220,6 +226,57 @@ async fn finish_factor(
 async fn factor_status(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
     let user = account(&app, &headers).await?;
     Ok(secret_session(crate::factors::status(&app, &user).await?))
+}
+async fn email_status(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    let (user, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    let value = crate::email::status(&app, &user).await?;
+    let mut response = proof.json(&app, &hash, &value, &[], None).await?;
+    response.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    Ok(response)
+}
+async fn begin_email(
+    State(app): State<App>,
+    headers: HeaderMap,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    input: Input<rv_protocol::parity::BeginEmailVerification>,
+) -> Result<Response> {
+    let user = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::email::begin(&app, &user, body(input)?, peer.map(|p| p.0.0.ip())).await?,
+    ))
+}
+async fn resume_email(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::parity::ResumeEmailVerification>,
+) -> Result<Response> {
+    let user = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::email::resume(&app, &user, body(input)?).await?,
+    ))
+}
+async fn confirm_email(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::parity::ConfirmEmailVerification>,
+) -> Result<Response> {
+    let user = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::email::confirm(&app, &user, body(input)?).await?,
+    ))
+}
+async fn retire_email(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::parity::RetireEmailVerification>,
+) -> Result<Response> {
+    let user = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::email::retire(&app, &user, body(input)?).await?,
+    ))
 }
 
 async fn begin_factor(

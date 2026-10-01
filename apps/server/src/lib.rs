@@ -1,5 +1,7 @@
 pub mod auth;
 mod delivery;
+mod email;
+pub mod email_delivery;
 mod error;
 pub mod factor_crypto;
 mod factors;
@@ -92,6 +94,9 @@ impl App {
     /// Startup and periodic maintenance only touches expired ephemeral records.
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
         for query in [
+            "DELETE FROM email_verifications WHERE token_hash IN (SELECT token_hash FROM email_verifications WHERE expires_at<=clock_timestamp() AND (receipt_expires_at IS NULL OR receipt_expires_at<=clock_timestamp()) LIMIT 1000 FOR UPDATE SKIP LOCKED)",
+            "DELETE FROM email_delivery_windows WHERE key IN (SELECT key FROM email_delivery_windows WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
+            "DELETE FROM email_delivery_admissions WHERE key IN (SELECT key FROM email_delivery_admissions WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM reauthentication_challenges WHERE token_hash IN (SELECT token_hash FROM reauthentication_challenges WHERE expires_at<=clock_timestamp() AND (receipt_expires_at IS NULL OR receipt_expires_at<=clock_timestamp()) LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM reauthentication_grants WHERE device_id IN (SELECT device_id FROM reauthentication_grants WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM auth_challenges WHERE token_hash IN (SELECT token_hash FROM auth_challenges WHERE expires_at<=now() AND (receipt_expires_at IS NULL OR receipt_expires_at<=now()) LIMIT 1000 FOR UPDATE SKIP LOCKED)",

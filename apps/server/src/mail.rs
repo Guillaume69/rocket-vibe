@@ -3,7 +3,10 @@
 use lettre::{
     Address, AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
     message::{Mailbox, header::ContentType},
-    transport::smtp::authentication::Credentials,
+    transport::smtp::{
+        authentication::Credentials,
+        client::{Certificate, Tls, TlsParameters},
+    },
 };
 use serde::Deserialize;
 use std::{io::Read, path::Path, sync::Arc, time::Duration};
@@ -20,8 +23,9 @@ struct Configuration {
     tls: TlsMode,
     username: Option<String>,
     password: Option<String>,
+    ca_file: Option<std::path::PathBuf>,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum TlsMode {
     Starttls,
@@ -54,6 +58,17 @@ pub struct Sender {
     deadline: Duration,
 }
 impl Sender {
+    #[cfg(test)]
+    pub(crate) fn loopback_fixture(port: u16) -> Self {
+        Self {
+            transport: AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous("127.0.0.1")
+                .port(port)
+                .build(),
+            from: "service@example.test".parse().expect("fixture address"),
+            slots: Arc::new(tokio::sync::Semaphore::new(4)),
+            deadline: Duration::from_secs(3),
+        }
+    }
     /// Credentials live in a mounted regular 0600 file, never a CLI argument
     /// or database row. Unknown keys / invalid TLS modes fail before serving.
     pub fn from_file(path: &Path) -> std::result::Result<Self, &'static str> {
@@ -105,6 +120,31 @@ impl Sender {
         .map_err(|_| "SMTP TLS configuration is invalid")?
         .port(config.port)
         .timeout(Some(Duration::from_secs(10)));
+        if let Some(path) = config.ca_file {
+            let metadata =
+                std::fs::symlink_metadata(&path).map_err(|_| "Cannot read SMTP CA file")?;
+            if !metadata.is_file() || metadata.len() > 1024 * 1024 {
+                return Err("SMTP CA must be a regular PEM file of at most 1 MiB");
+            }
+            let mut data = Vec::new();
+            std::fs::File::open(path)
+                .map_err(|_| "Cannot read SMTP CA file")?
+                .take(1024 * 1024 + 1)
+                .read_to_end(&mut data)
+                .map_err(|_| "Cannot read SMTP CA file")?;
+            if data.len() > 1024 * 1024 {
+                return Err("SMTP CA is oversized");
+            }
+            let cert = Certificate::from_pem(&data).map_err(|_| "SMTP CA is malformed")?;
+            let params = TlsParameters::builder(config.host.clone())
+                .add_root_certificate(cert)
+                .build()
+                .map_err(|_| "SMTP TLS configuration is invalid")?;
+            builder = builder.tls(match config.tls {
+                TlsMode::Starttls => Tls::Required(params),
+                TlsMode::ImplicitTls => Tls::Wrapper(params),
+            });
+        }
         match (config.username, config.password) {
             (None, None) => {}
             (Some(user), Some(password))
@@ -171,6 +211,11 @@ fn address(value: &str) -> Result<Address> {
     }
     value.parse().map_err(|_| Error::invalid())
 }
+pub(crate) fn normalized_address(value: &str) -> Result<String> {
+    let parsed = address(value)?.to_string();
+    let (local, domain) = parsed.rsplit_once('@').ok_or_else(Error::invalid)?;
+    Ok(format!("{local}@{}", domain.to_ascii_lowercase()))
+}
 fn unconfirmed() -> Error {
     // Raw SMTP diagnostics can echo addresses / secrets; never propagate them.
     Error::new(
@@ -178,6 +223,9 @@ fn unconfirmed() -> Error {
         "mail_delivery_unconfirmed",
     )
 }
+
+#[cfg(test)]
+mod tls_tests;
 
 #[cfg(test)]
 mod tests {
@@ -195,6 +243,7 @@ mod tests {
             tls: TlsMode::Starttls,
             username: None,
             password: None,
+            ca_file: None,
         }
     }
     #[test]

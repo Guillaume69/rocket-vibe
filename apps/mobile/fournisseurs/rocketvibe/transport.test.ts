@@ -3,8 +3,25 @@ import { readFileSync } from 'node:fs';
 import { describe, test } from 'node:test';
 import { NativeError, NativeTransport } from './transport.ts';
 import { decodeNative } from './validation.ts';
+import type { NativeTypes } from './protocol.generated.ts';
 
 const fixture = JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json', import.meta.url), 'utf8'));
+const emailContext = {user_id:'alice',device_id:'device',instance_id:'instance',data_epoch:'epoch'};
+const emailStatus: NativeTypes['EmailStatus'] = {
+  address:null,verified_at:null,version:'contact-version',verification_version:'command-version',context:emailContext,
+};
+const emailBegin: NativeTypes['BeginEmailVerification'] = {
+  address:'alice@example.org',verification_id:'a'.repeat(64),operation_id:'verification-operation',
+  expected_version:emailStatus.version,verification_version:emailStatus.verification_version,context:emailContext,
+};
+const emailResume: NativeTypes['ResumeEmailVerification'] = {
+  verification_id:emailBegin.verification_id,operation_id:emailBegin.operation_id,context:emailContext,
+};
+const emailPending: NativeTypes['EmailVerificationStep'] = {
+  state:'pending',verification_id:emailBegin.verification_id,operation_id:emailBegin.operation_id,
+  address:emailBegin.address,expires_at:'2026-10-01T12:15:00Z',expected_version:emailStatus.version,
+  verification_version:emailStatus.verification_version,delivery:'queued',
+};
 
 describe('native protocol contract', () => {
   test('the Rust fixture is understood without rounding sequence numbers', () => {
@@ -93,5 +110,67 @@ describe('native protocol contract', () => {
     t.mock.timers.tick(1000);
     await assert.rejects(client.deleteMessage('message-id',input),limited);
     assert.deepEqual(verbs,['PATCH','GET','DELETE']);
+  });
+  test('private e-mail routes preserve their original candidate on the configured origin',async () => {
+    const requests:{url:string;options?:RequestInit}[]=[];
+    const client=new NativeTransport('https://example.org/chat/',async (url,options) => {
+      requests.push({url:String(url),options});
+      const path=String(url);
+      return Response.json(path.endsWith('/email') || path.endsWith('/retire') ? emailStatus
+        : path.endsWith('/confirm') ? {state:'verified',address:emailBegin.address,version:'verified-version'} : emailPending);
+    });
+    client.restore('saved-token');
+    assert.equal((await client.emailStatus()).address,null);
+    assert.equal((await client.beginEmailVerification(emailBegin)).state,'pending');
+    assert.equal((await client.resumeEmailVerification(emailResume)).state,'pending');
+    const confirmation={...emailResume,code:'12345678'};
+    assert.equal((await client.confirmEmailVerification(confirmation)).state,'verified');
+    const retirement={context:emailContext,expected_version:emailStatus.version,verification_version:emailStatus.verification_version};
+    await client.retireEmailVerification(retirement);
+    assert.deepEqual(requests.map(request=>request.url),[
+      'https://example.org/chat/api/v1/me/email',
+      ...['start','resume','confirm','retire'].map(step=>`https://example.org/chat/api/v1/me/email/verification/${step}`),
+    ]);
+    assert.deepEqual(requests.map(request=>request.options?.method),['GET','POST','POST','POST','POST']);
+    for (const request of requests) {
+      assert.equal(request.options?.redirect,'error');
+      assert.equal(new Headers(request.options?.headers).get('authorization'),'Bearer saved-token');
+    }
+    assert.equal(requests[1].options?.body===JSON.stringify(emailBegin),true);
+    assert.equal(requests[2].options?.body===JSON.stringify(emailResume),true);
+    assert.equal(requests[3].options?.body===JSON.stringify(confirmation),true);
+  });
+  test('delivery cooldown leaves private status, resume, confirmation and retirement available',async t => {
+    t.mock.timers.enable({apis:['Date']});
+    const paths:string[]=[];
+    let revoked=false;
+    const client=new NativeTransport('https://example.org',async url => {
+      const path=new URL(String(url)).pathname; paths.push(path);
+      if (path.endsWith('/start')) return Response.json({code:'email_delivery_limit',request_id:'delivery-request'},
+        {status:429,headers:{'retry-after':'30'}});
+      return Response.json(path.endsWith('/email') || path.endsWith('/retire') ? emailStatus : emailPending);
+    });
+    client.restore('saved-token');
+    client.surJetonRefuse=()=>{revoked=true;};
+    const limited=(error:unknown)=>error instanceof NativeError && error.status===429 && error.retryAfter===30;
+    await assert.rejects(client.beginEmailVerification(emailBegin),limited);
+    await assert.rejects(client.beginEmailVerification(emailBegin),limited);
+    await client.emailStatus();
+    await client.resumeEmailVerification(emailResume);
+    await client.confirmEmailVerification({...emailResume,code:'12345678'});
+    await client.retireEmailVerification({context:emailContext,expected_version:emailStatus.version,verification_version:emailStatus.verification_version});
+    assert.equal(paths.filter(path=>path.endsWith('/start')).length,1);
+    assert.equal(paths.length,5);
+    assert.equal(revoked,false);
+    t.mock.timers.tick(30_000);
+    await assert.rejects(client.beginEmailVerification(emailBegin),limited);
+    assert.equal(paths.filter(path=>path.endsWith('/start')).length,2);
+  });
+  test('unrecognized delivery states and forged e-mail command fields fail validation',async () => {
+    const client=new NativeTransport('https://example.org',async()=>Response.json({...emailPending,delivery:'delivered_to_inbox'}));
+    client.restore('saved-token');
+    await assert.rejects(client.resumeEmailVerification(emailResume));
+    assert.throws(()=>decodeNative('BeginEmailVerification',{...emailBegin,user_id:'another-account'}));
+    assert.throws(()=>decodeNative('EmailStatus',{...emailStatus,context:{...emailContext,device_id:42}}));
   });
 });

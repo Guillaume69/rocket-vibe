@@ -39,6 +39,8 @@ présence ne déclare pas les endpoints correspondants disponibles.
 | POST | `/auth/start` | Mot de passe → `AuthenticationStep` ; aucun bearer avant facteur pour un compte protégé |
 | POST | `/auth/factors/verify` | `FinishFactor` → session avec candidat durable ; reprise de la même validation |
 | GET | `/me/factors` | Méthodes, version et secours restants |
+| GET | `/me/email` | Contact vérifié privé, versions et contexte ; réponse `no-store` |
+| POST | `/me/email/verification/start`, `/me/email/verification/resume`, `/me/email/verification/confirm`, `/me/email/verification/retire` | Vérification privée et reprise du candidat original ; [file SMTP durable et bornes](EMAIL.md) |
 | POST | `/me/factors/totp/setup`, `/me/factors/totp/enable`, `/me/factors/totp/disable` | Inscription prouvée et gestion après authentification récente |
 | POST | `/auth/invitations/accept` | `{ token, username, password }` → utilisateur ; anonyme, sans session ni droit admin |
 | POST | `/auth/recovery` | `{ token, username, new_password }` → utilisateur conservé ; révoque les anciennes sessions, login normal ensuite |

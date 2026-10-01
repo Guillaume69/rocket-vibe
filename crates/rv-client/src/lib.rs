@@ -169,6 +169,7 @@ impl NativeClient {
             | "/api/v1/auth/recovery"
             | "/api/v1/me/reauth/start"
             | "/api/v1/me/reauth/finish" => Some("login"),
+            "/api/v1/me/email/verification/start" => Some("email_delivery"),
             "/api/v1/auth/renew" => Some("session_rotation"),
             "/api/v1/sync/ticket" => Some("ticket"),
             "/api/v1/sync/snapshots" => Some("snapshot"),
@@ -285,6 +286,37 @@ impl NativeClient {
     }
     pub async fn factor_status(&self) -> Result<rv_protocol::parity::FactorStatus, Error> {
         self.get("/api/v1/me/factors").await
+    }
+    pub async fn email_status(&self) -> Result<rv_protocol::parity::EmailStatus, Error> {
+        self.get("/api/v1/me/email").await
+    }
+    pub async fn begin_email_verification(
+        &self,
+        input: &rv_protocol::parity::BeginEmailVerification,
+    ) -> Result<rv_protocol::parity::EmailVerificationStep, Error> {
+        self.post("/api/v1/me/email/verification/start", input)
+            .await
+    }
+    pub async fn resume_email_verification(
+        &self,
+        input: &rv_protocol::parity::ResumeEmailVerification,
+    ) -> Result<rv_protocol::parity::EmailVerificationStep, Error> {
+        self.post("/api/v1/me/email/verification/resume", input)
+            .await
+    }
+    pub async fn confirm_email_verification(
+        &self,
+        input: &rv_protocol::parity::ConfirmEmailVerification,
+    ) -> Result<rv_protocol::parity::EmailVerificationStep, Error> {
+        self.post("/api/v1/me/email/verification/confirm", input)
+            .await
+    }
+    pub async fn retire_email_verification(
+        &self,
+        input: &rv_protocol::parity::RetireEmailVerification,
+    ) -> Result<rv_protocol::parity::EmailStatus, Error> {
+        self.post("/api/v1/me/email/verification/retire", input)
+            .await
     }
     pub async fn begin_factor_setup(
         &self,

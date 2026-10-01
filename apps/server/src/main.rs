@@ -74,6 +74,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .with_mail(mail);
     match args.command {
         Command::Serve { bind } => {
+            let delivery_app = app.clone();
+            let mail_worker = tokio::spawn(async move {
+                let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
+                loop {
+                    tick.tick().await;
+                    if let Err(error) = rv_server::email_delivery::drain(&delivery_app).await {
+                        tracing::error!(code = error.code, "email delivery iteration failed");
+                    }
+                }
+            });
             let maintenance = app.clone();
             let cleanup = tokio::spawn(async move {
                 let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
@@ -97,6 +107,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             })
             .await?;
             cleanup.abort();
+            mail_worker.abort();
         }
         Command::CreateUser { username, admin } => {
             let password = std::env::var("RV_USER_PASSWORD")

@@ -42,7 +42,7 @@ export class NativeTransport {
     if (!anonymous && this.token === null) throw new NativeError(401, 'session_rejected');
     const sent = anonymous ? null : this.token;
     const verb=method??(input===undefined?'GET':'POST');
-    const budget = ['/api/v1/auth/login','/api/v1/auth/start','/api/v1/auth/factors/verify','/api/v1/auth/invitations/accept','/api/v1/auth/recovery','/api/v1/me/reauth/start','/api/v1/me/reauth/finish'].includes(path) ? 'login' : path === '/api/v1/auth/renew' ? 'session_rotation' : path === '/api/v1/sync/ticket' ? 'ticket' : path === '/api/v1/sync/snapshots' ? 'snapshot' : path.startsWith('/api/v1/messages/') && ['PATCH','DELETE','PUT'].includes(verb)?'message_action':null;
+    const budget = ['/api/v1/auth/login','/api/v1/auth/start','/api/v1/auth/factors/verify','/api/v1/auth/invitations/accept','/api/v1/auth/recovery','/api/v1/me/reauth/start','/api/v1/me/reauth/finish'].includes(path) ? 'login' : path === '/api/v1/me/email/verification/start' ? 'email_delivery' : path === '/api/v1/auth/renew' ? 'session_rotation' : path === '/api/v1/sync/ticket' ? 'ticket' : path === '/api/v1/sync/snapshots' ? 'snapshot' : path.startsWith('/api/v1/messages/') && ['PATCH','DELETE','PUT'].includes(verb)?'message_action':null;
     const cooldown = budget === null ? undefined : this.cooldowns.get(budget);
     if (cooldown && cooldown.until > Date.now()) throw new NativeError(429,cooldown.code,Math.ceil((cooldown.until-Date.now())/1000),cooldown.requestId);
     const controller = new AbortController();
@@ -118,6 +118,11 @@ export class NativeTransport {
     return this.request('Session','/api/v1/auth/factors/verify',input,true);
   }
   factorStatus():Promise<NativeTypes['FactorStatus']> { return this.request('FactorStatus','/api/v1/me/factors'); }
+  emailStatus():Promise<NativeTypes['EmailStatus']> { return this.request('EmailStatus','/api/v1/me/email'); }
+  beginEmailVerification(input:NativeTypes['BeginEmailVerification']):Promise<NativeTypes['EmailVerificationStep']> { return this.request('EmailVerificationStep','/api/v1/me/email/verification/start',input); }
+  resumeEmailVerification(input:NativeTypes['ResumeEmailVerification']):Promise<NativeTypes['EmailVerificationStep']> { return this.request('EmailVerificationStep','/api/v1/me/email/verification/resume',input); }
+  confirmEmailVerification(input:NativeTypes['ConfirmEmailVerification']):Promise<NativeTypes['EmailVerificationStep']> { return this.request('EmailVerificationStep','/api/v1/me/email/verification/confirm',input); }
+  retireEmailVerification(input:NativeTypes['RetireEmailVerification']):Promise<NativeTypes['EmailStatus']> { return this.request('EmailStatus','/api/v1/me/email/verification/retire',input); }
   beginFactorSetup(input:NativeTypes['BeginFactorSetup']):Promise<NativeTypes['FactorSetup']> { return this.request('FactorSetup','/api/v1/me/factors/totp/setup',input); }
   enableFactor(input:NativeTypes['EnableFactor']):Promise<NativeTypes['FactorBackupCodes']> { return this.request('FactorBackupCodes','/api/v1/me/factors/totp/enable',input); }
   async disableFactor(input:NativeTypes['DisableFactor']):Promise<void> { await this.value('/api/v1/me/factors/totp/disable',input); }

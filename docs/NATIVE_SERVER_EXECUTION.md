@@ -315,18 +315,41 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, adresse e-mail vérifiée serveur / SDK : migration 0016, routes privées
+  start / resume / confirm / retire et statut avec barrière de livraison et
+  `no-store`. La capacité additive est publiée avec SMTP et clé opérateur
+  configurés. Le compte confirme son identité sur la famille actuelle ; le
+  contact reste hors annuaire. Le reçu original n'étend ni échéance ni âge de
+  preuve, ne crée pas de bearer et ne modifie pas les facteurs. La tête par
+  appareil protège contre les starts / confirmations / retraits retardés.
+  Défi et file chiffrée sont atomiques, avec quotas persistants par compte,
+  adresse, IP et instance ; le worker fait SMTP hors verrous métier avec lease,
+  retries du même code et échéance initiale. Un relais local perd l'ACK puis un
+  nouveau runtime livre le même code. Des échanges TLS réels couvrent STARTTLS,
+  TLS implicite, refus d'autorité inconnue et refus du mauvais nom de certificat.
+  L'expiration pendant le verrou de budget est relue avant création, et une
+  famille expirée ne peut plus livrer un job déjà en file. Vérifications locales :
+  32 tests de bibliothèque et 71 tests d'intégration serveur, 7 tests de contrat /
+  client, 98 tests SDK TypeScript ; Clippy, schéma / génération / inventaire,
+  typecheck et lint mobile passent.
+  Le [contrat e-mail](protocol/EMAIL.md) détaille les états et bornes.
+  Les formulaires des trois clients, le retrait du contact, les défis e-mail,
+  la récupération et la qualification avec relais réel / appareils restent
+  ouverts. Ce lot ne ferme pas P02.
+
 - P02, socle SMTP : transport Rust avec TLS exigé, configuration JSON privée
   montée, modèles de message bornés, quatre envois simultanés et échéance totale
   de 30 s. Le travail Tokio conserve le permis après annulation de l'appelant.
-  Aucune route ou capacité e-mail n'est activée et aucun envoi automatique n'est
-  lancé. Les cinq tests du transport passent : configuration / injections,
+  Ce premier lot ne publiait pas encore de route ou capacité e-mail. Les cinq
+  tests du transport passent : configuration / injections,
   fichier privé et symlink, refus du relais sans TLS, échange SMTP loopback et
   annulation ; Clippy, 90 tests serveur, 7 tests protocole / client et 95 tests
   SDK TypeScript passent, ainsi que schéma / génération / inventaire. Le
   [contrat e-mail](protocol/EMAIL.md)
   fixe la suite : adresse vérifiée, file chiffrée durable et quotas, défis
   explicites, récupération conservant les facteurs et raccordement des trois
-  clients. SMTP avec certificat réel et délivrabilité restent à qualifier.
+  clients. Les échanges TLS locaux sont qualifiés dans le lot suivant ci-dessus ;
+  la délivrabilité du relais d'exploitation reste ouverte.
 
 - P02, paramètres SwiftUI / objet FFI : la section Sécurité rejoint les
   préférences groupées existantes, sur le `NativeChat` et la famille courante.

@@ -79,11 +79,25 @@ pub(crate) fn send_fingerprint(room: &str, text: &str) -> String {
 
 /// Must be called after acquiring domain locks. The counter lock lasts until commit.
 pub(crate) async fn next_position(tx: &mut Transaction<'_, Postgres>) -> Result<i64> {
-    Ok(sqlx::query_scalar(
+    // Publishers already hold their actor/session locks. Their counter wait
+    // must end well before a logout waiting on those locks reaches its six-
+    // second deadline; equal deadlines race under scheduler/database load.
+    let previous: String = sqlx::query_scalar("SELECT current_setting('lock_timeout')")
+        .fetch_one(&mut **tx)
+        .await?;
+    sqlx::query("SET LOCAL lock_timeout='3s'")
+        .execute(&mut **tx)
+        .await?;
+    let position = sqlx::query_scalar(
         "UPDATE instance SET position=position+1 WHERE singleton RETURNING position",
     )
     .fetch_one(&mut **tx)
-    .await?)
+    .await?;
+    sqlx::query("SELECT set_config('lock_timeout',$1,true)")
+        .bind(previous)
+        .execute(&mut **tx)
+        .await?;
+    Ok(position)
 }
 
 pub(crate) async fn event(

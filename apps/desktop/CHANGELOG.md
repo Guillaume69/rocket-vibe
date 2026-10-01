@@ -7,13 +7,15 @@ section here.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-01
+
 ### Added
 
 - YouTube, Dailymotion and Vimeo videos play in their card: a click on the thumbnail starts
   the player in place, the title still opens the video in the browser. WebKitGTK on Linux
   (now bundled in the AppImage, needed by the tarball), WebView2 on Windows, WKWebView on
-  macOS (the SwiftUI app too). The player keeps to the video: a link out of it opens in the browser, and nothing
-  it stores outlives the app.
+  macOS (the SwiftUI app too). The player keeps to the video: a link out of it opens in the
+  browser, and nothing it stores outlives the app.
 - Slash commands: `/` at the start of a message offers the server's commands that you may
   run in the room, with their parameters and what they do; sending one runs it, in the
   thread when typed there. The server's answer (an unknown channel, `/help`) shows above
@@ -290,7 +292,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.5.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.6.0...HEAD
+[0.6.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.5.0...desktop-v0.6.0
 [0.5.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.4.1...desktop-v0.5.0
 [0.4.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.4.0...desktop-v0.4.1
 [0.4.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.3.0...desktop-v0.4.0

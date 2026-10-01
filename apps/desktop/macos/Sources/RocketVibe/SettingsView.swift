@@ -176,7 +176,7 @@ struct MyProfileSection: View {
                 password = ""
                 message = L("settings.saved")
                 await reload()
-            } catch let RvError.Server(_, _, _, twoFactor) where twoFactor != nil {
+            } catch let RvError.Server(_, _, _, twoFactor, _, _) where twoFactor != nil {
                 method = twoFactor?.method
             } catch let RvError.Local(text) where text == "password-needed" {
                 message = L("settings.current_password")

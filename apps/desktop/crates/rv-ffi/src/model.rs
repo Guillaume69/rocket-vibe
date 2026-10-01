@@ -14,7 +14,14 @@ use crate::markup::{self, BodyBlock};
 pub enum RvError {
     /// `status` 0: no answer at all. `two_factor`: the method the server asks a code for.
     #[error("{message}")]
-    Server { status: u16, message: String, error: Option<String>, two_factor: Option<TwoFactor> },
+    Server {
+        status: u16,
+        message: String,
+        error: Option<String>,
+        two_factor: Option<TwoFactor>,
+        request_id: Option<String>,
+        retry_after: Option<u64>,
+    },
     #[error("{message}")]
     Local { message: String },
 }
@@ -32,6 +39,8 @@ impl From<RestError> for RvError {
             status: e.status,
             message: e.message,
             error: e.error,
+            request_id: e.request_id,
+            retry_after: e.retry_after,
             two_factor: e.two_factor.map(|c| TwoFactor {
                 method: c.method,
                 methods: c.methods,
@@ -406,6 +415,28 @@ pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn provider_error_retains_native_diagnostics_in_the_exported_error() {
+        let error = RestError {
+            status: 429,
+            message: "service busy".into(),
+            error: Some("service_busy".into()),
+            error_type: None,
+            understood: true,
+            two_factor: None,
+            request_id: Some("request-fixture".into()),
+            retry_after: Some(12),
+        };
+        match RvError::from(error) {
+            RvError::Server { status, request_id, retry_after, two_factor, .. } => {
+                assert_eq!(status, 429);
+                assert_eq!(request_id.as_deref(), Some("request-fixture"));
+                assert_eq!(retry_after, Some(12));
+                assert!(two_factor.is_none());
+            }
+            _ => panic!("native error lost its server envelope"),
+        }
+    }
     use super::*;
 
     fn display(row: MessageRow) -> Display {

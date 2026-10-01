@@ -121,6 +121,8 @@ pub async fn login(
             error_type: None,
             understood: false,
             two_factor: None,
+            request_id: None,
+            retry_after: None,
         });
     }
     Ok(info)

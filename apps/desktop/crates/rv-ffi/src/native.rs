@@ -22,6 +22,8 @@ pub struct NativeMessage {
 pub struct NativeStatus {
     pub state: crate::ConnectionState,
     pub error: Option<String>,
+    pub request_id: Option<String>,
+    pub retry_after: Option<u64>,
 }
 #[derive(uniffi::Object)]
 pub struct NativeChat {
@@ -185,7 +187,12 @@ impl NativeChat {
     }
     pub fn status(&self) -> NativeStatus {
         let status = self.session.status();
-        NativeStatus { state: crate::state(status.connection), error: status.error }
+        NativeStatus {
+            state: crate::state(status.connection),
+            error: status.error,
+            request_id: status.request_id,
+            retry_after: status.retry_after,
+        }
     }
     pub fn supported_features(&self) -> Vec<String> {
         self.session.supported_features()

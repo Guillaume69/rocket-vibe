@@ -270,7 +270,7 @@ async fn rust_transport_respects_retry_after_across_clones() {
     });
     for mut transport in [client.clone(), client.clone()] {
         assert!(matches!(transport.login("alice","wrong").await,
-            Err(rv_client::Error::Server { status:429,code }) if code=="auth_rate_limited"));
+            Err(rv_client::Error::Server { status:429,code,request_id,retry_after }) if code=="auth_rate_limited" && request_id.as_deref()==Some("test") && retry_after==Some(1)));
     }
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert!(client.login("bob", "wrong").await.is_err());

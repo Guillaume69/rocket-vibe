@@ -44,6 +44,7 @@ impl Error {
     }
 }
 pub fn rest_error(error: Error) -> RestError {
+    let (request_id, retry_after) = diagnostics(&error);
     let status = match &error {
         Error::Network(rv_client::Error::Server { status, .. }) => *status,
         Error::Protocol(_) => 409,
@@ -56,6 +57,15 @@ pub fn rest_error(error: Error) -> RestError {
         error_type: None,
         understood: matches!(&error, Error::Network(rv_client::Error::Server { .. })),
         two_factor: None,
+        request_id,
+        retry_after,
+    }
+}
+
+fn diagnostics(error: &Error) -> (Option<String>, Option<u64>) {
+    match error {
+        Error::Network(rv_client::Error::Server { request_id, retry_after, .. }) => (request_id.clone(), *retry_after),
+        _ => (None, None),
     }
 }
 
@@ -150,6 +160,8 @@ pub fn database_name(info: &SessionInfo) -> String {
 pub struct Status {
     pub connection: Connection,
     pub error: Option<String>,
+    pub request_id: Option<String>,
+    pub retry_after: Option<u64>,
 }
 pub struct NativeSession {
     pub info: SessionInfo,
@@ -176,7 +188,12 @@ impl NativeSession {
             info,
             store,
             client,
-            status: Mutex::new(Status { connection: Connection::Offline, error: None }),
+            status: Mutex::new(Status {
+                connection: Connection::Offline,
+                error: None,
+                request_id: None,
+                retry_after: None,
+            }),
             capabilities: Mutex::new(None),
             events,
             control,
@@ -201,7 +218,7 @@ impl NativeSession {
                 s.verified.store(false, Ordering::SeqCst);
                 if let Some(Err(error)) = result {
                     let terminal = error.terminal();
-                    s.set_status(Connection::Offline, Some(error.code().into()));
+                    s.set_failure(&error);
                     if terminal {
                         s.paused.store(true, Ordering::SeqCst);
                         continue;
@@ -226,7 +243,13 @@ impl NativeSession {
         self.status.lock().unwrap().clone()
     }
     fn set_status(&self, connection: Connection, error: Option<String>) {
-        *self.status.lock().unwrap() = Status { connection, error };
+        *self.status.lock().unwrap() = Status { connection, error, request_id: None, retry_after: None };
+        let _ = self.events.send(());
+    }
+    fn set_failure(&self, error: &Error) {
+        let (request_id, retry_after) = diagnostics(error);
+        *self.status.lock().unwrap() =
+            Status { connection: Connection::Offline, error: Some(error.code().into()), request_id, retry_after };
         let _ = self.events.send(());
     }
     fn signal(&self) {
@@ -337,7 +360,7 @@ impl NativeSession {
             {
                 Ok(message) => self.store.ingest(&[message])?,
                 Err(error @ rv_client::Error::Server { status: 401, .. }) => return Err(error.into()),
-                Err(rv_client::Error::Server { status, code })
+                Err(rv_client::Error::Server { status, code, .. })
                     if (400..500).contains(&status) && status != 429 && code != "delivery_revalidate" =>
                 {
                     self.store.fail(&pending.id, &code)?

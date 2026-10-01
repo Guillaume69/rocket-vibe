@@ -9,6 +9,9 @@ section here.
 
 ### Added
 
+- Native request IDs and server retry delays remain available through provider
+  errors, connection status and Swift bindings, including locally deferred retries.
+
 - Native public rooms in the existing GTK / SwiftUI search and join flows;
   interrupted room creation keeps its SQLite operation ID across retries and restarts.
 

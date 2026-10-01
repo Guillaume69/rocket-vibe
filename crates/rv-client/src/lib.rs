@@ -25,7 +25,12 @@ pub enum Error {
     #[error("session missing")]
     SessionMissing,
     #[error("server refused request ({status}): {code}")]
-    Server { status: u16, code: String },
+    Server {
+        status: u16,
+        code: String,
+        request_id: Option<String>,
+        retry_after: Option<u64>,
+    },
     #[error(transparent)]
     Transport(#[from] reqwest::Error),
 }
@@ -35,8 +40,24 @@ pub struct NativeClient {
     base: String,
     http: reqwest::Client,
     token: Option<String>,
-    cooldowns: Arc<Mutex<HashMap<&'static str, (Instant, String)>>>,
+    cooldowns: Arc<Mutex<HashMap<&'static str, Cooldown>>>,
     snapshot_paging: Arc<Mutex<Option<bool>>>,
+}
+
+struct Cooldown {
+    until: Instant,
+    code: String,
+    request_id: String,
+}
+
+fn retry_after(response: &reqwest::Response) -> Option<u64> {
+    response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(|n| n.clamp(1, 300))
+        .or_else(|| (response.status().as_u16() == 429).then_some(1))
 }
 
 impl NativeClient {
@@ -81,28 +102,25 @@ impl NativeClient {
         let mut response = request.send().await?;
         if !response.status().is_success() {
             let status = response.status().as_u16();
-            let retry = response
-                .headers()
-                .get(reqwest::header::RETRY_AFTER)
-                .and_then(|h| h.to_str().ok())
-                .and_then(|v| v.parse::<u64>().ok())
-                .unwrap_or(1)
-                .clamp(1, 300);
+            let retry = retry_after(&response);
             let error: ApiError = response.json().await?;
             if status == 429
                 && let Some(key) = Self::budget(path)
             {
                 self.cooldowns.lock().expect("native cooldown lock").insert(
                     key,
-                    (
-                        Instant::now() + Duration::from_secs(retry),
-                        error.code.clone(),
-                    ),
+                    Cooldown {
+                        until: Instant::now() + Duration::from_secs(retry.unwrap_or(1)),
+                        code: error.code.clone(),
+                        request_id: error.request_id.clone(),
+                    },
                 );
             }
             return Err(Error::Server {
                 status,
                 code: error.code,
+                request_id: Some(error.request_id),
+                retry_after: retry,
             });
         }
         if path == "/api/v1/sync/snapshots" || path.starts_with("/api/v1/sync/snapshots/") {
@@ -135,16 +153,25 @@ impl NativeClient {
 
     fn check_cooldown(&self, path: &str) -> Result<(), Error> {
         if let Some(key) = Self::budget(path)
-            && let Some((until, code)) = self
+            && let Some(cooldown) = self
                 .cooldowns
                 .lock()
                 .expect("native cooldown lock")
                 .get(key)
-            && *until > Instant::now()
+            && cooldown.until > Instant::now()
         {
             return Err(Error::Server {
                 status: 429,
-                code: code.clone(),
+                code: cooldown.code.clone(),
+                request_id: Some(cooldown.request_id.clone()),
+                retry_after: Some(
+                    cooldown
+                        .until
+                        .saturating_duration_since(Instant::now())
+                        .as_secs()
+                        .saturating_add(1)
+                        .clamp(1, 300),
+                ),
             });
         }
         Ok(())
@@ -226,10 +253,13 @@ impl NativeClient {
         let response = request.send().await?;
         if !response.status().is_success() {
             let status = response.status().as_u16();
+            let retry = retry_after(&response);
             let error: ApiError = response.json().await?;
             return Err(Error::Server {
                 status,
                 code: error.code,
+                request_id: Some(error.request_id),
+                retry_after: retry,
             });
         }
         Ok(())

@@ -87,7 +87,7 @@ public final class LoginModel {
             code = ""
             password = ""
             return chat
-        } catch let RvError.Server(status, message, _, twoFactor) {
+        } catch let RvError.Server(status, message, _, twoFactor, _, _) {
             if let challenge = twoFactor {
                 method = challenge.method
                 if asking { error = L("login.bad_code") }

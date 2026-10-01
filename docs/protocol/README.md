@@ -20,6 +20,8 @@ sont versionnés et vérifiés sans diff en CI.
 - `429` conserve cette enveloppe et ajoute `Retry-After` en secondes entières.
   Les transports natifs gardent le délai (borné à 5 min) par famille login / ticket / snapshot,
   sans révoquer la session ni bloquer la consultation ou le logout.
+- Le transport Rust conserve l'identité du refus et son délai dans le fournisseur,
+  les erreurs bureau et UniFFI ; un retry différé localement garde le même request ID.
 
 ## Routes disponibles
 

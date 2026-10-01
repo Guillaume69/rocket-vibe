@@ -124,6 +124,31 @@ async fn official_rocket_chat_discovery_and_password_login_keep_their_original_c
 }
 
 #[tokio::test]
+async fn native_diagnostics_survive_the_provider_error_without_treating_a_gateway_as_revocation() {
+    let server = FakeHttp::start(|r| match r.path() {
+        "/api/v1/users" => respond(503, r#"{"code":"service_busy","request_id":"native-request"}"#),
+        "/api/v1/auth/logout" => respond(429, r#"{"code":"auth_busy","request_id":"logout-request"}"#),
+        _ => respond(401, r#"{"message":"Gateway authorization required"}"#),
+    })
+    .await;
+    let mut client = rv_client::NativeClient::new(server.url.as_str()).unwrap();
+    client.restore("fixture-token".into());
+    let diagnostic = native::rest_error(client.users().await.unwrap_err().into());
+    assert_eq!(diagnostic.status, 503);
+    assert_eq!(diagnostic.error.as_deref(), Some("service_busy"));
+    assert_eq!(diagnostic.request_id.as_deref(), Some("native-request"));
+    assert_eq!(diagnostic.retry_after, None);
+    assert!(diagnostic.understood);
+    let diagnostic = native::rest_error(client.logout().await.unwrap_err().into());
+    assert_eq!(diagnostic.request_id.as_deref(), Some("logout-request"));
+    assert_eq!(diagnostic.retry_after, Some(1));
+    let gateway = native::rest_error(client.me().await.unwrap_err().into());
+    assert!(!gateway.understood);
+    assert_eq!(gateway.request_id, None);
+    assert!(!rv_core::rest::is_token_rejected(&gateway));
+}
+
+#[tokio::test]
 async fn a_positive_incompatible_native_protocol_never_sends_rc_credentials() {
     let server=FakeHttp::start(|_|respond(200,r#"{"product":"rocketvibe","instance_id":"i","data_epoch":"e","server_version":"0.1","protocol_versions":[99],"api_path":"/api/v1","capabilities":{"text_messages":true,"private_rooms":true,"direct_messages":true,"durable_sync":true,"threads":false,"reactions":false,"uploads":false,"push":false,"e2ee":false,"calls":false}}"#)).await;
     assert!(rv_core::session::login(&server.url, "alice", "password", None).await.is_err());
@@ -222,6 +247,8 @@ async fn prepared_delivery_conflict_keeps_the_desktop_intention_retryable() {
     .await
     .unwrap();
     assert_eq!(session.store.pending().unwrap().len(), 1);
+    assert_eq!(session.status().request_id.as_deref(), Some("prepared-read"));
+    assert_eq!(session.status().retry_after, None);
     can_confirm.store(true, Ordering::SeqCst);
     session.reconnect();
     tokio::time::timeout(Duration::from_secs(5), async {

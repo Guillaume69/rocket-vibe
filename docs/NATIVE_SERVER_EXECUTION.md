@@ -182,12 +182,14 @@ connectés restent ignorés sans leur service). Les validations physiques resten
   bureau / GTK / UniFFI / SwiftUI ; identité et diagnostics mobiles neutres.
 - [x] Backlog P01–P23 lié à chaque ligne de la matrice ; politique de compteurs,
   droits, routes des lots suivants et hypothèses du banc documentées.
+- [x] Diagnostic bureau : identifiant de requête natif et délai serveur préservés
+  par le transport, le fournisseur, son état et les erreurs UniFFI / Swift.
 - [ ] Conditions externes : droits / format d'export, services opérateur, appareils
   physiques ; choix et revue du protocole E2EE dédiés à J4.
 
 Le [contrat de parité J0](protocol/PARITY.md) distingue les schémas de destination
-des endpoints réellement disponibles. Le diagnostic bureau doit encore propager
-le request ID natif. La présence de DTO de clés ne constitue aucune garantie crypto.
+des endpoints réellement disponibles. La présence de DTO de clés ne constitue
+aucune garantie crypto.
 
 ## Septième incrément : snapshots paginés immuables
 
@@ -268,6 +270,20 @@ de l'autre, GTK échange dans l'interface existante et reprend son compte du tro
 Le modèle SwiftUI trouve un salon d'un autre compte, le rejoint et y envoie un
 message avec les vrais bindings et le vrai Secret Service. Les essais physiques
 restent ouverts.
+
+## Complément J0 : diagnostics bureau
+
+Les erreurs HTTP reconnues conservent `request_id` et `Retry-After` jusqu'au
+fournisseur bureau, à son état de connexion et aux erreurs UniFFI. Un retry
+supprimé localement par le quota garde l'identité du dernier refus serveur et
+indique son délai restant ; il ne fabrique pas de nouvel identifiant. Les erreurs
+de transport / passerelle restent sans identité et ne prouvent pas une révocation.
+Les tests traversent le vrai transport HTTP, le fournisseur et l'erreur exportée.
+Rust / GTK et bindings / modèles Swift sont compilés ; le parcours Rocket.Chat
+de connexion / 2FA conserve ses tests et ses branches existantes.
+Vérifications : 37 tests Rust natifs, 33 TypeScript natifs et 208 tests bureau
+passent, avec Clippy / GTK et les 6 tests Swift locaux ; les 3 tests connectés
+restent conditionnés à leurs services de test.
 
 ## Pour fermer J1
 

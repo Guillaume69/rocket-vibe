@@ -7,6 +7,15 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+### Sécurité RocketVibe
+
+- Configuration TOTP, codes de secours privés, remplacement et désactivation
+  dans les paramètres existants. Les opérations interrompues reprennent depuis
+  SecureStore et les codes restent récupérables jusqu’à leur confirmation.
+- Confirmation d’identité sur l’appareil courant avant une action sensible,
+  sans nouvelle session. Les mots de passe et codes saisis restent transitoires ;
+  les callbacks d’un ancien écran ou compte ne peuvent lancer une action.
+
 ### Ajouté
 
 - Double authentification RocketVibe dans le formulaire existant : application

@@ -1,6 +1,6 @@
-import {useCallback,useEffect,useRef,useState} from 'react';
+import {useCallback,useRef,useState} from 'react';
+import {useFocusEffect} from 'expo-router';
 import {ActivityIndicator,Alert,StyleSheet,Text,View} from 'react-native';
-import {useRouter} from 'expo-router';
 import type {NativeChat} from '../fournisseurs/rocketvibe/chat.ts';
 import type {DeviceSession} from '../fournisseurs/rocketvibe/protocol.generated.ts';
 import {NativeError} from '../fournisseurs/rocketvibe/transport.ts';
@@ -9,6 +9,7 @@ import {useT} from './i18n.ts';
 import {Appuyable} from './appuyable.tsx';
 import {ChampPilule} from './kit.tsx';
 import {POLICES,type Couleurs} from './theme.ts';
+import {ConfirmerIdentiteNative} from './securiteNative.tsx';
 
 // Object identity scopes retained alerts to one provider, without putting a
 // credential in a React key or re-mounting the form on every reconnect.
@@ -24,27 +25,29 @@ export function SectionAppareils({c}:{c:Couleurs}) {
 }
 
 function Appareils({c,chat}:{c:Couleurs;chat:NativeChat}) {
-  const t=useT();const router=useRouter();
+  const t=useT();
+  const [confirming,setConfirming]=useState(false);
   const [devices,setDevices]=useState<DeviceSession[]>([]);
   const [labels,setLabels]=useState<Record<string,string>>({});
   const [busy,setBusy]=useState(false);const [error,setError]=useState<'devices.failed'|'devices.reauth'|null>(null);
-  const alive=useRef(true);const inFlight=useRef(false);
+  const alive=useRef(false);const epoch=useRef(0);const inFlight=useRef<number|null>(null);
   const run=useCallback(async(action:()=>Promise<void>)=>{
-    if(!alive.current || inFlight.current)return;
-    inFlight.current=true;setBusy(true);setError(null);
+    if(!alive.current || inFlight.current!==null)return;
+    const n=epoch.current,visible=()=>alive.current && epoch.current===n;
+    inFlight.current=n;setBusy(true);setError(null);
     try {
-      await action();if(!alive.current)return;
-      const next=await chat.deviceSessions();if(!alive.current)return;
+      await action();if(!visible())return;
+      const next=await chat.deviceSessions();if(!visible())return;
       setDevices(next);setLabels(Object.fromEntries(next.map(d=>[d.id,d.label])));
     } catch(e) {
-      if(alive.current)setError(e instanceof NativeError && e.code==='reauthentication_required'?'devices.reauth':'devices.failed');
-    } finally {inFlight.current=false;if(alive.current)setBusy(false);}
+      if(visible())setError(e instanceof NativeError && e.code==='reauthentication_required'?'devices.reauth':'devices.failed');
+    } finally {if(inFlight.current===n){inFlight.current=null;if(visible())setBusy(false);}}
   },[chat]);
-  useEffect(()=>{alive.current=true;void run(async()=>{});return()=>{alive.current=false;};},[run]);
-  const revoke=(device:DeviceSession)=>Alert.alert(t('devices.confirm'),t('devices.confirmBody'),[
+  useFocusEffect(useCallback(()=>{alive.current=true;epoch.current++;inFlight.current=null;queueMicrotask(()=>{if(alive.current)void run(async()=>{});});return()=>{alive.current=false;epoch.current++;};},[run]));
+  const revoke=(device:DeviceSession)=>{const n=epoch.current;Alert.alert(t('devices.confirm'),t('devices.confirmBody'),[
     {text:t('commun.annuler'),style:'cancel'},
-    {text:t('devices.revoke'),style:'destructive',onPress:()=>{if(!device.current)void run(()=>chat.revokeDevice(device.id));}},
-  ]);
+    {text:t('devices.revoke'),style:'destructive',onPress:()=>{if(!device.current && alive.current && epoch.current===n)void run(()=>chat.revokeDevice(device.id));}},
+  ]);};
   const date=(value:string)=>{const parsed=new Date(value);return Number.isFinite(parsed.getTime())?parsed.toLocaleString():value;};
   return <>
     <Text style={[styles.heading,{color:c.attenue}]}>{t('devices.title')}</Text>
@@ -63,7 +66,8 @@ function Appareils({c,chat}:{c:Couleurs;chat:NativeChat}) {
         {!device.current && <Appuyable disabled={busy} accessibilityRole="button" onPress={()=>revoke(device)}><Text style={[styles.action,{color:c.texteErreur}]}>{t('devices.revoke')}</Text></Appuyable>}
       </View>)}
       {error && <Text accessibilityRole="alert" style={[styles.text,{color:c.texteErreur}]}>{t(error)}</Text>}
-      {error==='devices.reauth' && <Appuyable accessibilityRole="button" onPress={()=>router.push('/connexion?changer=1')}><Text style={[styles.action,{color:c.cyan}]}>{t('devices.reauth')}</Text></Appuyable>}
+      {error==='devices.reauth' && chat.capabilities?.reauthentication_retirement && <Appuyable accessibilityRole="button" onPress={()=>setConfirming(true)}><Text style={[styles.action,{color:c.cyan}]}>{t('security.verify')}</Text></Appuyable>}
+      {confirming && <ConfirmerIdentiteNative c={c} chat={chat} onConfirmed={()=>{if(alive.current){setConfirming(false);void run(async()=>{});}}}/>}
       <Appuyable accessibilityRole="button" disabled={busy} onPress={()=>void run(async()=>{})}><Text style={[styles.action,{color:c.cyan}]}>{t('devices.refresh')}</Text></Appuyable>
     </View>
   </>;

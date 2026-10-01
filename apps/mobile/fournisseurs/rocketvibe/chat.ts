@@ -7,6 +7,8 @@ import { NativeError, type NativeTransport } from './transport.ts';
 import { decodeNative } from './validation.ts';
 import type { Capabilities } from './protocol.generated.ts';
 import { canonicalEmoji } from './emojis.ts';
+import type {FactorRemote} from './factorVault.ts';
+import {checkSecurityScope,type SecurityScope} from './reauthenticationVault.ts';
 
 export type NativeStatus = { online: boolean; error: string | null };
 export class NativeChat {
@@ -173,6 +175,36 @@ export class NativeChat {
     this.ready();
     if(!this.capabilities?.device_sessions)throw new NativeError(501,'unsupported_feature');
     return this.generation;
+  }
+  /** Capture the connected runner generation, never expose a raw transport to
+   * a retained settings callback after logout, suspension or account switch. */
+  async security(visible:()=>boolean=()=>true):Promise<{scope:SecurityScope;remote:FactorRemote;alive:()=>boolean}> {
+    this.ready();
+    if(!this.capabilities?.reauthentication || !this.capabilities.reauthentication_retirement)throw new NativeError(501,'unsupported_feature');
+    const generation=this.generation,alive=()=>visible() && !this.stopped && this.verified && generation===this.generation;
+    const call=async<T>(action:()=>Promise<T>):Promise<T>=>{
+      if(!alive())throw new NativeError(0,'session_closed');
+      checkIdentity(this.session,await this.transport.discover());
+      if(!alive())throw new NativeError(0,'session_closed');
+      const result=await action();
+      if(!alive())throw new NativeError(0,'session_closed');
+      return result;
+    };
+    const status=await call(()=>this.transport.reauthenticationStatus());
+    const scope:SecurityScope={baseUrl:this.session.baseUrl,user_id:this.session.userId,device_id:status.device_id,instance_id:this.session.nativeInstanceId!,data_epoch:this.session.nativeDataEpoch!};
+    checkSecurityScope(scope,status);
+    const factorCall=async<T>(action:()=>Promise<T>):Promise<T>=>{
+      if(!this.capabilities?.second_factors)throw new NativeError(501,'unsupported_feature');
+      return call(action);
+    };
+    return {scope,alive,remote:{
+      proof:{status:()=>call(async()=>{const next=await this.transport.reauthenticationStatus();checkSecurityScope(scope,next);return next;}),
+        begin:input=>call(()=>this.transport.beginReauthentication(input)),resume:input=>call(()=>this.transport.resumeReauthentication(input)),
+        finish:input=>call(()=>this.transport.finishReauthentication(input)),retire:input=>call(()=>this.transport.retireReauthentication(input))},
+      status:()=>call(()=>this.transport.factorStatus()),setup:input=>factorCall(()=>this.transport.beginFactorSetup(input)),
+      enable:input=>factorCall(()=>this.transport.enableFactor(input)),regenerate:input=>factorCall(()=>this.transport.regenerateFactorBackups(input)),
+      disable:input=>factorCall(()=>this.transport.disableFactor(input)),
+    }};
   }
   async deviceSessions():Promise<import('./protocol.generated.ts').DeviceSession[]> {
     const generation=this.deviceAccess();

@@ -126,6 +126,7 @@ export class NativeTransport {
   reauthenticationStatus():Promise<NativeTypes['ReauthenticationStatus']> { return this.request('ReauthenticationStatus','/api/v1/me/reauth'); }
   finishReauthentication(input:NativeTypes['FinishReauthentication']):Promise<NativeTypes['ReauthenticationGrant']> { return this.request('ReauthenticationGrant','/api/v1/me/reauth/finish',input); }
   resumeReauthentication(input:NativeTypes['ResumeReauthentication']):Promise<NativeTypes['ReauthenticationStep']> { return this.request('ReauthenticationStep','/api/v1/me/reauth/resume',input); }
+  retireReauthentication(input:NativeTypes['RetireReauthentication']):Promise<NativeTypes['ReauthenticationStatus']> { return this.request('ReauthenticationStatus','/api/v1/me/reauth/retire',input); }
   acceptInvitation(input: NativeTypes['AcceptInvitation']):Promise<NativeTypes['User']> {
     return this.request('User','/api/v1/auth/invitations/accept',input,true);
   }

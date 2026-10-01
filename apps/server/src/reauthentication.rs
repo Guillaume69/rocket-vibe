@@ -2,8 +2,9 @@
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use chrono::{DateTime, Duration, Utc};
 use rv_protocol::parity::{
-    AuthChallenge, BeginReauthentication, FinishReauthentication, ReauthenticationGrant,
-    ReauthenticationStatus, ReauthenticationStep, ResumeReauthentication,
+    AuthChallenge, BeginReauthentication, FinishReauthentication, ReauthenticationContext,
+    ReauthenticationGrant, ReauthenticationStatus, ReauthenticationStep, ResumeReauthentication,
+    RetireReauthentication,
 };
 use sqlx::{FromRow, Postgres, Transaction};
 use std::net::IpAddr;
@@ -26,6 +27,38 @@ fn rejected() -> Error {
 fn valid_intent(challenge: &str, operation: &str) -> Result<()> {
     if !factors::bearer_candidate(challenge) || !auth::identifier(operation) {
         return Err(Error::invalid());
+    }
+    Ok(())
+}
+
+fn valid_context(context: &ReauthenticationContext) -> Result<()> {
+    if [
+        &context.user_id,
+        &context.device_id,
+        &context.instance_id,
+        &context.data_epoch,
+    ]
+    .iter()
+    .any(|id| !auth::identifier(id))
+    {
+        return Err(Error::invalid());
+    }
+    Ok(())
+}
+
+fn check_context(
+    context: &ReauthenticationContext,
+    account: &Account,
+    instance: &str,
+    epoch: &str,
+    device: &str,
+) -> Result<()> {
+    if context.user_id != account.id
+        || context.device_id != device
+        || context.instance_id != instance
+        || context.data_epoch != epoch
+    {
+        return Err(Error::conflict());
     }
     Ok(())
 }
@@ -206,6 +239,9 @@ pub(crate) async fn begin(
     if input.password.len() > 1024 || !auth::identifier(&input.proof_version) {
         return Err(Error::invalid());
     }
+    if let Some(context) = &input.context {
+        valid_context(context)?;
+    }
     let permit = app
         .password_slots
         .clone()
@@ -243,6 +279,9 @@ pub(crate) async fn begin(
     let mut tx = app.pool.begin().await?;
     auth::mutation_deadlines(&mut tx).await?;
     let (instance, epoch, device, revision) = source(&mut tx, account).await?;
+    if let Some(context) = &input.context {
+        check_context(context, account, &instance, &epoch, &device)?;
+    }
     let (current_hash, version): (String, String) =
         sqlx::query_as("SELECT password_hash,factor_version FROM users WHERE id=$1")
             .bind(&account.id)
@@ -428,6 +467,53 @@ pub(crate) async fn status(app: &App, account: &Account) -> Result<Reauthenticat
         instance_id,
         data_epoch,
         device_id,
+        proof_version,
+        recent,
+    })
+}
+
+/// Fence unaccepted work, including a start request still verifying a password.
+/// Replaying an old head cannot retire a newer proof. Carry a valid grant's
+/// original age and factor provenance; cancellation is never reauthentication.
+pub(crate) async fn retire(
+    app: &App,
+    account: &Account,
+    input: RetireReauthentication,
+) -> Result<ReauthenticationStatus> {
+    valid_context(&input.context)?;
+    if !auth::identifier(&input.proof_version) {
+        return Err(Error::invalid());
+    }
+    let mut tx = app.pool.begin().await?;
+    auth::mutation_deadlines(&mut tx).await?;
+    let (instance_id, data_epoch, device_id, mut proof_version) = source(&mut tx, account).await?;
+    check_context(
+        &input.context,
+        account,
+        &instance_id,
+        &data_epoch,
+        &device_id,
+    )?;
+    if proof_version == input.proof_version {
+        let next = auth::random_token();
+        sqlx::query("UPDATE session_devices SET reauthentication_version=$2 WHERE id=$1")
+            .bind(&device_id)
+            .bind(&next)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE reauthentication_grants SET proof_version=$3 WHERE device_id=$1 AND user_id=$2 AND proof_version=$4")
+            .bind(&device_id).bind(&account.id).bind(&next).bind(&proof_version).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM reauthentication_challenges WHERE device_id=$1 AND user_id=$2 AND requested_version=$3 AND authenticated_at IS NULL")
+            .bind(&device_id).bind(&account.id).bind(&proof_version).execute(&mut *tx).await?;
+        proof_version = next;
+    }
+    let recent = factors::recently_authenticated(&mut tx, account).await?;
+    tx.commit().await?;
+    Ok(ReauthenticationStatus {
+        user_id: account.id.clone(),
+        device_id,
+        instance_id,
+        data_epoch,
         proof_version,
         recent,
     })

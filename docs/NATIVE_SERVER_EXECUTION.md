@@ -315,6 +315,37 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, paramètres / coffres mobile : la section Sécurité de l'écran existant
+  configure TOTP, conserve puis confirme les dix secours, régénère ou désactive
+  le facteur. La confirmation d'identité reste sur la famille courante, y compris
+  pour la révocation d'un autre appareil. Coffres privés liés à l'URL / UID /
+  famille / instance / génération, intentions persistées avant HTTP, mots de
+  passe et codes saisis transitoires. Les callbacks perdent leur droit d'agir à
+  la sortie de l'écran, suspension, déconnexion ou changement de fournisseur.
+  Les contrôles TOTP suivent la capacité ; la preuve par mot de passe reste
+  disponible sans clé opérateur TOTP. Aucun nouveau client ni écran de chat.
+  La route additive retire un head de preuve attendu avant de remplacer un
+  pending absent / expiré, puis le coffre sonde à nouveau le candidat original.
+  Les barrières PostgreSQL préservent l'âge / provenance des preuves existantes
+  et empêchent la reprise tardive d'un ancien start / finish. Les sacs de codes
+  portent leur version commitée ; un changement concurrent les rend périmés.
+  Douze scénarios de coffres et un scénario de runner couvrent ACK perdus,
+  reprise après recréation, stockage refusé / corrompu, concurrence, callbacks
+  obsolètes, changement de génération et confirmation explicite des secours.
+  Le vrai transport TypeScript éprouve désormais les deux coffres sur PostgreSQL,
+  perd les ACK d'activation, start / finish et régénération puis reprend les
+  opérations originales avant désactivation. Deux scénarios SQL supplémentaires
+  couvrent retirement, contexte, conservation de l'âge et des reçus plus récents.
+  Vérifications : 85 tests serveur, sept de protocole, 95 TypeScript natifs et
+  1 045 régressions mobiles réussis ; contrôles finaux ciblés, typecheck / lint,
+  Clippy / 232 régressions cœur et FFI, compilation GTK, schéma / génération et
+  inventaire réussis. Export Android Hermes produit ; il ne constitue pas un
+  APK installé ni une validation du Keystore. Les fichiers Firebase Android /
+  iOS restent absents et les parcours sur appareils demeurent ouverts.
+  Les paramètres / coffres GTK et SwiftUI, SMTP et validations sur appareils
+  restent la suite de P02. La CI du lot précédent `4c4374a` est entièrement verte
+  (run `36877393518`, quatre jobs).
+
 - P02, réauthentification serveur / SDK : migration 0015, statut de preuve et
   parcours start / finish / resume sur la famille courante, sans nouveau bearer
   ni appareil. Mot de passe puis facteur courant donnent une preuve de quinze

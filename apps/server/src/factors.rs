@@ -454,14 +454,15 @@ pub(crate) async fn enable(
     };
     sqlx::query("INSERT INTO user_factors(user_id,version,totp_cipher,last_totp_counter) VALUES($1,$2,$3,$4)")
         .bind(&account.id).bind(&setup.id).bind(setup.secret_cipher).bind(counter).execute(&mut *tx).await?;
-    let codes = new_backup_codes(&mut tx, &account.id).await?;
+    let committed_version = auth::random_token();
+    let codes = new_backup_codes(&mut tx, &account.id, &committed_version).await?;
     // Advance the authority and delete other families. Keep only the enrolling
     // device, which cannot disable its new factor without a full factor login.
     let activation: String = sqlx::query_scalar(
         "UPDATE users SET factor_version=$2 WHERE id=$1 RETURNING activation_version",
     )
     .bind(&account.id)
-    .bind(auth::random_token())
+    .bind(&committed_version)
     .fetch_one(&mut *tx)
     .await?;
     fence_other_sessions(&mut tx, account).await?;
@@ -479,8 +480,12 @@ pub(crate) async fn enable(
 async fn new_backup_codes(
     tx: &mut Transaction<'_, Postgres>,
     user_id: &str,
+    factor_version: &str,
 ) -> Result<FactorBackupCodes> {
-    let mut codes = FactorBackupCodes { codes: vec![] };
+    let mut codes = FactorBackupCodes {
+        codes: vec![],
+        factor_version: Some(factor_version.into()),
+    };
     for _ in 0..10 {
         let code = auth::random_token()[..32].to_owned();
         sqlx::query("INSERT INTO factor_backup_codes(user_id,token_hash) VALUES($1,$2)")
@@ -597,8 +602,8 @@ pub(crate) async fn regenerate_backups(
         .bind(&account.id)
         .execute(&mut *tx)
         .await?;
-    let codes = new_backup_codes(&mut tx, &account.id).await?;
     let committed_version = auth::random_token();
+    let codes = new_backup_codes(&mut tx, &account.id, &committed_version).await?;
     let activation: String = sqlx::query_scalar(
         "UPDATE users SET factor_version=$2 WHERE id=$1 RETURNING activation_version",
     )

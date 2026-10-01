@@ -186,6 +186,160 @@ async fn proof_version(server: &Server, token: &str) -> String {
 }
 
 #[sqlx::test]
+async fn retiring_unaccepted_proof_fences_delayed_start_without_consuming_a_code(pool: PgPool) {
+    let (_, server, session) = fixture(&pool).await;
+    let (_, codes) = enroll(&server, &session).await;
+    reset_limits(&pool).await;
+    let mut sdk = rv_client::NativeClient::new(&server.base).unwrap();
+    sdk.restore(session.token.clone());
+    let status = sdk.reauthentication_status().await.unwrap();
+    let context = rv_protocol::parity::ReauthenticationContext {
+        user_id: status.user_id,
+        device_id: status.device_id,
+        instance_id: status.instance_id,
+        data_epoch: status.data_epoch,
+    };
+    let input = rv_protocol::parity::BeginReauthentication {
+        password: PASSWORD.into(),
+        challenge_id: auth::random_token(),
+        operation_id: "retired-start".into(),
+        proof_version: status.proof_version.clone(),
+        context: Some(context.clone()),
+    };
+    assert!(matches!(
+        sdk.begin_reauthentication(&input).await.unwrap(),
+        rv_protocol::parity::ReauthenticationStep::Challenge { .. }
+    ));
+    let retire = rv_protocol::parity::RetireReauthentication {
+        context: context.clone(),
+        proof_version: status.proof_version.clone(),
+    };
+    let next = sdk.retire_reauthentication(&retire).await.unwrap();
+    assert_ne!(next.proof_version, status.proof_version);
+    assert!(!next.recent);
+    assert_eq!(
+        sdk.retire_reauthentication(&retire)
+            .await
+            .unwrap()
+            .proof_version,
+        next.proof_version
+    );
+    assert!(matches!(
+        sdk.begin_reauthentication(&input).await,
+        Err(rv_client::Error::Server { status: 409, .. })
+    ));
+    let finish = rv_protocol::parity::FinishReauthentication {
+        challenge_id: input.challenge_id,
+        operation_id: input.operation_id,
+        method: SecondFactor::RecoveryCode,
+        code: codes.codes[0].clone(),
+    };
+    assert!(matches!(
+        sdk.finish_reauthentication(&finish).await,
+        Err(rv_client::Error::Server { status: 400, .. })
+    ));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM factor_backup_codes WHERE consumed_at IS NOT NULL"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM reauthentication_challenges")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    for field in ["user_id", "device_id", "instance_id", "data_epoch"] {
+        let mut wrong = serde_json::to_value(&context).unwrap();
+        wrong[field] = json!("different-context");
+        assert_eq!(
+            server
+                .post(
+                    "/me/reauth/retire",
+                    Some(&session.token),
+                    json!({"context":wrong,"proof_version":next.proof_version})
+                )
+                .await
+                .status(),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(server.post("/me/reauth/start", Some(&session.token), json!({"context":wrong,"password":PASSWORD,"challenge_id":auth::random_token(),"operation_id":field,"proof_version":next.proof_version})).await.status(), StatusCode::CONFLICT);
+    }
+    assert_eq!(
+        proof_version(&server, &session.token).await,
+        next.proof_version
+    );
+    assert_eq!(
+        server.get("/me", &session.token).await.status(),
+        StatusCode::OK
+    );
+}
+
+#[sqlx::test]
+async fn retiring_a_later_attempt_preserves_proof_age_factor_and_newer_receipts(pool: PgPool) {
+    let (_, server, session) = fixture(&pool).await;
+    let (_, codes) = enroll(&server, &session).await;
+    reset_limits(&pool).await;
+    let intent = reauthentication_challenge(&server, &session, "accepted").await;
+    let accepted = server.post("/me/reauth/finish", Some(&session.token), json!({"challenge_id":intent["challenge_id"],"operation_id":"accepted","method":"recovery_code","code":codes.codes[0]})).await;
+    assert_eq!(accepted.status(), StatusCode::OK);
+    let grant: Value = accepted.json().await.unwrap();
+    let before: (chrono::DateTime<Utc>,chrono::DateTime<Utc>,bool,String) = sqlx::query_as("SELECT authenticated_at,expires_at,factor_completed,factor_id FROM reauthentication_grants").fetch_one(&pool).await.unwrap();
+    reauthentication_challenge(&server, &session, "cancel-later").await;
+    let status: Value = server
+        .get("/me/reauth", &session.token)
+        .await
+        .json()
+        .await
+        .unwrap();
+    let context = json!({"user_id":status["user_id"],"device_id":status["device_id"],"instance_id":status["instance_id"],"data_epoch":status["data_epoch"]});
+    let retirement = json!({"context":context,"proof_version":status["proof_version"]});
+    let response = server
+        .post(
+            "/me/reauth/retire",
+            Some(&session.token),
+            retirement.clone(),
+        )
+        .await;
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let retired: Value = response.json().await.unwrap();
+    assert_eq!(retired["recent"], true);
+    assert_ne!(retired["proof_version"], grant["proof_version"]);
+    let after: (chrono::DateTime<Utc>,chrono::DateTime<Utc>,bool,String) = sqlx::query_as("SELECT authenticated_at,expires_at,factor_completed,factor_id FROM reauthentication_grants").fetch_one(&pool).await.unwrap();
+    assert_eq!(before, after);
+    let new_intent = reauthentication_challenge(&server, &session, "newer-accepted").await;
+    let newer: Value = server.post("/me/reauth/finish", Some(&session.token), json!({"challenge_id":new_intent["challenge_id"],"operation_id":"newer-accepted","method":"recovery_code","code":codes.codes[1]})).await.json().await.unwrap();
+    let replay: Value = server
+        .post("/me/reauth/retire", Some(&session.token), retirement)
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(replay["proof_version"], newer["proof_version"]);
+    let resumed: Value = server
+        .post("/me/reauth/resume", Some(&session.token), new_intent)
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(resumed["grant"], newer);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM factor_backup_codes WHERE consumed_at IS NOT NULL"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        2
+    );
+}
+
+#[sqlx::test]
 async fn a_recent_full_login_proves_only_its_actual_factor_even_after_clock_correction(
     pool: PgPool,
 ) {
@@ -509,6 +663,7 @@ async fn reauthentication_without_factor_renews_only_proof_and_keeps_the_existin
     sdk.restore(session.token.clone());
     let step = sdk
         .begin_reauthentication(&rv_protocol::parity::BeginReauthentication {
+            context: None,
             password: PASSWORD.into(),
             challenge_id: nonce.clone(),
             operation_id: "reauth-1".into(),
@@ -1211,7 +1366,10 @@ async fn backup_regeneration_quota_survives_source_device_revocation(pool: PgPoo
     let (_, original) = enroll(&server, &enrolling).await;
     reset_limits(&pool).await;
     let session = full_login(&server, &original.codes[0], "full-login").await;
-    let mut latest = FactorBackupCodes { codes: vec![] };
+    let mut latest = FactorBackupCodes {
+        codes: vec![],
+        factor_version: None,
+    };
     let mut last_input = json!({});
     for i in 0..3 {
         last_input = json!({"factor_version":factor_version(&server, &session.token).await,"operation_id":format!("regenerate-{i}")});

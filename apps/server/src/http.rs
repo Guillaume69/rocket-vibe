@@ -36,6 +36,7 @@ pub fn router(app: App) -> Router {
         .route("/api/v1/me/reauth", get(reauthentication_status))
         .route("/api/v1/me/reauth/finish", post(finish_reauthentication))
         .route("/api/v1/me/reauth/resume", post(resume_reauthentication))
+        .route("/api/v1/me/reauth/retire", post(retire_reauthentication))
         .route("/api/v1/me/factors/totp/setup", post(begin_factor))
         .route("/api/v1/me/factors/totp/enable", post(enable_factor))
         .route("/api/v1/me/factors/totp/disable", post(disable_factor))
@@ -166,6 +167,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             account_recovery: true,
             second_factors: app.auth_key.is_some(),
             reauthentication: true,
+            reauthentication_retirement: true,
             ..Default::default()
         },
     }))
@@ -303,6 +305,17 @@ async fn reauthentication_status(State(app): State<App>, headers: HeaderMap) -> 
     let user = account(&app, &headers).await?;
     Ok(secret_session(
         crate::reauthentication::status(&app, &user).await?,
+    ))
+}
+
+async fn retire_reauthentication(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::parity::RetireReauthentication>,
+) -> Result<Response> {
+    let user = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::reauthentication::retire(&app, &user, body(input)?).await?,
     ))
 }
 

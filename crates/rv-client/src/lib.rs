@@ -341,6 +341,12 @@ impl NativeClient {
     ) -> Result<rv_protocol::parity::ReauthenticationStep, Error> {
         self.post("/api/v1/me/reauth/resume", input).await
     }
+    pub async fn retire_reauthentication(
+        &self,
+        input: &rv_protocol::parity::RetireReauthentication,
+    ) -> Result<rv_protocol::parity::ReauthenticationStatus, Error> {
+        self.post("/api/v1/me/reauth/retire", input).await
+    }
     /// Clones share one account's rotating credential.
     pub fn update_token(&self, token: String) {
         *self.token.lock().expect("native credential lock") = Some(token);

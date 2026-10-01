@@ -10,6 +10,38 @@ import { NativeStore } from './store.ts';
 import { nativeTestDatabase } from './testDatabase.ts';
 import { NativeError, NativeTransport } from './transport.ts';
 
+test('security callbacks pin account, epoch and runner/focus generation before and after HTTP',async()=>{
+  const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:fixture.session.user.id,username:'alice',genre:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  for(const outcome of ['normal','unsupported','password-only','different-account','different-epoch','hidden-during-discovery','closed-during-mutation'] as const){
+    const {db,adapter}=nativeTestDatabase();const store=new NativeStore(adapter,creerFileEcritures(),session);
+    await store.applySnapshot({protocol_version:1,rooms:[],messages:[],cursor:'initial'});
+    let visible=true,hideDuringDiscovery=false,changedEpoch=false,mutations=0;
+    let started:()=>void=()=>{},release:()=>void=()=>{};const pending=new Promise<void>(resolve=>{started=resolve;});
+    const transport={
+      discover:async()=>{if(hideDuringDiscovery)visible=false;return {...fixture.discovery,data_epoch:changedEpoch?'changed':fixture.discovery.data_epoch,capabilities:{...fixture.discovery.capabilities,second_factors:outcome!=='password-only',reauthentication:true,reauthentication_retirement:outcome!=='unsupported'}};},
+      me:async()=>fixture.session.user,changes:async()=>({protocol_version:1,changes:[],cursor:'initial',has_more:false}),socketUrl:async()=>'ws://localhost/fake',
+      reauthenticationStatus:async()=>({user_id:outcome==='different-account'?'other':session.userId,device_id:'mobile',instance_id:session.nativeInstanceId,data_epoch:session.nativeDataEpoch,proof_version:'proof',recent:true}),
+      disableFactor:async()=>{mutations++;if(outcome==='closed-during-mutation'){started();await new Promise<void>(resolve=>{release=resolve;});}},
+    } as unknown as NativeTransport;
+    const chat=new NativeChat(session,store,()=>{throw new Error('No send');},{transport,socket:()=>{
+      const socket={readyState:0,onopen:null,onclose:null,onerror:null,onmessage:null,close:()=>{}} as unknown as WebSocket;
+      queueMicrotask(()=>socket.onopen?.(new Event('open')));return socket;
+    }});
+    try{
+      await chat.connect();
+      if(outcome==='unsupported'){await assert.rejects(chat.security(),/unsupported_feature/);continue;}
+      if(outcome==='different-account'){await assert.rejects(chat.security(),/server_identity_changed/);continue;}
+      const access=await chat.security(()=>visible);assert.equal(access.scope.device_id,'mobile');
+      if(outcome==='password-only'){assert.equal((await access.remote.proof.status()).recent,true);await assert.rejects(access.remote.disable({factor_version:'factor'}),/unsupported_feature/);assert.equal(mutations,0);continue;}
+      if(outcome==='different-epoch'){changedEpoch=true;await assert.rejects(access.remote.disable({factor_version:'factor'}),/server_identity_changed/);assert.equal(mutations,0);}
+      else if(outcome==='hidden-during-discovery'){hideDuringDiscovery=true;await assert.rejects(access.remote.disable({factor_version:'factor'}),/session_closed/);assert.equal(mutations,0);}
+      else if(outcome==='closed-during-mutation'){const request=access.remote.disable({factor_version:'factor'});await pending;chat.stop();release();await assert.rejects(request,/session_closed/);assert.equal(mutations,1);}
+      else{await access.remote.disable({factor_version:'factor'});assert.equal(mutations,1);chat.stop();await assert.rejects(access.remote.disable({factor_version:'factor'}),/session_closed/);assert.equal(mutations,1);}
+    }finally{chat.stop();await store.state();db.close();}
+  }
+});
+
 test('device actions preserve recent-auth failures and discard replies after provider closure',async()=>{
   const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
   const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:fixture.session.user.id,username:'alice',genre:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};

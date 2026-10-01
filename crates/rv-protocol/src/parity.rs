@@ -103,6 +103,9 @@ pub struct EnableFactor {
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
 pub struct FactorBackupCodes {
     pub codes: Vec<String>,
+    /// Original committed revision, also carried by the encrypted receipt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub factor_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -136,6 +139,25 @@ pub struct BeginReauthentication {
     pub password: String,
     pub challenge_id: String,
     pub operation_id: String,
+    pub proof_version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<ReauthenticationContext>,
+}
+
+/// Pin proof work to the authenticated account, family and server generation.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ReauthenticationContext {
+    pub user_id: String,
+    pub device_id: String,
+    pub instance_id: String,
+    pub data_epoch: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RetireReauthentication {
+    pub context: ReauthenticationContext,
     pub proof_version: String,
 }
 
@@ -415,6 +437,8 @@ pub struct ParityContract {
     pub finish_reauthentication: Option<FinishReauthentication>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resume_reauthentication: Option<ResumeReauthentication>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retire_reauthentication: Option<RetireReauthentication>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reauthentication_step: Option<ReauthenticationStep>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

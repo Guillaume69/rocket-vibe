@@ -190,6 +190,7 @@
     "apps/mobile/lib/messagesSysteme.ts",
     "apps/mobile/lib/monProfil.ts",
     "apps/mobile/lib/nativeAuthenticationStore.ts",
+    "apps/mobile/lib/nativeSecurityStore.ts",
     "apps/mobile/lib/normaliser.ts",
     "apps/mobile/lib/notificationId.ts",
     "apps/mobile/lib/origine.ts",
@@ -277,6 +278,7 @@
     "apps/mobile/ui/sautMessage.ts",
     "apps/mobile/ui/sectionsAccueil.ts",
     "apps/mobile/ui/sectionsRepliees.ts",
+    "apps/mobile/ui/securiteNative.tsx",
     "apps/mobile/ui/separateurJour.ts",
     "apps/mobile/ui/session.tsx",
     "apps/mobile/ui/sondeUpload.ts",
@@ -1578,19 +1580,19 @@
     },
     {
       "file": "apps/mobile/app/parametres.tsx",
-      "line": 79,
+      "line": 80,
       "kind": "call:GET",
       "surface": "'me'"
     },
     {
       "file": "apps/mobile/app/parametres.tsx",
-      "line": 104,
+      "line": 105,
       "kind": "call:POST",
       "surface": "'users.setPreferences'"
     },
     {
       "file": "apps/mobile/app/parametres.tsx",
-      "line": 104,
+      "line": 105,
       "kind": "endpoint",
       "surface": "users.setPreferences"
     },
@@ -2286,73 +2288,73 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 187,
+      "line": 211,
       "kind": "endpoint",
       "surface": "e2e.titre"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 188,
+      "line": 212,
       "kind": "endpoint",
       "surface": "e2e.explication"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 190,
+      "line": 214,
       "kind": "endpoint",
       "surface": "e2e.champ"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 191,
+      "line": 215,
       "kind": "endpoint",
       "surface": "e2e.deverrouiller"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 192,
+      "line": 216,
       "kind": "endpoint",
       "surface": "e2e.erreurMotDePasse"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 193,
+      "line": 217,
       "kind": "endpoint",
       "surface": "e2e.erreurGenerique"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 636,
+      "line": 684,
       "kind": "endpoint",
       "surface": "e2e.titre"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 637,
+      "line": 685,
       "kind": "endpoint",
       "surface": "e2e.explication"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 639,
+      "line": 687,
       "kind": "endpoint",
       "surface": "e2e.champ"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 640,
+      "line": 688,
       "kind": "endpoint",
       "surface": "e2e.deverrouiller"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 641,
+      "line": 689,
       "kind": "endpoint",
       "surface": "e2e.erreurMotDePasse"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 642,
+      "line": 690,
       "kind": "endpoint",
       "surface": "e2e.erreurGenerique"
     }

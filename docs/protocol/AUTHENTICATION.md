@@ -270,6 +270,21 @@ L'appel reste protégé par le bearer courant ; son renouvellement garde la fami
   Sans renvoyer mot de passe ou OTP, retrouve le défi ou la preuve déjà acceptée,
   même après réponse perdue, restart ou rotation sur la même famille. Un pending
   absent donne `404 reauthentication_not_found`, sans révoquer le chat.
+- `POST /me/reauth/retire` : capacité additive `reauthentication_retirement`,
+  contexte UID / appareil / instance / génération obligatoire et version de
+  preuve attendue. Sous le verrou de famille, avance cette version si elle est
+  encore courante et retire les défis non acceptés associés. Une demande tardive
+  de start ne peut plus les recréer. Un replay d'ancienne version ne modifie pas
+  une nouvelle preuve. Une preuve déjà valide garde exactement son âge,
+  expiration et provenance de facteur, y compris lorsqu'une autre tentative
+  est annulée. La réponse est le statut courant, sans secret ni nouveau bearer.
+
+Sur les serveurs annonçant cette dernière capacité, start accepte aussi le
+champ additif `context` et vérifie ses quatre identifiants sous verrou avant
+toute émission de défi / preuve. Les SDK précédents peuvent omettre ce champ ;
+les nouveaux coffres le fournissent systématiquement. Après retirement, ils
+re-sondent le candidat original : un finish qui avait déjà gagné la course
+peut encore être récupéré. Une erreur réseau seule ne permet aucun remplacement.
 
 Argon2 utilise le même sémaphore CPU de quatre travaux que le login, conservé
 par le vrai travail bloquant après annulation. Son hash est revérifié sous
@@ -300,6 +315,24 @@ y compris après recul d'horloge. Les réponses privées portent `Cache-Control:
 Les familles migrées dont la provenance de facteur est inconnue doivent confirmer
 à nouveau leur identité ; leur date seule ne prouve pas le facteur courant.
 
-Les SDK exposent les routes ; coffres et formulaires de paramètres des trois
-clients restent le raccordement suivant. Les clés / intentions privées de ce
-parcours doivent rester hors SQLite, journal de sync et index des comptes.
+Le mobile utilise désormais ces routes dans les paramètres existants. Un coffre
+privé est lié à l'URL canonique, UID, famille, instance et génération ; sa file
+sérialise les appels HTTP et les écritures entre instances. Il sauvegarde le
+candidat / opération / version avant start et finish, jamais mot de passe ou
+code saisi. Il reprend une preuve déjà acceptée avant de redemander un code.
+Les générations de fournisseur et de focus bloquent les callbacks après
+déconnexion, changement de compte, sortie de l'écran ou suspension.
+
+Un second coffre de ce même périmètre conserve les intentions de configuration,
+activation, remplacement et désactivation. Les reçus privés de codes portent
+la version de facteur **originellement commitée**, également chiffrée dans le
+reçu serveur, et non une version inférée après HTTP. Une modification concurrente
+ne peut présenter une ancienne liste comme courante. Les codes restent dans
+SecureStore jusqu'à confirmation explicite ; les reçus périmés sont fermés
+explicitement sans lancer une autre mutation. Configuration et codes sont
+effacés de l'écran à la sortie / suspension. Toutes ces entrées utilisent
+`WHEN_UNLOCKED_THIS_DEVICE_ONLY`, hors SQLite, push et index des comptes.
+
+Ces parcours et leurs pertes d'ACK sont éprouvés via les vrais endpoints sur
+PostgreSQL jetable et des coffres portables ; ce banc ne valide pas le Keystore
+sur téléphone physique. Coffres / paramètres GTK et SwiftUI restent à raccorder.

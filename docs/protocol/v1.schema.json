@@ -149,6 +149,16 @@
         "challenge_id": {
           "type": "string"
         },
+        "context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReauthenticationContext"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "operation_id": {
           "type": "string"
         },
@@ -247,6 +257,10 @@
           "type": "boolean"
         },
         "reauthentication": {
+          "default": false,
+          "type": "boolean"
+        },
+        "reauthentication_retirement": {
           "default": false,
           "type": "boolean"
         },
@@ -601,6 +615,13 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "factor_version": {
+          "description": "Original committed revision, also carried by the encrypted receipt.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -1243,6 +1264,16 @@
             }
           ]
         },
+        "retire_reauthentication": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RetireReauthentication"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "room_key_envelope": {
           "$ref": "#/$defs/RoomKeyEnvelope"
         },
@@ -1458,6 +1489,31 @@
       ],
       "type": "object"
     },
+    "ReauthenticationContext": {
+      "additionalProperties": false,
+      "description": "Pin proof work to the authenticated account, family and server generation.",
+      "properties": {
+        "data_epoch": {
+          "type": "string"
+        },
+        "device_id": {
+          "type": "string"
+        },
+        "instance_id": {
+          "type": "string"
+        },
+        "user_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id",
+        "device_id",
+        "instance_id",
+        "data_epoch"
+      ],
+      "type": "object"
+    },
     "ReauthenticationGrant": {
       "description": "Metadata about proof on the current family; this is never a credential.",
       "properties": {
@@ -1645,6 +1701,22 @@
       "required": [
         "challenge_id",
         "operation_id"
+      ],
+      "type": "object"
+    },
+    "RetireReauthentication": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/ReauthenticationContext"
+        },
+        "proof_version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "context",
+        "proof_version"
       ],
       "type": "object"
     },

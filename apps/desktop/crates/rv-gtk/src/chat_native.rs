@@ -221,7 +221,7 @@ impl ChatPage {
             return;
         };
         let weak = Rc::downgrade(self);
-        crate::settings::open_native(&self.split, &session.info, self.account_actions.borrow().clone(), move || {
+        crate::settings::open_native(&self.split, session, self.account_actions.borrow().clone(), move || {
             if let Some(this) = weak.upgrade() {
                 for f in this.on_logout.borrow().iter() {
                     f(());

@@ -101,3 +101,9 @@ compteurs ne contiennent aucun secret. Le pair mobile exerce la vraie façade
 SQLite et la reprise portable, avec une sauvegarde en mémoire propre au banc.
 La qualification SecureStore Android, le trousseau Windows / macOS et les essais
 sur appareils restent ouverts dans le [suivi](NATIVE_SERVER_EXECUTION.md).
+
+Le parcours GTK ouvre aussi les paramètres puis la liste d'appareils, développe
+l'appareil courant et applique un nom par le véritable champ Adwaita. Il vérifie
+la valeur serveur et que le champ tient dans la fenêtre. Les modèles Swift
+renomment l'appareil courant, révoquent une seconde session et vérifient son
+refus HTTP 401 ; les contrôles retenus du précédent compte restent inactifs.

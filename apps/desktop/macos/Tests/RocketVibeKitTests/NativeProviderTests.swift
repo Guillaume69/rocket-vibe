@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import RocketVibeCore
 import XCTest
 @testable import RocketVibeKit
@@ -29,6 +32,30 @@ final class NativeProviderTests: XCTestCase {
         let account = try XCTUnwrap(app.account)
         XCTAssertEqual(account.genre, "rocketvibe")
         try await until(diagnostics: { "Native connection: \(native.status())" }) { app.connection == .online }
+
+        let devices = DevicesModel(app: app)
+        await devices.load()
+        XCTAssertNil(devices.error)
+        let thisDevice = try XCTUnwrap(devices.rows.first { $0.current })
+        devices.labels[thisDevice.id] = "Swift desktop"
+        await devices.rename(thisDevice)
+        XCTAssertNil(devices.error)
+        XCTAssertEqual(devices.rows.first { $0.current }?.label, "Swift desktop")
+        let beforeCurrentRevoke = devices.rows.count
+        await devices.revoke(thisDevice)
+        XCTAssertEqual(devices.rows.count, beforeCurrentRevoke, "Use the existing sign-out flow for this device")
+        // A second login kept only in test memory does not replace the app's keychain.
+        let extra = try await makeExtraDevice(server: server, password: password)
+        await devices.load()
+        let otherDevice = try XCTUnwrap(devices.rows.first { $0.id == extra.id })
+        XCTAssertFalse(otherDevice.current)
+        await devices.revoke(otherDevice)
+        XCTAssertNil(devices.error)
+        XCTAssertFalse(devices.rows.contains { $0.id == extra.id })
+        var probe = URLRequest(url: URL(string: server + "/api/v1/me")!)
+        probe.setValue("Bearer " + extra.token, forHTTPHeaderField: "Authorization")
+        let (_, rejected) = try await URLSession.shared.data(for: probe)
+        XCTAssertEqual((rejected as? HTTPURLResponse)?.statusCode, 401)
 
         let rid = try await native.createRoom(name: "swift-native-\(UUID())", private: true)
         try await until { app.rooms.contains { $0.rid == rid } }
@@ -125,6 +152,9 @@ final class NativeProviderTests: XCTestCase {
         let resumed = await app.resume(account)
         XCTAssertTrue(resumed)
         XCTAssertTrue(originalView.messages.isEmpty, "The old room model must be inactive after switching")
+        devices.labels[thisDevice.id] = "Stale device callback"
+        await devices.rename(thisDevice)
+        XCTAssertEqual(devices.rows.first { $0.id == thisDevice.id }?.label, "Swift desktop")
         try await until { app.connection == .online }
         app.open(rid)
         let reopened = try XCTUnwrap(app.room)
@@ -149,6 +179,23 @@ final class NativeProviderTests: XCTestCase {
         XCTAssertTrue(app.accounts.isEmpty)
         let savedAccounts = await app.client.accounts()
         XCTAssertTrue(savedAccounts.isEmpty)
+    }
+
+    @MainActor
+    private func makeExtraDevice(server: String, password: String) async throws -> (id: String, token: String) {
+        var request = URLRequest(url: URL(string: server + "/api/v1/auth/login")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["username":"desktop", "password":password])
+        let (body, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+        let login = try JSONSerialization.jsonObject(with: body) as! [String: Any]
+        let token = try XCTUnwrap(login["token"] as? String)
+        var listing = URLRequest(url: URL(string: server + "/api/v1/me/sessions")!)
+        listing.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+        let (sessions, _) = try await URLSession.shared.data(for: listing)
+        let records = try JSONSerialization.jsonObject(with: sessions) as! [[String: Any]]
+        return (try XCTUnwrap(records.first { $0["current"] as? Bool == true }?["id"] as? String), token)
     }
 
     @MainActor

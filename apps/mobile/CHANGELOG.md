@@ -9,6 +9,10 @@ release, et ses notes sont la section de la version ici.
 
 ### Ajouté
 
+- Appareils RocketVibe connectés dans les paramètres existants : noms, dates
+  d’activité / expiration et révocation après connexion récente. Les alertes
+  conservées d’un ancien compte ne peuvent agir sur le nouveau.
+
 - Renouvellement des sessions RocketVibe avant expiration via SecureStore.
   L'intention sauvegardée reprend après une réponse perdue ; la reconnexion
   conserve les brouillons et l'outbox du compte.

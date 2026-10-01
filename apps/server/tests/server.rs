@@ -128,6 +128,51 @@ async fn session_rotation_replays_without_secrets_and_keeps_device_identity_acro
         .unwrap();
     assert_eq!(initial.len(), 1);
     assert!(initial[0].current);
+    // Last activity is advanced by authenticated traffic, coalesced to five
+    // minutes, without granting a new recent-authentication window.
+    sqlx::query("UPDATE session_devices SET last_seen_at=now()-interval '1 hour' WHERE id=$1")
+        .bind(&initial[0].id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let seen: Vec<DeviceSession> = server
+        .get(&alice.token, "/api/v1/me/sessions")
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(seen[0].last_seen_at > initial[0].last_seen_at);
+    assert_eq!(seen[0].created_at, initial[0].created_at);
+    let recent: Vec<DeviceSession> = server
+        .get(&alice.token, "/api/v1/me/sessions")
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(recent[0].last_seen_at, seen[0].last_seen_at);
+    sqlx::query("UPDATE session_devices SET last_seen_at=now()-interval '1 hour' WHERE id=$1")
+        .bind(&initial[0].id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut activity_lock = pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM session_devices WHERE id=$1 FOR UPDATE")
+        .bind(&initial[0].id)
+        .execute(&mut *activity_lock)
+        .await
+        .unwrap();
+    let admitted = tokio::time::timeout(
+        Duration::from_secs(2),
+        server.get(&alice.token, "/api/v1/me"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        admitted.status(),
+        200,
+        "a locked activity counter cannot block authentication"
+    );
+    activity_lock.rollback().await.unwrap();
     let ticket: SocketTicket = server
         .post(&alice.token, "/api/v1/sync/ticket", json!({}))
         .await

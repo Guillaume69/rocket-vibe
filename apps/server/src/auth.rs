@@ -66,7 +66,9 @@ impl Account {
 }
 
 pub async fn authenticate(app: &App, session_hash: &str) -> Result<Account> {
-    sqlx::query_as::<_, Account>("SELECT u.id, u.username, u.display_name, u.admin,u.activation_version,s.token_hash AS session_hash FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND NOT u.disabled")
+    // Approximate last activity, at most once per five minutes. Skip a device
+    // already being rotated/revoked instead of holding up HTTP authentication.
+    sqlx::query_as::<_, Account>("WITH seen AS (SELECT d.id FROM session_devices d JOIN sessions s ON s.device_id=d.id JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND NOT u.disabled AND d.last_seen_at<now()-interval '5 minutes' FOR UPDATE OF d SKIP LOCKED), touched AS (UPDATE session_devices d SET last_seen_at=GREATEST(d.last_seen_at,now()) FROM seen WHERE d.id=seen.id) SELECT u.id, u.username, u.display_name, u.admin,u.activation_version,s.token_hash AS session_hash FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND NOT u.disabled")
         .bind(session_hash).fetch_optional(&app.pool).await?.ok_or_else(Error::unauthorized)
 }
 

@@ -23,10 +23,11 @@ const LANGUAGE_CHOICES: [&str; 3] = ["auto", "fr", "en"];
 /// Account selection and local preferences are shared by both providers.
 pub fn open_native(
     parent: &impl IsA<gtk::Widget>,
-    info: &rv_core::session::SessionInfo,
+    session: Arc<rv_core::native::NativeSession>,
     accounts: Option<Rc<AccountActions>>,
     sign_out: impl Fn() + 'static,
 ) {
+    let info = &session.info;
     let dialog = adw::PreferencesDialog::builder().title(t("settings.title")).build();
     let page = adw::PreferencesPage::builder().title(t("settings.title")).icon_name("emblem-system-symbolic").build();
     let profile = adw::PreferencesGroup::new();
@@ -36,6 +37,9 @@ pub fn open_native(
     page.add(&profile);
     if let Some(actions) = accounts {
         page.add(&accounts_group(&dialog, info, actions));
+    }
+    if session.supported_features().iter().any(|f| f == "device_sessions") {
+        page.add(&native_devices_group(&dialog, session.clone()));
     }
     if crate::background::SUPPORTED {
         page.add(&background_group(&dialog));
@@ -59,6 +63,151 @@ pub fn open_native(
     page.add(&group);
     dialog.add(&page);
     dialog.present(Some(parent));
+}
+
+fn device_error(error: &rv_core::native::Error) -> &'static str {
+    if error.code() == "reauthentication_required" { t("devices.reauth") } else { t("devices.failed") }
+}
+
+fn native_devices_group(
+    dialog: &adw::PreferencesDialog,
+    session: Arc<rv_core::native::NativeSession>,
+) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder().title(t("devices.title")).build();
+    let load = adw::ButtonRow::builder().title(t("devices.title")).css_classes(["native-devices-open"]).build();
+    group.add(&load);
+    let parent = dialog.downgrade();
+    load.connect_activated(move |_| {
+        let Some(parent) = parent.upgrade() else { return };
+        let dialog = adw::PreferencesDialog::builder()
+            .title(t("devices.title"))
+            .content_width(560)
+            .content_height(560)
+            .css_classes(["native-devices-dialog"])
+            .build();
+        let page = adw::PreferencesPage::new();
+        let group = adw::PreferencesGroup::new();
+        let status = adw::ActionRow::builder().title(t("devices.loading")).build();
+        group.add(&status);
+        page.add(&group);
+        dialog.add(&page);
+        dialog.present(Some(&parent));
+        let weak = dialog.downgrade();
+        let session = session.clone();
+        glib::spawn_future_local(async move {
+            let s = session.clone();
+            let result = on_tokio(async move { s.device_sessions().await }).await;
+            let Some(dialog) = weak.upgrade() else { return };
+            group.remove(&status);
+            match result {
+                Err(error) => group.add(&adw::ActionRow::builder().title(device_error(&error)).build()),
+                Ok(devices) => {
+                    for device in devices {
+                        let title = if device.label.is_empty() { t("devices.unnamed") } else { &device.label };
+                        let row = adw::ExpanderRow::builder()
+                            .title(glib::markup_escape_text(title))
+                            .subtitle(if device.current { t("devices.current") } else { "" })
+                            .build();
+                        let name = adw::EntryRow::builder()
+                            .title(t("devices.name"))
+                            .text(&device.label)
+                            .show_apply_button(true)
+                            .build();
+                        if device.current {
+                            name.add_css_class("native-device-current-name");
+                        }
+                        row.add_row(&name);
+                        for (key, value) in [
+                            ("devices.created", &device.created_at),
+                            ("devices.seen", &device.last_seen_at),
+                            ("devices.expires", &device.expires_at),
+                        ] {
+                            row.add_row(&adw::ActionRow::builder().title(t(key)).subtitle(value).build());
+                        }
+                        let (weak_dialog, weak_row) = (dialog.downgrade(), row.downgrade());
+                        let (s, id) = (session.clone(), device.id.clone());
+                        name.connect_apply(move |entry| {
+                            let (s, id, label, entry, parent, row) = (
+                                s.clone(),
+                                id.clone(),
+                                entry.text().to_string(),
+                                entry.clone(),
+                                weak_dialog.clone(),
+                                weak_row.clone(),
+                            );
+                            entry.set_sensitive(false);
+                            glib::spawn_future_local(async move {
+                                let saved = label.clone();
+                                let result = on_tokio(async move { s.rename_device(&id, &saved).await }).await;
+                                entry.set_sensitive(true);
+                                if let Some(dialog) = parent.upgrade() {
+                                    match result {
+                                        Ok(()) => {
+                                            if let Some(row) = row.upgrade() {
+                                                row.set_title(&glib::markup_escape_text(if label.is_empty() {
+                                                    t("devices.unnamed")
+                                                } else {
+                                                    &label
+                                                }));
+                                            }
+                                        }
+                                        Err(error) => toast_of(&dialog, device_error(&error)),
+                                    }
+                                }
+                            });
+                        });
+                        if !device.current {
+                            let revoke = adw::ButtonRow::builder()
+                                .title(t("devices.revoke"))
+                                .css_classes(["destructive-action"])
+                                .build();
+                            let (s, id, parent, weak_row, weak_group) =
+                                (session.clone(), device.id, dialog.downgrade(), row.downgrade(), group.downgrade());
+                            revoke.connect_activated(move |_| {
+                                let Some(parent) = parent.upgrade() else { return };
+                                let confirm = adw::AlertDialog::builder()
+                                    .heading(t("devices.confirm"))
+                                    .body(t("devices.confirm_body"))
+                                    .default_response("cancel")
+                                    .close_response("cancel")
+                                    .build();
+                                confirm
+                                    .add_responses(&[("cancel", t("actions.cancel")), ("revoke", t("devices.revoke"))]);
+                                confirm.set_response_appearance("revoke", adw::ResponseAppearance::Destructive);
+                                let (s, id, response_parent, row, group) =
+                                    (s.clone(), id.clone(), parent.downgrade(), weak_row.clone(), weak_group.clone());
+                                confirm.connect_response(Some("revoke"), move |_, _| {
+                                    let (s, id, parent, row, group) =
+                                        (s.clone(), id.clone(), response_parent.clone(), row.clone(), group.clone());
+                                    if let Some(row) = row.upgrade() {
+                                        row.set_sensitive(false);
+                                    }
+                                    glib::spawn_future_local(async move {
+                                        let result = on_tokio(async move { s.revoke_device(&id).await }).await;
+                                        if let (Some(dialog), Some(row), Some(group)) =
+                                            (parent.upgrade(), row.upgrade(), group.upgrade())
+                                        {
+                                            match result {
+                                                Ok(()) => group.remove(&row),
+                                                Err(error) => {
+                                                    row.set_sensitive(true);
+                                                    toast_of(&dialog, device_error(&error));
+                                                }
+                                            }
+                                        }
+                                    });
+                                });
+                                confirm.present(Some(&parent));
+                            });
+                            row.add_row(&revoke);
+                        }
+                        group.add(&row);
+                    }
+                }
+            }
+        });
+    });
+    group
 }
 
 fn combo(title: &str, labels: &[&str], selected: usize) -> adw::ComboRow {

@@ -66,6 +66,13 @@ d'un ancien fournisseur arrêté ne peuvent pas publier un renouvellement tardif
 Les tests portables et le banc PostgreSQL prouvent le protocole et le runner ;
 le Keystore et le cycle de vie natif Android exigent encore un appareil.
 
+Les paramètres communs accueillent aussi les appareils natifs : liste privée,
+nom, activité / expiration et révocation d'un autre appareil après connexion
+récente. Les actions utilisent le runner actif ; une confirmation retenue après
+bascule ne peut agir sur le fournisseur suivant. L'appareil courant conserve le
+parcours de déconnexion existant. Le formulaire est typé, linté et exporté dans
+le bundle Android ; le rendu et les confirmations Android restent à qualifier.
+
 Depuis `apps/mobile` :
 
 ```sh

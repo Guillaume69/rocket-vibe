@@ -34,6 +34,9 @@ struct SettingsView: View {
             if app.chat != nil {
                 MyProfileSection()
             }
+            if app.native?.supportedFeatures().contains("device_sessions") == true {
+                DevicesSection()
+            }
             if app.chat != nil {
                 Section(L("e2e.status")) {
                     HStack {
@@ -75,6 +78,56 @@ struct SettingsView: View {
             language = (try? String(contentsOfFile: app.client.configDir() + "/language", encoding: .utf8))?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? "auto"
         }
+    }
+}
+
+struct DevicesSection: View {
+    @Environment(AppModel.self) var app
+    @State private var model: DevicesModel?
+    @State private var selected: NativeDeviceSession?
+    @State private var selectedModel: DevicesModel?
+
+    var body: some View {
+        Section(L("devices.title")) {
+            if let model {
+                if model.busy { ProgressView(L("devices.loading")) }
+                ForEach(model.rows, id: \.id) { device in
+                    DisclosureGroup((device.label.isEmpty ? L("devices.unnamed") : device.label) + (device.current ? " · " + L("devices.current") : "")) {
+                        if device.current { Text(L("devices.current")).foregroundStyle(.secondary) }
+                        TextField(L("devices.name"), text: Binding(get: { model.labels[device.id] ?? device.label }, set: { model.labels[device.id] = $0 }))
+                        Button(L("settings.save")) { Task { await model.rename(device) } }
+                            .disabled(model.busy || (model.labels[device.id] ?? device.label) == device.label)
+                        LabeledContent(L("devices.created"), value: date(device.createdAt))
+                        LabeledContent(L("devices.seen"), value: date(device.lastSeenAt))
+                        LabeledContent(L("devices.expires"), value: date(device.expiresAt))
+                        if !device.current {
+                            Button(L("devices.revoke"), role: .destructive) { selectedModel = model; selected = device }
+                                .disabled(model.busy)
+                        }
+                    }
+                }
+                if let error = model.error { Text(error).foregroundStyle(.red) }
+                Button(L("devices.refresh")) { Task { await model.load() } }.disabled(model.busy)
+            }
+        }
+        .task(id: app.native.map(ObjectIdentifier.init)) {
+            selected = nil; selectedModel = nil
+            let fresh = DevicesModel(app: app); model = fresh; await fresh.load()
+        }
+        .alert(L("devices.confirm"), isPresented: Binding(get: { selected != nil }, set: { if !$0 { selected = nil } })) {
+            Button(L("devices.revoke"), role: .destructive) {
+                if let device = selected, let expected = selectedModel { Task { await expected.revoke(device) } }
+                selected = nil
+            }
+            Button(L("actions.cancel"), role: .cancel) { selected = nil }
+        } message: { Text(L("devices.confirm_body")) }
+    }
+    private func date(_ value: String) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let parsed = formatter.date(from: value)
+        formatter.formatOptions = [.withInternetDateTime]
+        return (parsed ?? formatter.date(from: value))?.formatted(date: .abbreviated, time: .shortened) ?? value
     }
 }
 

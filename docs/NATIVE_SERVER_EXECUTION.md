@@ -315,6 +315,22 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P01, appareils : les paramètres existants mobile / GTK / SwiftUI listent les
+  sessions du compte, affichent l'appareil courant, les dates et permettent de
+  renommer / révoquer un autre appareil. Le fournisseur relit les credentials
+  sécurisés avant les commandes bureau. La révocation exige une connexion récente
+  côté serveur ; rotation et activité ne la prolongent pas. Le suivi d'activité
+  est coalescé à cinq minutes et saute les lignes verrouillées. Les fournisseurs
+  fermés et les confirmations d'un ancien compte ne peuvent muter une nouvelle
+  session. Les tests du transport conservent code / request ID du refus de
+  réauthentification ; le modèle Swift nomme l'appareil et révoque une seconde
+  session réellement créée en PostgreSQL, puis constate son refus HTTP 401.
+  GTK ouvre les paramètres / appareils et applique le nom par le champ Adwaita,
+  avec lecture serveur et contrôle des limites du champ dans le dialogue.
+  Typecheck / lint et 1 003 tests mobiles passent ; le bundle Android est exporté.
+  Les validations physiques restent ouvertes, ainsi que récupération / invitations
+  et le défi de réauthentification / second facteur P02.
+
 - P01, renouvellement dans les apps : SecureStore mobile et trousseaux GTK / Swift
   conservent le successeur avant HTTP puis le reprennent après réponse perdue.
   Les écritures par compte sont sérialisées, y compris quand l'appelant d'une

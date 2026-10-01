@@ -178,7 +178,7 @@ ouverte tant que serveur, clients concernés et scénario de parité manquent.
 
 | ID / RFC §4 | Lot | État et prochaine condition de sortie |
 |---|---|---|
-| P01 Découverte / comptes / sessions | J1–J2 | Rotation et reprise raccordées à SecureStore / trousseaux GTK et Swift ; API privée d'appareils testée, interfaces appareils / récupération / invitations à livrer |
+| P01 Découverte / comptes / sessions | J1–J2 | Rotation / reprise sécurisée et paramètres d'appareils raccordés aux trois clients ; qualification sur appareils, récupération / invitations à livrer |
 | P02 2FA | J2 | Défis TOTP / email / secours, quotas et parcours existants dans les 3 clients |
 | P03 Multi-serveurs | J1 | Isolation livrée ; validation appareils / liens et générations après restauration |
 | P04 Salons / DM | J1–J2 | DM / membres, création idempotente et découverte / join livrés ; détails / rôles à compléter |

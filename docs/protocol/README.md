@@ -105,8 +105,13 @@ mobile, Secret Service / Credential Manager GTK et Keychain Swift. GTK et Swift
 sérialisent leurs écritures avec un fichier de verrou vide commun ; aucun secret
 de renouvellement ne rejoint SQLite. Les écritures déjà engagées conservent le
 verrou si leur appelant est annulé. La connexion et un contrôle quotidien déclenchent
-un renouvellement à moins de deux jours de l'expiration. Les interfaces appareils
-et la qualification sur systèmes / appareils réels restent dans P01.
+un renouvellement à moins de deux jours de l'expiration. Les paramètres existants
+des trois clients listent et renomment les appareils et révoquent une autre
+session après connexion récente. L'appareil courant utilise le parcours de
+déconnexion existant. La date d'activité est actualisée au plus une fois toutes
+les cinq minutes par trafic authentifié ; ce suivi saute un appareil verrouillé
+au lieu de retarder la requête et ne prolonge pas la connexion récente.
+La qualification sur systèmes / appareils réels reste dans P01.
 
 ### Réactions
 

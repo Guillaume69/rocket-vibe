@@ -83,6 +83,15 @@ pub struct NativeStatus {
     pub request_id: Option<String>,
     pub retry_after: Option<u64>,
 }
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct NativeDeviceSession {
+    pub id: String,
+    pub label: String,
+    pub created_at: String,
+    pub last_seen_at: String,
+    pub expires_at: String,
+    pub current: bool,
+}
 #[derive(uniffi::Object)]
 pub struct NativeChat {
     session: Arc<NativeSession>,
@@ -158,6 +167,29 @@ impl Client {
 }
 #[uniffi::export]
 impl NativeChat {
+    pub async fn device_sessions(&self) -> Result<Vec<NativeDeviceSession>, RvError> {
+        let s = self.session.clone();
+        let devices = on_tokio(async move { s.device_sessions().await }).await.map_err(native_error)?;
+        Ok(devices
+            .into_iter()
+            .map(|d| NativeDeviceSession {
+                id: d.id,
+                label: d.label,
+                created_at: d.created_at,
+                last_seen_at: d.last_seen_at,
+                expires_at: d.expires_at,
+                current: d.current,
+            })
+            .collect())
+    }
+    pub async fn rename_device(&self, id: String, label: String) -> Result<(), RvError> {
+        let s = self.session.clone();
+        on_tokio(async move { s.rename_device(&id, &label).await }).await.map_err(native_error)
+    }
+    pub async fn revoke_device(&self, id: String) -> Result<(), RvError> {
+        let s = self.session.clone();
+        on_tokio(async move { s.revoke_device(&id).await }).await.map_err(native_error)
+    }
     /// Shared UI events; callbacks cease when this provider is shut down.
     pub fn set_listener(&self, listener: Arc<dyn Listener>) {
         let (mut changes, mut events) = (self.session.store.changes(), self.session.events());

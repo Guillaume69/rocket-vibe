@@ -47,3 +47,8 @@ export RV_SMOKE_EXPECT='GTK native edit after' RV_SMOKE_EXPECT_ABSENT='GTK nativ
 export RV_SMOKE_SHOT=/workspace/artifacts/native-desktop-edit.png
 run_with_keyring
 echo 'GTK native account: saved session resumed from real Secret Service after process restart'
+# Existing settings -> devices -> current device name, through the real widgets.
+unset RV_SMOKE_EDIT
+export RV_SMOKE_DEVICES=1 RV_SMOKE_EXPECT='' RV_SMOKE_EXPECT_ABSENT=''
+export RV_SMOKE_SHOT=/workspace/artifacts/native-desktop-devices.png
+run_with_keyring

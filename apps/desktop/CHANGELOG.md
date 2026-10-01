@@ -9,6 +9,10 @@ section here.
 
 ### Added
 
+- Native signed-in devices in the existing settings, with names, activity and
+  expiry dates. Another device can be revoked after a recent sign-in; retained
+  controls cannot act after switching accounts.
+
 - Native sessions renew before expiry through the system keychain. A durable
   successor recovers a lost response, and GTK / Swift serialize credential writes
   without discarding SQLite drafts or pending actions.

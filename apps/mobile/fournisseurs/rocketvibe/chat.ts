@@ -169,6 +169,29 @@ export class NativeChat {
     if (this.stopped) throw new NativeError(0,'session_closed');
     if (!this.verified) throw new NativeError(0,'offline');
   }
+  private deviceAccess():number {
+    this.ready();
+    if(!this.capabilities?.device_sessions)throw new NativeError(501,'unsupported_feature');
+    return this.generation;
+  }
+  async deviceSessions():Promise<import('./protocol.generated.ts').DeviceSession[]> {
+    const generation=this.deviceAccess();
+    const devices=await this.transport.deviceSessions();
+    if(this.stopped || generation!==this.generation)throw new NativeError(0,'session_closed');
+    if(devices.filter(d=>d.current).length!==1 || new Set(devices.map(d=>d.id)).size!==devices.length)throw new NativeError(502,'invalid_native_session');
+    return devices;
+  }
+  async renameDevice(id:string,label:string):Promise<void> {
+    const generation=this.deviceAccess();await this.transport.renameDevice(id,label);
+    if(this.stopped || generation!==this.generation)throw new NativeError(0,'session_closed');
+  }
+  async revokeDevice(id:string):Promise<void> {
+    const generation=this.deviceAccess();
+    if((await this.deviceSessions()).some(d=>d.id===id && d.current))throw new NativeError(409,'current_device_requires_logout');
+    if(this.stopped || generation!==this.generation)throw new NativeError(0,'session_closed');
+    await this.transport.revokeDevice(id);
+    if(this.stopped || generation!==this.generation)throw new NativeError(0,'session_closed');
+  }
   async messagePermissions(id: string): Promise<import('./protocol.generated.ts').MessagePermissions> {
     this.ready();
     if (!this.capabilities?.fine_permissions) throw new NativeError(501,'unsupported_feature');

@@ -10,6 +10,36 @@ import { NativeStore } from './store.ts';
 import { nativeTestDatabase } from './testDatabase.ts';
 import { NativeError, NativeTransport } from './transport.ts';
 
+test('device actions preserve recent-auth failures and discard replies after provider closure',async()=>{
+  const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:fixture.session.user.id,username:'alice',genre:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const {db,adapter}=nativeTestDatabase();const store=new NativeStore(adapter,creerFileEcritures(),session);
+  await store.applySnapshot({protocol_version:1,rooms:[],messages:[],cursor:'initial'});
+  const current={id:'device-1',label:'Mobile',created_at:'2026-10-01T00:00:00Z',last_seen_at:'2026-10-01T00:00:00Z',expires_at:'2026-11-01T00:00:00Z',current:true};
+  let mutations=0;let hold=false;let started:()=>void=()=>{};const waiting=new Promise<void>(resolve=>{started=resolve;});
+  let release:(devices:typeof current[])=>void=()=>{throw new Error('No device waiter');};
+  const transport={
+    discover:async()=>({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,device_sessions:true}}),me:async()=>fixture.session.user,
+    changes:async()=>({protocol_version:1,changes:[],cursor:'initial',has_more:false}),socketUrl:async()=>'ws://localhost/fake',
+    deviceSessions:async()=>{if(hold){started();return new Promise<typeof current[]>(resolve=>{release=resolve;});}return [current];},
+    renameDevice:async(id:string,label:string)=>{assert.equal(id,current.id);current.label=label;mutations++;},
+    revokeDevice:async()=>{mutations++;throw new NativeError(403,'reauthentication_required',undefined,'reauth-device');},
+  } as unknown as NativeTransport;
+  const chat=new NativeChat(session,store,()=>{throw new Error('No send');},{transport,socket:()=>{
+    const socket={readyState:0,onopen:null,onclose:null,onerror:null,onmessage:null,close:()=>{}} as unknown as WebSocket;
+    queueMicrotask(()=>socket.onopen?.(new Event('open')));return socket;
+  }});
+  try {
+    await chat.connect();assert.equal((await chat.deviceSessions())[0].label,'Mobile');
+    await chat.renameDevice(current.id,'Mobile renamed');assert.equal((await chat.deviceSessions())[0].label,'Mobile renamed');
+    await assert.rejects(chat.revokeDevice(current.id),/current_device_requires_logout/);
+    await assert.rejects(chat.revokeDevice('other'),e=>e instanceof NativeError && e.code==='reauthentication_required' && e.requestId==='reauth-device');
+    hold=true;const read=chat.deviceSessions();await waiting;chat.stop();release([current]);await assert.rejects(read,/session_closed/);
+    await assert.rejects(chat.renameDevice(current.id,'Stale callback'),/session_closed/);
+    await assert.rejects(chat.revokeDevice('other'),/session_closed/);assert.equal(mutations,2);
+  } finally {chat.stop();await store.state();db.close();}
+});
+
 test('secure renewal precedes replay and a stopped runner cannot adopt its delayed result',async()=>{
   const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
   const session:Session={baseUrl:'http://localhost:3400',authToken:'old-token',userId:fixture.session.user.id,username:'alice',genre:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};

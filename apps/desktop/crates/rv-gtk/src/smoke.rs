@@ -144,6 +144,10 @@ pub fn install(window: &Rc<AppWindow>) {
             let Some(rid) = w.chat.room_named(&room) else { return };
             opened.set(true);
             w.chat.open_room(&rid);
+            if std::env::var("RV_SMOKE_DEVICES").as_deref() == Ok("1") {
+                let w = w.clone();
+                glib::timeout_add_local_once(Duration::from_millis(1500), move || native_devices_checks(w));
+            }
             if std::env::var("RV_SMOKE_COMPOSER").as_deref() == Ok("1") {
                 let chat = w.chat.clone();
                 glib::timeout_add_local_once(Duration::from_millis(2000), move || composer_checks(chat));
@@ -1088,6 +1092,60 @@ fn soak(column: gtk::Box, samples: Vec<crate::rows::Display>, seconds: u32) {
             return glib::ControlFlow::Break;
         }
         glib::ControlFlow::Continue
+    });
+}
+
+fn native_devices_checks(window: Rc<AppWindow>) {
+    let Some(session) = window.chat.native_session() else {
+        check("native devices provider", false, 0);
+        return;
+    };
+    crate::settings::open_native(window.chat.widget(), session.clone(), None, || {});
+    glib::spawn_future_local(async move {
+        let root = window.window.upcast_ref::<gtk::Widget>();
+        let button = find_by_class(root, "native-devices-open").and_downcast::<adw::ButtonRow>();
+        check("native device settings entry", button.is_some(), usize::from(button.is_some()));
+        let Some(button) = button else { return };
+        button.emit_by_name::<()>("activated", &[]);
+        let mut entry = None;
+        for _ in 0..100 {
+            entry = find_by_class(root, "native-device-current-name").and_downcast::<adw::EntryRow>();
+            if entry.is_some() {
+                break;
+            }
+            glib::timeout_future(Duration::from_millis(25)).await;
+        }
+        check("native current device entry", entry.is_some(), usize::from(entry.is_some()));
+        let Some(entry) = entry else { return };
+        let mut ancestor = entry.parent();
+        while let Some(widget) = ancestor {
+            if let Some(row) = widget.downcast_ref::<adw::ExpanderRow>() {
+                row.set_expanded(true);
+                break;
+            }
+            ancestor = widget.parent();
+        }
+        entry.set_text("GTK pilot device");
+        entry.emit_by_name::<()>("apply", &[]);
+        let mut saved = false;
+        for _ in 0..100 {
+            let s = session.clone();
+            saved = crate::on_tokio(async move { s.device_sessions().await })
+                .await
+                .is_ok_and(|devices| devices.iter().any(|d| d.current && d.label == "GTK pilot device"));
+            if saved && entry.is_sensitive() {
+                break;
+            }
+            glib::timeout_future(Duration::from_millis(25)).await;
+        }
+        check("native GTK device name saved", saved && entry.is_sensitive(), usize::from(saved));
+        glib::timeout_future(Duration::from_millis(300)).await;
+        let fits = find_by_class(root, "native-devices-dialog").is_some_and(|dialog| {
+            entry
+                .compute_bounds(&dialog)
+                .is_some_and(|bounds| bounds.y() >= 0.0 && bounds.y() + bounds.height() <= dialog.height() as f32)
+        });
+        check("native device editor fits dialog", fits, usize::from(fits));
     });
 }
 

@@ -332,6 +332,7 @@ impl NativeSession {
                     stars: true,
                     fine_permissions: true,
                     session_rotation: self.credentials.is_some(),
+                    device_sessions: true,
                     ..Default::default()
                 })
             })
@@ -343,8 +344,7 @@ impl NativeSession {
         self.store.snapshot(&snapshot)?;
         Ok(())
     }
-    async fn cycle(&self) -> Result<(), Error> {
-        self.identity().await?;
+    async fn refresh_credentials(&self) -> Result<(), Error> {
         if let Some(credentials) = &self.credentials {
             let fresh = credentials.resume(self.credential_info()).await?;
             if fresh.base_url != self.info.base_url
@@ -355,6 +355,11 @@ impl NativeSession {
             }
             self.client.update_token(fresh.auth_token);
         }
+        Ok(())
+    }
+    async fn cycle(&self) -> Result<(), Error> {
+        self.identity().await?;
+        self.refresh_credentials().await?;
         if self.client.me().await?.id != self.info.user_id {
             return Err(Error::Protocol("session_rejected"));
         }
@@ -687,6 +692,46 @@ impl NativeSession {
         self.ready()?;
         Ok(users)
     }
+    fn device_access(&self) -> Result<(), Error> {
+        self.ready()?;
+        if !self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.device_sessions) {
+            return Err(Error::Protocol("unsupported_feature"));
+        }
+        Ok(())
+    }
+    pub async fn device_sessions(&self) -> Result<Vec<rv_protocol::parity::DeviceSession>, Error> {
+        self.device_access()?;
+        self.refresh_credentials().await?;
+        self.device_access()?;
+        let devices = self.client.device_sessions().await?;
+        self.ready()?;
+        let mut ids = std::collections::HashSet::new();
+        if devices.len() > 64
+            || devices.iter().filter(|d| d.current).count() != 1
+            || devices.iter().any(|d| !ids.insert(&d.id))
+        {
+            return Err(Error::Protocol("invalid_native_session"));
+        }
+        Ok(devices)
+    }
+    pub async fn rename_device(&self, id: &str, label: &str) -> Result<(), Error> {
+        self.device_access()?;
+        self.refresh_credentials().await?;
+        self.device_access()?;
+        self.client.rename_device(id, &rv_protocol::parity::RenameDevice { label: label.into() }).await?;
+        self.ready()
+    }
+    pub async fn revoke_device(&self, id: &str) -> Result<(), Error> {
+        self.device_access()?;
+        self.refresh_credentials().await?;
+        self.device_access()?;
+        if self.client.device_sessions().await?.iter().any(|d| d.id == id && d.current) {
+            return Err(Error::Protocol("current_device_requires_logout"));
+        }
+        self.device_access()?;
+        self.client.revoke_device(id).await?;
+        self.ready()
+    }
     pub async fn history(&self, rid: &str, older: bool) -> Result<bool, Error> {
         self.ready()?;
         let projection = self.store.projection_token();
@@ -784,6 +829,7 @@ impl NativeSession {
     }
     pub async fn logout(&self) -> Result<(), Error> {
         self.identity().await?;
+        self.refresh_credentials().await?;
         self.client.logout().await?;
         Ok(())
     }

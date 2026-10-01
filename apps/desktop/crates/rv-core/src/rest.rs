@@ -231,6 +231,49 @@ impl RestClient {
         Ok((bytes.to_vec(), content_type))
     }
 
+    /// Streams a server file into `dest`, reporting the bytes received so
+    /// far. The client's 15 s cap would cut any large file: here only a
+    /// silence of `STALL` ends the transfer.
+    pub async fn download_protected(
+        &self,
+        path_or_url: &str,
+        dest: &std::path::Path,
+        progress: impl Fn(u64) + Send,
+    ) -> Result<(), RestError> {
+        use tokio::io::AsyncWriteExt as _;
+        const STALL: Duration = Duration::from_secs(30);
+        let credentials = self.credentials();
+        let Some(url) = crate::media::protected_url(&self.base, credentials.as_ref(), path_or_url) else {
+            return Err(RestError::network(format!("{path_or_url}: not a URL.")));
+        };
+        let lost = || RestError::network(format!("{path_or_url}: connection lost while reading."));
+        let request = self.http.get(url).timeout(Duration::from_secs(24 * 3600)).send();
+        let mut response = tokio::time::timeout(STALL, request)
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .ok_or_else(|| RestError::network(format!("{path_or_url}: server unreachable.")))?;
+        let status = response.status().as_u16();
+        if !(200..300).contains(&status) {
+            return Err(RestError {
+                status,
+                message: format!("{path_or_url}: HTTP {status}."),
+                ..RestError::network(String::new())
+            });
+        }
+        let written = |e: std::io::Error| RestError::incomplete(&format!("{}: {e}", dest.display()));
+        let mut file = tokio::fs::File::create(dest).await.map_err(written)?;
+        let mut received = 0u64;
+        while let Some(chunk) =
+            tokio::time::timeout(STALL, response.chunk()).await.map_err(|_| lost())?.map_err(|_| lost())?
+        {
+            file.write_all(&chunk).await.map_err(written)?;
+            received += chunk.len() as u64;
+            progress(received);
+        }
+        file.flush().await.map_err(written)
+    }
+
     fn url_for(&self, path: &str, options: &CallOptions) -> Url {
         let mut url = self.base.clone();
         let prefix = if options.outside_api_v1 { "/" } else { "/api/v1/" };

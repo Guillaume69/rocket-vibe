@@ -132,3 +132,32 @@ async fn query_is_encoded() {
     client(&server, None).get("rooms.get", options).await.unwrap();
     assert_eq!(server.requests()[0].target, "/api/v1/rooms.get?updatedSince=2026-09-22T10%3A00%3A00.000Z&q=a%2Bb%26c");
 }
+
+#[tokio::test]
+async fn a_file_streams_to_disk_with_its_progress() {
+    let body = "0123456789".repeat(30_000);
+    let served = body.clone();
+    let server = FakeHttp::start(move |r| match r.path() {
+        "/file-upload/f1/clip.mp4" => respond(200, &served),
+        _ => respond(404, "{}"),
+    })
+    .await;
+    let c = client(&server, Some("tok"));
+    let dir = std::env::temp_dir().join(format!("rv-download-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let dest = dir.join("clip.mp4");
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = seen.clone();
+    c.download_protected("/file-upload/f1/clip.mp4", &dest, move |n| log.lock().unwrap().push(n)).await.unwrap();
+    assert_eq!(std::fs::read_to_string(&dest).unwrap(), body);
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(seen.last(), Some(&(body.len() as u64)));
+    assert!(seen.windows(2).all(|w| w[0] < w[1]));
+    assert!(server.requests()[0].target.contains("rc_token=tok"));
+
+    let missing = dir.join("missing.mp4");
+    let e = c.download_protected("/file-upload/nope", &missing, |_| {}).await.unwrap_err();
+    assert_eq!(e.status, 404);
+    assert!(!missing.exists());
+    std::fs::remove_dir_all(dir).unwrap();
+}

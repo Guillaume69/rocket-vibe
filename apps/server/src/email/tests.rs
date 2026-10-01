@@ -9,7 +9,7 @@ use tokio::{
     net::TcpListener,
     sync::Mutex,
 };
-const PASSWORD: &str = "email-fixture-password-2026";
+pub(super) const PASSWORD: &str = "email-fixture-password-2026";
 const KEY: &str = "3737373737373737373737373737373737373737373737373737373737373737";
 
 #[sqlx::test]
@@ -81,7 +81,7 @@ async fn actual_typescript_provider_and_private_vault_resume_lost_mail_replies(p
     assert_eq!(result, (1, 1, 1, 1, true, true));
 }
 
-struct Relay {
+pub(super) struct Relay {
     port: u16,
     messages: Arc<Mutex<Vec<String>>>,
     task: tokio::task::JoinHandle<()>,
@@ -208,7 +208,7 @@ impl Drop for Relay {
     }
 }
 impl Relay {
-    async fn start(lose_first: bool) -> Self {
+    pub(super) async fn start(lose_first: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let messages = Arc::new(Mutex::new(Vec::new()));
@@ -269,7 +269,7 @@ impl Relay {
             task,
         }
     }
-    async fn code(&self, address: &str) -> String {
+    pub(super) async fn code(&self, address: &str) -> String {
         let messages = self.messages.lock().await;
         let message = messages
             .iter()
@@ -282,7 +282,7 @@ impl Relay {
             .to_owned()
     }
 }
-async fn fixture(pool: &sqlx::PgPool, relay: &Relay) -> (App, Account) {
+pub(super) async fn fixture(pool: &sqlx::PgPool, relay: &Relay) -> (App, Account) {
     let app = App::from_pool_with_auth_key(pool.clone(), Some(AuthKey::from_hex(KEY).unwrap()))
         .await
         .unwrap()
@@ -298,7 +298,11 @@ async fn fixture(pool: &sqlx::PgPool, relay: &Relay) -> (App, Account) {
         .unwrap();
     (app, account)
 }
-async fn start_input(app: &App, account: &Account, address: &str) -> BeginEmailVerification {
+pub(super) async fn start_input(
+    app: &App,
+    account: &Account,
+    address: &str,
+) -> BeginEmailVerification {
     let status = status(app, account).await.unwrap();
     BeginEmailVerification {
         address: address.into(),
@@ -309,7 +313,10 @@ async fn start_input(app: &App, account: &Account, address: &str) -> BeginEmailV
         context: status.context,
     }
 }
-fn confirmation(input: &BeginEmailVerification, code: String) -> ConfirmEmailVerification {
+pub(super) fn confirmation(
+    input: &BeginEmailVerification,
+    code: String,
+) -> ConfirmEmailVerification {
     ConfirmEmailVerification {
         verification_id: input.verification_id.clone(),
         operation_id: input.operation_id.clone(),

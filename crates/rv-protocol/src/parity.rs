@@ -414,6 +414,14 @@ pub struct RoomKeyEnvelope {
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct ParityContract {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remove_verified_email: Option<RemoveVerifiedEmail>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_email_removal: Option<ResumeEmailRemoval>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retire_email_removal: Option<RetireEmailRemoval>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email_removal_receipt: Option<EmailRemovalReceipt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub email_status: Option<EmailStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub begin_email_verification: Option<BeginEmailVerification>,
@@ -574,4 +582,33 @@ pub enum EmailDeliveryState {
     Deferred,
     Accepted,
     Exhausted,
+}
+
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RemoveVerifiedEmail {
+    pub operation_id: String,
+    pub expected_version: String,
+    pub verification_version: String,
+    pub context: ReauthenticationContext,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ResumeEmailRemoval {
+    pub operation_id: String,
+    pub context: ReauthenticationContext,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RetireEmailRemoval {
+    pub expected_version: String,
+    pub verification_version: String,
+    pub context: ReauthenticationContext,
+}
+/// A removal receipt never returns the former private address or a credential.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+pub struct EmailRemovalReceipt {
+    pub version: String,
+    pub verification_version: String,
+    pub context: ReauthenticationContext,
 }

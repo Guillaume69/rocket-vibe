@@ -315,6 +315,27 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, retrait du contact serveur / SDK : migration 0018 et trois routes privées
+  start / resume / retire, avec capacité additive indépendante de SMTP. Le
+  premier retrait exige une preuve récente et les versions affichées ; il
+  supprime contact, anciens défis et charges de livraison sur tous les appareils,
+  sans changer famille, bearer, facteurs, mot de passe ni âge de preuve.
+  Le reçu hashé, sans ancienne adresse, dure cinq minutes. Rejeux, nettoyage ou
+  remplacement du contact ne permettent pas de retirer une nouvelle adresse.
+  L'annulation compare contact et tête : elle bloque un start tardif et préserve
+  une nouvelle vérification sous la même tête après changement de contact.
+  Quatorze tests PostgreSQL / HTTP / SDK Rust couvrent ces courses, absence de
+  SMTP, autorité, suppression des anciens codes et échéances expirant sous
+  verrou. Le [contrat e-mail](protocol/EMAIL.md) précise les garanties.
+  La suite complète passe : 119 tests serveur, 7 tests contrat / client, 112
+  tests SDK TypeScript, workspace bureau Fedora, 1 062 tests mobiles, typecheck
+  et lint. Un premier lancement en parallèle des builds a dépassé la seconde
+  d'un ancien test de verrouillage ; ce test passe isolément puis dans la suite
+  avec `RUST_TEST_THREADS=4`. Aucun test ou délai produit n'a été modifié.
+  Les coffres et boutons de retrait mobile / GTK / SwiftUI restent le prochain
+  lot ; le facteur e-mail, la récupération et les appareils installés restent
+  ouverts. Ce socle ne ferme pas P02.
+
 - P02, adresse e-mail bureau : formulaires dans les paramètres GTK / SwiftUI
   existants, traduction FR / EN et coffre Rust partagé avec preuves et facteurs.
   Le candidat précède HTTP dans le trousseau ; aucun code saisi ni identifiant
@@ -328,8 +349,9 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   annulée sans retirer le contact. PostgreSQL exige une famille, une preuve
   d'identité, un mail admis / confirmé et la charge livrée effacée. Tous les
   tests / Clippy du workspace bureau passent ; les modèles Swift compilent
-  avec bindings réellement générés. La validation SwiftUI macOS passe ensuite
-  par sa CI dédiée ; les trousseaux Windows / macOS installés restent ouverts.
+  avec bindings réellement générés. Les CI du commit `0336f62` passent :
+  `native-server` (Fedora, cœur Windows et modèles Swift) et compilation /
+  démarrage SwiftUI macOS. Les trousseaux Windows / macOS installés restent ouverts.
   La correction d'adresse refusée mobile passe aussi contre HTTP / PostgreSQL /
   SMTP, avec 11 tests de coffre et 1 060 tests mobiles verts, typecheck et lint.
   Le retrait du contact, les défis e-mail et la récupération restent dans P02.

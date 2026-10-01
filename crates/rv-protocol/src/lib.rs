@@ -71,6 +71,8 @@ pub struct Capabilities {
     pub reauthentication_retirement: bool,
     #[serde(default)]
     pub email_verification: bool,
+    #[serde(default)]
+    pub email_removal: bool,
 }
 
 impl Default for Capabilities {
@@ -111,6 +113,7 @@ impl Default for Capabilities {
             reauthentication: false,
             reauthentication_retirement: false,
             email_verification: false,
+            email_removal: false,
         }
     }
 }
@@ -157,7 +160,8 @@ impl Capabilities {
             second_factors,
             reauthentication,
             reauthentication_retirement,
-            email_verification
+            email_verification,
+            email_removal
         );
         features
     }

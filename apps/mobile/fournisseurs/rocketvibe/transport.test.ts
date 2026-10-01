@@ -173,4 +173,38 @@ describe('native protocol contract', () => {
     assert.throws(()=>decodeNative('BeginEmailVerification',{...emailBegin,user_id:'another-account'}));
     assert.throws(()=>decodeNative('EmailStatus',{...emailStatus,context:{...emailContext,device_id:42}}));
   });
+  test('private removal routes keep the original scope and remain usable during SMTP cooldown',async t => {
+    t.mock.timers.enable({apis:['Date']});
+    const paths:string[]=[],bodies:unknown[]=[],receipt:NativeTypes['EmailRemovalReceipt']={version:'removed-contact',verification_version:'removed-head',context:emailContext};
+    const client=new NativeTransport('https://example.org',async(url,options)=>{
+      const path=new URL(String(url)).pathname;paths.push(path);
+      assert.equal(new URL(String(url)).origin,'https://example.org');
+      assert.equal(options?.redirect,'error');assert.equal(options?.method,'POST');
+      assert.equal(new Headers(options?.headers).get('authorization'),'Bearer saved-token');
+      if(path.endsWith('/verification/start'))return Response.json({code:'email_delivery_limit',request_id:'limit'},{status:429,headers:{'Retry-After':'30'}});
+      bodies.push(JSON.parse(String(options?.body)));return Response.json(path.endsWith('/retire')?emailStatus:receipt);
+    });
+    client.restore('saved-token');
+    await assert.rejects(client.beginEmailVerification(emailBegin),e=>e instanceof NativeError && e.status===429);
+    const command:NativeTypes['RemoveVerifiedEmail']={operation_id:'original-operation',expected_version:emailStatus.version,verification_version:emailStatus.verification_version,context:emailContext};
+    const resume:NativeTypes['ResumeEmailRemoval']={operation_id:command.operation_id,context:emailContext};
+    const retire:NativeTypes['RetireEmailRemoval']={expected_version:command.expected_version,verification_version:command.verification_version,context:emailContext};
+    assert.deepEqual(await client.removeVerifiedEmail(command),receipt);
+    assert.deepEqual(await client.resumeEmailRemoval(resume),receipt);
+    assert.deepEqual(await client.retireEmailRemoval(retire),emailStatus);
+    assert.deepEqual(bodies,[command,resume,retire]);
+    assert.deepEqual(paths,['/api/v1/me/email/verification/start','/api/v1/me/email/removal/start','/api/v1/me/email/removal/resume','/api/v1/me/email/removal/retire']);
+  });
+  test('rejected removal keeps the session and forged receipt/body fields fail validation',async()=>{
+    let revoked=false;
+    const client=new NativeTransport('https://example.org',async()=>Response.json({code:'email_removal_rejected',request_id:'rejected'},{status:400}));
+    client.restore('saved-token');client.surJetonRefuse=()=>{revoked=true;};
+    const command:NativeTypes['RemoveVerifiedEmail']={operation_id:'original-operation',expected_version:emailStatus.version,verification_version:emailStatus.verification_version,context:emailContext};
+    await assert.rejects(client.removeVerifiedEmail(command),e=>e instanceof NativeError && e.status===400 && e.code==='email_removal_rejected');
+    assert.equal(revoked,false);
+    assert.throws(()=>decodeNative('RemoveVerifiedEmail',{...command,address:'forged@example.test'}));
+    assert.throws(()=>decodeNative('RetireEmailRemoval',{expected_version:command.expected_version,verification_version:command.verification_version,context:emailContext,address:'forged@example.test'}));
+    assert.throws(()=>decodeNative('EmailRemovalReceipt',{version:42,verification_version:'head',context:emailContext}));
+    assert.throws(()=>decodeNative('EmailRemovalReceipt',{version:'version',verification_version:'head',context:{...emailContext,device_id:42}}));
+  });
 });

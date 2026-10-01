@@ -37,7 +37,16 @@ pub fn router(app: App) -> Router {
         .route("/api/v1/me/email/verification/resume", post(resume_email))
         .route("/api/v1/me/email/verification/confirm", post(confirm_email))
         .route("/api/v1/me/email/verification/retire", post(retire_email))
+        .route("/api/v1/me/email/removal/start", post(remove_email))
+        .route(
+            "/api/v1/me/email/removal/resume",
+            post(resume_email_removal),
+        )
         .route("/api/v1/me/reauth/start", post(begin_reauthentication))
+        .route(
+            "/api/v1/me/email/removal/retire",
+            post(retire_email_removal),
+        )
         .route("/api/v1/me/reauth", get(reauthentication_status))
         .route("/api/v1/me/reauth/finish", post(finish_reauthentication))
         .route("/api/v1/me/reauth/resume", post(resume_reauthentication))
@@ -174,6 +183,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             reauthentication: true,
             reauthentication_retirement: true,
             email_verification: app.mail.is_some() && app.auth_key.is_some(),
+            email_removal: true,
             ..Default::default()
         },
     }))
@@ -277,6 +287,42 @@ async fn retire_email(
     Ok(secret_session(
         crate::email::retire(&app, &user, body(input)?).await?,
     ))
+}
+
+async fn remove_email(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::parity::RemoveVerifiedEmail>,
+) -> Result<Response> {
+    let user = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::email::removal::begin(&app, &user, body(input)?).await?,
+    ))
+}
+async fn resume_email_removal(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::parity::ResumeEmailRemoval>,
+) -> Result<Response> {
+    let user = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::email::removal::resume(&app, &user, body(input)?).await?,
+    ))
+}
+
+async fn retire_email_removal(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::parity::RetireEmailRemoval>,
+) -> Result<Response> {
+    let (user, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    let value = crate::email::removal::retire(&app, &user, body(input)?).await?;
+    let mut response = proof.json(&app, &hash, &value, &[], None).await?;
+    response.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    Ok(response)
 }
 
 async fn begin_factor(

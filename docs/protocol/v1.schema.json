@@ -247,6 +247,10 @@
           "default": false,
           "type": "boolean"
         },
+        "email_removal": {
+          "default": false,
+          "type": "boolean"
+        },
         "email_verification": {
           "default": false,
           "type": "boolean"
@@ -625,6 +629,26 @@
         "exhausted"
       ],
       "type": "string"
+    },
+    "EmailRemovalReceipt": {
+      "description": "A removal receipt never returns the former private address or a credential.",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/ReauthenticationContext"
+        },
+        "verification_version": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "verification_version",
+        "context"
+      ],
+      "type": "object"
     },
     "EmailStatus": {
       "properties": {
@@ -1276,6 +1300,16 @@
         "edit_message": {
           "$ref": "#/$defs/EditMessage"
         },
+        "email_removal_receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EmailRemovalReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "email_status": {
           "anyOf": [
             {
@@ -1439,6 +1473,16 @@
             }
           ]
         },
+        "remove_verified_email": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RemoveVerifiedEmail"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "rename_device": {
           "anyOf": [
             {
@@ -1459,6 +1503,16 @@
             }
           ]
         },
+        "resume_email_removal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResumeEmailRemoval"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "resume_email_verification": {
           "anyOf": [
             {
@@ -1473,6 +1527,16 @@
           "anyOf": [
             {
               "$ref": "#/$defs/ResumeReauthentication"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "retire_email_removal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RetireEmailRemoval"
             },
             {
               "type": "null"
@@ -1884,6 +1948,30 @@
       ],
       "type": "object"
     },
+    "RemoveVerifiedEmail": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/ReauthenticationContext"
+        },
+        "expected_version": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "verification_version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "expected_version",
+        "verification_version",
+        "context"
+      ],
+      "type": "object"
+    },
     "RenameDevice": {
       "additionalProperties": false,
       "properties": {
@@ -1910,6 +1998,22 @@
       "required": [
         "operation_id",
         "next_token"
+      ],
+      "type": "object"
+    },
+    "ResumeEmailRemoval": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/ReauthenticationContext"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "context"
       ],
       "type": "object"
     },
@@ -1946,6 +2050,26 @@
       "required": [
         "challenge_id",
         "operation_id"
+      ],
+      "type": "object"
+    },
+    "RetireEmailRemoval": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/ReauthenticationContext"
+        },
+        "expected_version": {
+          "type": "string"
+        },
+        "verification_version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "expected_version",
+        "verification_version",
+        "context"
       ],
       "type": "object"
     },

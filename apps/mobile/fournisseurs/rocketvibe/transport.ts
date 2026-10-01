@@ -120,6 +120,9 @@ export class NativeTransport {
   factorStatus():Promise<NativeTypes['FactorStatus']> { return this.request('FactorStatus','/api/v1/me/factors'); }
   emailStatus():Promise<NativeTypes['EmailStatus']> { return this.request('EmailStatus','/api/v1/me/email'); }
   beginEmailVerification(input:NativeTypes['BeginEmailVerification']):Promise<NativeTypes['EmailVerificationStep']> { return this.request('EmailVerificationStep','/api/v1/me/email/verification/start',input); }
+  removeVerifiedEmail(input:NativeTypes['RemoveVerifiedEmail']):Promise<NativeTypes['EmailRemovalReceipt']> { return this.request('EmailRemovalReceipt','/api/v1/me/email/removal/start',input); }
+  resumeEmailRemoval(input:NativeTypes['ResumeEmailRemoval']):Promise<NativeTypes['EmailRemovalReceipt']> { return this.request('EmailRemovalReceipt','/api/v1/me/email/removal/resume',input); }
+  retireEmailRemoval(input:NativeTypes['RetireEmailRemoval']):Promise<NativeTypes['EmailStatus']> { return this.request('EmailStatus','/api/v1/me/email/removal/retire',input); }
   resumeEmailVerification(input:NativeTypes['ResumeEmailVerification']):Promise<NativeTypes['EmailVerificationStep']> { return this.request('EmailVerificationStep','/api/v1/me/email/verification/resume',input); }
   confirmEmailVerification(input:NativeTypes['ConfirmEmailVerification']):Promise<NativeTypes['EmailVerificationStep']> { return this.request('EmailVerificationStep','/api/v1/me/email/verification/confirm',input); }
   retireEmailVerification(input:NativeTypes['RetireEmailVerification']):Promise<NativeTypes['EmailStatus']> { return this.request('EmailStatus','/api/v1/me/email/verification/retire',input); }

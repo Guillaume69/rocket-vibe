@@ -1,4 +1,5 @@
 //! Private verified contact, bound to an existing device and a retired command head.
+pub(crate) mod removal;
 use crate::{
     App,
     auth::{self, Account},

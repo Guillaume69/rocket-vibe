@@ -324,11 +324,29 @@ impl NativeClient {
     ) -> Result<rv_protocol::parity::FactorSetup, Error> {
         self.post("/api/v1/me/factors/totp/setup", input).await
     }
+    pub async fn remove_verified_email(
+        &self,
+        input: &rv_protocol::parity::RemoveVerifiedEmail,
+    ) -> Result<rv_protocol::parity::EmailRemovalReceipt, Error> {
+        self.post("/api/v1/me/email/removal/start", input).await
+    }
+    pub async fn resume_email_removal(
+        &self,
+        input: &rv_protocol::parity::ResumeEmailRemoval,
+    ) -> Result<rv_protocol::parity::EmailRemovalReceipt, Error> {
+        self.post("/api/v1/me/email/removal/resume", input).await
+    }
     pub async fn enable_factor(
         &self,
         input: &rv_protocol::parity::EnableFactor,
     ) -> Result<rv_protocol::parity::FactorBackupCodes, Error> {
         self.post("/api/v1/me/factors/totp/enable", input).await
+    }
+    pub async fn retire_email_removal(
+        &self,
+        input: &rv_protocol::parity::RetireEmailRemoval,
+    ) -> Result<rv_protocol::parity::EmailStatus, Error> {
+        self.post("/api/v1/me/email/removal/retire", input).await
     }
     pub async fn disable_factor(
         &self,

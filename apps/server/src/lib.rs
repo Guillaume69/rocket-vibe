@@ -94,6 +94,7 @@ impl App {
     /// Startup and periodic maintenance only touches expired ephemeral records.
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
         for query in [
+            "DELETE FROM email_removals WHERE (device_id,operation_hash) IN (SELECT device_id,operation_hash FROM email_removals WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM email_verifications WHERE token_hash IN (SELECT token_hash FROM email_verifications WHERE expires_at<=clock_timestamp() AND (receipt_expires_at IS NULL OR receipt_expires_at<=clock_timestamp()) LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM email_delivery_windows WHERE key IN (SELECT key FROM email_delivery_windows WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM email_delivery_admissions WHERE key IN (SELECT key FROM email_delivery_admissions WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",

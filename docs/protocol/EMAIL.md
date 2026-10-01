@@ -13,8 +13,9 @@ annoncée seulement avec transport SMTP et clé opérateur configurés.
 
 Les formulaires mobile, GTK et SwiftUI rejoignent leurs paramètres de sécurité
 existants, avec SecureStore ou trousseau système privé et reprise de l'intention
-initiale. Le retrait d'une adresse, le second facteur e-mail et la récupération
-par e-mail restent à implémenter. La présence
+initiale. La migration 0018 et les SDK permettent aussi le retrait conditionnel
+du contact, même sans SMTP ; ses coffres et boutons clients restent à raccorder.
+Le second facteur e-mail et la récupération par e-mail restent à implémenter. La présence
 de `SecondFactor::Email` dans les types et de `FactorStatus.email=false` ne
 signifie pas que ces deux dernières opérations soient disponibles.
 
@@ -23,7 +24,7 @@ avant et après chaque appel. Le coffre partage la file locale des opérations
 de sécurité, épingle les cinq champs de portée et sauvegarde le candidat avant
 start. Une autre adresse ne peut pas remplacer une vérification en attente.
 La saisie du code reste en mémoire et disparaît à la fermeture / suspension.
-Le retrait est conditionnel et reprend d'abord un reçu qui aurait gagné la
+L'annulation de la vérification est conditionnelle et reprend d'abord un reçu qui aurait gagné la
 course ; un ancien bouton ne peut effacer la tentative suivante. Le reçu
 accepté reste privé jusqu'à Terminer. L'horloge du serveur décide l'expiration,
 même si l'appareil corrige son horloge.
@@ -80,6 +81,9 @@ au DTO `User`, à l'annuaire, au journal de conversation ou au cache public.
 | `POST /me/email/verification/resume` | Relecture du candidat original ou du reçu déjà accepté |
 | `POST /me/email/verification/confirm` | Validation du code, changement de contact et reçu de cinq minutes |
 | `POST /me/email/verification/retire` | Rotation conditionnelle de la tête de vérification de cet appareil |
+| `POST /me/email/removal/start` | Retrait du contact affiché, avec preuve récente et versions initiales |
+| `POST /me/email/removal/resume` | Relecture du reçu original, sans renouveler la preuve |
+| `POST /me/email/removal/retire` | Annulation conditionnelle de l'intention de retrait avant sa réception |
 
 Le client prépare un candidat privé de 64 caractères hexadécimaux, une opération
 et les versions initiales avant start. Tous les appels épinglent UID, appareil,
@@ -122,6 +126,39 @@ code. La confirmation ou l'acceptation du relais efface la charge chiffrée.
 La reprise expose `queued`, `sending`, `deferred`, `accepted` ou `exhausted`.
 `accepted` signifie que le relais a accepté SMTP, pas que la boîte finale a reçu
 le message. Aucun diagnostic SMTP brut, code ou contenu privé n'est journalisé.
+
+## Retrait du contact
+
+La capacité additive `email_removal` est indépendante de SMTP et de la clé de
+livraison : un compte peut lire et retirer son contact même si le relais est
+désactivé. Les SDK n'appliquent pas le cooldown SMTP à ces trois routes. Le
+premier retrait exige une preuve récente sur la famille actuelle, l'opération
+originale, la version du contact affiché et la tête de cet appareil. Il conserve
+mot de passe, facteurs, bearer, famille et âge de la preuve.
+
+La transaction verrouille le compte, l'appareil, les vérifications et leurs jobs
+dans l'ordre des producteurs. Elle relit les échéances réelles de session et de
+preuve après toute attente sur ces lignes. Elle supprime le contact ainsi que
+toutes les vérifications du compte et leurs charges SMTP, puis change la version
+du contact et la tête de l'appareil. Les anciens codes ne peuvent plus rétablir
+l'adresse. Un mail déjà en vol peut néanmoins arriver ; son code reste refusé.
+
+Le reçu contient seulement les versions résultantes et le contexte. PostgreSQL
+ne conserve ni l'ancienne adresse ni l'opération en clair dans `email_removals`.
+Ce reçu expire après cinq minutes et se reprend uniquement sur la famille,
+l'autorité, les versions et la génération d'origine. Le rejeu ne retire rien
+de nouveau et ne prolonge aucune échéance. Après nettoyage, les anciennes
+versions empêchent de recréer le retrait, y compris si un autre appareil a
+confirmé une nouvelle adresse.
+
+L'annulation compare à la fois la version du contact et la tête de l'appareil.
+Si elles sont toujours celles affichées, elle ouvre une nouvelle tête et bloque
+le start ancien, sans retirer le contact. Après remplacement du contact, elle
+préserve une nouvelle vérification même si cet appareil a encore la même tête.
+Si le retrait a déjà gagné, l'annulation ne l'inverse pas : le client devra
+reprendre son reçu avant de conclure ou d'effacer l'intention locale. Les coffres
+et formulaires des trois clients constituent le prochain lot ; ces endpoints
+seuls ne qualifient pas encore ce parcours utilisateur.
 
 ## Contrat de la suite du chantier
 
@@ -174,6 +211,12 @@ ou confirmation retardés, appareils concurrents, changement d'autorité,
 expirations, quotas persistants, essais erronés et confidentialité de l'annuaire.
 Les tests TypeScript couvrent portée HTTP, candidat original, validation des
 états et accès aux lectures / reprises pendant un cooldown de livraison.
+
+Les tests du retrait couvrent aussi l'absence de SMTP, la suppression des anciens
+codes sur plusieurs appareils, confirmation concurrente, délais de session /
+preuve expirant pendant une attente réelle de verrou, reçu nettoyé, contact
+remplacé, annulation avant réception et course annulation / retrait. Le SDK Rust
+teste les vraies routes HTTP, leur confidentialité et l'annulation conditionnelle.
 
 Le banc `scripts/native-email-mobile-pilot.ts`, lancé par un test SQLx privé,
 fait tourner le vrai `NativeChat` avec SQLite, HTTP et WebSocket contre

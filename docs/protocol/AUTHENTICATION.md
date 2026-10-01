@@ -4,6 +4,18 @@ Ce lot livre le serveur et les SDK. P02 reste ouvert : raccordement des formulai
 GTK, SwiftUI et mobile, gestion des facteurs dans leurs paramètres, email vérifié /
 SMTP et qualification des appareils. Le fournisseur Rocket.Chat garde son parcours.
 
+Les coordinateurs `rv-core::native::authentication` et
+`fournisseurs/rocketvibe/authentication.ts` préparent ce raccordement. Ils séparent
+challenge et compte actif, épinglent instance / génération / UID, sauvegardent
+le candidat via un callback de trousseau avant validation, puis le sondent en
+priorité après réponse perdue. Une session déjà committée se récupère même après
+expiration du défi. Seul un `401 session_rejected` compris autorise un nouvel
+envoi du code ; refus de proxy, panne réseau ou réponse ambiguë conservent le
+pending. Les paramètres du défi doivent encore être reliés aux coffres privés
+des plateformes. Le pending n'est effacé qu'après sauvegarde de la session active.
+Inscription et récupération passent par le même parcours complet et comparent
+l'UID rendu par le code opérateur avec celui du challenge / de la session.
+
 ## Clé opérateur
 
 `rv-server` accepte `RV_AUTH_KEY_FILE` ou `--auth-key-file CHEMIN`, jamais la clé

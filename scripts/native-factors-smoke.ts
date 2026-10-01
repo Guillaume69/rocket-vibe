@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { createHmac, randomBytes } from 'node:crypto';
 import { NativeError, NativeTransport } from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
+import { finishNativeFactor, startNativeLogin, type LoginChallenge } from '../apps/mobile/fournisseurs/rocketvibe/authentication.ts';
 
 const base=process.argv[2];
 if (!base || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) throw new Error('Requires the local disposable SQLx server');
@@ -20,7 +21,7 @@ const code=String((digest.readUInt32BE(digest[19]&15)&0x7fffffff)%1_000_000).pad
 const backup=await client.enableFactor({setup_id:setup.setup_id,operation_id:'typescript-enable',code});
 assert.equal(backup.codes.length,10);
 let loseAck=true;
-const signing=new NativeTransport(base,async(url,options)=>{
+const fetcher:typeof fetch=async(url,options)=>{
   const response=await fetch(url,options);
   if (String(url).endsWith('/auth/factors/verify') && loseAck) {
     loseAck=false;
@@ -29,20 +30,24 @@ const signing=new NativeTransport(base,async(url,options)=>{
     throw new Error('Simulated lost acknowledgement');
   }
   return response;
-});
+};
+const signing=new NativeTransport(base,fetcher);
 signing.restore(logged.token);
 let revoked=false;signing.surJetonRefuse=()=>{revoked=true;};
-const step=await signing.startLogin('owner','factor-test-password-2026');
+const step=await startNativeLogin(base,await client.discover(),{utilisateur:'owner',motDePasse:'factor-test-password-2026'},fetcher);
 assert.equal(step.kind,'challenge');
 if (step.kind!=='challenge') throw new Error('Missing native second factor');
-assert.equal(step.user.id,logged.user.id);
-const input={challenge_id:step.challenge.challenge_id,method:'recovery_code' as const,code:backup.codes[0],operation_id:'typescript-factor-login',next_token:randomBytes(32).toString('hex')};
-await assert.rejects(signing.finishFactor(input),e=>e instanceof NativeError && e.status===0);
-const completed=await signing.finishFactor(input);
-assert.equal(completed.token,input.next_token);
-assert.equal(completed.user.id,logged.user.id);
+assert.equal(step.challenge.user.id,logged.user.id);
+let durable:LoginChallenge=step.challenge;
+const deps={fetcher,token:async()=>randomBytes(32).toString('hex'),save:async(record:LoginChallenge)=>{durable=structuredClone(record);}};
+await assert.rejects(finishNativeFactor(durable,'recovery_code',backup.codes[0],deps),e=>e instanceof NativeError && e.status===0);
+assert(durable.pending);
+durable.challenge.expires_at=new Date(Date.now()-86_400_000).toISOString();
+const completed=await finishNativeFactor(durable,'recovery_code','',deps);
+assert.equal(completed.authToken,durable.pending.next_token);
+assert.equal(completed.userId,logged.user.id);
 assert.equal(revoked,false);
-signing.restore(completed.token);
+signing.restore(completed.authToken);
 const status=await signing.factorStatus();
 assert.equal(status.backup_codes_remaining,9);
 assert.equal(status.totp,true);

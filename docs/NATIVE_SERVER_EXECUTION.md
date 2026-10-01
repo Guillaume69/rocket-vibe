@@ -315,6 +315,18 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, coordinateurs d'authentification bureau / mobile : étapes session / défi
+  distinctes, identités épinglées, candidat durable avant code, sonde du candidat
+  et validation du seul appareil courant avant installation. Une réponse perdue
+  se récupère après expiration du défi sans réutiliser le facteur. Seul un refus
+  structuré du candidat permet le rejeu de l'opération ; les autres erreurs ne
+  changent pas le compte actif ni le pending. Inscription / récupération gardent
+  cette même étape de facteur, avec comparaison de l'UID. Cinq tests cœur et huit
+  tests TypeScript couvrent réponses ambiguës, génération, UID, coffre indisponible,
+  ancien serveur et recovery ; le coordinateur mobile reprend une session réelle
+  du banc HTTP / PostgreSQL après perte de réponse. Les adaptateurs trousseau et
+  le raccordement des trois formulaires restent la suite immédiate de P02.
+
 - P02, socle TOTP / secours serveur et SDK : migration 0013, clé opérateur
   fournie par fichier privé hors PostgreSQL, secrets chiffrés avec AAD par
   instance / UID / usage. Défis de cinq minutes liés à l'autorité et génération,

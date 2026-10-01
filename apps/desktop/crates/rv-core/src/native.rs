@@ -1,4 +1,5 @@
 //! Native desktop pilot: pinned identity, durable SQLite projection and a single replay loop.
+pub mod authentication;
 pub mod credentials;
 pub mod store;
 

@@ -30,6 +30,7 @@
     "apps/desktop/crates/rv-core/src/markdown.rs",
     "apps/desktop/crates/rv-core/src/media.rs",
     "apps/desktop/crates/rv-core/src/native.rs",
+    "apps/desktop/crates/rv-core/src/native/authentication.rs",
     "apps/desktop/crates/rv-core/src/native/credentials.rs",
     "apps/desktop/crates/rv-core/src/native/store.rs",
     "apps/desktop/crates/rv-core/src/normalize.rs",

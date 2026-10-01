@@ -94,7 +94,7 @@ fn valid_pending(p: &RenewSession, current: &str) -> bool {
         && p.next_token.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
         && p.next_token != current
 }
-fn token() -> Result<String, Error> {
+pub(crate) fn token() -> Result<String, Error> {
     let mut bytes = [0u8; 32];
     aws_lc_rs::rand::fill(&mut bytes).map_err(|_| Error::Protocol("secure_random_unavailable"))?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())

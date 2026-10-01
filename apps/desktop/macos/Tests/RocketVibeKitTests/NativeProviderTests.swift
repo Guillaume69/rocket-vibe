@@ -182,6 +182,100 @@ final class NativeProviderTests: XCTestCase {
     }
 
     @MainActor
+    func testFactorsPreserveActiveAccountRecoverLostAckAndRecreateModels() async throws {
+        guard let server = ProcessInfo.processInfo.environment["RV_NATIVE_TEST_SERVER"],
+              let password = ProcessInfo.processInfo.environment["RV_NATIVE_TEST_PASSWORD"],
+              let factorServer = ProcessInfo.processInfo.environment["RV_NATIVE_TEST_FACTOR_URL"],
+              let path = ProcessInfo.processInfo.environment["RV_NATIVE_TEST_FACTOR_FILE"] else {
+            throw XCTSkip("requires disposable factor ACK-loss bench")
+        }
+        let issued = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: path))) as! [String: Any]
+        let codes = try XCTUnwrap(issued["codes"] as? [String])
+        let backup = try XCTUnwrap(codes.first)
+        let home = "/tmp/rv-swift-factor-\(UUID())"
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let original = AppModel(home: home)
+        defer { original.end() }
+        original.login.server = server
+        original.login.user = "desktop"
+        original.login.password = password
+        await original.submitLogin()
+        XCTAssertEqual(original.account?.username, "desktop")
+        let activePath = URL(fileURLWithPath: original.client.configDir()).appendingPathComponent("active-account")
+        let active = try String(contentsOf: activePath, encoding: .utf8)
+        original.showLogin(error: nil)
+        original.login.server = factorServer
+        original.login.user = "swift-factor"
+        original.login.password = password
+        await original.submitLogin()
+        XCTAssertEqual(original.login.nativeMethods, ["totp", "recovery_code"])
+        XCTAssertEqual(original.login.password, "")
+        XCTAssertEqual(original.account?.username, "desktop")
+        let initialAccounts = await original.client.accounts()
+        XCTAssertEqual(initialAccounts.count, 1, "Pre-authentication proof must not enter the account index")
+        original.login.selectNativeMethod("recovery_code")
+        original.login.code = "INVALID-BACKUP"
+        await original.submitLogin()
+        XCTAssertEqual(original.login.error, L("login.bad_code"))
+        XCTAssertEqual(try String(contentsOf: activePath, encoding: .utf8), active)
+        XCTAssertEqual(original.login.code, "")
+        XCTAssertTrue(original.login.pendingConfirmation)
+        original.end()
+
+        // A new client/model reads the private proof from the actual keyring.
+        let recreated = AppModel(home: home)
+        defer { recreated.end() }
+        recreated.showLogin(error: nil)
+        recreated.login.server = factorServer
+        recreated.login.user = "swift-factor"
+        recreated.login.password = password
+        await recreated.submitLogin()
+        XCTAssertEqual(recreated.login.nativeMethods, ["totp", "recovery_code"])
+        XCTAssertTrue(recreated.login.pendingConfirmation)
+        XCTAssertFalse(recreated.signedIn)
+
+        // Leaving while a request is running invalidates its form callbacks.
+        recreated.login.selectNativeMethod("recovery_code")
+        recreated.login.code = "INVALID-LATE"
+        let late = Task { await recreated.submitLogin() }
+        for _ in 0..<100 where !recreated.login.busy { await Task.yield() }
+        XCTAssertTrue(recreated.login.busy)
+        recreated.login.leave()
+        await late.value
+        XCTAssertNil(recreated.login.method)
+        XCTAssertNil(recreated.login.error)
+        XCTAssertFalse(recreated.login.busy)
+        XCTAssertEqual(try String(contentsOf: activePath, encoding: .utf8), active)
+
+        recreated.login.password = password
+        await recreated.submitLogin()
+        recreated.login.selectNativeMethod("recovery_code")
+        recreated.login.code = backup
+        await recreated.submitLogin()
+        XCTAssertFalse(recreated.signedIn, "A dropped success response cannot install a session")
+        XCTAssertTrue(recreated.login.pendingConfirmation)
+        XCTAssertEqual(recreated.login.code, "")
+        XCTAssertEqual(try String(contentsOf: activePath, encoding: .utf8), active)
+        let pendingAccounts = await recreated.client.accounts()
+        XCTAssertEqual(pendingAccounts.count, 1)
+
+        // Blank confirmation probes the accepted candidate before using a code.
+        await recreated.submitLogin()
+        XCTAssertEqual(recreated.screen, .chat, recreated.login.error ?? "factor confirmation failed")
+        XCTAssertEqual(recreated.account?.username, "swift-factor")
+        XCTAssertEqual(recreated.login.code, "")
+        XCTAssertEqual(recreated.login.password, "")
+        XCTAssertTrue(recreated.login.nativeMethods.isEmpty)
+        try await until { recreated.connection == .online }
+        recreated.end()
+        let restarted = AppModel(home: home)
+        defer { restarted.end() }
+        await restarted.start()
+        XCTAssertEqual(restarted.account?.username, "swift-factor")
+        try await until { restarted.connection == .online }
+    }
+
+    @MainActor
     func testInvitationInExistingLoginModelAndKeychainResume() async throws {
         guard let server = ProcessInfo.processInfo.environment["RV_NATIVE_TEST_SERVER"],
               let password = ProcessInfo.processInfo.environment["RV_NATIVE_TEST_PASSWORD"],
@@ -213,6 +307,36 @@ final class NativeProviderTests: XCTestCase {
         try await until { app.connection == .online }
         await app.signOut()
         XCTAssertTrue(app.accounts.isEmpty)
+    }
+
+    @MainActor
+    func testOpaqueAttemptReplayAfterRenewalDoesNotRewindCredentials() async throws {
+        guard let server = ProcessInfo.processInfo.environment["RV_NATIVE_TEST_SERVER"],
+              let password = ProcessInfo.processInfo.environment["RV_NATIVE_TEST_PASSWORD"] else {
+            throw XCTSkip("requires disposable renewal bench")
+        }
+        let home = "/tmp/rv-swift-replay-\(UUID())"
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let client = Client(home: home)
+        let attempt = try await client.nativeStartLogin(server: server, user: "swift-replay", password: password,
+                                                       accountCode: nil, recovering: false)
+        XCTAssertTrue(attempt.methods().isEmpty)
+        let first = try await attempt.commit()
+        defer { first.shutdown() }
+        let activePath = URL(fileURLWithPath: client.configDir()).appendingPathComponent("active-account").path
+        XCTAssertFalse(FileManager.default.fileExists(atPath: activePath), "Credential commit does not activate an account")
+        first.activateAccount()
+        try await until { first.status().state == .online }
+        // The bench caps this account's first bearer at one day, forcing renewal.
+        let replay = try await attempt.commit()
+        XCTAssertEqual(replay.account().key, first.account().key)
+        replay.shutdown()
+        let resumed = try await client.nativeResume(key: first.account().key)
+        defer { resumed.shutdown() }
+        try await until { resumed.status().state == .online }
+        let devices = try await resumed.deviceSessions()
+        XCTAssertEqual(devices.count, 1)
+        try await resumed.logout()
     }
 
     @MainActor

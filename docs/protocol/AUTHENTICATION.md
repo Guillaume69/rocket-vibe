@@ -1,7 +1,7 @@
 # Authentification native — P02, socle TOTP et secours
 
-Ce lot livre le serveur, les SDK et les connexions mobile / GTK. P02 reste ouvert : raccordement du formulaire
-SwiftUI, gestion des facteurs dans les paramètres des trois clients, email vérifié /
+Ce lot livre le serveur, les SDK et les connexions mobile / GTK / SwiftUI. P02 reste ouvert :
+gestion des facteurs dans les paramètres des trois clients, email vérifié /
 SMTP et qualification des appareils. Le fournisseur Rocket.Chat garde son parcours.
 
 Les coordinateurs `rv-core::native::authentication` et
@@ -12,7 +12,7 @@ priorité après réponse perdue. Une session déjà committée se récupère m�
 expiration du défi. Seul un `401 session_rejected` compris autorise un nouvel
 envoi du code ; refus de proxy, panne réseau ou réponse ambiguë conservent le
 pending. Le formulaire mobile utilise son coffre SecureStore privé ; GTK utilise
-le trousseau système. Le raccordement FFI / SwiftUI reste à livrer. Le pending n'est effacé
+le trousseau système, partagé avec FFI / SwiftUI sur macOS. Le pending n'est effacé
 qu'après sauvegarde de la session active.
 Inscription et récupération passent par le même parcours complet et comparent
 l'UID rendu par le code opérateur avec celui du challenge / de la session.
@@ -90,7 +90,29 @@ tardives. Mot de passe et code opérateur quittent le formulaire dès le défi ;
 le code de facteur est effacé au changement de méthode, au retour et après
 confirmation. La connexion Rocket.Chat conserve ses méthodes existantes.
 Les adaptateurs Windows / macOS et SecureStore Android restent à qualifier sur
-appareils ; le raccordement FFI / SwiftUI et les paramètres restent ouverts.
+appareils ; les paramètres restent ouverts.
+
+### Tentatives FFI et formulaire SwiftUI
+
+`NativeLoginAttempt` est un objet opaque UniFFI : Swift voit les méthodes
+disponibles et l'indication d'une confirmation en attente, jamais le défi,
+le candidat ou le bearer. Vérification et commit sont sérialisés. Le candidat
+reste dans une entrée de trousseau non indexée ; les tâches bloquantes de la
+plateforme gardent le verrou après annulation et délai de cinq secondes.
+
+Le formulaire SwiftUI existant propose TOTP / secours. Il efface mot de passe
+et code opérateur dès le défi. Changement de serveur / identifiant, retour,
+annulation et disparition de la vue invalident sa génération. Le commit écrit
+le credential avec expiration et préserve la clé E2EE du même compte, puis
+nettoie la preuve exacte. Il ne change pas le pointeur de compte actif.
+L'application active le compte après ses gardes de formulaire et de sélection,
+sans attente entre cette vérification et l'installation du fournisseur.
+
+Un handle déjà committé rend le même fournisseur : son rejeu ne réécrit pas
+le bearer initial après rotation ou logout. Le fournisseur Rocket.Chat conserve
+ses méthodes de facteur et son transport. Le banc Linux utilise le vrai Secret
+Service ; les essais sur le Keychain macOS et l'interface macOS installée restent
+distincts des tests de modèles Swift et de la compilation SwiftUI distante.
 
 ## Clé opérateur
 
@@ -194,4 +216,4 @@ mais doit refaire un login complet pour désactiver son facteur. Rotation,
 activité et reprise ne rajeunissent pas cette autorisation. La révocation d'un
 autre appareil applique la même preuve de connexion complète. Une session ancienne
 rend `403 reauthentication_required`. Un défi explicite de réauthentification,
-la régénération des secours et les clients restent les prochaines étapes.
+la régénération des secours et les paramètres des clients restent les prochaines étapes.

@@ -2,7 +2,7 @@
 
 Commande : `node scripts/inventory-rocketchat.mjs`. Contrôle : ajouter `--check`.
 
-279 fichiers de production parcourus ; 344 occurrences.
+280 fichiers de production parcourus ; 344 occurrences.
 Les appels à premier argument dynamique restent visibles : leur résolution est
 consignée dans [le contrat de parité](PARITY.md). Les lignes sont des repères de
 source au moment de la génération. Le JSON conserve le périmètre et tous les fichiers.
@@ -209,10 +209,10 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:43](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L43) | endpoint | e2e.locked |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:43](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L43) | endpoint | e2e.unlocked |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:46](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L46) | endpoint | e2e.lock |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:290](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L290) | endpoint | e2e.wrong |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:291](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L291) | endpoint | e2e.no_keys |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:292](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L292) | endpoint | e2e.failed |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:293](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L293) | endpoint | e2e.wrong |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:294](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L294) | endpoint | e2e.no_keys |
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:295](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L295) | endpoint | e2e.failed |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:298](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L298) | endpoint | e2e.failed |
 | [apps/mobile/app/actions-message.tsx:77](../../apps/mobile/app/actions-message.tsx#L77) | call:GET | 'settings.public' |
 | [apps/mobile/app/actions-message.tsx:78](../../apps/mobile/app/actions-message.tsx#L78) | endpoint | settings.public |
 | [apps/mobile/app/connexion.tsx:370](../../apps/mobile/app/connexion.tsx#L370) | endpoint | chat.exemple.fr |

@@ -170,6 +170,7 @@ jobs:
         run: |
           docker build -t rocket-vibe-swift apps/desktop/macos/docker
           docker build -t rocketvibe-native-server -f apps/server/Dockerfile .
+          docker build -t rocketvibe-native-check -f apps/server/docker/Dockerfile.check .
       - name: Generate actual bindings and test shared view models
         run: |
           mkdir -p .cache/native-swift-cargo artifacts
@@ -186,8 +187,9 @@ jobs:
             '
       - name: Swift models against PostgreSQL with real secure storage
         run: |
-          docker compose -f docker/compose.native-pilot.yml up -d postgres bootstrap server
+          docker compose -f docker/compose.native-pilot.yml up -d postgres bootstrap server factor-seed factor-proxy
           docker compose -f docker/compose.native-pilot.yml run --rm --no-deps swift
+          docker compose -f docker/compose.native-pilot.yml run --rm --no-deps -e 'PGOPTIONS=-c rocketvibe.pilot_factor_user=swift-factor' factor-check
           docker compose -f docker/compose.native-pilot.yml run --rm --no-deps session-check
       - name: Integration logs and cleanup
         if: always()

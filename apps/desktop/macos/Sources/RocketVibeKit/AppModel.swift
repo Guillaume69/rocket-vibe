@@ -83,9 +83,10 @@ public final class AppModel {
         guard !login.busy else { return }
         let selected = UUID()
         selectionId = selected
+        let form = login.revision
         if let chat = await login.submit(client: client) {
             let fresh = await client.accounts()
-            guard selected == selectionId else { chat.shutdown(); return }
+            guard selected == selectionId, form == login.revision else { chat.shutdown(); return }
             accounts = fresh
             begin(chat)
         }
@@ -100,10 +101,12 @@ public final class AppModel {
     /// Back to the account in use, from the form opened to add another.
     public func cancelLogin() {
         selectionId = UUID()
+        login.leave()
         if signedIn { screen = .chat }
     }
 
     func begin(_ provider: ChatProvider) {
+        if case let .rocketVibe(native) = provider { native.activateAccount() }
         end()
         self.provider = provider
         account = provider.account()

@@ -9,10 +9,12 @@ section here.
 
 ### Added
 
-- Native TOTP and backup-code sign-in in the existing GTK form, with a private
+- Native TOTP and backup-code sign-in in the existing GTK / SwiftUI forms, with a private
   system-keychain proof, recovery after a lost response and activation only
   after session storage succeeds. Hiding or leaving the form invalidates late
-  responses; Rocket.Chat keeps its existing factor flow.
+  responses. Swift keeps opaque attempts and activates after account-selection
+  checks; replaying a committed attempt cannot rewind renewed credentials.
+  Rocket.Chat keeps its existing factor flow.
 
 - Operator-code password recovery in the existing GTK / SwiftUI sign-in forms,
   preserving account identity and conversations while revoking old sessions.

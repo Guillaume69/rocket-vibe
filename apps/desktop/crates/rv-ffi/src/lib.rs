@@ -5,6 +5,7 @@ mod accounts;
 pub mod markup;
 pub mod model;
 mod native;
+mod native_auth;
 pub mod people;
 pub mod writing;
 

@@ -23,6 +23,13 @@ struct LoginView: View {
 
             Form {
                 if let method = login.method {
+                    if login.nativeMethods.count > 1 {
+                        Picker("", selection: Binding(get: { login.method ?? "totp" }, set: { login.selectNativeMethod($0) })) {
+                            ForEach(login.nativeMethods, id: \.self) { offered in
+                                Text(L(offered == "recovery_code" ? "login.factor_backup" : "login.factor_totp")).tag(offered)
+                            }
+                        }.labelsHidden()
+                    }
                     Text(L("login.intro_\(method)"))
                         .fixedSize(horizontal: false, vertical: true)
                     SecureField(L("login.code_\(method)"), text: $login.code)
@@ -50,6 +57,7 @@ struct LoginView: View {
                         .focused($focus, equals: .password)
                         .textContentType(.password)
                         .onSubmit(submit)
+                    if login.pendingConfirmation { Text(L("login.factor_resume")).font(.caption) }
                     if login.canRegister {
                         Toggle(L("login.create_account"), isOn: $login.registering)
                             .onChange(of: login.registering) { _, active in if active { login.recovering = false }; login.invitation = "" }
@@ -88,8 +96,10 @@ struct LoginView: View {
             HStack {
                 if login.method != nil {
                     Button(L("actions.cancel")) { login.cancelCode() }
+                        .disabled(login.busy)
                 } else if app.signedIn {
                     Button(L("login.cancel_add")) { app.cancelLogin() }
+                        .disabled(login.busy)
                 }
                 Button(login.busy ? L("login.signing_in") : (login.method == nil ? L(login.recovering && login.canRecover ? "login.reset_password" : login.registering && login.canRegister ? "login.create_account" : "login.sign_in") : L("login.confirm")), action: submit)
                     .buttonStyle(VibeButtonStyle())
@@ -101,6 +111,7 @@ struct LoginView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background { LoginSky() }
         .onAppear { focus = login.user.isEmpty ? .user : .password }
+        .onDisappear { login.leave() }
         .onChange(of: login.method) { _, method in if method != nil { focus = .code } }
         .onChange(of: login.server) { _, _ in login.registering = false; login.recovering = false; login.invitation = "" }
         .task(id: login.server) {

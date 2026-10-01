@@ -148,6 +148,92 @@ pub fn native_record(info: &SessionInfo) -> Result<rv_core::native::credentials:
     let value: Value = serde_json::from_str(&secret).map_err(|_| "invalid_native_credentials".to_owned())?;
     rv_core::native::credentials::Record::from_secret(&value).ok_or_else(|| "invalid_native_credentials".to_owned())
 }
+
+/// Blocking, fallible credential commit; no active-account pointer is changed.
+pub fn save_native_record(dirs: &Dirs, record: &rv_core::native::credentials::Record) -> Result<(), String> {
+    let _lease = rv_core::native::credentials::lease_blocking(&dirs.config, &record.info)
+        .map_err(|_| "secure_storage_unavailable".to_owned())?;
+    let k = key(&record.info);
+    let item = entry(&k).map_err(|_| "secure_storage_unavailable".to_owned())?;
+    let mut secret = record.secret();
+    match item.get_password() {
+        Ok(raw) => {
+            let old: Value = serde_json::from_str(&raw).map_err(|_| "invalid_native_credentials".to_owned())?;
+            let prior = SessionInfo::from_secret(&old).ok_or_else(|| "invalid_native_credentials".to_owned())?;
+            if key(&prior) != k {
+                return Err("credentials_changed".into());
+            }
+            if prior.native == record.info.native
+                && let Some(jwk) = old.get("e2eKey")
+            {
+                secret["e2eKey"] = jwk.clone();
+            }
+        }
+        Err(keyring::Error::NoEntry) => {}
+        Err(_) => return Err("secure_storage_unavailable".into()),
+    }
+    item.set_password(&secret.to_string()).map_err(|_| "secure_storage_unavailable".to_owned())?;
+    let index = dirs.file("accounts");
+    let mut all = lines(&index);
+    if !all.contains(&k) {
+        all.push(k);
+        std::fs::write(index, all.join("\n")).map_err(|_| "secure_storage_unavailable".to_owned())?;
+    }
+    Ok(())
+}
+
+struct AuthenticationStorage;
+pub fn authentication_vault(dirs: &Dirs) -> rv_core::native::authentication_vault::Vault {
+    rv_core::native::authentication_vault::Vault::new(dirs.config.clone(), std::sync::Arc::new(AuthenticationStorage))
+}
+async fn authentication_operation<T: Send + 'static>(
+    lease: std::sync::Arc<std::fs::File>,
+    operation: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, rv_core::native::Error> {
+    use rv_core::native::Error;
+    let mut task = crate::runtime().spawn_blocking(move || {
+        // The actual keyring job keeps the lease after foreign cancellation.
+        let _lease = lease;
+        operation().map_err(|_| Error::Protocol("secure_storage_unavailable"))
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(5), &mut task)
+        .await
+        .map_err(|_| Error::Protocol("secure_storage_unavailable"))?
+        .map_err(|_| Error::Protocol("secure_storage_unavailable"))?
+}
+impl rv_core::native::authentication_vault::Storage for AuthenticationStorage {
+    fn read(
+        &self,
+        key: String,
+        lease: std::sync::Arc<std::fs::File>,
+    ) -> rv_core::native::authentication_vault::StorageFuture<Option<String>> {
+        Box::pin(authentication_operation(lease, move || match entry(&key).and_then(|e| e.get_password()) {
+            Ok(value) => Ok(Some(value)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(_) => Err("secure_storage_unavailable".into()),
+        }))
+    }
+    fn write(
+        &self,
+        key: String,
+        value: String,
+        lease: std::sync::Arc<std::fs::File>,
+    ) -> rv_core::native::authentication_vault::StorageFuture<()> {
+        Box::pin(authentication_operation(lease, move || {
+            entry(&key).and_then(|e| e.set_password(&value)).map_err(|_| "secure_storage_unavailable".into())
+        }))
+    }
+    fn remove(
+        &self,
+        key: String,
+        lease: std::sync::Arc<std::fs::File>,
+    ) -> rv_core::native::authentication_vault::StorageFuture<()> {
+        Box::pin(authentication_operation(lease, move || match entry(&key).and_then(|e| e.delete_credential()) {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(_) => Err("secure_storage_unavailable".into()),
+        }))
+    }
+}
 pub fn replace_native_record(
     record: &rv_core::native::credentials::Record,
     expected_token: &str,

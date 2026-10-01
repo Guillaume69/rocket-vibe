@@ -137,3 +137,19 @@ famille d'appareil et exactement un secours consommé pour `gtk-factor`.
 Les secrets de ce banc restent dans le volume privé supprimé par `down -v` ;
 ils ne sont ni journalisés ni ajoutés aux captures. Ce parcours Linux ne qualifie
 pas le trousseau macOS / Windows ni un appareil Android physique.
+
+Le service `swift` reçoit un compte distinct et le même proxy de réponse perdue.
+Ses modèles conservent le compte précédent pendant le défi ; une preuve privée
+reste absente de l'index des sessions. Le modèle et le client sont recréés avant
+confirmation, une requête est quittée en cours, puis la session se récupère sans
+code et se reprend depuis le vrai trousseau. Il s'agit d'une recréation des
+modèles, pas d'un processus macOS tué. Un compte `swift-replay` couvre aussi le
+rejeu d'un handle opaque après la rotation forcée de son premier bearer.
+
+Le job Swift démarre `factor-seed` / `factor-proxy`, lance `swift`, puis vérifie
+ses compteurs propres avec :
+
+```sh
+docker compose -f docker/compose.native-pilot.yml run --rm --no-deps \
+  -e 'PGOPTIONS=-c rocketvibe.pilot_factor_user=swift-factor' factor-check
+```

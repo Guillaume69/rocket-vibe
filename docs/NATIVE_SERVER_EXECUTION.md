@@ -315,6 +315,24 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, connexion FFI / SwiftUI : objet UniFFI opaque pour la tentative, coffre
+  privé non indexé et formulaire existant raccordé à TOTP / secours. Le commit
+  conserve expiration et clé E2EE, puis nettoie la preuve ; l'activation du compte
+  est synchrone après les gardes de formulaire / sélection. Les callbacks d'une
+  vue quittée ne peuvent installer un fournisseur. Le rejeu d'un handle committé
+  reprend le même fournisseur sans réécrire un bearer déjà renouvelé / supprimé.
+  Vérifications : formatage / Clippy, régressions FFI et bindings régénérés,
+  compilation / six tests locaux des modèles Swift et analyse syntaxique de la vue.
+  Cinq parcours connectés passent sur PostgreSQL et le vrai Secret Service Linux,
+  dont conservation du compte actif, preuve récupérée par un nouveau modèle,
+  requête quittée, code erroné, réponse perdue, confirmation sans code, reprise
+  depuis le trousseau et rejeu après rotation forcée. SQL confirme une seule
+  famille et un seul secours consommé ; les compteurs de renouvellement passent.
+  Inventaire : 280 fichiers / 344 occurrences. Le banc privé est supprimé après
+  vérification. Compilation SwiftUI macOS distante et qualification du Keychain /
+  application macOS installée restent des contrôles distincts. P02 continue avec
+  les paramètres des trois clients, réauthentification explicite, secours et SMTP.
+
 - P02, connexion GTK : formulaire existant avec choix TOTP / secours, preuve
   privée hors liste des comptes et opérations de trousseau conservant leur
   verrou après annulation. Une sauvegarde de session refusée ne l'active pas ;

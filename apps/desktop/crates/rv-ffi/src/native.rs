@@ -156,7 +156,6 @@ impl Client {
             .into_iter()
             .find(|i| accounts::key(i) == key && i.native.is_some())
             .ok_or_else(|| RvError::local("unknown native account"))?;
-        accounts::set_active(&self.dirs, &info);
         self.start_native(info)
     }
     pub async fn native_recover(
@@ -189,7 +188,7 @@ impl Client {
         .map_err(RvError::local)?;
         self.start_native(info)
     }
-    fn start_native(&self, info: rv_core::session::SessionInfo) -> Result<Arc<NativeChat>, RvError> {
+    pub(crate) fn start_native(&self, info: rv_core::session::SessionInfo) -> Result<Arc<NativeChat>, RvError> {
         let path = self.dirs.database(&info);
         let _guard = runtime().enter();
         Ok(Arc::new(NativeChat {
@@ -206,6 +205,11 @@ impl Client {
 }
 #[uniffi::export]
 impl NativeChat {
+    /// Synchronous: the UI calls this only after its account-selection guard.
+    pub fn activate_account(&self) {
+        accounts::remember_server(&self.dirs, &self.session.info.base_url);
+        accounts::set_active(&self.dirs, &self.session.info);
+    }
     pub async fn device_sessions(&self) -> Result<Vec<NativeDeviceSession>, RvError> {
         let s = self.session.clone();
         let devices = on_tokio(async move { s.device_sessions().await }).await.map_err(native_error)?;

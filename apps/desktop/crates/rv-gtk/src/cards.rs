@@ -302,9 +302,25 @@ pub fn link_preview(session: &Arc<Session>, preview: &LinkPreview) -> gtk::Widge
             card.set_tooltip_text(Some(url));
             let url = url.clone();
             on_click(&card, move |w| open_uri(w, &url));
-            card.upcast()
+            fitted(&card).upcast()
         }
     }
+}
+
+/// A list measures a row's height at the full width, then a start-aligned
+/// card shrinks to its natural width, where its title wraps on more lines:
+/// held at that width, the card gets the height it needs there.
+fn fitted(card: &gtk::Box) -> adw::Clamp {
+    let clamp = adw::Clamp::builder().halign(gtk::Align::Start).child(card).build();
+    refit(&clamp);
+    clamp
+}
+
+fn refit(clamp: &adw::Clamp) {
+    let Some(card) = clamp.child() else { return };
+    let (_, natural, _, _) = card.measure(gtk::Orientation::Horizontal, -1);
+    clamp.set_maximum_size(natural);
+    clamp.set_tightening_threshold(natural);
 }
 
 /// A YouTube, Dailymotion or Vimeo link: thumbnail and title. The thumbnail
@@ -344,9 +360,13 @@ pub fn video_link(session: &Arc<Session>, video: &VideoLink) -> gtk::Widget {
         }
         let player = widgets::media_frame(480, 270, &["preview-image", "player-frame"]);
         player.set_margin_top(4);
+        let clamp = card.parent().and_downcast::<adw::Clamp>();
         card.insert_child_after(&player, Some(&thumbnail));
         card.remove(&thumbnail);
         if crate::player::start(&player, provider, &id) {
+            if let Some(clamp) = &clamp {
+                refit(clamp);
+            }
             return true;
         }
         card.insert_child_after(&thumbnail, Some(&player));
@@ -358,7 +378,7 @@ pub fn video_link(session: &Arc<Session>, video: &VideoLink) -> gtk::Widget {
     on_click(&frame, move |_| {
         play();
     });
-    card.upcast()
+    fitted(&card).upcast()
 }
 
 /// A call message: "Video call" and, when the call is known, Join.

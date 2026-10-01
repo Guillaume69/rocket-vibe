@@ -20,6 +20,11 @@ section here.
   the composer, seen only by you. A refused command goes back into the composer. The SwiftUI
   app has them too.
 
+### Fixed
+
+- A link preview whose title wraps on one more line at the card's width no longer comes out a
+  line short, its picture cut at the bottom.
+
 ## [0.5.0] - 2026-09-30
 
 ### Added

@@ -18,6 +18,16 @@ pub struct NativeMessage {
     pub author: String,
     pub status: Option<String>,
 }
+#[derive(Clone, uniffi::Record)]
+pub struct NativeMessageActions {
+    pub message_id: String,
+    pub text: String,
+    pub revision: String,
+    pub edit: bool,
+    pub delete: bool,
+    pub edit_until: Option<String>,
+    pub draft: Option<String>,
+}
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct NativeStatus {
     pub state: crate::ConnectionState,
@@ -256,6 +266,29 @@ impl NativeChat {
     pub async fn history(&self, room: String, older: bool) -> Result<bool, RvError> {
         let s = self.session.clone();
         on_tokio(async move { s.history(&room, older).await }).await.map_err(RvError::local)
+    }
+    pub async fn message_actions(&self, message_id: String) -> Result<NativeMessageActions, RvError> {
+        let s = self.session.clone();
+        let (message, rights) =
+            on_tokio(async move { s.message_action_context(&message_id).await }).await.map_err(native_error)?;
+        let draft = self.session.store.command_draft(&message.id).map_err(RvError::local)?;
+        Ok(NativeMessageActions {
+            message_id: message.id,
+            text: message.text,
+            revision: rights.revision,
+            edit: rights.edit,
+            delete: rights.delete,
+            edit_until: rights.edit_until,
+            draft,
+        })
+    }
+    pub async fn edit(&self, room: String, message_id: String, revision: String, text: String) -> Result<(), RvError> {
+        let s = self.session.clone();
+        on_tokio(async move { s.edit(&room, &message_id, &revision, &text).await }).await.map_err(native_error)
+    }
+    pub async fn delete(&self, room: String, message_id: String, revision: String) -> Result<(), RvError> {
+        let s = self.session.clone();
+        on_tokio(async move { s.delete(&room, &message_id, &revision).await }).await.map_err(native_error)
     }
     pub async fn create_room(&self, name: String, private: bool) -> Result<String, RvError> {
         let s = self.session.clone();

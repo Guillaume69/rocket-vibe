@@ -2,7 +2,7 @@
 import type { Session } from '../../lib/auth.ts';
 import { Reconnecteur } from '../../lib/reconnexion.ts';
 import { checkIdentity, transportFor } from './auth.ts';
-import { NativeStore } from './store.ts';
+import { NativeStore, type NativeCommand } from './store.ts';
 import { NativeError, type NativeTransport } from './transport.ts';
 import { decodeNative } from './validation.ts';
 import type { Capabilities } from './protocol.generated.ts';
@@ -26,6 +26,7 @@ export class NativeChat {
   private watchdog: ReturnType<typeof setInterval> | null = null;
   private cancelOpening: (() => void) | null = null;
   private flushing: Promise<void> | null = null;
+  private commands: Promise<void> = Promise.resolve();
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private retryAt = 0;
   private retryAttempt = 0;
@@ -118,8 +119,8 @@ export class NativeChat {
     } catch (error) {
       if (!alive()) return;
       this.status = {online:false,error:error instanceof NativeError ? error.code : 'connection_failed'};
-      this.disconnect();
-      if (error instanceof NativeError && (error.code === 'server_identity_changed' || error.code === 'session_rejected')) this.reconnect.arreter();
+      if (error instanceof NativeError && (error.code === 'server_identity_changed' || error.code === 'session_rejected')) this.stop();
+      else this.disconnect();
       throw error;
     }
   }
@@ -150,7 +151,72 @@ export class NativeChat {
       };
     });
   }
-  private ready(): void { if (!this.verified || this.stopped) throw new NativeError(0,'offline'); }
+  private ready(): void {
+    if (this.stopped) throw new NativeError(0,'session_closed');
+    if (!this.verified) throw new NativeError(0,'offline');
+  }
+  async messagePermissions(id: string): Promise<import('./protocol.generated.ts').MessagePermissions> {
+    this.ready();
+    if (!this.capabilities?.fine_permissions) throw new NativeError(501,'unsupported_feature');
+    const generation=this.generation;
+    const permissions=await this.transport.messagePermissions(id);
+    if (this.stopped || generation!==this.generation) throw new NativeError(0,'session_closed');
+    return permissions;
+  }
+  async actionContext(id: string): Promise<{message:import('./protocol.generated.ts').Message;permissions:import('./protocol.generated.ts').MessagePermissions;draft:string|null}> {
+    this.ready();
+    const generation=this.generation;
+    const projection=this.store.projectionToken();
+    const message=await this.transport.message(id);
+    const permissions=await this.messagePermissions(id);
+    if (this.stopped || generation!==this.generation) throw new NativeError(0,'session_closed');
+    if (permissions.revision!==message.revision) throw new NativeError(409,'delivery_revalidate');
+    if (!await this.store.ingest([message],projection)) throw new NativeError(409,'delivery_revalidate');
+    this.notify();
+    if (message.deleted) throw new NativeError(410,'message_deleted');
+    return {message,permissions,draft:await this.store.commandDraft(id)};
+  }
+  async edit(rid: string,id: string,revision: string,text: string): Promise<void> {
+    if (!text.trim() || utf8RoomBytes(text)>32_768) throw new NativeError(400,'invalid_message');
+    return this.submitCommand(rid,id,revision,'edit',text);
+  }
+  async delete(rid: string,id: string,revision: string): Promise<void> {
+    return this.submitCommand(rid,id,revision,'delete','');
+  }
+  private async submitCommand(rid: string,id: string,revision: string,kind: NativeCommand['kind'],text: string): Promise<void> {
+    this.ready();
+    const command=await this.store.command(rid,id,revision,kind,text,this.id);
+    if (!command) throw new NativeError(409,'message_action_pending');
+    try { await this.applyCommand(command); }
+    catch (error) { await this.commandFailed(command,error); throw error; }
+  }
+  private async applyCommand(command: NativeCommand): Promise<void> {
+    const operation=this.commands.then(async () => {
+      this.ready();
+      if (!(command.kind==='edit'?this.capabilities?.editing:this.capabilities?.deletion)) throw new NativeError(501,'unsupported_feature');
+      const generation=this.generation;
+      const projection=this.store.projectionToken();
+      const input={operation_id:command.id,expected_revision:command.expected_revision};
+      const message=command.kind==='edit'
+        ? await this.transport.editMessage(command.message_id,{...input,content:{kind:'plain',markdown:command.text,mentions:[],quotes:[],files:[]}})
+        : await this.transport.deleteMessage(command.message_id,input);
+      if (this.stopped || generation!==this.generation) throw new NativeError(0,'session_closed');
+      if (!await this.store.confirmCommand(command.id,message,projection)) throw new NativeError(409,'delivery_revalidate');
+      this.retryAttempt=0; this.retryAt=0; this.notify();
+    });
+    this.commands=operation.catch(() => {});
+    return operation;
+  }
+  private async commandFailed(command: NativeCommand,error: unknown): Promise<void> {
+    if (this.stopped || !this.verified) return;
+    if (permanentCommandError(error)) { await this.store.failCommand(command.id,(error as NativeError).code); this.notify(); }
+    else if (error instanceof NativeError && error.status===401 && error.code==='session_rejected') {
+      this.status={online:false,error:error.code}; this.stop();
+    } else {
+      this.deferSend(error);
+      if (error instanceof NativeError && error.code==='delivery_revalidate') this.lost();
+    }
+  }
   async send(rid: string, text: string): Promise<string> {
     if (this.stopped) throw new NativeError(0,'session_closed');
     const value = text.trim();
@@ -205,6 +271,11 @@ export class NativeChat {
         if (!(error instanceof NativeError) || error.status === 0 || error.status >= 500 || error.status === 429 || error.status === 401) { this.deferSend(error); return; }
         await this.store.fail(pending.id,error.code); this.notify();
       }
+    }
+    for (const command of await this.store.pendingCommands()) {
+      if (!this.verified || this.stopped) return;
+      try { await this.applyCommand(command); }
+      catch (error) { await this.commandFailed(command,error); if (!permanentCommandError(error)) return; }
     }
   }
   async retry(id: string): Promise<void> { await this.store.retry(id); this.notify(); await this.flush(); }
@@ -272,6 +343,11 @@ export class NativeChat {
     if (this.stopped || generation!==this.generation) throw new NativeError(0,'session_closed');
     this.refresh(); return room.id;
   }
+}
+
+function permanentCommandError(error: unknown): boolean {
+  return error instanceof NativeError && error.status>=400 && error.status<500 && error.status!==401 && error.status!==429 && error.code!=='delivery_revalidate'
+    || error instanceof NativeError && error.code==='unsupported_feature';
 }
 
 function utf8RoomBytes(value: string): number {

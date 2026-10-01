@@ -146,3 +146,34 @@ test('reset purges old confirmed history and rejects old responses while retaini
   assert.equal((await store.pending())[0].id,'unsent'); assert.equal(await store.drafts().lire(room.id),'Draft');
   db.close();
 });
+
+test('an unresolved action survives disk reopen and journal acknowledgement without changing intent or revision',async () => {
+  const directory=mkdtempSync(join(tmpdir(),'rocketvibe-command-')); const filename=join(directory,'account.sqlite');
+  const original=nativeTestDatabase(filename); let resumed:ReturnType<typeof nativeTestDatabase>|undefined;
+  try {
+    const first=new NativeStore(original.adapter,creerFileEcritures(),session); await first.applySnapshot(snapshot);
+    const pending=(await first.command(room.id,message.id,message.revision,'edit','Edited',() => 'edit-intent'))!;
+    original.db.close(); resumed=nativeTestDatabase(filename,false);
+    const store=new NativeStore(resumed.adapter,creerFileEcritures(),session);
+    assert.equal((await store.pendingCommands())[0].id,pending.id);
+    assert.equal(await store.commandDraft(message.id),'Edited');
+    const edited={...message,text:'Edited',revision:'9007199254740994'}; await store.ingest([edited]);
+    const replay=await store.command(room.id,message.id,edited.revision,'edit','Edited',() => {throw new Error('Must retain operation ID');});
+    assert.equal(replay!.id,pending.id); assert.equal(replay!.expected_revision,message.revision);
+    assert.equal(await store.command(room.id,message.id,edited.revision,'delete','',() => 'forbidden-overwrite'),null);
+    await assert.rejects(store.confirmCommand(pending.id,{...edited,id:'wrong-message'},store.projectionToken()));
+    assert.equal((await store.pendingCommands()).length,1);
+    await store.failCommand(pending.id,'revision_conflict');
+    assert.equal(await store.commandDraft(message.id),'Edited');
+    const fresh=(await store.command(room.id,message.id,edited.revision,'delete','',() => 'delete-intent'))!;
+    const token=store.projectionToken(); await store.applySnapshot({...snapshot,messages:[]});
+    assert.equal(await store.confirmCommand(fresh.id,edited,token),false);
+    assert.equal((await store.pendingCommands()).length,1);
+    const deleted={...edited,text:'',deleted:true,revision:'9007199254740995'};
+    assert.ok(await store.confirmCommand(fresh.id,deleted,store.projectionToken()));
+    assert.deepEqual(await store.pendingCommands(),[]); assert.deepEqual(await store.messages(room.id),[]);
+  } finally {
+    resumed?.db.close(); if (!resumed) {try {original.db.close();} catch { /* Already closed. */ }}
+    unlinkSync(filename); rmdirSync(directory);
+  }
+});

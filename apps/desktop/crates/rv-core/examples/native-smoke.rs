@@ -90,6 +90,13 @@ async fn main() {
     assert_eq!(desktop.store.draft(&rid).unwrap(), "Draft survives reopening");
     let history = control.history(&rid, None).await.unwrap();
     assert_eq!(history.messages.iter().filter(|m| m.id == id).count(), 1);
+    let (message, rights) = desktop.message_action_context(&id).await.unwrap();
+    assert!(rights.edit && rights.delete);
+    desktop.edit(&rid, &id, &message.revision, "Edited from desktop SQLite").await.unwrap();
+    until(|| has(&desktop, &rid, "Edited from desktop SQLite")).await;
+    let (message, _) = desktop.message_action_context(&id).await.unwrap();
+    desktop.delete(&rid, &id, &message.revision).await.unwrap();
+    until(|| !desktop.store.messages(&rid, 1000).unwrap().iter().any(|m| m.id == id)).await;
     let created = desktop.create_room("Created by desktop", true).await.unwrap();
     until(|| {
         room(&desktop, "Created by desktop").as_deref() == Some(&created)
@@ -134,6 +141,6 @@ async fn main() {
     tokio::time::sleep(Duration::from_millis(50)).await;
     std::fs::remove_file(path).unwrap();
     println!(
-        "Native desktop core: mobile exchange, public discovery/join, on-disk outbox replay, drafts, DM, creation and withdrawal passed"
+        "Native desktop core: mobile exchange, edit/delete commands, public discovery/join, on-disk outbox replay, drafts, DM, creation and withdrawal passed"
     );
 }

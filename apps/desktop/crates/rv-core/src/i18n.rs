@@ -37,6 +37,21 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("native.older", "Messages plus anciens", "Older messages"),
     ("native.send", "Envoyer", "Send"),
     ("native.retry", "Réessayer", "Retry"),
+    (
+        "native.message_changed",
+        "Ce message a changé. Rouvre l'éditeur pour revoir ton texte.",
+        "This message changed. Reopen the editor to review your text.",
+    ),
+    (
+        "native.action_pending",
+        "Une modification est déjà en attente. Ton texte a été conservé.",
+        "A change is already queued. Your text has been saved.",
+    ),
+    (
+        "native.action_retry",
+        "La connexion a été interrompue. L'action enregistrée sera reprise.",
+        "The connection was interrupted. The saved action will be retried.",
+    ),
     ("native.abandon", "Abandonner cet envoi", "Abandon this send"),
     ("native.pending", "En attente", "Pending"),
     ("native.failed", "Non envoyé", "Not sent"),

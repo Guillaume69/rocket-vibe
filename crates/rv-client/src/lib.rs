@@ -91,7 +91,8 @@ impl NativeClient {
         input: Option<&impl Serialize>,
         anonymous: bool,
     ) -> Result<T, Error> {
-        self.check_cooldown(path)?;
+        let budget = Self::budget(path, &method);
+        self.check_cooldown(budget)?;
         let mut request = self.http.request(method, format!("{}{path}", self.base));
         if !anonymous {
             request = request.bearer_auth(self.token.as_ref().ok_or(Error::SessionMissing)?);
@@ -105,7 +106,7 @@ impl NativeClient {
             let retry = retry_after(&response);
             let error: ApiError = response.json().await?;
             if status == 429
-                && let Some(key) = Self::budget(path)
+                && let Some(key) = budget
             {
                 self.cooldowns.lock().expect("native cooldown lock").insert(
                     key,
@@ -142,17 +143,22 @@ impl NativeClient {
         Ok(response.json().await?)
     }
 
-    fn budget(path: &str) -> Option<&'static str> {
+    fn budget(path: &str, method: &Method) -> Option<&'static str> {
         match path {
             "/api/v1/auth/login" => Some("login"),
             "/api/v1/sync/ticket" => Some("ticket"),
             "/api/v1/sync/snapshots" => Some("snapshot"),
+            _ if path.starts_with("/api/v1/messages/")
+                && matches!(*method, Method::PATCH | Method::DELETE | Method::PUT) =>
+            {
+                Some("message_action")
+            }
             _ => None,
         }
     }
 
-    fn check_cooldown(&self, path: &str) -> Result<(), Error> {
-        if let Some(key) = Self::budget(path)
+    fn check_cooldown(&self, budget: Option<&'static str>) -> Result<(), Error> {
+        if let Some(key) = budget
             && let Some(cooldown) = self
                 .cooldowns
                 .lock()

@@ -13,6 +13,43 @@ pub struct Pending {
     pub room_id: String,
     pub text: String,
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum MessageCommandKind {
+    Edit,
+    Delete,
+}
+impl MessageCommandKind {
+    fn value(self) -> &'static str {
+        match self {
+            Self::Edit => "edit",
+            Self::Delete => "delete",
+        }
+    }
+}
+#[derive(Clone)]
+pub struct PendingCommand {
+    pub id: String,
+    pub room_id: String,
+    pub message_id: String,
+    pub kind: MessageCommandKind,
+    pub expected_revision: String,
+    pub text: String,
+}
+fn command_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PendingCommand> {
+    let kind: String = row.get(3)?;
+    Ok(PendingCommand {
+        id: row.get(0)?,
+        room_id: row.get(1)?,
+        message_id: row.get(2)?,
+        kind: match kind.as_str() {
+            "edit" => MessageCommandKind::Edit,
+            "delete" => MessageCommandKind::Delete,
+            _ => return Err(rusqlite::Error::InvalidQuery),
+        },
+        expected_revision: row.get(4)?,
+        text: row.get(5)?,
+    })
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MessageRow {
     pub id: String,
@@ -46,6 +83,7 @@ impl NativeStore {
             CREATE TABLE IF NOT EXISTS native_outbox(id TEXT PRIMARY KEY,rid TEXT NOT NULL,text TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',error TEXT,created INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS native_drafts(rid TEXT PRIMARY KEY,text TEXT NOT NULL);")?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_room_creations(id TEXT PRIMARY KEY,name TEXT NOT NULL,private INTEGER NOT NULL,UNIQUE(name,private));")?;
+        conn.execute_batch("CREATE TABLE IF NOT EXISTS native_commands(id TEXT PRIMARY KEY,rid TEXT NOT NULL,message_id TEXT NOT NULL UNIQUE,kind TEXT NOT NULL CHECK(kind IN ('edit','delete')),expected_revision TEXT NOT NULL,text TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',error TEXT);")?;
         let (changes, _) = broadcast::channel(64);
         let columns = conn
             .prepare("PRAGMA table_info(native_messages)")?
@@ -75,6 +113,7 @@ impl NativeStore {
                 "native_outbox",
                 "native_drafts",
                 "native_room_creations",
+                "native_commands",
             ] {
                 tx.execute(&format!("DELETE FROM {table}"), [])?;
             }
@@ -155,6 +194,78 @@ impl NativeStore {
             Ok(())
         })
     }
+    /// A lost acknowledgement keeps the original revision and operation ID,
+    /// even if a journal event already changed the visible message. A different
+    /// command cannot overwrite an unresolved intention for this message.
+    pub fn command(
+        &self,
+        rid: &str,
+        message: &str,
+        revision: &str,
+        kind: MessageCommandKind,
+        text: &str,
+    ) -> rusqlite::Result<Option<PendingCommand>> {
+        decimal(revision)?;
+        self.atomic(|tx| {
+            if !self.same(tx)? { return Err(rusqlite::Error::InvalidQuery); }
+            if let Some(previous)=tx.query_row("SELECT id,rid,message_id,kind,expected_revision,text FROM native_commands WHERE message_id=?1 AND state='pending'",[message],command_row).optional()? {
+                return Ok((previous.room_id==rid && previous.kind==kind && previous.text==text).then_some(previous));
+            }
+            let visible=tx.query_row("SELECT 1 FROM native_messages WHERE id=?1 AND rid=?2 AND NOT deleted AND position IS NOT NULL",params![message,rid],|_|Ok(())).optional()?.is_some();
+            if !visible {return Err(rusqlite::Error::InvalidQuery);}
+            tx.execute("DELETE FROM native_commands WHERE message_id=?1 AND state='failed'",[message])?;
+            let command=PendingCommand{id:format!("{:032x}",fastrand::u128(..)),room_id:rid.into(),message_id:message.into(),kind,expected_revision:revision.into(),text:text.into()};
+            tx.execute("INSERT INTO native_commands(id,rid,message_id,kind,expected_revision,text) VALUES(?1,?2,?3,?4,?5,?6)",params![command.id,rid,message,kind.value(),revision,text])?;
+            Ok(Some(command))
+        })
+    }
+    pub fn pending_commands(&self) -> rusqlite::Result<Vec<PendingCommand>> {
+        let conn = self.conn.lock().unwrap();
+        if !self.same(&conn)? {
+            return Ok(vec![]);
+        }
+        conn.prepare("SELECT id,rid,message_id,kind,expected_revision,text FROM native_commands WHERE state='pending' ORDER BY rowid")?.query_map([],command_row)?.collect()
+    }
+    pub fn fail_command(&self, id: &str, code: &str) -> rusqlite::Result<()> {
+        self.atomic(|tx| {
+            tx.execute("UPDATE native_commands SET state='failed',error=?2 WHERE id=?1", params![id, code])?;
+            Ok(())
+        })
+    }
+    pub fn command_draft(&self, message: &str) -> rusqlite::Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        if !self.same(&conn)? {
+            return Ok(None);
+        }
+        conn.query_row("SELECT text FROM native_commands WHERE message_id=?1 AND kind='edit'", [message], |r| r.get(0))
+            .optional()
+    }
+    pub fn confirm_command(&self, id: &str, message: &Message, token: u64) -> rusqlite::Result<bool> {
+        self.atomic(|tx| {
+            if !self.same(tx)? {
+                return Err(rusqlite::Error::InvalidQuery);
+            }
+            if token != self.projection_token() {
+                return Ok(false);
+            }
+            let command = tx
+                .query_row(
+                    "SELECT id,rid,message_id,kind,expected_revision,text FROM native_commands WHERE id=?1",
+                    [id],
+                    command_row,
+                )
+                .optional()?;
+            let Some(command) = command else {
+                return Ok(true);
+            };
+            if command.message_id != message.id || command.room_id != message.room_id {
+                return Err(rusqlite::Error::InvalidQuery);
+            }
+            Self::message(tx, message)?;
+            tx.execute("DELETE FROM native_commands WHERE id=?1", [id])?;
+            Ok(true)
+        })
+    }
     fn room(tx: &Transaction, room: &Room) -> rusqlite::Result<()> {
         tx.execute(
             "INSERT INTO native_rooms VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
@@ -195,7 +306,7 @@ impl NativeStore {
     }
     fn remove(tx: &Transaction, rid: &str) -> rusqlite::Result<()> {
         tx.execute("DELETE FROM native_rooms WHERE id=?1", [rid])?;
-        for table in ["native_messages", "native_outbox", "native_drafts"] {
+        for table in ["native_messages", "native_outbox", "native_drafts", "native_commands"] {
             tx.execute(&format!("DELETE FROM {table} WHERE rid=?1"), [rid])?;
         }
         Ok(())
@@ -206,9 +317,14 @@ impl NativeStore {
         }
         self.atomic_projection(true, |tx| {
             if !self.same(tx)? {
-                for table in
-                    ["native_rooms", "native_messages", "native_outbox", "native_drafts", "native_room_creations"]
-                {
+                for table in [
+                    "native_rooms",
+                    "native_messages",
+                    "native_outbox",
+                    "native_drafts",
+                    "native_room_creations",
+                    "native_commands",
+                ] {
                     tx.execute(&format!("DELETE FROM {table}"), [])?;
                 }
             } else {
@@ -511,6 +627,60 @@ mod tests {
         assert_eq!(store.messages("room-id", 10).unwrap().len(), 1);
         assert_eq!(store.pending().unwrap()[0].id, "pending");
         assert_eq!(store.draft("room-id").unwrap(), "draft");
+    }
+    #[test]
+    fn unresolved_commands_survive_restart_and_keep_the_original_revision() {
+        let path = std::env::temp_dir().join(format!("rv-command-{:032x}.sqlite", fastrand::u128(..)));
+        let initial = snapshot();
+        let message = &initial.messages[0];
+        let original = NativeStore::open(&path, identity()).unwrap();
+        original.snapshot(&initial).unwrap();
+        let pending = original
+            .command(&message.room_id, &message.id, &message.revision, MessageCommandKind::Edit, "Edited")
+            .unwrap()
+            .unwrap();
+        drop(original);
+        let store = NativeStore::open(&path, identity()).unwrap();
+        assert_eq!(store.pending_commands().unwrap()[0].id, pending.id);
+        let mut edited = message.clone();
+        edited.text = "Edited".into();
+        edited.revision = "9007199254740994".into();
+        store.ingest(std::slice::from_ref(&edited)).unwrap();
+        let replay = store
+            .command(&message.room_id, &message.id, &edited.revision, MessageCommandKind::Edit, "Edited")
+            .unwrap()
+            .unwrap();
+        assert_eq!(replay.id, pending.id);
+        assert_eq!(replay.expected_revision, message.revision);
+        assert!(
+            store
+                .command(&message.room_id, &message.id, &edited.revision, MessageCommandKind::Delete, "")
+                .unwrap()
+                .is_none()
+        );
+        let mut wrong = edited.clone();
+        wrong.id = "wrong-message".into();
+        assert!(store.confirm_command(&pending.id, &wrong, store.projection_token()).is_err());
+        assert_eq!(store.pending_commands().unwrap().len(), 1);
+        store.fail_command(&pending.id, "revision_conflict").unwrap();
+        assert_eq!(store.command_draft(&message.id).unwrap().as_deref(), Some("Edited"));
+        let fresh = store
+            .command(&message.room_id, &message.id, &edited.revision, MessageCommandKind::Delete, "")
+            .unwrap()
+            .unwrap();
+        assert_ne!(fresh.id, pending.id);
+        let token = store.projection_token();
+        store.snapshot(&Snapshot { messages: vec![], ..initial.clone() }).unwrap();
+        assert!(!store.confirm_command(&fresh.id, &edited, token).unwrap());
+        let mut deleted = edited;
+        deleted.text.clear();
+        deleted.deleted = true;
+        deleted.revision = "9007199254740995".into();
+        assert!(store.confirm_command(&fresh.id, &deleted, store.projection_token()).unwrap());
+        assert!(store.pending_commands().unwrap().is_empty());
+        assert!(store.messages(&message.room_id, 10).unwrap().is_empty());
+        drop(store);
+        std::fs::remove_file(path).unwrap();
     }
     #[test]
     fn reopening_disk_preserves_outbox_and_new_generation_hides_and_drops_it() {

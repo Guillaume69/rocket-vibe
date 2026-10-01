@@ -9,6 +9,11 @@ section here.
 
 ### Added
 
+- Native edit/delete actions in the existing GTK and SwiftUI menus and editors.
+  SQLite commands retain their operation IDs and original revisions across
+  retries and restarts; rejected edit drafts remain available for review.
+  Stale editors report a conflict, and closed account providers reject actions.
+
 - Native edits and tombstones in the existing GTK / SwiftUI message renderer.
   Cursor resets replace confirmed history while retaining live-room drafts and
   outbox; older in-flight responses cannot restore discarded or deleted content.

@@ -211,7 +211,11 @@ struct Composer: View {
     }
 
     func editLast() {
-        editingLast = model.lastMine()
+        guard let message = model.lastMine() else { return }
+        Task {
+            do { try await model.prepareMutation(message, editing: true); editingLast = message }
+            catch { app.notice = L("edit.too_late") }
+        }
     }
 
     func startVoice() async {
@@ -374,15 +378,15 @@ struct EditLastSheet: View {
         }
         .padding()
         .frame(width: 460)
-        .onAppear { text = message.text ?? "" }
+        .onAppear { text = model.editingText(message) }
     }
 
     func save() {
         let edited = text.trimmingCharacters(in: .whitespacesAndNewlines)
         dismiss()
-        guard !edited.isEmpty, edited != message.text else { return }
+        guard !edited.isEmpty, edited != model.editingOriginalText(message) else { return }
         Task {
-            do { try await model.edit(message, text: edited) } catch { app.notice = L("edit.too_late") }
+            do { try await model.edit(message, text: edited) } catch { app.notice = model.mutationError(error) }
         }
     }
 }

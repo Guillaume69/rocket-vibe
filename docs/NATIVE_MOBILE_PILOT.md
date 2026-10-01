@@ -48,9 +48,12 @@ nouvelle. Les sockets sont suspendues en arrière-plan et arrêtées à la bascu
 
 Les composants existants rendent le Markdown, la sélection, les dates et l'état
 d'envoi. Copier / partager du texte reste local. Les fonctionnalités absentes du
-serveur natif sont désactivées : fils, réactions, édition, favoris, non-lus, profils,
+serveur natif sont désactivées : fils, réactions, favoris, non-lus, profils,
 fichiers / vocaux, recherche de messages, présence, push, E2EE et appels. Les
 fonctions Rocket.Chat restent disponibles sur un compte Rocket.Chat.
+La feuille d'actions existante propose l'édition et la suppression selon les
+droits natifs ; les commandes et révisions persistent avant le départ HTTP.
+Le texte d'une édition refusée peut être retrouvé en rouvrant l'éditeur.
 
 ## Vérification et limites
 

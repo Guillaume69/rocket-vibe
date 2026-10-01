@@ -113,6 +113,7 @@ fn load_collapsed() -> Vec<Section> {
 pub struct ChatPage {
     native: RefCell<Option<Arc<rv_core::native::NativeSession>>>,
     native_forward: RefCell<Option<tokio::task::JoinHandle<()>>>,
+    native_edit: RefCell<Option<(String, String, String)>>,
     search_button: gtk::Button,
     marked_button: gtk::Button,
     split: adw::NavigationSplitView,
@@ -375,6 +376,7 @@ impl ChatPage {
         let this = Rc::new(ChatPage {
             native: RefCell::default(),
             native_forward: RefCell::default(),
+            native_edit: RefCell::default(),
             search_button: search_button.clone(),
             marked_button: marked_button.clone(),
             split,
@@ -941,6 +943,12 @@ impl ChatPage {
 
     /// Up in an empty composer: my last message, edited in place if the server still allows it.
     fn edit_last(self: &Rc<Self>, in_thread: bool) {
+        if let Some(session) = self.native_session() {
+            if let Some(row) = self.list.last_mine(&session.info.user_id) {
+                self.start_native_edit(row);
+            }
+            return;
+        }
         let (Some(session), Some(open)) = (self.session(), self.current.borrow().clone()) else { return };
         let Some(row) = self.list_of(in_thread).last_mine(&session.info.user_id) else { return };
         let room = actions_menu::RoomContext {
@@ -1035,6 +1043,7 @@ impl ChatPage {
     }
 
     pub fn set_session(&self, session: Option<Arc<Session>>) {
+        self.native_edit.replace(None);
         if let Some(forward) = self.native_forward.take() {
             forward.abort();
         }

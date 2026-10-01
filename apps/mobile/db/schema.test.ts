@@ -101,6 +101,7 @@ describe('migrations', () => {
       'emojis_custom',
       'etat_synchro',
       'messages',
+      'native_commands',
       'native_positions',
       'native_room_creations',
       'native_sync_state',
@@ -122,6 +123,7 @@ describe('migrations', () => {
     assert.deepEqual(index, [
       'idx_messages_fil',
       'idx_messages_salon_date',
+      'idx_native_command_message',
       'idx_native_positions_room',
       'idx_native_room_creation_form',
       'idx_salons_activite',

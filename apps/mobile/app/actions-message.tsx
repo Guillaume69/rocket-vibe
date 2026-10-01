@@ -101,6 +101,8 @@ type Charge = {
   /** De quoi bâtir le permalien d'une citation (`lib/citation.ts`). */
   salon: { type: string; nom: string | null };
   actions: ActionMessage[];
+  revision?: string;
+  brouillonEdition?: string | null;
 };
 
 export default function EcranActionsMessage() {
@@ -130,6 +132,7 @@ export default function EcranActionsMessage() {
   const base = synchro.phase === 'pret' ? synchro.base : null;
   const moteur = synchro.phase === 'pret' ? synchro.moteur : null;
   const actionneur = synchro.phase === 'pret' ? synchro.actions : null;
+  const fournisseur = synchro.phase === 'pret' ? synchro.fournisseur : null;
   const e2e = synchro.phase === 'pret' ? synchro.e2e : null;
   const client = etat.phase === 'connecte' ? etat.client : null;
   const moi = etat.phase === 'connecte' ? etat.session.userId : null;
@@ -165,14 +168,21 @@ export default function EcranActionsMessage() {
         promesseRegles,
         promesseSources,
       ]);
+      // A revision belongs to the opened editor. Never refresh it when saving a draft.
+      const contexteNatif = fournisseur?.native
+        ? await fournisseur.native.chat.actionContext(brut.id).catch(() => null)
+        : null;
+      const droitsNatifs = contexteNatif?.permissions;
       if (annule) return;
       setCharge({
+        revision:droitsNatifs?.revision,
+        brouillonEdition:contexteNatif?.draft,
         message: {
           id: brut.id,
           rid: brut.rid,
           filId: brut.filId,
           typeSysteme: brut.typeSysteme,
-          texte: brut.texte,
+          texte: contexteNatif?.message.text ?? brut.texte,
           auteurNom: brut.auteurNom,
           piecesJointes: brut.piecesJointes,
           reactions: brut.reactions,
@@ -182,7 +192,11 @@ export default function EcranActionsMessage() {
         // Ligne de salon absente (lien profond avant synchro) : repli `c`/rid —
         // le serveur ne lit de toute façon que le `?msg=` du permalien.
         salon: { type: lignesSalon[0]?.type ?? 'c', nom: lignesSalon[0]?.nom ?? null },
-        actions: client.genre === 'rocketvibe' ? (brut.texte ? ['copier', 'partager'] : []) : actionsPossibles({
+        actions: client.genre === 'rocketvibe' ? [
+          ...(brut.texte ? ['copier', 'partager'] as const : []),
+          ...(droitsNatifs?.edit && fournisseur?.capacites.edition ? ['modifier'] as const : []),
+          ...(droitsNatifs?.delete && fournisseur?.capacites.suppression ? ['supprimer'] as const : []),
+        ] : actionsPossibles({
           message: {
             auteurId: brut.auteurId,
             horodatage: brut.horodatage,
@@ -210,7 +224,7 @@ export default function EcranActionsMessage() {
     return () => {
       annule = true;
     };
-  }, [pret, id, fil, base, client, moi, t]);
+  }, [pret, id, fil, base, client, fournisseur, moi, t]);
 
   // Mes réactions déjà posées sur ce message : contour accentué, et le tap
   // RETIRE au lieu d'ajouter — `chat.react` sait faire les deux, le câblage en
@@ -242,13 +256,19 @@ export default function EcranActionsMessage() {
         await action();
         routeur.back();
       } catch (e) {
-        setErreur(e instanceof Error ? e.message : t('actionsMessage.actionRefusee'));
+        if (fournisseur?.native) {
+          const diagnostic=fournisseur.decrireErreur(e,true);
+          setErreur(t(diagnostic.code==='revision_conflict'?'actionsMessage.messageModifie'
+            :diagnostic.code==='message_action_pending'?'actionsMessage.actionEnAttente'
+            :diagnostic.statut===0 || diagnostic.statut===429 || diagnostic.statut>=500?'actionsMessage.actionReprise'
+            :'actionsMessage.actionRefusee'));
+        } else setErreur(e instanceof Error ? e.message : t('actionsMessage.actionRefusee'));
       } finally {
         enVol.current = false;
         setOccupe(false);
       }
     },
-    [routeur, t],
+    [routeur, fournisseur, t],
   );
 
   if (!pret || client === null || moteur === null || actionneur === null || charge === null) {
@@ -397,6 +417,7 @@ export default function EcranActionsMessage() {
                     message.id,
                     edition ?? '',
                     message.typeSysteme === TYPE_CHIFFRE ? (e2e ?? undefined) : undefined,
+                    charge.revision,
                   ),
                 )
               }
@@ -477,7 +498,7 @@ export default function EcranActionsMessage() {
               libelle={t('actionsMessage.modifier')}
               onPress={() => {
                 void Haptics.selectionAsync();
-                setEdition(message.texte ?? '');
+                setEdition(charge.brouillonEdition ?? message.texte ?? '');
               }}
             />
           )}
@@ -527,9 +548,10 @@ export default function EcranActionsMessage() {
               onPress={() =>
                 void agir(async () => {
                   try {
-                    await actionneur.supprimer(message.rid, message.id);
+                    await actionneur.supprimer(message.rid, message.id, charge.revision);
                     // La ligne locale tombera par le stream `deleteMessage`.
                   } catch (e) {
+                    if (client.genre === 'rocketvibe') throw e;
                     // Fantôme : déjà supprimé d'un AUTRE client pendant que
                     // l'app était fermée — le serveur ne le connaît plus,
                     // seule la ligne locale reste. La purger EST la

@@ -83,6 +83,8 @@ export function normaliserGenre(valeur: unknown): Genre {
  * Mattermost aplatit par `root_id` — les deux se ramènent à « id du post parent ».
  */
 export type Capacites = {
+  edition?: boolean;
+  suppression?: boolean;
   fichiers?: boolean;
   fils?: boolean;
   reactions?: boolean;
@@ -166,8 +168,8 @@ export interface Traducteur {
 export interface ActionsFournisseur {
   reagir(rid: string, mid: string, emoji: string, mettre: boolean): Promise<void>;
   /** `chiffreur` : le message est chiffré, sa nouvelle version aussi. */
-  modifier(rid: string, mid: string, texte: string, chiffreur?: ChiffreurEnvoi): Promise<void>;
-  supprimer(rid: string, mid: string): Promise<void>;
+  modifier(rid: string, mid: string, texte: string, chiffreur?: ChiffreurEnvoi, revision?: string): Promise<void>;
+  supprimer(rid: string, mid: string, revision?: string): Promise<void>;
   epingler(rid: string, mid: string): Promise<void>;
   desepingler(rid: string, mid: string): Promise<void>;
   etoiler(rid: string, mid: string, mettre: boolean): Promise<void>;
@@ -187,6 +189,8 @@ export interface ActionsFournisseur {
 
 /** Capacités de Rocket.Chat. E2EE dégradé (lecture seule), push par gateway hors périmètre. */
 export const CAPACITES_ROCKETCHAT: Capacites = {
+  edition: true,
+  suppression: true,
   typing: true,
   presence: true,
   push: true,

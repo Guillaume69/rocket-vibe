@@ -174,6 +174,8 @@ pub struct NativeSession {
     wake: Notify,
     paused: AtomicBool,
     verified: AtomicBool,
+    closed: AtomicBool,
+    command_lock: tokio::sync::Mutex<()>,
     task: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 impl NativeSession {
@@ -200,6 +202,8 @@ impl NativeSession {
             wake: Notify::new(),
             paused: AtomicBool::new(false),
             verified: AtomicBool::new(false),
+            closed: AtomicBool::new(false),
+            command_lock: tokio::sync::Mutex::new(()),
             task: Mutex::new(None),
         });
         let weak = Arc::downgrade(&session);
@@ -221,7 +225,8 @@ impl NativeSession {
                     s.set_failure(&error);
                     if terminal {
                         s.paused.store(true, Ordering::SeqCst);
-                        continue;
+                        s.closed.store(true, Ordering::SeqCst);
+                        return;
                     }
                     let delay =
                         Duration::from_millis(((1000u64 << attempt.min(5)) + fastrand::u64(0..1000)).min(30_000));
@@ -261,6 +266,9 @@ impl NativeSession {
         self.signal();
     }
     pub fn reconnect(&self) {
+        if self.closed.load(Ordering::SeqCst) {
+            return;
+        }
         if self.status().error.as_deref() == Some("server_identity_changed") {
             return;
         }
@@ -268,6 +276,7 @@ impl NativeSession {
         self.signal();
     }
     pub fn shutdown(&self) {
+        self.closed.store(true, Ordering::SeqCst);
         self.paused.store(true, Ordering::SeqCst);
         self.verified.store(false, Ordering::SeqCst);
         if let Some(task) = self.task.lock().unwrap().take() {
@@ -288,7 +297,13 @@ impl NativeSession {
             .unwrap()
             .as_ref()
             .map(|server| {
-                server.supported_features(&rv_protocol::Capabilities { room_discovery: true, ..Default::default() })
+                server.supported_features(&rv_protocol::Capabilities {
+                    room_discovery: true,
+                    editing: true,
+                    deletion: true,
+                    fine_permissions: true,
+                    ..Default::default()
+                })
             })
             .unwrap_or_default()
     }
@@ -373,9 +388,19 @@ impl NativeSession {
                 Err(error) => return Err(error.into()),
             }
         }
+        for command in self.store.pending_commands()? {
+            match self.apply_command(&command).await {
+                Ok(()) => (),
+                Err(error) if permanent_command_error(&error) => self.store.fail_command(&command.id, error.code())?,
+                Err(error) => return Err(error),
+            }
+        }
         Ok(())
     }
     pub fn send(&self, rid: &str, text: &str) -> Result<String, Error> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(Error::Protocol("session_closed"));
+        }
         if self.status().error.as_deref() == Some("server_identity_changed") {
             return Err(Error::Protocol("server_identity_changed"));
         }
@@ -398,7 +423,122 @@ impl NativeSession {
         Ok(())
     }
     fn ready(&self) -> Result<(), Error> {
-        if self.verified.load(Ordering::SeqCst) { Ok(()) } else { Err(Error::Protocol("offline")) }
+        if self.closed.load(Ordering::SeqCst) {
+            Err(Error::Protocol("session_closed"))
+        } else if self.verified.load(Ordering::SeqCst) {
+            Ok(())
+        } else {
+            Err(Error::Protocol("offline"))
+        }
+    }
+    pub async fn message_permissions(&self, id: &str) -> Result<rv_protocol::parity::MessagePermissions, Error> {
+        self.ready()?;
+        if !self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.fine_permissions) {
+            return Err(Error::Protocol("unsupported_feature"));
+        }
+        let permissions = self.client.message_permissions(id).await?;
+        self.ready()?;
+        Ok(permissions)
+    }
+    pub async fn edit(&self, rid: &str, id: &str, revision: &str, text: &str) -> Result<(), Error> {
+        if text.trim().is_empty() || text.len() > 32_768 {
+            return Err(Error::Protocol("invalid_message"));
+        }
+        self.submit_command(rid, id, revision, store::MessageCommandKind::Edit, text).await
+    }
+    pub async fn message_action_context(
+        &self,
+        id: &str,
+    ) -> Result<(rv_protocol::Message, rv_protocol::parity::MessagePermissions), Error> {
+        self.ready()?;
+        let projection = self.store.projection_token();
+        let message = self.client.message(id).await?;
+        let permissions = self.message_permissions(id).await?;
+        if permissions.revision != message.revision {
+            return Err(Error::Protocol("delivery_revalidate"));
+        }
+        if !self.store.ingest_at(std::slice::from_ref(&message), projection)? {
+            return Err(Error::Protocol("delivery_revalidate"));
+        }
+        if message.deleted {
+            return Err(Error::Protocol("message_deleted"));
+        }
+        Ok((message, permissions))
+    }
+    pub async fn delete(&self, rid: &str, id: &str, revision: &str) -> Result<(), Error> {
+        self.submit_command(rid, id, revision, store::MessageCommandKind::Delete, "").await
+    }
+    async fn submit_command(
+        &self,
+        rid: &str,
+        id: &str,
+        revision: &str,
+        kind: store::MessageCommandKind,
+        text: &str,
+    ) -> Result<(), Error> {
+        self.ready()?;
+        let command =
+            self.store.command(rid, id, revision, kind, text)?.ok_or(Error::Protocol("message_action_pending"))?;
+        let result = self.apply_command(&command).await;
+        if let Err(error) = &result {
+            if permanent_command_error(error) {
+                self.store.fail_command(&command.id, error.code())?;
+            } else if error.terminal() {
+                self.shutdown();
+                self.set_failure(error);
+            } else {
+                self.wake.notify_one();
+            }
+        }
+        result
+    }
+    async fn apply_command(&self, command: &store::PendingCommand) -> Result<(), Error> {
+        use rv_protocol::parity::{DeleteMessage, EditMessage, MessageContent};
+        let _guard = self.command_lock.lock().await;
+        self.ready()?;
+        let supported = self.capabilities.lock().unwrap().as_ref().is_some_and(|c| match command.kind {
+            store::MessageCommandKind::Edit => c.editing,
+            store::MessageCommandKind::Delete => c.deletion,
+        });
+        if !supported {
+            return Err(Error::Protocol("unsupported_feature"));
+        }
+        let projection = self.store.projection_token();
+        let message = match command.kind {
+            store::MessageCommandKind::Edit => {
+                self.client
+                    .edit_message(
+                        &command.message_id,
+                        &EditMessage {
+                            operation_id: command.id.clone(),
+                            expected_revision: command.expected_revision.clone(),
+                            content: MessageContent::Plain {
+                                markdown: command.text.clone(),
+                                mentions: vec![],
+                                quotes: vec![],
+                                files: vec![],
+                            },
+                        },
+                    )
+                    .await?
+            }
+            store::MessageCommandKind::Delete => {
+                self.client
+                    .delete_message(
+                        &command.message_id,
+                        &DeleteMessage {
+                            operation_id: command.id.clone(),
+                            expected_revision: command.expected_revision.clone(),
+                        },
+                    )
+                    .await?
+            }
+        };
+        self.ready()?;
+        if !self.store.confirm_command(&command.id, &message, projection)? {
+            return Err(Error::Protocol("delivery_revalidate"));
+        }
+        Ok(())
     }
     pub async fn users(&self) -> Result<Vec<rv_protocol::User>, Error> {
         self.ready()?;
@@ -506,4 +646,9 @@ impl NativeSession {
         self.client.logout().await?;
         Ok(())
     }
+}
+
+fn permanent_command_error(error: &Error) -> bool {
+    matches!(error,Error::Network(rv_client::Error::Server{status,code,..}) if (400..500).contains(status) && *status!=401 && *status!=429 && code!="delivery_revalidate")
+        || matches!(error, Error::Protocol("unsupported_feature"))
 }

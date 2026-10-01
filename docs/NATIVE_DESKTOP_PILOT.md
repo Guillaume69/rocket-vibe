@@ -18,12 +18,15 @@ Construire le bureau dans Fedora avec `apps/desktop/scripts/build.sh`. La connex
 
 Le bouton nouvelle conversation permet un DM ou la création d'un salon privé/public.
 L'en-tête d'un salon ouvre l'invitation par pseudo ; le serveur réserve ce droit au
-propriétaire. L'adhésion libre aux salons publics reste à développer.
+propriétaire. La recherche existante permet de découvrir et rejoindre les salons publics.
 
 Le texte, l'historique, le brouillon et les envois hors ligne sont disponibles.
 Réessayer / abandonner utilisent le menu d'un envoi refusé. Les fonctions natives
 non prises en charge (fichiers, vocaux, fils, réactions, non-lus, recherche, push,
 E2EE et appels) restent désactivées. Rocket.Chat garde ses fonctions actuelles.
+Les menus et éditeurs existants permettent aussi l'édition et la suppression,
+avec droits du serveur, révision capturée à l'ouverture et intention SQLite.
+Une édition refusée conserve son texte pour la réouverture de l'éditeur.
 
 ## Cache et reprise
 

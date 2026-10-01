@@ -8,6 +8,66 @@ import { NativeStore } from './store.ts';
 import { nativeTestDatabase } from './testDatabase.ts';
 import { NativeError, NativeTransport } from './transport.ts';
 
+test('a session rejected before socket opening closes the retained provider without queuing stale sends',async () => {
+  const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',genre:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const {db,adapter}=nativeTestDatabase();
+  const store=new NativeStore(adapter,creerFileEcritures(),session);
+  await store.applySnapshot({protocol_version:1,rooms:[fixture.room],messages:[],cursor:'initial'});
+  const transport={discover:async()=>fixture.discovery,me:async()=>{throw new NativeError(401,'session_rejected');}} as unknown as NativeTransport;
+  const chat=new NativeChat(session,store,()=>{throw new Error('A closed provider must not allocate an intent');},{transport,socket:()=>{throw new Error('Socket must not open');}});
+  try {
+    await assert.rejects(chat.connect(),/session_rejected/);
+    assert.equal(chat.status.error,'session_rejected');
+    await assert.rejects(chat.send(fixture.room.id,'Stale callback'),/session_closed/);
+    assert.deepEqual(await store.pending(),[]);
+  } finally {chat.stop();db.close();}
+});
+
+test('durable edits retry the original revision after journal delivery and stop on conflicts or session rejection',async () => {
+  const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',genre:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const {db,adapter}=nativeTestDatabase();
+  const store=new NativeStore(adapter,creerFileEcritures(),session);
+  const original={...fixture.message,position:'1',revision:'1'};
+  await store.applySnapshot({protocol_version:1,rooms:[fixture.room],messages:[original],cursor:'initial'});
+  const attempts:{operation_id:string;expected_revision:string}[]=[];
+  let deleteError:NativeError|null=new NativeError(409,'revision_conflict');
+  const transport={
+    discover:async()=>({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,editing:true,deletion:true,fine_permissions:true}}),me:async()=>fixture.session.user,
+    changes:async()=>({protocol_version:1,changes:[],cursor:'initial',has_more:false}),socketUrl:async()=>'ws://localhost/fake',
+    editMessage:async(_:string,input:{operation_id:string;expected_revision:string;content:{markdown:string}})=>{
+      attempts.push({operation_id:input.operation_id,expected_revision:input.expected_revision});
+      const edited={...original,text:input.content.markdown,revision:'2',edited_at:'2026-10-01T00:00:00Z'};
+      if (attempts.length===1) {
+        await store.applyBatch({protocol_version:1,changes:[{type:'message_upsert',data:edited}],cursor:'edited',has_more:false});
+        throw new NativeError(503,'response_lost');
+      }
+      return edited;
+    },
+    deleteMessage:async()=>{ if (deleteError) throw deleteError; return {...original,text:'',deleted:true,revision:'3'}; },
+  } as unknown as NativeTransport;
+  const socket={readyState:0,onopen:null,onclose:null,onerror:null,onmessage:null,close:()=>{}} as unknown as WebSocket;
+  let ids=0;
+  const chat=new NativeChat(session,store,()=>`command-${++ids}`,{transport,socket:()=>{queueMicrotask(()=>socket.onopen?.(new Event('open')));return socket;}});
+  try {
+    await chat.connect();
+    await assert.rejects(chat.edit(fixture.room.id,original.id,'1','Saved edit'),e=>e instanceof NativeError && e.code==='response_lost');
+    assert.equal((await store.pendingCommands())[0].expected_revision,'1');
+    const deadline=Date.now()+5000;
+    while ((await store.pendingCommands()).length) {assert(Date.now()<deadline,'command retry stalled');await new Promise(resolve=>setTimeout(resolve,10));}
+    assert.deepEqual(attempts,[{operation_id:'command-1',expected_revision:'1'},{operation_id:'command-1',expected_revision:'1'}]);
+    await assert.rejects(chat.delete(fixture.room.id,original.id,'2'),e=>e instanceof NativeError && e.code==='revision_conflict');
+    assert.equal((await store.pendingCommands()).length,0,'conflicting commands must not retry forever');
+    assert.equal(db.prepare('SELECT state FROM native_commands').get()?.state,'failed');
+    deleteError=new NativeError(401,'session_rejected');
+    await assert.rejects(chat.delete(fixture.room.id,original.id,'2'),e=>e instanceof NativeError && e.code==='session_rejected');
+    assert.equal(chat.status.error,'session_rejected');
+    await assert.rejects(chat.edit(fixture.room.id,original.id,'2','Old screen'),e=>e instanceof NativeError && e.code==='session_closed');
+    assert.equal((await store.pendingCommands()).length,1,'rejection preserves the unacknowledged intent for later review');
+  } finally {chat.stop();await store.state();db.close();}
+});
+
 test('stopping during the WebSocket handshake cancels its timer and detaches every callback',async () => {
   const fixture = JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
   const session:Session = {baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',genre:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};

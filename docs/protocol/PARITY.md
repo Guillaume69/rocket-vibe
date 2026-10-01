@@ -166,7 +166,7 @@ ouverte tant que serveur, clients concernés et scénario de parité manquent.
 | P06 Historique / temps réel | J1–J2 | Socle, snapshots matérialisés et barrière de révocation livrés ; tombstones / actions J2 |
 | P07 Markdown / emojis / citations | J2–J3 | Corpus testé ; références / messages système / catalogue natif et raccordement |
 | P08 Envoi / brouillons | J1 | Socle livré ; crash réel après commit / réponse perdue, Android ↔ Windows |
-| P09 Édition / suppression | J2 | Révisions, règles / délais, commandes et tombstones dans chaque client |
+| P09 Édition / suppression | J2 | API, droits / délais, tombstones, intentions SQLite et menus / éditeurs des 3 clients livrés ; parcours appareils à qualifier |
 | P10 Réactions / épingles / étoiles | J2 | Ajouts / retraits explicites, états privés, listes et saut au message |
 | P11 Fils | J2 | Racine, réponses et compteurs, même écran / composer de fil |
 | P12 Présence / saisie | J2 | Expiration, émission / écoute, dégradation hors ligne sans journal durable |

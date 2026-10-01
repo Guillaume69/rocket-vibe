@@ -42,7 +42,30 @@ final class NativeProviderTests: XCTestCase {
         let message = try XCTUnwrap(room.messages.last)
         XCTAssertTrue(message.mine)
         XCTAssertFalse(message.body.isEmpty)
-        XCTAssertEqual(room.actions(for: message), [.copy])
+        try await until { room.actions(for: message).contains(.edit) && room.actions(for: message).contains(.delete) }
+        XCTAssertTrue(room.supportsEditing)
+        try await room.prepareMutation(message, editing: true)
+        try await room.edit(message, text: "Swift native edited")
+        try await until { room.messages.contains { $0.id == message.id && $0.text == "Swift native edited" } }
+        let edited = try XCTUnwrap(room.messages.first { $0.id == message.id })
+        try await room.prepareMutation(edited, editing: true)
+        let competing = try await native.messageActions(messageId: message.id)
+        try await native.edit(room: rid, messageId: message.id, revision: competing.revision, text: "Concurrent Swift edit")
+        do {
+            try await room.edit(edited, text: "Stale editor must not overwrite")
+            XCTFail("A stale editor must receive revision_conflict")
+        } catch let RvError.Server(status, _, code, _, _, _) {
+            XCTAssertEqual(status, 409)
+            XCTAssertEqual(code, "revision_conflict")
+        }
+        try await until { room.messages.contains { $0.id == message.id && $0.text == "Concurrent Swift edit" } }
+        let latest = try XCTUnwrap(room.messages.first { $0.id == message.id })
+        try await room.prepareMutation(latest, editing: true)
+        XCTAssertEqual(room.editingText(latest), "Stale editor must not overwrite", "A failed edit remains available for review")
+        XCTAssertEqual(room.editingOriginalText(latest), "Concurrent Swift edit")
+        try await room.prepareMutation(latest, editing: false)
+        try await room.delete(latest)
+        try await until { !room.messages.contains { $0.id == message.id } }
         XCTAssertTrue(room.quickReactions.isEmpty)
 
         let directoryClient = Client(home: home + "/directory-owner")

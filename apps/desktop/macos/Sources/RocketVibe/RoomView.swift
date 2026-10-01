@@ -279,7 +279,7 @@ struct MessageList: View {
                 Button(L("actions.delete"), role: .destructive) {
                     if let message = deleting {
                         Task {
-                            do { try await model.delete(message) } catch { app.notice = L("actions.refused") }
+                            do { try await model.delete(message) } catch { app.notice = model.mutationError(error) }
                         }
                     }
                     deleting = nil
@@ -476,15 +476,15 @@ struct MessageRow: View, Equatable {
                 Button(L("actions.save"), action: save).keyboardShortcut(.defaultAction)
             }
         }
-        .onAppear { draft = message.text ?? "" }
+        .onAppear { draft = model?.editingText(message) ?? message.text ?? "" }
     }
 
     func save() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         setEditing(nil)
-        guard !text.isEmpty, text != message.text else { return }
+        guard !text.isEmpty, text != (model?.editingOriginalText(message) ?? message.text) else { return }
         Task {
-            do { try await model?.edit(message, text: text) } catch { app.notice = L("actions.refused") }
+            do { try await model?.edit(message, text: text) } catch { app.notice = model?.mutationError(error) ?? L("actions.refused") }
         }
     }
 
@@ -537,8 +537,13 @@ struct MessageRow: View, Equatable {
                 let name = message.files.first?.title ?? message.images.first?.title ?? "file"
                 Task { await download(path: path, name: name, app: app) }
             }
-        case .edit: setEditing(message.id)
-        case .delete: askDelete(message)
+        case .edit, .delete:
+            Task {
+                do {
+                    try await model?.prepareMutation(message, editing: action == .edit)
+                    if action == .edit { setEditing(message.id) } else { askDelete(message) }
+                } catch { app.notice = L("actions.refused") }
+            }
         case .pin, .unpin:
             Task {
                 do {

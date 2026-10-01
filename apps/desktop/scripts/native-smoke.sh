@@ -41,4 +41,9 @@ unset RV_SMOKE_LOGIN
 export RV_SMOKE_SIZE=435x760 RV_SMOKE_SEND=''
 export RV_SMOKE_SHOT=/workspace/artifacts/native-desktop-narrow.png
 run_with_keyring
+# Exercise the existing inline editor, including its Up-arrow path and save event.
+export RV_SMOKE_SIZE=1280x900 RV_SMOKE_EDIT='GTK native edit'
+export RV_SMOKE_EXPECT='GTK native edit after' RV_SMOKE_EXPECT_ABSENT='GTK native edit before'
+export RV_SMOKE_SHOT=/workspace/artifacts/native-desktop-edit.png
+run_with_keyring
 echo 'GTK native account: saved session resumed from real Secret Service after process restart'

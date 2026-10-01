@@ -315,6 +315,24 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- J2, troisième lot : menus et éditeurs mobile / GTK / SwiftUI existants raccordés
+  aux actions natives. Texte / droits / révision sont vérifiés avant ouverture ;
+  la sauvegarde utilise cette révision, avec conflit explicite si un autre appareil
+  a modifié le message. SQLite conserve une intention par message, son ID et sa
+  révision initiale malgré une réponse perdue ou un événement reçu entre-temps.
+  Confirmation et projection se font ensemble ; les refus définitifs cessent
+  leurs retries et le texte d'édition reste récupérable. Fermeture / refus de
+  session bloque les appels tardifs. Les clients respectent le quota d'actions
+  tout en laissant disponibles les lectures de message pendant `Retry-After`.
+  Vérifications : 46 tests Rust natifs, 41 tests TypeScript natifs, 991 mobiles,
+  211 cœur / bindings bureau ; formatage, Clippy, typecheck, lint et inventaire.
+  L'application GTK rend l'édition avant / après dans son éditeur et reprend
+  son compte depuis Secret Service. Les modèles Swift connectés à PostgreSQL
+  vérifient édition, conflit concurrent, récupération du texte refusé et suppression.
+  Swift : 6 tests locaux réussis et un parcours connecté réussi ; deux autres
+  parcours restent conditionnés à leurs bancs. Les appareils Android physiques
+  et l'application Windows installée restent à qualifier.
+
 - J2, deuxième lot : API d'édition / suppression avec reçus persistants,
   révision attendue, délai d'auteur, rôle de modération, tombstones et effacement
   des anciennes charges du journal actif. Transport Rust / mobile disponible,
@@ -325,7 +343,7 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   manque la suppression et 51 messages, puis remplace le cache par le snapshot
   borné sans conserver le message disparu. Tests de concurrence, restart,
   idempotence, barrières de livraison et page en construction couverts.
-  L'activation des menus et les intentions clientes persistantes suivent.
+  Menus et intentions clientes persistantes sont livrés dans le lot suivant.
   Vérifications : 45 tests Rust natifs, 37 TypeScript natifs, 987 mobiles et
   209 cœur / bindings bureau passent ; Clippy et compilation GTK, schéma /
   génération / inventaire, typecheck et lint réussis. Bindings et modèles Swift
@@ -338,7 +356,7 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   d'accès privé implicite de l'administrateur, délai d'édition, reçus consultables
   après restriction et verrous de livraison réels. `rooms/discover` est désormais
   l'alias prévu par J0, avec `rooms/public` conservé pour les clients récents.
-  Ces droits préparent les actions ; aucune capacité d'édition n'est encore activée.
+  Ces droits préparent les actions, activées dans les lots suivants.
   Vérifications : 40 tests Rust natifs, 35 TypeScript natifs et 208 tests bureau
   passent ; formatage, Clippy, schéma / génération, inventaire et typecheck passent.
 

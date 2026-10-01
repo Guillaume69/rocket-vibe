@@ -22,6 +22,7 @@ export type NativeState = { instance_id: string; data_epoch: string; cursor: str
 export type NativeRoomRow = { rid: string; nom: string; type: string; dernier_message: string | null };
 export type NativeMessageRow = { id: string; texte: string; auteur_nom: string; auteur_id: string; horodatage: number; statut: string | null };
 export type NativePending = { id: string; rid: string; texte: string };
+export type NativeCommand = {id:string;rid:string;message_id:string;kind:'edit'|'delete';expected_revision:string;text:string};
 
 export function localMessage(message: Message): MessageLocal {
   const time = Date.parse(message.created_at);
@@ -65,7 +66,7 @@ export class NativeStore {
   prepare(): Promise<void> {
     return this.atomic(async () => {
       if (await this.sameGeneration()) return;
-      for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs','native_room_creations']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+      for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs','native_room_creations','native_commands']) await this.db.runAsync(`DELETE FROM ${table}`, []);
     });
   }
   drafts(): DepotBrouillons {
@@ -117,7 +118,7 @@ export class NativeStore {
     await this.preview(message.room_id);
   }
   private async remove(rid: string): Promise<void> {
-    for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'native_positions']) await this.db.runAsync(`DELETE FROM ${table} WHERE rid=?`, [rid]);
+    for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'native_positions','native_commands']) await this.db.runAsync(`DELETE FROM ${table} WHERE rid=?`, [rid]);
     await this.db.runAsync(SUPPRIMER_BROUILLONS_SALON, [rid]);
     await this.db.runAsync("DELETE FROM etat_synchro WHERE portee=?", [rid]);
   }
@@ -126,7 +127,7 @@ export class NativeStore {
       const old = await this.db.getFirstAsync<NativeState>('SELECT instance_id,data_epoch,cursor FROM native_sync_state WHERE singleton=1', []);
       if (!old || old.instance_id !== this.session.nativeInstanceId || old.data_epoch !== this.session.nativeDataEpoch) {
         // A fresh login to a different generation must never replay its predecessor's outbox.
-        for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'brouillons', 'native_positions', 'etat_synchro', 'utilisateurs', 'native_room_creations']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+        for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'brouillons', 'native_positions', 'etat_synchro', 'utilisateurs', 'native_room_creations','native_commands']) await this.db.runAsync(`DELETE FROM ${table}`, []);
       } else {
         const live = new Set(snapshot.rooms.map(room => room.id));
         const known = await this.db.getAllAsync<{rid:string}>('SELECT rid FROM salons', []);
@@ -176,6 +177,47 @@ export class NativeStore {
   }
   completeRoomCreation(id: string): Promise<void> {
     return this.queue(async () => { await this.db.runAsync('DELETE FROM native_room_creations WHERE id=?',[id]); });
+  }
+  command(rid: string, message: string, revision: string, kind: NativeCommand['kind'], text: string, id: ()=>string): Promise<NativeCommand|null> {
+    return this.atomic(async () => {
+      if (!/^(0|[1-9]\d*)$/.test(revision) || !await this.sameGeneration()) throw new Error('Native command unavailable');
+      const previous=await this.db.getFirstAsync<NativeCommand>("SELECT id,rid,message_id,kind,expected_revision,text FROM native_commands WHERE message_id=? AND state='pending'",[message]);
+      if (previous) return previous.rid===rid && previous.kind===kind && previous.text===text?previous:null;
+      if (!await this.db.getFirstAsync('SELECT m.id FROM messages m JOIN native_positions p ON p.id=m.id WHERE m.id=? AND m.rid=?',[message,rid])) throw new Error('Message unavailable');
+      await this.db.runAsync("DELETE FROM native_commands WHERE message_id=? AND state='failed'",[message]);
+      const command: NativeCommand={id:id(),rid,message_id:message,kind,expected_revision:revision,text};
+      await this.db.runAsync('INSERT INTO native_commands(id,rid,message_id,kind,expected_revision,text) VALUES(?,?,?,?,?,?)',[command.id,rid,message,kind,revision,text]);
+      return command;
+    });
+  }
+  pendingCommands(): Promise<NativeCommand[]> {
+    return this.queue(async () => {
+      if (!await this.sameGeneration()) return [];
+      const commands=await this.db.getAllAsync<NativeCommand>("SELECT id,rid,message_id,kind,expected_revision,text FROM native_commands WHERE state='pending' ORDER BY rowid",[]);
+      if (commands.some(c => c.kind!=='edit' && c.kind!=='delete')) throw new Error('Invalid native command');
+      return commands;
+    });
+  }
+  failCommand(id: string,code: string): Promise<void> {
+    return this.queue(async () => {await this.db.runAsync("UPDATE native_commands SET state='failed',error=? WHERE id=?",[code,id]);});
+  }
+  commandDraft(id: string): Promise<string|null> {
+    return this.queue(async () => {
+      if (!await this.sameGeneration()) return null;
+      return (await this.db.getFirstAsync<{text:string}>("SELECT text FROM native_commands WHERE message_id=? AND kind='edit'",[id]))?.text ?? null;
+    });
+  }
+  confirmCommand(id: string,message: Message,token: number): Promise<boolean> {
+    return this.atomic(async () => {
+      if (!await this.sameGeneration()) throw new Error('Native generation unavailable');
+      if (token!==this.projectionToken()) return false;
+      const command=await this.db.getFirstAsync<{message_id:string;rid:string}>('SELECT message_id,rid FROM native_commands WHERE id=?',[id]);
+      if (!command) return true;
+      if (command.message_id!==message.id || command.rid!==message.room_id) throw new Error('Mismatched command acknowledgement');
+      await this.message(message);
+      await this.db.runAsync('DELETE FROM native_commands WHERE id=?',[id]);
+      return true;
+    });
   }
   messages(rid: string, limit = 500): Promise<NativeMessageRow[]> {
     if (!Number.isSafeInteger(limit) || limit < 1) throw new Error('Invalid message window');

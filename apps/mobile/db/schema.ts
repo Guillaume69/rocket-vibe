@@ -309,3 +309,15 @@ export const nativeRoomCreations = sqliteTable('native_room_creations', {
   name: text('name').notNull(),
   privateRoom: integer('private', {mode:'boolean'}).notNull(),
 }, (t) => [uniqueIndex('idx_native_room_creation_form').on(t.name,t.privateRoom)]);
+
+/** An unresolved action keeps its original revision across receipt/journal races. */
+export const nativeMessageCommands = sqliteTable('native_commands', {
+  id: text('id').primaryKey(),
+  rid: text('rid').notNull(),
+  messageId: text('message_id').notNull(),
+  kind: text('kind').notNull(),
+  expectedRevision: text('expected_revision').notNull(),
+  text: text('text').notNull(),
+  state: text('state').notNull().default('pending'),
+  error: text('error'),
+}, (t) => [uniqueIndex('idx_native_command_message').on(t.messageId)]);

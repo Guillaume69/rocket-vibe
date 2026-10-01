@@ -75,4 +75,22 @@ describe('native protocol contract', () => {
       (e: unknown) => e instanceof NativeError && e.status === 0);
     assert.equal(calls,2);
   });
+  test('action cooldown spans edits and deletes while keeping message reads available',async t => {
+    t.mock.timers.enable({apis:['Date']});
+    const verbs:string[]=[];
+    const client=new NativeTransport('https://example.org',async (_,options) => {
+      const verb=options?.method ?? 'GET'; verbs.push(verb);
+      return verb==='GET'?Response.json(fixture.message):Response.json({code:'message_action_limit',request_id:'action-request'},{status:429,headers:{'retry-after':'1'}});
+    });
+    client.restore('saved-token');
+    const input={operation_id:'action-id',expected_revision:'1'};
+    const limited=(error:unknown)=>error instanceof NativeError && error.status===429 && error.requestId==='action-request' && error.retryAfter===1;
+    await assert.rejects(client.editMessage('message-id',{...input,content:{kind:'plain',markdown:'Edited',mentions:[],quotes:[],files:[]}}),limited);
+    assert.equal((await client.message('message-id')).id,fixture.message.id);
+    await assert.rejects(client.deleteMessage('message-id',input),limited);
+    assert.deepEqual(verbs,['PATCH','GET']);
+    t.mock.timers.tick(1000);
+    await assert.rejects(client.deleteMessage('message-id',input),limited);
+    assert.deepEqual(verbs,['PATCH','GET','DELETE']);
+  });
 });

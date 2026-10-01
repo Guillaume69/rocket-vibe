@@ -9,13 +9,26 @@ import type { Session } from '../apps/mobile/lib/auth.ts';
 const base=process.env.RV_SMOKE_URL;
 if (!base) throw new Error('RV_SMOKE_URL is required');
 async function runner(username:string) {
-  const transport=new NativeTransport(base!);
+  const attempts:{operation_id:string;expected_revision:string;content:{kind:'plain';markdown:string;mentions:string[];quotes:never[];files:string[]}}[]=[];
+  let loseEdit=true;
+  const transport=new NativeTransport(base!,async (url,options) => {
+    const response=await fetch(url,options);
+    if (username==='alice' && options?.method==='PATCH') {
+      attempts.push(JSON.parse(String(options.body)));
+      if (loseEdit && response.ok) {
+        loseEdit=false;
+        await response.arrayBuffer();
+        return Response.json({code:'simulated_response_lost',request_id:'mobile-edit-smoke'},{status:503});
+      }
+    }
+    return response;
+  });
   const discovery=await transport.discover(); const login=await transport.login(username,'test-password-2026');
   const session: Session={genre:'rocketvibe',baseUrl:base!,siteUrl:null,authToken:login.token,userId:login.user.id,username:login.user.username,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
   const db=nativeTestDatabase(); const store=new NativeStore(db.adapter,creerFileEcritures(),session);
   let serial=0;
-  const makeChat=() => new NativeChat(session,store,() => `${username}-action-smoke-${serial++}`);
-  return {transport,db,store,session,makeChat};
+  const makeChat=() => new NativeChat(session,store,() => `${username}-action-smoke-${serial++}`,{transport});
+  return {transport,db,store,session,makeChat,attempts};
 }
 async function until(check:()=>Promise<boolean>) {
   const deadline=Date.now()+10_000;
@@ -30,15 +43,23 @@ try {
   const id=await a.send(room.id,'Original message');
   await until(async () => (await bob.store.messages(room.id)).some(m => m.id===id));
   const original=await alice.transport.message(id);
-  const edit={operation_id:'native-mobile-edit',expected_revision:original.revision,content:{kind:'plain' as const,markdown:'Edited message',mentions:[],quotes:[],files:[]}};
-  const edited=await alice.transport.editMessage(id,edit);
-  assert.deepEqual(await alice.transport.editMessage(id,edit),edited);
+  await assert.rejects(a.edit(room.id,id,original.revision,'Edited message'),/simulated_response_lost/);
+  await until(async () => (await alice.store.pendingCommands()).length===0);
+  assert.equal(alice.attempts.length,2);
+  assert.deepEqual(alice.attempts[0],alice.attempts[1]);
+  assert.equal(alice.attempts[1].expected_revision,original.revision);
+  const edited=await alice.transport.message(id);
+  assert.deepEqual(await alice.transport.editMessage(id,alice.attempts[0]),edited);
   await until(async () => (await bob.store.messages(room.id)).some(m => m.id===id && m.texte===edited.text));
   assert.equal(bob.db.db.prepare('SELECT modifie_le FROM messages WHERE id=?').get(id)!.modifie_le,Date.parse(edited.edited_at!));
+  assert.equal((await b.actionContext(id)).permissions.delete,false);
+  await assert.rejects(b.delete(room.id,id,edited.revision),/permission_denied/);
+  assert.equal((await bob.store.pendingCommands()).length,0,'forbidden deletion must not retry');
   b.stop(); // Miss the deletion and all following events with a populated cache.
   await bob.store.drafts().ecrire(room.id,'Draft across reset');
   await bob.store.enqueue('bob-pending-reset',room.id,'Pending across reset');
-  const deleted=await alice.transport.deleteMessage(id,{operation_id:'native-mobile-delete',expected_revision:edited.revision});
+  await a.delete(room.id,id,edited.revision);
+  const deleted=await alice.transport.message(id);
   assert.ok(deleted.deleted);
   await until(async () => !(await alice.store.messages(room.id)).some(m => m.id===id));
   await alice.store.ingest([original]);
@@ -55,5 +76,5 @@ try {
   b=bob.makeChat(); await b.connect();
   await until(async () => (await bob.store.pending()).length===0);
   assert.equal((await alice.transport.history(room.id)).messages.filter(m => m.id==='bob-pending-reset').length,1);
-  console.log('Native mobile actions: real WebSocket edit marker, tombstone erasure, lost events beyond snapshot window, draft/outbox retained and stale history rejected');
+  console.log('Native mobile actions: lost edit response retried with the original durable command/revision on live WebSocket, permissions enforced, edit marker, tombstone erasure, bounded reset and preserved drafts/outbox');
 } finally {a.stop(); b.stop(); await alice.store.state(); await bob.store.state(); alice.db.db.close(); bob.db.db.close();}

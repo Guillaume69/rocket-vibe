@@ -10,6 +10,7 @@ import { decrireErreurFournisseur } from '../../lib/erreurFournisseur.ts';
 import type { Capabilities } from './protocol.generated.ts';
 
 export const CAPACITES_ROCKETVIBE: Capacites = {
+  edition:true, suppression:true,
   typing:false, presence:false, push:false, e2ee:false, emojisCustom:false,
   appelVideo:false, recherche:false, modeleFil:'tmid',
   fichiers:false, fils:false, reactions:false, marques:false, profil:false, infosSalon:false, citations:false,
@@ -22,6 +23,7 @@ export function capacitesEffectives(annonce: Capabilities | null, client: Capaci
   const both = (a: boolean | undefined, b: boolean | undefined) => a === true && b === true;
   return {
     modeleFil:client.modeleFil,
+    edition:both(annonce?.editing,client.edition), suppression:both(annonce?.deletion,client.suppression),
     typing:both(annonce?.typing,client.typing), presence:both(annonce?.presence,client.presence),
     push:both(annonce?.push,client.push), e2ee:both(annonce?.e2ee,client.e2ee),
     emojisCustom:both(annonce?.custom_emojis,client.emojisCustom), appelVideo:both(annonce?.calls,client.appelVideo),
@@ -54,7 +56,17 @@ export function creerFournisseurRV(session: Session, client: ClientRest, generer
       versSalon:() => null, versAbonnement:() => null,
     },
     actions:{
-      reagir:unsupported, modifier:unsupported, supprimer:unsupported, epingler:unsupported,
+      reagir:unsupported,
+      modifier:async (rid,id,text,chiffreur,revision) => {
+        if (chiffreur) return unsupported();
+        if (!revision) throw new NativeError(409,'revision_required');
+        return chat.edit(rid,id,revision,text);
+      },
+      supprimer:async (rid,id,revision) => {
+        if (!revision) throw new NativeError(409,'revision_required');
+        return chat.delete(rid,id,revision);
+      },
+      epingler:unsupported,
       desepingler:unsupported, etoiler:unsupported, listerEpingles:unsupported, listerEtoiles:unsupported,
       marquerLu:async () => {},
       ouvrirOuCreerDm:async username => ({rid:await chat.direct(username), salonBrut:{}}),

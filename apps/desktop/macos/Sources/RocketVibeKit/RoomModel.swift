@@ -30,6 +30,9 @@ public final class RoomModel {
     var draftSave: Task<Void, Never>?
     /// Each message's actions, asked of rv-ffi once per version of the list.
     @ObservationIgnored var actionsOf: [String: [MessageAction]] = [:]
+    private var nativeActions: [String: NativeMessageActions] = [:]
+    @ObservationIgnored private var actionLoads: Set<String> = []
+    @ObservationIgnored private var mutations: [String: NativeMessageActions] = [:]
 
     public var draft: String {
         didSet {
@@ -64,6 +67,8 @@ public final class RoomModel {
         active = false
         messages = []
         actionsOf.removeAll()
+        nativeActions.removeAll()
+        mutations.removeAll()
     }
 
     public var rid: String { room.rid }
@@ -76,8 +81,13 @@ public final class RoomModel {
     public func reload() {
         guard active, let fresh = try? provider.messages(rid: room.rid, limit: limit, thread: threadId, unreadAfter: unreadAfter) else { return }
         if fresh != messages {
+            let changed = fresh.filter { item in messages.first { $0.id == item.id } != item }
             messages = fresh
             actionsOf.removeAll()
+            for item in changed { nativeActions.removeValue(forKey: item.id) }
+            if provider.native != nil {
+                for item in fresh where item.delivery == .sent { loadNativeActions(item) }
+            }
         }
         if threadId == nil { refreshUploads() }
     }
@@ -171,11 +181,61 @@ public final class RoomModel {
 
     public func actions(for message: MessageItem) -> [MessageAction] {
         guard active else { return [] }
-        guard let chat else { return [.copy] }
+        guard let chat else {
+            loadNativeActions(message)
+            guard let rights = nativeActions[message.id] else { return [.copy] }
+            var result: [MessageAction] = [.copy]
+            let deadline = rights.editUntil.flatMap { value -> Date? in
+                let parser = ISO8601DateFormatter()
+                parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                return parser.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+            }
+            let unexpired = deadline.map { $0 > Date() } ?? (rights.editUntil == nil)
+            if rights.edit && unexpired && supportsEditing { result.append(.edit) }
+            if rights.delete && provider.native?.supportedFeatures().contains("deletion") == true { result.append(.delete) }
+            return result
+        }
         if let known = actionsOf[message.id] { return known }
         let actions = chat.actions(rid: room.rid, messageId: message.id, inThread: threadId != nil)
         actionsOf[message.id] = actions
         return actions
+    }
+
+    private func loadNativeActions(_ message: MessageItem) {
+        guard active, message.delivery == .sent, nativeActions[message.id] == nil,
+              !actionLoads.contains(message.id), let native = provider.native else { return }
+        actionLoads.insert(message.id)
+        Task {
+            defer { actionLoads.remove(message.id) }
+            guard let rights = try? await native.messageActions(messageId: message.id), active,
+                  messages.first(where: { $0.id == message.id }) == message else { return }
+            nativeActions[message.id] = rights
+        }
+    }
+
+    /// Capture the text and revision before opening the existing editor or confirmation.
+    public func prepareMutation(_ message: MessageItem, editing: Bool) async throws {
+        guard active else { throw RvError.Local(message: L("native.error")) }
+        guard let native = provider.native else { return }
+        let context = try await native.messageActions(messageId: message.id)
+        guard active, editing ? context.edit : context.delete else { throw RvError.Local(message: L("actions.refused")) }
+        mutations[message.id] = context
+    }
+
+    public func editingText(_ message: MessageItem) -> String {
+        mutations[message.id]?.draft ?? mutations[message.id]?.text ?? message.text ?? ""
+    }
+    public func editingOriginalText(_ message: MessageItem) -> String {
+        mutations[message.id]?.text ?? message.text ?? ""
+    }
+    public func mutationError(_ error: Error) -> String {
+        guard provider.native != nil else { return L("actions.refused") }
+        if case let RvError.Server(status, _, code, _, _, _) = error {
+            if code == "revision_conflict" { return L("native.message_changed") }
+            if code == "message_action_pending" { return L("native.action_pending") }
+            if status == 0 || status == 429 || status >= 500 { return L("native.action_retry") }
+        }
+        return L("actions.refused")
     }
 
     public var quickReactions: [String] { chat?.quickReactions() ?? [] }
@@ -186,10 +246,24 @@ public final class RoomModel {
     }
 
     public func edit(_ message: MessageItem, text: String) async throws {
+        if let native = provider.native {
+            guard active, let context = mutations[message.id] else { throw RvError.Local(message: "revision_required") }
+            try await native.edit(room: room.rid, messageId: message.id, revision: context.revision, text: text)
+            mutations.removeValue(forKey: message.id)
+            reload()
+            return
+        }
         try await editableChat().edit(rid: room.rid, messageId: message.id, text: text)
     }
 
     public func delete(_ message: MessageItem) async throws {
+        if let native = provider.native {
+            guard active, let context = mutations[message.id] else { throw RvError.Local(message: "revision_required") }
+            try await native.delete(room: room.rid, messageId: message.id, revision: context.revision)
+            mutations.removeValue(forKey: message.id)
+            reload()
+            return
+        }
         try await editableChat().delete(rid: room.rid, messageId: message.id)
     }
 

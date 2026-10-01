@@ -5,6 +5,117 @@ use rv_core::session::SessionInfo;
 use serde_json::json;
 
 #[tokio::test]
+async fn message_commands_survive_restart_with_the_original_revision_and_reject_closed_sessions() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    use std::time::Duration;
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../../docs/protocol/v1.fixture.json")).unwrap();
+    let confirm = Arc::new(AtomicBool::new(false));
+    let permit = confirm.clone();
+    let responses = fixture.clone();
+    let server = FakeHttp::start(move |request| match request.path() {
+        "/.well-known/rocketvibe" => {
+            let mut discovery = responses["discovery"].clone();
+            for feature in ["editing", "deletion", "fine_permissions"] {
+                discovery["capabilities"][feature] = json!(true);
+            }
+            respond(200, &discovery.to_string())
+        }
+        "/api/v1/me" => respond(200, &responses["session"]["user"].to_string()),
+        "/api/v1/sync/changes" => {
+            respond(200, &json!({"protocol_version":1,"changes":[],"cursor":"initial","has_more":false}).to_string())
+        }
+        "/api/v1/sync/ticket" => respond(200, &responses["socket_ticket"].to_string()),
+        "/api/v1/sync/socket" => common::Response { websocket: true, ..Default::default() },
+        "/api/v1/messages/message-id" if request.method == "PATCH" => {
+            if !permit.load(Ordering::SeqCst) {
+                return respond(503, r#"{"code":"response_lost","request_id":"command-test"}"#);
+            }
+            let mut message = responses["message"].clone();
+            message["text"] = json!("Saved desktop edit");
+            message["revision"] = json!("2");
+            respond(200, &message.to_string())
+        }
+        _ => respond(404, r#"{"code":"not_found","request_id":"fake"}"#),
+    })
+    .await;
+    let identity = Identity {
+        instance_id: fixture["discovery"]["instance_id"].as_str().unwrap().into(),
+        data_epoch: fixture["discovery"]["data_epoch"].as_str().unwrap().into(),
+    };
+    let path = std::env::temp_dir().join(format!("rv-command-{:032x}.sqlite", fastrand::u128(..)));
+    let original: rv_protocol::Message = serde_json::from_value(fixture["message"].clone()).unwrap();
+    let mut original = original;
+    original.revision = "1".into();
+    let store = native::store::NativeStore::open(&path, identity.clone()).unwrap();
+    store
+        .snapshot(&rv_protocol::Snapshot {
+            protocol_version: 1,
+            rooms: vec![serde_json::from_value(fixture["room"].clone()).unwrap()],
+            messages: vec![original.clone()],
+            cursor: "initial".into(),
+        })
+        .unwrap();
+    drop(store);
+    let info = SessionInfo {
+        base_url: server.url.as_str().into(),
+        user_id: "alice-id".into(),
+        username: "alice".into(),
+        auth_token: "fixture-token".into(),
+        native: Some(identity),
+    };
+    let session = native::NativeSession::start(info.clone(), &path).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while session.status().connection != rv_core::session::Connection::Online {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(session.edit("room-id", "message-id", "1", "Saved desktop edit").await.is_err());
+    let command = session.store.pending_commands().unwrap().remove(0);
+    let mut journal = original;
+    journal.revision = "2".into();
+    journal.text = "Saved desktop edit".into();
+    session
+        .store
+        .batch(&rv_protocol::SyncBatch {
+            protocol_version: 1,
+            changes: vec![rv_protocol::Change::MessageUpsert(journal)],
+            cursor: "edited".into(),
+            has_more: false,
+        })
+        .unwrap();
+    session.shutdown();
+    assert_eq!(session.send("room-id", "Stale callback").unwrap_err().code(), "session_closed");
+    assert_eq!(session.delete("room-id", "message-id", "2").await.unwrap_err().code(), "session_closed");
+    common::close_native(session).await;
+    confirm.store(true, Ordering::SeqCst);
+    let resumed = native::NativeSession::start(info, &path).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !resumed.store.pending_commands().unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(resumed.store.messages("room-id", 50).unwrap()[0].text, "Saved desktop edit");
+    common::close_native(resumed).await;
+    let edits: Vec<_> = server
+        .requests()
+        .into_iter()
+        .filter(|request| request.method == "PATCH")
+        .map(|request| serde_json::from_str::<serde_json::Value>(&request.body).unwrap())
+        .collect();
+    assert!(edits.len() >= 2);
+    assert!(edits.iter().all(|input| input["operation_id"] == command.id && input["expected_revision"] == "1"));
+    std::fs::remove_file(path).unwrap();
+}
+
+#[tokio::test]
 async fn room_creation_retries_a_lost_reply_with_its_durable_intention() {
     use std::sync::{
         Arc,

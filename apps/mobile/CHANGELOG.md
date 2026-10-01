@@ -9,6 +9,11 @@ release, et ses notes sont la section de la version ici.
 
 ### Ajouté
 
+- Édition et suppression RocketVibe dans la feuille d'actions existante, selon les
+  droits du serveur. Les intentions et révisions sont conservées dans SQLite,
+  reprises après coupure ; le texte d'une édition refusée reste récupérable à
+  la réouverture. Un conflit concurrent s'affiche sans écraser le nouveau texte.
+
 - Projection des éditions et suppressions RocketVibe dans les écrans existants :
   marqueur d'édition, effacement local et révisions empêchant un historique tardif
   de rétablir le texte. Un reset remplace l'historique confirmé tout en conservant

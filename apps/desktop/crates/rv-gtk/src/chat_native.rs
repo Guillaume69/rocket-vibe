@@ -10,6 +10,7 @@ impl ChatPage {
 
     pub fn set_native_session(self: &Rc<Self>, session: Arc<NativeSession>) {
         self.set_session(None);
+        self.native_edit.replace(None);
         self.native.replace(Some(session.clone()));
         self.native_features(&session);
         self.account_name.set_label(&session.info.username);
@@ -135,6 +136,7 @@ impl ChatPage {
             return;
         }
         self.remember(rid);
+        self.native_edit.replace(None);
         self.current.replace(Some(OpenRoom {
             rid: room.rid.clone(),
             kind: room.kind,
@@ -231,6 +233,41 @@ impl ChatPage {
     pub(super) fn native_row_event(self: &Rc<Self>, event: RowEvent) {
         match event {
             RowEvent::Retry(id) => self.retry(id),
+            RowEvent::CancelEdit => {
+                self.native_edit.replace(None);
+                self.list.stop_edit();
+                self.composer.grab_focus();
+            }
+            RowEvent::SaveEdit => {
+                let Some((id, revision, initial)) = self.native_edit.borrow_mut().take() else { return };
+                let Some((edited, text)) = self.list.stop_edit() else { return };
+                let (Some(session), Some(rid)) = (self.native_session(), self.current_rid()) else { return };
+                self.composer.grab_focus();
+                if edited != id || text.trim().is_empty() || text == initial {
+                    return;
+                }
+                let (weak, expected) = (Rc::downgrade(self), session.clone());
+                glib::spawn_future_local(async move {
+                    let (i, r, v, t) = (id.clone(), rid.clone(), revision.clone(), text.clone());
+                    let result = on_tokio(async move { session.edit(&r, &i, &v, &t).await }).await;
+                    let Some(this) = weak.upgrade() else { return };
+                    if this.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &expected))
+                        || this.current_rid().as_deref() != Some(&rid)
+                    {
+                        return;
+                    }
+                    if let Err(error) = result {
+                        this.native_error(&error);
+                        if this.list.editing().is_none()
+                            && let Some(mut row) = this.list.row(&id)
+                        {
+                            row.text = Some(text);
+                            this.native_edit.replace(Some((id, revision, initial)));
+                            this.list.start_edit(&row);
+                        }
+                    }
+                });
+            }
             RowEvent::Menu { row, anchor, x, y } => {
                 let popover = gtk::Popover::builder().has_arrow(false).build();
                 popover.set_parent(&anchor);
@@ -267,9 +304,105 @@ impl ChatPage {
                 popover.set_child(Some(&list));
                 popover.connect_closed(|p| p.unparent());
                 popover.popup();
+                if row.outbox_status.is_none()
+                    && let Some(session) = self.native_session()
+                {
+                    let (weak, expected, rid) = (Rc::downgrade(self), session.clone(), row.rid.clone());
+                    glib::spawn_future_local(async move {
+                        let id = row.id.clone();
+                        let context = on_tokio(async move { session.message_action_context(&id).await }).await;
+                        let Some(this) = weak.upgrade() else { return };
+                        if popover.parent().is_none()
+                            || this.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &expected))
+                            || this.current_rid().as_deref() != Some(&rid)
+                        {
+                            return;
+                        }
+                        let Ok((message, rights)) = context else { return };
+                        for (key, edit, allowed) in
+                            [("actions.edit", true, rights.edit), ("actions.delete", false, rights.delete)]
+                        {
+                            if !allowed {
+                                continue;
+                            }
+                            let button = gtk::Button::builder().label(t(key)).css_classes(["flat"]).build();
+                            let (weak, p, s, r, revision, text, initial) = (
+                                weak.clone(),
+                                popover.clone(),
+                                expected.clone(),
+                                row.clone(),
+                                rights.revision.clone(),
+                                expected
+                                    .store
+                                    .command_draft(&row.id)
+                                    .ok()
+                                    .flatten()
+                                    .unwrap_or_else(|| message.text.clone()),
+                                message.text.clone(),
+                            );
+                            button.connect_clicked(move |_| {
+                                let Some(this) = weak.upgrade() else { return };
+                                if this.native_session().is_none_or(|current| !Arc::ptr_eq(&current, &s)) {
+                                    return;
+                                }
+                                p.popdown();
+                                if edit {
+                                    let mut r = r.clone();
+                                    r.text = Some(text.clone());
+                                    this.native_edit.replace(Some((r.id.clone(), revision.clone(), initial.clone())));
+                                    this.list.start_edit(&r);
+                                } else {
+                                    let (weak, s, id, rid, revision) =
+                                        (weak.clone(), s.clone(), r.id.clone(), r.rid.clone(), revision.clone());
+                                    actions_menu::confirm_delete(Some(this.split.upcast_ref()), move || {
+                                        let (weak, s, id, rid, revision) =
+                                            (weak.clone(), s.clone(), id.clone(), rid.clone(), revision.clone());
+                                        glib::spawn_future_local(async move {
+                                            let expected = s.clone();
+                                            let result =
+                                                on_tokio(async move { s.delete(&rid, &id, &revision).await }).await;
+                                            if let Err(error) = result
+                                                && let Some(this) = weak.upgrade()
+                                                && this.native_session().is_some_and(|s| Arc::ptr_eq(&s, &expected))
+                                            {
+                                                this.native_error(&error);
+                                            }
+                                        });
+                                    });
+                                }
+                            });
+                            list.append(&button);
+                        }
+                    });
+                }
             }
             _ => {}
         }
+    }
+
+    pub(super) fn start_native_edit(self: &Rc<Self>, mut row: rv_core::store::MessageRow) {
+        let Some(session) = self.native_session() else { return };
+        let (weak, expected, rid, id) = (Rc::downgrade(self), session.clone(), row.rid.clone(), row.id.clone());
+        glib::spawn_future_local(async move {
+            let context = on_tokio(async move { session.message_action_context(&id).await }).await;
+            let Some(this) = weak.upgrade() else { return };
+            if this.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &expected))
+                || this.current_rid().as_deref() != Some(&rid)
+            {
+                return;
+            }
+            match context {
+                Ok((message, rights)) if rights.edit => {
+                    let initial = message.text;
+                    let text = expected.store.command_draft(&row.id).ok().flatten().unwrap_or_else(|| initial.clone());
+                    row.text = Some(text.clone());
+                    this.native_edit.replace(Some((row.id.clone(), rights.revision, initial)));
+                    this.list.start_edit(&row);
+                }
+                Ok(_) => this.toast(t("edit.too_late").to_owned()),
+                Err(error) => this.native_error(&error),
+            }
+        });
     }
 
     pub(super) fn native_conversation(self: &Rc<Self>, invite: bool) {
@@ -362,6 +495,8 @@ fn native_error_key(code: &str) -> &'static str {
         "server_identity_changed" => "native.identity_changed",
         "session_rejected" => "login.expired",
         "offline" => "native.offline",
+        "revision_conflict" => "native.message_changed",
+        "message_action_pending" => "native.action_pending",
         "user_not_found" => "native.user_missing",
         _ => "native.error",
     }

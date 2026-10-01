@@ -365,3 +365,73 @@ async fn rust_transport_respects_retry_after_across_clones() {
     );
     server.abort();
 }
+
+#[tokio::test]
+async fn message_action_cooldown_is_shared_but_does_not_block_reads() {
+    use axum::{Json, Router, routing::get};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    let calls = Arc::new(AtomicUsize::new(0));
+    let requests = calls.clone();
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("../../../docs/protocol/v1.fixture.json")).unwrap();
+    let message: rv_protocol::Message = serde_json::from_value(fixture["message"].clone()).unwrap();
+    let limited = move || {
+        let requests = requests.clone();
+        async move {
+            requests.fetch_add(1, Ordering::SeqCst);
+            (
+                axum::http::StatusCode::TOO_MANY_REQUESTS,
+                [("retry-after", "1")],
+                Json(rv_protocol::ApiError {
+                    code: "message_action_limit".into(),
+                    request_id: "action-request".into(),
+                }),
+            )
+        }
+    };
+    let router = Router::new().route(
+        "/api/v1/messages/message-id",
+        get(move || {
+            let message = message.clone();
+            async move { Json(message) }
+        })
+        .patch(limited.clone())
+        .delete(limited),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut client =
+        NativeClient::new(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+    client.restore("saved-token".into());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    let edit = rv_protocol::parity::EditMessage {
+        operation_id: "command-id".into(),
+        expected_revision: "1".into(),
+        content: rv_protocol::parity::MessageContent::Plain {
+            markdown: "Edit".into(),
+            mentions: vec![],
+            quotes: vec![],
+            files: vec![],
+        },
+    };
+    let delete = rv_protocol::parity::DeleteMessage {
+        operation_id: "delete-id".into(),
+        expected_revision: "1".into(),
+    };
+    assert!(
+        matches!(client.edit_message("message-id",&edit).await,Err(rv_client::Error::Server{status:429,request_id,..}) if request_id.as_deref()==Some("action-request"))
+    );
+    client.message("message-id").await.unwrap();
+    assert!(
+        matches!(client.clone().delete_message("message-id",&delete).await,Err(rv_client::Error::Server{status:429,request_id,retry_after,..}) if request_id.as_deref()==Some("action-request") && retry_after==Some(1))
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    assert!(client.delete_message("message-id", &delete).await.is_err());
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    server.abort();
+}

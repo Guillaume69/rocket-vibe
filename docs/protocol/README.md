@@ -244,7 +244,8 @@ un Content-Length trop grand. La qualification de mémoire sur Android reste ouv
 - La barrière de livraison et les révocations HTTP / WebSocket sont testées en
   PostgreSQL ; la charge, les appareils et les fonctions restantes de la RFC
   doivent encore être qualifiés avant de remplacer une instance Rocket.Chat.
-- Modifications / suppressions de messages, compteurs de non-lus et reste de la
-  matrice sont absents. La création est idempotente sur les clients natifs récents.
+- Modifications / suppressions disponibles dans les clients existants, avec
+  intentions SQLite et révisions attendues. Les compteurs de non-lus et le reste
+  de la matrice restent ouverts. La création est idempotente sur les clients récents.
 
 Ces limites délimitent le pilote ; elles ne réduisent pas le périmètre de la RFC.

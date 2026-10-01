@@ -7,6 +7,13 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+### Ajouté
+
+- Les commandes slash : un `/` en tête de message propose les commandes du serveur que tu
+  peux lancer dans le salon, avec leurs paramètres et ce qu'elles font ; l'envoi la lance,
+  dans le fil quand on y est. La réponse du serveur (un salon introuvable, `/help`) s'affiche
+  au-dessus du champ, visible par toi seul. Une commande refusée revient dans le champ.
+
 ## [0.4.0] - 2026-09-30
 
 ### Ajouté

@@ -323,6 +323,114 @@ async fn session_rotation_replays_without_secrets_and_keeps_device_identity_acro
 }
 
 #[sqlx::test]
+async fn delayed_session_mutation_rechecks_expiry_after_user_and_session_locks(pool: PgPool) {
+    let app = App::from_pool(pool.clone()).await.unwrap();
+    let owner = user(&app, "alice").await;
+    let server = Server::start(pool.clone()).await;
+    for hold_user in [true, false] {
+        let session = server.login("alice").await;
+        let hash = auth::hash_token(&session.token);
+        let device: String =
+            sqlx::query_scalar("SELECT device_id FROM sessions WHERE token_hash=$1")
+                .bind(&hash)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let original_label: String =
+            sqlx::query_scalar("SELECT label FROM session_devices WHERE id=$1")
+                .bind(&device)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        if !hold_user {
+            sqlx::query("UPDATE sessions SET expires_at=clock_timestamp()+interval '3 seconds' WHERE token_hash=$1")
+                .bind(&hash).execute(&pool).await.unwrap();
+        }
+        let mut lock = pool.begin().await.unwrap();
+        if hold_user {
+            sqlx::query("SELECT id FROM users WHERE id=$1 FOR NO KEY UPDATE")
+                .bind(&owner.id)
+                .fetch_one(&mut *lock)
+                .await
+                .unwrap();
+        } else {
+            sqlx::query("SELECT token_hash FROM sessions WHERE token_hash=$1 FOR UPDATE")
+                .bind(&hash)
+                .fetch_one(&mut *lock)
+                .await
+                .unwrap();
+        }
+        let (client, url) = (
+            server.client.clone(),
+            format!("{}/api/v1/me/sessions/{device}", server.base),
+        );
+        let task = tokio::spawn(async move {
+            client
+                .patch(url)
+                .bearer_auth(session.token)
+                .json(&json!({"label":"Expired mutation must not apply"}))
+                .send()
+                .await
+                .unwrap()
+        });
+        let pattern = if hold_user {
+            "SELECT activation_version FROM users%"
+        } else {
+            "SELECT % FROM sessions WHERE token_hash=% AND user_id=%"
+        };
+        let mut waiting = false;
+        for _ in 0..100 {
+            waiting = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE $1)")
+                .bind(pattern).fetch_one(&pool).await.unwrap();
+            if waiting {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(
+            waiting,
+            "The admitted HTTP mutation must wait for the actual SQL lock"
+        );
+        if hold_user {
+            // This expiry is after admission / transaction start but before the
+            // lock is released: transaction-stable now() would still accept it.
+            sqlx::query("UPDATE sessions SET expires_at=clock_timestamp() WHERE token_hash=$1")
+                .bind(&hash)
+                .execute(&pool)
+                .await
+                .unwrap();
+        } else {
+            // Do not update the locked row. Its predicate must be checked after
+            // waiting even when PostgreSQL has no row update to re-evaluate.
+            for _ in 0..200 {
+                let expired: bool = sqlx::query_scalar(
+                    "SELECT expires_at<=clock_timestamp() FROM sessions WHERE token_hash=$1",
+                )
+                .bind(&hash)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+                if expired {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
+        lock.commit().await.unwrap();
+        assert_eq!(task.await.unwrap().status(), StatusCode::UNAUTHORIZED);
+        let label: String = sqlx::query_scalar("SELECT label FROM session_devices WHERE id=$1")
+            .bind(&device)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            label, original_label,
+            "An expired session must leave the device unchanged"
+        );
+    }
+}
+
+#[sqlx::test]
 async fn device_revocation_expiry_and_renewal_limits_are_enforced(pool: PgPool) {
     use rv_protocol::parity::DeviceSession;
     let app = App::from_pool(pool.clone()).await.unwrap();

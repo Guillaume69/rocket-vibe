@@ -315,6 +315,15 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P01 / P02, expiration sous verrou : le verrou d'autorisation relit l'horloge
+  PostgreSQL après acquisition du compte et de la session. `now()` reste figé
+  au début de la transaction, et un prédicat avec `clock_timestamp()` peut aussi
+  précéder l'attente de `FOR SHARE` sans mise à jour de ligne. Une régression HTTP
+  réelle reproduisait un renommage accepté avec un bearer expiré ; les deux
+  attentes de verrou donnent désormais `401`, avec le nom initial inchangé.
+  Formatage / Clippy et toutes les régressions serveur PostgreSQL passent,
+  dont 28 scénarios API, facteurs, invitations, récupération et clients natifs.
+
 - P02, connexion FFI / SwiftUI : objet UniFFI opaque pour la tentative, coffre
   privé non indexé et formulaire existant raccordé à TOTP / secours. Le commit
   conserve expiration et clé E2EE, puis nettoie la preuve ; l'activation du compte
@@ -329,8 +338,9 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   depuis le trousseau et rejeu après rotation forcée. SQL confirme une seule
   famille et un seul secours consommé ; les compteurs de renouvellement passent.
   Inventaire : 280 fichiers / 344 occurrences. Le banc privé est supprimé après
-  vérification. Compilation SwiftUI macOS distante et qualification du Keychain /
-  application macOS installée restent des contrôles distincts. P02 continue avec
+  vérification. La CI native Linux / Windows et la compilation / le démarrage
+  SwiftUI sur le runner macOS passent. La qualification du Keychain et de
+  l'application macOS installée reste ouverte. P02 continue avec
   les paramètres des trois clients, réauthentification explicite, secours et SMTP.
 
 - P02, connexion GTK : formulaire existant avec choix TOTP / secours, preuve

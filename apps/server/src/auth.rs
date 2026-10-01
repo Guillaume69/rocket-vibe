@@ -102,9 +102,15 @@ pub(crate) async fn lock_active(
     if user.is_none() {
         return Err(Error::unauthorized());
     }
-    let session: Option<String> = sqlx::query_scalar("SELECT token_hash FROM sessions WHERE token_hash=$1 AND user_id=$2 AND expires_at>now() FOR SHARE")
+    let expires: Option<DateTime<Utc>> = sqlx::query_scalar("SELECT expires_at FROM sessions WHERE token_hash=$1 AND user_id=$2 AND expires_at>clock_timestamp() FOR SHARE")
         .bind(&account.session_hash).bind(&account.id).fetch_optional(&mut **tx).await?;
-    if session.is_none() {
+    // now() is fixed at transaction start. Even clock_timestamp() in the row
+    // predicate can precede a FOR SHARE wait without any concurrent row update.
+    // Recheck the actual clock only AFTER both authorization locks are held.
+    let now: DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+        .fetch_one(&mut **tx)
+        .await?;
+    if expires.is_none_or(|expires| expires <= now) {
         return Err(Error::unauthorized());
     }
     if user.as_deref() != Some(&account.activation_version) {

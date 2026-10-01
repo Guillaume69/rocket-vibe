@@ -177,6 +177,13 @@ après redémarrage. Les codes non supportés / expirés / consommés rendent
 `400 factor_rejected` ; le corps strict refuse les identités et droits forgés.
 Les succès contenant des credentials portent `Cache-Control: no-store`.
 
+Le contrôle d'une session déjà authentifiée relit l'horloge PostgreSQL après
+les verrous de compte et de session. Un bearer expiré pendant l'une de ces
+attentes est refusé avant de rendre l'autorisation à la mutation. L'heure de
+début de transaction et un prédicat évalué avant l'attente de `FOR SHARE` ne
+suffisent pas. La régression HTTP vérifie les deux verrous, dont une expiration
+naturelle sans modification de la ligne bloquée, et l'absence de renommage.
+
 ## TOTP et codes de secours
 
 La construction suit [RFC 6238](https://www.rfc-editor.org/rfc/rfc6238), avec

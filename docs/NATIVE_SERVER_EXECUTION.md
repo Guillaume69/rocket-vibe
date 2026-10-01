@@ -315,6 +315,17 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- J2, premier lot : droits fins de compte / salon / message, restrictions de
+  création, rôles de modérateur et envoi en lecture seule appliqués en transaction.
+  Les réponses protègent les versions de politique et détectent un changement
+  puis rétablissement. Tests PostgreSQL : droits annoncés / appliqués, absence
+  d'accès privé implicite de l'administrateur, délai d'édition, reçus consultables
+  après restriction et verrous de livraison réels. `rooms/discover` est désormais
+  l'alias prévu par J0, avec `rooms/public` conservé pour les clients récents.
+  Ces droits préparent les actions ; aucune capacité d'édition n'est encore activée.
+  Vérifications : 40 tests Rust natifs, 35 TypeScript natifs et 208 tests bureau
+  passent ; formatage, Clippy, schéma / génération, inventaire et typecheck passent.
+
 - [ ] J2 : actions, fils, lectures / non-lus, présence, recherche, profils et favoris.
 - [ ] J3 : fichiers, vocaux, cartes, emojis, push natif Android et partage.
 - [ ] J4 : Jitsi et E2EE autonome avec spécification / revue dédiées.

@@ -37,7 +37,15 @@ pub struct ReadProof {
     user: String,
     activation_version: String,
     epoch: String,
-    grants: BTreeMap<String, String>,
+    grants: BTreeMap<String, (String, String)>,
+}
+
+#[derive(sqlx::FromRow)]
+struct CapturedGrant {
+    data_epoch: String,
+    room_id: Option<String>,
+    access_version: Option<String>,
+    authority_version: Option<String>,
 }
 
 fn changed() -> Error {
@@ -53,17 +61,17 @@ impl ReadProof {
             Scope::Room(id) => (false, vec![id]),
             Scope::None => (false, Vec::new()),
         };
-        let rows: Vec<(String,Option<String>,Option<String>)> = sqlx::query_as(
-            "SELECT i.data_epoch,m.room_id,m.access_version FROM instance i LEFT JOIN members m \
-             ON m.user_id=$1 AND ($2 OR m.room_id=ANY($3)) WHERE i.singleton ORDER BY m.room_id LIMIT 1001")
+        let rows: Vec<CapturedGrant> = sqlx::query_as(
+            "SELECT i.data_epoch,m.room_id,m.access_version,r.authority_version FROM instance i LEFT JOIN members m \
+             ON m.user_id=$1 AND ($2 OR m.room_id=ANY($3)) LEFT JOIN rooms r ON r.id=m.room_id WHERE i.singleton ORDER BY m.room_id LIMIT 1001")
             .bind(&account.id).bind(all).bind(rooms).fetch_all(&app.pool).await?;
         if rows.len() > 1000 {
             return Err(Error::new(StatusCode::CONFLICT, "snapshot_limit"));
         }
-        let epoch = rows.first().ok_or_else(Error::internal)?.0.clone();
+        let epoch = rows.first().ok_or_else(Error::internal)?.data_epoch.clone();
         let grants = rows
             .into_iter()
-            .filter_map(|(_, room, version)| Some((room?, version?)))
+            .filter_map(|row| Some((row.room_id?, (row.access_version?, row.authority_version?))))
             .collect();
         Ok(Self {
             user: account.id.clone(),
@@ -138,12 +146,28 @@ impl ReadProof {
                 .into_iter()
                 .collect()
         };
+        // Domain order is rooms, memberships, snapshot heads. Updating a room
+        // policy changes its unique authority key; ordinary journal publication
+        // can still share this KEY SHARE lock without changing that key.
+        let policies: Vec<(String, String)> = sqlx::query_as(
+            "SELECT id,authority_version FROM rooms WHERE id=ANY($1) ORDER BY id FOR KEY SHARE",
+        )
+        .bind(&wanted)
+        .fetch_all(&mut *tx)
+        .await?;
+        if policies.len() != wanted.len()
+            || policies
+                .iter()
+                .any(|(room, version)| self.grants.get(room).map(|grant| &grant.1) != Some(version))
+        {
+            return Err(changed());
+        }
         let grants: Vec<(String,String)> = sqlx::query_as("SELECT room_id,access_version FROM members WHERE user_id=$1 AND room_id=ANY($2) ORDER BY room_id FOR SHARE")
             .bind(&self.user).bind(&wanted).fetch_all(&mut *tx).await?;
         if grants.len() != wanted.len()
             || grants
                 .iter()
-                .any(|(room, version)| self.grants.get(room) != Some(version))
+                .any(|(room, version)| self.grants.get(room).map(|grant| &grant.0) != Some(version))
         {
             return Err(changed());
         }
@@ -320,7 +344,7 @@ mod tests {
     async fn wait_for_delete(pool: &PgPool) {
         tokio::time::timeout(Duration::from_secs(2),async {
             loop {
-                let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'DELETE FROM members%')")
+                let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND (query LIKE 'DELETE FROM members%' OR query LIKE 'SELECT kind FROM rooms WHERE id=%'))")
                     .fetch_one(pool).await.unwrap();
                 if blocked { break; }
                 tokio::time::sleep(Duration::from_millis(10)).await;
@@ -589,6 +613,89 @@ mod tests {
                 .code,
             "session_rejected"
         );
+    }
+
+    #[sqlx::test]
+    async fn permission_policies_detect_aba_and_hold_delivery_locks(pool: PgPool) {
+        let f = fixture(pool.clone()).await;
+        let proof = ReadProof::capture(&f.app, &f.reader, Scope::Room(&f.room.id))
+            .await
+            .unwrap();
+        let before = crate::permissions::room(&f.app, &f.reader, &f.room.id)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE rooms SET read_only=true WHERE id=$1")
+            .bind(&f.room.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE rooms SET read_only=false WHERE id=$1")
+            .bind(&f.room.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            proof
+                .json(
+                    &f.app,
+                    &f.hash,
+                    &before,
+                    std::slice::from_ref(&f.room.id),
+                    None
+                )
+                .await
+                .unwrap_err()
+                .code,
+            "delivery_revalidate"
+        );
+        for policy in ["room", "account"] {
+            let scope = if policy == "room" {
+                Scope::Room(&f.room.id)
+            } else {
+                Scope::None
+            };
+            let proof = ReadProof::capture(&f.app, &f.reader, scope).await.unwrap();
+            let rooms = if policy == "room" {
+                vec![f.room.id.clone()]
+            } else {
+                vec![]
+            };
+            let response = proof
+                .json(&f.app, &f.hash, &before, &rooms, None)
+                .await
+                .unwrap();
+            let other = pool.clone();
+            let id = if policy == "room" {
+                f.room.id.clone()
+            } else {
+                f.reader.id.clone()
+            };
+            let mut update = tokio::spawn(async move {
+                let query = if policy == "room" {
+                    "UPDATE rooms SET read_only=true WHERE id=$1"
+                } else {
+                    "UPDATE users SET create_public_room=false WHERE id=$1"
+                };
+                sqlx::query(query).bind(id).execute(&other).await.unwrap();
+            });
+            tokio::time::timeout(Duration::from_secs(2),async {
+                loop {
+                    let blocked: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND (query LIKE 'UPDATE rooms SET read_only%' OR query LIKE 'UPDATE users SET create_public_room%'))").fetch_one(&pool).await.unwrap();
+                    if blocked { break; }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            }).await.expect("policy update must wait for the actual PostgreSQL lease");
+            assert!(
+                tokio::time::timeout(Duration::from_millis(30), &mut update)
+                    .await
+                    .is_err()
+            );
+            drop(response);
+            tokio::time::timeout(Duration::from_secs(2), update)
+                .await
+                .unwrap()
+                .unwrap();
+        }
     }
 
     #[sqlx::test]

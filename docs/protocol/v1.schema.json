@@ -96,6 +96,10 @@
           "default": false,
           "type": "boolean"
         },
+        "fine_permissions": {
+          "default": false,
+          "type": "boolean"
+        },
         "idempotent_room_creation": {
           "default": false,
           "type": "boolean"

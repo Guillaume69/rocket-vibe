@@ -20,7 +20,7 @@ use crate::{
     App, auth,
     delivery::{ReadProof, Scope},
     error::{Error, Result},
-    limits, snapshots, store, sync,
+    limits, permissions, snapshots, store, sync,
 };
 
 pub fn router(app: App) -> Router {
@@ -31,9 +31,16 @@ pub fn router(app: App) -> Router {
         .route("/api/v1/auth/login", post(login))
         .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/me", get(me))
+        .route("/api/v1/me/permissions", get(account_permissions))
         .route("/api/v1/users", get(users))
         .route("/api/v1/rooms", get(rooms).post(create_room))
         .route("/api/v1/rooms/public", get(public_rooms))
+        .route("/api/v1/rooms/discover", get(public_rooms))
+        .route("/api/v1/rooms/{room}/permissions", get(room_permissions))
+        .route(
+            "/api/v1/messages/{message}/permissions",
+            get(message_permissions),
+        )
         .route("/api/v1/rooms/{room}/join", post(join_public))
         .route("/api/v1/direct-messages", post(direct))
         .route(
@@ -107,6 +114,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             snapshot_paging: true,
             idempotent_room_creation: true,
             room_discovery: true,
+            fine_permissions: true,
             ..Default::default()
         },
     }))
@@ -160,6 +168,32 @@ async fn users(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
         })
         .collect();
     proof.json(&app, &hash, &users, &[], None).await
+}
+
+async fn account_permissions(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    let (account, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    let permissions = permissions::account(&app, &account).await?;
+    proof.json(&app, &hash, &permissions, &[], None).await
+}
+
+async fn room_permissions(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+) -> Result<Response> {
+    let (account, hash, proof) = read_access(&app, &headers, Scope::Room(&room)).await?;
+    let permissions = permissions::room(&app, &account, &room).await?;
+    proof.json(&app, &hash, &permissions, &[room], None).await
+}
+
+async fn message_permissions(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(message): Path<String>,
+) -> Result<Response> {
+    let (account, hash, proof) = read_access(&app, &headers, Scope::All).await?;
+    let (room, permissions) = permissions::message(&app, &account, &message).await?;
+    proof.json(&app, &hash, &permissions, &[room], None).await
 }
 
 async fn rooms(State(app): State<App>, headers: HeaderMap) -> Result<Response> {

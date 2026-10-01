@@ -60,7 +60,8 @@ instance / génération. Le bureau conserve ces mêmes données dans `SessionInf
 Les diagnostics mobiles neutres gardent code, request ID natif, statut et délai ;
 seul un refus compris d'une requête authentifiée indique une session rejetée.
 Un défi 2FA reste distinct. Le cœur bureau conserve ses erreurs structurées ;
-la propagation de `request_id` jusqu'aux diagnostics bureau reste à ajouter.
+`request_id` et le délai serveur traversent aussi les diagnostics et erreurs
+bureau / UniFFI ; un retry différé conserve l'identité du refus serveur.
 
 ### Droits et lectures
 
@@ -70,7 +71,9 @@ rendu, ne sont jamais acceptées dans une commande cliente. L'administration de
 l'instance ne donne aucun accès implicite à un salon privé ou à une clé E2EE.
 Inviter, retirer, épingler, modifier les réglages et éditer autrui sont distincts.
 Choix initial : création de salon par compte authentifié, invitation privée par
-propriétaire ; modération et restrictions configurables sont livrées en J2.
+propriétaire. Le premier lot J2 expose les lectures de droits, les rôles
+propriétaire / modérateur / membre et l'application transactionnelle de la lecture
+seule et des restrictions de création. Les commandes de réglage et leur UI suivent.
 
 `ReadState` sépare positions racines / réponses et compteurs. Seuls les nouveaux
 messages visibles d'autres auteurs augmentent les non-lus ; édition, réaction,

@@ -16,6 +16,8 @@ sont versionnés et vérifiés sans diff en CI.
 - Le développement écoute sur loopback. Utiliser HTTPS via un proxy pour un appareil.
 - Les versions, types et capacités inconnus ne sont pas assimilés à Rocket.Chat.
 - Dates RFC 3339 UTC ; IDs opaques ; positions / révisions en chaînes décimales.
+  La révision de `RoomPermissions` est un jeton opaque combinant politique et
+  adhésion ; elle ne se compare pas comme une position du journal.
 - Erreurs métier : `{ code, request_id }`. Aucun texte SQL ou secret dans la réponse.
 - `429` conserve cette enveloppe et ajoute `Retry-After` en secondes entières.
   Les transports natifs gardent le délai (borné à 5 min) par famille login / ticket / snapshot,
@@ -36,8 +38,10 @@ présence ne déclare pas les endpoints correspondants disponibles.
 | POST | `/auth/login` | `{ username, password }` → session, expiration, utilisateur |
 | POST | `/auth/logout` | Révoquer cette session et ses tickets WebSocket |
 | GET | `/me`, `/users` | Compte courant ; annuaire de l'instance limité à 100 entrées |
+| GET | `/me/permissions` | Droits effectifs de création et d'administration |
+| GET | `/rooms/{room}/permissions`, `/messages/{message}/permissions` | Droits fins pour un membre actuel ; sinon `404` |
 | GET / POST | `/rooms` | Salons dont je suis membre ; créer `{ name, private, operation_id? }` |
-| GET | `/rooms/public?q=…&after=…` | Noms des salons publics, 20 entrées, `PublicRoomPage` |
+| GET | `/rooms/discover?q=…&after=…`, `/rooms/public?q=…&after=…` | Noms des salons publics, 20 entrées, `PublicRoomPage` ; alias identiques |
 | POST | `/rooms/{room}/join` | Adhérer soi-même à un salon public ; rejouable |
 | POST | `/direct-messages` | `{ user_id }` → DM unique pour cette paire |
 | POST / DELETE | `/rooms/{room}/members/{user}` | Ajouter / retirer, propriétaire du salon uniquement |
@@ -55,6 +59,20 @@ Les capacités `threads`, `reactions`, `uploads`, `push`, `e2ee`, `calls` sont f
 `room_discovery` annonce l'annuaire et l'adhésion ; `idempotent_room_creation`
 annonce les reçus de création. Leurs handlers sont disponibles dans les trois clients.
 Les droits d'administration ne donnent pas accès aux conversations privées.
+
+`fine_permissions` annonce les lectures de droits. Les booléens décrivent
+l'autorité du compte ; les capacités de fonctionnalité doivent également être
+disponibles avant d'offrir une action. La présence de `edit: true` ne déclare donc
+pas une route d'édition disponible. L'auteur dispose de 15 minutes pour éditer,
+le propriétaire / modérateur peut supprimer et épingler, et un salon en lecture
+seule bloque les nouveaux envois de membres ordinaires. Les propriétaires seuls
+invitent / retirent et règlent les salons hors DM. Chaque mutation revérifie ses
+droits en transaction. Un reçu d'une création / d'un envoi déjà committé peut
+toujours être consulté par son auteur membre après restriction, sans nouvelle écriture.
+Les changements de rôle, politique de salon et droits du compte changent leur
+version ; une réponse préparée avant eux est revalidée et leurs mises à jour
+attendent la fin d'une livraison déjà autorisée. Aucune autorité cliente forgée
+n'est acceptée dans les commandes.
 
 ### Création et découverte des salons
 

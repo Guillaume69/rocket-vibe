@@ -101,6 +101,272 @@ async fn user(app: &App, username: &str) -> rv_protocol::User {
 }
 
 #[sqlx::test]
+async fn authority_hints_match_enforced_creation_and_read_only_policies(pool: PgPool) {
+    use rv_protocol::parity::{AccountPermissions, MessagePermissions, RoomPermissions, RoomRole};
+    let app = App::from_pool(pool.clone()).await.unwrap();
+    let owner = user(&app, "owner").await;
+    let member = user(&app, "member").await;
+    let admin = auth::create_user(&app, "admin", "test-password-2026".into(), true)
+        .await
+        .unwrap();
+    let server = Server::start(pool.clone()).await;
+    let owner_session = server.login("owner").await;
+    let member_session = server.login("member").await;
+    let admin_session = server.login("admin").await;
+    let mut native = rv_client::NativeClient::new(&server.base).unwrap();
+    native.restore(owner_session.token.clone());
+    assert!(
+        native
+            .account_permissions()
+            .await
+            .unwrap()
+            .create_private_room
+    );
+    let room: Room = server
+        .post(
+            &owner_session.token,
+            "/api/v1/rooms",
+            json!({"name":"Policies","private":true,"operation_id":"policy-room"}),
+        )
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    server
+        .post(
+            &owner_session.token,
+            &format!("/api/v1/rooms/{}/members/{}", room.id, member.id),
+            json!({}),
+        )
+        .await
+        .error_for_status()
+        .unwrap();
+    let path = format!("/api/v1/rooms/{}/permissions", room.id);
+    let original: RoomPermissions = server
+        .get(&member_session.token, &path)
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(original.role, RoomRole::Member);
+    assert!(
+        original.read
+            && original.send
+            && !original.invite
+            && !original.remove_member
+            && !original.pin
+    );
+    assert_eq!(
+        server.get(&admin_session.token, &path).await.status(),
+        StatusCode::NOT_FOUND,
+        "admin authority never grants private room access"
+    );
+    let message: Message = server
+        .post(
+            &owner_session.token,
+            &format!("/api/v1/rooms/{}/messages", room.id),
+            json!({"operation_id":"policy-message","text":"Original"}),
+        )
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let mp = format!("/api/v1/messages/{}/permissions", message.id);
+    let author: MessagePermissions = server
+        .get(&owner_session.token, &mp)
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(author.edit && author.delete && author.pin && author.star);
+    assert_eq!(
+        native.message_permissions(&message.id).await.unwrap(),
+        author
+    );
+    assert_eq!(
+        native.room_permissions(&room.id).await.unwrap().role,
+        RoomRole::Owner
+    );
+    let other: MessagePermissions = server
+        .get(&member_session.token, &mp)
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(!other.edit && !other.delete && !other.pin);
+    assert_eq!(
+        server.get(&admin_session.token, &mp).await.status(),
+        StatusCode::NOT_FOUND
+    );
+    sqlx::query("UPDATE rooms SET read_only=true WHERE id=$1")
+        .bind(&room.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let restricted: RoomPermissions = server
+        .get(&member_session.token, &path)
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(!restricted.send && !restricted.upload && !restricted.start_call);
+    assert_ne!(restricted.revision, original.revision);
+    assert_eq!(
+        server
+            .post(
+                &member_session.token,
+                &format!("/api/v1/rooms/{}/messages", room.id),
+                json!({"operation_id":"blocked-member","text":"Refused"})
+            )
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    sqlx::query("UPDATE members SET role='moderator' WHERE room_id=$1 AND user_id=$2")
+        .bind(&room.id)
+        .bind(&member.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let moderator: RoomPermissions = server
+        .get(&member_session.token, &path)
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(moderator.role, RoomRole::Moderator);
+    assert!(moderator.send && moderator.pin && !moderator.invite && !moderator.change_settings);
+    assert_ne!(moderator.revision, restricted.revision);
+    server
+        .post(
+            &member_session.token,
+            &format!("/api/v1/rooms/{}/messages", room.id),
+            json!({"operation_id":"moderator-message","text":"Allowed"}),
+        )
+        .await
+        .error_for_status()
+        .unwrap();
+    let moderator_message: MessagePermissions = server
+        .get(&member_session.token, &mp)
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(!moderator_message.edit && moderator_message.delete);
+    sqlx::query("UPDATE messages SET created_at=now()-interval '16 minutes' WHERE id=$1")
+        .bind(&message.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let expired: MessagePermissions = server
+        .get(&owner_session.token, &mp)
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        !expired.edit && expired.delete,
+        "owners moderate but cannot edit beyond the author's time window"
+    );
+    sqlx::query("UPDATE users SET create_public_room=false,create_private_room=false WHERE id=$1")
+        .bind(&owner.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let permissions: AccountPermissions = server
+        .get(&owner_session.token, "/api/v1/me/permissions")
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        !permissions.create_public_room
+            && !permissions.create_private_room
+            && !permissions.manage_accounts
+    );
+    for private in [true, false] {
+        assert_eq!(
+            server
+                .post(
+                    &owner_session.token,
+                    "/api/v1/rooms",
+                    json!({"name":"Refused","private":private})
+                )
+                .await
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+    let replay: Room = server
+        .post(
+            &owner_session.token,
+            "/api/v1/rooms",
+            json!({"name":"Policies","private":true,"operation_id":"policy-room"}),
+        )
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        replay.id, room.id,
+        "an existing receipt can still be reconciled without another creation"
+    );
+    let administrator: AccountPermissions = server
+        .get(&admin_session.token, "/api/v1/me/permissions")
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(administrator.manage_accounts && administrator.manage_instance);
+    assert_eq!(admin.id, admin_session.user.id);
+    let public: Room = server
+        .post(
+            &member_session.token,
+            "/api/v1/rooms",
+            json!({"name":"Discover alias","private":false}),
+        )
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let alias: rv_protocol::PublicRoomPage = server
+        .get(&owner_session.token, "/api/v1/rooms/discover?q=Discover")
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(alias.rooms.iter().any(|entry| entry.room.id == public.id));
+}
+
+#[sqlx::test]
 async fn room_creation_replays_after_restart_without_duplicate_events(pool: PgPool) {
     let app = App::from_pool(pool.clone()).await.unwrap();
     user(&app, "alice").await;

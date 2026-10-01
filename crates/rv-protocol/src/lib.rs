@@ -52,6 +52,8 @@ pub struct Capabilities {
     pub snapshot_paging: bool,
     #[serde(default)]
     pub idempotent_room_creation: bool,
+    #[serde(default)]
+    pub fine_permissions: bool,
 }
 
 impl Default for Capabilities {
@@ -83,6 +85,7 @@ impl Default for Capabilities {
             quotes: false,
             snapshot_paging: false,
             idempotent_room_creation: false,
+            fine_permissions: false,
         }
     }
 }

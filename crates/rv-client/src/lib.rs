@@ -228,6 +228,31 @@ impl NativeClient {
     pub async fn users(&self) -> Result<Vec<User>, Error> {
         self.get("/api/v1/users").await
     }
+
+    pub async fn account_permissions(
+        &self,
+    ) -> Result<rv_protocol::parity::AccountPermissions, Error> {
+        self.get("/api/v1/me/permissions").await
+    }
+    pub async fn room_permissions(
+        &self,
+        room: &str,
+    ) -> Result<rv_protocol::parity::RoomPermissions, Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!("/api/v1/rooms/{room}/permissions")).await
+    }
+    pub async fn message_permissions(
+        &self,
+        message: &str,
+    ) -> Result<rv_protocol::parity::MessagePermissions, Error> {
+        if !path_segment(message) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!("/api/v1/messages/{message}/permissions"))
+            .await
+    }
     pub async fn add_member(&self, room: &str, user: &str) -> Result<(), Error> {
         if !path_segment(room) || !path_segment(user) {
             return Err(Error::InvalidUrl);

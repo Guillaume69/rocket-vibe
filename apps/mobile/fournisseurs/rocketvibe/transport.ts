@@ -109,6 +109,9 @@ export class NativeTransport {
   restore(token: string): void { this.token = token; }
   async logout(): Promise<void> { try { await this.value('/api/v1/auth/logout', {}); } finally { this.token = null; } }
   me(): Promise<NativeTypes['User']> { return this.request('User', '/api/v1/me'); }
+  accountPermissions(): Promise<NativeTypes['AccountPermissions']> { return this.request('AccountPermissions','/api/v1/me/permissions'); }
+  roomPermissions(room: string): Promise<NativeTypes['RoomPermissions']> { return this.request('RoomPermissions',`/api/v1/rooms/${encodeURIComponent(room)}/permissions`); }
+  messagePermissions(message: string): Promise<NativeTypes['MessagePermissions']> { return this.request('MessagePermissions',`/api/v1/messages/${encodeURIComponent(message)}/permissions`); }
   async users(): Promise<NativeTypes['User'][]> {
     const users = await this.value('/api/v1/users');
     if (!Array.isArray(users)) throw new Error('Invalid native directory');

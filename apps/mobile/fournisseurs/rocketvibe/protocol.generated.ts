@@ -2,7 +2,7 @@
 export type AccountPermissions = { "create_private_room": boolean; "create_public_room": boolean; "manage_accounts": boolean; "manage_instance": boolean; };
 export type ApiError = { "code": string; "request_id": string; };
 export type AuthChallenge = { "challenge_id": string; "expires_at": string; "methods": (SecondFactor)[]; "resend_after_seconds": number; };
-export type Capabilities = { "calls": boolean; "custom_emojis"?: boolean; "deletion"?: boolean; "direct_messages": boolean; "durable_sync": boolean; "e2ee": boolean; "editing"?: boolean; "favorites"?: boolean; "idempotent_room_creation"?: boolean; "pins"?: boolean; "presence"?: boolean; "private_rooms": boolean; "profiles"?: boolean; "push": boolean; "quotes"?: boolean; "reactions": boolean; "read_markers"?: boolean; "room_discovery"?: boolean; "room_info"?: boolean; "search"?: boolean; "snapshot_paging"?: boolean; "stars"?: boolean; "text_messages": boolean; "threads": boolean; "typing"?: boolean; "uploads": boolean; };
+export type Capabilities = { "calls": boolean; "custom_emojis"?: boolean; "deletion"?: boolean; "direct_messages": boolean; "durable_sync": boolean; "e2ee": boolean; "editing"?: boolean; "favorites"?: boolean; "fine_permissions"?: boolean; "idempotent_room_creation"?: boolean; "pins"?: boolean; "presence"?: boolean; "private_rooms": boolean; "profiles"?: boolean; "push": boolean; "quotes"?: boolean; "reactions": boolean; "read_markers"?: boolean; "room_discovery"?: boolean; "room_info"?: boolean; "search"?: boolean; "snapshot_paging"?: boolean; "stars"?: boolean; "text_messages": boolean; "threads": boolean; "typing"?: boolean; "uploads": boolean; };
 export type Change = { "data": Room; "type": "room_upsert"; } | { "data": Message; "type": "message_upsert"; } | { "data": { "room_id": string; }; "type": "room_removed"; };
 export type CompleteUpload = { "content": MessageContent; "operation_id": string; "reply_to"?: string | null; };
 export type CreateRoom = { "name": string; "operation_id"?: string | null; "private": boolean; };
@@ -141,6 +141,10 @@ export const nativeSchema = {
           "type": "boolean"
         },
         "favorites": {
+          "default": false,
+          "type": "boolean"
+        },
+        "fine_permissions": {
           "default": false,
           "type": "boolean"
         },

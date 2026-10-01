@@ -142,6 +142,11 @@ pub async fn create_room(app: &App, account: &Account, input: CreateRoom) -> Res
             return Err(Error::conflict());
         }
     }
+    let allowed: bool = sqlx::query_scalar("SELECT CASE WHEN $2 THEN create_private_room ELSE create_public_room END FROM users WHERE id=$1")
+        .bind(&account.id).bind(input.private).fetch_one(&mut *tx).await?;
+    if !allowed {
+        return Err(Error::forbidden());
+    }
     let id = random_token()[..24].to_owned();
     let kind = if input.private { "private" } else { "public" };
     sqlx::query("INSERT INTO rooms(id,name,kind) VALUES($1,$2,$3)")
@@ -453,6 +458,7 @@ pub async fn send(
         tx.commit().await?;
         return Ok(existing.wire());
     }
+    crate::permissions::require_send(&mut tx, room_id, &account.id).await?;
     let id = input.operation_id;
     // Client message IDs are globally unique. A collision belonging to another user
     // is a conflict, never a response exposing that user's message.

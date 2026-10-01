@@ -47,6 +47,14 @@ const live = await open(snapshot.cursor);
 const incoming = next(live);
 const intent = { operation_id:randomBytes(12).toString('hex'),text:'Bonjour depuis le transport Android 🚀' };
 const first = await alice.send(room.id,intent);
+if ((await alice.discover()).capabilities.fine_permissions) {
+  assert.ok((await alice.accountPermissions()).create_private_room);
+  const rights=await alice.roomPermissions(room.id);
+  assert.ok(rights.read && rights.send);
+  assert.equal(rights.invite,false,'a direct conversation cannot be expanded by invitation');
+  assert.ok((await alice.messagePermissions(first.id)).edit);
+  assert.equal((await bob.messagePermissions(first.id)).edit,false);
+}
 assert.deepEqual(await alice.send(room.id,intent),first);
 const batch = await incoming;
 assert(batch.changes.some(change => change.type==='message_upsert' && change.data.id===first.id));

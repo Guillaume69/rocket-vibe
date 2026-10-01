@@ -1,7 +1,7 @@
 # Authentification native — P02, socle TOTP et secours
 
-Ce lot livre le serveur, les SDK et la connexion mobile. P02 reste ouvert : raccordement des formulaires
-GTK et SwiftUI, gestion des facteurs dans les paramètres des trois clients, email vérifié /
+Ce lot livre le serveur, les SDK et les connexions mobile / GTK. P02 reste ouvert : raccordement du formulaire
+SwiftUI, gestion des facteurs dans les paramètres des trois clients, email vérifié /
 SMTP et qualification des appareils. Le fournisseur Rocket.Chat garde son parcours.
 
 Les coordinateurs `rv-core::native::authentication` et
@@ -11,8 +11,8 @@ le candidat via un callback de trousseau avant validation, puis le sondent en
 priorité après réponse perdue. Une session déjà committée se récupère même après
 expiration du défi. Seul un `401 session_rejected` compris autorise un nouvel
 envoi du code ; refus de proxy, panne réseau ou réponse ambiguë conservent le
-pending. Le formulaire mobile utilise désormais son coffre SecureStore privé ;
-le raccordement des coffres bureau reste à livrer. Le pending n'est effacé
+pending. Le formulaire mobile utilise son coffre SecureStore privé ; GTK utilise
+le trousseau système. Le raccordement FFI / SwiftUI reste à livrer. Le pending n'est effacé
 qu'après sauvegarde de la session active.
 Inscription et récupération passent par le même parcours complet et comparent
 l'UID rendu par le code opérateur avec celui du challenge / de la session.
@@ -69,8 +69,28 @@ de le garder jusqu'à sa fin réelle. L'annulation de la future appelante ne doi
 pas libérer une écriture de plateforme déjà engagée. Sept tests vérifient les
 scopes, réponses perdues, reprises parallèles, expiration, stockage indisponible,
 JSON corrompu et annulation avec écriture bloquante encore active. Clippy,
-régressions cœur / bindings et compilation GTK passent dans Fedora. Les
-adaptateurs des vrais trousseaux et les formulaires bureau restent à raccorder.
+régressions cœur / bindings et compilation GTK passent dans Fedora.
+
+### Formulaire et trousseau GTK
+
+La page existante propose les méthodes TOTP / secours annoncées par le serveur.
+Le défi et son candidat utilisent une entrée privée distincte des sessions :
+`kind: authentication` dans Secret Service ; une clé non indexée dans les
+trousseaux Windows / macOS. Les énumérations des comptes actifs ignorent cette
+entrée. Aucun mot de passe, code TOTP ou secours saisi n'est persisté.
+
+Les tâches de plateforme gardent le verrou jusqu'à la fin réelle de leurs
+opérations, même après annulation ou délai de cinq secondes. Le compte conserve
+sa date d'expiration et sa clé E2EE lors de l'écriture du credential accepté.
+Une erreur de stockage ne commence pas la session et garde le candidat récupérable.
+Le nettoyage compare la preuve exacte à la session effectivement sauvegardée.
+
+Retour, changement de compte et masquage de la fenêtre invalident les réponses
+tardives. Mot de passe et code opérateur quittent le formulaire dès le défi ;
+le code de facteur est effacé au changement de méthode, au retour et après
+confirmation. La connexion Rocket.Chat conserve ses méthodes existantes.
+Les adaptateurs Windows / macOS et SecureStore Android restent à qualifier sur
+appareils ; le raccordement FFI / SwiftUI et les paramètres restent ouverts.
 
 ## Clé opérateur
 

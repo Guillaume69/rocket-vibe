@@ -79,11 +79,12 @@ docker run --rm -v "$PWD:/workspace" -v rv-cargo:/cargo \
     cargo build --locked -p rv-core --example native-smoke
     cargo build --locked -p rocket-vibe-gtk
   '
-docker compose -f docker/compose.native-pilot.yml up -d mobile
+docker compose -f docker/compose.native-pilot.yml up -d postgres bootstrap server mobile factor-seed factor-proxy
 docker compose -f docker/compose.native-pilot.yml run --rm --no-deps desktop
+docker compose -f docker/compose.native-pilot.yml run --rm --no-deps factor-check
 docker compose -f docker/compose.native-pilot.yml run --rm --no-deps session-check
 docker compose -f docker/compose.native-pilot.yml logs --no-color
-docker compose -f docker/compose.native-pilot.yml down
+docker compose -f docker/compose.native-pilot.yml down -v
 ```
 
 Lancer `desktop` immédiatement après `mobile` : le pair dispose d'un délai borné.
@@ -124,3 +125,15 @@ Le pair mobile conserve l'UID et une conversation réellement écrite avant rese
 revérifie son contenu dans SQLite et rejoue la confirmation sans révoquer sa
 session récente. Codes d'invitation et de récupération partagent le volume
 privé jetable, jamais les artifacts.
+
+Le bootstrap génère aussi une clé opérateur aléatoire privée pour les facteurs,
+lisible uniquement par le serveur, puis provisionne deux comptes de test avec
+TOTP et dix secours. Un proxy privé jette chaque réponse de validation réussie.
+GTK utilise son formulaire et Secret Service : mauvais secours refusé, compte
+encore inactif après réponse perdue, récupération du candidat sans nouveau code,
+écriture de session puis effacement de la preuve. Un redémarrage sous un nouveau
+D-Bus / daemon de trousseau reprend ce compte. `factor-check` exige une seule
+famille d'appareil et exactement un secours consommé pour `gtk-factor`.
+Les secrets de ce banc restent dans le volume privé supprimé par `down -v` ;
+ils ne sont ni journalisés ni ajoutés aux captures. Ce parcours Linux ne qualifie
+pas le trousseau macOS / Windows ni un appareil Android physique.

@@ -105,6 +105,9 @@ pub fn install(window: &Rc<AppWindow>) {
     let shot = std::env::var("RV_SMOKE_SHOT").unwrap_or_default();
     let parts: Vec<String> = login.split('|').map(str::to_owned).collect();
     let server = parts.first().cloned().unwrap_or_default();
+    if let Ok(path) = std::env::var("RV_SMOKE_FACTOR_FILE") {
+        factor_flow(window, &path);
+    }
     if let Some((w, h)) = std::env::var("RV_SMOKE_SIZE").ok().and_then(|s| {
         let (w, h) = s.split_once('x')?;
         Some((w.parse().ok()?, h.parse().ok()?))
@@ -402,6 +405,78 @@ pub fn install(window: &Rc<AppWindow>) {
             FAILED.store(true, Ordering::SeqCst);
         }
         w.window.application().expect("application").quit();
+    });
+}
+
+/// Only the disposable pilot mounts this private code file. Never print its
+/// contents; exercise the actual widgets, HTTP and Secret Service namespace.
+fn factor_flow(window: &Rc<AppWindow>, path: &str) {
+    let value: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(path).expect("pilot factor file")).expect("pilot factor JSON");
+    let backup = value["codes"][0].as_str().expect("pilot backup code").to_owned();
+    let weak = Rc::downgrade(window);
+    let mut stage = 0;
+    let mut polls = 0;
+    glib::timeout_add_local(Duration::from_millis(250), move || {
+        let Some(w) = weak.upgrade() else {
+            return glib::ControlFlow::Break;
+        };
+        polls += 1;
+        if polls > 52 {
+            check("native factor flow completed", false, stage);
+            return glib::ControlFlow::Break;
+        }
+        if w.login.is_busy() {
+            return glib::ControlFlow::Continue;
+        }
+        match stage {
+            0 if w.login.native_method().is_some() => {
+                check("factor form clears transient password", w.login.password().is_empty(), 0);
+                stage = 1;
+                let w = w.clone();
+                glib::spawn_future_local(async move {
+                    let accounts = crate::on_tokio(crate::secrets::load_all()).await;
+                    check("pre-auth proof excluded from active accounts", accounts.is_empty(), accounts.len());
+                    check(
+                        "backup method offered in existing form",
+                        w.login.fill_factor("recovery_code", "INVALID-BACKUP"),
+                        0,
+                    );
+                    w.submit_login();
+                });
+            }
+            1 if w.login.has_error() && w.login.native_method().is_some() => {
+                check("incorrect factor leaves account inactive", w.chat.native_session().is_none(), 0);
+                check("backup field accepts retry", w.login.fill_factor("recovery_code", &backup), 0);
+                w.submit_login();
+                stage = 2;
+            }
+            2 if w.login.has_error() && w.login.native_method().is_some() => {
+                check("lost factor ACK leaves account inactive", w.chat.native_session().is_none(), 0);
+                check("durable factor permits blank retry", w.login.fill_factor("recovery_code", ""), 0);
+                w.submit_login();
+                stage = 3;
+            }
+            3 if w.chat.native_session().is_some() => {
+                check(
+                    "factor confirmation clears transient code",
+                    w.login.code().is_empty() && w.login.password().is_empty(),
+                    0,
+                );
+                let session = w.chat.native_session().unwrap();
+                let info = session.info.clone();
+                glib::spawn_future_local(async move {
+                    let pending = crate::on_tokio(async move {
+                        crate::secrets::authentication_vault().load(&info.base_url, &info.username).await
+                    })
+                    .await;
+                    check("accepted proof cleared after credential commit", matches!(pending, Ok(None)), 0);
+                });
+                return glib::ControlFlow::Break;
+            }
+            _ => {}
+        }
+        glib::ControlFlow::Continue
     });
 }
 

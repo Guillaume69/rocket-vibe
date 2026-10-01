@@ -22,7 +22,7 @@ services:
       DATABASE_URL: postgres://pilot:native-pilot-disposable-db-password@postgres/pilot
       RV_USER_PASSWORD: native-pilot-test-password
     entrypoint: [/bin/sh, -ec]
-    command: ['umask 077; rv-server create-user mobile && rv-server create-user desktop && rv-server invite > /pilot-invitations/mobile.json && rv-server invite > /pilot-invitations/desktop.json && rv-server invite > /pilot-invitations/swift.json && rv-server create-user mobile-recovery && rv-server create-user gtk-recovery && rv-server create-user swift-recovery && rv-server recover-user mobile-recovery > /pilot-invitations/mobile-recovery.json && rv-server recover-user gtk-recovery > /pilot-invitations/desktop-recovery.json && rv-server recover-user swift-recovery > /pilot-invitations/swift-recovery.json']
+    command: ['umask 077; od -An -N32 -tx1 /dev/urandom | tr -d " \n" > /pilot-invitations/factors-auth-key; chown 10001:10001 /pilot-invitations/factors-auth-key; rv-server create-user mobile && rv-server create-user desktop && rv-server create-user gtk-factor && rv-server create-user swift-factor && rv-server invite > /pilot-invitations/mobile.json && rv-server invite > /pilot-invitations/desktop.json && rv-server invite > /pilot-invitations/swift.json && rv-server create-user mobile-recovery && rv-server create-user gtk-recovery && rv-server create-user swift-recovery && rv-server recover-user mobile-recovery > /pilot-invitations/mobile-recovery.json && rv-server recover-user gtk-recovery > /pilot-invitations/desktop-recovery.json && rv-server recover-user swift-recovery > /pilot-invitations/swift-recovery.json']
     depends_on:
       postgres: {condition: service_healthy}
   session-policy:
@@ -38,8 +38,32 @@ services:
     environment:
       DATABASE_URL: postgres://pilot:native-pilot-disposable-db-password@postgres/pilot
       RV_BIND: 0.0.0.0:3400
+      RV_AUTH_KEY_FILE: /pilot-invitations/factors-auth-key
+    volumes: ['pilot-invitations:/pilot-invitations:ro']
     depends_on:
       session-policy: {condition: service_completed_successfully}
+  factor-seed:
+    image: rocketvibe-native-check
+    working_dir: /src
+    volumes: ['..:/src', 'pilot-invitations:/pilot-invitations']
+    environment:
+      RV_PEER_URL: http://server:3400
+      RV_PEER_PASSWORD: native-pilot-test-password
+    command: [node, scripts/native-factors-pilot-seed.ts]
+    depends_on: [server]
+  factor-proxy:
+    image: rocketvibe-native-check
+    working_dir: /src
+    volumes: ['..:/src:ro']
+    command: [node, scripts/native-factors-pilot-proxy.mjs]
+    depends_on:
+      factor-seed: {condition: service_completed_successfully}
+  factor-check:
+    image: postgres:18-alpine
+    environment:
+      PGPASSWORD: native-pilot-disposable-db-password
+    volumes: ['../scripts/native-factors-pilot-check.sql:/factors-check.sql:ro']
+    command: [psql, -h, postgres, -U, pilot, -d, pilot, -v, ON_ERROR_STOP=1, -f, /factors-check.sql]
   session-check:
     image: postgres:18-alpine
     environment:
@@ -72,6 +96,8 @@ services:
       RV_PEER_PASSWORD: native-pilot-test-password
       RV_NATIVE_INVITATION_FILE: /pilot-invitations/desktop.json
       RV_NATIVE_RECOVERY_FILE: /pilot-invitations/desktop-recovery.json
+      RV_NATIVE_FACTOR_FILE: /pilot-invitations/gtk-factors.json
+      RV_NATIVE_FACTOR_URL: http://factor-proxy:3401
     command: [bash, scripts/native-smoke.sh]
     depends_on: [mobile]
   swift:

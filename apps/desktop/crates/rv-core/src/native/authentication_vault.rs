@@ -63,6 +63,12 @@ pub struct Vault {
     config: PathBuf,
     storage: Arc<dyn Storage>,
 }
+/// Exact previous proof to clear after the active credential write. Callers do
+/// not re-read a possibly newer attempt to guess which verification completed.
+pub enum Prepared {
+    Authenticated(Box<Record>, Option<LoginChallenge>),
+    Challenge(LoginChallenge),
+}
 impl Vault {
     pub fn new(config: PathBuf, storage: Arc<dyn Storage>) -> Self {
         Self { config, storage }
@@ -109,6 +115,18 @@ impl Vault {
     /// `fresh` comes from a freshly verified password start holding the server's
     /// account lock. Never replace an unresolved candidate before that barrier.
     pub async fn stage(&self, fresh: LoginChallenge) -> Result<Step, Error> {
+        Ok(match self.stage_tracked(fresh).await? {
+            Prepared::Authenticated(record, _) => Step::Authenticated(*record),
+            Prepared::Challenge(saved) => Step::Challenge(saved),
+        })
+    }
+    pub async fn prepare(&self, step: Step) -> Result<Prepared, Error> {
+        match step {
+            Step::Authenticated(record) => Ok(Prepared::Authenticated(Box::new(record), None)),
+            Step::Challenge(fresh) => self.stage_tracked(fresh).await,
+        }
+    }
+    async fn stage_tracked(&self, fresh: LoginChallenge) -> Result<Prepared, Error> {
         fresh.validate()?;
         if fresh.pending.is_some() {
             return Err(Error::Protocol("invalid_native_authentication"));
@@ -122,7 +140,7 @@ impl Vault {
                 return Err(Error::Protocol("server_identity_changed"));
             }
             if let Some(completed) = authentication::recover(&previous).await? {
-                return Ok(Step::Authenticated(completed));
+                return Ok(Prepared::Authenticated(Box::new(completed), Some(previous)));
             }
             // Server challenge TTL is exactly five minutes. Password start and
             // factor verification acquire the same user lock; a candidate probe
@@ -133,11 +151,11 @@ impl Vault {
             let old_expiry = chrono::DateTime::parse_from_rfc3339(&previous.challenge.expires_at)
                 .map_err(|_| Error::Protocol("invalid_native_authentication"))?;
             if old_expiry > issued {
-                return Ok(Step::Challenge(previous));
+                return Ok(Prepared::Challenge(previous));
             }
         }
         self.write(&scope, &fresh, lease.clone()).await?;
-        Ok(Step::Challenge(fresh))
+        Ok(Prepared::Challenge(fresh))
     }
     pub async fn recover(&self, expected: &LoginChallenge) -> Result<Option<Record>, Error> {
         expected.validate()?;

@@ -315,6 +315,24 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, connexion GTK : formulaire existant avec choix TOTP / secours, preuve
+  privée hors liste des comptes et opérations de trousseau conservant leur
+  verrou après annulation. Une sauvegarde de session refusée ne l'active pas ;
+  le nettoyage compare la preuve exacte et le credential sauvegardé. Masquer
+  la fenêtre ou quitter le formulaire invalide les réponses tardives sans
+  supprimer le candidat durable. Rocket.Chat conserve son parcours existant.
+  Vérifications : formatage / Clippy, suite cœur / bindings et compilation GTK
+  réussis ; typecheck mobile et inventaire 279 fichiers / 344 occurrences.
+  Banc jetable PostgreSQL / vrai Secret Service : code erroné, réponse réussie
+  jetée par proxy, reprise sans nouveau code puis redémarrage du client sous
+  un nouveau D-Bus. SQL confirme une seule famille et un seul secours consommé.
+  Les dix lancements GTK d'échange, édition, appareils, invitation, facteurs
+  et récupération passent ; le pair mobile et les compteurs de rotation passent.
+  Le formulaire de facteur a été rendu et inspecté à 435 pixels, champs vides.
+  Le volume privé est supprimé après les essais, le serveur de développement
+  reste inchangé. SwiftUI / FFI, paramètres des trois clients, SMTP et appareils
+  Android / trousseaux Windows / macOS restent ouverts.
+
 - P02, coffre commun bureau : `rv-core::native::authentication_vault` sérialise
   le défi / candidat par URL canonique et identifiant avec un verrou de fichier
   interprocessus, sans secret sur disque. Le contrat de stockage garde ce verrou

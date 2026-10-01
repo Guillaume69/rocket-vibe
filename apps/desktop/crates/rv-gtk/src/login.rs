@@ -35,6 +35,9 @@ pub struct LoginPage {
     code_intro: gtk::Label,
     code_caption: gtk::Label,
     code: gtk::Entry,
+    factor_selector: gtk::DropDown,
+    native_methods: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
+    factor_resume: gtk::Label,
     error: gtk::Label,
     submit: gtk::Button,
     back: gtk::Button,
@@ -77,6 +80,26 @@ fn starry(page: &gtk::Widget) -> gtk::Overlay {
     overlay.set_child(Some(&sky));
     overlay.add_overlay(page);
     overlay
+}
+fn code_fields(code: &gtk::Entry, caption: &gtk::Label, intro: &gtk::Label, method: Option<&str>) {
+    let (label, help, secret) = match method {
+        Some("email") => (t("login.code_email"), t("login.intro_email"), false),
+        Some("password") => (t("login.code_password"), t("login.intro_password"), true),
+        Some("recovery_code") => (t("login.code_recovery_code"), t("login.intro_recovery_code"), true),
+        _ => (t("login.code_totp"), t("login.intro_totp"), false),
+    };
+    caption.set_label(label);
+    intro.set_label(help);
+    code.set_text("");
+    code.set_visibility(!secret);
+    code.set_input_purpose(if secret { gtk::InputPurpose::FreeForm } else { gtk::InputPurpose::Digits });
+    if secret {
+        code.remove_css_class("code");
+        code.set_placeholder_text(None);
+    } else {
+        code.add_css_class("code");
+        code.set_placeholder_text(Some("123456"));
+    }
 }
 
 impl LoginPage {
@@ -132,8 +155,27 @@ impl LoginPage {
         code_step.append(&gtk::Label::builder().label("🛡️").css_classes(["shield"]).margin_top(6).build());
         code_step.append(&gtk::Label::builder().label(t("login.magic")).css_classes(["step-title"]).build());
         code_step.append(&code_intro);
+        let factor_selector = gtk::DropDown::builder().visible(false).build();
+        let native_methods = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+        let methods = native_methods.clone();
+        factor_selector.connect_selected_notify(glib::clone!(
+            #[weak]
+            code,
+            #[weak]
+            code_caption,
+            #[weak]
+            code_intro,
+            move |selector| {
+                if let Some(method) = methods.borrow().get(selector.selected() as usize) {
+                    code_fields(&code, &code_caption, &code_intro, Some(method));
+                }
+            }
+        ));
+        code_step.append(&factor_selector);
         code_group.set_margin_top(14);
         code_step.append(&code_group);
+        let factor_resume = gtk::Label::builder().label(t("login.factor_resume")).wrap(true).visible(false).build();
+        code_step.append(&factor_resume);
 
         let error = gtk::Label::builder().css_classes(["login-error"]).wrap(true).xalign(0.0).visible(false).build();
         let submit = widgets::cta(t("login.sign_in"));
@@ -303,6 +345,9 @@ impl LoginPage {
             code_intro,
             code_caption,
             code,
+            factor_selector,
+            native_methods,
+            factor_resume,
             error,
             submit,
             back,
@@ -395,6 +440,7 @@ impl LoginPage {
         self.invitation.set_text("");
         self.signup.set_active(false);
         self.recovery.set_active(false);
+        self.code.set_text("");
     }
     pub fn is_busy(&self) -> bool {
         !self.submit.is_sensitive()
@@ -402,6 +448,9 @@ impl LoginPage {
 
     pub fn code(&self) -> String {
         self.code.text().into()
+    }
+    pub fn has_error(&self) -> bool {
+        self.error.is_visible()
     }
 
     pub fn fill(&self, server: &str, user: &str, password: &str) {
@@ -439,15 +488,10 @@ impl LoginPage {
         let asking = method.is_some();
         self.credentials.set_visible(!asking);
         self.code_step.set_visible(asking);
-        self.code.set_text("");
-        let (caption, intro, secret) = match method {
-            Some("email") => (t("login.code_email"), t("login.intro_email"), false),
-            Some("password") => (t("login.code_password"), t("login.intro_password"), true),
-            _ => (t("login.code_totp"), t("login.intro_totp"), false),
-        };
-        self.code_caption.set_label(caption);
-        self.code_intro.set_label(intro);
-        self.code.set_visibility(!secret);
+        self.native_methods.borrow_mut().clear();
+        self.factor_selector.set_visible(false);
+        self.factor_resume.set_visible(false);
+        code_fields(&self.code, &self.code_caption, &self.code_intro, method);
         self.set_busy(false);
         if asking {
             self.code.grab_focus();
@@ -456,5 +500,38 @@ impl LoginPage {
         } else {
             self.password.grab_focus();
         }
+    }
+    pub fn ask_native_code(&self, saved: &rv_core::native::authentication::LoginChallenge) -> bool {
+        use rv_core::native::authentication::method_name;
+        let methods = saved
+            .challenge
+            .methods
+            .iter()
+            .map(|m| method_name(*m).to_owned())
+            .filter(|m| m != "email")
+            .collect::<Vec<_>>();
+        let Some(first) = methods.first() else { return false };
+        self.ask_code(Some(first));
+        let labels = methods
+            .iter()
+            .map(|method| t(if method == "recovery_code" { "login.factor_backup" } else { "login.factor_totp" }))
+            .collect::<Vec<_>>();
+        let model = gtk::StringList::new(&labels);
+        self.native_methods.replace(methods);
+        self.factor_selector.set_model(Some(&model));
+        self.factor_selector.set_selected(0);
+        self.factor_selector.set_visible(labels.len() > 1);
+        self.factor_resume.set_visible(saved.pending.is_some());
+        true
+    }
+    pub fn native_method(&self) -> Option<String> {
+        self.native_methods.borrow().get(self.factor_selector.selected() as usize).cloned()
+    }
+    pub fn fill_factor(&self, method: &str, code: &str) -> bool {
+        let selected = self.native_methods.borrow().iter().position(|m| m == method);
+        let Some(selected) = selected else { return false };
+        self.factor_selector.set_selected(selected as u32);
+        self.code.set_text(code);
+        true
     }
 }

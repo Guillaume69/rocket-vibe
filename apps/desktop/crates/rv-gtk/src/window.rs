@@ -30,6 +30,10 @@ struct PendingLogin {
     password: String,
     method: Option<String>,
 }
+enum LoginOutcome {
+    RocketChat(SessionInfo),
+    Native(rv_core::native::authentication_vault::Prepared),
+}
 
 pub struct AppWindow {
     pub window: adw::ApplicationWindow,
@@ -40,6 +44,8 @@ pub struct AppWindow {
     db_path: RefCell<Option<PathBuf>>,
     forward: RefCell<Option<tokio::task::JoinHandle<()>>>,
     pending: RefCell<Option<PendingLogin>>,
+    pending_native: RefCell<Option<rv_core::native::authentication::LoginChallenge>>,
+    login_generation: Cell<u64>,
     login_shown: RefCell<Vec<Box<dyn Fn()>>>,
     notifier: RefCell<Option<Rc<crate::notifier::Notifier>>>,
     /// The account to go back to while another one is being added.
@@ -73,6 +79,13 @@ fn database_path(info: &SessionInfo) -> PathBuf {
 }
 
 fn describe(e: &RestError, asking_code: bool, recovering: bool) -> String {
+    match e.error.as_deref() {
+        Some("factor_rejected" | "invalid_factor_code") => return t("login.bad_code").into(),
+        Some("factor_expired") => return t("login.factor_expired").into(),
+        Some("factor_unavailable") => return t("login.factor_unavailable").into(),
+        Some("secure_storage_unavailable") => return t("login.secure_storage").into(),
+        _ => {}
+    }
     if e.error.as_deref() == Some("recovery_rejected") {
         return t("login.recovery_rejected").into();
     }
@@ -129,6 +142,8 @@ impl AppWindow {
             db_path: RefCell::default(),
             forward: RefCell::default(),
             pending: RefCell::default(),
+            pending_native: RefCell::default(),
+            login_generation: Cell::default(),
             login_shown: RefCell::default(),
             notifier: RefCell::default(),
             previous: RefCell::default(),
@@ -144,7 +159,13 @@ impl AppWindow {
         let weak = Rc::downgrade(&this);
         this.login.connect_back(move || {
             if let Some(this) = weak.upgrade() {
+                if this.login.is_busy() {
+                    return;
+                }
+                this.login_generation.set(this.login_generation.get().wrapping_add(1));
                 this.pending.replace(None);
+                this.pending_native.replace(None);
+                this.login.clear_secrets();
                 this.login.set_error(None);
                 this.login.ask_code(None);
             }
@@ -186,6 +207,22 @@ impl AppWindow {
                 && let Some(this) = weak.upgrade()
             {
                 this.chat.window_activated();
+            }
+        });
+        let weak = Rc::downgrade(&this);
+        this.window.connect_visible_notify(move |window| {
+            if !window.is_visible()
+                && let Some(this) = weak.upgrade()
+                && this.stack.visible_child_name().as_deref() == Some("login")
+            {
+                // A hidden sign-in form cannot install a late response. Keep
+                // durable candidates in the vault for the next password start.
+                this.login_generation.set(this.login_generation.get().wrapping_add(1));
+                this.pending.replace(None);
+                this.pending_native.replace(None);
+                this.login.clear_secrets();
+                this.login.set_error(None);
+                this.login.ask_code(None);
             }
         });
         let (w1, w2) = (Rc::downgrade(&this), Rc::downgrade(&this));
@@ -281,6 +318,9 @@ impl AppWindow {
     }
 
     fn show_login(&self, error: Option<&str>) {
+        self.login_generation.set(self.login_generation.get().wrapping_add(1));
+        self.pending.replace(None);
+        self.pending_native.replace(None);
         let last = std::fs::read_to_string(last_server_file()).unwrap_or_else(|_| DEFAULT_SERVER.to_owned());
         if self.login.server().is_empty() {
             self.login.set_server(last.trim());
@@ -299,6 +339,12 @@ impl AppWindow {
         if self.login.is_busy() {
             return;
         }
+        let pending_native = self.pending_native.borrow().clone();
+        if let Some(saved) = pending_native {
+            self.submit_native_factor(saved);
+            return;
+        }
+        let generation = self.login_generation.get();
         let invitation = self.login.invitation();
         let recovery_code = self.login.recovery_code();
         let recovering = recovery_code.is_some();
@@ -328,28 +374,53 @@ impl AppWindow {
         glib::spawn_future_local(async move {
             let (s, u, p) = (server.clone(), user.clone(), password);
             let result = on_tokio(async move {
-                if let Some(code) = recovery_code {
-                    let discovery =
-                        rv_core::native::probe(&s).await.map_err(rv_core::native::rest_error)?.ok_or_else(|| {
-                            rv_core::native::rest_error(rv_core::native::Error::Protocol("recovery_unavailable"))
-                        })?;
-                    rv_core::native::recover(&s, &discovery, &code, &u, &p).await.map_err(rv_core::native::rest_error)
-                } else if let Some(invitation) = invitation {
-                    let discovery =
-                        rv_core::native::probe(&s).await.map_err(rv_core::native::rest_error)?.ok_or_else(|| {
-                            rv_core::native::rest_error(rv_core::native::Error::Protocol("invitation_unavailable"))
-                        })?;
-                    rv_core::native::register(&s, &discovery, &invitation, &u, &p)
+                if let Some(discovery) = rv_core::native::probe(&s).await.map_err(rv_core::native::rest_error)? {
+                    use rv_core::native::authentication;
+                    let step = if let Some(code) = recovery_code {
+                        authentication::start_account_code(&s, &discovery, &u, &p, &code, true).await
+                    } else if let Some(invitation) = invitation {
+                        authentication::start_account_code(&s, &discovery, &u, &p, &invitation, false).await
+                    } else {
+                        authentication::start(&s, &discovery, &u, &p).await
+                    }
+                    .map_err(rv_core::native::rest_error)?;
+                    secrets::authentication_vault()
+                        .prepare(step)
                         .await
+                        .map(LoginOutcome::Native)
                         .map_err(rv_core::native::rest_error)
+                } else if recovery_code.is_some() || invitation.is_some() {
+                    Err(rv_core::native::rest_error(rv_core::native::Error::Protocol(if recovery_code.is_some() {
+                        "recovery_unavailable"
+                    } else {
+                        "invitation_unavailable"
+                    })))
                 } else {
-                    session::login(&s, &u, &p, two_factor).await
+                    session::login(&s, &u, &p, two_factor).await.map(LoginOutcome::RocketChat)
                 }
             })
             .await;
-            this.login.set_busy(false);
+            if !this.login_is_current(generation) {
+                return;
+            }
             match result {
-                Ok(info) => {
+                Ok(LoginOutcome::Native(rv_core::native::authentication_vault::Prepared::Authenticated(
+                    record,
+                    proof,
+                ))) => {
+                    this.install_native_login(*record, proof, generation).await;
+                }
+                Ok(LoginOutcome::Native(rv_core::native::authentication_vault::Prepared::Challenge(saved))) => {
+                    this.pending.replace(None);
+                    this.login.clear_secrets();
+                    if this.login.ask_native_code(&saved) {
+                        this.pending_native.replace(Some(saved));
+                    } else {
+                        this.login.set_busy(false);
+                        this.login.set_error(Some(t("login.factor_unavailable")));
+                    }
+                }
+                Ok(LoginOutcome::RocketChat(info)) => {
                     this.login.clear_secrets();
                     let _ = std::fs::write(last_server_file(), &info.base_url);
                     secrets::remember_server(&info.base_url);
@@ -358,6 +429,10 @@ impl AppWindow {
                     this.previous.replace(None);
                     let saved = info.clone();
                     on_tokio(async move { secrets::save(&saved).await }).await;
+                    if !this.login_is_current(generation) {
+                        return;
+                    }
+                    this.login.set_busy(false);
                     this.start_session(info);
                 }
                 Err(e) if e.two_factor.is_some() => {
@@ -374,12 +449,102 @@ impl AppWindow {
                         runtime().spawn(async move { session::request_email_code(&server, &user).await });
                     }
                 }
-                Err(e) => this.login.set_error(Some(&describe(&e, asking, recovering))),
+                Err(e) => {
+                    this.login.set_busy(false);
+                    this.login.set_error(Some(&describe(&e, asking, recovering)));
+                }
             }
         });
     }
 
+    fn login_is_current(&self, generation: u64) -> bool {
+        self.login_generation.get() == generation
+            && self.stack.visible_child_name().as_deref() == Some("login")
+            && self.window.is_visible()
+    }
+    fn submit_native_factor(self: &Rc<Self>, saved: rv_core::native::authentication::LoginChallenge) {
+        use rv_core::native::authentication::method_name;
+        let Some(method) = self
+            .login
+            .native_method()
+            .and_then(|name| saved.challenge.methods.iter().copied().find(|m| method_name(*m) == name))
+        else {
+            return;
+        };
+        let code = self.login.code();
+        let generation = self.login_generation.get();
+        self.login.set_busy(true);
+        self.login.set_error(None);
+        let this = self.clone();
+        glib::spawn_future_local(async move {
+            let proof = saved.clone();
+            let result =
+                on_tokio(async move { secrets::authentication_vault().finish(&proof, method, &code).await }).await;
+            if !this.login_is_current(generation) {
+                return;
+            }
+            match result {
+                Ok(record) => this.install_native_login(record, Some(saved), generation).await,
+                Err(error) => {
+                    let message = describe(&rv_core::native::rest_error(error), true, false);
+                    let expected = saved.clone();
+                    let latest = on_tokio(async move {
+                        secrets::authentication_vault().load(&expected.base_url, &expected.user.username).await
+                    })
+                    .await;
+                    if !this.login_is_current(generation) {
+                        return;
+                    }
+                    if let Ok(Some(latest)) = latest
+                        && latest.challenge.challenge_id == saved.challenge.challenge_id
+                    {
+                        this.login.ask_native_code(&latest);
+                        this.pending_native.replace(Some(latest));
+                    }
+                    this.login.set_busy(false);
+                    this.login.set_error(Some(&message));
+                }
+            }
+        });
+    }
+    async fn install_native_login(
+        self: &Rc<Self>,
+        record: rv_core::native::credentials::Record,
+        proof: Option<rv_core::native::authentication::LoginChallenge>,
+        generation: u64,
+    ) {
+        if !self.login_is_current(generation) {
+            return;
+        }
+        let info = record.info.clone();
+        let result = on_tokio(async move { secrets::save_native_login(&record).await }).await;
+        if !self.login_is_current(generation) {
+            return;
+        }
+        if let Err(error) = result {
+            self.login.set_busy(false);
+            self.login.set_error(Some(&describe(&rv_core::native::rest_error(error), true, false)));
+            return;
+        }
+        if let Some(proof) = proof {
+            on_tokio(async move { secrets::complete_native_login(&proof).await }).await;
+        }
+        if !self.login_is_current(generation) {
+            return;
+        }
+        self.login.clear_secrets();
+        self.login.set_busy(false);
+        self.pending.replace(None);
+        self.pending_native.replace(None);
+        self.previous.replace(None);
+        let _ = std::fs::write(last_server_file(), &info.base_url);
+        secrets::remember_server(&info.base_url);
+        secrets::set_active(&info);
+        self.start_session(info);
+    }
+
     fn start_session(self: &Rc<Self>, info: SessionInfo) {
+        self.login_generation.set(self.login_generation.get().wrapping_add(1));
         self.stop_session(false);
         let path = database_path(&info);
         if info.native.is_some() {
@@ -631,6 +796,11 @@ impl AppWindow {
     }
 
     fn cancel_add(self: &Rc<Self>) {
+        self.login_generation.set(self.login_generation.get().wrapping_add(1));
+        self.pending.replace(None);
+        self.pending_native.replace(None);
+        self.login.clear_secrets();
+        self.login.ask_code(None);
         if let Some(previous) = self.previous.take() {
             self.start_session(previous);
         }

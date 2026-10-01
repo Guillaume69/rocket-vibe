@@ -147,6 +147,93 @@ struct NativeCredentials {
 pub fn native_credentials() -> std::sync::Arc<dyn rv_core::native::credentials::Provider> {
     std::sync::Arc::new(NativeCredentials { config: glib::user_config_dir().join("rocket-vibe-rs") })
 }
+
+struct AuthenticationStorage;
+pub fn authentication_vault() -> rv_core::native::authentication_vault::Vault {
+    rv_core::native::authentication_vault::Vault::new(
+        glib::user_config_dir().join("rocket-vibe-rs"),
+        std::sync::Arc::new(AuthenticationStorage),
+    )
+}
+async fn authentication_operation<T: Send + 'static>(
+    lease: std::sync::Arc<std::fs::File>,
+    operation: impl std::future::Future<Output = Result<T, String>> + Send + 'static,
+) -> Result<T, rv_core::native::Error> {
+    use rv_core::native::Error;
+    // Dropping the outer future or timing out detaches this task. It retains the
+    // lease through the ACTUAL DBus / blocking keyring completion.
+    let mut task = tokio::spawn(async move {
+        let _lease = lease;
+        operation.await.map_err(|_| Error::Protocol("secure_storage_unavailable"))
+    });
+    tokio::time::timeout(TIMEOUT, &mut task)
+        .await
+        .map_err(|_| Error::Protocol("secure_storage_unavailable"))?
+        .map_err(|_| Error::Protocol("secure_storage_unavailable"))?
+}
+impl rv_core::native::authentication_vault::Storage for AuthenticationStorage {
+    fn read(
+        &self,
+        key: String,
+        lease: std::sync::Arc<std::fs::File>,
+    ) -> rv_core::native::authentication_vault::StorageFuture<Option<String>> {
+        Box::pin(authentication_operation(lease, async move { keychain::private_get(&key, "authentication").await }))
+    }
+    fn write(
+        &self,
+        key: String,
+        value: String,
+        lease: std::sync::Arc<std::fs::File>,
+    ) -> rv_core::native::authentication_vault::StorageFuture<()> {
+        Box::pin(authentication_operation(lease, async move { keychain::private_put(&key, value).await }))
+    }
+    fn remove(
+        &self,
+        key: String,
+        lease: std::sync::Arc<std::fs::File>,
+    ) -> rv_core::native::authentication_vault::StorageFuture<()> {
+        Box::pin(authentication_operation(lease, async move { keychain::private_remove(&key).await }))
+    }
+}
+/// Full native login is not installed until this fallible credential write
+/// succeeds. Preserve the account's E2EE key and persist the real expiry.
+pub async fn save_native_login(record: &rv_core::native::credentials::Record) -> Result<(), rv_core::native::Error> {
+    use rv_core::native::{Error, credentials};
+    let lease =
+        std::sync::Arc::new(credentials::lease(&glib::user_config_dir().join("rocket-vibe-rs"), &record.info).await?);
+    let key = account_key(&record.info);
+    let old =
+        authentication_operation(lease.clone(), async move { keychain::private_get(&key, "session").await }).await?;
+    let mut value = record.secret();
+    if let Some(old) = old {
+        let old: Value = serde_json::from_str(&old).map_err(|_| Error::Protocol("invalid_native_credentials"))?;
+        let previous = SessionInfo::from_secret(&old).ok_or(Error::Protocol("invalid_native_credentials"))?;
+        if account_key(&previous) != account_key(&record.info) {
+            return Err(Error::Protocol("credentials_changed"));
+        }
+        if previous.native == record.info.native
+            && let Some(jwk) = old.get("e2eKey")
+        {
+            value["e2eKey"] = jwk.clone();
+        }
+    }
+    put_locked(account_key(&record.info), value.to_string().into_bytes(), Some(lease)).await
+}
+pub async fn complete_native_login(saved: &rv_core::native::authentication::LoginChallenge) {
+    // Read the actually saved account; renewal may have advanced its bearer.
+    let info = SessionInfo {
+        base_url: saved.base_url.clone(),
+        user_id: saved.user.id.clone(),
+        username: saved.user.username.clone(),
+        auth_token: String::new(),
+        native: Some(saved.identity.clone()),
+    };
+    if let Ok(raw) = raw_native(&info).await
+        && let Some(actual) = SessionInfo::from_secret(&raw)
+    {
+        let _ = authentication_vault().clear_completed(saved, Some(&actual)).await;
+    }
+}
 async fn raw_native(info: &SessionInfo) -> Result<Value, rv_core::native::Error> {
     use rv_core::native::Error;
     let secrets = tokio::time::timeout(TIMEOUT, keychain::all())
@@ -236,6 +323,32 @@ mod keychain {
         attributes.insert("account", key);
         let _ = keyring.delete(&attributes).await;
     }
+    pub async fn private_get(key: &str, kind: &'static str) -> Result<Option<String>, String> {
+        let keyring = oo7::Keyring::new().await.map_err(|_| "secure_storage_unavailable".to_owned())?;
+        let attributes = HashMap::from([("application", super::KEYCHAIN_SERVICE), ("kind", kind), ("account", key)]);
+        let mut items = keyring.search_items(&attributes).await.map_err(|_| "secure_storage_unavailable".to_owned())?;
+        if items.len() > 1 {
+            return Err("invalid_native_authentication".into());
+        }
+        let Some(item) = items.pop() else { return Ok(None) };
+        let secret = item.secret().await.map_err(|_| "secure_storage_unavailable".to_owned())?;
+        String::from_utf8(secret.to_vec()).map(Some).map_err(|_| "invalid_native_authentication".into())
+    }
+    pub async fn private_put(key: &str, value: String) -> Result<(), String> {
+        let keyring = oo7::Keyring::new().await.map_err(|_| "secure_storage_unavailable".to_owned())?;
+        let attributes =
+            HashMap::from([("application", super::KEYCHAIN_SERVICE), ("kind", "authentication"), ("account", key)]);
+        keyring
+            .create_item("rocket-vibe authentication", &attributes, value.as_bytes(), true)
+            .await
+            .map_err(|_| "secure_storage_unavailable".into())
+    }
+    pub async fn private_remove(key: &str) -> Result<(), String> {
+        let keyring = oo7::Keyring::new().await.map_err(|_| "secure_storage_unavailable".to_owned())?;
+        let attributes =
+            HashMap::from([("application", super::KEYCHAIN_SERVICE), ("kind", "authentication"), ("account", key)]);
+        keyring.delete(&attributes).await.map_err(|_| "secure_storage_unavailable".into())
+    }
 }
 
 /// The system keychain cannot list its entries: a file keeps their keys
@@ -299,6 +412,37 @@ mod keychain {
             write_keys(&all);
         })
         .await;
+    }
+    pub async fn private_get(key: &str, _kind: &'static str) -> Result<Option<String>, String> {
+        let key = key.to_owned();
+        tokio::task::spawn_blocking(move || {
+            match entry(&key).map_err(|_| "secure_storage_unavailable".to_owned())?.get_password() {
+                Ok(value) => Ok(Some(value)),
+                Err(keyring::Error::NoEntry) => Ok(None),
+                Err(_) => Err("secure_storage_unavailable".into()),
+            }
+        })
+        .await
+        .map_err(|_| "secure_storage_unavailable".to_owned())?
+    }
+    pub async fn private_put(key: &str, value: String) -> Result<(), String> {
+        let key = key.to_owned();
+        tokio::task::spawn_blocking(move || {
+            entry(&key).and_then(|e| e.set_password(&value)).map_err(|_| "secure_storage_unavailable".into())
+        })
+        .await
+        .map_err(|_| "secure_storage_unavailable".to_owned())?
+    }
+    pub async fn private_remove(key: &str) -> Result<(), String> {
+        let key = key.to_owned();
+        tokio::task::spawn_blocking(move || {
+            match entry(&key).map_err(|_| "secure_storage_unavailable".to_owned())?.delete_credential() {
+                Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+                Err(_) => Err("secure_storage_unavailable".into()),
+            }
+        })
+        .await
+        .map_err(|_| "secure_storage_unavailable".to_owned())?
     }
 }
 

@@ -81,6 +81,34 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("login.code_totp", "Code de l'application d'authentification", "Authenticator app code"),
     ("login.code_email", "Code reçu par email", "Code received by email"),
     ("login.code_password", "Confirme ton mot de passe", "Confirm your password"),
+    ("login.code_recovery_code", "Code de secours", "Backup code"),
+    (
+        "login.intro_recovery_code",
+        "Utilise un code de secours conservé lors de l'activation. Chaque code ne sert qu'une fois.",
+        "Use a backup code saved when you enabled two-factor authentication. Each code can only be used once.",
+    ),
+    ("login.factor_totp", "Application d'authentification", "Authenticator app"),
+    ("login.factor_backup", "Code de secours", "Backup code"),
+    (
+        "login.factor_resume",
+        "Tu peux valider sans code pour reprendre une connexion déjà acceptée.",
+        "You can confirm without a code to resume a sign-in that was already accepted.",
+    ),
+    (
+        "login.factor_expired",
+        "Cette vérification a expiré. Reviens à la connexion et saisis à nouveau tes identifiants.",
+        "This verification has expired. Go back to sign-in and enter your credentials again.",
+    ),
+    (
+        "login.factor_unavailable",
+        "La double authentification est indisponible sur ce serveur. Contacte l'administrateur.",
+        "Two-factor authentication is unavailable on this server. Contact the administrator.",
+    ),
+    (
+        "login.secure_storage",
+        "Le trousseau est indisponible. Déverrouille-le et réessaie pour confirmer la connexion.",
+        "Secure storage is unavailable. Unlock it and try again to confirm sign-in.",
+    ),
     (
         "login.intro_totp",
         "Entre le code de ton application\nd'authentification ✨",

@@ -6,9 +6,10 @@ use super::{
 };
 use crate::session::SessionInfo;
 use rv_client::NativeClient;
+pub use rv_protocol::parity::SecondFactor;
 use rv_protocol::{
     Discovery, Session, User,
-    parity::{AuthChallenge, AuthenticationStep, FinishFactor, SecondFactor},
+    parity::{AuthChallenge, AuthenticationStep, FinishFactor},
 };
 use serde::{Deserialize, Serialize};
 use std::future::Future;

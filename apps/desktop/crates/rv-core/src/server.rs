@@ -55,7 +55,7 @@ pub async fn probe(base: &Url) -> Result<ServerProfile, RestError> {
             base_url: base.as_str().trim_end_matches('/').into(),
             version: native.server_version,
             password_login: true,
-            two_factor: false,
+            two_factor: native.capabilities.second_factors,
             e2e: native.capabilities.e2ee,
             oauth: vec![],
             account_invitations: native.capabilities.account_invitations,

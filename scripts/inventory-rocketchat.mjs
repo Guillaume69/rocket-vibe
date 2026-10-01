@@ -3,11 +3,15 @@ import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { relative, resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const require = createRequire(new URL('../apps/mobile/package.json', import.meta.url));
 const ts = require('typescript');
 const scopes = ['apps/mobile/app', 'apps/mobile/lib', 'apps/mobile/ui', 'apps/mobile/fournisseurs/rocketchat', 'apps/mobile/plugins', 'apps/desktop/crates', 'apps/desktop/macos/Sources'];
+// Generated/ignored bindings can exist locally and be absent in a clean checkout.
+// Include new non-ignored source files too so regeneration works before staging.
+const sourceFiles = new Set(execFileSync('git', ['-c', `safe.directory=${root}`, 'ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', ...scopes], {cwd:root,encoding:'utf8'}).split('\0'));
 const rows = [];
 const scanned = [];
 const atom = /^(?:(?:chat|rooms|subscriptions|users|permissions|channels|groups|im|e2e|emoji-custom|video-conference|push)\.[A-Za-z][\w.-]*(?:\/[^\s]*)?|settings\.public|spotlight|api\/info)$/;
@@ -32,7 +36,7 @@ function walk(dir) {
       if (!['target', 'node_modules', 'tests', '__tests__'].includes(entry.name)) walk(file);
       continue;
     }
-    if (!/\.(?:tsx?|js|rs|swift)$/.test(file) || /\.(?:test|generated)\./.test(file)) continue;
+    if (!sourceFiles.has(file) || !/\.(?:tsx?|js|rs|swift)$/.test(file) || /\.(?:test|generated)\./.test(file)) continue;
     let source = readFileSync(resolve(root, file), 'utf8').replace(/\r\n/g, '\n');
     if (file.endsWith('.rs')) source = source.split('#[cfg(test)]')[0];
     scanned.push(file);

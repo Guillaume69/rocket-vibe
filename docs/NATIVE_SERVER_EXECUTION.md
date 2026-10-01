@@ -156,7 +156,7 @@ par le processus serveur lui-même. Ces tests ne ferment pas les essais sur appa
 
 ## Sixième incrément : contrats et inventaire J0
 
-Inventaire reproductible de 274 fichiers / 344 occurrences Rocket.Chat, paramètres
+Inventaire reproductible de 273 fichiers / 344 occurrences Rocket.Chat, paramètres
 dynamiques revus et contrôle CI. Les schémas de destination couvrent droits,
 compteurs, actions, profils, fichiers, 2FA et enveloppes de clés ; ils sont lus
 par Rust et TypeScript, sans activer les fonctions absentes. Le corpus partagé

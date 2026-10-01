@@ -121,7 +121,6 @@
     "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
     "apps/desktop/macos/Sources/RocketVibe/Theme.swift",
     "apps/desktop/macos/Sources/RocketVibe/ThreadView.swift",
-    "apps/desktop/macos/Sources/RocketVibeCore/rv_ffi.swift",
     "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
     "apps/desktop/macos/Sources/RocketVibeKit/ChatProvider.swift",
     "apps/desktop/macos/Sources/RocketVibeKit/Formatting.swift",

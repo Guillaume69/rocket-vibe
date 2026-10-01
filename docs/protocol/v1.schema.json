@@ -87,6 +87,61 @@
       ],
       "type": "object"
     },
+    "AuthenticationStep": {
+      "description": "Password-only sessions keep the legacy login wire format. This new endpoint\nreturns a challenge without minting any bearer when an account has a factor.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "session",
+              "type": "string"
+            },
+            "session": {
+              "$ref": "#/$defs/Session"
+            }
+          },
+          "required": [
+            "kind",
+            "session"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "challenge": {
+              "$ref": "#/$defs/AuthChallenge"
+            },
+            "kind": {
+              "const": "challenge",
+              "type": "string"
+            },
+            "user": {
+              "$ref": "#/$defs/User"
+            }
+          },
+          "required": [
+            "kind",
+            "challenge",
+            "user"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "BeginFactorSetup": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id"
+      ],
+      "type": "object"
+    },
     "Capabilities": {
       "properties": {
         "account_invitations": {
@@ -175,6 +230,10 @@
           "type": "boolean"
         },
         "search": {
+          "default": false,
+          "type": "boolean"
+        },
+        "second_factors": {
           "default": false,
           "type": "boolean"
         },
@@ -382,6 +441,18 @@
       ],
       "type": "object"
     },
+    "DisableFactor": {
+      "additionalProperties": false,
+      "properties": {
+        "factor_version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "factor_version"
+      ],
+      "type": "object"
+    },
     "Discovery": {
       "properties": {
         "api_path": {
@@ -442,6 +513,26 @@
       ],
       "type": "object"
     },
+    "EnableFactor": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "setup_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "setup_id",
+        "operation_id",
+        "code"
+      ],
+      "type": "object"
+    },
     "EncryptedKeyBackup": {
       "properties": {
         "ciphertext": {
@@ -471,6 +562,70 @@
         "ciphertext",
         "crypto_identity",
         "kdf"
+      ],
+      "type": "object"
+    },
+    "FactorBackupCodes": {
+      "properties": {
+        "codes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "codes"
+      ],
+      "type": "object"
+    },
+    "FactorSetup": {
+      "properties": {
+        "expires_at": {
+          "type": "string"
+        },
+        "provisioning_uri": {
+          "type": "string"
+        },
+        "secret": {
+          "type": "string"
+        },
+        "setup_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "setup_id",
+        "secret",
+        "provisioning_uri",
+        "expires_at"
+      ],
+      "type": "object"
+    },
+    "FactorStatus": {
+      "properties": {
+        "backup_codes_remaining": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "email": {
+          "type": "boolean"
+        },
+        "factor_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "totp": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "totp",
+        "email",
+        "backup_codes_remaining"
       ],
       "type": "object"
     },
@@ -510,6 +665,35 @@
         "sha256",
         "media_type",
         "encrypted"
+      ],
+      "type": "object"
+    },
+    "FinishFactor": {
+      "additionalProperties": false,
+      "description": "Persist next_token in secure storage before submitting. A retry repeats the\nsame operation/candidate; it never creates a second session using a spent OTP.",
+      "properties": {
+        "challenge_id": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "method": {
+          "$ref": "#/$defs/SecondFactor"
+        },
+        "next_token": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "challenge_id",
+        "method",
+        "code",
+        "operation_id",
+        "next_token"
       ],
       "type": "object"
     },
@@ -774,6 +958,26 @@
         "auth_challenge": {
           "$ref": "#/$defs/AuthChallenge"
         },
+        "authentication_step": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuthenticationStep"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "begin_factor_setup": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BeginFactorSetup"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "complete_upload": {
           "$ref": "#/$defs/CompleteUpload"
         },
@@ -790,11 +994,71 @@
             }
           ]
         },
+        "disable_factor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DisableFactor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "edit_message": {
           "$ref": "#/$defs/EditMessage"
         },
+        "enable_factor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnableFactor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "factor_backup_codes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FactorBackupCodes"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "factor_setup": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FactorSetup"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "factor_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FactorStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "file": {
           "$ref": "#/$defs/FileDescriptor"
+        },
+        "finish_factor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FinishFactor"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "key_backup": {
           "$ref": "#/$defs/EncryptedKeyBackup"

@@ -63,6 +63,8 @@ pub struct Capabilities {
     pub account_invitations: bool,
     #[serde(default)]
     pub account_recovery: bool,
+    #[serde(default)]
+    pub second_factors: bool,
 }
 
 impl Default for Capabilities {
@@ -99,6 +101,7 @@ impl Default for Capabilities {
             device_sessions: false,
             account_invitations: false,
             account_recovery: false,
+            second_factors: false,
         }
     }
 }
@@ -141,7 +144,8 @@ impl Capabilities {
             session_rotation,
             device_sessions,
             account_invitations,
-            account_recovery
+            account_recovery,
+            second_factors
         );
         features
     }

@@ -162,9 +162,11 @@ impl NativeClient {
 
     fn budget(path: &str, method: &Method) -> Option<&'static str> {
         match path {
-            "/api/v1/auth/login" | "/api/v1/auth/invitations/accept" | "/api/v1/auth/recovery" => {
-                Some("login")
-            }
+            "/api/v1/auth/login"
+            | "/api/v1/auth/start"
+            | "/api/v1/auth/factors/verify"
+            | "/api/v1/auth/invitations/accept"
+            | "/api/v1/auth/recovery" => Some("login"),
             "/api/v1/auth/renew" => Some("session_rotation"),
             "/api/v1/sync/ticket" => Some("ticket"),
             "/api/v1/sync/snapshots" => Some("snapshot"),
@@ -247,6 +249,59 @@ impl NativeClient {
 
     pub fn restore(&mut self, token: String) {
         self.update_token(token);
+    }
+
+    /// Does not replace an active credential. The account coordinator must pin
+    /// discovery and commit the resulting session to secure storage first.
+    pub async fn start_login(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<rv_protocol::parity::AuthenticationStep, Error> {
+        self.request(
+            Method::POST,
+            "/api/v1/auth/start",
+            Some(&Login {
+                username: username.into(),
+                password: password.into(),
+            }),
+            true,
+        )
+        .await
+    }
+    pub async fn finish_factor(
+        &self,
+        input: &rv_protocol::parity::FinishFactor,
+    ) -> Result<Session, Error> {
+        self.request(
+            Method::POST,
+            "/api/v1/auth/factors/verify",
+            Some(input),
+            true,
+        )
+        .await
+    }
+    pub async fn factor_status(&self) -> Result<rv_protocol::parity::FactorStatus, Error> {
+        self.get("/api/v1/me/factors").await
+    }
+    pub async fn begin_factor_setup(
+        &self,
+        input: &rv_protocol::parity::BeginFactorSetup,
+    ) -> Result<rv_protocol::parity::FactorSetup, Error> {
+        self.post("/api/v1/me/factors/totp/setup", input).await
+    }
+    pub async fn enable_factor(
+        &self,
+        input: &rv_protocol::parity::EnableFactor,
+    ) -> Result<rv_protocol::parity::FactorBackupCodes, Error> {
+        self.post("/api/v1/me/factors/totp/enable", input).await
+    }
+    pub async fn disable_factor(
+        &self,
+        input: &rv_protocol::parity::DisableFactor,
+    ) -> Result<(), Error> {
+        self.empty_input(Method::POST, "/api/v1/me/factors/totp/disable", Some(input))
+            .await
     }
     /// Clones share one account's rotating credential.
     pub fn update_token(&self, token: String) {

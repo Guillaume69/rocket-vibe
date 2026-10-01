@@ -7,6 +7,8 @@ use std::net::SocketAddr;
 struct Args {
     #[arg(long, env = "DATABASE_URL", hide_env_values = true)]
     database_url: String,
+    #[arg(long, env = "RV_AUTH_KEY_FILE", hide_env_values = true)]
+    auth_key_file: Option<std::path::PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
@@ -55,7 +57,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         )
         .init();
     let args = Args::parse();
-    let app = App::connect(&args.database_url).await?;
+    let auth_key = args
+        .auth_key_file
+        .as_deref()
+        .map(rv_server::factor_crypto::AuthKey::from_file)
+        .transpose()?;
+    let app = App::connect_with_auth_key(&args.database_url, auth_key).await?;
     match args.command {
         Command::Serve { bind } => {
             let maintenance = app.clone();

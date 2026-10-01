@@ -161,14 +161,7 @@ pub async fn revoke(app: &App, account: &Account, id: Option<&str>) -> Result<()
         let sensitive: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM session_devices d WHERE d.id=$1 AND d.user_id=$2 AND NOT EXISTS(SELECT 1 FROM sessions s WHERE s.device_id=d.id AND s.token_hash=$3))")
             .bind(target).bind(&account.id).bind(&account.session_hash).fetch_one(&mut *tx).await?;
         if sensitive {
-            let recent: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM session_devices d JOIN sessions s ON s.device_id=d.id WHERE s.token_hash=$1 AND d.created_at>now()-interval '15 minutes')")
-                .bind(&account.session_hash).fetch_one(&mut *tx).await?;
-            if !recent {
-                return Err(Error::new(
-                    axum::http::StatusCode::FORBIDDEN,
-                    "reauthentication_required",
-                ));
-            }
+            crate::factors::recent(&mut tx, account).await?;
         }
     }
     // Deleting the family also removes receipts and unused socket tickets.

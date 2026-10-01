@@ -36,6 +36,10 @@ présence ne déclare pas les endpoints correspondants disponibles.
 |---|---|---|
 | GET | `/health/live`, `/health/ready` | État du processus et de la base |
 | POST | `/auth/login` | `{ username, password }` → session, expiration, utilisateur |
+| POST | `/auth/start` | Mot de passe → `AuthenticationStep` ; aucun bearer avant facteur pour un compte protégé |
+| POST | `/auth/factors/verify` | `FinishFactor` → session avec candidat durable ; reprise de la même validation |
+| GET | `/me/factors` | Méthodes, version et secours restants |
+| POST | `/me/factors/totp/setup`, `/me/factors/totp/enable`, `/me/factors/totp/disable` | Inscription prouvée et gestion après authentification récente |
 | POST | `/auth/invitations/accept` | `{ token, username, password }` → utilisateur ; anonyme, sans session ni droit admin |
 | POST | `/auth/recovery` | `{ token, username, new_password }` → utilisateur conservé ; révoque les anciennes sessions, login normal ensuite |
 | POST | `/auth/logout` | Révoquer cette session et ses tickets WebSocket |
@@ -82,6 +86,12 @@ attendent la fin d'une livraison déjà autorisée. Aucune autorité cliente for
 n'est acceptée dans les commandes.
 
 ### Inscription sur invitation
+
+Le [contrat d'authentification P02](AUTHENTICATION.md) détaille les routes TOTP /
+secours, la clé opérateur hors PostgreSQL, les quotas, la reprise après réponse
+perdue et les validations restantes. `second_factors` est additive et dépend
+de la configuration de clé ; les méthodes viennent du défi. Le socle serveur /
+SDK ne signifie pas encore que les écrans des trois clients sont raccordés.
 
 La capacité additive `account_invitations` autorise le formulaire des clients
 natifs. Les anciens serveurs qui l'omettent et Rocket.Chat gardent leur parcours

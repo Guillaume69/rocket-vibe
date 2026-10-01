@@ -29,6 +29,12 @@ pub fn router(app: App) -> Router {
         .route("/health/live", get(|| async { StatusCode::NO_CONTENT }))
         .route("/health/ready", get(ready))
         .route("/api/v1/auth/login", post(login))
+        .route("/api/v1/auth/start", post(start_login))
+        .route("/api/v1/auth/factors/verify", post(finish_factor))
+        .route("/api/v1/me/factors", get(factor_status))
+        .route("/api/v1/me/factors/totp/setup", post(begin_factor))
+        .route("/api/v1/me/factors/totp/enable", post(enable_factor))
+        .route("/api/v1/me/factors/totp/disable", post(disable_factor))
         .route("/api/v1/auth/invitations/accept", post(accept_invitation))
         .route("/api/v1/auth/recovery", post(recover_account))
         .route("/api/v1/auth/logout", post(logout))
@@ -150,6 +156,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             device_sessions: true,
             account_invitations: true,
             account_recovery: true,
+            second_factors: app.auth_key.is_some(),
             ..Default::default()
         },
     }))
@@ -170,6 +177,70 @@ async fn login(
         )
         .await?,
     ))
+}
+
+async fn start_login(
+    State(app): State<App>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    input: Input<Login>,
+) -> Result<Response> {
+    let login = body(input)?;
+    Ok(secret_session(
+        auth::start_login(
+            &app,
+            login.username,
+            login.password,
+            peer.map(|p| p.0.0.ip()),
+        )
+        .await?,
+    ))
+}
+
+async fn finish_factor(
+    State(app): State<App>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    input: Input<rv_protocol::parity::FinishFactor>,
+) -> Result<Response> {
+    Ok(secret_session(
+        crate::factors::finish(&app, body(input)?, peer.map(|p| p.0.0.ip())).await?,
+    ))
+}
+
+async fn factor_status(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    let user = account(&app, &headers).await?;
+    Ok(secret_session(crate::factors::status(&app, &user).await?))
+}
+
+async fn begin_factor(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::parity::BeginFactorSetup>,
+) -> Result<Response> {
+    let user = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::factors::begin(&app, &user, body(input)?).await?,
+    ))
+}
+
+async fn enable_factor(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::parity::EnableFactor>,
+) -> Result<Response> {
+    let user = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::factors::enable(&app, &user, body(input)?).await?,
+    ))
+}
+
+async fn disable_factor(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::parity::DisableFactor>,
+) -> Result<StatusCode> {
+    let user = account(&app, &headers).await?;
+    crate::factors::disable(&app, &user, body(input)?).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn accept_invitation(

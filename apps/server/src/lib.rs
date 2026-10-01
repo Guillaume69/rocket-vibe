@@ -1,6 +1,8 @@
 pub mod auth;
 mod delivery;
 mod error;
+pub mod factor_crypto;
+mod factors;
 mod http;
 pub mod invitations;
 mod limits;
@@ -25,20 +27,35 @@ pub struct App {
     password_slots: Arc<tokio::sync::Semaphore>,
     dummy_password_hash: String,
     socket_slots: Arc<limits::SocketSlots>,
+    auth_key: Option<Arc<factor_crypto::AuthKey>>,
 }
 
 impl App {
     pub async fn connect(
         database_url: &str,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Self::connect_with_auth_key(database_url, None).await
+    }
+
+    pub async fn connect_with_auth_key(
+        database_url: &str,
+        auth_key: Option<factor_crypto::AuthKey>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let pool = PgPoolOptions::new()
             .max_connections(12)
             .connect(database_url)
             .await?;
-        Self::from_pool(pool).await
+        Self::from_pool_with_auth_key(pool, auth_key).await
     }
 
     pub async fn from_pool(pool: PgPool) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Self::from_pool_with_auth_key(pool, None).await
+    }
+
+    pub async fn from_pool_with_auth_key(
+        pool: PgPool,
+        auth_key: Option<factor_crypto::AuthKey>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         sqlx::migrate!().run(&pool).await?;
         sqlx::query("INSERT INTO instance(singleton,instance_id,data_epoch) VALUES(true,$1,$2) ON CONFLICT DO NOTHING")
             .bind(auth::random_token()).bind(auth::random_token()).execute(&pool).await?;
@@ -57,6 +74,7 @@ impl App {
             password_slots: Arc::new(tokio::sync::Semaphore::new(4)),
             dummy_password_hash,
             socket_slots: Arc::default(),
+            auth_key: auth_key.map(Arc::new),
         };
         app.cleanup().await?;
         Ok(app)
@@ -65,6 +83,8 @@ impl App {
     /// Startup and periodic maintenance only touches expired ephemeral records.
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
         for query in [
+            "DELETE FROM auth_challenges WHERE token_hash IN (SELECT token_hash FROM auth_challenges WHERE expires_at<=now() AND (receipt_expires_at IS NULL OR receipt_expires_at<=now()) LIMIT 1000 FOR UPDATE SKIP LOCKED)",
+            "DELETE FROM factor_setups WHERE id IN (SELECT id FROM factor_setups WHERE expires_at<=now() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM sessions WHERE token_hash IN (SELECT token_hash FROM sessions WHERE expires_at<=now() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM session_devices WHERE id IN (SELECT d.id FROM session_devices d WHERE NOT EXISTS(SELECT 1 FROM sessions s WHERE s.device_id=d.id) LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM session_rotations WHERE old_hash IN (SELECT old_hash FROM session_rotations WHERE expires_at<=now() LIMIT 1000 FOR UPDATE SKIP LOCKED)",

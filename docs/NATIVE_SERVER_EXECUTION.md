@@ -315,6 +315,29 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, socle TOTP / secours serveur et SDK : migration 0013, clé opérateur
+  fournie par fichier privé hors PostgreSQL, secrets chiffrés avec AAD par
+  instance / UID / usage. Défis de cinq minutes liés à l'autorité et génération,
+  cinq essais persistants, compteur TOTP strictement croissant et dix secours
+  de 128 bits à consommation atomique. Les étapes anonymes des SDK ne remplacent
+  pas le bearer actif. Un candidat durable et un reçu haché reprennent la même
+  session après réponse perdue ; le banc TypeScript le vérifie contre HTTP et
+  PostgreSQL réels. Inscription prouvée et désactivation privée exigent une
+  connexion récente ; après activation, login complet avec facteur requis aussi
+  pour révoquer un autre appareil. Rotation / activité ne rajeunissent pas ce droit.
+  Le reset de mot de passe conserve le facteur, et restauration / désactivation /
+  changement d'autorité invalident les anciens défis. Clé absente / incorrecte /
+  ciphertext corrompu ferment l'authentification du compte protégé.
+  Vérifications : Clippy et suite Rust complète, neuf tests PostgreSQL de facteurs,
+  vecteurs RFC 6238 / chiffrement / fichier opérateur, 63 tests TypeScript natifs,
+  1 013 tests mobiles et typecheck / lint ; tests cœur / bindings et compilation
+  GTK réussis. Une collision de délais publication / logout détectée sous charge
+  est corrigée par une attente du compteur plus courte ; le scénario complet passe.
+  Contrat dans [AUTHENTICATION.md](protocol/AUTHENTICATION.md). P02 reste ouvert
+  pour les formulaires / paramètres des trois clients, email / SMTP, défi explicite
+  de réauthentification et régénération des secours ; aucune activation sur une
+  instance utilisateur ni qualification sur appareil n'est revendiquée.
+
 - P01, récupération opérateur : CLI `recover-user` / liste / révocation et
   variante « Mot de passe oublié » dans la connexion mobile / GTK / SwiftUI.
   Code CSPRNG lié à UID, autorité et génération, hash seul en PostgreSQL ;

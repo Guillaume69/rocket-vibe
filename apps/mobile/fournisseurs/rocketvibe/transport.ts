@@ -42,7 +42,7 @@ export class NativeTransport {
     if (!anonymous && this.token === null) throw new NativeError(401, 'session_rejected');
     const sent = anonymous ? null : this.token;
     const verb=method??(input===undefined?'GET':'POST');
-    const budget = ['/api/v1/auth/login','/api/v1/auth/invitations/accept','/api/v1/auth/recovery'].includes(path) ? 'login' : path === '/api/v1/auth/renew' ? 'session_rotation' : path === '/api/v1/sync/ticket' ? 'ticket' : path === '/api/v1/sync/snapshots' ? 'snapshot' : path.startsWith('/api/v1/messages/') && ['PATCH','DELETE','PUT'].includes(verb)?'message_action':null;
+    const budget = ['/api/v1/auth/login','/api/v1/auth/start','/api/v1/auth/factors/verify','/api/v1/auth/invitations/accept','/api/v1/auth/recovery'].includes(path) ? 'login' : path === '/api/v1/auth/renew' ? 'session_rotation' : path === '/api/v1/sync/ticket' ? 'ticket' : path === '/api/v1/sync/snapshots' ? 'snapshot' : path.startsWith('/api/v1/messages/') && ['PATCH','DELETE','PUT'].includes(verb)?'message_action':null;
     const cooldown = budget === null ? undefined : this.cooldowns.get(budget);
     if (cooldown && cooldown.until > Date.now()) throw new NativeError(429,cooldown.code,Math.ceil((cooldown.until-Date.now())/1000),cooldown.requestId);
     const controller = new AbortController();
@@ -108,6 +108,19 @@ export class NativeTransport {
   }
 
   restore(token: string): void { this.token = token; }
+  // These anonymous steps never replace or revoke an already active account.
+  // Persist the candidate in secure storage before finishFactor, then pin the
+  // response identity before installing the completed session.
+  startLogin(username:string,password:string):Promise<NativeTypes['AuthenticationStep']> {
+    return this.request('AuthenticationStep','/api/v1/auth/start',{username,password},true);
+  }
+  finishFactor(input:NativeTypes['FinishFactor']):Promise<Session> {
+    return this.request('Session','/api/v1/auth/factors/verify',input,true);
+  }
+  factorStatus():Promise<NativeTypes['FactorStatus']> { return this.request('FactorStatus','/api/v1/me/factors'); }
+  beginFactorSetup(input:NativeTypes['BeginFactorSetup']):Promise<NativeTypes['FactorSetup']> { return this.request('FactorSetup','/api/v1/me/factors/totp/setup',input); }
+  enableFactor(input:NativeTypes['EnableFactor']):Promise<NativeTypes['FactorBackupCodes']> { return this.request('FactorBackupCodes','/api/v1/me/factors/totp/enable',input); }
+  async disableFactor(input:NativeTypes['DisableFactor']):Promise<void> { await this.value('/api/v1/me/factors/totp/disable',input); }
   acceptInvitation(input: NativeTypes['AcceptInvitation']):Promise<NativeTypes['User']> {
     return this.request('User','/api/v1/auth/invitations/accept',input,true);
   }

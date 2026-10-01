@@ -3,17 +3,25 @@ export type AcceptInvitation = { "password": string; "token": string; "username"
 export type AccountPermissions = { "create_private_room": boolean; "create_public_room": boolean; "manage_accounts": boolean; "manage_instance": boolean; };
 export type ApiError = { "code": string; "request_id": string; };
 export type AuthChallenge = { "challenge_id": string; "expires_at": string; "methods": (SecondFactor)[]; "resend_after_seconds": number; };
-export type Capabilities = { "account_invitations"?: boolean; "account_recovery"?: boolean; "calls": boolean; "custom_emojis"?: boolean; "deletion"?: boolean; "device_sessions"?: boolean; "direct_messages": boolean; "durable_sync": boolean; "e2ee": boolean; "editing"?: boolean; "favorites"?: boolean; "fine_permissions"?: boolean; "idempotent_room_creation"?: boolean; "pins"?: boolean; "presence"?: boolean; "private_rooms": boolean; "profiles"?: boolean; "push": boolean; "quotes"?: boolean; "reactions": boolean; "read_markers"?: boolean; "room_discovery"?: boolean; "room_info"?: boolean; "search"?: boolean; "session_rotation"?: boolean; "snapshot_paging"?: boolean; "stars"?: boolean; "text_messages": boolean; "threads": boolean; "typing"?: boolean; "uploads": boolean; };
+export type AuthenticationStep = { "kind": "session"; "session": Session; } | { "challenge": AuthChallenge; "kind": "challenge"; "user": User; };
+export type BeginFactorSetup = { "operation_id": string; };
+export type Capabilities = { "account_invitations"?: boolean; "account_recovery"?: boolean; "calls": boolean; "custom_emojis"?: boolean; "deletion"?: boolean; "device_sessions"?: boolean; "direct_messages": boolean; "durable_sync": boolean; "e2ee": boolean; "editing"?: boolean; "favorites"?: boolean; "fine_permissions"?: boolean; "idempotent_room_creation"?: boolean; "pins"?: boolean; "presence"?: boolean; "private_rooms": boolean; "profiles"?: boolean; "push": boolean; "quotes"?: boolean; "reactions": boolean; "read_markers"?: boolean; "room_discovery"?: boolean; "room_info"?: boolean; "search"?: boolean; "second_factors"?: boolean; "session_rotation"?: boolean; "snapshot_paging"?: boolean; "stars"?: boolean; "text_messages": boolean; "threads": boolean; "typing"?: boolean; "uploads": boolean; };
 export type Change = { "data": Room; "type": "room_upsert"; } | { "data": Message; "type": "message_upsert"; } | { "data": { "room_id": string; }; "type": "room_removed"; };
 export type CompleteUpload = { "content": MessageContent; "operation_id": string; "reply_to"?: string | null; };
 export type CreateRoom = { "name": string; "operation_id"?: string | null; "private": boolean; };
 export type DeleteMessage = { "expected_revision": string; "operation_id": string; };
 export type DeviceSession = { "created_at": string; "current": boolean; "expires_at": string; "id": string; "label": string; "last_seen_at": string; };
 export type DirectMessage = { "user_id": string; };
+export type DisableFactor = { "factor_version": string; };
 export type Discovery = { "api_path": string; "capabilities": Capabilities; "data_epoch": string; "instance_id": string; "product": string; "protocol_versions": (number)[]; "server_version": string; };
 export type EditMessage = { "content": MessageContent; "expected_revision": string; "operation_id": string; };
+export type EnableFactor = { "code": string; "operation_id": string; "setup_id": string; };
 export type EncryptedKeyBackup = { "ciphertext": string; "crypto_identity": string; "format": string; "kdf": string; "revision": string; "user_id": string; };
+export type FactorBackupCodes = { "codes": (string)[]; };
+export type FactorSetup = { "expires_at": string; "provisioning_uri": string; "secret": string; "setup_id": string; };
+export type FactorStatus = { "backup_codes_remaining": number; "email": boolean; "factor_version"?: string | null; "totp": boolean; };
 export type FileDescriptor = { "bytes": string; "encrypted": boolean; "filename"?: string | null; "id": string; "media_type": string; "room_id": string; "sha256": string; };
+export type FinishFactor = { "challenge_id": string; "code": string; "method": SecondFactor; "next_token": string; "operation_id": string; };
 export type Login = { "password": string; "username": string; };
 export type MarkRead = { "reply_position": string; "root_position": string; };
 export type Message = { "author": User; "created_at": string; "deleted"?: boolean; "edited_at"?: string | null; "id": string; "personal_star"?: PersonalStar | null; "pinned"?: boolean; "position": string; "reactions"?: (MessageReaction)[]; "revision": string; "room_id": string; "text": string; };
@@ -21,7 +29,7 @@ export type MessageContent = { "files": (string)[]; "kind": "plain"; "markdown":
 export type MessagePage = { "has_more": boolean; "messages": (Message)[]; };
 export type MessagePermissions = { "delete": boolean; "edit": boolean; "edit_until"?: string | null; "message_id": string; "pin": boolean; "react": boolean; "revision": string; "star": boolean; };
 export type MessageReaction = { "emoji": string; "users": (User)[]; };
-export type ParityContract = { "accept_invitation"?: AcceptInvitation | null; "account_permissions": AccountPermissions; "auth_challenge": AuthChallenge; "complete_upload": CompleteUpload; "delete_message": DeleteMessage; "device_session"?: DeviceSession | null; "edit_message": EditMessage; "file": FileDescriptor; "key_backup": EncryptedKeyBackup; "mark": SetMark; "mark_read": MarkRead; "message_permissions": MessagePermissions; "preferences": UserPreferences; "prepare_upload": PrepareUpload; "profile": UserProfile; "public_device_key": PublicDeviceKey; "reaction": SetReaction; "read_state": ReadState; "recover_account"?: RecoverAccount | null; "rename_device"?: RenameDevice | null; "renew_session"?: RenewSession | null; "room_key_envelope": RoomKeyEnvelope; "room_permissions": RoomPermissions; "verify_factor": VerifyFactor; };
+export type ParityContract = { "accept_invitation"?: AcceptInvitation | null; "account_permissions": AccountPermissions; "auth_challenge": AuthChallenge; "authentication_step"?: AuthenticationStep | null; "begin_factor_setup"?: BeginFactorSetup | null; "complete_upload": CompleteUpload; "delete_message": DeleteMessage; "device_session"?: DeviceSession | null; "disable_factor"?: DisableFactor | null; "edit_message": EditMessage; "enable_factor"?: EnableFactor | null; "factor_backup_codes"?: FactorBackupCodes | null; "factor_setup"?: FactorSetup | null; "factor_status"?: FactorStatus | null; "file": FileDescriptor; "finish_factor"?: FinishFactor | null; "key_backup": EncryptedKeyBackup; "mark": SetMark; "mark_read": MarkRead; "message_permissions": MessagePermissions; "preferences": UserPreferences; "prepare_upload": PrepareUpload; "profile": UserProfile; "public_device_key": PublicDeviceKey; "reaction": SetReaction; "read_state": ReadState; "recover_account"?: RecoverAccount | null; "rename_device"?: RenameDevice | null; "renew_session"?: RenewSession | null; "room_key_envelope": RoomKeyEnvelope; "room_permissions": RoomPermissions; "verify_factor": VerifyFactor; };
 export type PersonalStar = { "present": boolean; "revision": string; };
 export type PrepareUpload = { "bytes": string; "encrypted": boolean; "filename"?: string | null; "media_type": string; "operation_id": string; "room_id": string; "sha256": string; };
 export type PublicDeviceKey = { "device_id": string; "fingerprint": string; "format": string; "public_key": string; "revision": string; "user_id": string; };
@@ -51,7 +59,7 @@ export type UserPreferences = { "clock_24h": boolean; "language": string; "push_
 export type UserProfile = { "avatar_file_id"?: string | null; "bio": string; "revision": string; "status_text": string; "user": User; };
 export type VerifyFactor = { "challenge_id": string; "code": string; "method": SecondFactor; };
 
-export type NativeTypes = { AcceptInvitation: AcceptInvitation; AccountPermissions: AccountPermissions; ApiError: ApiError; AuthChallenge: AuthChallenge; Capabilities: Capabilities; Change: Change; CompleteUpload: CompleteUpload; CreateRoom: CreateRoom; DeleteMessage: DeleteMessage; DeviceSession: DeviceSession; DirectMessage: DirectMessage; Discovery: Discovery; EditMessage: EditMessage; EncryptedKeyBackup: EncryptedKeyBackup; FileDescriptor: FileDescriptor; Login: Login; MarkRead: MarkRead; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; MessageReaction: MessageReaction; ParityContract: ParityContract; PersonalStar: PersonalStar; PrepareUpload: PrepareUpload; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; QuoteReference: QuoteReference; ReadState: ReadState; RecoverAccount: RecoverAccount; RenameDevice: RenameDevice; RenewSession: RenewSession; Room: Room; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomPermissions: RoomPermissions; RoomRole: RoomRole; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetReaction: SetReaction; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; SyncBatch: SyncBatch; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; };
+export type NativeTypes = { AcceptInvitation: AcceptInvitation; AccountPermissions: AccountPermissions; ApiError: ApiError; AuthChallenge: AuthChallenge; AuthenticationStep: AuthenticationStep; BeginFactorSetup: BeginFactorSetup; Capabilities: Capabilities; Change: Change; CompleteUpload: CompleteUpload; CreateRoom: CreateRoom; DeleteMessage: DeleteMessage; DeviceSession: DeviceSession; DirectMessage: DirectMessage; DisableFactor: DisableFactor; Discovery: Discovery; EditMessage: EditMessage; EnableFactor: EnableFactor; EncryptedKeyBackup: EncryptedKeyBackup; FactorBackupCodes: FactorBackupCodes; FactorSetup: FactorSetup; FactorStatus: FactorStatus; FileDescriptor: FileDescriptor; FinishFactor: FinishFactor; Login: Login; MarkRead: MarkRead; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; MessageReaction: MessageReaction; ParityContract: ParityContract; PersonalStar: PersonalStar; PrepareUpload: PrepareUpload; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; QuoteReference: QuoteReference; ReadState: ReadState; RecoverAccount: RecoverAccount; RenameDevice: RenameDevice; RenewSession: RenewSession; Room: Room; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomPermissions: RoomPermissions; RoomRole: RoomRole; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetReaction: SetReaction; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; SyncBatch: SyncBatch; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; };
 
 export const nativeSchema = {
   "$defs": {
@@ -139,6 +147,61 @@ export const nativeSchema = {
         "methods",
         "expires_at",
         "resend_after_seconds"
+      ],
+      "type": "object"
+    },
+    "AuthenticationStep": {
+      "description": "Password-only sessions keep the legacy login wire format. This new endpoint\nreturns a challenge without minting any bearer when an account has a factor.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "session",
+              "type": "string"
+            },
+            "session": {
+              "$ref": "#/$defs/Session"
+            }
+          },
+          "required": [
+            "kind",
+            "session"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "challenge": {
+              "$ref": "#/$defs/AuthChallenge"
+            },
+            "kind": {
+              "const": "challenge",
+              "type": "string"
+            },
+            "user": {
+              "$ref": "#/$defs/User"
+            }
+          },
+          "required": [
+            "kind",
+            "challenge",
+            "user"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "BeginFactorSetup": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id"
       ],
       "type": "object"
     },
@@ -230,6 +293,10 @@ export const nativeSchema = {
           "type": "boolean"
         },
         "search": {
+          "default": false,
+          "type": "boolean"
+        },
+        "second_factors": {
           "default": false,
           "type": "boolean"
         },
@@ -437,6 +504,18 @@ export const nativeSchema = {
       ],
       "type": "object"
     },
+    "DisableFactor": {
+      "additionalProperties": false,
+      "properties": {
+        "factor_version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "factor_version"
+      ],
+      "type": "object"
+    },
     "Discovery": {
       "properties": {
         "api_path": {
@@ -497,6 +576,26 @@ export const nativeSchema = {
       ],
       "type": "object"
     },
+    "EnableFactor": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "setup_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "setup_id",
+        "operation_id",
+        "code"
+      ],
+      "type": "object"
+    },
     "EncryptedKeyBackup": {
       "properties": {
         "ciphertext": {
@@ -526,6 +625,70 @@ export const nativeSchema = {
         "ciphertext",
         "crypto_identity",
         "kdf"
+      ],
+      "type": "object"
+    },
+    "FactorBackupCodes": {
+      "properties": {
+        "codes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "codes"
+      ],
+      "type": "object"
+    },
+    "FactorSetup": {
+      "properties": {
+        "expires_at": {
+          "type": "string"
+        },
+        "provisioning_uri": {
+          "type": "string"
+        },
+        "secret": {
+          "type": "string"
+        },
+        "setup_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "setup_id",
+        "secret",
+        "provisioning_uri",
+        "expires_at"
+      ],
+      "type": "object"
+    },
+    "FactorStatus": {
+      "properties": {
+        "backup_codes_remaining": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "email": {
+          "type": "boolean"
+        },
+        "factor_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "totp": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "totp",
+        "email",
+        "backup_codes_remaining"
       ],
       "type": "object"
     },
@@ -565,6 +728,35 @@ export const nativeSchema = {
         "sha256",
         "media_type",
         "encrypted"
+      ],
+      "type": "object"
+    },
+    "FinishFactor": {
+      "additionalProperties": false,
+      "description": "Persist next_token in secure storage before submitting. A retry repeats the\nsame operation/candidate; it never creates a second session using a spent OTP.",
+      "properties": {
+        "challenge_id": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "method": {
+          "$ref": "#/$defs/SecondFactor"
+        },
+        "next_token": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "challenge_id",
+        "method",
+        "code",
+        "operation_id",
+        "next_token"
       ],
       "type": "object"
     },
@@ -829,6 +1021,26 @@ export const nativeSchema = {
         "auth_challenge": {
           "$ref": "#/$defs/AuthChallenge"
         },
+        "authentication_step": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuthenticationStep"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "begin_factor_setup": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BeginFactorSetup"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "complete_upload": {
           "$ref": "#/$defs/CompleteUpload"
         },
@@ -845,11 +1057,71 @@ export const nativeSchema = {
             }
           ]
         },
+        "disable_factor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DisableFactor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "edit_message": {
           "$ref": "#/$defs/EditMessage"
         },
+        "enable_factor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnableFactor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "factor_backup_codes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FactorBackupCodes"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "factor_setup": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FactorSetup"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "factor_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FactorStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "file": {
           "$ref": "#/$defs/FileDescriptor"
+        },
+        "finish_factor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FinishFactor"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "key_backup": {
           "$ref": "#/$defs/EncryptedKeyBackup"

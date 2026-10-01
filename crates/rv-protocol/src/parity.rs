@@ -52,6 +52,73 @@ pub struct VerifyFactor {
     pub code: String,
 }
 
+/// Password-only sessions keep the legacy login wire format. This new endpoint
+/// returns a challenge without minting any bearer when an account has a factor.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum AuthenticationStep {
+    Session {
+        session: crate::Session,
+    },
+    Challenge {
+        challenge: AuthChallenge,
+        user: crate::User,
+    },
+}
+
+/// Persist next_token in secure storage before submitting. A retry repeats the
+/// same operation/candidate; it never creates a second session using a spent OTP.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FinishFactor {
+    pub challenge_id: String,
+    pub method: SecondFactor,
+    pub code: String,
+    pub operation_id: String,
+    pub next_token: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BeginFactorSetup {
+    pub operation_id: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+pub struct FactorSetup {
+    pub setup_id: String,
+    pub secret: String,
+    pub provisioning_uri: String,
+    pub expires_at: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EnableFactor {
+    pub setup_id: String,
+    pub operation_id: String,
+    pub code: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+pub struct FactorBackupCodes {
+    pub codes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct FactorStatus {
+    pub totp: bool,
+    pub email: bool,
+    pub backup_codes_remaining: u32,
+    pub factor_version: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DisableFactor {
+    pub factor_version: String,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RoomRole {
@@ -258,6 +325,22 @@ pub struct RoomKeyEnvelope {
 /// specification/review; these types make no algorithm or trust guarantee.
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct ParityContract {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authentication_step: Option<AuthenticationStep>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finish_factor: Option<FinishFactor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub begin_factor_setup: Option<BeginFactorSetup>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub factor_setup: Option<FactorSetup>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enable_factor: Option<EnableFactor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub factor_backup_codes: Option<FactorBackupCodes>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub factor_status: Option<FactorStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disable_factor: Option<DisableFactor>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recover_account: Option<RecoverAccount>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -59,7 +59,7 @@ pub async fn recovery_attempt(
     auth_attempt(app, username, peer, Some(("recovery", token))).await
 }
 
-async fn auth_attempt(
+pub(crate) async fn auth_attempt(
     app: &App,
     username: &str,
     peer: Option<IpAddr>,

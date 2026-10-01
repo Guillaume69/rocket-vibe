@@ -160,6 +160,30 @@ pub async fn login_from(
     password: String,
     peer: Option<IpAddr>,
 ) -> Result<Session> {
+    match password_login(app, username, password, peer, false).await? {
+        rv_protocol::parity::AuthenticationStep::Session { session } => Ok(session),
+        rv_protocol::parity::AuthenticationStep::Challenge { .. } => {
+            unreachable!("legacy login never issues a challenge")
+        }
+    }
+}
+
+pub async fn start_login(
+    app: &App,
+    username: String,
+    password: String,
+    peer: Option<IpAddr>,
+) -> Result<rv_protocol::parity::AuthenticationStep> {
+    password_login(app, username, password, peer, true).await
+}
+
+async fn password_login(
+    app: &App,
+    username: String,
+    password: String,
+    peer: Option<IpAddr>,
+    challenges: bool,
+) -> Result<rv_protocol::parity::AuthenticationStep> {
     if username.len() > 128 || password.len() > 1024 {
         return Err(Error::invalid());
     }
@@ -191,10 +215,12 @@ pub async fn login_from(
     let Some((id, username, display_name, verified_hash)) = record.filter(|_| valid) else {
         return Err(Error::unauthorized());
     };
-    let token = random_token();
-    let expires_at: DateTime<Utc> = Utc::now() + chrono::Duration::days(30);
     let mut tx = app.pool.begin().await?;
     mutation_deadlines(&mut tx).await?;
+    let (instance, epoch): (String, String) =
+        sqlx::query_as("SELECT instance_id,data_epoch FROM instance WHERE singleton FOR SHARE")
+            .fetch_one(&mut *tx)
+            .await?;
     let active: Option<String> = sqlx::query_scalar(
         "SELECT password_hash FROM users WHERE id=$1 AND NOT disabled FOR NO KEY UPDATE",
     )
@@ -204,10 +230,51 @@ pub async fn login_from(
     if active.as_deref() != Some(&verified_hash) {
         return Err(Error::unauthorized());
     }
+    let user = User {
+        id,
+        username,
+        display_name,
+    };
+    let enabled: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM user_factors WHERE user_id=$1)")
+            .bind(&user.id)
+            .fetch_one(&mut *tx)
+            .await?;
+    if enabled {
+        if !challenges {
+            return Err(Error::new(
+                axum::http::StatusCode::BAD_REQUEST,
+                "factor_required",
+            ));
+        }
+        let challenge =
+            crate::factors::issue_challenge(app, &mut tx, &user, &instance, &epoch).await?;
+        tx.commit().await?;
+        return Ok(rv_protocol::parity::AuthenticationStep::Challenge { challenge, user });
+    }
+    let session = create_session(&mut tx, &user, random_token()).await?;
+    tx.commit().await?;
+    Ok(rv_protocol::parity::AuthenticationStep::Session { session })
+}
+
+/// Caller holds the account lock and has checked its authentication proof.
+pub(crate) async fn create_session(
+    tx: &mut Transaction<'_, Postgres>,
+    user: &User,
+    token: String,
+) -> Result<Session> {
+    let existing: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sessions WHERE token_hash=$1)")
+            .bind(hash_token(&token))
+            .fetch_one(&mut **tx)
+            .await?;
+    if existing {
+        return Err(Error::conflict());
+    }
     let count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE user_id=$1 AND expires_at>now()")
-            .bind(&id)
-            .fetch_one(&mut *tx)
+            .bind(&user.id)
+            .fetch_one(&mut **tx)
             .await?;
     if count >= 64 {
         return Err(Error::throttled("device_limit", 60));
@@ -215,26 +282,20 @@ pub async fn login_from(
     let device = random_token()[..32].to_owned();
     sqlx::query("INSERT INTO session_devices(id,user_id) VALUES($1,$2)")
         .bind(&device)
-        .bind(&id)
-        .execute(&mut *tx)
+        .bind(&user.id)
+        .execute(&mut **tx)
         .await?;
     let expires_at:DateTime<Utc> = sqlx::query_scalar(
-        "INSERT INTO sessions(token_hash,user_id,expires_at,device_id) VALUES($1,$2,$3,$4) RETURNING expires_at",
+        "INSERT INTO sessions(token_hash,user_id,expires_at,device_id) VALUES($1,$2,clock_timestamp()+interval '30 days',$3) RETURNING expires_at",
     )
     .bind(hash_token(&token))
-    .bind(&id)
-    .bind(expires_at)
+    .bind(&user.id)
     .bind(device)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await?;
-    tx.commit().await?;
     Ok(Session {
         token,
         expires_at: expires_at.to_rfc3339(),
-        user: User {
-            id,
-            username,
-            display_name,
-        },
+        user: user.clone(),
     })
 }

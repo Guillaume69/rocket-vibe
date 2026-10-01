@@ -24,7 +24,9 @@ opérateur, avec conservation de l'identité et révocation des anciennes sessio
 Les [écrans mobiles existants](../../docs/NATIVE_MOBILE_PILOT.md) et les interfaces
 [GTK / SwiftUI existantes](../../docs/NATIVE_DESKTOP_PILOT.md) accueillent les deux
 fournisseurs, avec stockage sécurisé, SQLite, brouillons et outbox. Les transports
-Rust et TypeScript sont testés contre le serveur réel. Fichiers, push, appels, 2FA,
+Rust et TypeScript sont testés contre le serveur réel. Le socle 2FA TOTP / secours
+et ses SDK sont décrits dans [l'authentification native](../../docs/protocol/AUTHENTICATION.md) ;
+ses formulaires clients et l'email restent à livrer. Fichiers, push, appels,
 chiffrement et parité complète restent au backlog. Les limites sont explicites dans
 le [contrat du pilote](../../docs/protocol/README.md).
 

@@ -110,6 +110,360 @@ async fn user(app: &App, username: &str) -> rv_protocol::User {
 }
 
 #[sqlx::test]
+async fn marks_keep_stars_private_and_independent_of_public_content_across_replay_restart_and_deletion(
+    pool: PgPool,
+) {
+    let app = App::from_pool(pool.clone()).await.unwrap();
+    let alice_user = user(&app, "alice").await;
+    let bob_user = user(&app, "bob").await;
+    user(&app, "outsider").await;
+    let server = Server::start(pool.clone()).await;
+    let alice = server.login("alice").await;
+    let bob = server.login("bob").await;
+    let outsider = server.login("outsider").await;
+    let room: Room = server
+        .post(
+            &alice.token,
+            "/api/v1/rooms",
+            json!({"name":"Private marks","private":true}),
+        )
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        server
+            .post(
+                &alice.token,
+                &format!("/api/v1/rooms/{}/members/{}", room.id, bob_user.id),
+                json!({})
+            )
+            .await
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    let message: Message = server
+        .post(
+            &bob.token,
+            &format!("/api/v1/rooms/{}/messages", room.id),
+            json!({"operation_id":"marked-original","text":"Stable marked content"}),
+        )
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let alice_before = server.snapshot(&alice.token).await;
+    let bob_before = server.snapshot(&bob.token).await;
+    let pin = format!("/api/v1/messages/{}/pin", message.id);
+    let star = format!("/api/v1/messages/{}/star", message.id);
+    let add = json!({"operation_id":"alice-star-add","present":true});
+    let starred: Message = server
+        .put(&alice.token, &star, add.clone())
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(starred.personal_star.as_ref().unwrap().present);
+    assert_eq!(starred.revision, message.revision);
+    assert_eq!(starred.position, message.position);
+    assert_eq!(starred.edited_at, message.edited_at);
+    let own = server.changes(&alice.token, &alice_before.cursor).await;
+    assert!(own.changes.iter().any(|change| matches!(change,Change::MessageUpsert(m) if m.id == message.id && m.personal_star.as_ref().is_some_and(|s|s.present))));
+    let other = server.changes(&bob.token, &bob_before.cursor).await;
+    assert!(
+        other.changes.is_empty(),
+        "a private star must not reach another member"
+    );
+    let read: Message = server
+        .get(&bob.token, &format!("/api/v1/messages/{}", message.id))
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(!read.personal_star.as_ref().unwrap().present);
+    assert_eq!(read.personal_star.as_ref().unwrap().revision, "0");
+    let mine = server.snapshot(&alice.token).await;
+    let theirs = server.snapshot(&bob.token).await;
+    assert!(
+        mine.messages
+            .iter()
+            .find(|m| m.id == message.id)
+            .unwrap()
+            .personal_star
+            .as_ref()
+            .unwrap()
+            .present
+    );
+    assert!(
+        !theirs
+            .messages
+            .iter()
+            .find(|m| m.id == message.id)
+            .unwrap()
+            .personal_star
+            .as_ref()
+            .unwrap()
+            .present
+    );
+    let materialized: SnapshotPage = server
+        .post(&alice.token, "/api/v1/sync/snapshots", json!({}))
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        materialized
+            .messages
+            .iter()
+            .find(|m| m.id == message.id)
+            .unwrap()
+            .personal_star
+            .as_ref()
+            .unwrap()
+            .present
+    );
+    let alice_stars: MessagePage = server
+        .get(&alice.token, &format!("/api/v1/rooms/{}/stars", room.id))
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let bob_stars: MessagePage = server
+        .get(&bob.token, &format!("/api/v1/rooms/{}/stars", room.id))
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(alice_stars.messages.len(), 1);
+    assert!(bob_stars.messages.is_empty());
+    assert_eq!(
+        server
+            .put(
+                &bob.token,
+                &pin,
+                json!({"operation_id":"member-pin","present":true})
+            )
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        server
+            .put(
+                &outsider.token,
+                &star,
+                json!({"operation_id":"outsider-star","present":true})
+            )
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        server
+            .put(
+                &alice.token,
+                &star,
+                json!({"operation_id":"forged-star","present":true,"user_id":bob_user.id})
+            )
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let pinned: Message = server
+        .put(
+            &alice.token,
+            &pin,
+            json!({"operation_id":"owner-pin","present":true}),
+        )
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(pinned.pinned);
+    assert!(pinned.personal_star.as_ref().unwrap().present);
+    let public = server.changes(&bob.token, &other.cursor).await;
+    assert!(public.changes.iter().any(
+        |change| matches!(change,Change::MessageUpsert(m) if m.pinned && m.personal_star.is_none())
+    ));
+    assert_eq!(pinned.position, message.position);
+    assert_eq!(pinned.edited_at, message.edited_at);
+    let pins: MessagePage = server
+        .get(&bob.token, &format!("/api/v1/rooms/{}/pins", room.id))
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(pins.messages.len(), 1);
+    assert!(!pins.messages[0].personal_star.as_ref().unwrap().present);
+    let removed: Message = server
+        .put(
+            &alice.token,
+            &star,
+            json!({"operation_id":"alice-star-remove","present":false}),
+        )
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(!removed.personal_star.as_ref().unwrap().present);
+    assert!(
+        removed
+            .personal_star
+            .as_ref()
+            .unwrap()
+            .revision
+            .parse::<u64>()
+            .unwrap()
+            > starred
+                .personal_star
+                .as_ref()
+                .unwrap()
+                .revision
+                .parse::<u64>()
+                .unwrap()
+    );
+    let replay: Message = server
+        .put(&alice.token, &star, add.clone())
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(replay, removed);
+    assert_eq!(
+        server.put(&alice.token, &pin, add.clone()).await.status(),
+        StatusCode::CONFLICT
+    );
+    sqlx::query("UPDATE rooms SET read_only=true WHERE id=$1")
+        .bind(&room.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let bob_star: Message = server
+        .put(
+            &bob.token,
+            &star,
+            json!({"operation_id":"bob-star-read-only","present":true}),
+        )
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        bob_star.personal_star.as_ref().unwrap().present,
+        "personal stars are allowed in a read-only room"
+    );
+    let restarted = Server::start(pool.clone()).await;
+    let retained: Message = restarted
+        .get(&bob.token, &format!("/api/v1/messages/{}", message.id))
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(retained, bob_star);
+    let response = server
+        .client
+        .delete(format!("{}/api/v1/messages/{}", server.base, message.id))
+        .bearer_auth(&alice.token)
+        .json(&json!({"operation_id":"delete-marked","expected_revision":pinned.revision}))
+        .send()
+        .await
+        .unwrap();
+    let deleted: Message = response.error_for_status().unwrap().json().await.unwrap();
+    assert!(deleted.deleted);
+    assert!(!deleted.pinned);
+    assert!(!deleted.personal_star.as_ref().unwrap().present);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM message_stars WHERE message_id=$1")
+            .bind(&message.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(sqlx::query_scalar::<_,i64>("SELECT count(*) FROM journal WHERE change #>> '{data,id}'=$1 AND (change #>> '{data,personal_star,present}'='true' OR change #>> '{data,pinned}'='true')").bind(&message.id).fetch_one(&pool).await.unwrap(),0);
+    let old: Message = server
+        .put(&alice.token, &star, add)
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(old.deleted);
+    assert!(!old.personal_star.as_ref().unwrap().present);
+    assert_eq!(
+        server
+            .put(
+                &bob.token,
+                &star,
+                json!({"operation_id":"after-delete-star","present":true})
+            )
+            .await
+            .status(),
+        StatusCode::GONE
+    );
+    assert_eq!(
+        server
+            .client
+            .delete(format!(
+                "{}/api/v1/rooms/{}/members/{}",
+                server.base, room.id, bob_user.id
+            ))
+            .bearer_auth(&alice.token)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        server
+            .get(&bob.token, &format!("/api/v1/rooms/{}/stars", room.id))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        server
+            .put(
+                &bob.token,
+                &star,
+                json!({"operation_id":"bob-star-read-only","present":true})
+            )
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(alice_user.id, alice.user.id);
+}
+
+#[sqlx::test]
 async fn reaction_states_deduplicate_aliases_and_replay_without_reverting_later_intentions(
     pool: PgPool,
 ) {
@@ -1487,11 +1841,14 @@ async fn exchange_replay_restart_and_privacy(pool: PgPool) {
     let batch = server
         .changes(&bob_session.token, &bob_initial.cursor)
         .await;
+    // Public journal messages carry no recipient's private star state.
+    let mut public_first = first.clone();
+    public_first.personal_star = None;
     assert!(
         batch
             .changes
             .iter()
-            .any(|c| matches!(c,Change::MessageUpsert(m) if m==&first))
+            .any(|c| matches!(c,Change::MessageUpsert(m) if m==&public_first))
     );
     assert!(
         server

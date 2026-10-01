@@ -497,6 +497,20 @@
         "id": {
           "type": "string"
         },
+        "personal_star": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PersonalStar"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Present only in account-scoped reads or a journal event for its owner."
+        },
+        "pinned": {
+          "type": "boolean"
+        },
         "position": {
           "type": "string"
         },
@@ -754,6 +768,22 @@
         "public_device_key",
         "key_backup",
         "room_key_envelope"
+      ],
+      "type": "object"
+    },
+    "PersonalStar": {
+      "properties": {
+        "present": {
+          "type": "boolean"
+        },
+        "revision": {
+          "description": "Independent private revision: starring never changes the public message.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "present",
+        "revision"
       ],
       "type": "object"
     },

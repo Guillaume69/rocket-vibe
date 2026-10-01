@@ -215,6 +215,13 @@ pub struct MessageReaction {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct PersonalStar {
+    pub present: bool,
+    /// Independent private revision: starring never changes the public message.
+    pub revision: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct Message {
     pub id: String,
     pub room_id: String,
@@ -229,6 +236,11 @@ pub struct Message {
     pub edited_at: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reactions: Vec<MessageReaction>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pinned: bool,
+    /// Present only in account-scoped reads or a journal event for its owner.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub personal_star: Option<Box<PersonalStar>>,
 }
 
 fn is_false(value: &bool) -> bool {

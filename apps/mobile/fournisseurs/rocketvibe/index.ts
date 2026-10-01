@@ -13,7 +13,7 @@ export const CAPACITES_ROCKETVIBE: Capacites = {
   edition:true, suppression:true,
   typing:false, presence:false, push:false, e2ee:false, emojisCustom:false,
   appelVideo:false, recherche:false, modeleFil:'tmid',
-  fichiers:false, fils:false, reactions:true, marques:false, profil:false, infosSalon:false, citations:false,
+  fichiers:false, fils:false, reactions:true, marques:true, profil:false, infosSalon:false, citations:false,
 };
 const unsupported = async (): Promise<never> => { throw new NativeError(501,'unsupported_feature'); };
 const noSubscription = () => () => {};
@@ -52,7 +52,7 @@ export function creerFournisseurRV(session: Session, client: ClientRest, generer
     native:{chat,store}, ordreMessages:'sequence', get capacites() { return capacitesEffectives(chat.capabilities); }, listener,
     traducteur:{
       traduireEvenement:() => ({sorte:'silence'}),
-      versMessage:brut => localMessage(decodeNative('Message',brut)),
+      versMessage:brut => localMessage(decodeNative('Message',brut),session.userId),
       versSalon:() => null, versAbonnement:() => null,
     },
     actions:{
@@ -66,8 +66,11 @@ export function creerFournisseurRV(session: Session, client: ClientRest, generer
         if (!revision) throw new NativeError(409,'revision_required');
         return chat.delete(rid,id,revision);
       },
-      epingler:unsupported,
-      desepingler:unsupported, etoiler:unsupported, listerEpingles:unsupported, listerEtoiles:unsupported,
+      epingler:(rid,id) => chat.setMark(rid,id,true,false),
+      desepingler:(rid,id) => chat.setMark(rid,id,false,false),
+      etoiler:(rid,id,present) => chat.setMark(rid,id,present,true),
+      listerEpingles:async rid => (await chat.marked(rid,false)).map(m=>localMessage(m,session.userId)),
+      listerEtoiles:async rid => (await chat.marked(rid,true)).map(m=>localMessage(m,session.userId)),
       marquerLu:async () => {},
       ouvrirOuCreerDm:async username => ({rid:await chat.direct(username), salonBrut:{}}),
     },

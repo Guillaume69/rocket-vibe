@@ -195,3 +195,27 @@ test('reaction metadata survives replay and projection reopen without altering m
     assert.equal(db.prepare('SELECT reactions FROM messages WHERE id=?').get(message.id)!.reactions,null);
   } finally { db.close(); }
 });
+
+test('personal stars keep their own revision through public updates and never resurrect a tombstone',async () => {
+  const {db,store}=setup();
+  try {
+    await store.applySnapshot({...snapshot,messages:[{...message,revision:'1'}]});
+    const privateAdd={...message,revision:'1',personal_star:{present:true,revision:'3'}};
+    await store.ingest([privateAdd]);
+    const published={...message,revision:'4',text:'Newer public text',pinned:true};
+    await store.ingest([published]);
+    let row=db.prepare('SELECT texte,etoiles,epingle FROM messages WHERE id=?').get(message.id)!;
+    assert.equal(row.texte,published.text); assert.equal(row.epingle,1);
+    assert.deepEqual(JSON.parse(row.etoiles as string),[session.userId]);
+    await store.ingest([{...privateAdd,personal_star:{present:false,revision:'5'}}]);
+    await store.ingest([privateAdd]);
+    row=db.prepare('SELECT texte,etoiles,epingle FROM messages WHERE id=?').get(message.id)!;
+    assert.equal(row.texte,published.text); assert.equal(row.epingle,1); assert.equal(row.etoiles,null);
+    assert.equal(db.prepare('SELECT revision FROM native_positions WHERE id=?').get(message.id)!.revision,'4');
+    assert.equal(db.prepare('SELECT revision FROM native_star_states WHERE id=?').get(message.id)!.revision,'5');
+    await store.ingest([{...published,revision:'6',deleted:true,text:'',pinned:false}]);
+    await store.ingest([privateAdd]);
+    assert.deepEqual(await store.messages(room.id),[]);
+    assert.equal(db.prepare('SELECT count(*) AS n FROM native_star_states').get()!.n,0);
+  } finally { db.close(); }
+});

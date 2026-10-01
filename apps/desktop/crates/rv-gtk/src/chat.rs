@@ -459,6 +459,17 @@ impl ChatPage {
         let weak = Rc::downgrade(&this);
         marked_button.connect_clicked(move |_| {
             let Some(this) = weak.upgrade() else { return };
+            if let (Some(session), Some(rid)) = (this.native_session(), this.current_rid()) {
+                let (target, expected) = (Rc::downgrade(&this), session.clone());
+                crate::marked::open_native(&this.split, session, &rid, move |id| {
+                    if let Some(this) = target.upgrade()
+                        && this.native_session().is_some_and(|s| Arc::ptr_eq(&s, &expected))
+                    {
+                        this.jump_to(&id);
+                    }
+                });
+                return;
+            }
             let (Some(session), Some(rid)) = (this.session(), this.current_rid()) else { return };
             let target = Rc::downgrade(&this);
             crate::marked::open(&this.split, session, &rid, move |id| {
@@ -1563,6 +1574,8 @@ impl ChatPage {
                             ts: r.ts,
                             edited: r.edited,
                             reactions: r.reactions,
+                            pinned: r.pinned,
+                            starred: r.starred.then(|| session.info.user_id.clone()),
                             text: Some(r.text),
                             author: Some(r.author),
                             author_id: if r.status.is_some() { session.info.user_id.clone() } else { r.author_id },

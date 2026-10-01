@@ -110,6 +110,18 @@ async fn main() {
     })
     .await;
     desktop.invite(&created, "mobile").await.unwrap();
+    let marked_id = desktop.send(&created, "Native desktop marks").unwrap();
+    until(|| desktop.store.pending().unwrap().is_empty()).await;
+    desktop.set_mark(&created, &marked_id, true, false).await.unwrap();
+    desktop.set_mark(&created, &marked_id, true, true).await.unwrap();
+    assert_eq!(desktop.marked(&created, false).await.unwrap()[0].id, marked_id);
+    assert_eq!(desktop.marked(&created, true).await.unwrap()[0].id, marked_id);
+    let marked_row = desktop.store.selected_messages(std::slice::from_ref(&marked_id)).unwrap().remove(0);
+    assert!(marked_row.pinned && marked_row.starred);
+    desktop.set_mark(&created, &marked_id, false, true).await.unwrap();
+    desktop.set_mark(&created, &marked_id, false, false).await.unwrap();
+    assert!(desktop.marked(&created, true).await.unwrap().is_empty());
+    assert!(desktop.marked(&created, false).await.unwrap().is_empty());
     let public = desktop.create_room("Desktop public discovery", false).await.unwrap();
     until(|| {
         desktop.status().connection == Connection::Online

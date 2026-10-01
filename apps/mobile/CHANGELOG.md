@@ -9,6 +9,10 @@ release, et ses notes sont la section de la version ici.
 
 ### Ajouté
 
+- Épingles publiques et étoiles personnelles RocketVibe dans les actions et
+  listes existantes. Les intentions reprennent après redémarrage ; les étoiles
+  restent privées et conservent leur état lors des mises à jour du message.
+
 - Réactions RocketVibe dans la feuille d'actions et les pastilles existantes.
   Les alias d'emojis sont dédupliqués ; les intentions SQLite reprennent après
   une réponse perdue ou un redémarrage sans modifier l'ordre des messages.

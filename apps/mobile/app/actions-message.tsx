@@ -188,8 +188,8 @@ export default function EcranActionsMessage() {
           auteurNom: brut.auteurNom,
           piecesJointes: brut.piecesJointes,
           reactions: contexteNatif ? nativeReactions(contexteNatif.message.reactions) : brut.reactions,
-          epingle: brut.epingle,
-          etoiles: brut.etoiles,
+          epingle: contexteNatif?.message.pinned ?? brut.epingle,
+          etoiles: contexteNatif ? (contexteNatif.message.personal_star?.present ? JSON.stringify([moi]) : null) : brut.etoiles,
         },
         // Ligne de salon absente (lien profond avant synchro) : repli `c`/rid —
         // le serveur ne lit de toute façon que le `?msg=` du permalien.
@@ -199,6 +199,8 @@ export default function EcranActionsMessage() {
           ...(droitsNatifs?.edit && fournisseur?.capacites.edition ? ['modifier'] as const : []),
           ...(droitsNatifs?.delete && fournisseur?.capacites.suppression ? ['supprimer'] as const : []),
           ...(droitsNatifs?.react && fournisseur?.capacites.reactions ? ['reagir'] as const : []),
+          ...(droitsNatifs?.pin && fournisseur?.capacites.marques ? [contexteNatif?.message.pinned?'desepingler':'epingler'] as const : []),
+          ...(droitsNatifs?.star && fournisseur?.capacites.marques ? [contexteNatif?.message.personal_star?.present?'desetoiler':'etoiler'] as const : []),
         ] : actionsPossibles({
           message: {
             auteurId: brut.auteurId,
@@ -347,10 +349,12 @@ export default function EcranActionsMessage() {
   const epingler = async (mettre: boolean) => {
     if (mettre) await actionneur.epingler(message.rid, message.id);
     else await actionneur.desepingler(message.rid, message.id);
+    if (fournisseur?.native) return;
     await moteur.depotSynchro.majMarquesMessage(message.id, mettre, message.etoiles);
   };
   const etoiler = async (mettre: boolean) => {
     await actionneur.etoiler(message.rid, message.id, mettre);
+    if (fournisseur?.native) return;
     if (moi === null) return;
     await moteur.depotSynchro.majMarquesMessage(
       message.id,

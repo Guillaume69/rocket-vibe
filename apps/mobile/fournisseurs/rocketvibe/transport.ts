@@ -117,6 +117,12 @@ export class NativeTransport {
   editMessage(id: string,input: NativeTypes['EditMessage']): Promise<Message> { return this.request('Message',`/api/v1/messages/${encodeURIComponent(id)}`,input,false,undefined,'PATCH'); }
   deleteMessage(id: string,input: NativeTypes['DeleteMessage']): Promise<Message> { return this.request('Message',`/api/v1/messages/${encodeURIComponent(id)}`,input,false,undefined,'DELETE'); }
   setReaction(id: string,input: NativeTypes['SetReaction']): Promise<Message> { return this.request('Message',`/api/v1/messages/${encodeURIComponent(id)}/reactions`,input,false,undefined,'PUT'); }
+  setMark(id:string,input:NativeTypes['SetMark'],starred:boolean):Promise<Message> {
+    return this.request('Message',`/api/v1/messages/${encodeURIComponent(id)}/${starred?'star':'pin'}`,input,false,undefined,'PUT');
+  }
+  marked(room:string,starred:boolean,before?:string):Promise<MessagePage> {
+    return this.request('MessagePage',`/api/v1/rooms/${encodeURIComponent(room)}/${starred?'stars':'pins'}?limit=100${before?`&before=${encodeURIComponent(before)}`:''}`);
+  }
   async users(): Promise<NativeTypes['User'][]> {
     const users = await this.value('/api/v1/users');
     if (!Array.isArray(users)) throw new Error('Invalid native directory');

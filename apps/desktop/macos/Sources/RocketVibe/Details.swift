@@ -272,7 +272,7 @@ struct MarkedView: View {
         }
         .task(id: starred) {
             messages = nil
-            messages = (try? await app.chat?.marked(rid: model.rid, starred: starred)) ?? []
+            messages = (try? await model.marked(starred: starred)) ?? []
         }
     }
 }

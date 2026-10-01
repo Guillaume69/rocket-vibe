@@ -96,6 +96,25 @@ fournit `Retry-After`. Un changement augmente la révision et émet un upsert sa
 changer la position de création ni le marqueur d'édition. La suppression du
 message efface les participations et remplace ses anciens événements par le tombstone.
 
+### Épingles et étoiles personnelles
+
+`PUT /messages/{id}/pin` et `/star` prennent `{operation_id,present}`.
+Un propriétaire ou modérateur épingle ; chaque membre peut étoiler pour lui-même,
+y compris en lecture seule. Les nouveaux états d'un message supprimé sont refusés.
+Les reçus retournent l'état actuel sans rejouer une ancienne intention. Le quota
+d'actions est partagé avec réactions, éditions et suppressions.
+
+`pinned` appartient à la révision publique du message. `personal_star` contient
+uniquement l'état du compte qui lit et sa propre révision décimale ; les événements
+publics omettent ce champ. Un changement d'étoile publie un événement réservé à
+son propriétaire sans changer la révision publique ni le marqueur d'édition.
+La suppression efface les étoiles et épingles, ainsi que leurs anciens événements.
+
+`GET /rooms/{id}/pins` et `/stars` utilisent `limit` (1–100) et `before`, position
+de création exclusive, avec `has_more`. Les étoiles d'un autre compte sont exclues.
+Les clients valident toutes les pages avant de projeter le résultat ; ils refusent
+les positions non décroissantes et les messages d'un autre salon.
+
 ### Édition et suppression
 
 L'édition accepte actuellement `MessageContent.plain` avec Markdown et listes

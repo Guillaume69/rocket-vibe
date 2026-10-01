@@ -61,7 +61,7 @@ struct RoomView: View {
                     Button(action: call) { Image(systemName: "video") }.help(L("room.call"))
                 }
                 Button { panel = .marked } label: { Image(systemName: "pin") }.help(L("marked.title"))
-                    .disabled(app.chat == nil)
+                    .disabled(!model.supportsMarks)
                 Button { panel = .search } label: { Image(systemName: "magnifyingglass") }.help(L("search.title"))
                     .keyboardShortcut("f", modifiers: .command)
                     .disabled(app.chat == nil)

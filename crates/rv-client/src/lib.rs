@@ -324,6 +324,42 @@ impl NativeClient {
         )
         .await
     }
+    pub async fn set_mark(
+        &self,
+        id: &str,
+        input: &rv_protocol::parity::SetMark,
+        starred: bool,
+    ) -> Result<Message, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        let kind = if starred { "star" } else { "pin" };
+        self.request(
+            Method::PUT,
+            &format!("/api/v1/messages/{id}/{kind}"),
+            Some(input),
+            false,
+        )
+        .await
+    }
+    pub async fn marked(
+        &self,
+        room: &str,
+        starred: bool,
+        before: Option<&str>,
+    ) -> Result<MessagePage, Error> {
+        if !path_segment(room)
+            || before.is_some_and(|p| p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()))
+        {
+            return Err(Error::InvalidUrl);
+        }
+        let kind = if starred { "stars" } else { "pins" };
+        let mut path = format!("/api/v1/rooms/{room}/{kind}?limit=100");
+        if let Some(before) = before {
+            path.push_str(&format!("&before={before}"));
+        }
+        self.get(&path).await
+    }
     pub async fn logout(&self) -> Result<(), Error> {
         self.empty(Method::POST, "/api/v1/auth/logout", true).await
     }

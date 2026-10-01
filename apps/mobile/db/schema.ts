@@ -304,6 +304,14 @@ export const nativePositions = sqliteTable('native_positions', {
   revision: text('revision').notNull(),
 }, (t) => [index('idx_native_positions_room').on(t.rid)]);
 
+/** Personal state has its own revision and is never overwritten by public upserts. */
+export const nativeStarStates = sqliteTable('native_star_states', {
+  id: text('id').primaryKey(),
+  rid: text('rid').notNull(),
+  revision: text('revision').notNull(),
+  present: integer('present',{mode:'boolean'}).notNull(),
+}, (t) => [index('idx_native_star_room').on(t.rid)]);
+
 export const nativeRoomCreations = sqliteTable('native_room_creations', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),

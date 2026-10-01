@@ -104,6 +104,17 @@ réponse perdue, alias, retrait, ancien reçu, quotas, droits, suppression et re
 Le parcours GTK sous Xvfb vérifie les pastilles ; les modèles Swift consomment
 les bindings et le stockage sécurisé réels. Les essais sur appareils restent ouverts.
 
+### Épingles et étoiles
+
+Les épingles et étoiles sont raccordées aux menus et listes marquées existants
+des trois clients. Les opérations gardent leur identité après un redémarrage.
+Les épingles exigent un propriétaire ou modérateur ; une étoile reste personnelle,
+y compris en lecture seule. Sa révision indépendante empêche un événement public
+de l'effacer et un ancien événement privé de rétablir un message supprimé.
+Les listes sont paginées par position de création ; une page incohérente ne modifie
+pas le cache. Les parcours PostgreSQL / SQLite et modèles Swift sont vérifiables
+sur le banc jetable ; les essais sur appareils restent une condition externe.
+
 ### Contenu, fichiers et clés
 
 `MessageContent` distingue Markdown clair et enveloppe chiffrée. Mentions et
@@ -176,7 +187,7 @@ ouverte tant que serveur, clients concernés et scénario de parité manquent.
 | P07 Markdown / emojis / citations | J2–J3 | Corpus testé ; références / messages système / catalogue natif et raccordement |
 | P08 Envoi / brouillons | J1 | Socle livré ; crash réel après commit / réponse perdue, Android ↔ Windows |
 | P09 Édition / suppression | J2 | API, droits / délais, tombstones, intentions SQLite et menus / éditeurs des 3 clients livrés ; parcours appareils à qualifier |
-| P10 Réactions / épingles / étoiles | J2 | Réactions explicites et idempotentes, alias partagés, journal / SQLite et UI des 3 clients livrés ; épingles, étoiles privées, listes et saut à livrer |
+| P10 Réactions / épingles / étoiles | J2 | API idempotente, alias, épingles, étoiles privées, intentions SQLite et menus / listes existants des 3 clients livrés ; qualification appareils à poursuivre |
 | P11 Fils | J2 | Racine, réponses et compteurs, même écran / composer de fil |
 | P12 Présence / saisie | J2 | Expiration, émission / écoute, dégradation hors ligne sans journal durable |
 | P13 Recherche | J2 / J4 | Recherche PG avec ACL ; index chiffré local borné / purge après verrouillage |

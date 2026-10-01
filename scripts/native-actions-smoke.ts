@@ -1,5 +1,6 @@
 /** Actual mobile SQLite projections consume native action journal events. */
 import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
 import { NativeTransport } from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
 import { NativeChat } from '../apps/mobile/fournisseurs/rocketvibe/chat.ts';
 import { NativeStore } from '../apps/mobile/fournisseurs/rocketvibe/store.ts';
@@ -8,10 +9,13 @@ import { creerFileEcritures } from '../apps/mobile/db/fileEcritures.ts';
 import type { Session } from '../apps/mobile/lib/auth.ts';
 const base=process.env.RV_SMOKE_URL;
 if (!base) throw new Error('RV_SMOKE_URL is required');
+const namespace=randomBytes(8).toString('hex');
 async function runner(username:string) {
   const attempts:{operation_id:string;expected_revision:string;content:{kind:'plain';markdown:string;mentions:string[];quotes:never[];files:string[]}}[]=[];
   let loseEdit=true;
   let loseReaction=true;
+  let loseStar=true;
+  const marks:{operation_id:string;present:boolean}[]=[];
   const reactions:{operation_id:string;emoji:string;present:boolean}[]=[];
   const transport=new NativeTransport(base!,async (url,options) => {
     const response=await fetch(url,options);
@@ -31,21 +35,28 @@ async function runner(username:string) {
         return Response.json({code:'simulated_reaction_response_lost',request_id:'mobile-react-smoke'},{status:503});
       }
     }
+    if (username==='alice' && options?.method==='PUT' && String(url).endsWith('/star')) {
+      marks.push(JSON.parse(String(options.body)));
+      if (loseStar && response.ok) {
+        loseStar=false;await response.arrayBuffer();
+        return Response.json({code:'simulated_star_response_lost',request_id:'mobile-star-smoke'},{status:503});
+      }
+    }
     return response;
   });
   const discovery=await transport.discover(); const login=await transport.login(username,'test-password-2026');
   const session: Session={genre:'rocketvibe',baseUrl:base!,siteUrl:null,authToken:login.token,userId:login.user.id,username:login.user.username,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
   const db=nativeTestDatabase(); const store=new NativeStore(db.adapter,creerFileEcritures(),session);
   let serial=0;
-  const makeChat=() => new NativeChat(session,store,() => `${username}-action-smoke-${serial++}`,{transport});
-  return {transport,db,store,session,makeChat,attempts,reactions};
+  const makeChat=() => new NativeChat(session,store,() => `${username}-${namespace}-action-${serial++}`,{transport});
+  return {transport,db,store,session,makeChat,attempts,reactions,marks};
 }
 async function until(check:()=>Promise<boolean>) {
   const deadline=Date.now()+10_000;
   while (!await check()) {if (Date.now()>deadline) throw new Error('Native action projection timeout'); await new Promise(resolve => setTimeout(resolve,20));}
 }
 const alice=await runner('alice'), bob=await runner('bob');
-const room=await alice.transport.createRoom({name:'Action projections',private:true,operation_id:'action-projection-room'});
+const room=await alice.transport.createRoom({name:'Action projections',private:true,operation_id:`action-projection-room-${namespace}`});
 await alice.transport.addMember(room.id,bob.session.userId);
 const a=alice.makeChat(); let b=bob.makeChat();
 try {
@@ -75,13 +86,29 @@ try {
   assert.equal(removed.reactions?.length ?? 0,0);
   assert.deepEqual(await alice.transport.setReaction(id,alice.reactions[0]),removed,'an old add receipt cannot resurrect a removed reaction');
   await until(async () => bob.db.db.prepare('SELECT reactions FROM messages WHERE id=?').get(id)?.reactions===null);
+  await a.setMark(room.id,id,true,false);
+  await until(async () => Boolean(bob.db.db.prepare('SELECT epingle FROM messages WHERE id=?').get(id)?.epingle));
+  await assert.rejects(a.setMark(room.id,id,true,true),/simulated_star_response_lost/);
+  await until(async () => (await alice.store.pendingCommands()).length===0);
+  assert.equal(alice.marks.length,2);assert.deepEqual(alice.marks[0],alice.marks[1]);
+  assert.equal((await a.marked(room.id,false))[0].id,id);
+  assert.equal((await a.marked(room.id,true))[0].id,id);
+  assert.equal((await b.marked(room.id,false))[0].id,id);
+  assert.deepEqual(await b.marked(room.id,true),[],'another member never sees the private star');
+  assert.equal(bob.db.db.prepare('SELECT etoiles FROM messages WHERE id=?').get(id)?.etoiles,null);
+  await a.setMark(room.id,id,false,true);
+  assert.deepEqual(await a.marked(room.id,true),[]);
+  const unstarred=await alice.transport.message(id);
+  assert.deepEqual(await alice.transport.setMark(id,alice.marks[0],true),unstarred,'an old add receipt cannot restore a private star');
+  await a.setMark(room.id,id,false,false);
+  assert.deepEqual(await a.marked(room.id,false),[]);
   assert.equal((await b.actionContext(id)).permissions.delete,false);
   await assert.rejects(b.delete(room.id,id,edited.revision),/permission_denied/);
   assert.equal((await bob.store.pendingCommands()).length,0,'forbidden deletion must not retry');
   b.stop(); // Miss the deletion and all following events with a populated cache.
   await bob.store.drafts().ecrire(room.id,'Draft across reset');
   await bob.store.enqueue('bob-pending-reset',room.id,'Pending across reset');
-  await a.delete(room.id,id,removed.revision);
+  await a.delete(room.id,id,(await alice.transport.message(id)).revision);
   const deleted=await alice.transport.message(id);
   assert.ok(deleted.deleted);
   await until(async () => !(await alice.store.messages(room.id)).some(m => m.id===id));
@@ -99,5 +126,5 @@ try {
   b=bob.makeChat(); await b.connect();
   await until(async () => (await bob.store.pending()).length===0);
   assert.equal((await alice.transport.history(room.id)).messages.filter(m => m.id==='bob-pending-reset').length,1);
-  console.log('Native mobile actions: lost edit and reaction responses replay original SQLite intents on live WebSocket, emoji aliases converge, old add receipts cannot revert removals, permissions enforced, edit marker unchanged, tombstone erasure, bounded reset and preserved drafts/outbox');
+  console.log('Native mobile actions: lost edit/reaction/star responses replay SQLite intents, public pins and private star lists stay separate, old receipts cannot revert removals, permissions enforced, tombstone erasure, bounded reset and preserved drafts/outbox');
 } finally {a.stop(); b.stop(); await alice.store.state(); await bob.store.state(); alice.db.db.close(); bob.db.db.close();}

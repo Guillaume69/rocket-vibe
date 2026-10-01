@@ -79,13 +79,15 @@ pub async fn snapshot(app: &App, account: &Account) -> Result<Snapshot> {
     for room in &rooms {
         let query =
             format!("{MESSAGE_SELECT} WHERE m.room_id=$1 ORDER BY m.position DESC LIMIT 50");
-        for message in sqlx::query_as::<_, MessageRow>(&query)
+        let mut window: Vec<_> = sqlx::query_as::<_, MessageRow>(&query)
             .bind(&room.id)
             .fetch_all(&mut *tx)
             .await?
             .into_iter()
             .map(MessageRow::wire)
-        {
+            .collect();
+        crate::marks::personalize(&mut tx, &account.id, &mut window).await?;
+        for message in window {
             bytes += wire_len(&message)? + 1;
             if bytes > limits::SNAPSHOT_BYTES {
                 return Err(snapshot_limit());

@@ -134,6 +134,13 @@
       "when": 1790820820095,
       "tag": "0018_tearful_stepford_cuckoos",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1790824618342,
+      "tag": "0019_wealthy_pete_wisdom",
+      "breakpoints": true
     }
   ]
 }

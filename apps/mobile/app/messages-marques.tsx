@@ -17,9 +17,9 @@ import { type Couleurs, POLICES, useCouleurs } from '../ui/theme.ts';
 
 /**
  * Messages épinglés du salon et mes favoris (étoilés) dans ce salon. Comme la
- * recherche, les listes sont ÉPHÉMÈRES : rendues depuis la réponse REST, jamais
- * écrites en base. Chaque onglet ne se charge qu'à sa première ouverture — une
- * requête par onglet et par visite, sur une route limitée à 10 par minute.
+ * recherche, les listes sont rendues depuis le fournisseur. Rocket.Chat les
+ * garde éphémères ; RocketVibe vérifie la pagination avant de mettre à jour le
+ * cache du compte. Chaque onglet se charge à sa première ouverture.
  * Toucher un message referme l'écran et fait défiler le salon jusqu'à lui
  * (`ui/sautMessage.ts`) ; une réponse de fil ouvre son fil.
  */

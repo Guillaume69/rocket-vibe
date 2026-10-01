@@ -9,6 +9,9 @@ Disponible : comptes créés par CLI, connexion par mot de passe, sessions révo
 salons privés / publics avec création idempotente et adhésions contrôlées,
 annuaire paginé des salons publics et adhésion personnelle, DM uniques, messages idempotents,
 historique paginé, snapshot cohérent et reprise du journal par HTTP / WebSocket.
+Les actions natives comprennent édition, suppression, réactions, épingles et
+étoiles privées, avec reçus idempotents, droits et intentions persistées par les
+clients. Les listes marquées utilisent les écrans existants des trois clients.
 
 Les [écrans mobiles existants](../../docs/NATIVE_MOBILE_PILOT.md) et les interfaces
 [GTK / SwiftUI existantes](../../docs/NATIVE_DESKTOP_PILOT.md) accueillent les deux

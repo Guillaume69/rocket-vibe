@@ -18,6 +18,8 @@ pub enum MessageCommandKind {
     Edit,
     Delete,
     React,
+    Pin,
+    Star,
 }
 impl MessageCommandKind {
     fn value(self) -> &'static str {
@@ -25,6 +27,8 @@ impl MessageCommandKind {
             Self::Edit => "edit",
             Self::Delete => "delete",
             Self::React => "react",
+            Self::Pin => "pin",
+            Self::Star => "star",
         }
     }
 }
@@ -47,6 +51,8 @@ fn command_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PendingCommand> {
             "edit" => MessageCommandKind::Edit,
             "delete" => MessageCommandKind::Delete,
             "react" => MessageCommandKind::React,
+            "pin" => MessageCommandKind::Pin,
+            "star" => MessageCommandKind::Star,
             _ => return Err(rusqlite::Error::InvalidQuery),
         },
         expected_revision: row.get(4)?,
@@ -63,6 +69,26 @@ pub struct MessageRow {
     pub status: Option<String>,
     pub edited: bool,
     pub reactions: Option<String>,
+    pub pinned: bool,
+    pub starred: bool,
+}
+impl MessageRow {
+    pub fn presentation(self, rid: &str, uid: &str) -> crate::store::MessageRow {
+        crate::store::MessageRow {
+            id: self.id,
+            rid: rid.into(),
+            ts: self.ts,
+            edited: self.edited,
+            reactions: self.reactions,
+            pinned: self.pinned,
+            starred: self.starred.then(|| uid.into()),
+            text: Some(self.text),
+            author: Some(self.author),
+            author_id: if self.status.is_some() { uid.into() } else { self.author_id },
+            outbox_status: self.status.map(|s| if s == "failed" { "failed".into() } else { "pending".into() }),
+            ..Default::default()
+        }
+    }
 }
 pub struct NativeStore {
     conn: Mutex<Connection>,
@@ -90,10 +116,10 @@ impl NativeStore {
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_commands(id TEXT PRIMARY KEY,rid TEXT NOT NULL,message_id TEXT NOT NULL UNIQUE,kind TEXT NOT NULL CHECK(kind IN ('edit','delete')),expected_revision TEXT NOT NULL,text TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',error TEXT);")?;
         let command_schema: String =
             conn.query_row("SELECT sql FROM sqlite_master WHERE name='native_commands'", [], |r| r.get(0))?;
-        if !command_schema.contains("'react'") {
+        if !command_schema.contains("'star'") {
             conn.execute_batch("BEGIN IMMEDIATE;
                 ALTER TABLE native_commands RENAME TO native_commands_previous;
-                CREATE TABLE native_commands(id TEXT PRIMARY KEY,rid TEXT NOT NULL,message_id TEXT NOT NULL UNIQUE,kind TEXT NOT NULL CHECK(kind IN ('edit','delete','react')),expected_revision TEXT NOT NULL,text TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',error TEXT);
+                CREATE TABLE native_commands(id TEXT PRIMARY KEY,rid TEXT NOT NULL,message_id TEXT NOT NULL UNIQUE,kind TEXT NOT NULL CHECK(kind IN ('edit','delete','react','pin','star')),expected_revision TEXT NOT NULL,text TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',error TEXT);
                 INSERT INTO native_commands SELECT * FROM native_commands_previous;
                 DROP TABLE native_commands_previous;
                 COMMIT;")?;
@@ -109,6 +135,9 @@ impl NativeStore {
             ("deleted", "INTEGER NOT NULL DEFAULT 0"),
             ("edited", "INTEGER NOT NULL DEFAULT 0"),
             ("reactions", "TEXT"),
+            ("pinned", "INTEGER NOT NULL DEFAULT 0"),
+            ("starred", "INTEGER NOT NULL DEFAULT 0"),
+            ("star_revision", "TEXT NOT NULL DEFAULT '0'"),
         ] {
             if !columns.iter().any(|c| c == name) {
                 conn.execute_batch(&format!("ALTER TABLE native_messages ADD COLUMN {name} {declaration}"))?;
@@ -304,12 +333,14 @@ impl NativeStore {
         }
         chrono::DateTime::parse_from_rfc3339(&message.created_at).map_err(|_| rusqlite::Error::InvalidQuery)?;
         let old = tx
-            .query_row("SELECT revision FROM native_messages WHERE id=?1", [&message.id], |r| {
-                r.get::<_, Option<String>>(0)
+            .query_row("SELECT revision,deleted FROM native_messages WHERE id=?1", [&message.id], |r| {
+                Ok((r.get::<_, Option<String>>(0)?, r.get::<_, bool>(1)?))
             })
-            .optional()?
-            .flatten();
-        if old.as_deref().map(decimal).transpose()?.is_some_and(|old| old > revision) {
+            .optional()?;
+        if old.as_ref().and_then(|r| r.0.as_deref()).map(decimal).transpose()?.is_some_and(|old| old > revision) {
+            if !message.deleted && !old.is_some_and(|r| r.1) {
+                Self::personal(tx, message)?;
+            }
             return Ok(());
         }
         let ts = chrono::DateTime::parse_from_rfc3339(&message.created_at)
@@ -322,6 +353,27 @@ impl NativeStore {
         };
         tx.execute("INSERT INTO native_messages(id,rid,position,revision,text,author,author_id,ts,deleted,edited,reactions) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11) ON CONFLICT(id) DO UPDATE SET position=excluded.position,revision=excluded.revision,text=excluded.text,author=excluded.author,author_id=excluded.author_id,ts=excluded.ts,deleted=excluded.deleted,edited=excluded.edited,reactions=excluded.reactions",params![message.id,message.room_id,message.position,message.revision,message.text,message.author.username,message.author.id,ts,message.deleted,message.edited_at.is_some(),reactions])?;
         tx.execute("DELETE FROM native_outbox WHERE id=?1", [&message.id])?;
+        tx.execute("UPDATE native_messages SET pinned=?2 WHERE id=?1", params![message.id, message.pinned])?;
+        Self::personal(tx, message)?;
+        Ok(())
+    }
+    fn personal(tx: &Transaction, message: &Message) -> rusqlite::Result<()> {
+        if message.deleted {
+            tx.execute(
+                "UPDATE native_messages SET starred=0,star_revision=?2 WHERE id=?1",
+                params![message.id, message.revision],
+            )?;
+        } else if let Some(star) = &message.personal_star {
+            let incoming = decimal(&star.revision)?;
+            let previous: String =
+                tx.query_row("SELECT star_revision FROM native_messages WHERE id=?1", [&message.id], |r| r.get(0))?;
+            if incoming >= decimal(&previous)? {
+                tx.execute(
+                    "UPDATE native_messages SET starred=?2,star_revision=?3 WHERE id=?1",
+                    params![message.id, star.present, star.revision],
+                )?;
+            }
+        }
         Ok(())
     }
     fn remove(tx: &Transaction, rid: &str) -> rusqlite::Result<()> {
@@ -424,12 +476,42 @@ impl NativeStore {
         if !self.same(&conn)? {
             return Ok(vec![]);
         }
-        let mut rows=conn.prepare("SELECT m.id,m.text,m.author,o.status,m.author_id,m.ts,m.edited,m.reactions FROM native_messages m LEFT JOIN native_outbox o ON o.id=m.id WHERE m.rid=?1 AND NOT m.deleted ORDER BY m.position IS NULL DESC,o.created DESC,length(m.position) DESC,m.position DESC,m.id DESC LIMIT ?2")?.query_map(params![rid,limit as i64],|r|Ok(MessageRow {id:r.get(0)?,text:r.get(1)?,author:r.get(2)?,status:r.get(3)?,author_id:r.get(4)?,ts:r.get(5)?,edited:r.get(6)?,reactions:r.get(7)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut rows=conn.prepare("SELECT m.id,m.text,m.author,o.status,m.author_id,m.ts,m.edited,m.reactions,m.pinned,m.starred FROM native_messages m LEFT JOIN native_outbox o ON o.id=m.id WHERE m.rid=?1 AND NOT m.deleted ORDER BY m.position IS NULL DESC,o.created DESC,length(m.position) DESC,m.position DESC,m.id DESC LIMIT ?2")?.query_map(params![rid,limit as i64],|r|Ok(MessageRow {id:r.get(0)?,text:r.get(1)?,author:r.get(2)?,status:r.get(3)?,author_id:r.get(4)?,ts:r.get(5)?,edited:r.get(6)?,reactions:r.get(7)?,pinned:r.get(8)?,starred:r.get(9)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
         rows.reverse();
         Ok(rows)
     }
     pub fn oldest(&self, rid: &str) -> rusqlite::Result<Option<String>> {
         self.conn.lock().unwrap().query_row("SELECT position FROM native_messages WHERE rid=?1 AND position IS NOT NULL ORDER BY length(position),position LIMIT 1",[rid],|r|r.get(0)).optional()
+    }
+    pub fn selected_messages(&self, ids: &[String]) -> rusqlite::Result<Vec<MessageRow>> {
+        let conn = self.conn.lock().unwrap();
+        if !self.same(&conn)? {
+            return Ok(vec![]);
+        }
+        let mut query = conn.prepare("SELECT id,text,author,author_id,ts,edited,reactions,pinned,starred FROM native_messages WHERE id=?1 AND NOT deleted")?;
+        let mut rows = Vec::new();
+        for id in ids {
+            if let Some(row) = query
+                .query_row([id], |r| {
+                    Ok(MessageRow {
+                        id: r.get(0)?,
+                        text: r.get(1)?,
+                        author: r.get(2)?,
+                        author_id: r.get(3)?,
+                        ts: r.get(4)?,
+                        status: None,
+                        edited: r.get(5)?,
+                        reactions: r.get(6)?,
+                        pinned: r.get(7)?,
+                        starred: r.get(8)?,
+                    })
+                })
+                .optional()?
+            {
+                rows.push(row);
+            }
+        }
+        Ok(rows)
     }
     pub fn enqueue(&self, id: &str, rid: &str, text: &str, username: &str) -> rusqlite::Result<()> {
         self.atomic(|tx| {
@@ -701,6 +783,46 @@ mod tests {
         assert!(store.messages(&message.room_id, 10).unwrap().is_empty());
         drop(store);
         std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn independent_personal_revisions_preserve_new_public_content_and_tombstones() {
+        let store = NativeStore::open(Path::new(":memory:"), identity()).unwrap();
+        let mut initial = snapshot();
+        initial.messages[0].revision = "1".into();
+        store.snapshot(&initial).unwrap();
+        let mut private = initial.messages[0].clone();
+        private.personal_star = Some(Box::new(rv_protocol::PersonalStar { present: true, revision: "3".into() }));
+        store.ingest(&[private.clone()]).unwrap();
+        let mut public = initial.messages[0].clone();
+        public.revision = "4".into();
+        public.text = "New public text".into();
+        public.pinned = true;
+        store.ingest(&[public.clone()]).unwrap();
+        let row = store.messages(&public.room_id, 10).unwrap().remove(0);
+        assert!(row.starred && row.pinned);
+        assert_eq!(row.text, public.text);
+        let mut remove = private.clone();
+        remove.personal_star = Some(Box::new(rv_protocol::PersonalStar { present: false, revision: "5".into() }));
+        store.ingest(&[remove, private.clone()]).unwrap();
+        let row = store.messages(&public.room_id, 10).unwrap().remove(0);
+        assert!(!row.starred && row.pinned);
+        assert_eq!(row.text, public.text);
+        public.deleted = true;
+        public.text.clear();
+        public.revision = "6".into();
+        public.pinned = false;
+        store.ingest(&[public.clone(), private]).unwrap();
+        assert!(store.selected_messages(&[public.id.clone()]).unwrap().is_empty());
+        let state: (bool, String) = store
+            .conn
+            .lock()
+            .unwrap()
+            .query_row("SELECT starred,star_revision FROM native_messages WHERE id=?1", [public.id], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert!(!state.0);
+        assert_eq!(state.1, "6");
     }
     #[test]
     fn reaction_migration_preserves_old_commands_and_projects_without_reordering_or_edit_markers() {

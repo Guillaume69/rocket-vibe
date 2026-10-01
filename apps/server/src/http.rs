@@ -20,7 +20,7 @@ use crate::{
     App, auth,
     delivery::{ReadProof, Scope},
     error::{Error, Result},
-    limits, message_actions, permissions, reactions, snapshots, store, sync,
+    limits, marks, message_actions, permissions, reactions, snapshots, store, sync,
 };
 
 pub fn router(app: App) -> Router {
@@ -49,6 +49,16 @@ pub fn router(app: App) -> Router {
             "/api/v1/messages/{message}/reactions",
             axum::routing::put(set_reaction),
         )
+        .route(
+            "/api/v1/messages/{message}/pin",
+            axum::routing::put(set_pin),
+        )
+        .route(
+            "/api/v1/messages/{message}/star",
+            axum::routing::put(set_star),
+        )
+        .route("/api/v1/rooms/{room}/pins", get(pins))
+        .route("/api/v1/rooms/{room}/stars", get(stars))
         .route("/api/v1/rooms/{room}/join", post(join_public))
         .route("/api/v1/direct-messages", post(direct))
         .route(
@@ -126,6 +136,8 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             editing: true,
             deletion: true,
             reactions: true,
+            pins: true,
+            stars: true,
             ..Default::default()
         },
     }))
@@ -276,6 +288,62 @@ async fn rooms(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
     let ids = rooms.iter().map(|r| r.id.clone()).collect::<Vec<_>>();
     proof.json(&app, &hash, &rooms, &ids, None).await
 }
+
+async fn set_pin(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    input: Input<rv_protocol::parity::SetMark>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    marks::apply(&app, &actor, &id, body(input)?, false).await?;
+    message(State(app), headers, Path(id)).await
+}
+async fn set_star(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    input: Input<rv_protocol::parity::SetMark>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    marks::apply(&app, &actor, &id, body(input)?, true).await?;
+    message(State(app), headers, Path(id)).await
+}
+async fn pins(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+    Query(input): Query<History>,
+) -> Result<Response> {
+    marked(app, headers, room, input, false).await
+}
+async fn stars(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+    Query(input): Query<History>,
+) -> Result<Response> {
+    marked(app, headers, room, input, true).await
+}
+async fn marked(
+    app: App,
+    headers: HeaderMap,
+    room: String,
+    input: History,
+    starred: bool,
+) -> Result<Response> {
+    let before = input
+        .before
+        .map(|s| s.parse::<i64>().map_err(|_| Error::invalid()))
+        .transpose()?;
+    let limit = input.limit.unwrap_or(50);
+    if !(1..=100).contains(&limit) {
+        return Err(Error::invalid());
+    }
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::Room(&room)).await?;
+    let messages = marks::list(&app, &actor, &room, before, limit, starred).await?;
+    proof.json(&app, &hash, &messages, &[room], None).await
+}
 async fn create_room(
     State(app): State<App>,
     headers: HeaderMap,
@@ -363,7 +431,15 @@ async fn send(
     input: Input<SendMessage>,
 ) -> Result<Response> {
     let (account, hash, proof) = read_access(&app, &headers, Scope::Room(&room)).await?;
-    let message = store::send(&app, &account, &room, body(input)?).await?;
+    let mut message = store::send(&app, &account, &room, body(input)?).await?;
+    let mut connection = app.pool.acquire().await?;
+    marks::personalize(
+        &mut connection,
+        &account.id,
+        std::slice::from_mut(&mut message),
+    )
+    .await?;
+    drop(connection);
     proof.json(&app, &hash, &message, &[room], None).await
 }
 

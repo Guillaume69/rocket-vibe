@@ -9,6 +9,10 @@ section here.
 
 ### Added
 
+- Native pins and private stars in the existing GTK / SwiftUI menus and marked
+  lists. Explicit states survive restarts; personal revisions prevent concurrent
+  public message updates from clearing a star.
+
 - Native reactions in the existing GTK and SwiftUI menus and message chips.
   Emoji aliases share one state; pending actions survive lost responses and
   restarts without changing message order or marking the text as edited.

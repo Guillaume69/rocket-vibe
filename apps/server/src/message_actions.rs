@@ -19,16 +19,23 @@ pub enum Command {
 }
 
 pub async fn read(app: &App, account: &Account, id: &str) -> Result<Message> {
+    let mut tx = app.pool.begin().await?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        .execute(&mut *tx)
+        .await?;
     let query = format!(
         "{MESSAGE_SELECT} WHERE m.id=$1 AND EXISTS(SELECT 1 FROM members g WHERE g.room_id=m.room_id AND g.user_id=$2)"
     );
-    Ok(sqlx::query_as::<_, MessageRow>(&query)
+    let mut message = sqlx::query_as::<_, MessageRow>(&query)
         .bind(id)
         .bind(&account.id)
-        .fetch_optional(&app.pool)
+        .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(Error::missing)?
-        .wire())
+        .wire();
+    crate::marks::personalize(&mut tx, &account.id, std::slice::from_mut(&mut message)).await?;
+    tx.commit().await?;
+    Ok(message)
 }
 
 pub async fn apply(app: &App, account: &Account, id: &str, command: Command) -> Result<()> {
@@ -138,6 +145,14 @@ pub async fn apply(app: &App, account: &Account, id: &str, command: Command) -> 
     }
     crate::limits::message_action(&mut tx, &account.id).await?;
     if text.is_none() {
+        sqlx::query("DELETE FROM message_stars WHERE message_id=$1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE messages SET pinned=false WHERE id=$1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("DELETE FROM message_reactions WHERE message_id=$1")
             .bind(id)
             .execute(&mut *tx)

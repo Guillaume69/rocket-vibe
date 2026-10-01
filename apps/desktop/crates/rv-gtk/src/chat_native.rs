@@ -320,6 +320,56 @@ impl ChatPage {
                             return;
                         }
                         let Ok((message, rights)) = context else { return };
+                        for (key, starred, present, allowed) in [
+                            (
+                                if message.pinned { "actions.unpin" } else { "actions.pin" },
+                                false,
+                                !message.pinned,
+                                rights.pin,
+                            ),
+                            (
+                                if message.personal_star.as_ref().is_some_and(|s| s.present) {
+                                    "actions.unstar"
+                                } else {
+                                    "actions.star"
+                                },
+                                true,
+                                !message.personal_star.as_ref().is_some_and(|s| s.present),
+                                rights.star,
+                            ),
+                        ] {
+                            if !allowed
+                                || !expected
+                                    .supported_features()
+                                    .iter()
+                                    .any(|f| f == if starred { "stars" } else { "pins" })
+                            {
+                                continue;
+                            }
+                            let button = gtk::Button::builder().label(t(key)).css_classes(["flat"]).build();
+                            let (weak, p, s, id, rid) =
+                                (weak.clone(), popover.clone(), expected.clone(), row.id.clone(), rid.clone());
+                            button.connect_clicked(move |_| {
+                                let Some(this) = weak.upgrade() else { return };
+                                if this.native_session().is_none_or(|current| !Arc::ptr_eq(&current, &s)) {
+                                    return;
+                                }
+                                p.popdown();
+                                let (weak, expected, s, id, rid) =
+                                    (weak.clone(), s.clone(), s.clone(), id.clone(), rid.clone());
+                                glib::spawn_future_local(async move {
+                                    let result =
+                                        on_tokio(async move { s.set_mark(&rid, &id, present, starred).await }).await;
+                                    if let Err(error) = result
+                                        && let Some(this) = weak.upgrade()
+                                        && this.native_session().is_some_and(|s| Arc::ptr_eq(&s, &expected))
+                                    {
+                                        this.native_error(&error);
+                                    }
+                                });
+                            });
+                            list.append(&button);
+                        }
                         if rights.react && expected.supported_features().iter().any(|f| f == "reactions") {
                             let quick = gtk::Box::builder().spacing(4).margin_bottom(4).build();
                             for shortcode in rv_core::actions::QUICK_REACTIONS {

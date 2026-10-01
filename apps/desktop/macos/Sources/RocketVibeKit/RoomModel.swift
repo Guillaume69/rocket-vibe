@@ -15,6 +15,7 @@ public final class RoomModel {
     var chat: Chat? { provider.legacy }
     public var supportsFiles: Bool { provider.supportsFiles }
     public var supportsEditing: Bool { provider.supportsEditing }
+    public var supportsMarks: Bool { chat != nil || (provider.native?.supportedFeatures().contains("pins") == true && provider.native?.supportedFeatures().contains("stars") == true) }
     public var canAbandon: Bool { provider.native != nil }
     public private(set) var error: String?
     var active = true
@@ -201,6 +202,8 @@ public final class RoomModel {
             if rights.edit && unexpired && supportsEditing { result.append(.edit) }
             if rights.delete && provider.native?.supportedFeatures().contains("deletion") == true { result.append(.delete) }
             if rights.react && provider.native?.supportedFeatures().contains("reactions") == true { result.append(.react) }
+            if rights.pin && provider.native?.supportedFeatures().contains("pins") == true { result.append(message.pinned ? .unpin : .pin) }
+            if rights.star && provider.native?.supportedFeatures().contains("stars") == true { result.append(message.starred ? .unstar : .star) }
             return result
         }
         if let known = actionsOf[message.id] { return known }
@@ -285,11 +288,28 @@ public final class RoomModel {
     }
 
     public func pin(_ message: MessageItem, _ on: Bool) async throws {
+        if let native = provider.native {
+            guard active else { throw RvError.Local(message: L("native.error")) }
+            try await native.setMark(room: room.rid, messageId: message.id, present: on, starred: false)
+            reload(); return
+        }
         try await editableChat().pin(messageId: message.id, on: on)
     }
 
     public func star(_ message: MessageItem, _ on: Bool) async throws {
+        if let native = provider.native {
+            guard active else { throw RvError.Local(message: L("native.error")) }
+            try await native.setMark(room: room.rid, messageId: message.id, present: on, starred: true)
+            reload(); return
+        }
         try await editableChat().star(messageId: message.id, on: on)
+    }
+
+    /// The existing two-tab list, with the provider's account-scoped marks.
+    public func marked(starred: Bool) async throws -> [MessageItem] {
+        guard active else { return [] }
+        if let native = provider.native { return try await native.marked(room: room.rid, starred: starred) }
+        return try await editableChat().marked(rid: room.rid, starred: starred)
     }
 
     /// Puts a quote of the message at the start of the draft.

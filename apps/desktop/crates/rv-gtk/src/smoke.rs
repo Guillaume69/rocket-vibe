@@ -835,6 +835,29 @@ fn native_reaction_checks(chat: Rc<crate::chat::ChatPage>, text: String) {
                 usize::from(rendered),
             );
         }
+        for present in [true, false] {
+            let (s, room, target) = (session.clone(), rid.clone(), id.clone());
+            let result = crate::on_tokio(async move {
+                s.set_mark(&room, &target, present, true).await?;
+                s.marked(&room, true).await
+            })
+            .await;
+            let listed = result.is_ok_and(|messages| messages.iter().any(|m| m.id == id) == present);
+            check("native GTK private star list", listed, usize::from(listed));
+            let mut rendered = false;
+            for _ in 0..100 {
+                let row = chat.room_list().row(&id);
+                rendered = row.is_some_and(|r| {
+                    r.starred.as_deref().is_some_and(|uids| uids.split(',').any(|u| u == session.info.user_id))
+                        == present
+                });
+                if rendered {
+                    break;
+                }
+                glib::timeout_future(Duration::from_millis(20)).await;
+            }
+            check("native GTK private star projection", rendered, usize::from(rendered));
+        }
     });
 }
 

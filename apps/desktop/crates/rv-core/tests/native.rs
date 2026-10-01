@@ -115,6 +115,105 @@ async fn reaction_intentions_survive_restart_and_normalize_aliases_before_retryi
 }
 
 #[tokio::test]
+async fn pin_and_star_intentions_survive_restart_without_becoming_toggles() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    use std::time::Duration;
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../../docs/protocol/v1.fixture.json")).unwrap();
+    for starred in [false, true] {
+        let accepted = Arc::new(AtomicBool::new(false));
+        let permit = accepted.clone();
+        let responses = fixture.clone();
+        let server = FakeHttp::start(move |request| match request.path() {
+            "/.well-known/rocketvibe" => {
+                let mut discovery = responses["discovery"].clone();
+                discovery["capabilities"]["pins"] = json!(true);
+                discovery["capabilities"]["stars"] = json!(true);
+                respond(200, &discovery.to_string())
+            }
+            "/api/v1/me" => respond(200, &responses["session"]["user"].to_string()),
+            "/api/v1/sync/changes" => respond(
+                200,
+                &json!({"protocol_version":1,"changes":[],"cursor":"initial","has_more":false}).to_string(),
+            ),
+            "/api/v1/sync/ticket" => respond(200, &responses["socket_ticket"].to_string()),
+            "/api/v1/sync/socket" => common::Response { websocket: true, ..Default::default() },
+            "/api/v1/messages/message-id/pin" | "/api/v1/messages/message-id/star" if request.method == "PUT" => {
+                if !permit.load(Ordering::SeqCst) {
+                    return respond(503, r#"{"code":"response_lost","request_id":"mark-test"}"#);
+                }
+                let mut message = responses["message"].clone();
+                message["pinned"] = json!(!starred);
+                message["personal_star"] = json!({"present":starred,"revision":"9007199254740994"});
+                respond(200, &message.to_string())
+            }
+            _ => respond(404, r#"{"code":"not_found","request_id":"fake"}"#),
+        })
+        .await;
+        let identity = Identity {
+            instance_id: fixture["discovery"]["instance_id"].as_str().unwrap().into(),
+            data_epoch: fixture["discovery"]["data_epoch"].as_str().unwrap().into(),
+        };
+        let path = std::env::temp_dir().join(format!("rv-mark-{:032x}.sqlite", fastrand::u128(..)));
+        let store = native::store::NativeStore::open(&path, identity.clone()).unwrap();
+        store
+            .snapshot(&rv_protocol::Snapshot {
+                protocol_version: 1,
+                rooms: vec![serde_json::from_value(fixture["room"].clone()).unwrap()],
+                messages: vec![serde_json::from_value(fixture["message"].clone()).unwrap()],
+                cursor: "initial".into(),
+            })
+            .unwrap();
+        drop(store);
+        let info = SessionInfo {
+            base_url: server.url.as_str().into(),
+            user_id: "alice-id".into(),
+            username: "alice".into(),
+            auth_token: "fixture-token".into(),
+            native: Some(identity),
+        };
+        let session = native::NativeSession::start(info.clone(), &path).unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while session.status().connection != rv_core::session::Connection::Online {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(session.set_mark("room-id", "message-id", true, starred).await.is_err());
+        let command = session.store.pending_commands().unwrap().remove(0);
+        assert!(session.set_mark("room-id", "message-id", false, starred).await.is_err());
+        assert_eq!(session.store.pending_commands().unwrap()[0].id, command.id);
+        common::close_native(session).await;
+        accepted.store(true, Ordering::SeqCst);
+        let resumed = native::NativeSession::start(info, &path).unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !resumed.store.pending_commands().unwrap().is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let rendered = resumed.store.messages("room-id", 10).unwrap();
+        assert_eq!(rendered[0].pinned, !starred);
+        assert_eq!(rendered[0].starred, starred);
+        common::close_native(resumed).await;
+        let requests: Vec<_> = server
+            .requests()
+            .into_iter()
+            .filter(|r| r.method == "PUT")
+            .map(|r| serde_json::from_str::<serde_json::Value>(&r.body).unwrap())
+            .collect();
+        assert_eq!(requests.len(), 2);
+        assert!(requests.iter().all(|input| input["operation_id"] == command.id && input["present"] == true));
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[tokio::test]
 async fn message_commands_survive_restart_with_the_original_revision_and_reject_closed_sessions() {
     use std::sync::{
         Arc,

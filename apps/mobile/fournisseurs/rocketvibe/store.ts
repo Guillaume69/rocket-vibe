@@ -22,7 +22,7 @@ export type NativeState = { instance_id: string; data_epoch: string; cursor: str
 export type NativeRoomRow = { rid: string; nom: string; type: string; dernier_message: string | null };
 export type NativeMessageRow = { id: string; texte: string; auteur_nom: string; auteur_id: string; horodatage: number; statut: string | null };
 export type NativePending = { id: string; rid: string; texte: string };
-export type NativeCommand = {id:string;rid:string;message_id:string;kind:'edit'|'delete'|'react';expected_revision:string;text:string};
+export type NativeCommand = {id:string;rid:string;message_id:string;kind:'edit'|'delete'|'react'|'pin'|'star';expected_revision:string;text:string};
 
 /** Projection consumed by the existing message renderer and action sheet. */
 export function nativeReactions(reactions: Message['reactions']): string|null {
@@ -31,7 +31,7 @@ export function nativeReactions(reactions: Message['reactions']): string|null {
   ]))) : null;
 }
 
-export function localMessage(message: Message): MessageLocal {
+export function localMessage(message: Message, selfId?: string): MessageLocal {
   const time = Date.parse(message.created_at);
   const edited=message.edited_at==null?null:Date.parse(message.edited_at);
   if ((edited!==null && !Number.isFinite(edited)) || (message.deleted && message.text!=='')) throw new Error('Invalid native message state');
@@ -41,7 +41,8 @@ export function localMessage(message: Message): MessageLocal {
     auteurId: message.author.id, auteurNom: message.author.username, typeSysteme: null,
     filId: null, filReponses: 0, filDernier: null, filAffiche: false, modifieLe: edited,
     md: null, piecesJointes: null, reactions: nativeReactions(message.reactions), urls: null, appelId: null,
-    chiffreBrut: null, epingle: false, etoiles: null, misAJourLe: time,
+    chiffreBrut: null, epingle: message.pinned ?? false,
+    etoiles: message.personal_star?.present && selfId ? JSON.stringify([selfId]) : null, misAJourLe: time,
   };
 }
 
@@ -73,7 +74,7 @@ export class NativeStore {
   prepare(): Promise<void> {
     return this.atomic(async () => {
       if (await this.sameGeneration()) return;
-      for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs','native_room_creations','native_commands']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+      for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs','native_room_creations','native_commands','native_star_states']) await this.db.runAsync(`DELETE FROM ${table}`, []);
     });
   }
   drafts(): DepotBrouillons {
@@ -116,16 +117,34 @@ export class NativeStore {
     // An HTTP echo/history response may arrive after a committed room_removed.
     if (!await this.db.getFirstAsync('SELECT rid FROM salons WHERE rid=?', [message.room_id])) return;
     const existing = await this.db.getFirstAsync<{revision: string}>('SELECT revision FROM native_positions WHERE id=?', [message.id]);
-    if (existing && BigInt(existing.revision) > BigInt(message.revision)) return;
-    const local = localMessage(message);
-    if (message.deleted) await this.db.runAsync('DELETE FROM messages WHERE id=?',[message.id]);
-    else await this.db.runAsync(NATIVE_UPSERT_MESSAGE, paramsMessage(local));
+    const publicFresh=!existing || BigInt(existing.revision)<=BigInt(message.revision);
+    if (!publicFresh && !await this.db.getFirstAsync('SELECT id FROM messages WHERE id=?',[message.id])) return;
+    let personal=await this.db.getFirstAsync<{revision:string;present:number}>('SELECT revision,present FROM native_star_states WHERE id=?',[message.id]);
+    if (!message.deleted && message.personal_star) {
+      const next=message.personal_star;
+      if (!/^(0|[1-9]\d*)$/.test(next.revision)) throw new Error('Invalid personal revision');
+      if (!personal || BigInt(next.revision)>=BigInt(personal.revision)) {
+        await this.db.runAsync('INSERT INTO native_star_states(id,rid,revision,present) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,present=excluded.present',[message.id,message.room_id,next.revision,Number(next.present)]);
+        personal={revision:next.revision,present:Number(next.present)};
+      }
+    }
+    const stars=personal?.present?JSON.stringify([this.session.userId]):null;
+    if (!publicFresh) {
+      await this.db.runAsync('UPDATE messages SET etoiles=? WHERE id=?',[stars,message.id]);
+      return;
+    }
+    const local = localMessage(message,this.session.userId);
+    local.etoiles=stars;
+    if (message.deleted) {
+      await this.db.runAsync('DELETE FROM messages WHERE id=?',[message.id]);
+      await this.db.runAsync('DELETE FROM native_star_states WHERE id=?',[message.id]);
+    } else await this.db.runAsync(NATIVE_UPSERT_MESSAGE, paramsMessage(local));
     await this.db.runAsync('INSERT INTO native_positions(id,rid,position,revision) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET position=excluded.position,revision=excluded.revision', [message.id, message.room_id, message.position, message.revision]);
     await this.db.runAsync(SUPPRIMER_SORTIE, [message.id]);
     await this.preview(message.room_id);
   }
   private async remove(rid: string): Promise<void> {
-    for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'native_positions','native_commands']) await this.db.runAsync(`DELETE FROM ${table} WHERE rid=?`, [rid]);
+    for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'native_positions','native_commands','native_star_states']) await this.db.runAsync(`DELETE FROM ${table} WHERE rid=?`, [rid]);
     await this.db.runAsync(SUPPRIMER_BROUILLONS_SALON, [rid]);
     await this.db.runAsync("DELETE FROM etat_synchro WHERE portee=?", [rid]);
   }
@@ -134,13 +153,14 @@ export class NativeStore {
       const old = await this.db.getFirstAsync<NativeState>('SELECT instance_id,data_epoch,cursor FROM native_sync_state WHERE singleton=1', []);
       if (!old || old.instance_id !== this.session.nativeInstanceId || old.data_epoch !== this.session.nativeDataEpoch) {
         // A fresh login to a different generation must never replay its predecessor's outbox.
-        for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'brouillons', 'native_positions', 'etat_synchro', 'utilisateurs', 'native_room_creations','native_commands']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+        for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'brouillons', 'native_positions', 'etat_synchro', 'utilisateurs', 'native_room_creations','native_commands','native_star_states']) await this.db.runAsync(`DELETE FROM ${table}`, []);
       } else {
         const live = new Set(snapshot.rooms.map(room => room.id));
         const known = await this.db.getAllAsync<{rid:string}>('SELECT rid FROM salons', []);
         for (const {rid} of known) if (!live.has(rid)) await this.remove(rid);
         await this.db.runAsync('DELETE FROM messages WHERE id IN (SELECT id FROM native_positions)',[]);
         await this.db.runAsync('DELETE FROM native_positions',[]);
+        await this.db.runAsync('DELETE FROM native_star_states',[]);
       }
       for (const room of snapshot.rooms) await this.room(room);
       for (const message of snapshot.messages) await this.message(message);
@@ -201,7 +221,7 @@ export class NativeStore {
     return this.queue(async () => {
       if (!await this.sameGeneration()) return [];
       const commands=await this.db.getAllAsync<NativeCommand>("SELECT id,rid,message_id,kind,expected_revision,text FROM native_commands WHERE state='pending' ORDER BY rowid",[]);
-      if (commands.some(c => c.kind!=='edit' && c.kind!=='delete' && c.kind!=='react')) throw new Error('Invalid native command');
+      if (commands.some(c => !['edit','delete','react','pin','star'].includes(c.kind))) throw new Error('Invalid native command');
       return commands;
     });
   }

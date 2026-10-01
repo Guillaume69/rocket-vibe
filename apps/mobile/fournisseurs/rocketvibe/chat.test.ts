@@ -53,6 +53,75 @@ test('a persisted reaction retries one canonical intention after process restart
   } finally {chat.stop();await store.state();h.db.close();rmSync(directory,{recursive:true,force:true});}
 });
 
+test('pin and private star commands retain their IDs and explicit state through a SQLite restart',async () => {
+  const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',genre:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  for (const starred of [false,true]) {
+    const directory=mkdtempSync(join(tmpdir(),'rv-mark-command-'));
+    const filename=join(directory,'account.sqlite');
+    let h=nativeTestDatabase(filename);
+    let store=new NativeStore(h.adapter,creerFileEcritures(),session);
+    await store.applySnapshot({protocol_version:1,rooms:[fixture.room],messages:[fixture.message],cursor:'initial'});
+    let accepted=false; let ids=0;
+    const calls:{operation_id:string;present:boolean;starred:boolean}[]=[];
+    const transport={
+      discover:async()=>({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,pins:true,stars:true}}),me:async()=>fixture.session.user,
+      changes:async()=>({protocol_version:1,changes:[],cursor:'initial',has_more:false}),socketUrl:async()=>'ws://localhost/fake',
+      setMark:async(_:string,input:{operation_id:string;present:boolean},privateMark:boolean)=>{
+        calls.push({...input,starred:privateMark});
+        if (!accepted) throw new NativeError(503,'response_lost');
+        return {...fixture.message,pinned:!privateMark,personal_star:{present:privateMark,revision:'9007199254740994'}};
+      },
+    } as unknown as NativeTransport;
+    const makeChat=()=>new NativeChat(session,store,()=>`mark-${++ids}`,{transport,socket:()=>{
+      const socket={readyState:0,onopen:null,onclose:null,onerror:null,onmessage:null,close:()=>{}} as unknown as WebSocket;
+      queueMicrotask(()=>socket.onopen?.(new Event('open')));return socket;
+    }});
+    let chat=makeChat();
+    try {
+      await chat.connect();
+      await assert.rejects(chat.setMark(fixture.room.id,fixture.message.id,true,starred),/response_lost/);
+      await assert.rejects(chat.setMark(fixture.room.id,fixture.message.id,false,starred),/message_action_pending/);
+      chat.stop();await store.state();h.db.close();
+      h=nativeTestDatabase(filename,false);store=new NativeStore(h.adapter,creerFileEcritures(),session);
+      accepted=true;chat=makeChat();await chat.connect();
+      assert.deepEqual(await store.pendingCommands(),[]);assert.equal(ids,1);
+      assert.equal(calls.length,2);
+      assert(calls.every(c=>c.operation_id==='mark-1' && c.present && c.starred===starred));
+      const message=h.db.prepare('SELECT epingle, etoiles FROM messages WHERE id=?').get(fixture.message.id)!;
+      assert.equal(Boolean(message.epingle),!starred);
+      assert.equal(Boolean(message.etoiles),starred);
+    } finally {chat.stop();await store.state();h.db.close();rmSync(directory,{recursive:true,force:true});}
+  }
+});
+
+test('marked lists paginate before committing and reject corrupt pages without updating the projection',async () => {
+  const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',genre:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const {db,adapter}=nativeTestDatabase();const store=new NativeStore(adapter,creerFileEcritures(),session);
+  await store.applySnapshot({protocol_version:1,rooms:[fixture.room],messages:[],cursor:'initial'});
+  let corrupt=false;const cursors:(string|undefined)[]=[];
+  const transport={
+    discover:async()=>({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,pins:true,stars:true}}),me:async()=>fixture.session.user,
+    changes:async()=>({protocol_version:1,changes:[],cursor:'initial',has_more:false}),socketUrl:async()=>'ws://localhost/fake',
+    marked:async(_:string,starred:boolean,before?:string)=>{
+      cursors.push(before);
+      const position=before?'1':'2';
+      return {messages:[{...fixture.message,id:`${corrupt?'bad':'good'}-${position}`,position,revision:position,room_id:corrupt && before?'another-room':fixture.room.id,pinned:!starred,personal_star:{present:starred,revision:position}}],has_more:!before};
+    },
+  } as unknown as NativeTransport;
+  const chat=new NativeChat(session,store,()=>{throw new Error('No command expected');},{transport,socket:()=>{
+    const socket={readyState:0,onopen:null,onclose:null,onerror:null,onmessage:null,close:()=>{}} as unknown as WebSocket;
+    queueMicrotask(()=>socket.onopen?.(new Event('open')));return socket;
+  }});
+  try {
+    await chat.connect();assert.deepEqual((await chat.marked(fixture.room.id,true)).map(m=>m.id),['good-2','good-1']);
+    assert.deepEqual(cursors,[undefined,'2']);
+    corrupt=true;await assert.rejects(chat.marked(fixture.room.id,false),/invalid_message_page/);
+    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM messages WHERE id LIKE 'bad-%'").get()!.n,0);
+  } finally {chat.stop();await store.state();db.close();}
+});
+
 test('a session rejected before socket opening closes the retained provider without queuing stale sends',async () => {
   const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
   const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',genre:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};

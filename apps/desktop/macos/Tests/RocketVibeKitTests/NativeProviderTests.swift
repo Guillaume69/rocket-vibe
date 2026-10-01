@@ -54,6 +54,21 @@ final class NativeProviderTests: XCTestCase {
         await room.react(reacted, shortcode: ":thumbsup:", add: false)
         try await until { room.messages.first { $0.id == message.id }?.reactions.isEmpty == true }
         XCTAssertTrue(room.supportsEditing)
+        XCTAssertTrue(room.supportsMarks)
+        try await room.pin(message, true)
+        try await room.star(message, true)
+        try await until { room.messages.first { $0.id == message.id }?.pinned == true }
+        let pins = try await room.marked(starred: false)
+        let stars = try await room.marked(starred: true)
+        XCTAssertEqual(pins.map(\.id), [message.id])
+        XCTAssertEqual(stars.map(\.id), [message.id])
+        XCTAssertTrue(stars[0].starred)
+        try await room.star(stars[0], false)
+        try await room.pin(pins[0], false)
+        let emptyPins = try await room.marked(starred: false)
+        let emptyStars = try await room.marked(starred: true)
+        XCTAssertTrue(emptyPins.isEmpty)
+        XCTAssertTrue(emptyStars.isEmpty)
         try await room.prepareMutation(message, editing: true)
         try await room.edit(message, text: "Swift native edited")
         try await until { room.messages.contains { $0.id == message.id && $0.text == "Swift native edited" } }

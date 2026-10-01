@@ -26,6 +26,8 @@ pub struct NativeMessageActions {
     pub edit: bool,
     pub delete: bool,
     pub react: bool,
+    pub pin: bool,
+    pub star: bool,
     pub edit_until: Option<String>,
     pub draft: Option<String>,
 }
@@ -280,6 +282,8 @@ impl NativeChat {
             edit: rights.edit,
             delete: rights.delete,
             react: rights.react,
+            pin: rights.pin,
+            star: rights.star,
             edit_until: rights.edit_until,
             draft,
         })
@@ -299,6 +303,23 @@ impl NativeChat {
     pub async fn create_room(&self, name: String, private: bool) -> Result<String, RvError> {
         let s = self.session.clone();
         on_tokio(async move { s.create_room(&name, private).await }).await.map_err(RvError::local)
+    }
+    pub async fn set_mark(
+        &self,
+        room: String,
+        message_id: String,
+        present: bool,
+        starred: bool,
+    ) -> Result<(), RvError> {
+        let s = self.session.clone();
+        on_tokio(async move { s.set_mark(&room, &message_id, present, starred).await }).await.map_err(native_error)
+    }
+    pub async fn marked(&self, room: String, starred: bool) -> Result<Vec<MessageItem>, RvError> {
+        let (s, rid) = (self.session.clone(), room.clone());
+        let messages = on_tokio(async move { s.marked(&rid, starred).await }).await.map_err(native_error)?;
+        let ids: Vec<_> = messages.into_iter().map(|m| m.id).collect();
+        let rows = self.session.store.selected_messages(&ids).map_err(RvError::local)?;
+        Ok(native_message_items(rows, &room, &self.session.info.user_id, &self.session.info.username))
     }
     pub async fn direct(&self, username: String) -> Result<String, RvError> {
         let s = self.session.clone();
@@ -345,6 +366,8 @@ fn native_message_items(
             ts: row.ts,
             edited: row.edited,
             reactions: row.reactions,
+            pinned: row.pinned,
+            starred: row.starred.then(|| uid.into()),
             text: Some(row.text),
             author: Some(row.author),
             author_id: if row.status.is_some() { uid.into() } else { row.author_id },
@@ -376,6 +399,8 @@ mod tests {
             status,
             edited: false,
             reactions: None,
+            pinned: false,
+            starred: false,
         };
         let items = native_message_items(
             vec![

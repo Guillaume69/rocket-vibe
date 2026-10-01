@@ -112,12 +112,15 @@ async fn materialize(app: &App, user: &Account, id: &str) -> Result<String> {
         let query =
             format!("{MESSAGE_SELECT} WHERE m.room_id=$1 ORDER BY m.position DESC LIMIT 50");
         // At most 50 bounded messages in memory, plus one output page.
-        for message in sqlx::query_as::<_, MessageRow>(&query)
+        let mut window: Vec<_> = sqlx::query_as::<_, MessageRow>(&query)
             .bind(room)
             .fetch_all(&mut *tx)
             .await?
-        {
-            let message = message.wire();
+            .into_iter()
+            .map(MessageRow::wire)
+            .collect();
+        crate::marks::personalize(&mut tx, &user.id, &mut window).await?;
+        for message in window {
             let size = serde_json::to_vec(&message)
                 .map_err(|_| Error::internal())?
                 .len()

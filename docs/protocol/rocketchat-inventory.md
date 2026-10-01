@@ -151,7 +151,7 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/crates/rv-core/src/uploads.rs:352](../../apps/desktop/crates/rv-core/src/uploads.rs#L352) | endpoint | rooms.mediaConfirm/{…}/{…} |
 | [apps/desktop/crates/rv-core/src/uploads.rs:372](../../apps/desktop/crates/rv-core/src/uploads.rs#L372) | call:UPLOAD | &format!("rooms.media/{…}", task_row.rid), |
 | [apps/desktop/crates/rv-core/src/uploads.rs:374](../../apps/desktop/crates/rv-core/src/uploads.rs#L374) | endpoint | rooms.media/{…} |
-| [apps/desktop/crates/rv-gtk/src/chat_native.rs:458](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L458) | endpoint | rooms.new |
+| [apps/desktop/crates/rv-gtk/src/chat_native.rs:508](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L508) | endpoint | rooms.new |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:79](../../apps/desktop/crates/rv-gtk/src/chat.rs#L79) | endpoint | rooms.favorite_add |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:79](../../apps/desktop/crates/rv-gtk/src/chat.rs#L79) | endpoint | rooms.favorite_remove |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:217](../../apps/desktop/crates/rv-gtk/src/chat.rs#L217) | endpoint | rooms.offline |
@@ -160,14 +160,14 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/crates/rv-gtk/src/chat.rs:240](../../apps/desktop/crates/rv-gtk/src/chat.rs#L240) | endpoint | rooms.new |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:328](../../apps/desktop/crates/rv-gtk/src/chat.rs#L328) | endpoint | e2e.banner |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:330](../../apps/desktop/crates/rv-gtk/src/chat.rs#L330) | endpoint | e2e.unlock |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1084](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1084) | endpoint | rooms.online |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1085](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1085) | endpoint | rooms.connecting |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1086](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1086) | endpoint | rooms.offline |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1450](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1450) | endpoint | rooms.section_unread |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1451](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1451) | endpoint | rooms.section_favorites |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1452](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1452) | endpoint | rooms.section_channels |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1453](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1453) | endpoint | rooms.section_direct |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1550](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1550) | endpoint | e2e.read_only |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1095](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1095) | endpoint | rooms.online |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1096](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1096) | endpoint | rooms.connecting |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1097](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1097) | endpoint | rooms.offline |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1461](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1461) | endpoint | rooms.section_unread |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1462](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1462) | endpoint | rooms.section_favorites |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1463](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1463) | endpoint | rooms.section_channels |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1464](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1464) | endpoint | rooms.section_direct |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1561](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1561) | endpoint | e2e.read_only |
 | [apps/desktop/crates/rv-gtk/src/login.rs:81](../../apps/desktop/crates/rv-gtk/src/login.rs#L81) | endpoint | chat.example.com |
 | [apps/desktop/crates/rv-gtk/src/notifier.rs:259](../../apps/desktop/crates/rv-gtk/src/notifier.rs#L259) | endpoint | im.received |
 | [apps/desktop/crates/rv-gtk/src/rows.rs:300](../../apps/desktop/crates/rv-gtk/src/rows.rs#L300) | endpoint | rooms.encrypted |

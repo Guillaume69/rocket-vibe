@@ -13,6 +13,34 @@ use crate::i18n::t;
 use crate::on_tokio;
 use crate::rows::{label, local};
 
+#[derive(Clone)]
+enum Provider {
+    RocketChat(Arc<Session>),
+    RocketVibe(Arc<rv_core::native::NativeSession>),
+}
+impl Provider {
+    fn username(&self) -> String {
+        match self {
+            Self::RocketChat(s) => s.info.username.clone(),
+            Self::RocketVibe(s) => s.info.username.clone(),
+        }
+    }
+    async fn rows(self, rid: String, starred: bool) -> Result<Vec<MessageRow>, ()> {
+        match self {
+            Self::RocketChat(s) => s.marked(&rid, starred).await.map_err(|_| ()),
+            Self::RocketVibe(s) => {
+                let ids = s.marked(&rid, starred).await.map_err(|_| ())?.into_iter().map(|m| m.id).collect::<Vec<_>>();
+                Ok(s.store
+                    .selected_messages(&ids)
+                    .map_err(|_| ())?
+                    .into_iter()
+                    .map(|r| r.presentation(&rid, &s.info.user_id))
+                    .collect())
+            }
+        }
+    }
+}
+
 fn entry(row: &MessageRow, me: &str) -> gtk::Widget {
     let column =
         gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(2).css_classes(["marked-row"]).build();
@@ -29,7 +57,7 @@ fn entry(row: &MessageRow, me: &str) -> gtk::Widget {
     column.upcast()
 }
 
-fn page(session: &Arc<Session>, rid: &str, starred: bool, go: Rc<dyn Fn(String)>) -> gtk::Widget {
+fn page(session: &Provider, rid: &str, starred: bool, go: Rc<dyn Fn(String)>) -> gtk::Widget {
     let stack = gtk::Stack::new();
     stack.add_named(&adw::Spinner::builder().width_request(32).height_request(32).build(), Some("loading"));
     let list = gtk::ListBox::builder()
@@ -48,14 +76,14 @@ fn page(session: &Arc<Session>, rid: &str, starred: bool, go: Rc<dyn Fn(String)>
     let failed = adw::StatusPage::builder().icon_name("dialog-warning-symbolic").title(t("info.failed")).build();
     stack.add_named(&failed, Some("failed"));
 
-    let (s, r, me) = (session.clone(), rid.to_owned(), session.info.username.clone());
+    let (s, r, me) = (session.clone(), rid.to_owned(), session.username());
     glib::spawn_future_local(glib::clone!(
         #[weak]
         stack,
         #[weak]
         list,
         async move {
-            let rows = on_tokio(async move { s.marked(&r, starred).await }).await;
+            let rows = on_tokio(async move { s.rows(r, starred).await }).await;
             match rows {
                 Ok(rows) if rows.is_empty() => stack.set_visible_child_name("empty"),
                 Ok(rows) => {
@@ -79,6 +107,17 @@ fn page(session: &Arc<Session>, rid: &str, starred: bool, go: Rc<dyn Fn(String)>
 }
 
 pub fn open(parent: &impl IsA<gtk::Widget>, session: Arc<Session>, rid: &str, go: impl Fn(String) + 'static) {
+    open_provider(parent, Provider::RocketChat(session), rid, go);
+}
+pub fn open_native(
+    parent: &impl IsA<gtk::Widget>,
+    session: Arc<rv_core::native::NativeSession>,
+    rid: &str,
+    go: impl Fn(String) + 'static,
+) {
+    open_provider(parent, Provider::RocketVibe(session), rid, go);
+}
+fn open_provider(parent: &impl IsA<gtk::Widget>, session: Provider, rid: &str, go: impl Fn(String) + 'static) {
     let dialog = adw::Dialog::builder().title(t("marked.title")).content_width(440).content_height(560).build();
     let weak = dialog.downgrade();
     let go: Rc<dyn Fn(String)> = Rc::new(move |id| {

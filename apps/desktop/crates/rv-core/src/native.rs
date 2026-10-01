@@ -311,6 +311,8 @@ impl NativeSession {
                     editing: true,
                     deletion: true,
                     reactions: true,
+                    pins: true,
+                    stars: true,
                     fine_permissions: true,
                     ..Default::default()
                 })
@@ -509,14 +511,84 @@ impl NativeSession {
         }
         result
     }
+    pub async fn set_mark(&self, rid: &str, id: &str, present: bool, starred: bool) -> Result<(), Error> {
+        self.submit_command(
+            rid,
+            id,
+            "0",
+            if starred { store::MessageCommandKind::Star } else { store::MessageCommandKind::Pin },
+            if present { "true" } else { "false" },
+        )
+        .await
+    }
+    pub async fn marked(&self, rid: &str, starred: bool) -> Result<Vec<rv_protocol::Message>, Error> {
+        self.ready()?;
+        if !self.supported_features().iter().any(|f| f == if starred { "stars" } else { "pins" }) {
+            return Err(Error::Protocol("unsupported_feature"));
+        }
+        let token = self.store.projection_token();
+        let mut messages = Vec::new();
+        let mut before: Option<String> = None;
+        for _ in 0..100 {
+            let page = self.client.marked(rid, starred, before.as_deref()).await?;
+            self.ready()?;
+            if page.messages.len() > 100
+                || page.messages.iter().any(|m| {
+                    m.room_id != rid
+                        || m.deleted
+                        || if starred { m.personal_star.as_ref().is_none_or(|s| !s.present) } else { !m.pinned }
+                })
+            {
+                return Err(Error::Protocol("invalid_message_page"));
+            }
+            let mut previous = before
+                .as_deref()
+                .map(str::parse::<u64>)
+                .transpose()
+                .map_err(|_| Error::Protocol("invalid_message_page"))?;
+            for message in &page.messages {
+                let position = message
+                    .position
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|n| n.to_string() == message.position)
+                    .ok_or(Error::Protocol("invalid_message_page"))?;
+                if previous.is_some_and(|p| position >= p) {
+                    return Err(Error::Protocol("invalid_message_page"));
+                }
+                previous = Some(position);
+            }
+            let next = page.messages.last().map(|m| m.position.clone());
+            if page.has_more
+                && next.as_deref().is_none_or(|next| {
+                    before.as_deref().is_some_and(|old| next.parse::<u64>().ok() >= old.parse::<u64>().ok())
+                })
+            {
+                return Err(Error::Protocol("invalid_message_page"));
+            }
+            let has_more = page.has_more;
+            messages.extend(page.messages);
+            if !has_more {
+                if !self.store.ingest_at(&messages, token)? {
+                    return Err(Error::Protocol("delivery_revalidate"));
+                }
+                let _ = self.events.send(());
+                return Ok(messages);
+            }
+            before = next;
+        }
+        Err(Error::Protocol("message_list_limit"))
+    }
     async fn apply_command(&self, command: &store::PendingCommand) -> Result<(), Error> {
-        use rv_protocol::parity::{DeleteMessage, EditMessage, MessageContent, SetReaction};
+        use rv_protocol::parity::{DeleteMessage, EditMessage, MessageContent, SetMark, SetReaction};
         let _guard = self.command_lock.lock().await;
         self.ready()?;
         let supported = self.capabilities.lock().unwrap().as_ref().is_some_and(|c| match command.kind {
             store::MessageCommandKind::Edit => c.editing,
             store::MessageCommandKind::Delete => c.deletion,
             store::MessageCommandKind::React => c.reactions,
+            store::MessageCommandKind::Pin => c.pins,
+            store::MessageCommandKind::Star => c.stars,
         });
         if !supported {
             return Err(Error::Protocol("unsupported_feature"));
@@ -558,6 +630,17 @@ impl NativeSession {
                     .set_reaction(
                         &command.message_id,
                         &SetReaction { operation_id: command.id.clone(), emoji: intent.emoji, present: intent.present },
+                    )
+                    .await?
+            }
+            store::MessageCommandKind::Pin | store::MessageCommandKind::Star => {
+                let present: bool =
+                    serde_json::from_str(&command.text).map_err(|_| Error::Protocol("invalid_message_action"))?;
+                self.client
+                    .set_mark(
+                        &command.message_id,
+                        &SetMark { operation_id: command.id.clone(), present },
+                        command.kind == store::MessageCommandKind::Star,
                     )
                     .await?
             }

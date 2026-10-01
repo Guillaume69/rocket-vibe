@@ -189,6 +189,38 @@ export class NativeChat {
     if (!emoji) throw new NativeError(422,'unknown_emoji');
     return this.submitCommand(rid,id,'0','react',JSON.stringify({emoji,present}));
   }
+  async setMark(rid:string,id:string,present:boolean,starred:boolean):Promise<void> {
+    return this.submitCommand(rid,id,'0',starred?'star':'pin',JSON.stringify(present));
+  }
+  async marked(rid:string,starred:boolean):Promise<import('./protocol.generated.ts').Message[]> {
+    this.ready();
+    if (!(starred?this.capabilities?.stars:this.capabilities?.pins)) throw new NativeError(501,'unsupported_feature');
+    const generation=this.generation;
+    const token=this.store.projectionToken();
+    const messages:import('./protocol.generated.ts').Message[]=[];
+    let before:string|undefined;
+    for (let pageIndex=0;pageIndex<100;pageIndex++) {
+      const page=await this.transport.marked(rid,starred,before);
+      if (this.stopped || this.generation!==generation) throw new NativeError(0,'session_closed');
+      if (page.messages.length>100 || page.messages.some(m=>m.room_id!==rid || m.deleted || (starred?!m.personal_star?.present:!m.pinned))) throw new NativeError(502,'invalid_message_page');
+      let previous=before===undefined?null:BigInt(before);
+      for (const message of page.messages) {
+        if (!/^(0|[1-9]\d*)$/.test(message.position)) throw new NativeError(502,'invalid_message_page');
+        const position=BigInt(message.position);
+        if (previous!==null && position>=previous) throw new NativeError(502,'invalid_message_page');
+        previous=position;
+      }
+      const next=page.messages.at(-1)?.position;
+      if (page.has_more && (!next || (before!==undefined && BigInt(next)>=BigInt(before)))) throw new NativeError(502,'invalid_message_page');
+      messages.push(...page.messages);
+      if (!page.has_more) {
+        if (!await this.store.ingest(messages,token)) throw new NativeError(409,'delivery_revalidate');
+        this.notify(); return messages;
+      }
+      before=next;
+    }
+    throw new NativeError(422,'message_list_limit');
+  }
   private async submitCommand(rid: string,id: string,revision: string,kind: NativeCommand['kind'],text: string): Promise<void> {
     this.ready();
     const command=await this.store.command(rid,id,revision,kind,text,this.id);
@@ -199,13 +231,16 @@ export class NativeChat {
   private async applyCommand(command: NativeCommand): Promise<void> {
     const operation=this.commands.then(async () => {
       this.ready();
-      const supported=command.kind==='edit'?this.capabilities?.editing:command.kind==='delete'?this.capabilities?.deletion:this.capabilities?.reactions;
+      const supported=command.kind==='edit'?this.capabilities?.editing:command.kind==='delete'?this.capabilities?.deletion:command.kind==='pin'?this.capabilities?.pins:command.kind==='star'?this.capabilities?.stars:this.capabilities?.reactions;
       if (!supported) throw new NativeError(501,'unsupported_feature');
       const generation=this.generation;
       const projection=this.store.projectionToken();
       const input={operation_id:command.id,expected_revision:command.expected_revision};
       const reaction=command.kind==='react'?reactionIntent(command.text):null;
-      const message=reaction
+      const mark=command.kind==='pin' || command.kind==='star'?markIntent(command.text):null;
+      const message=mark!==null
+        ? await this.transport.setMark(command.message_id,{operation_id:command.id,present:mark},command.kind==='star')
+        : reaction
         ? await this.transport.setReaction(command.message_id,{operation_id:command.id,...reaction})
         : command.kind==='edit'
         ? await this.transport.editMessage(command.message_id,{...input,content:{kind:'plain',markdown:command.text,mentions:[],quotes:[],files:[]}})
@@ -365,6 +400,11 @@ function reactionIntent(text:string):{emoji:string;present:boolean} {
     const value=JSON.parse(text);
     if (value && typeof value.emoji==='string' && typeof value.present==='boolean' && Object.keys(value).length===2 && canonicalEmoji(value.emoji)) return value;
   } catch { /* Invalid persisted input is quarantined, never retried in a loop. */ }
+  throw new NativeError(422,'invalid_message_action');
+}
+
+function markIntent(text:string):boolean {
+  try {const value=JSON.parse(text);if (typeof value==='boolean') return value;} catch { /* Reject corrupt persisted input. */ }
   throw new NativeError(422,'invalid_message_action');
 }
 

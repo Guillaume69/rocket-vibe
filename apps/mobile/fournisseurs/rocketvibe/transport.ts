@@ -6,12 +6,14 @@ export class NativeError extends Error {
   readonly status: number;
   readonly code: string;
   readonly retryAfter: number | undefined;
-  constructor(status: number, code: string, retryAfter?: number) {
+  readonly requestId: string | undefined;
+  constructor(status: number, code: string, retryAfter?: number, requestId?: string) {
     super(code);
     this.name = 'NativeError';
     this.status = status;
     this.code = code;
     this.retryAfter = retryAfter;
+    this.requestId = requestId;
   }
 }
 
@@ -54,7 +56,7 @@ export class NativeTransport {
       const header = response.headers.get('retry-after');
       const retry = Math.min(300,Math.max(1,header && /^\d+$/.test(header) ? Number(header) : 1));
       if (response.status === 429 && budget !== null) this.cooldowns.set(budget,{until:Date.now()+retry*1000,code:error.code});
-      throw new NativeError(response.status, error.code, response.status === 429 ? retry : undefined);
+      throw new NativeError(response.status, error.code, response.status === 429 ? retry : undefined, error.request_id);
     }
       return response.status === 204 ? undefined : await response.json();
     } catch (error) {

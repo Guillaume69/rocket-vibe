@@ -2,7 +2,7 @@ import { nativeSchema, type NativeTypes } from './protocol.generated.ts';
 
 type Schema = {
   $ref?: string;
-  type?: string;
+  type?: string | readonly string[];
   const?: unknown;
   enum?: readonly unknown[];
   anyOf?: readonly Schema[];
@@ -16,6 +16,7 @@ type Schema = {
 const definitions: Readonly<Record<string, Schema>> = nativeSchema.$defs;
 
 function valid(schema: Schema, value: unknown): boolean {
+  if (Array.isArray(schema.type)) return schema.type.some(type => valid({...schema,type},value));
   if (schema.$ref) return valid(definitions[schema.$ref.split('/').at(-1) ?? ''] ?? {}, value);
   if ('const' in schema && value !== schema.const) return false;
   if (schema.enum && !schema.enum.includes(value)) return false;

@@ -7,6 +7,7 @@
  */
 
 import type { Session } from '../../lib/auth.ts';
+import { decrireErreurFournisseur } from '../../lib/erreurFournisseur.ts';
 import { ClientDdp } from '../../lib/ddp.ts';
 import { MoteurEnvoi } from '../../lib/envoi.ts';
 import { MoteurTeleversement } from '../../lib/envoiFichiers.ts';
@@ -42,6 +43,8 @@ export function creerFournisseurRC(
   const actions = new ActionsRC(client);
 
   return {
+    identite:{genre:'rocketchat',origine:session.baseUrl,compteId:session.userId,instanceId:null,generation:null},
+    decrireErreur:decrireErreurFournisseur,
     capacites: CAPACITES_ROCKETCHAT,
     listener,
     traducteur,

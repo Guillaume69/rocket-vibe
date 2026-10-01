@@ -7,6 +7,7 @@ const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
 const definitions = schema.$defs;
 
 function typeOf(node) {
+  if (Array.isArray(node.type)) return node.type.map(type => typeOf({...node,type})).join(' | ');
   if (node.$ref) return node.$ref.split('/').at(-1);
   if ('const' in node) return JSON.stringify(node.const);
   if (node.enum) return node.enum.map(v => JSON.stringify(v)).join(' | ');

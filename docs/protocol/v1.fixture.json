@@ -32,5 +32,26 @@
   "snapshot": { "protocol_version": 1, "rooms": [], "messages": [], "cursor": "opaque-fixture" },
   "sync_batch": { "protocol_version": 1, "changes": [{ "type": "room_removed", "data": { "room_id": "room-id" } }], "cursor": "opaque-fixture", "has_more": false },
   "socket_ticket": { "ticket": "fixture-ticket", "expires_at": "2026-09-30T12:00:30+00:00" },
-  "error": { "code": "session_rejected", "request_id": "fixture-request" }
+  "error": { "code": "session_rejected", "request_id": "fixture-request" },
+  "parity": {
+    "auth_challenge": { "challenge_id": "fixture-challenge", "methods": ["totp", "email", "recovery_code"], "expires_at": "2026-10-01T12:05:00Z", "resend_after_seconds": 30 },
+    "verify_factor": { "challenge_id": "fixture-challenge", "method": "totp", "code": "123456" },
+    "account_permissions": { "create_public_room": true, "create_private_room": true, "manage_accounts": false, "manage_instance": false },
+    "room_permissions": { "room_id": "room-id", "revision": "9007199254740993", "role": "member", "read": true, "send": true, "invite": false, "remove_member": false, "change_settings": false, "pin": false, "upload": true, "start_call": false },
+    "message_permissions": { "message_id": "message-id", "revision": "9007199254740993", "edit": true, "delete": true, "react": true, "pin": false, "star": true, "edit_until": "2026-10-01T12:15:00Z" },
+    "read_state": { "room_id": "room-id", "revision": "9007199254740993", "root_position": "9007199254740993", "reply_position": "9007199254740994", "unread_roots": "2", "unread_replies": "3", "mentions": "1", "group_mentions": "0", "favorite": true },
+    "mark_read": { "root_position": "9007199254740993", "reply_position": "9007199254740994" },
+    "edit_message": { "operation_id": "edit-id", "expected_revision": "9007199254740993", "content": { "kind": "plain", "markdown": "Bonjour *Alice*", "mentions": ["alice-id"], "quotes": [{ "room_id": "room-id", "message_id": "quoted-id", "revision": "9007199254740993" }], "files": [] } },
+    "delete_message": { "operation_id": "delete-id", "expected_revision": "9007199254740993" },
+    "reaction": { "emoji": "rocket", "present": true },
+    "mark": { "present": false },
+    "profile": { "user": { "id": "alice-id", "username": "alice", "display_name": "Alice" }, "revision": "9007199254740993", "bio": "Salut 🚀", "status_text": "Disponible", "avatar_file_id": "avatar-id" },
+    "preferences": { "revision": "9007199254740993", "language": "fr", "clock_24h": true, "push_enabled": true, "push_mentions_only": true },
+    "file": { "id": "file-id", "room_id": "room-id", "bytes": "9007199254740993", "sha256": "fixture-sha256", "media_type": "application/octet-stream", "filename": null, "encrypted": true },
+    "prepare_upload": { "operation_id": "upload-id", "room_id": "room-id", "bytes": "1024", "sha256": "fixture-sha256", "media_type": "application/octet-stream", "filename": null, "encrypted": true },
+    "complete_upload": { "operation_id": "upload-confirm-id", "content": { "kind": "encrypted", "format": "fixture-opaque-not-a-crypto-protocol", "key_version": "9007199254740993", "payload": "fixture-ciphertext" }, "reply_to": null },
+    "public_device_key": { "user_id": "alice-id", "device_id": "device-id", "format": "fixture-opaque-not-a-crypto-protocol", "public_key": "fixture-public", "fingerprint": "fixture-fingerprint", "revision": "9007199254740993" },
+    "key_backup": { "user_id": "alice-id", "format": "fixture-opaque-not-a-crypto-protocol", "revision": "9007199254740993", "ciphertext": "fixture-ciphertext", "crypto_identity": "historical-uid-preserved", "kdf": "fixture-legacy-parameters" },
+    "room_key_envelope": { "room_id": "room-id", "key_version": "9007199254740993", "recipient_user_id": "alice-id", "recipient_device_id": "device-id", "sender_device_id": "sender-device", "format": "fixture-opaque-not-a-crypto-protocol", "ciphertext": "fixture-ciphertext" }
+  }
 }

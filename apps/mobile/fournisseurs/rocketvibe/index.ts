@@ -6,6 +6,8 @@ import { NativeChat } from './chat.ts';
 import { NativeStore, localMessage } from './store.ts';
 import { decodeNative } from './validation.ts';
 import { NativeError } from './transport.ts';
+import { decrireErreurFournisseur } from '../../lib/erreurFournisseur.ts';
+import type { Capabilities } from './protocol.generated.ts';
 
 export const CAPACITES_ROCKETVIBE: Capacites = {
   typing:false, presence:false, push:false, e2ee:false, emojisCustom:false,
@@ -14,6 +16,21 @@ export const CAPACITES_ROCKETVIBE: Capacites = {
 };
 const unsupported = async (): Promise<never> => { throw new NativeError(501,'unsupported_feature'); };
 const noSubscription = () => () => {};
+
+/** Both the server and this client must implement a feature before exposing it. */
+export function capacitesEffectives(annonce: Capabilities | null, client: Capacites = CAPACITES_ROCKETVIBE): Capacites {
+  const both = (a: boolean | undefined, b: boolean | undefined) => a === true && b === true;
+  return {
+    modeleFil:client.modeleFil,
+    typing:both(annonce?.typing,client.typing), presence:both(annonce?.presence,client.presence),
+    push:both(annonce?.push,client.push), e2ee:both(annonce?.e2ee,client.e2ee),
+    emojisCustom:both(annonce?.custom_emojis,client.emojisCustom), appelVideo:both(annonce?.calls,client.appelVideo),
+    recherche:both(annonce?.search,client.recherche), fichiers:both(annonce?.uploads,client.fichiers),
+    fils:both(annonce?.threads,client.fils), reactions:both(annonce?.reactions,client.reactions),
+    marques:both(annonce?.pins && annonce?.stars,client.marques), profil:both(annonce?.profiles,client.profil),
+    infosSalon:both(annonce?.room_info,client.infosSalon), citations:both(annonce?.quotes,client.citations),
+  };
+}
 
 export function creerFournisseurRV(session: Session, client: ClientRest, genererId: () => string, store: NativeStore, options: ConstructorParameters<typeof NativeChat>[3] = {}): Fournisseur {
   const chat = new NativeChat(session,store,genererId,{revoke: token => client.surJetonRefuse?.(token),...options});
@@ -28,7 +45,9 @@ export function creerFournisseurRV(session: Session, client: ClientRest, generer
     envoyer:unsupported, traiter:unsupported, reessayer:unsupported, abandonner:unsupported,
   };
   return {
-    native:{chat,store}, ordreMessages:'sequence', capacites:CAPACITES_ROCKETVIBE, listener,
+    identite:{genre:'rocketvibe',origine:session.baseUrl,compteId:session.userId,instanceId:session.nativeInstanceId ?? null,generation:session.nativeDataEpoch ?? null},
+    decrireErreur:decrireErreurFournisseur,
+    native:{chat,store}, ordreMessages:'sequence', get capacites() { return capacitesEffectives(chat.capabilities); }, listener,
     traducteur:{
       traduireEvenement:() => ({sorte:'silence'}),
       versMessage:brut => localMessage(decodeNative('Message',brut)),

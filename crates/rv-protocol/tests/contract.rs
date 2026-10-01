@@ -20,3 +20,65 @@ fn send_intention_rejects_unknown_server_controlled_fields() {
         .is_err()
     );
 }
+
+#[test]
+fn parity_fixture_keeps_permissions_personal_counts_and_opaque_crypto_separate() {
+    let contract: Contract =
+        serde_json::from_str(include_str!("../../../docs/protocol/v1.fixture.json")).unwrap();
+    assert!(!contract.parity.account_permissions.manage_instance);
+    assert!(!contract.parity.room_permissions.invite);
+    assert!(contract.parity.message_permissions.edit);
+    assert_eq!(contract.parity.read_state.root_position, "9007199254740993");
+    assert_eq!(contract.parity.file.bytes, "9007199254740993");
+    assert!(contract.parity.file.filename.is_none());
+    assert_eq!(
+        contract.parity.key_backup.crypto_identity,
+        "historical-uid-preserved"
+    );
+    let value = serde_json::to_value(contract.parity).unwrap();
+    let round_trip: rv_protocol::parity::ParityContract = serde_json::from_value(value).unwrap();
+    assert_eq!(round_trip.read_state.unread_replies, "3");
+}
+
+#[test]
+fn parity_commands_reject_forged_rights_and_plaintext_inside_ciphertext() {
+    use rv_protocol::parity::{MarkRead, MessageContent, SetReaction};
+    assert!(
+        serde_json::from_str::<MarkRead>(r#"{"root_position":1,"reply_position":"0"}"#).is_err()
+    );
+    assert!(
+        serde_json::from_str::<SetReaction>(
+            r#"{"emoji":"rocket","present":true,"user_id":"other"}"#
+        )
+        .is_err()
+    );
+    assert!(serde_json::from_str::<MessageContent>(r#"{"kind":"encrypted","format":"opaque","key_version":"1","payload":"blob","markdown":"secret"}"#).is_err());
+}
+
+#[test]
+fn additive_capabilities_default_to_unavailable_on_an_older_server() {
+    let contract: Contract =
+        serde_json::from_str(include_str!("../../../docs/protocol/v1.fixture.json")).unwrap();
+    assert!(!contract.discovery.capabilities.editing);
+    assert!(!contract.discovery.capabilities.typing);
+    assert!(!contract.discovery.capabilities.room_discovery);
+}
+
+#[test]
+fn discovery_does_not_enable_missing_client_handlers() {
+    let mut server = rv_protocol::Capabilities {
+        uploads: true,
+        editing: true,
+        ..Default::default()
+    };
+    let features = server.supported_features(&rv_protocol::Capabilities::default());
+    assert!(features.iter().any(|f| f == "text_messages"));
+    assert!(!features.iter().any(|f| f == "uploads" || f == "editing"));
+    server.text_messages = false;
+    assert!(
+        !server
+            .supported_features(&rv_protocol::Capabilities::default())
+            .iter()
+            .any(|f| f == "text_messages")
+    );
+}

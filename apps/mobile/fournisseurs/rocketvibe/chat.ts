@@ -5,6 +5,7 @@ import { checkIdentity, transportFor } from './auth.ts';
 import { NativeStore } from './store.ts';
 import { NativeError, type NativeTransport } from './transport.ts';
 import { decodeNative } from './validation.ts';
+import type { Capabilities } from './protocol.generated.ts';
 
 export type NativeStatus = { online: boolean; error: string | null };
 export class NativeChat {
@@ -26,6 +27,7 @@ export class NativeChat {
   private cancelOpening: (() => void) | null = null;
   private flushing: Promise<void> | null = null;
   status: NativeStatus = {online:false,error:null};
+  capabilities: Capabilities | null = null;
 
   constructor(session: Session, store: NativeStore, id: () => string, options: {
     transport?: NativeTransport; socket?: (url:string) => WebSocket; revoke?: (token:string) => void;
@@ -62,8 +64,10 @@ export class NativeChat {
     try {
       // Finish old socket commits before reading the cursor for a new connection.
       await this.frames;
-      checkIdentity(this.session, await this.transport.discover());
+      const discovery = await this.transport.discover();
+      checkIdentity(this.session, discovery);
       if (!alive()) return;
+      this.capabilities = discovery.capabilities;
       const me = await this.transport.me();
       if (me.id !== this.session.userId) throw new NativeError(401,'session_rejected');
       let state = await this.store.state();

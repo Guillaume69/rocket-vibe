@@ -11,8 +11,7 @@ impl ChatPage {
     pub fn set_native_session(self: &Rc<Self>, session: Arc<NativeSession>) {
         self.set_session(None);
         self.native.replace(Some(session.clone()));
-        self.search_button.set_sensitive(false);
-        self.marked_button.set_sensitive(false);
+        self.native_features(&session);
         self.account_name.set_label(&session.info.username);
         let host = url::Url::parse(&session.info.base_url)
             .ok()
@@ -54,6 +53,7 @@ impl ChatPage {
                 let status = session.status();
                 let changed = this.connection.get() != status.connection;
                 this.set_connection(status.connection);
+                this.native_features(&session);
                 this.reload_rooms();
                 if this.current_rid().is_some_and(|rid| !this.has_room(&rid)) {
                     this.current.replace(None);
@@ -75,6 +75,13 @@ impl ChatPage {
                 }
             }
         });
+    }
+
+    fn native_features(&self, session: &NativeSession) {
+        let features = session.supported_features();
+        let supports = |feature| features.iter().any(|f| f == feature);
+        self.search_button.set_sensitive(supports("search"));
+        self.marked_button.set_sensitive(supports("pins") && supports("stars"));
     }
 
     pub(super) fn native_rooms(&self) -> Vec<RoomRow> {

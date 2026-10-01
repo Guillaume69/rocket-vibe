@@ -153,6 +153,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
     if (etat.phase !== 'connecte') {
       // L'index emoji du serveur quitté ne doit pas servir au prochain.
       viderEmojisCustom();
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- The external account closed: clear its projection before another account can render it.
       setSynchro({ phase: 'inactif' });
       return;
     }
@@ -192,7 +193,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         let lastError: string | null = null;
         const unlisten = chat.subscribe(() => {
           if (!alive) return;
-          if (chat.status.online && !online) setSynchro(s => s.phase === 'pret' ? {...s,generation:s.generation+1} : s);
+          if (chat.status.online && !online) setSynchro(s => s.phase === 'pret' ? {...s,capacites:fournisseur.capacites,generation:s.generation+1} : s);
           online = chat.status.online;
           if (chat.status.error && chat.status.error !== lastError) {
             signaler(traduireCourant(chat.status.error === 'server_identity_changed' ? 'native.identityChanged' : 'native.error'));

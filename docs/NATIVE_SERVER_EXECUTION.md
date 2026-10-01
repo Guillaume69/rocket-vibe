@@ -154,13 +154,40 @@ L'image de production a été construite et démarrée dans un PostgreSQL jetabl
 readiness 204, découverte correcte et suppression périodique des lignes périmées
 par le processus serveur lui-même. Ces tests ne ferment pas les essais sur appareils.
 
+## Sixième incrément : contrats et inventaire J0
+
+Inventaire reproductible de 274 fichiers / 344 occurrences Rocket.Chat, paramètres
+dynamiques revus et contrôle CI. Les schémas de destination couvrent droits,
+compteurs, actions, profils, fichiers, 2FA et enveloppes de clés ; ils sont lus
+par Rust et TypeScript, sans activer les fonctions absentes. Le corpus partagé
+couvre 15 cas de Markdown et 5 cas de pièces jointes, avec projection en runs Swift.
+Les capacités s'intersectent avec le support client et les diagnostics mobiles
+gardent l'identité de requête / délai sans confondre 2FA, proxy et révocation.
+
+Vérifications locales : 21 tests Rust natifs, 25 tests TypeScript natifs,
+975 tests mobiles ; typecheck et lint des fichiers concernés réussis. Cœur /
+bindings et binaire GTK compilés dans Fedora, Clippy sans avertissement ; modèles
+Swift compilés avec bindings régénérés, 6 tests locaux réussis (les 3 parcours
+connectés restent ignorés sans leur service). Les validations physiques restent ouvertes.
+
 ## Pour fermer J0
 
-- [ ] Inventaire exhaustif des appels Rocket.Chat dans les écrans et modules natifs.
-- [ ] Contrats restants : droits fins, lecture / compteurs, actions, profils, fichiers et clés.
-- [ ] Corpus commun de rendu Markdown, mentions, citations et pièces jointes.
-- [ ] Capacité / erreur / identité d'instance raccordées au contrat fournisseur des apps.
-- [ ] Arbitrages de la RFC : taille d'instance, export disponible et spécification E2EE.
+- [x] Inventaire des appels Rocket.Chat dans les écrans / modules natifs, génération
+  et contrôle CI ; paramètres dynamiques et transports revus.
+- [x] Schémas et fixtures Rust / TypeScript : droits fins, lecture / compteurs,
+  actions, profils, fichiers, défis 2FA et enveloppes opaques de clés.
+- [x] Corpus commun de rendu Markdown, mentions, citations et pièces jointes,
+  traversant le mobile, le renderer GTK et les runs UniFFI pour SwiftUI.
+- [x] Capacités additives et intersection serveur / client dans mobile / cœur
+  bureau / GTK / UniFFI / SwiftUI ; identité et diagnostics mobiles neutres.
+- [x] Backlog P01–P23 lié à chaque ligne de la matrice ; politique de compteurs,
+  droits, routes des lots suivants et hypothèses du banc documentées.
+- [ ] Conditions externes : droits / format d'export, services opérateur, appareils
+  physiques ; choix et revue du protocole E2EE dédiés à J4.
+
+Le [contrat de parité J0](protocol/PARITY.md) distingue les schémas de destination
+des endpoints réellement disponibles. Le diagnostic bureau doit encore propager
+le request ID natif. La présence de DTO de clés ne constitue aucune garantie crypto.
 
 ## Pour fermer J1
 

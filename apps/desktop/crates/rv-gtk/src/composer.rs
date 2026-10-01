@@ -561,8 +561,9 @@ impl Composer {
     }
 
     pub fn bind_native(&self, session: &Arc<rv_core::native::NativeSession>, rid: &str) {
-        self.attach.set_sensitive(false);
-        self.mic.set_sensitive(false);
+        let files = session.supported_features().iter().any(|f| f == "uploads");
+        self.attach.set_sensitive(files);
+        self.mic.set_sensitive(files);
         self.staged.switch(rid);
         self.on_changed.replace(None);
         self.set_text(&session.store.draft(rid).unwrap_or_default());

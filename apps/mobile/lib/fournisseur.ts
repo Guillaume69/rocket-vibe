@@ -1,13 +1,13 @@
 /**
  * Contrat d'un fournisseur de chat. Rocket.Chat en est la première
- * implémentation ; kChat (Mattermost) la seconde. Tout ce qui, dans l'app,
+ * implémentation ; RocketVibe la seconde. Tout ce qui, dans l'app,
  * nomme un endpoint `/api/v1/*` ou un stream `stream-*` doit à terme passer par
  * ici — le reste (`db/`, `Depot`, rendu, `Reconnecteur`) est déjà neutre.
  *
  * Choix porteur : le cœur de synchro ne parle pas le format wire d'un serveur.
- * Chaque fournisseur TRADUIT son flux temps réel brut en `ChangementSync`
- * neutre ; `MoteurSynchro` applique bêtement. Ainsi les données Mattermost ne
- * sont jamais coulées dans la forme Rocket.Chat.
+ * Chaque fournisseur traduit son flux en projection locale neutre. Rocket.Chat
+ * utilise `ChangementSync` ; RocketVibe applique journal et curseur atomiquement.
+ * Aucun document Rocket.Chat n'est demandé au serveur natif.
  */
 
 import type { Evenement, EtatDdp } from './ddp.ts';
@@ -40,10 +40,27 @@ export type ChangementSync =
 
 /**
  * Le type de serveur d'une session. Persisté avec elle : il décide quel driver
- * instancier au démarrage. Un seul membre aujourd'hui ; `mattermost` s'ajoute
- * avec son driver (kChat).
+ * instancier au démarrage. Les anciennes sessions restent Rocket.Chat.
  */
 export type Genre = 'rocketchat' | 'rocketvibe';
+
+export type IdentiteFournisseur = {
+  genre: Genre;
+  origine: string;
+  compteId: string;
+  instanceId: string | null;
+  generation: string | null;
+};
+
+/** Diagnostic neutre. Un défi 2FA ou une réponse proxy ne révoque pas la session. */
+export type ErreurFournisseur = {
+  code: string;
+  statut: number;
+  requeteId: string | null;
+  reessayerApres: number | null;
+  sessionRejetee: boolean;
+  defiDeuxFacteurs: boolean;
+};
 
 const GENRES: readonly Genre[] = ['rocketchat', 'rocketvibe'];
 
@@ -230,6 +247,8 @@ export interface OutboxFichiers {
  * restent hors de cette façade en 4a, gardés par `capacites`, à absorber ensuite.
  */
 export interface Fournisseur {
+  readonly identite: IdentiteFournisseur;
+  decrireErreur(erreur: unknown, authentifie: boolean): ErreurFournisseur;
   readonly ordreMessages?: 'sequence';
   readonly native?: { chat: import('../fournisseurs/rocketvibe/chat.ts').NativeChat; store: import('../fournisseurs/rocketvibe/store.ts').NativeStore };
   readonly capacites: Capacites;

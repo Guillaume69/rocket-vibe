@@ -187,6 +187,9 @@ impl NativeChat {
         let status = self.session.status();
         NativeStatus { state: crate::state(status.connection), error: status.error }
     }
+    pub fn supported_features(&self) -> Vec<String> {
+        self.session.supported_features()
+    }
     pub fn rooms(&self) -> Result<Vec<NativeRoom>, RvError> {
         Ok(self
             .session

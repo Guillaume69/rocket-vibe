@@ -23,6 +23,11 @@ sont versionnés et vérifiés sans diff en CI.
 
 ## Routes disponibles
 
+Les [contrats de parité J0](PARITY.md), le [backlog complet](PARITY.md#backlog-complet)
+et l'[inventaire Rocket.Chat](rocketchat-inventory.md) décrivent les lots suivants.
+Les DTO `parity` du schéma sont des contrats de destination et des fixtures ; leur
+présence ne déclare pas les endpoints correspondants disponibles.
+
 | Méthode | Route | Usage |
 |---|---|---|
 | GET | `/health/live`, `/health/ready` | État du processus et de la base |

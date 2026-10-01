@@ -14,8 +14,8 @@ public enum ChatProvider {
         if case let .rocketVibe(chat) = self { return chat }
         return nil
     }
-    public var supportsFiles: Bool { legacy != nil }
-    public var supportsEditing: Bool { legacy != nil }
+    public var supportsFiles: Bool { legacy != nil || native?.supportedFeatures().contains("uploads") == true }
+    public var supportsEditing: Bool { legacy != nil || native?.supportedFeatures().contains("editing") == true }
 
     func account() -> Account {
         switch self { case let .rocketChat(chat): return chat.account()

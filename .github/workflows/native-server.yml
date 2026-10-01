@@ -14,6 +14,7 @@ on:
       - 'docker/compose.rocketvibe.yml'
       - 'docker/compose.native-pilot.yml'
       - 'scripts/*native*'
+      - 'scripts/inventory-rocketchat.mjs'
       - '.github/workflows/native-server.yml'
   pull_request:
     paths:
@@ -26,6 +27,7 @@ on:
       - 'docs/protocol/**'
       - 'docker/compose.native-pilot.yml'
       - 'scripts/*native*'
+      - 'scripts/inventory-rocketchat.mjs'
       - '.github/workflows/native-server.yml'
   workflow_dispatch:
 

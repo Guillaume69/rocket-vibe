@@ -3,6 +3,8 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+pub mod parity;
+
 pub const VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -17,6 +19,35 @@ pub struct Capabilities {
     pub push: bool,
     pub e2ee: bool,
     pub calls: bool,
+    // Additive discovery fields. Missing means unavailable for older v1 servers.
+    #[serde(default)]
+    pub editing: bool,
+    #[serde(default)]
+    pub deletion: bool,
+    #[serde(default)]
+    pub pins: bool,
+    #[serde(default)]
+    pub stars: bool,
+    #[serde(default)]
+    pub favorites: bool,
+    #[serde(default)]
+    pub read_markers: bool,
+    #[serde(default)]
+    pub search: bool,
+    #[serde(default)]
+    pub profiles: bool,
+    #[serde(default)]
+    pub room_info: bool,
+    #[serde(default)]
+    pub room_discovery: bool,
+    #[serde(default)]
+    pub typing: bool,
+    #[serde(default)]
+    pub presence: bool,
+    #[serde(default)]
+    pub custom_emojis: bool,
+    #[serde(default)]
+    pub quotes: bool,
 }
 
 impl Default for Capabilities {
@@ -32,7 +63,61 @@ impl Default for Capabilities {
             push: false,
             e2ee: false,
             calls: false,
+            editing: false,
+            deletion: false,
+            pins: false,
+            stars: false,
+            favorites: false,
+            read_markers: false,
+            search: false,
+            profiles: false,
+            room_info: false,
+            room_discovery: false,
+            typing: false,
+            presence: false,
+            custom_emojis: false,
+            quotes: false,
         }
+    }
+}
+
+impl Capabilities {
+    /// Feature names are stable across HTTP, mobile and desktop bindings.
+    /// Both peers must support a feature before the UI can offer it.
+    pub fn supported_features(&self, client: &Self) -> Vec<String> {
+        let mut features = Vec::new();
+        macro_rules! include {
+            ($($name:ident),+ $(,)?) => { $(
+                if self.$name && client.$name { features.push(stringify!($name).into()); }
+            )+ };
+        }
+        include!(
+            text_messages,
+            private_rooms,
+            direct_messages,
+            durable_sync,
+            threads,
+            reactions,
+            uploads,
+            push,
+            e2ee,
+            calls,
+            editing,
+            deletion,
+            pins,
+            stars,
+            favorites,
+            read_markers,
+            search,
+            profiles,
+            room_info,
+            room_discovery,
+            typing,
+            presence,
+            custom_emojis,
+            quotes
+        );
+        features
     }
 }
 
@@ -176,6 +261,7 @@ pub struct Contract {
     pub sync_batch: SyncBatch,
     pub socket_ticket: SocketTicket,
     pub error: ApiError,
+    pub parity: parity::ParityContract,
 }
 
 pub fn schema() -> serde_json::Value {

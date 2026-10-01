@@ -1,5 +1,28 @@
 {
   "$defs": {
+    "AccountPermissions": {
+      "properties": {
+        "create_private_room": {
+          "type": "boolean"
+        },
+        "create_public_room": {
+          "type": "boolean"
+        },
+        "manage_accounts": {
+          "type": "boolean"
+        },
+        "manage_instance": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "create_public_room",
+        "create_private_room",
+        "manage_accounts",
+        "manage_instance"
+      ],
+      "type": "object"
+    },
     "ApiError": {
       "properties": {
         "code": {
@@ -15,9 +38,45 @@
       ],
       "type": "object"
     },
+    "AuthChallenge": {
+      "properties": {
+        "challenge_id": {
+          "type": "string"
+        },
+        "expires_at": {
+          "type": "string"
+        },
+        "methods": {
+          "items": {
+            "$ref": "#/$defs/SecondFactor"
+          },
+          "type": "array"
+        },
+        "resend_after_seconds": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "challenge_id",
+        "methods",
+        "expires_at",
+        "resend_after_seconds"
+      ],
+      "type": "object"
+    },
     "Capabilities": {
       "properties": {
         "calls": {
+          "type": "boolean"
+        },
+        "custom_emojis": {
+          "default": false,
+          "type": "boolean"
+        },
+        "deletion": {
+          "default": false,
           "type": "boolean"
         },
         "direct_messages": {
@@ -29,19 +88,67 @@
         "e2ee": {
           "type": "boolean"
         },
+        "editing": {
+          "default": false,
+          "type": "boolean"
+        },
+        "favorites": {
+          "default": false,
+          "type": "boolean"
+        },
+        "pins": {
+          "default": false,
+          "type": "boolean"
+        },
+        "presence": {
+          "default": false,
+          "type": "boolean"
+        },
         "private_rooms": {
+          "type": "boolean"
+        },
+        "profiles": {
+          "default": false,
           "type": "boolean"
         },
         "push": {
           "type": "boolean"
         },
+        "quotes": {
+          "default": false,
+          "type": "boolean"
+        },
         "reactions": {
+          "type": "boolean"
+        },
+        "read_markers": {
+          "default": false,
+          "type": "boolean"
+        },
+        "room_discovery": {
+          "default": false,
+          "type": "boolean"
+        },
+        "room_info": {
+          "default": false,
+          "type": "boolean"
+        },
+        "search": {
+          "default": false,
+          "type": "boolean"
+        },
+        "stars": {
+          "default": false,
           "type": "boolean"
         },
         "text_messages": {
           "type": "boolean"
         },
         "threads": {
+          "type": "boolean"
+        },
+        "typing": {
+          "default": false,
           "type": "boolean"
         },
         "uploads": {
@@ -122,6 +229,28 @@
         }
       ]
     },
+    "CompleteUpload": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "$ref": "#/$defs/MessageContent"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "reply_to": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "operation_id",
+        "content"
+      ],
+      "type": "object"
+    },
     "CreateRoom": {
       "additionalProperties": false,
       "properties": {
@@ -135,6 +264,22 @@
       "required": [
         "name",
         "private"
+      ],
+      "type": "object"
+    },
+    "DeleteMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_revision": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "expected_revision"
       ],
       "type": "object"
     },
@@ -190,6 +335,97 @@
       ],
       "type": "object"
     },
+    "EditMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "$ref": "#/$defs/MessageContent"
+        },
+        "expected_revision": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "expected_revision",
+        "content"
+      ],
+      "type": "object"
+    },
+    "EncryptedKeyBackup": {
+      "properties": {
+        "ciphertext": {
+          "type": "string"
+        },
+        "crypto_identity": {
+          "description": "Legacy UID/salt and KDF parameters must survive an import unchanged.",
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "kdf": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "user_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id",
+        "format",
+        "revision",
+        "ciphertext",
+        "crypto_identity",
+        "kdf"
+      ],
+      "type": "object"
+    },
+    "FileDescriptor": {
+      "properties": {
+        "bytes": {
+          "type": "string"
+        },
+        "encrypted": {
+          "type": "boolean"
+        },
+        "filename": {
+          "description": "Absent for encrypted files: the filename lives inside client ciphertext.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "media_type": {
+          "description": "For ciphertext this is a declaration, not a verified media type.",
+          "type": "string"
+        },
+        "room_id": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "room_id",
+        "bytes",
+        "sha256",
+        "media_type",
+        "encrypted"
+      ],
+      "type": "object"
+    },
     "Login": {
       "additionalProperties": false,
       "properties": {
@@ -203,6 +439,22 @@
       "required": [
         "username",
         "password"
+      ],
+      "type": "object"
+    },
+    "MarkRead": {
+      "additionalProperties": false,
+      "properties": {
+        "reply_position": {
+          "type": "string"
+        },
+        "root_position": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "root_position",
+        "reply_position"
       ],
       "type": "object"
     },
@@ -241,6 +493,73 @@
       ],
       "type": "object"
     },
+    "MessageContent": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "files": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "plain",
+              "type": "string"
+            },
+            "markdown": {
+              "type": "string"
+            },
+            "mentions": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "quotes": {
+              "items": {
+                "$ref": "#/$defs/QuoteReference"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "markdown",
+            "mentions",
+            "quotes",
+            "files"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "format": {
+              "type": "string"
+            },
+            "key_version": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "encrypted",
+              "type": "string"
+            },
+            "payload": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "format",
+            "key_version",
+            "payload"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "MessagePage": {
       "properties": {
         "has_more": {
@@ -257,6 +576,263 @@
       "required": [
         "messages",
         "has_more"
+      ],
+      "type": "object"
+    },
+    "MessagePermissions": {
+      "properties": {
+        "delete": {
+          "type": "boolean"
+        },
+        "edit": {
+          "type": "boolean"
+        },
+        "edit_until": {
+          "description": "UTC deadline; None means no time limit, not permission to edit.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message_id": {
+          "type": "string"
+        },
+        "pin": {
+          "type": "boolean"
+        },
+        "react": {
+          "type": "boolean"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "star": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "message_id",
+        "revision",
+        "edit",
+        "delete",
+        "react",
+        "pin",
+        "star"
+      ],
+      "type": "object"
+    },
+    "ParityContract": {
+      "description": "Export root for the J0 fixture. Crypto `format` is opaque until the dedicated\nspecification/review; these types make no algorithm or trust guarantee.",
+      "properties": {
+        "account_permissions": {
+          "$ref": "#/$defs/AccountPermissions"
+        },
+        "auth_challenge": {
+          "$ref": "#/$defs/AuthChallenge"
+        },
+        "complete_upload": {
+          "$ref": "#/$defs/CompleteUpload"
+        },
+        "delete_message": {
+          "$ref": "#/$defs/DeleteMessage"
+        },
+        "edit_message": {
+          "$ref": "#/$defs/EditMessage"
+        },
+        "file": {
+          "$ref": "#/$defs/FileDescriptor"
+        },
+        "key_backup": {
+          "$ref": "#/$defs/EncryptedKeyBackup"
+        },
+        "mark": {
+          "$ref": "#/$defs/SetMark"
+        },
+        "mark_read": {
+          "$ref": "#/$defs/MarkRead"
+        },
+        "message_permissions": {
+          "$ref": "#/$defs/MessagePermissions"
+        },
+        "preferences": {
+          "$ref": "#/$defs/UserPreferences"
+        },
+        "prepare_upload": {
+          "$ref": "#/$defs/PrepareUpload"
+        },
+        "profile": {
+          "$ref": "#/$defs/UserProfile"
+        },
+        "public_device_key": {
+          "$ref": "#/$defs/PublicDeviceKey"
+        },
+        "reaction": {
+          "$ref": "#/$defs/SetReaction"
+        },
+        "read_state": {
+          "$ref": "#/$defs/ReadState"
+        },
+        "room_key_envelope": {
+          "$ref": "#/$defs/RoomKeyEnvelope"
+        },
+        "room_permissions": {
+          "$ref": "#/$defs/RoomPermissions"
+        },
+        "verify_factor": {
+          "$ref": "#/$defs/VerifyFactor"
+        }
+      },
+      "required": [
+        "auth_challenge",
+        "verify_factor",
+        "account_permissions",
+        "room_permissions",
+        "message_permissions",
+        "read_state",
+        "mark_read",
+        "edit_message",
+        "delete_message",
+        "reaction",
+        "mark",
+        "profile",
+        "preferences",
+        "file",
+        "prepare_upload",
+        "complete_upload",
+        "public_device_key",
+        "key_backup",
+        "room_key_envelope"
+      ],
+      "type": "object"
+    },
+    "PrepareUpload": {
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "type": "string"
+        },
+        "encrypted": {
+          "type": "boolean"
+        },
+        "filename": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "media_type": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "room_id": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "room_id",
+        "bytes",
+        "sha256",
+        "media_type",
+        "encrypted"
+      ],
+      "type": "object"
+    },
+    "PublicDeviceKey": {
+      "properties": {
+        "device_id": {
+          "type": "string"
+        },
+        "fingerprint": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "public_key": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "user_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id",
+        "device_id",
+        "format",
+        "public_key",
+        "fingerprint",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "QuoteReference": {
+      "properties": {
+        "message_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "room_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "room_id",
+        "message_id",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "ReadState": {
+      "properties": {
+        "favorite": {
+          "type": "boolean"
+        },
+        "group_mentions": {
+          "type": "string"
+        },
+        "mentions": {
+          "type": "string"
+        },
+        "reply_position": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "room_id": {
+          "type": "string"
+        },
+        "root_position": {
+          "type": "string"
+        },
+        "unread_replies": {
+          "type": "string"
+        },
+        "unread_roots": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "room_id",
+        "revision",
+        "root_position",
+        "reply_position",
+        "unread_roots",
+        "unread_replies",
+        "mentions",
+        "group_mentions",
+        "favorite"
       ],
       "type": "object"
     },
@@ -283,11 +859,113 @@
       ],
       "type": "object"
     },
+    "RoomKeyEnvelope": {
+      "properties": {
+        "ciphertext": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "key_version": {
+          "type": "string"
+        },
+        "recipient_device_id": {
+          "type": "string"
+        },
+        "recipient_user_id": {
+          "type": "string"
+        },
+        "room_id": {
+          "type": "string"
+        },
+        "sender_device_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "room_id",
+        "key_version",
+        "recipient_user_id",
+        "recipient_device_id",
+        "sender_device_id",
+        "format",
+        "ciphertext"
+      ],
+      "type": "object"
+    },
     "RoomKind": {
       "enum": [
         "public",
         "private",
         "direct"
+      ],
+      "type": "string"
+    },
+    "RoomPermissions": {
+      "properties": {
+        "change_settings": {
+          "type": "boolean"
+        },
+        "invite": {
+          "type": "boolean"
+        },
+        "pin": {
+          "type": "boolean"
+        },
+        "read": {
+          "type": "boolean"
+        },
+        "remove_member": {
+          "type": "boolean"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/RoomRole"
+        },
+        "room_id": {
+          "type": "string"
+        },
+        "send": {
+          "type": "boolean"
+        },
+        "start_call": {
+          "type": "boolean"
+        },
+        "upload": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "room_id",
+        "revision",
+        "role",
+        "read",
+        "send",
+        "invite",
+        "remove_member",
+        "change_settings",
+        "pin",
+        "upload",
+        "start_call"
+      ],
+      "type": "object"
+    },
+    "RoomRole": {
+      "enum": [
+        "owner",
+        "moderator",
+        "member"
+      ],
+      "type": "string"
+    },
+    "SecondFactor": {
+      "enum": [
+        "totp",
+        "email",
+        "recovery_code"
       ],
       "type": "string"
     },
@@ -323,6 +1001,34 @@
         "token",
         "expires_at",
         "user"
+      ],
+      "type": "object"
+    },
+    "SetMark": {
+      "additionalProperties": false,
+      "properties": {
+        "present": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "present"
+      ],
+      "type": "object"
+    },
+    "SetReaction": {
+      "additionalProperties": false,
+      "properties": {
+        "emoji": {
+          "type": "string"
+        },
+        "present": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "emoji",
+        "present"
       ],
       "type": "object"
     },
@@ -419,6 +1125,83 @@
         "display_name"
       ],
       "type": "object"
+    },
+    "UserPreferences": {
+      "properties": {
+        "clock_24h": {
+          "type": "boolean"
+        },
+        "language": {
+          "type": "string"
+        },
+        "push_enabled": {
+          "type": "boolean"
+        },
+        "push_mentions_only": {
+          "type": "boolean"
+        },
+        "revision": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "language",
+        "clock_24h",
+        "push_enabled",
+        "push_mentions_only"
+      ],
+      "type": "object"
+    },
+    "UserProfile": {
+      "properties": {
+        "avatar_file_id": {
+          "description": "Protected resource ID, never an arbitrary URL carrying credentials.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bio": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "status_text": {
+          "type": "string"
+        },
+        "user": {
+          "$ref": "#/$defs/User"
+        }
+      },
+      "required": [
+        "user",
+        "revision",
+        "bio",
+        "status_text"
+      ],
+      "type": "object"
+    },
+    "VerifyFactor": {
+      "additionalProperties": false,
+      "properties": {
+        "challenge_id": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "method": {
+          "$ref": "#/$defs/SecondFactor"
+        }
+      },
+      "required": [
+        "challenge_id",
+        "method",
+        "code"
+      ],
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -444,6 +1227,9 @@
     },
     "message_page": {
       "$ref": "#/$defs/MessagePage"
+    },
+    "parity": {
+      "$ref": "#/$defs/ParityContract"
     },
     "room": {
       "$ref": "#/$defs/Room"
@@ -477,7 +1263,8 @@
     "snapshot",
     "sync_batch",
     "socket_ticket",
-    "error"
+    "error",
+    "parity"
   ],
   "title": "Contract",
   "type": "object"

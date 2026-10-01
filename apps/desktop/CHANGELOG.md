@@ -9,6 +9,9 @@ section here.
 
 ### Added
 
+- Native feature discovery shared by GTK and SwiftUI, limited to features implemented
+  by both the server and the installed client.
+
 - Native login / socket-ticket retries honor the server's `Retry-After` delay,
   including across cloned transports, without discarding the saved account.
 

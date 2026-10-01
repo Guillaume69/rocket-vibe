@@ -156,6 +156,7 @@ pub struct NativeSession {
     pub store: Arc<store::NativeStore>,
     client: NativeClient,
     status: Mutex<Status>,
+    capabilities: Mutex<Option<rv_protocol::Capabilities>>,
     events: broadcast::Sender<()>,
     control: watch::Sender<u64>,
     wake: Notify,
@@ -176,6 +177,7 @@ impl NativeSession {
             store,
             client,
             status: Mutex::new(Status { connection: Connection::Offline, error: None }),
+            capabilities: Mutex::new(None),
             events,
             control,
             wake: Notify::new(),
@@ -251,7 +253,19 @@ impl NativeSession {
         self.set_status(Connection::Offline, None);
     }
     async fn identity(&self) -> Result<(), Error> {
-        check(self.info.native.as_ref().unwrap(), &self.client.discover().await?)
+        let discovery = self.client.discover().await?;
+        check(self.info.native.as_ref().unwrap(), &discovery)?;
+        *self.capabilities.lock().unwrap() = Some(discovery.capabilities);
+        Ok(())
+    }
+    pub fn supported_features(&self) -> Vec<String> {
+        // Advance this mask only together with the corresponding client handlers.
+        self.capabilities
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|server| server.supported_features(&rv_protocol::Capabilities::default()))
+            .unwrap_or_default()
     }
     async fn snapshot(&self) -> Result<(), Error> {
         let snapshot = self.client.snapshot().await?;

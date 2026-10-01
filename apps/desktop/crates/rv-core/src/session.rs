@@ -27,7 +27,7 @@ use crate::uploads::{self, Uploads};
 
 const MAX_RECONNECT_DELAY_MS: u64 = 30_000;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct SessionInfo {
     pub base_url: String,
     pub user_id: String,
@@ -35,6 +35,18 @@ pub struct SessionInfo {
     pub auth_token: String,
     /// None for legacy Rocket.Chat accounts; pinned for the native pilot.
     pub native: Option<crate::native::Identity>,
+}
+
+impl std::fmt::Debug for SessionInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionInfo")
+            .field("base_url", &self.base_url)
+            .field("user_id", &self.user_id)
+            .field("username", &self.username)
+            .field("auth_token", &"[redacted]")
+            .field("native", &self.native)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

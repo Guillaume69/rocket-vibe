@@ -146,6 +146,7 @@ impl NativeClient {
     fn budget(path: &str, method: &Method) -> Option<&'static str> {
         match path {
             "/api/v1/auth/login" => Some("login"),
+            "/api/v1/auth/renew" => Some("session_rotation"),
             "/api/v1/sync/ticket" => Some("ticket"),
             "/api/v1/sync/snapshots" => Some("snapshot"),
             _ if path.starts_with("/api/v1/messages/")
@@ -227,6 +228,34 @@ impl NativeClient {
 
     pub fn restore(&mut self, token: String) {
         self.token = Some(token);
+    }
+    pub async fn renew(&self, input: &rv_protocol::parity::RenewSession) -> Result<Session, Error> {
+        self.post("/api/v1/auth/renew", input).await
+    }
+    pub async fn device_sessions(&self) -> Result<Vec<rv_protocol::parity::DeviceSession>, Error> {
+        self.get("/api/v1/me/sessions").await
+    }
+    pub async fn rename_device(
+        &self,
+        id: &str,
+        input: &rv_protocol::parity::RenameDevice,
+    ) -> Result<(), Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.empty_input(
+            Method::PATCH,
+            &format!("/api/v1/me/sessions/{id}"),
+            Some(input),
+        )
+        .await
+    }
+    pub async fn revoke_device(&self, id: &str) -> Result<(), Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.empty(Method::DELETE, &format!("/api/v1/me/sessions/{id}"), false)
+            .await
     }
     pub async fn me(&self) -> Result<User, Error> {
         self.get("/api/v1/me").await
@@ -364,12 +393,20 @@ impl NativeClient {
         self.empty(Method::POST, "/api/v1/auth/logout", true).await
     }
     async fn empty(&self, method: Method, path: &str, body: bool) -> Result<(), Error> {
+        self.empty_input(method, path, body.then_some(&())).await
+    }
+    async fn empty_input(
+        &self,
+        method: Method,
+        path: &str,
+        input: Option<&impl Serialize>,
+    ) -> Result<(), Error> {
         let mut request = self
             .http
             .request(method, format!("{}{path}", self.base))
             .bearer_auth(self.token.as_ref().ok_or(Error::SessionMissing)?);
-        if body {
-            request = request.json(&());
+        if let Some(input) = input {
+            request = request.json(input);
         }
         let response = request.send().await?;
         if !response.status().is_success() {

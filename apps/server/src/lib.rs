@@ -7,6 +7,7 @@ mod marks;
 mod message_actions;
 mod permissions;
 mod reactions;
+mod sessions;
 mod snapshots;
 mod store;
 mod sync;
@@ -63,6 +64,8 @@ impl App {
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
         for query in [
             "DELETE FROM sessions WHERE token_hash IN (SELECT token_hash FROM sessions WHERE expires_at<=now() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
+            "DELETE FROM session_devices WHERE id IN (SELECT d.id FROM session_devices d WHERE NOT EXISTS(SELECT 1 FROM sessions s WHERE s.device_id=d.id) LIMIT 1000 FOR UPDATE SKIP LOCKED)",
+            "DELETE FROM session_rotations WHERE old_hash IN (SELECT old_hash FROM session_rotations WHERE expires_at<=now() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM socket_tickets WHERE token_hash IN (SELECT token_hash FROM socket_tickets WHERE expires_at<=now() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM sync_cursors WHERE token IN (SELECT token FROM sync_cursors WHERE expires_at<=now() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM login_windows WHERE key IN (SELECT key FROM login_windows WHERE expires_at<=now() LIMIT 1000 FOR UPDATE SKIP LOCKED)",

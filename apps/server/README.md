@@ -12,6 +12,9 @@ historique paginé, snapshot cohérent et reprise du journal par HTTP / WebSocke
 Les actions natives comprennent édition, suppression, réactions, épingles et
 étoiles privées, avec reçus idempotents, droits et intentions persistées par les
 clients. Les listes marquées utilisent les écrans existants des trois clients.
+L'API fournit aussi la rotation des sessions et la liste / révocation des
+appareils du compte. La reprise commune est testée ; son raccordement aux
+stockages sécurisés et aux parcours clients est suivi dans P01.
 
 Les [écrans mobiles existants](../../docs/NATIVE_MOBILE_PILOT.md) et les interfaces
 [GTK / SwiftUI existantes](../../docs/NATIVE_DESKTOP_PILOT.md) accueillent les deux

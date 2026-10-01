@@ -79,6 +79,30 @@ version ; une réponse préparée avant eux est revalidée et leurs mises à jou
 attendent la fin d'une livraison déjà autorisée. Aucune autorité cliente forgée
 n'est acceptée dans les commandes.
 
+### Renouvellement et appareils
+
+`POST /auth/renew` prend `{operation_id,next_token}` avec le bearer actuel.
+Le client produit le prochain secret avec un CSPRNG (32 octets, hexadécimal
+minuscule) et le conserve dans le stockage sécurisé **avant** la requête. Le
+serveur stocke uniquement des empreintes, conserve l'identité de l'appareil,
+renouvelle l'expiration de 30 jours et invalide l'ancien bearer et ses tickets.
+Les réponses de connexion / renouvellement portent `Cache-Control: no-store`.
+
+Une confirmation perdue se reprend avec le secret suivant déjà conservé, ou
+avec la même intention pendant cinq minutes. Proposer un autre successeur depuis
+ce bearer consommé révoque la famille de l'appareil. Les autres appareils restent
+valides. Limites : 10 nouveaux renouvellements par appareil et minute, 64 appareils
+actifs par compte ; les reçus identiques ne consomment pas à nouveau le quota.
+
+`GET /me/sessions` expose uniquement les appareils du compte, leurs noms, dates,
+expiration et indicateur `current`. `PATCH /me/sessions/{id}` renomme un appareil ;
+`DELETE` révoque sa famille, ses reçus et tickets. Un identifiant d'un autre compte
+ne peut modifier ni révoquer sa session. Aucun bearer ni empreinte n'est exposé
+dans la liste. Révoquer un autre appareil exige une connexion datant de moins
+de 15 minutes ; une rotation ne renouvelle pas cette ancienneté. Les primitives
+de reprise Rust / TypeScript sont testées ; leur
+raccordement au stockage sécurisé et aux parcours des apps suit dans P01.
+
 ### Réactions
 
 Les shortcodes standard proviennent de la table emoji-toolkit utilisée par les

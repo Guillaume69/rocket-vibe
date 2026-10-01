@@ -42,7 +42,7 @@ export class NativeTransport {
     if (!anonymous && this.token === null) throw new NativeError(401, 'session_rejected');
     const sent = anonymous ? null : this.token;
     const verb=method??(input===undefined?'GET':'POST');
-    const budget = path === '/api/v1/auth/login' ? 'login' : path === '/api/v1/sync/ticket' ? 'ticket' : path === '/api/v1/sync/snapshots' ? 'snapshot' : path.startsWith('/api/v1/messages/') && ['PATCH','DELETE','PUT'].includes(verb)?'message_action':null;
+    const budget = path === '/api/v1/auth/login' ? 'login' : path === '/api/v1/auth/renew' ? 'session_rotation' : path === '/api/v1/sync/ticket' ? 'ticket' : path === '/api/v1/sync/snapshots' ? 'snapshot' : path.startsWith('/api/v1/messages/') && ['PATCH','DELETE','PUT'].includes(verb)?'message_action':null;
     const cooldown = budget === null ? undefined : this.cooldowns.get(budget);
     if (cooldown && cooldown.until > Date.now()) throw new NativeError(429,cooldown.code,Math.ceil((cooldown.until-Date.now())/1000),cooldown.requestId);
     const controller = new AbortController();
@@ -108,6 +108,14 @@ export class NativeTransport {
   }
 
   restore(token: string): void { this.token = token; }
+  renew(input:NativeTypes['RenewSession']):Promise<Session> { return this.request('Session','/api/v1/auth/renew',input); }
+  async deviceSessions():Promise<NativeTypes['DeviceSession'][]> {
+    const devices=await this.value('/api/v1/me/sessions');
+    if (!Array.isArray(devices) || devices.length>64) throw new Error('Invalid native devices');
+    return devices.map(device=>decodeNative('DeviceSession',device));
+  }
+  async renameDevice(id:string,label:string):Promise<void> { await this.value(`/api/v1/me/sessions/${encodeURIComponent(id)}`,{label},false,undefined,'PATCH'); }
+  async revokeDevice(id:string):Promise<void> { await this.value(`/api/v1/me/sessions/${encodeURIComponent(id)}`,undefined,false,undefined,'DELETE'); }
   async logout(): Promise<void> { try { await this.value('/api/v1/auth/logout', {}); } finally { this.token = null; } }
   me(): Promise<NativeTypes['User']> { return this.request('User', '/api/v1/me'); }
   accountPermissions(): Promise<NativeTypes['AccountPermissions']> { return this.request('AccountPermissions','/api/v1/me/permissions'); }

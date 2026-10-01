@@ -20,7 +20,7 @@ use crate::{
     App, auth,
     delivery::{ReadProof, Scope},
     error::{Error, Result},
-    limits, marks, message_actions, permissions, reactions, snapshots, store, sync,
+    limits, marks, message_actions, permissions, reactions, sessions, snapshots, store, sync,
 };
 
 pub fn router(app: App) -> Router {
@@ -30,6 +30,12 @@ pub fn router(app: App) -> Router {
         .route("/health/ready", get(ready))
         .route("/api/v1/auth/login", post(login))
         .route("/api/v1/auth/logout", post(logout))
+        .route("/api/v1/auth/renew", post(renew_session))
+        .route("/api/v1/me/sessions", get(device_sessions))
+        .route(
+            "/api/v1/me/sessions/{device}",
+            axum::routing::patch(rename_device).delete(revoke_device),
+        )
         .route("/api/v1/me", get(me))
         .route("/api/v1/me/permissions", get(account_permissions))
         .route("/api/v1/users", get(users))
@@ -138,6 +144,8 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             reactions: true,
             pins: true,
             stars: true,
+            session_rotation: true,
+            device_sessions: true,
             ..Default::default()
         },
     }))
@@ -147,9 +155,9 @@ async fn login(
     State(app): State<App>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     input: Input<Login>,
-) -> Result<Json<rv_protocol::Session>> {
+) -> Result<Response> {
     let login = body(input)?;
-    Ok(Json(
+    Ok(secret_session(
         auth::login_from(
             &app,
             login.username,
@@ -160,13 +168,56 @@ async fn login(
     ))
 }
 
+fn secret_session(session: rv_protocol::Session) -> Response {
+    let mut response = Json(session).into_response();
+    response.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    response
+}
+
 async fn logout(State(app): State<App>, headers: HeaderMap) -> Result<StatusCode> {
     let hash = auth::bearer(&headers)?;
-    auth::authenticate(&app, &hash).await?;
-    sqlx::query("DELETE FROM sessions WHERE token_hash=$1")
-        .bind(hash)
-        .execute(&app.pool)
-        .await?;
+    let account = auth::authenticate(&app, &hash).await?;
+    sessions::revoke(&app, &account, None).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn renew_session(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::parity::RenewSession>,
+) -> Result<Response> {
+    let hash = auth::bearer(&headers)?;
+    Ok(secret_session(
+        sessions::renew(&app, &hash, body(input)?).await?,
+    ))
+}
+async fn device_sessions(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    let (account, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    let devices = sessions::list(&app, &account).await?;
+    proof.json(&app, &hash, &devices, &[], None).await
+}
+async fn rename_device(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(device): Path<String>,
+    input: Input<rv_protocol::parity::RenameDevice>,
+) -> Result<StatusCode> {
+    let hash = auth::bearer(&headers)?;
+    let account = auth::authenticate(&app, &hash).await?;
+    sessions::rename(&app, &account, &device, body(input)?).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn revoke_device(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(device): Path<String>,
+) -> Result<StatusCode> {
+    let hash = auth::bearer(&headers)?;
+    let account = auth::authenticate(&app, &hash).await?;
+    sessions::revoke(&app, &account, Some(&device)).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

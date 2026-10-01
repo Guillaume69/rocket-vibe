@@ -191,12 +191,40 @@ pub async fn login_from(
     };
     let token = random_token();
     let expires_at: DateTime<Utc> = Utc::now() + chrono::Duration::days(30);
-    sqlx::query("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,$3)")
-        .bind(hash_token(&token))
+    let mut tx = app.pool.begin().await?;
+    mutation_deadlines(&mut tx).await?;
+    let active: Option<String> =
+        sqlx::query_scalar("SELECT id FROM users WHERE id=$1 AND NOT disabled FOR NO KEY UPDATE")
+            .bind(&id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if active.is_none() {
+        return Err(Error::unauthorized());
+    }
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE user_id=$1 AND expires_at>now()")
+            .bind(&id)
+            .fetch_one(&mut *tx)
+            .await?;
+    if count >= 64 {
+        return Err(Error::throttled("device_limit", 60));
+    }
+    let device = random_token()[..32].to_owned();
+    sqlx::query("INSERT INTO session_devices(id,user_id) VALUES($1,$2)")
+        .bind(&device)
         .bind(&id)
-        .bind(expires_at)
-        .execute(&app.pool)
+        .execute(&mut *tx)
         .await?;
+    sqlx::query(
+        "INSERT INTO sessions(token_hash,user_id,expires_at,device_id) VALUES($1,$2,$3,$4)",
+    )
+    .bind(hash_token(&token))
+    .bind(&id)
+    .bind(expires_at)
+    .bind(device)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
     Ok(Session {
         token,
         expires_at: expires_at.to_rfc3339(),

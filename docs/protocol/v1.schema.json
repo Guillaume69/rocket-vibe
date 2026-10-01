@@ -79,6 +79,10 @@
           "default": false,
           "type": "boolean"
         },
+        "device_sessions": {
+          "default": false,
+          "type": "boolean"
+        },
         "direct_messages": {
           "type": "boolean"
         },
@@ -142,6 +146,10 @@
           "type": "boolean"
         },
         "search": {
+          "default": false,
+          "type": "boolean"
+        },
+        "session_rotation": {
           "default": false,
           "type": "boolean"
         },
@@ -299,6 +307,37 @@
       "required": [
         "operation_id",
         "expected_revision"
+      ],
+      "type": "object"
+    },
+    "DeviceSession": {
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "current": {
+          "type": "boolean"
+        },
+        "expires_at": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "last_seen_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "created_at",
+        "last_seen_at",
+        "expires_at",
+        "current"
       ],
       "type": "object"
     },
@@ -702,6 +741,16 @@
         "delete_message": {
           "$ref": "#/$defs/DeleteMessage"
         },
+        "device_session": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeviceSession"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "edit_message": {
           "$ref": "#/$defs/EditMessage"
         },
@@ -737,6 +786,26 @@
         },
         "read_state": {
           "$ref": "#/$defs/ReadState"
+        },
+        "rename_device": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RenameDevice"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "renew_session": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RenewSession"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "room_key_envelope": {
           "$ref": "#/$defs/RoomKeyEnvelope"
@@ -950,6 +1019,35 @@
         "mentions",
         "group_mentions",
         "favorite"
+      ],
+      "type": "object"
+    },
+    "RenameDevice": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "type": "object"
+    },
+    "RenewSession": {
+      "additionalProperties": false,
+      "description": "The next bearer is generated securely and durably saved by the client before\nsubmission. Neither this value nor a Session may be logged with Debug.",
+      "properties": {
+        "next_token": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "next_token"
       ],
       "type": "object"
     },

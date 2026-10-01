@@ -55,6 +55,10 @@ pub struct Capabilities {
     pub idempotent_room_creation: bool,
     #[serde(default)]
     pub fine_permissions: bool,
+    #[serde(default)]
+    pub session_rotation: bool,
+    #[serde(default)]
+    pub device_sessions: bool,
 }
 
 impl Default for Capabilities {
@@ -87,6 +91,8 @@ impl Default for Capabilities {
             snapshot_paging: false,
             idempotent_room_creation: false,
             fine_permissions: false,
+            session_rotation: false,
+            device_sessions: false,
         }
     }
 }
@@ -125,7 +131,9 @@ impl Capabilities {
             typing,
             presence,
             custom_emojis,
-            quotes
+            quotes,
+            session_rotation,
+            device_sessions
         );
         features
     }

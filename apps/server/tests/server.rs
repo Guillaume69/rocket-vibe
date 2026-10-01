@@ -110,6 +110,299 @@ async fn user(app: &App, username: &str) -> rv_protocol::User {
 }
 
 #[sqlx::test]
+async fn session_rotation_replays_without_secrets_and_keeps_device_identity_across_restart(
+    pool: PgPool,
+) {
+    use rv_protocol::parity::DeviceSession;
+    let app = App::from_pool(pool.clone()).await.unwrap();
+    user(&app, "alice").await;
+    user(&app, "bob").await;
+    let server = Server::start(pool.clone()).await;
+    let alice = server.login("alice").await;
+    let bob = server.login("bob").await;
+    let initial: Vec<DeviceSession> = server
+        .get(&alice.token, "/api/v1/me/sessions")
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(initial.len(), 1);
+    assert!(initial[0].current);
+    let ticket: SocketTicket = server
+        .post(&alice.token, "/api/v1/sync/ticket", json!({}))
+        .await
+        .json()
+        .await
+        .unwrap();
+    let next = auth::random_token();
+    let input = json!({"operation_id":"rotation-once","next_token":next});
+    let (first, repeat) = tokio::join!(
+        server.post(&alice.token, "/api/v1/auth/renew", input.clone()),
+        server.post(&alice.token, "/api/v1/auth/renew", input.clone())
+    );
+    let first: Session = first.error_for_status().unwrap().json().await.unwrap();
+    let repeat: Session = repeat.error_for_status().unwrap().json().await.unwrap();
+    assert_eq!(first.token, next);
+    assert_eq!(first.expires_at, repeat.expires_at);
+    assert_eq!(
+        server.get(&alice.token, "/api/v1/me").await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        server.get(&next, "/api/v1/me").await.status(),
+        StatusCode::OK
+    );
+    let socket = server
+        .get(
+            &next,
+            &format!("/api/v1/sync/socket?ticket={}", ticket.ticket),
+        )
+        .await;
+    assert!(!socket.status().is_success());
+    let tickets: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM socket_tickets WHERE session_hash=$1")
+            .bind(auth::hash_token(&alice.token))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(tickets, 0);
+    let device: Vec<DeviceSession> = server
+        .get(&next, "/api/v1/me/sessions")
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(device[0].id, initial[0].id);
+    assert_eq!(device[0].created_at, initial[0].created_at);
+    assert!(device[0].current);
+    let stored: Vec<(String, String)> =
+        sqlx::query_as("SELECT old_hash,next_hash FROM session_rotations")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        stored,
+        vec![(auth::hash_token(&alice.token), auth::hash_token(&next))]
+    );
+    assert!(!serde_json::to_string(&device).unwrap().contains(&next));
+    assert_eq!(
+        server
+            .client
+            .patch(format!(
+                "{}/api/v1/me/sessions/{}",
+                server.base, device[0].id
+            ))
+            .bearer_auth(&next)
+            .json(&json!({"label":"Desktop at home"}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        server
+            .client
+            .patch(format!(
+                "{}/api/v1/me/sessions/{}",
+                server.base, device[0].id
+            ))
+            .bearer_auth(&bob.token)
+            .json(&json!({"label":"Forged label"}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        server
+            .client
+            .delete(format!(
+                "{}/api/v1/me/sessions/{}",
+                server.base, device[0].id
+            ))
+            .bearer_auth(&bob.token)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        server.get(&next, "/api/v1/me").await.status(),
+        StatusCode::OK
+    );
+    drop(server);
+    let restarted = Server::start(pool.clone()).await;
+    let replay: Session = restarted
+        .post(&alice.token, "/api/v1/auth/renew", input.clone())
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(replay.token, next);
+    let device: Vec<DeviceSession> = restarted
+        .get(&next, "/api/v1/me/sessions")
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(device[0].label, "Desktop at home");
+    let replay_attack =
+        json!({"operation_id":"another-successor","next_token":auth::random_token()});
+    assert_eq!(
+        restarted
+            .post(&alice.token, "/api/v1/auth/renew", replay_attack)
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        restarted.get(&next, "/api/v1/me").await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        restarted
+            .post(&alice.token, "/api/v1/auth/renew", input)
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        restarted.get(&bob.token, "/api/v1/me").await.status(),
+        StatusCode::OK
+    );
+}
+
+#[sqlx::test]
+async fn device_revocation_expiry_and_renewal_limits_are_enforced(pool: PgPool) {
+    use rv_protocol::parity::DeviceSession;
+    let app = App::from_pool(pool.clone()).await.unwrap();
+    user(&app, "alice").await;
+    let server = Server::start(pool.clone()).await;
+    let alice = server.login("alice").await;
+    let peer = server.login("alice").await;
+    let devices: Vec<DeviceSession> = server
+        .get(&alice.token, "/api/v1/me/sessions")
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(devices.len(), 2);
+    let other = devices.iter().find(|d| !d.current).unwrap();
+    let current = devices.iter().find(|d| d.current).unwrap();
+    sqlx::query("UPDATE session_devices SET created_at=now()-interval '1 day' WHERE id=$1")
+        .bind(&current.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let refused = server
+        .client
+        .delete(format!("{}/api/v1/me/sessions/{}", server.base, other.id))
+        .bearer_auth(&alice.token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        refused.json::<Value>().await.unwrap()["code"],
+        "reauthentication_required"
+    );
+    assert_eq!(
+        server.get(&peer.token, "/api/v1/me").await.status(),
+        StatusCode::OK
+    );
+    sqlx::query("UPDATE session_devices SET created_at=now() WHERE id=$1")
+        .bind(&current.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        server
+            .client
+            .delete(format!("{}/api/v1/me/sessions/{}", server.base, other.id))
+            .bearer_auth(&alice.token)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        server.get(&peer.token, "/api/v1/me").await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        server.get(&alice.token, "/api/v1/me").await.status(),
+        StatusCode::OK
+    );
+    for body in [
+        json!({"operation_id":"same","next_token":alice.token}),
+        json!({"operation_id":"short","next_token":"0123"}),
+        json!({"operation_id":"forged","next_token":auth::random_token(),"user_id":"other"}),
+    ] {
+        assert_eq!(
+            server
+                .post(&alice.token, "/api/v1/auth/renew", body)
+                .await
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+    let mut token = alice.token.clone();
+    for i in 0..10 {
+        let next = auth::random_token();
+        let response = server
+            .post(
+                &token,
+                "/api/v1/auth/renew",
+                json!({"operation_id":format!("renew-{i}"),"next_token":next}),
+            )
+            .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        token = next;
+    }
+    let throttled = server
+        .post(
+            &token,
+            "/api/v1/auth/renew",
+            json!({"operation_id":"over-limit","next_token":auth::random_token()}),
+        )
+        .await;
+    assert_eq!(throttled.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(throttled.headers()["retry-after"], "60");
+    assert_eq!(
+        server.get(&token, "/api/v1/me").await.status(),
+        StatusCode::OK
+    );
+    sqlx::query("UPDATE sessions SET expires_at=now()-interval '1 second' WHERE token_hash=$1")
+        .bind(auth::hash_token(&token))
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        server
+            .post(
+                &token,
+                "/api/v1/auth/renew",
+                json!({"operation_id":"expired","next_token":auth::random_token()})
+            )
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    app.cleanup().await.unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM session_devices")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[sqlx::test]
 async fn marks_keep_stars_private_and_independent_of_public_content_across_replay_restart_and_deletion(
     pool: PgPool,
 ) {
@@ -2803,7 +3096,13 @@ async fn expired_cursors_reset_without_resurrecting_and_records_are_pruned(pool:
         .await
         .unwrap();
     let expired_session = auth::random_token();
-    sqlx::query("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()-interval '1 second')")
+    sqlx::query("INSERT INTO session_devices(id,user_id) VALUES($1,$2)")
+        .bind(&expired_session)
+        .bind(&alice.user.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO sessions(token_hash,user_id,expires_at,device_id) VALUES($1,$2,now()-interval '1 second',$1)")
         .bind(&expired_session).bind(&alice.user.id).execute(&pool).await.unwrap();
     sqlx::query("INSERT INTO socket_tickets(token_hash,session_hash,expires_at) VALUES($1,$2,now()+interval '20 seconds')")
         .bind(auth::random_token()).bind(&expired_session).execute(&pool).await.unwrap();

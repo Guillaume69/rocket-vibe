@@ -3,6 +3,31 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+/// The next bearer is generated securely and durably saved by the client before
+/// submission. Neither this value nor a Session may be logged with Debug.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RenewSession {
+    pub operation_id: String,
+    pub next_token: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct DeviceSession {
+    pub id: String,
+    pub label: String,
+    pub created_at: String,
+    pub last_seen_at: String,
+    pub expires_at: String,
+    pub current: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RenameDevice {
+    pub label: String,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SecondFactor {
@@ -233,6 +258,12 @@ pub struct RoomKeyEnvelope {
 /// specification/review; these types make no algorithm or trust guarantee.
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct ParityContract {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub renew_session: Option<RenewSession>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_session: Option<DeviceSession>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rename_device: Option<RenameDevice>,
     pub auth_challenge: AuthChallenge,
     pub verify_factor: VerifyFactor,
     pub account_permissions: AccountPermissions,

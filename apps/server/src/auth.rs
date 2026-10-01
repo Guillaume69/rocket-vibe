@@ -286,7 +286,7 @@ pub(crate) async fn create_session(
         return Err(Error::throttled("device_limit", 60));
     }
     let device = random_token()[..32].to_owned();
-    sqlx::query("INSERT INTO session_devices(id,user_id) VALUES($1,$2)")
+    sqlx::query("INSERT INTO session_devices(id,user_id,login_factor_id) VALUES($1,$2,(SELECT version FROM user_factors WHERE user_id=$2))")
         .bind(&device)
         .bind(&user.id)
         .execute(&mut **tx)

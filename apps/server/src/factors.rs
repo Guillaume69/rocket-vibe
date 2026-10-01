@@ -27,7 +27,7 @@ fn key(app: &App) -> Result<&AuthKey> {
         .as_deref()
         .ok_or_else(factor_crypto::unavailable)
 }
-fn bearer_candidate(value: &str) -> bool {
+pub(crate) fn bearer_candidate(value: &str) -> bool {
     value.len() == 64
         && value
             .bytes()
@@ -41,43 +41,53 @@ pub(crate) async fn issue_challenge(
     instance: &str,
     epoch: &str,
 ) -> Result<AuthChallenge> {
+    let methods = methods(app, tx, &user.id, instance).await?;
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM auth_challenges WHERE user_id=$1 AND expires_at>clock_timestamp() AND accepted_operation IS NULL")
+        .bind(&user.id).fetch_one(&mut **tx).await?;
+    if count >= 5 {
+        return Err(Error::throttled("challenge_limit", 60));
+    }
+    let token = auth::random_token();
+    let expires: DateTime<Utc> = sqlx::query_scalar("INSERT INTO auth_challenges(token_hash,user_id,data_epoch,activation_version,factor_version,expires_at) SELECT $1,id,$3,activation_version,factor_version,clock_timestamp()+interval '5 minutes' FROM users WHERE id=$2 RETURNING expires_at")
+        .bind(auth::hash_token(&token)).bind(&user.id).bind(epoch).fetch_one(&mut **tx).await?;
+    Ok(AuthChallenge {
+        challenge_id: token,
+        methods,
+        expires_at: expires.to_rfc3339(),
+        resend_after_seconds: 0,
+    })
+}
+
+pub(crate) async fn methods(
+    app: &App,
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: &str,
+    instance: &str,
+) -> Result<Vec<SecondFactor>> {
     let factor: (String, Vec<u8>) =
         sqlx::query_as("SELECT version,totp_cipher FROM user_factors WHERE user_id=$1")
-            .bind(&user.id)
+            .bind(user_id)
             .fetch_one(&mut **tx)
             .await?;
     // Fail closed on a missing/wrong key or corrupt ciphertext, even if backup
     // codes remain. A deployment mistake never downgrades an enabled account.
     let secret = key(app)?.open(
         &factor.1,
-        &factor_crypto::aad(instance, &user.id, &factor.0, "totp"),
+        &factor_crypto::aad(instance, user_id, &factor.0, "totp"),
     )?;
     if secret.len() != 20 {
         return Err(factor_crypto::unavailable());
     }
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM auth_challenges WHERE user_id=$1 AND expires_at>clock_timestamp() AND accepted_operation IS NULL")
-        .bind(&user.id).fetch_one(&mut **tx).await?;
-    if count >= 5 {
-        return Err(Error::throttled("challenge_limit", 60));
-    }
     let backups: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM factor_backup_codes WHERE user_id=$1 AND consumed_at IS NULL)",
     )
-    .bind(&user.id)
+    .bind(user_id)
     .fetch_one(&mut **tx)
     .await?;
-    let token = auth::random_token();
-    let expires: DateTime<Utc> = sqlx::query_scalar("INSERT INTO auth_challenges(token_hash,user_id,data_epoch,activation_version,factor_version,expires_at) SELECT $1,id,$3,activation_version,factor_version,clock_timestamp()+interval '5 minutes' FROM users WHERE id=$2 RETURNING expires_at")
-        .bind(auth::hash_token(&token)).bind(&user.id).bind(epoch).fetch_one(&mut **tx).await?;
-    Ok(AuthChallenge {
-        challenge_id: token,
-        methods: if backups {
-            vec![SecondFactor::Totp, SecondFactor::RecoveryCode]
-        } else {
-            vec![SecondFactor::Totp]
-        },
-        expires_at: expires.to_rfc3339(),
-        resend_after_seconds: 0,
+    Ok(if backups {
+        vec![SecondFactor::Totp, SecondFactor::RecoveryCode]
+    } else {
+        vec![SecondFactor::Totp]
     })
 }
 
@@ -166,40 +176,16 @@ pub(crate) async fn finish(
     if challenge.expires_at <= now || challenge.attempts >= 5 {
         return Err(rejected());
     }
-    let factor: Option<(String, Vec<u8>, i64)> = sqlx::query_as("SELECT version,totp_cipher,last_totp_counter FROM user_factors WHERE user_id=$1 FOR UPDATE")
-        .bind(&user.id).fetch_optional(&mut *tx).await?;
-    let (factor_id, cipher, last) = factor.ok_or_else(rejected)?;
-    let secret = key(app)?.open(
-        &cipher,
-        &factor_crypto::aad(&instance, &user.id, &factor_id, "totp"),
-    )?;
-    let valid = match input.method {
-        SecondFactor::Totp => {
-            if let Some(counter) =
-                factor_crypto::verify(&secret, &input.code, now.timestamp(), last)
-            {
-                sqlx::query("UPDATE user_factors SET last_totp_counter=$2 WHERE user_id=$1")
-                    .bind(&user.id)
-                    .bind(counter)
-                    .execute(&mut *tx)
-                    .await?;
-                true
-            } else {
-                false
-            }
-        }
-        SecondFactor::RecoveryCode => {
-            // High-entropy 128-bit codes; separators/case are presentation only.
-            let normalized = input.code.replace('-', "").to_ascii_lowercase();
-            if normalized.len() != 32 || !normalized.bytes().all(|b| b.is_ascii_hexdigit()) {
-                false
-            } else {
-                sqlx::query("UPDATE factor_backup_codes SET consumed_at=clock_timestamp() WHERE user_id=$1 AND token_hash=$2 AND consumed_at IS NULL")
-                    .bind(&user.id).bind(auth::hash_token(&normalized)).execute(&mut *tx).await?.rows_affected() == 1
-            }
-        }
-        SecondFactor::Email => false, // Not advertised until SMTP/verification is implemented.
-    };
+    let valid = verify_code(
+        app,
+        &mut tx,
+        &instance,
+        &user.id,
+        &input.method,
+        &input.code,
+        challenge.expires_at,
+    )
+    .await?;
     if !valid {
         sqlx::query("UPDATE auth_challenges SET attempts=attempts+1 WHERE token_hash=$1")
             .bind(challenge_hash)
@@ -215,11 +201,65 @@ pub(crate) async fn finish(
     Ok(session)
 }
 
+/// Login and reauthentication share the same persisted one-use counter/codes.
+/// Caller retains account authority and challenge locks until its commit.
+pub(crate) async fn verify_code(
+    app: &App,
+    tx: &mut Transaction<'_, Postgres>,
+    instance: &str,
+    user_id: &str,
+    method: &SecondFactor,
+    code: &str,
+    deadline: DateTime<Utc>,
+) -> Result<bool> {
+    let factor: Option<(String, Vec<u8>, i64)> = sqlx::query_as("SELECT version,totp_cipher,last_totp_counter FROM user_factors WHERE user_id=$1 FOR UPDATE")
+        .bind(user_id).fetch_optional(&mut **tx).await?;
+    let (factor_id, cipher, last) = factor.ok_or_else(rejected)?;
+    let now: DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+        .fetch_one(&mut **tx)
+        .await?;
+    if deadline <= now {
+        return Ok(false);
+    }
+    let secret = key(app)?.open(
+        &cipher,
+        &factor_crypto::aad(instance, user_id, &factor_id, "totp"),
+    )?;
+    if secret.len() != 20 {
+        return Err(factor_crypto::unavailable());
+    }
+    let valid = match method {
+        SecondFactor::Totp => {
+            if let Some(counter) = factor_crypto::verify(&secret, code, now.timestamp(), last) {
+                sqlx::query("UPDATE user_factors SET last_totp_counter=$2 WHERE user_id=$1")
+                    .bind(user_id)
+                    .bind(counter)
+                    .execute(&mut **tx)
+                    .await?;
+                true
+            } else {
+                false
+            }
+        }
+        SecondFactor::RecoveryCode => {
+            // High-entropy 128-bit codes; separators/case are presentation only.
+            let normalized = code.replace('-', "").to_ascii_lowercase();
+            if normalized.len() != 32 || !normalized.bytes().all(|b| b.is_ascii_hexdigit()) {
+                false
+            } else {
+                sqlx::query("UPDATE factor_backup_codes SET consumed_at=clock_timestamp() WHERE user_id=$1 AND token_hash=$2 AND consumed_at IS NULL")
+                    .bind(user_id).bind(auth::hash_token(&normalized)).execute(&mut **tx).await?.rows_affected() == 1
+            }
+        }
+        SecondFactor::Email => false, // Not advertised until SMTP/verification is implemented.
+    };
+    Ok(valid)
+}
+
 /// Recent password login grants enrollment only while there is no active factor.
-/// Once enabled, a recent full factor login is required; rotation is not reauth.
+/// Once enabled, prove the current factor by full login or explicit reauth.
 pub(crate) async fn recent(tx: &mut Transaction<'_, Postgres>, account: &Account) -> Result<()> {
-    let granted: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM session_devices d JOIN sessions s ON s.device_id=d.id LEFT JOIN user_factors f ON f.user_id=d.user_id WHERE s.token_hash=$1 AND d.created_at>clock_timestamp()-interval '15 minutes' AND (f.user_id IS NULL OR d.created_at>f.enabled_at))")
-        .bind(&account.session_hash).fetch_one(&mut **tx).await?;
+    let granted = recently_authenticated(tx, account).await?;
     if !granted {
         return Err(Error::new(
             axum::http::StatusCode::FORBIDDEN,
@@ -227,6 +267,14 @@ pub(crate) async fn recent(tx: &mut Transaction<'_, Postgres>, account: &Account
         ));
     }
     Ok(())
+}
+
+pub(crate) async fn recently_authenticated(
+    tx: &mut Transaction<'_, Postgres>,
+    account: &Account,
+) -> Result<bool> {
+    Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM session_devices d JOIN sessions s ON s.device_id=d.id JOIN users u ON u.id=d.user_id JOIN instance i ON i.singleton LEFT JOIN user_factors f ON f.user_id=d.user_id LEFT JOIN reauthentication_grants g ON g.device_id=d.id AND g.user_id=u.id WHERE s.token_hash=$1 AND ((d.created_at>clock_timestamp()-interval '15 minutes' AND (f.user_id IS NULL OR d.login_factor_id=f.version)) OR (g.proof_version=d.reauthentication_version AND g.expires_at>clock_timestamp() AND g.authenticated_at>clock_timestamp()-interval '15 minutes' AND g.instance_id=i.instance_id AND g.data_epoch=i.data_epoch AND g.activation_version=u.activation_version AND g.factor_version=u.factor_version AND (f.user_id IS NULL OR (g.factor_completed AND g.factor_id=f.version)))))")
+        .bind(&account.session_hash).fetch_one(&mut **tx).await?)
 }
 
 pub(crate) async fn status(app: &App, account: &Account) -> Result<FactorStatus> {
@@ -587,6 +635,7 @@ async fn fence_other_sessions(tx: &mut Transaction<'_, Postgres>, account: &Acco
         .bind(&account.id)
         .execute(&mut **tx)
         .await?;
+    crate::reauthentication::carry_authority(tx, account).await?;
     Ok(())
 }
 

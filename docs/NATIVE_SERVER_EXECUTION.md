@@ -315,6 +315,32 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, réauthentification serveur / SDK : migration 0015, statut de preuve et
+  parcours start / finish / resume sur la famille courante, sans nouveau bearer
+  ni appareil. Mot de passe puis facteur courant donnent une preuve de quinze
+  minutes ; un reçu de cinq minutes reprend une réponse perdue sans prolongation.
+  La version de l'appareil bloque l'ancien corps même après nettoyage du reçu.
+  Les limites CPU / SQL sont partagées avec le login, les essais sont persistants
+  et les erreurs de preuve ne révoquent pas le chat. Login et réauthentification
+  partagent compteur TOTP et secours ; leur provenance identifie le secret
+  effectivement prouvé. Un authentificateur nouvellement inscrit ne profite pas
+  d'une ancienne preuve, y compris après recul d'horloge ; les familles migrées
+  sans provenance doivent confirmer à nouveau. Les réglages de facteur autorisés
+  avancent l'autorité du gardien sans rajeunir la preuve ni changer sa provenance.
+  Deux régressions HTTP reproduisaient un succès après expiration sous verrou
+  d'appareil et une désactivation de nouveau facteur après correction d'horloge ;
+  elles sont corrigées et couvertes. Onze nouveaux scénarios PostgreSQL couvrent
+  ces barrières, code à usage unique, restart / rotation, pruning, quota de défis,
+  erreurs de clé / code, mot de passe changé sous verrou et autorité / génération.
+  Le vrai transport TypeScript perd les ACK de start / finish, reprend la preuve
+  puis régénère / désactive depuis la famille inscrite initialement. Le SDK Rust
+  reprend la même preuve après restart / rotation.
+  Vérifications : 83 tests serveur, sept de protocole et 82 TypeScript natifs
+  passent ; 1 032 régressions mobiles, typecheck / lint, Clippy / régressions
+  cœur et FFI, compilation GTK, schéma / génération et inventaire réussis.
+  Les coffres / formulaires de réauthentification et paramètres des trois clients,
+  SMTP et validations sur appareils restent ouverts.
+
 - P02, régénération des secours serveur / SDK : migration 0014 et endpoint
   privé visant une version précise et une opération persistée. La transaction
   remplace dix codes, conserve secret / compteur TOTP, avance l'autorité et
@@ -333,6 +359,7 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   lint, schéma / génération et inventaire réussis. Paramètres des trois clients,
   réauthentification explicite et SMTP restent ouverts ; aucun facteur activé
   sur une instance utilisateur.
+  La CI native `36870100630` passe ses quatre jobs Linux / Windows / Swift.
 
 - P01 / P02, expiration sous verrou : le verrou d'autorisation relit l'horloge
   PostgreSQL après acquisition du compte et de la session. `now()` reste figé

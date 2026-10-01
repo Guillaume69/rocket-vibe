@@ -70,6 +70,35 @@ assert.equal(status.backup_codes_remaining,9);
 assert.equal(status.totp,true);
 assert.equal(status.email,false);
 assert.ok(status.factor_version);
+// Reauthenticate the original enrolling family, whose password-only login
+// predates factor activation. Wrong proofs must keep its chat session alive.
+let loseReauthStart=true,loseReauthFinish=true,reauthRevoked=false;
+const reauthFetcher:typeof fetch=async(url,options)=>{
+  const response=await fetch(url,options);
+  const path=String(url);
+  if((path.endsWith('/me/reauth/start') && loseReauthStart) || (path.endsWith('/me/reauth/finish') && response.ok && loseReauthFinish)){
+    if(path.endsWith('/me/reauth/start'))loseReauthStart=false;else loseReauthFinish=false;
+    assert.equal(response.status,200);await response.text();throw new Error('Simulated lost reauthentication acknowledgement');
+  }
+  return response;
+};
+const reauth=new NativeTransport(base,reauthFetcher);reauth.restore(logged.token);
+reauth.surJetonRefuse=()=>{reauthRevoked=true;};
+const proof={challenge_id:randomBytes(32).toString('hex'),operation_id:'typescript-reauthenticate'};
+await assert.rejects(reauth.regenerateFactorBackups({factor_version:status.factor_version,operation_id:'before-reauth'}),e=>e instanceof NativeError && e.status===403);
+const proofStatus=await reauth.reauthenticationStatus();assert.equal(proofStatus.recent,false);
+await assert.rejects(reauth.beginReauthentication({...proof,password:'factor-test-password-2026',proof_version:proofStatus.proof_version}),e=>e instanceof NativeError && e.status===0);
+const pending=await reauth.resumeReauthentication(proof);assert.equal(pending.kind,'challenge');
+if(pending.kind!=='challenge')throw new Error('Missing reauthentication challenge');
+assert.equal(pending.challenge.challenge_id,proof.challenge_id);
+await assert.rejects(reauth.finishReauthentication({...proof,method:'recovery_code',code:'wrong'}),e=>e instanceof NativeError && e.status===400);
+assert.equal(reauthRevoked,false);assert.equal((await reauth.me()).id,logged.user.id);
+await assert.rejects(reauth.finishReauthentication({...proof,method:'recovery_code',code:backup.codes[1]}),e=>e instanceof NativeError && e.status===0);
+const proofTransport=new NativeTransport(base);proofTransport.restore(logged.token);
+const proven=await proofTransport.resumeReauthentication(proof);assert.equal(proven.kind,'granted');
+if(proven.kind!=='granted')throw new Error('Missing accepted reauthentication proof');
+assert.equal(proven.grant.user_id,logged.user.id);assert.equal(proven.grant.factor_version,status.factor_version);
+assert.equal('token' in proven.grant,false);
 let loseRegenerationAck=true;
 const regenerating=new NativeTransport(base,async(url,options)=>{
   const response=await fetch(url,options);
@@ -79,12 +108,12 @@ const regenerating=new NativeTransport(base,async(url,options)=>{
   }
   return response;
 });
-regenerating.restore(completed.authToken);
+regenerating.restore(logged.token);
 const regeneration={factor_version:status.factor_version,operation_id:'typescript-regenerate'};
 await assert.rejects(regenerating.regenerateFactorBackups(regeneration),e=>e instanceof NativeError && e.status===0);
 // A recreated transport reuses the exact original operation/version after ACK
 // loss, rather than issuing another destructive regeneration with a new ID.
-const resumed=new NativeTransport(base);resumed.restore(completed.authToken);
+const resumed=new NativeTransport(base);resumed.restore(logged.token);
 const renewedBackups=await resumed.regenerateFactorBackups(regeneration);
 assert.equal(renewedBackups.codes.length,10);
 assert.ok(renewedBackups.codes.every(c=>!backup.codes.includes(c)));
@@ -92,6 +121,6 @@ assert.deepEqual((await resumed.regenerateFactorBackups(regeneration)).codes,ren
 const renewedStatus=await resumed.factorStatus();
 assert.equal(renewedStatus.backup_codes_remaining,10);assert.equal(renewedStatus.totp,true);
 assert.ok(renewedStatus.factor_version);assert.notEqual(renewedStatus.factor_version,status.factor_version);
-await signing.disableFactor({factor_version:renewedStatus.factor_version});
-assert.equal((await signing.factorStatus()).totp,false);
-console.log('Native TypeScript factors: enrollment, durable vault, lost ACK, concurrent recovery, fresh password proof, one-use backup, regeneration receipt and recent full-factor disable passed');
+await resumed.disableFactor({factor_version:renewedStatus.factor_version});
+assert.equal((await resumed.factorStatus()).totp,false);
+console.log('Native TypeScript factors: enrollment, durable vault, lost ACK, concurrent recovery, fresh password proof, one-use backup, reauthentication on original family, regeneration receipt and recent full-factor disable passed');

@@ -32,6 +32,10 @@ pub fn router(app: App) -> Router {
         .route("/api/v1/auth/start", post(start_login))
         .route("/api/v1/auth/factors/verify", post(finish_factor))
         .route("/api/v1/me/factors", get(factor_status))
+        .route("/api/v1/me/reauth/start", post(begin_reauthentication))
+        .route("/api/v1/me/reauth", get(reauthentication_status))
+        .route("/api/v1/me/reauth/finish", post(finish_reauthentication))
+        .route("/api/v1/me/reauth/resume", post(resume_reauthentication))
         .route("/api/v1/me/factors/totp/setup", post(begin_factor))
         .route("/api/v1/me/factors/totp/enable", post(enable_factor))
         .route("/api/v1/me/factors/totp/disable", post(disable_factor))
@@ -161,6 +165,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             account_invitations: true,
             account_recovery: true,
             second_factors: app.auth_key.is_some(),
+            reauthentication: true,
             ..Default::default()
         },
     }))
@@ -255,6 +260,49 @@ async fn regenerate_backups(
     let user = account(&app, &headers).await?;
     Ok(secret_session(
         crate::factors::regenerate_backups(&app, &user, body(input)?).await?,
+    ))
+}
+
+async fn begin_reauthentication(
+    State(app): State<App>,
+    headers: HeaderMap,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    input: Input<rv_protocol::parity::BeginReauthentication>,
+) -> Result<Response> {
+    let user = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::reauthentication::begin(&app, &user, body(input)?, peer.map(|p| p.0.0.ip())).await?,
+    ))
+}
+
+async fn finish_reauthentication(
+    State(app): State<App>,
+    headers: HeaderMap,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    input: Input<rv_protocol::parity::FinishReauthentication>,
+) -> Result<Response> {
+    let user = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::reauthentication::finish(&app, &user, body(input)?, peer.map(|p| p.0.0.ip()))
+            .await?,
+    ))
+}
+
+async fn resume_reauthentication(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::parity::ResumeReauthentication>,
+) -> Result<Response> {
+    let user = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::reauthentication::resume(&app, &user, body(input)?).await?,
+    ))
+}
+
+async fn reauthentication_status(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    let user = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::reauthentication::status(&app, &user).await?,
     ))
 }
 

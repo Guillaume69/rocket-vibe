@@ -166,7 +166,9 @@ impl NativeClient {
             | "/api/v1/auth/start"
             | "/api/v1/auth/factors/verify"
             | "/api/v1/auth/invitations/accept"
-            | "/api/v1/auth/recovery" => Some("login"),
+            | "/api/v1/auth/recovery"
+            | "/api/v1/me/reauth/start"
+            | "/api/v1/me/reauth/finish" => Some("login"),
             "/api/v1/auth/renew" => Some("session_rotation"),
             "/api/v1/sync/ticket" => Some("ticket"),
             "/api/v1/sync/snapshots" => Some("snapshot"),
@@ -309,6 +311,35 @@ impl NativeClient {
     ) -> Result<rv_protocol::parity::FactorBackupCodes, Error> {
         self.post("/api/v1/me/factors/recovery/regenerate", input)
             .await
+    }
+    pub async fn begin_reauthentication(
+        &self,
+        input: &rv_protocol::parity::BeginReauthentication,
+    ) -> Result<rv_protocol::parity::ReauthenticationStep, Error> {
+        self.post("/api/v1/me/reauth/start", input).await
+    }
+    pub async fn reauthentication_status(
+        &self,
+    ) -> Result<rv_protocol::parity::ReauthenticationStatus, Error> {
+        self.request(
+            reqwest::Method::GET,
+            "/api/v1/me/reauth",
+            None::<&()>,
+            false,
+        )
+        .await
+    }
+    pub async fn finish_reauthentication(
+        &self,
+        input: &rv_protocol::parity::FinishReauthentication,
+    ) -> Result<rv_protocol::parity::ReauthenticationGrant, Error> {
+        self.post("/api/v1/me/reauth/finish", input).await
+    }
+    pub async fn resume_reauthentication(
+        &self,
+        input: &rv_protocol::parity::ResumeReauthentication,
+    ) -> Result<rv_protocol::parity::ReauthenticationStep, Error> {
+        self.post("/api/v1/me/reauth/resume", input).await
     }
     /// Clones share one account's rotating credential.
     pub fn update_token(&self, token: String) {

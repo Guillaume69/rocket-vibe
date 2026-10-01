@@ -5,7 +5,8 @@ export type ApiError = { "code": string; "request_id": string; };
 export type AuthChallenge = { "challenge_id": string; "expires_at": string; "methods": (SecondFactor)[]; "resend_after_seconds": number; };
 export type AuthenticationStep = { "kind": "session"; "session": Session; } | { "challenge": AuthChallenge; "kind": "challenge"; "user": User; };
 export type BeginFactorSetup = { "operation_id": string; };
-export type Capabilities = { "account_invitations"?: boolean; "account_recovery"?: boolean; "calls": boolean; "custom_emojis"?: boolean; "deletion"?: boolean; "device_sessions"?: boolean; "direct_messages": boolean; "durable_sync": boolean; "e2ee": boolean; "editing"?: boolean; "favorites"?: boolean; "fine_permissions"?: boolean; "idempotent_room_creation"?: boolean; "pins"?: boolean; "presence"?: boolean; "private_rooms": boolean; "profiles"?: boolean; "push": boolean; "quotes"?: boolean; "reactions": boolean; "read_markers"?: boolean; "room_discovery"?: boolean; "room_info"?: boolean; "search"?: boolean; "second_factors"?: boolean; "session_rotation"?: boolean; "snapshot_paging"?: boolean; "stars"?: boolean; "text_messages": boolean; "threads": boolean; "typing"?: boolean; "uploads": boolean; };
+export type BeginReauthentication = { "challenge_id": string; "operation_id": string; "password": string; "proof_version": string; };
+export type Capabilities = { "account_invitations"?: boolean; "account_recovery"?: boolean; "calls": boolean; "custom_emojis"?: boolean; "deletion"?: boolean; "device_sessions"?: boolean; "direct_messages": boolean; "durable_sync": boolean; "e2ee": boolean; "editing"?: boolean; "favorites"?: boolean; "fine_permissions"?: boolean; "idempotent_room_creation"?: boolean; "pins"?: boolean; "presence"?: boolean; "private_rooms": boolean; "profiles"?: boolean; "push": boolean; "quotes"?: boolean; "reactions": boolean; "read_markers"?: boolean; "reauthentication"?: boolean; "room_discovery"?: boolean; "room_info"?: boolean; "search"?: boolean; "second_factors"?: boolean; "session_rotation"?: boolean; "snapshot_paging"?: boolean; "stars"?: boolean; "text_messages": boolean; "threads": boolean; "typing"?: boolean; "uploads": boolean; };
 export type Change = { "data": Room; "type": "room_upsert"; } | { "data": Message; "type": "message_upsert"; } | { "data": { "room_id": string; }; "type": "room_removed"; };
 export type CompleteUpload = { "content": MessageContent; "operation_id": string; "reply_to"?: string | null; };
 export type CreateRoom = { "name": string; "operation_id"?: string | null; "private": boolean; };
@@ -22,6 +23,7 @@ export type FactorSetup = { "expires_at": string; "provisioning_uri": string; "s
 export type FactorStatus = { "backup_codes_remaining": number; "email": boolean; "factor_version"?: string | null; "totp": boolean; };
 export type FileDescriptor = { "bytes": string; "encrypted": boolean; "filename"?: string | null; "id": string; "media_type": string; "room_id": string; "sha256": string; };
 export type FinishFactor = { "challenge_id": string; "code": string; "method": SecondFactor; "next_token": string; "operation_id": string; };
+export type FinishReauthentication = { "challenge_id": string; "code": string; "method": SecondFactor; "operation_id": string; };
 export type Login = { "password": string; "username": string; };
 export type MarkRead = { "reply_position": string; "root_position": string; };
 export type Message = { "author": User; "created_at": string; "deleted"?: boolean; "edited_at"?: string | null; "id": string; "personal_star"?: PersonalStar | null; "pinned"?: boolean; "position": string; "reactions"?: (MessageReaction)[]; "revision": string; "room_id": string; "text": string; };
@@ -29,7 +31,7 @@ export type MessageContent = { "files": (string)[]; "kind": "plain"; "markdown":
 export type MessagePage = { "has_more": boolean; "messages": (Message)[]; };
 export type MessagePermissions = { "delete": boolean; "edit": boolean; "edit_until"?: string | null; "message_id": string; "pin": boolean; "react": boolean; "revision": string; "star": boolean; };
 export type MessageReaction = { "emoji": string; "users": (User)[]; };
-export type ParityContract = { "accept_invitation"?: AcceptInvitation | null; "account_permissions": AccountPermissions; "auth_challenge": AuthChallenge; "authentication_step"?: AuthenticationStep | null; "begin_factor_setup"?: BeginFactorSetup | null; "complete_upload": CompleteUpload; "delete_message": DeleteMessage; "device_session"?: DeviceSession | null; "disable_factor"?: DisableFactor | null; "edit_message": EditMessage; "enable_factor"?: EnableFactor | null; "factor_backup_codes"?: FactorBackupCodes | null; "factor_setup"?: FactorSetup | null; "factor_status"?: FactorStatus | null; "file": FileDescriptor; "finish_factor"?: FinishFactor | null; "key_backup": EncryptedKeyBackup; "mark": SetMark; "mark_read": MarkRead; "message_permissions": MessagePermissions; "preferences": UserPreferences; "prepare_upload": PrepareUpload; "profile": UserProfile; "public_device_key": PublicDeviceKey; "reaction": SetReaction; "read_state": ReadState; "recover_account"?: RecoverAccount | null; "regenerate_factor_backups"?: RegenerateFactorBackups | null; "rename_device"?: RenameDevice | null; "renew_session"?: RenewSession | null; "room_key_envelope": RoomKeyEnvelope; "room_permissions": RoomPermissions; "verify_factor": VerifyFactor; };
+export type ParityContract = { "accept_invitation"?: AcceptInvitation | null; "account_permissions": AccountPermissions; "auth_challenge": AuthChallenge; "authentication_step"?: AuthenticationStep | null; "begin_factor_setup"?: BeginFactorSetup | null; "begin_reauthentication"?: BeginReauthentication | null; "complete_upload": CompleteUpload; "delete_message": DeleteMessage; "device_session"?: DeviceSession | null; "disable_factor"?: DisableFactor | null; "edit_message": EditMessage; "enable_factor"?: EnableFactor | null; "factor_backup_codes"?: FactorBackupCodes | null; "factor_setup"?: FactorSetup | null; "factor_status"?: FactorStatus | null; "file": FileDescriptor; "finish_factor"?: FinishFactor | null; "finish_reauthentication"?: FinishReauthentication | null; "key_backup": EncryptedKeyBackup; "mark": SetMark; "mark_read": MarkRead; "message_permissions": MessagePermissions; "preferences": UserPreferences; "prepare_upload": PrepareUpload; "profile": UserProfile; "public_device_key": PublicDeviceKey; "reaction": SetReaction; "read_state": ReadState; "reauthentication_grant"?: ReauthenticationGrant | null; "reauthentication_status"?: ReauthenticationStatus | null; "reauthentication_step"?: ReauthenticationStep | null; "recover_account"?: RecoverAccount | null; "regenerate_factor_backups"?: RegenerateFactorBackups | null; "rename_device"?: RenameDevice | null; "renew_session"?: RenewSession | null; "resume_reauthentication"?: ResumeReauthentication | null; "room_key_envelope": RoomKeyEnvelope; "room_permissions": RoomPermissions; "verify_factor": VerifyFactor; };
 export type PersonalStar = { "present": boolean; "revision": string; };
 export type PrepareUpload = { "bytes": string; "encrypted": boolean; "filename"?: string | null; "media_type": string; "operation_id": string; "room_id": string; "sha256": string; };
 export type PublicDeviceKey = { "device_id": string; "fingerprint": string; "format": string; "public_key": string; "revision": string; "user_id": string; };
@@ -37,10 +39,14 @@ export type PublicRoom = { "joined": boolean; "room": Room; };
 export type PublicRoomPage = { "next"?: string | null; "rooms": (PublicRoom)[]; };
 export type QuoteReference = { "message_id": string; "revision": string; "room_id": string; };
 export type ReadState = { "favorite": boolean; "group_mentions": string; "mentions": string; "reply_position": string; "revision": string; "room_id": string; "root_position": string; "unread_replies": string; "unread_roots": string; };
+export type ReauthenticationGrant = { "authenticated_at": string; "data_epoch": string; "device_id": string; "expires_at": string; "factor_version": string; "instance_id": string; "proof_version": string; "user_id": string; };
+export type ReauthenticationStatus = { "data_epoch": string; "device_id": string; "instance_id": string; "proof_version": string; "recent": boolean; "user_id": string; };
+export type ReauthenticationStep = { "grant": ReauthenticationGrant; "kind": "granted"; } | { "challenge": AuthChallenge; "kind": "challenge"; };
 export type RecoverAccount = { "new_password": string; "token": string; "username": string; };
 export type RegenerateFactorBackups = { "factor_version": string; "operation_id": string; };
 export type RenameDevice = { "label": string; };
 export type RenewSession = { "next_token": string; "operation_id": string; };
+export type ResumeReauthentication = { "challenge_id": string; "operation_id": string; };
 export type Room = { "id": string; "kind": RoomKind; "name": string; "revision": string; };
 export type RoomKeyEnvelope = { "ciphertext": string; "format": string; "key_version": string; "recipient_device_id": string; "recipient_user_id": string; "room_id": string; "sender_device_id": string; };
 export type RoomKind = "public" | "private" | "direct";
@@ -60,7 +66,7 @@ export type UserPreferences = { "clock_24h": boolean; "language": string; "push_
 export type UserProfile = { "avatar_file_id"?: string | null; "bio": string; "revision": string; "status_text": string; "user": User; };
 export type VerifyFactor = { "challenge_id": string; "code": string; "method": SecondFactor; };
 
-export type NativeTypes = { AcceptInvitation: AcceptInvitation; AccountPermissions: AccountPermissions; ApiError: ApiError; AuthChallenge: AuthChallenge; AuthenticationStep: AuthenticationStep; BeginFactorSetup: BeginFactorSetup; Capabilities: Capabilities; Change: Change; CompleteUpload: CompleteUpload; CreateRoom: CreateRoom; DeleteMessage: DeleteMessage; DeviceSession: DeviceSession; DirectMessage: DirectMessage; DisableFactor: DisableFactor; Discovery: Discovery; EditMessage: EditMessage; EnableFactor: EnableFactor; EncryptedKeyBackup: EncryptedKeyBackup; FactorBackupCodes: FactorBackupCodes; FactorSetup: FactorSetup; FactorStatus: FactorStatus; FileDescriptor: FileDescriptor; FinishFactor: FinishFactor; Login: Login; MarkRead: MarkRead; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; MessageReaction: MessageReaction; ParityContract: ParityContract; PersonalStar: PersonalStar; PrepareUpload: PrepareUpload; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; QuoteReference: QuoteReference; ReadState: ReadState; RecoverAccount: RecoverAccount; RegenerateFactorBackups: RegenerateFactorBackups; RenameDevice: RenameDevice; RenewSession: RenewSession; Room: Room; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomPermissions: RoomPermissions; RoomRole: RoomRole; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetReaction: SetReaction; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; SyncBatch: SyncBatch; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; };
+export type NativeTypes = { AcceptInvitation: AcceptInvitation; AccountPermissions: AccountPermissions; ApiError: ApiError; AuthChallenge: AuthChallenge; AuthenticationStep: AuthenticationStep; BeginFactorSetup: BeginFactorSetup; BeginReauthentication: BeginReauthentication; Capabilities: Capabilities; Change: Change; CompleteUpload: CompleteUpload; CreateRoom: CreateRoom; DeleteMessage: DeleteMessage; DeviceSession: DeviceSession; DirectMessage: DirectMessage; DisableFactor: DisableFactor; Discovery: Discovery; EditMessage: EditMessage; EnableFactor: EnableFactor; EncryptedKeyBackup: EncryptedKeyBackup; FactorBackupCodes: FactorBackupCodes; FactorSetup: FactorSetup; FactorStatus: FactorStatus; FileDescriptor: FileDescriptor; FinishFactor: FinishFactor; FinishReauthentication: FinishReauthentication; Login: Login; MarkRead: MarkRead; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; MessageReaction: MessageReaction; ParityContract: ParityContract; PersonalStar: PersonalStar; PrepareUpload: PrepareUpload; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; QuoteReference: QuoteReference; ReadState: ReadState; ReauthenticationGrant: ReauthenticationGrant; ReauthenticationStatus: ReauthenticationStatus; ReauthenticationStep: ReauthenticationStep; RecoverAccount: RecoverAccount; RegenerateFactorBackups: RegenerateFactorBackups; RenameDevice: RenameDevice; RenewSession: RenewSession; ResumeReauthentication: ResumeReauthentication; Room: Room; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomPermissions: RoomPermissions; RoomRole: RoomRole; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetReaction: SetReaction; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; SyncBatch: SyncBatch; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; };
 
 export const nativeSchema = {
   "$defs": {
@@ -206,6 +212,31 @@ export const nativeSchema = {
       ],
       "type": "object"
     },
+    "BeginReauthentication": {
+      "additionalProperties": false,
+      "description": "Persist challenge_id (32 CSPRNG bytes as lowercase hex) and operation_id in\nprivate storage before HTTP. Password/OTP are transient, never persisted.",
+      "properties": {
+        "challenge_id": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "password": {
+          "type": "string"
+        },
+        "proof_version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "password",
+        "challenge_id",
+        "operation_id",
+        "proof_version"
+      ],
+      "type": "object"
+    },
     "Capabilities": {
       "properties": {
         "account_invitations": {
@@ -282,6 +313,10 @@ export const nativeSchema = {
           "type": "boolean"
         },
         "read_markers": {
+          "default": false,
+          "type": "boolean"
+        },
+        "reauthentication": {
           "default": false,
           "type": "boolean"
         },
@@ -761,6 +796,30 @@ export const nativeSchema = {
       ],
       "type": "object"
     },
+    "FinishReauthentication": {
+      "additionalProperties": false,
+      "properties": {
+        "challenge_id": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "method": {
+          "$ref": "#/$defs/SecondFactor"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "challenge_id",
+        "operation_id",
+        "method",
+        "code"
+      ],
+      "type": "object"
+    },
     "Login": {
       "additionalProperties": false,
       "properties": {
@@ -1042,6 +1101,16 @@ export const nativeSchema = {
             }
           ]
         },
+        "begin_reauthentication": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BeginReauthentication"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "complete_upload": {
           "$ref": "#/$defs/CompleteUpload"
         },
@@ -1124,6 +1193,16 @@ export const nativeSchema = {
             }
           ]
         },
+        "finish_reauthentication": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FinishReauthentication"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "key_backup": {
           "$ref": "#/$defs/EncryptedKeyBackup"
         },
@@ -1153,6 +1232,36 @@ export const nativeSchema = {
         },
         "read_state": {
           "$ref": "#/$defs/ReadState"
+        },
+        "reauthentication_grant": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReauthenticationGrant"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reauthentication_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReauthenticationStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reauthentication_step": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReauthenticationStep"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "recover_account": {
           "anyOf": [
@@ -1188,6 +1297,16 @@ export const nativeSchema = {
           "anyOf": [
             {
               "$ref": "#/$defs/RenewSession"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resume_reauthentication": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResumeReauthentication"
             },
             {
               "type": "null"
@@ -1409,6 +1528,113 @@ export const nativeSchema = {
       ],
       "type": "object"
     },
+    "ReauthenticationGrant": {
+      "description": "Metadata about proof on the current family; this is never a credential.",
+      "properties": {
+        "authenticated_at": {
+          "type": "string"
+        },
+        "data_epoch": {
+          "type": "string"
+        },
+        "device_id": {
+          "type": "string"
+        },
+        "expires_at": {
+          "type": "string"
+        },
+        "factor_version": {
+          "type": "string"
+        },
+        "instance_id": {
+          "type": "string"
+        },
+        "proof_version": {
+          "type": "string"
+        },
+        "user_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id",
+        "device_id",
+        "instance_id",
+        "data_epoch",
+        "factor_version",
+        "proof_version",
+        "authenticated_at",
+        "expires_at"
+      ],
+      "type": "object"
+    },
+    "ReauthenticationStatus": {
+      "properties": {
+        "data_epoch": {
+          "type": "string"
+        },
+        "device_id": {
+          "type": "string"
+        },
+        "instance_id": {
+          "type": "string"
+        },
+        "proof_version": {
+          "type": "string"
+        },
+        "recent": {
+          "type": "boolean"
+        },
+        "user_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id",
+        "device_id",
+        "instance_id",
+        "data_epoch",
+        "proof_version",
+        "recent"
+      ],
+      "type": "object"
+    },
+    "ReauthenticationStep": {
+      "oneOf": [
+        {
+          "properties": {
+            "grant": {
+              "$ref": "#/$defs/ReauthenticationGrant"
+            },
+            "kind": {
+              "const": "granted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "grant"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "challenge": {
+              "$ref": "#/$defs/AuthChallenge"
+            },
+            "kind": {
+              "const": "challenge",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "challenge"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "RecoverAccount": {
       "additionalProperties": false,
       "description": "Operator code resets login credentials; it never recovers E2EE keys or\nauthenticates the account in place of its normal second-factor login.",
@@ -1473,6 +1699,22 @@ export const nativeSchema = {
       "required": [
         "operation_id",
         "next_token"
+      ],
+      "type": "object"
+    },
+    "ResumeReauthentication": {
+      "additionalProperties": false,
+      "properties": {
+        "challenge_id": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "challenge_id",
+        "operation_id"
       ],
       "type": "object"
     },

@@ -1,8 +1,9 @@
 # Authentification native — P02, socle TOTP et secours
 
 Ce lot livre le serveur, les SDK et les connexions mobile / GTK / SwiftUI, ainsi
-que l'API de régénération des secours. P02 reste ouvert : réauthentification
-explicite, gestion des facteurs dans les paramètres des trois clients, email vérifié /
+que les API de régénération des secours et réauthentification. P02 reste ouvert :
+coffres / formulaires de réauthentification et gestion des facteurs dans les
+paramètres des trois clients, email vérifié /
 SMTP et qualification des appareils. Le fournisseur Rocket.Chat garde son parcours.
 
 Les coordinateurs `rv-core::native::authentication` et
@@ -240,10 +241,65 @@ jour. La version initiale empêche une ancienne demande de régénérer des code
 après cet effacement. Codes et reçus restent hors SQLite et journal de sync.
 
 Une connexion de moins de quinze minutes autorise l'inscription initiale.
-Après activation, la connexion doit aussi avoir été créée **après** cette
-activation : le seul appareil inscrit initialement peut continuer à chatter,
-mais doit refaire un login complet pour désactiver son facteur. Rotation,
-activité et reprise ne rajeunissent pas cette autorisation. La révocation d'un
-autre appareil applique la même preuve de connexion complète. Une session ancienne
-rend `403 reauthentication_required`. Un défi explicite de réauthentification
-et les paramètres des clients restent les prochaines étapes.
+Après activation, le login complet ou la preuve explicite récente doit avoir
+prouvé l'identité du facteur courant. L'appareil inscrit initialement peut continuer à chatter,
+mais confirme son identité avant désactivation / régénération ou révocation
+d'un autre appareil. Rotation, activité et reprise ne rajeunissent pas cette
+autorisation. Une preuve ancienne rend `403 reauthentication_required`.
+
+## Réauthentification explicite sur la famille courante
+
+La capacité additive `reauthentication` annonce les routes, absente / fausse
+sur les serveurs v1 précédents. Aucun nouveau bearer ni appareil n'est créé.
+L'appel reste protégé par le bearer courant ; son renouvellement garde la famille.
+
+- `GET /me/reauth` : `ReauthenticationStatus`, UID, appareil, identité /
+  génération, version de preuve et indication `recent` issue de la même règle
+  SQL que les opérations sensibles. Ce booléen ne remplace pas leur autorisation.
+- `POST /me/reauth/start` : `BeginReauthentication`, mot de passe, version de
+  preuve affichée, ID d'opération et candidat de défi CSPRNG de 32 octets hex
+  minuscules. Le client sauvegarde version / candidat / opération et leur
+  contexte de compte dans une entrée privée **avant** HTTP, jamais le mot de
+  passe. Un compte sans facteur obtient `kind: granted` ; sinon `kind: challenge`
+  avec TOTP / secours disponibles. La clé incorrecte / absente ne contourne
+  pas le facteur. Le candidat est haché en base, dans un espace distinct du login.
+- `POST /me/reauth/finish` : `FinishReauthentication`, défi / opération, méthode
+  et code transitoire. La réussite rend `ReauthenticationGrant`, uniquement
+  des métadonnées de preuve, sans credential. La famille demeure la même.
+- `POST /me/reauth/resume` : `ResumeReauthentication`, candidat / opération.
+  Sans renvoyer mot de passe ou OTP, retrouve le défi ou la preuve déjà acceptée,
+  même après réponse perdue, restart ou rotation sur la même famille. Un pending
+  absent donne `404 reauthentication_not_found`, sans révoquer le chat.
+
+Argon2 utilise le même sémaphore CPU de quatre travaux que le login, conservé
+par le vrai travail bloquant après annulation. Son hash est revérifié sous
+verrou après calcul. Compte, session, appareil / version, défi et facteur sont
+verrouillés dans cet ordre après l'instance. Expiration de session et de défi
+est relue à l'horloge après les attentes correspondantes, avant consommation.
+Les limites persistantes globales / IP / utilisateur sont partagées avec le login,
+plus une fenêtre de défi ; cinq essais erronés et cinq défis pending par compte.
+Mot de passe / code erroné donne `400 reauthentication_rejected`, jamais une
+révocation du chat. Un bearer réellement expiré / révoqué conserve son `401`.
+
+Une validation accepte un code une seule fois et fixe la preuve à quinze minutes.
+Login et réauthentification partagent le même compteur TOTP et les mêmes secours.
+Le reçu de cinq minutes permet un replay sans consommation, nouvelle preuve ou
+prolongation. Une autre famille, autorité, version ou génération ferme cette
+reprise. Les métadonnées de défi / preuve expirées sont nettoyées par lots bornés.
+L'acceptation avance aussi la version de preuve de l'appareil : après nettoyage
+du reçu, le corps initial ne peut recréer / prolonger l'opération. Une nouvelle
+confirmation exige version courante, nouveau candidat / opération et vraie preuve.
+
+Les autorisations explicites sont liées à l'identité / génération, versions
+d'autorité / facteurs, famille / version de preuve et identité du secret TOTP
+effectivement prouvé. Une opération de facteur autorisée avance les versions
+du gardien sans modifier l'heure, son identité de facteur prouvé ou transformer
+une preuve par mot de passe en preuve de second facteur. Régénérer les secours
+garde le même authentificateur ; en inscrire un nouveau exige une nouvelle preuve,
+y compris après recul d'horloge. Les réponses privées portent `Cache-Control: no-store`.
+Les familles migrées dont la provenance de facteur est inconnue doivent confirmer
+à nouveau leur identité ; leur date seule ne prouve pas le facteur courant.
+
+Les SDK exposent les routes ; coffres et formulaires de paramètres des trois
+clients restent le raccordement suivant. Les clés / intentions privées de ce
+parcours doivent rester hors SQLite, journal de sync et index des comptes.

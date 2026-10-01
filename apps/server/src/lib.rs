@@ -10,6 +10,7 @@ mod marks;
 mod message_actions;
 mod permissions;
 mod reactions;
+mod reauthentication;
 pub mod recovery;
 mod sessions;
 mod snapshots;
@@ -83,6 +84,8 @@ impl App {
     /// Startup and periodic maintenance only touches expired ephemeral records.
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
         for query in [
+            "DELETE FROM reauthentication_challenges WHERE token_hash IN (SELECT token_hash FROM reauthentication_challenges WHERE expires_at<=clock_timestamp() AND (receipt_expires_at IS NULL OR receipt_expires_at<=clock_timestamp()) LIMIT 1000 FOR UPDATE SKIP LOCKED)",
+            "DELETE FROM reauthentication_grants WHERE device_id IN (SELECT device_id FROM reauthentication_grants WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM auth_challenges WHERE token_hash IN (SELECT token_hash FROM auth_challenges WHERE expires_at<=now() AND (receipt_expires_at IS NULL OR receipt_expires_at<=now()) LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM factor_setups WHERE id IN (SELECT id FROM factor_setups WHERE expires_at<=now() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "UPDATE factor_backup_regenerations SET receipt_cipher=NULL WHERE id IN (SELECT id FROM factor_backup_regenerations WHERE expires_at<=clock_timestamp() AND receipt_cipher IS NOT NULL LIMIT 1000 FOR UPDATE SKIP LOCKED)",

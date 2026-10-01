@@ -128,6 +128,63 @@ pub struct RegenerateFactorBackups {
     pub operation_id: String,
 }
 
+/// Persist challenge_id (32 CSPRNG bytes as lowercase hex) and operation_id in
+/// private storage before HTTP. Password/OTP are transient, never persisted.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BeginReauthentication {
+    pub password: String,
+    pub challenge_id: String,
+    pub operation_id: String,
+    pub proof_version: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FinishReauthentication {
+    pub challenge_id: String,
+    pub operation_id: String,
+    pub method: SecondFactor,
+    pub code: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ResumeReauthentication {
+    pub challenge_id: String,
+    pub operation_id: String,
+}
+
+/// Metadata about proof on the current family; this is never a credential.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ReauthenticationGrant {
+    pub user_id: String,
+    pub device_id: String,
+    pub instance_id: String,
+    pub data_epoch: String,
+    pub factor_version: String,
+    pub proof_version: String,
+    pub authenticated_at: String,
+    pub expires_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ReauthenticationStatus {
+    pub user_id: String,
+    pub device_id: String,
+    pub instance_id: String,
+    pub data_epoch: String,
+    pub proof_version: String,
+    pub recent: bool,
+}
+
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ReauthenticationStep {
+    Granted { grant: ReauthenticationGrant },
+    Challenge { challenge: AuthChallenge },
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RoomRole {
@@ -352,6 +409,18 @@ pub struct ParityContract {
     pub disable_factor: Option<DisableFactor>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub regenerate_factor_backups: Option<RegenerateFactorBackups>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub begin_reauthentication: Option<BeginReauthentication>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finish_reauthentication: Option<FinishReauthentication>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_reauthentication: Option<ResumeReauthentication>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reauthentication_step: Option<ReauthenticationStep>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reauthentication_grant: Option<ReauthenticationGrant>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reauthentication_status: Option<ReauthenticationStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recover_account: Option<RecoverAccount>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

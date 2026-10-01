@@ -142,6 +142,31 @@
       ],
       "type": "object"
     },
+    "BeginReauthentication": {
+      "additionalProperties": false,
+      "description": "Persist challenge_id (32 CSPRNG bytes as lowercase hex) and operation_id in\nprivate storage before HTTP. Password/OTP are transient, never persisted.",
+      "properties": {
+        "challenge_id": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "password": {
+          "type": "string"
+        },
+        "proof_version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "password",
+        "challenge_id",
+        "operation_id",
+        "proof_version"
+      ],
+      "type": "object"
+    },
     "Capabilities": {
       "properties": {
         "account_invitations": {
@@ -218,6 +243,10 @@
           "type": "boolean"
         },
         "read_markers": {
+          "default": false,
+          "type": "boolean"
+        },
+        "reauthentication": {
           "default": false,
           "type": "boolean"
         },
@@ -697,6 +726,30 @@
       ],
       "type": "object"
     },
+    "FinishReauthentication": {
+      "additionalProperties": false,
+      "properties": {
+        "challenge_id": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "method": {
+          "$ref": "#/$defs/SecondFactor"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "challenge_id",
+        "operation_id",
+        "method",
+        "code"
+      ],
+      "type": "object"
+    },
     "Login": {
       "additionalProperties": false,
       "properties": {
@@ -978,6 +1031,16 @@
             }
           ]
         },
+        "begin_reauthentication": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BeginReauthentication"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "complete_upload": {
           "$ref": "#/$defs/CompleteUpload"
         },
@@ -1060,6 +1123,16 @@
             }
           ]
         },
+        "finish_reauthentication": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FinishReauthentication"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "key_backup": {
           "$ref": "#/$defs/EncryptedKeyBackup"
         },
@@ -1089,6 +1162,36 @@
         },
         "read_state": {
           "$ref": "#/$defs/ReadState"
+        },
+        "reauthentication_grant": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReauthenticationGrant"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reauthentication_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReauthenticationStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reauthentication_step": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReauthenticationStep"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "recover_account": {
           "anyOf": [
@@ -1124,6 +1227,16 @@
           "anyOf": [
             {
               "$ref": "#/$defs/RenewSession"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resume_reauthentication": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResumeReauthentication"
             },
             {
               "type": "null"
@@ -1345,6 +1458,113 @@
       ],
       "type": "object"
     },
+    "ReauthenticationGrant": {
+      "description": "Metadata about proof on the current family; this is never a credential.",
+      "properties": {
+        "authenticated_at": {
+          "type": "string"
+        },
+        "data_epoch": {
+          "type": "string"
+        },
+        "device_id": {
+          "type": "string"
+        },
+        "expires_at": {
+          "type": "string"
+        },
+        "factor_version": {
+          "type": "string"
+        },
+        "instance_id": {
+          "type": "string"
+        },
+        "proof_version": {
+          "type": "string"
+        },
+        "user_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id",
+        "device_id",
+        "instance_id",
+        "data_epoch",
+        "factor_version",
+        "proof_version",
+        "authenticated_at",
+        "expires_at"
+      ],
+      "type": "object"
+    },
+    "ReauthenticationStatus": {
+      "properties": {
+        "data_epoch": {
+          "type": "string"
+        },
+        "device_id": {
+          "type": "string"
+        },
+        "instance_id": {
+          "type": "string"
+        },
+        "proof_version": {
+          "type": "string"
+        },
+        "recent": {
+          "type": "boolean"
+        },
+        "user_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id",
+        "device_id",
+        "instance_id",
+        "data_epoch",
+        "proof_version",
+        "recent"
+      ],
+      "type": "object"
+    },
+    "ReauthenticationStep": {
+      "oneOf": [
+        {
+          "properties": {
+            "grant": {
+              "$ref": "#/$defs/ReauthenticationGrant"
+            },
+            "kind": {
+              "const": "granted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "grant"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "challenge": {
+              "$ref": "#/$defs/AuthChallenge"
+            },
+            "kind": {
+              "const": "challenge",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "challenge"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "RecoverAccount": {
       "additionalProperties": false,
       "description": "Operator code resets login credentials; it never recovers E2EE keys or\nauthenticates the account in place of its normal second-factor login.",
@@ -1409,6 +1629,22 @@
       "required": [
         "operation_id",
         "next_token"
+      ],
+      "type": "object"
+    },
+    "ResumeReauthentication": {
+      "additionalProperties": false,
+      "properties": {
+        "challenge_id": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "challenge_id",
+        "operation_id"
       ],
       "type": "object"
     },

@@ -163,6 +163,871 @@ async fn factor_version(server: &Server, token: &str) -> String {
     status["factor_version"].as_str().unwrap().to_owned()
 }
 
+async fn reauthentication_challenge(server: &Server, session: &Session, operation: &str) -> Value {
+    let challenge = auth::random_token();
+    let result = server
+        .post(
+            "/me/reauth/start",
+            Some(&session.token),
+            json!({"password":PASSWORD,"challenge_id":challenge,"operation_id":operation,"proof_version":proof_version(server, &session.token).await}),
+        )
+        .await;
+    assert_eq!(result.status(), StatusCode::OK);
+    assert_eq!(result.headers()["cache-control"], "no-store");
+    let value: Value = result.json().await.unwrap();
+    assert_eq!(value["kind"], "challenge");
+    assert!(value["challenge"]["challenge_id"] == challenge);
+    json!({"challenge_id":challenge,"operation_id":operation})
+}
+
+async fn proof_version(server: &Server, token: &str) -> String {
+    let result: Value = server.get("/me/reauth", token).await.json().await.unwrap();
+    result["proof_version"].as_str().unwrap().to_owned()
+}
+
+#[sqlx::test]
+async fn a_recent_full_login_proves_only_its_actual_factor_even_after_clock_correction(
+    pool: PgPool,
+) {
+    let (_, server, enrolling) = fixture(&pool).await;
+    let (_, codes) = enroll(&server, &enrolling).await;
+    reset_limits(&pool).await;
+    let session = full_login(&server, &codes.codes[0], "full-login").await;
+    assert_eq!(
+        server
+            .post(
+                "/me/factors/totp/disable",
+                Some(&session.token),
+                json!({"factor_version":factor_version(&server, &session.token).await})
+            )
+            .await
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    let setup = begin(&server, &session, "replacement-setup").await;
+    assert_eq!(server.post("/me/factors/totp/enable", Some(&session.token), json!({"setup_id":setup.setup_id,"operation_id":"replacement-enable","code":totp(&setup.secret, Utc::now().timestamp()/30)})).await.status(), StatusCode::OK);
+    sqlx::query("UPDATE user_factors SET enabled_at=clock_timestamp()-interval '1 minute'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        server
+            .post(
+                "/me/factors/totp/disable",
+                Some(&session.token),
+                json!({"factor_version":factor_version(&server, &session.token).await})
+            )
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM user_factors")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        1
+    );
+}
+
+#[sqlx::test]
+async fn reauthentication_rechecks_session_expiry_after_waiting_for_device_lock(pool: PgPool) {
+    let (_, server, session) = fixture(&pool).await;
+    let (_, codes) = enroll(&server, &session).await;
+    reset_limits(&pool).await;
+    let intent = reauthentication_challenge(&server, &session, "device-lock").await;
+    sqlx::query("UPDATE sessions SET expires_at=clock_timestamp()+interval '3 seconds'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut lock = pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM session_devices FOR UPDATE")
+        .fetch_one(&mut *lock)
+        .await
+        .unwrap();
+    let base = server.base.clone();
+    let token = session.token.clone();
+    let code = codes.codes[0].clone();
+    let task = tokio::spawn(async move {
+        Client::new().post(format!("{base}/api/v1/me/reauth/finish")).bearer_auth(token).json(&json!({"challenge_id":intent["challenge_id"],"operation_id":"device-lock","method":"recovery_code","code":code})).send().await.unwrap()
+    });
+    let mut waiting = false;
+    for _ in 0..100 {
+        waiting = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT d.id,d.reauthentication_version%')").fetch_one(&pool).await.unwrap();
+        if waiting || task.is_finished() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    lock.commit().await.unwrap();
+    assert_eq!(task.await.unwrap().status(), StatusCode::UNAUTHORIZED);
+    assert!(
+        waiting,
+        "the authentication source must lock the existing device before consuming the proof"
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM reauthentication_grants")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM factor_backup_codes WHERE consumed_at IS NOT NULL"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        0
+    );
+}
+
+#[sqlx::test]
+async fn reauthentication_pruned_receipts_never_refresh_an_old_password_operation(pool: PgPool) {
+    let (app, server, session) = fixture(&pool).await;
+    let original = json!({"password":PASSWORD,"challenge_id":auth::random_token(),"operation_id":"proof-1","proof_version":proof_version(&server, &session.token).await});
+    let mut forged = original.clone();
+    forged["user_id"] = json!("another-user");
+    assert_eq!(
+        server
+            .post("/me/reauth/start", Some(&session.token), forged)
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let first: Value = server
+        .post("/me/reauth/start", Some(&session.token), original.clone())
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(first["kind"], "granted");
+    let replay: Value = server
+        .post("/me/reauth/start", Some(&session.token), original.clone())
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(first, replay);
+    assert_ne!(first["grant"]["proof_version"], original["proof_version"]);
+    sqlx::query("UPDATE reauthentication_challenges SET expires_at=clock_timestamp()-interval '1 second',receipt_expires_at=clock_timestamp()-interval '1 second'").execute(&pool).await.unwrap();
+    app.cleanup().await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM reauthentication_challenges")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        server
+            .post("/me/reauth/start", Some(&session.token), original)
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let unchanged: chrono::DateTime<Utc> =
+        sqlx::query_scalar("SELECT authenticated_at FROM reauthentication_grants")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(unchanged.to_rfc3339(), first["grant"]["authenticated_at"]);
+    let fresh = json!({"password":PASSWORD,"challenge_id":auth::random_token(),"operation_id":"proof-2","proof_version":proof_version(&server, &session.token).await});
+    assert_eq!(
+        server
+            .post("/me/reauth/start", Some(&session.token), fresh)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM sessions")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        1
+    );
+}
+
+#[sqlx::test]
+async fn reauthentication_and_login_share_one_totp_replay_counter(pool: PgPool) {
+    let (_, server, session) = fixture(&pool).await;
+    let (setup, _) = enroll(&server, &session).await;
+    reset_limits(&pool).await;
+    let proof = reauthentication_challenge(&server, &session, "totp-proof").await;
+    let counter = Utc::now().timestamp() / 30 + 1;
+    let code = totp(&setup.secret, counter);
+    assert_eq!(server.post("/me/reauth/finish", Some(&session.token), json!({"challenge_id":proof["challenge_id"],"operation_id":"totp-proof","method":"totp","code":code})).await.status(), StatusCode::OK);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT last_totp_counter FROM user_factors")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        counter
+    );
+    let login = server.challenge().await;
+    assert_eq!(
+        server
+            .finish(&login, &code, "totp", &auth::random_token(), "reused-totp")
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM sessions")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM factor_backup_codes WHERE consumed_at IS NOT NULL"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        0
+    );
+}
+
+#[sqlx::test]
+async fn reauthentication_grants_authorize_only_the_current_generation_authority_and_age(
+    pool: PgPool,
+) {
+    let (app, server, session) = fixture(&pool).await;
+    let _other = auth::login(&app, "owner".into(), PASSWORD.into())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE session_devices SET created_at=clock_timestamp()-interval '20 minutes'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let result = server.post("/me/reauth/start", Some(&session.token), json!({"password":PASSWORD,"challenge_id":auth::random_token(),"operation_id":"fresh-proof","proof_version":proof_version(&server, &session.token).await})).await;
+    assert_eq!(result.status(), StatusCode::OK);
+    let status: Value = server
+        .get("/me/reauth", &session.token)
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["recent"], true);
+    let epoch: String = sqlx::query_scalar("SELECT data_epoch FROM instance")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE instance SET data_epoch=$1")
+        .bind(auth::random_token())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let status: Value = server
+        .get("/me/reauth", &session.token)
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["recent"], false);
+    sqlx::query("UPDATE instance SET data_epoch=$1")
+        .bind(epoch)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET admin=NOT admin")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let status: Value = server
+        .get("/me/reauth", &session.token)
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["recent"], false);
+    let result = server.post("/me/reauth/start", Some(&session.token), json!({"password":PASSWORD,"challenge_id":auth::random_token(),"operation_id":"new-authority-proof","proof_version":proof_version(&server, &session.token).await})).await;
+    assert_eq!(result.status(), StatusCode::OK);
+    sqlx::query("UPDATE reauthentication_grants SET authenticated_at=clock_timestamp()-interval '20 minutes',expires_at=clock_timestamp()+interval '1 minute'").execute(&pool).await.unwrap();
+    let status: Value = server
+        .get("/me/reauth", &session.token)
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["recent"], false);
+    assert_eq!(
+        server.get("/me", &session.token).await.status(),
+        StatusCode::OK
+    );
+}
+
+#[sqlx::test]
+async fn reauthentication_without_factor_renews_only_proof_and_keeps_the_existing_family(
+    pool: PgPool,
+) {
+    let (app, server, session) = fixture(&pool).await;
+    let other = auth::login(&app, "owner".into(), PASSWORD.into())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE session_devices SET created_at=clock_timestamp()-interval '20 minutes'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let other_device: String =
+        sqlx::query_scalar("SELECT device_id FROM sessions WHERE token_hash=$1")
+            .bind(auth::hash_token(&other.token))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let nonce = auth::random_token();
+    let body = json!({"password":"wrong","challenge_id":nonce,"operation_id":"reauth-1","proof_version":proof_version(&server, &session.token).await});
+    let denied = server
+        .post("/me/reauth/start", Some(&session.token), body)
+        .await;
+    assert_eq!(denied.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        denied.json::<Value>().await.unwrap()["code"],
+        "reauthentication_rejected"
+    );
+    assert_eq!(
+        server.get("/me", &session.token).await.status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        server
+            .http
+            .delete(format!("{}/api/v1/me/sessions/{other_device}", server.base))
+            .bearer_auth(&session.token)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    let mut sdk = rv_client::NativeClient::new(&server.base).unwrap();
+    sdk.restore(session.token.clone());
+    let step = sdk
+        .begin_reauthentication(&rv_protocol::parity::BeginReauthentication {
+            password: PASSWORD.into(),
+            challenge_id: nonce.clone(),
+            operation_id: "reauth-1".into(),
+            proof_version: sdk.reauthentication_status().await.unwrap().proof_version,
+        })
+        .await
+        .unwrap();
+    let grant = match step {
+        rv_protocol::parity::ReauthenticationStep::Granted { grant } => grant,
+        _ => panic!("password proof should complete without a configured factor"),
+    };
+    assert_eq!(grant.user_id, session.user.id);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM sessions")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM session_devices")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        2
+    );
+    let source: String = sqlx::query_scalar("SELECT device_id FROM sessions WHERE token_hash=$1")
+        .bind(auth::hash_token(&session.token))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(grant.device_id, source);
+    let rotated = server
+        .post(
+            "/auth/renew",
+            Some(&session.token),
+            json!({"operation_id":"rotate","next_token":auth::random_token()}),
+        )
+        .await
+        .json::<Session>()
+        .await
+        .unwrap();
+    drop(server);
+    let server = Server::start(app.clone()).await;
+    sdk = rv_client::NativeClient::new(&server.base).unwrap();
+    sdk.restore(rotated.token.clone());
+    let replay = sdk
+        .resume_reauthentication(&rv_protocol::parity::ResumeReauthentication {
+            challenge_id: nonce.clone(),
+            operation_id: "reauth-1".into(),
+        })
+        .await
+        .unwrap();
+    match replay {
+        rv_protocol::parity::ReauthenticationStep::Granted { grant: recovered } => {
+            assert_eq!(recovered.authenticated_at, grant.authenticated_at);
+            assert_eq!(recovered.expires_at, grant.expires_at);
+        }
+        _ => panic!("accepted proof must survive restart and rotation"),
+    }
+    assert_eq!(
+        server
+            .post(
+                "/me/reauth/resume",
+                Some(&other.token),
+                json!({"challenge_id":nonce,"operation_id":"reauth-1"})
+            )
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        server
+            .http
+            .delete(format!("{}/api/v1/me/sessions/{other_device}", server.base))
+            .bearer_auth(&rotated.token)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    let proof_time: chrono::DateTime<Utc> =
+        sqlx::query_scalar("SELECT authenticated_at FROM reauthentication_grants")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(proof_time.to_rfc3339(), grant.authenticated_at);
+    sqlx::query(
+        "UPDATE reauthentication_grants SET expires_at=clock_timestamp()-interval '1 second'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let another = auth::login(&app, "owner".into(), PASSWORD.into())
+        .await
+        .unwrap();
+    let another_device: String =
+        sqlx::query_scalar("SELECT device_id FROM sessions WHERE token_hash=$1")
+            .bind(auth::hash_token(&another.token))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        server
+            .http
+            .delete(format!(
+                "{}/api/v1/me/sessions/{another_device}",
+                server.base
+            ))
+            .bearer_auth(&rotated.token)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    app.cleanup().await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM reauthentication_grants")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+}
+
+#[sqlx::test]
+async fn reauthentication_factor_lost_ack_is_one_use_and_authority_changes_keep_proof_age(
+    pool: PgPool,
+) {
+    let (app, server, session) = fixture(&pool).await;
+    let (_, codes) = enroll(&server, &session).await;
+    sqlx::query("UPDATE session_devices SET created_at=clock_timestamp()-interval '20 minutes'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    reset_limits(&pool).await;
+    let intent = reauthentication_challenge(&server, &session, "reauth-1").await;
+    let nonce = intent["challenge_id"].as_str().unwrap();
+    assert_eq!(
+        server.get("/me", nonce).await.status(),
+        StatusCode::UNAUTHORIZED,
+        "a reauthentication challenge must never authenticate a chat request"
+    );
+    assert_eq!(
+        server
+            .finish(
+                nonce,
+                &codes.codes[0],
+                "recovery_code",
+                &auth::random_token(),
+                "wrong-namespace"
+            )
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(server.post("/me/reauth/finish", Some(&session.token), json!({"challenge_id":nonce,"operation_id":"reauth-1","method":"recovery_code","code":"wrong"})).await.status(), StatusCode::BAD_REQUEST);
+    let proof = json!({"challenge_id":nonce,"operation_id":"reauth-1","method":"recovery_code","code":codes.codes[0]});
+    let (a, b) = tokio::join!(
+        server.post("/me/reauth/finish", Some(&session.token), proof.clone()),
+        server.post("/me/reauth/finish", Some(&session.token), proof)
+    );
+    assert_eq!(a.status(), StatusCode::OK);
+    assert_eq!(b.status(), StatusCode::OK);
+    assert_eq!(a.headers()["cache-control"], "no-store");
+    let grant: Value = a.json().await.unwrap();
+    assert_eq!(grant, b.json::<Value>().await.unwrap());
+    assert!(grant.get("token").is_none());
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM sessions")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM factor_backup_codes WHERE consumed_at IS NOT NULL"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        1
+    );
+    drop(server);
+    let server = Server::start(app).await;
+    let replay: Value = server
+        .post("/me/reauth/resume", Some(&session.token), intent.clone())
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(replay["grant"], grant);
+    let other = full_login(&server, &codes.codes[1], "other-family").await;
+    assert_eq!(
+        server
+            .post("/me/reauth/resume", Some(&other.token), intent)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let version = factor_version(&server, &session.token).await;
+    assert_eq!(
+        server
+            .post(
+                "/me/factors/recovery/regenerate",
+                Some(&session.token),
+                json!({"factor_version":version,"operation_id":"regenerate-after-reauth"})
+            )
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    let proof_time: chrono::DateTime<Utc> =
+        sqlx::query_scalar("SELECT authenticated_at FROM reauthentication_grants")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(proof_time.to_rfc3339(), grant["authenticated_at"]);
+    let updated_version = factor_version(&server, &session.token).await;
+    assert_eq!(
+        server
+            .post(
+                "/me/factors/totp/disable",
+                Some(&session.token),
+                json!({"factor_version":updated_version})
+            )
+            .await
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        server.get("/me", &other.token).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let setup = begin(&server, &session, "new-factor").await;
+    assert_eq!(server.post("/me/factors/totp/enable", Some(&session.token), json!({"setup_id":setup.setup_id,"operation_id":"new-enable","code":totp(&setup.secret, Utc::now().timestamp()/30)})).await.status(), StatusCode::OK);
+    sqlx::query("UPDATE user_factors SET enabled_at=clock_timestamp()-interval '1 minute'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        server
+            .post(
+                "/me/factors/totp/disable",
+                Some(&session.token),
+                json!({"factor_version":factor_version(&server, &session.token).await})
+            )
+            .await
+            .status(),
+        StatusCode::FORBIDDEN,
+        "proof for an older authenticator must not authorize a newly enabled factor after a backward clock correction"
+    );
+}
+
+#[sqlx::test]
+async fn reauthentication_expiry_is_rechecked_after_challenge_and_factor_locks(pool: PgPool) {
+    let (_, server, session) = fixture(&pool).await;
+    let (_, codes) = enroll(&server, &session).await;
+    reset_limits(&pool).await;
+    for factor_lock in [false, true] {
+        let operation = if factor_lock {
+            "factor-lock"
+        } else {
+            "challenge-lock"
+        };
+        let intent = reauthentication_challenge(&server, &session, operation).await;
+        let hash = auth::hash_token(intent["challenge_id"].as_str().unwrap());
+        let mut lock = pool.begin().await.unwrap();
+        if factor_lock {
+            sqlx::query("UPDATE reauthentication_challenges SET expires_at=clock_timestamp()+interval '3 seconds' WHERE token_hash=$1").bind(&hash).execute(&pool).await.unwrap();
+            sqlx::query("SELECT user_id FROM user_factors FOR UPDATE")
+                .fetch_one(&mut *lock)
+                .await
+                .unwrap();
+        } else {
+            sqlx::query(
+                "SELECT token_hash FROM reauthentication_challenges WHERE token_hash=$1 FOR UPDATE",
+            )
+            .bind(&hash)
+            .fetch_one(&mut *lock)
+            .await
+            .unwrap();
+        }
+        let base = server.base.clone();
+        let token = session.token.clone();
+        let code = codes.codes[0].clone();
+        let pending = tokio::spawn(async move {
+            Client::new().post(format!("{base}/api/v1/me/reauth/finish")).bearer_auth(token).json(&json!({"challenge_id":intent["challenge_id"],"operation_id":operation,"method":"recovery_code","code":code})).send().await.unwrap()
+        });
+        let pattern = if factor_lock {
+            "SELECT version,totp_cipher,last_totp_counter%"
+        } else {
+            "SELECT * FROM reauthentication_challenges%"
+        };
+        let mut waiting = false;
+        for _ in 0..100 {
+            waiting = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE $1)").bind(pattern).fetch_one(&pool).await.unwrap();
+            if waiting {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(waiting, "HTTP proof must be waiting for the real SQL lock");
+        if factor_lock {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        } else {
+            sqlx::query("UPDATE reauthentication_challenges SET expires_at=clock_timestamp()-interval '1 second' WHERE token_hash=$1").bind(hash).execute(&mut *lock).await.unwrap();
+        }
+        lock.commit().await.unwrap();
+        assert_eq!(pending.await.unwrap().status(), StatusCode::BAD_REQUEST);
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM reauthentication_grants")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM factor_backup_codes WHERE consumed_at IS NOT NULL"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        0
+    );
+}
+
+#[sqlx::test]
+async fn reauthentication_rejects_replayed_codes_wrong_key_and_changed_generation_authority(
+    pool: PgPool,
+) {
+    let (_, server, session) = fixture(&pool).await;
+    let (_, codes) = enroll(&server, &session).await;
+    reset_limits(&pool).await;
+    let intent = reauthentication_challenge(&server, &session, "reauth-1").await;
+    let nonce = intent["challenge_id"].as_str().unwrap();
+    for _ in 0..5 {
+        assert_eq!(server.post("/me/reauth/finish", Some(&session.token), json!({"challenge_id":nonce,"operation_id":"reauth-1","method":"recovery_code","code":"wrong"})).await.status(), StatusCode::BAD_REQUEST);
+    }
+    assert_eq!(server.post("/me/reauth/finish", Some(&session.token), json!({"challenge_id":nonce,"operation_id":"reauth-1","method":"recovery_code","code":codes.codes[0]})).await.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        sqlx::query_scalar::<_, i32>("SELECT attempts FROM reauthentication_challenges")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        5
+    );
+    reset_limits(&pool).await;
+    assert_eq!(server.post("/me/reauth/start", Some(&session.token), json!({"challenge_id":auth::random_token(),"operation_id":"reauth-1","password":PASSWORD,"proof_version":proof_version(&server, &session.token).await})).await.status(), StatusCode::CONFLICT);
+    for i in 0..4 {
+        reauthentication_challenge(&server, &session, &format!("pending-{i}")).await;
+    }
+    assert_eq!(server.post("/me/reauth/start", Some(&session.token), json!({"challenge_id":auth::random_token(),"operation_id":"too-many","password":PASSWORD,"proof_version":proof_version(&server, &session.token).await})).await.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM reauthentication_grants")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    let broken = App::from_pool_with_auth_key(
+        pool.clone(),
+        Some(AuthKey::from_hex(&"39".repeat(32)).unwrap()),
+    )
+    .await
+    .unwrap();
+    let broken = Server::start(broken).await;
+    // Expire pending rows to create a fresh named intent with a known candidate.
+    sqlx::query(
+        "UPDATE reauthentication_challenges SET expires_at=clock_timestamp()-interval '1 second'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    reset_limits(&pool).await;
+    let fresh = reauthentication_challenge(&server, &session, "fresh").await;
+    let proof = json!({"challenge_id":fresh["challenge_id"],"operation_id":"fresh","method":"recovery_code","code":codes.codes[0]});
+    assert_eq!(
+        broken
+            .post("/me/reauth/finish", Some(&session.token), proof.clone())
+            .await
+            .status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    let epoch: String = sqlx::query_scalar("SELECT data_epoch FROM instance")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE instance SET data_epoch=$1")
+        .bind(auth::random_token())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        server
+            .post("/me/reauth/finish", Some(&session.token), proof.clone())
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    sqlx::query("UPDATE instance SET data_epoch=$1")
+        .bind(epoch)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET admin=NOT admin")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        server
+            .post("/me/reauth/finish", Some(&session.token), proof)
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM factor_backup_codes WHERE consumed_at IS NOT NULL"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        server.get("/me", &session.token).await.status(),
+        StatusCode::OK
+    );
+}
+
+#[sqlx::test]
+async fn reauthentication_password_verified_before_account_change_cannot_issue_proof(pool: PgPool) {
+    let (_, server, session) = fixture(&pool).await;
+    let version = proof_version(&server, &session.token).await;
+    let mut lock = pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM users FOR NO KEY UPDATE")
+        .fetch_one(&mut *lock)
+        .await
+        .unwrap();
+    let base = server.base.clone();
+    let token = session.token.clone();
+    let task = tokio::spawn(async move {
+        Client::new().post(format!("{base}/api/v1/me/reauth/start")).bearer_auth(token).json(&json!({"password":PASSWORD,"challenge_id":auth::random_token(),"operation_id":"delayed-password","proof_version":version})).send().await.unwrap()
+    });
+    let mut waiting = false;
+    for _ in 0..200 {
+        waiting = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT activation_version FROM users%')").fetch_one(&pool).await.unwrap();
+        if waiting {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(
+        waiting,
+        "password proof must finish CPU verification before the real account lock"
+    );
+    sqlx::query("UPDATE users SET password_hash='invalidated-fixture-hash'")
+        .execute(&mut *lock)
+        .await
+        .unwrap();
+    lock.commit().await.unwrap();
+    assert_eq!(task.await.unwrap().status(), StatusCode::CONFLICT);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM reauthentication_challenges")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM reauthentication_grants")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+}
+
+#[sqlx::test]
+async fn reauthentication_password_only_proof_never_authorizes_a_new_factor(pool: PgPool) {
+    let (_, server, session) = fixture(&pool).await;
+    sqlx::query("UPDATE session_devices SET created_at=clock_timestamp()-interval '20 minutes'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let result = server.post("/me/reauth/start", Some(&session.token), json!({"password":PASSWORD,"challenge_id":auth::random_token(),"operation_id":"password-only","proof_version":proof_version(&server, &session.token).await})).await;
+    assert_eq!(result.status(), StatusCode::OK);
+    let _ = enroll(&server, &session).await;
+    // A backward wall-clock correction must not turn a password-only proof
+    // into a proof of the subsequently enabled authenticator.
+    sqlx::query("UPDATE user_factors SET enabled_at=clock_timestamp()-interval '1 minute'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        server
+            .post(
+                "/me/factors/totp/disable",
+                Some(&session.token),
+                json!({"factor_version":factor_version(&server, &session.token).await})
+            )
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert!(
+        !sqlx::query_scalar::<_, bool>("SELECT factor_completed FROM reauthentication_grants")
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+    );
+}
+
 #[sqlx::test]
 async fn backup_regeneration_is_atomic_and_replays_the_same_device_receipt_after_restart_and_rotation(
     pool: PgPool,

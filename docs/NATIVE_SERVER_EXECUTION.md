@@ -315,6 +315,13 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, nettoyage des défis e-mail : migration 0017 et réservation durable de la
+  tête de l'appareil. Le nettoyage d'un défi expiré ne peut plus autoriser le
+  rejeu d'un ancien start avec une nouvelle échéance, ni un nouveau candidat
+  sous la même tête. Le retrait explicite ouvre la tête suivante. La régression
+  PostgreSQL et la suite complète passent : 104 tests serveur, 7 tests de contrat
+  / client et 98 tests SDK TypeScript, avec Clippy et contrats générés.
+
 - P02, adresse e-mail vérifiée serveur / SDK : migration 0016, routes privées
   start / resume / confirm / retire et statut avec barrière de livraison et
   `no-store`. La capacité additive est publiée avec SMTP et clé opérateur

@@ -53,6 +53,7 @@ struct Source {
     factor: String,
     version: String,
     head: String,
+    claimed: bool,
 }
 async fn source(tx: &mut Transaction<'_, Postgres>, account: &Account) -> Result<Source> {
     let (instance_id, data_epoch): (String, String) =
@@ -65,7 +66,7 @@ async fn source(tx: &mut Transaction<'_, Postgres>, account: &Account) -> Result
             .bind(&account.id)
             .fetch_one(&mut **tx)
             .await?;
-    let (device_id,head,expiry):(String,String,DateTime<Utc>)=sqlx::query_as("SELECT d.id,d.email_verification_version,s.expires_at FROM session_devices d JOIN sessions s ON s.device_id=d.id WHERE s.token_hash=$1 FOR NO KEY UPDATE OF d").bind(&account.session_hash).fetch_one(&mut **tx).await?;
+    let (device_id,head,claimed,expiry):(String,String,bool,DateTime<Utc>)=sqlx::query_as("SELECT d.id,d.email_verification_version,d.email_verification_claimed,s.expires_at FROM session_devices d JOIN sessions s ON s.device_id=d.id WHERE s.token_hash=$1 FOR NO KEY UPDATE OF d").bind(&account.session_hash).fetch_one(&mut **tx).await?;
     if expiry <= clock(tx).await? {
         return Err(Error::unauthorized());
     }
@@ -80,6 +81,7 @@ async fn source(tx: &mut Transaction<'_, Postgres>, account: &Account) -> Result
         factor,
         version,
         head,
+        claimed,
     })
 }
 fn scoped(source: &Source, context: &ReauthenticationContext) -> Result<()> {
@@ -205,7 +207,10 @@ async fn view(
 }
 fn expected(current: &Source, input: &BeginEmailVerification) -> Result<()> {
     scoped(current, &input.context)?;
-    if current.version != input.expected_version || current.head != input.verification_version {
+    if current.version != input.expected_version
+        || current.head != input.verification_version
+        || current.claimed
+    {
         return Err(Error::conflict());
     }
     Ok(())
@@ -292,6 +297,10 @@ pub(crate) async fn begin(
     // Re-read actual time under our existing locks before creating any mail.
     auth::lock_active(&mut tx, account).await?;
     factors::recent(&mut tx, account).await?;
+    sqlx::query("UPDATE session_devices SET email_verification_claimed=true WHERE id=$1")
+        .bind(&current.context.device_id)
+        .execute(&mut *tx)
+        .await?;
     let code = crate::email_delivery::new_code();
     sqlx::query("INSERT INTO email_verifications(token_hash,user_id,device_id,operation_id,instance_id,data_epoch,activation_version,factor_version,email_version,requested_version,address,code_hash,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,clock_timestamp()+interval '15 minutes')")
         .bind(&hash).bind(&account.id).bind(&current.context.device_id).bind(&input.operation_id).bind(&current.context.instance_id).bind(&current.context.data_epoch).bind(&current.activation).bind(&current.factor).bind(&current.version).bind(&current.head).bind(&input.address).bind(code_hash(&input.verification_id,&code)).execute(&mut *tx).await?;
@@ -389,7 +398,7 @@ pub(crate) async fn confirm(
         .bind(&version)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("UPDATE session_devices SET email_verification_version=$2 WHERE id=$1")
+    sqlx::query("UPDATE session_devices SET email_verification_version=$2,email_verification_claimed=false WHERE id=$1")
         .bind(&current.context.device_id)
         .bind(&head)
         .execute(&mut *tx)
@@ -419,7 +428,7 @@ pub(crate) async fn retire(
         // Contact may have changed on another device; retiring this device's
         // old command head must still work without changing that contact.
         current.head = auth::random_token();
-        sqlx::query("UPDATE session_devices SET email_verification_version=$2 WHERE id=$1")
+        sqlx::query("UPDATE session_devices SET email_verification_version=$2,email_verification_claimed=false WHERE id=$1")
             .bind(&current.context.device_id)
             .bind(&current.head)
             .execute(&mut *tx)

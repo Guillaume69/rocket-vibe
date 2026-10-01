@@ -686,3 +686,52 @@ async fn last_delivery_attempt_remains_sending_until_its_lease_ends(pool: sqlx::
     assert_eq!(email_delivery::drain(&app).await.unwrap(), 0);
     assert!(relay.messages.lock().await.is_empty());
 }
+
+#[sqlx::test]
+async fn pruned_expired_challenge_never_reopens_its_claimed_head(pool: sqlx::PgPool) {
+    let relay = Relay::start(false).await;
+    let (app, account) = fixture(&pool, &relay).await;
+    let original = start_input(&app, &account, "owner@example.test").await;
+    begin(&app, &account, original.clone(), None).await.unwrap();
+    sqlx::query("UPDATE email_verifications SET expires_at=clock_timestamp()-interval '1 second'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    app.cleanup().await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM email_verifications")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(
+        begin(&app, &account, original.clone(), None)
+            .await
+            .is_err_and(|error| error.code == "operation_conflict")
+    );
+    let fresh_candidate = start_input(&app, &account, "another@example.test").await;
+    assert!(
+        begin(&app, &account, fresh_candidate, None)
+            .await
+            .is_err_and(|error| error.code == "operation_conflict")
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM email_outbox")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    retire(&app, &account, retirement(&original)).await.unwrap();
+    let next = start_input(&app, &account, "another@example.test").await;
+    assert!(next.verification_version != original.verification_version);
+    begin(&app, &account, next, None).await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM email_outbox")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        1
+    );
+}

@@ -65,6 +65,11 @@ complète récente sur la famille actuelle. L'acceptation change la version du
 contact et la tête de vérification ; elle ne renouvelle ni bearer, appareil,
 facteur, mot de passe, ni âge de la preuve.
 
+La migration 0017 réserve durablement la tête de l'appareil dès la création.
+Le nettoyage du défi expiré ne rouvre pas cette tête : les starts anciens et
+les nouveaux candidats sous cette même tête restent refusés jusqu'au retrait
+explicite. Une confirmation acceptée ouvre aussi une nouvelle tête.
+
 Le code comporte huit chiffres, expire après quinze minutes et tolère cinq
 essais erronés au plus. Une réponse perdue reprend le même candidat / opération
 et le reçu accepté sans consommer une nouvelle preuve ou prolonger son échéance.

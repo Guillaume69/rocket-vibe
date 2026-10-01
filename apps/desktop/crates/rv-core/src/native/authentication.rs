@@ -13,7 +13,7 @@ use rv_protocol::{
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PendingFactor {
     pub operation_id: String,
@@ -55,6 +55,8 @@ impl LoginChallenge {
         if !token(&self.challenge.challenge_id)
             || self.user.id.is_empty()
             || self.user.id.len() > 128
+            || self.user.username.is_empty()
+            || self.user.username.len() > 128
             || self.identity.instance_id.is_empty()
             || self.identity.data_epoch.is_empty()
             || self.identity.instance_id.len() > 128

@@ -51,6 +51,24 @@ comparaison du stockage et isolement. Le banc HTTP / PostgreSQL utilise un
 adaptateur portable, pas le Keystore Android : la qualification SecureStore
 sur appareil, processus réellement tué et verrouillage système reste ouverte.
 
+### Coffre partagé bureau
+
+`rv-core::native::authentication_vault` porte les mêmes règles pour GTK et FFI :
+clé privée par URL canonique / identifiant, défi séparé du compte actif,
+comparaison du pending avant écriture, récupération prioritaire et remplacement
+après la barrière de compte. Le nettoyage vise exactement le défi et le bearer
+installés ; un compte, une génération ou une session renouvelée différents ne
+peuvent enlever la preuve précédente.
+
+Un fichier vide au nom condensé porte un verrou système entre instances / processus.
+Le trait de stockage transmet ce verrou à chaque opération de trousseau et impose
+de le garder jusqu'à sa fin réelle. L'annulation de la future appelante ne doit
+pas libérer une écriture de plateforme déjà engagée. Sept tests vérifient les
+scopes, réponses perdues, reprises parallèles, expiration, stockage indisponible,
+JSON corrompu et annulation avec écriture bloquante encore active. Clippy,
+régressions cœur / bindings et compilation GTK passent dans Fedora. Les
+adaptateurs des vrais trousseaux et les formulaires bureau restent à raccorder.
+
 ## Clé opérateur
 
 `rv-server` accepte `RV_AUTH_KEY_FILE` ou `--auth-key-file CHEMIN`, jamais la clé

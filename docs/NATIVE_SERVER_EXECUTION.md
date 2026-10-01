@@ -315,6 +315,17 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, coffre commun bureau : `rv-core::native::authentication_vault` sérialise
+  le défi / candidat par URL canonique et identifiant avec un verrou de fichier
+  interprocessus, sans secret sur disque. Le contrat de stockage garde ce verrou
+  dans les tâches de plateforme qui survivent à l'annulation de leur appelant.
+  Sept tests couvrent réponses perdues, reprises parallèles, comparaison du
+  stockage, générations, données corrompues et une écriture bloquante annulée
+  pendant qu'une autre instance attend. Formatage / Clippy, suite complète
+  cœur / bindings et compilation GTK réussis. Les adaptateurs trousseau et les
+  formulaires GTK / SwiftUI restent à raccorder ; ces tests utilisent un coffre
+  portable et ne qualifient pas le Credential Manager ou le Keychain réels.
+
 - P02, connexion mobile : formulaire existant raccordé à TOTP / secours et coffre
   SecureStore séparé par serveur / identifiant. Le candidat est écrit avant HTTP,
   la reprise sonde un code déjà accepté et le nettoyage attend le stockage actif.

@@ -1100,6 +1100,16 @@
             }
           ]
         },
+        "regenerate_factor_backups": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RegenerateFactorBackups"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "rename_device": {
           "anyOf": [
             {
@@ -1353,6 +1363,23 @@
         "token",
         "username",
         "new_password"
+      ],
+      "type": "object"
+    },
+    "RegenerateFactorBackups": {
+      "additionalProperties": false,
+      "description": "Persist the original operation/version privately before HTTP. A retry\nrecovers the same short-lived code bag on the initiating device.",
+      "properties": {
+        "factor_version": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "factor_version",
+        "operation_id"
       ],
       "type": "object"
     },

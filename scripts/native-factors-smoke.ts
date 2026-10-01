@@ -70,6 +70,28 @@ assert.equal(status.backup_codes_remaining,9);
 assert.equal(status.totp,true);
 assert.equal(status.email,false);
 assert.ok(status.factor_version);
-await signing.disableFactor({factor_version:status.factor_version});
+let loseRegenerationAck=true;
+const regenerating=new NativeTransport(base,async(url,options)=>{
+  const response=await fetch(url,options);
+  if(String(url).endsWith('/me/factors/recovery/regenerate') && loseRegenerationAck){
+    loseRegenerationAck=false;assert.equal(response.status,200);await response.text();
+    throw new Error('Simulated lost regeneration acknowledgement');
+  }
+  return response;
+});
+regenerating.restore(completed.authToken);
+const regeneration={factor_version:status.factor_version,operation_id:'typescript-regenerate'};
+await assert.rejects(regenerating.regenerateFactorBackups(regeneration),e=>e instanceof NativeError && e.status===0);
+// A recreated transport reuses the exact original operation/version after ACK
+// loss, rather than issuing another destructive regeneration with a new ID.
+const resumed=new NativeTransport(base);resumed.restore(completed.authToken);
+const renewedBackups=await resumed.regenerateFactorBackups(regeneration);
+assert.equal(renewedBackups.codes.length,10);
+assert.ok(renewedBackups.codes.every(c=>!backup.codes.includes(c)));
+assert.deepEqual((await resumed.regenerateFactorBackups(regeneration)).codes,renewedBackups.codes);
+const renewedStatus=await resumed.factorStatus();
+assert.equal(renewedStatus.backup_codes_remaining,10);assert.equal(renewedStatus.totp,true);
+assert.ok(renewedStatus.factor_version);assert.notEqual(renewedStatus.factor_version,status.factor_version);
+await signing.disableFactor({factor_version:renewedStatus.factor_version});
 assert.equal((await signing.factorStatus()).totp,false);
-console.log('Native TypeScript factors: enrollment, durable vault, lost ACK, concurrent recovery, fresh password proof, one-use backup and recent full-factor disable passed');
+console.log('Native TypeScript factors: enrollment, durable vault, lost ACK, concurrent recovery, fresh password proof, one-use backup, regeneration receipt and recent full-factor disable passed');

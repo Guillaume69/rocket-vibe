@@ -5,7 +5,7 @@ use rv_protocol::{
     Session, User,
     parity::{
         AuthChallenge, BeginFactorSetup, EnableFactor, FactorBackupCodes, FactorSetup,
-        FactorStatus, FinishFactor, SecondFactor,
+        FactorStatus, FinishFactor, RegenerateFactorBackups, SecondFactor,
     },
 };
 use sqlx::{FromRow, Postgres, Transaction};
@@ -406,22 +406,7 @@ pub(crate) async fn enable(
     };
     sqlx::query("INSERT INTO user_factors(user_id,version,totp_cipher,last_totp_counter) VALUES($1,$2,$3,$4)")
         .bind(&account.id).bind(&setup.id).bind(setup.secret_cipher).bind(counter).execute(&mut *tx).await?;
-    let mut codes = FactorBackupCodes { codes: vec![] };
-    for _ in 0..10 {
-        let code = auth::random_token()[..32].to_owned();
-        sqlx::query("INSERT INTO factor_backup_codes(user_id,token_hash) VALUES($1,$2)")
-            .bind(&account.id)
-            .bind(auth::hash_token(&code))
-            .execute(&mut *tx)
-            .await?;
-        codes.codes.push(
-            code.as_bytes()
-                .chunks(8)
-                .map(|c| std::str::from_utf8(c).expect("hex").to_ascii_uppercase())
-                .collect::<Vec<_>>()
-                .join("-"),
-        );
-    }
+    let codes = new_backup_codes(&mut tx, &account.id).await?;
     // Advance the authority and delete other families. Keep only the enrolling
     // device, which cannot disable its new factor without a full factor login.
     let activation: String = sqlx::query_scalar(
@@ -439,6 +424,154 @@ pub(crate) async fn enable(
     )?;
     sqlx::query("UPDATE factor_setups SET accepted_operation=$2,receipt_cipher=$3,activation_version=$4,expires_at=clock_timestamp()+interval '5 minutes' WHERE id=$1")
         .bind(setup.id).bind(input.operation_id).bind(cipher).bind(activation).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(codes)
+}
+
+async fn new_backup_codes(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: &str,
+) -> Result<FactorBackupCodes> {
+    let mut codes = FactorBackupCodes { codes: vec![] };
+    for _ in 0..10 {
+        let code = auth::random_token()[..32].to_owned();
+        sqlx::query("INSERT INTO factor_backup_codes(user_id,token_hash) VALUES($1,$2)")
+            .bind(user_id)
+            .bind(auth::hash_token(&code))
+            .execute(&mut **tx)
+            .await?;
+        codes.codes.push(
+            code.as_bytes()
+                .chunks(8)
+                .map(|c| std::str::from_utf8(c).expect("hex").to_ascii_uppercase())
+                .collect::<Vec<_>>()
+                .join("-"),
+        );
+    }
+    Ok(codes)
+}
+
+#[derive(FromRow)]
+struct BackupRegeneration {
+    id: String,
+    requested_version: String,
+    committed_version: String,
+    data_epoch: String,
+    activation_version: String,
+    receipt_cipher: Option<Vec<u8>>,
+    expires_at: DateTime<Utc>,
+}
+
+pub(crate) async fn regenerate_backups(
+    app: &App,
+    account: &Account,
+    input: RegenerateFactorBackups,
+) -> Result<FactorBackupCodes> {
+    if !auth::identifier(&input.factor_version) || !auth::identifier(&input.operation_id) {
+        return Err(Error::invalid());
+    }
+    let key = key(app)?;
+    let mut tx = app.pool.begin().await?;
+    auth::mutation_deadlines(&mut tx).await?;
+    let (instance, epoch): (String, String) =
+        sqlx::query_as("SELECT instance_id,data_epoch FROM instance WHERE singleton FOR SHARE")
+            .fetch_one(&mut *tx)
+            .await?;
+    auth::lock_active(&mut tx, account).await?;
+    let device: String =
+        sqlx::query_scalar("SELECT device_id FROM sessions WHERE token_hash=$1 AND user_id=$2")
+            .bind(&account.session_hash)
+            .bind(&account.id)
+            .fetch_one(&mut *tx)
+            .await?;
+    let (version, activation): (String, String) =
+        sqlx::query_as("SELECT factor_version,activation_version FROM users WHERE id=$1")
+            .bind(&account.id)
+            .fetch_one(&mut *tx)
+            .await?;
+    let saved: Option<BackupRegeneration> = sqlx::query_as("SELECT id,requested_version,committed_version,data_epoch,activation_version,receipt_cipher,expires_at FROM factor_backup_regenerations WHERE user_id=$1 AND device_id=$2 AND operation_id=$3 FOR UPDATE")
+        .bind(&account.id).bind(&device).bind(&input.operation_id).fetch_optional(&mut *tx).await?;
+    // Check the wall clock after the receipt lock, including a delayed retry.
+    let now: DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+        .fetch_one(&mut *tx)
+        .await?;
+    if let Some(saved) = saved {
+        if saved.requested_version != input.factor_version
+            || saved.committed_version != version
+            || saved.data_epoch != epoch
+            || saved.activation_version != activation
+            || saved.expires_at <= now
+        {
+            return Err(Error::conflict());
+        }
+        let receipt = key.open(
+            saved
+                .receipt_cipher
+                .as_deref()
+                .ok_or_else(Error::conflict)?,
+            &factor_crypto::aad(
+                &instance,
+                &account.id,
+                &saved.id,
+                "backup-regeneration-receipt",
+            ),
+        )?;
+        let codes: FactorBackupCodes =
+            serde_json::from_slice(&receipt).map_err(|_| factor_crypto::unavailable())?;
+        tx.commit().await?;
+        return Ok(codes);
+    }
+    if version != input.factor_version {
+        return Err(Error::conflict());
+    }
+    recent(&mut tx, account).await?;
+    let factor: Option<(String, Vec<u8>)> =
+        sqlx::query_as("SELECT version,totp_cipher FROM user_factors WHERE user_id=$1 FOR UPDATE")
+            .bind(&account.id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let (factor_id, cipher) = factor.ok_or_else(Error::conflict)?;
+    let secret = key.open(
+        &cipher,
+        &factor_crypto::aad(&instance, &account.id, &factor_id, "totp"),
+    )?;
+    if secret.len() != 20 {
+        return Err(factor_crypto::unavailable());
+    }
+    // Serialize this successful-operation quota with the user's authority lock.
+    // Receipt replays never mint codes, consume quota or revoke new devices.
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM factor_backup_regenerations WHERE user_id=$1 AND created_at>clock_timestamp()-interval '15 minutes'")
+        .bind(&account.id).fetch_one(&mut *tx).await?;
+    if count >= 3 {
+        return Err(Error::throttled("factor_regeneration_limit", 900));
+    }
+    sqlx::query("DELETE FROM factor_backup_codes WHERE user_id=$1")
+        .bind(&account.id)
+        .execute(&mut *tx)
+        .await?;
+    let codes = new_backup_codes(&mut tx, &account.id).await?;
+    let committed_version = auth::random_token();
+    let activation: String = sqlx::query_scalar(
+        "UPDATE users SET factor_version=$2 WHERE id=$1 RETURNING activation_version",
+    )
+    .bind(&account.id)
+    .bind(&committed_version)
+    .fetch_one(&mut *tx)
+    .await?;
+    sqlx::query("DELETE FROM factor_setups WHERE user_id=$1")
+        .bind(&account.id)
+        .execute(&mut *tx)
+        .await?;
+    fence_other_sessions(&mut tx, account).await?;
+    let id = auth::random_token();
+    let plaintext = Zeroizing::new(serde_json::to_vec(&codes).map_err(|_| Error::internal())?);
+    let cipher = key.seal(
+        &plaintext,
+        &factor_crypto::aad(&instance, &account.id, &id, "backup-regeneration-receipt"),
+    )?;
+    sqlx::query("INSERT INTO factor_backup_regenerations(id,user_id,device_id,operation_id,requested_version,committed_version,data_epoch,activation_version,receipt_cipher,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,clock_timestamp()+interval '5 minutes')")
+        .bind(id).bind(&account.id).bind(device).bind(input.operation_id).bind(input.factor_version)
+        .bind(committed_version).bind(epoch).bind(activation).bind(cipher).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(codes)
 }

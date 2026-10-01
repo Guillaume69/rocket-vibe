@@ -35,6 +35,10 @@ pub fn router(app: App) -> Router {
         .route("/api/v1/me/factors/totp/setup", post(begin_factor))
         .route("/api/v1/me/factors/totp/enable", post(enable_factor))
         .route("/api/v1/me/factors/totp/disable", post(disable_factor))
+        .route(
+            "/api/v1/me/factors/recovery/regenerate",
+            post(regenerate_backups),
+        )
         .route("/api/v1/auth/invitations/accept", post(accept_invitation))
         .route("/api/v1/auth/recovery", post(recover_account))
         .route("/api/v1/auth/logout", post(logout))
@@ -241,6 +245,17 @@ async fn disable_factor(
     let user = account(&app, &headers).await?;
     crate::factors::disable(&app, &user, body(input)?).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn regenerate_backups(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::parity::RegenerateFactorBackups>,
+) -> Result<Response> {
+    let user = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::factors::regenerate_backups(&app, &user, body(input)?).await?,
+    ))
 }
 
 async fn accept_invitation(

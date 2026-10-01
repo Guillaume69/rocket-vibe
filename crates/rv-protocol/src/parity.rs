@@ -119,6 +119,15 @@ pub struct DisableFactor {
     pub factor_version: String,
 }
 
+/// Persist the original operation/version privately before HTTP. A retry
+/// recovers the same short-lived code bag on the initiating device.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RegenerateFactorBackups {
+    pub factor_version: String,
+    pub operation_id: String,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RoomRole {
@@ -341,6 +350,8 @@ pub struct ParityContract {
     pub factor_status: Option<FactorStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disable_factor: Option<DisableFactor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub regenerate_factor_backups: Option<RegenerateFactorBackups>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recover_account: Option<RecoverAccount>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -1,7 +1,8 @@
 # Authentification native — P02, socle TOTP et secours
 
-Ce lot livre le serveur, les SDK et les connexions mobile / GTK / SwiftUI. P02 reste ouvert :
-gestion des facteurs dans les paramètres des trois clients, email vérifié /
+Ce lot livre le serveur, les SDK et les connexions mobile / GTK / SwiftUI, ainsi
+que l'API de régénération des secours. P02 reste ouvert : réauthentification
+explicite, gestion des facteurs dans les paramètres des trois clients, email vérifié /
 SMTP et qualification des appareils. Le fournisseur Rocket.Chat garde son parcours.
 
 Les coordinateurs `rv-core::native::authentication` et
@@ -215,6 +216,28 @@ les logs ou le journal de synchronisation.
   Un retry après désactivation est sans effet ; il ne peut enlever un facteur
   réinscrit entre-temps. La désactivation supprime secours / pending, change
   l'autorité et révoque les autres familles.
+- `POST /me/factors/recovery/regenerate` : `RegenerateFactorBackups`, version
+  affichée et ID d'opération sauvegardés avant HTTP. Une preuve complète récente
+  remplace atomiquement les dix secours, avance la version / autorité et révoque
+  les autres appareils et reprises de sync. Le secret TOTP et son compteur
+  anti-rejeu restent inchangés. Aucun ancien secours ne demeure utilisable.
+
+La régénération conserve un reçu chiffré pendant cinq minutes, lié à l'instance,
+UID, appareil initiateur, opération, versions attendue / résultante, autorité et
+génération. Après réponse perdue, le même corps retrouve le même lot, même après
+rotation du bearer sur cet appareil ou redémarrage serveur. Le rejeu ne consomme
+aucun code, ne rajeunit aucune preuve et ne révoque pas un appareil ajouté depuis.
+Une autre régénération, changement d'autorité / génération, révocation de
+l'appareil ou expiration ferme ce reçu. Son horloge est relue après verrou.
+Les réponses contenant les codes portent `Cache-Control: no-store`.
+
+Au plus trois régénérations réussies par compte et fenêtre glissante de quinze
+minutes ; `429 factor_regeneration_limit` donne `Retry-After`. Les replays ne
+consomment pas ce quota. La révocation de l'appareil retire son accès au reçu,
+mais conserve le compteur : changer d'appareil ne contourne pas la limite.
+Le nettoyage borné efface le ciphertext expiré puis les métadonnées après un
+jour. La version initiale empêche une ancienne demande de régénérer des codes
+après cet effacement. Codes et reçus restent hors SQLite et journal de sync.
 
 Une connexion de moins de quinze minutes autorise l'inscription initiale.
 Après activation, la connexion doit aussi avoir été créée **après** cette
@@ -222,5 +245,5 @@ activation : le seul appareil inscrit initialement peut continuer à chatter,
 mais doit refaire un login complet pour désactiver son facteur. Rotation,
 activité et reprise ne rajeunissent pas cette autorisation. La révocation d'un
 autre appareil applique la même preuve de connexion complète. Une session ancienne
-rend `403 reauthentication_required`. Un défi explicite de réauthentification,
-la régénération des secours et les paramètres des clients restent les prochaines étapes.
+rend `403 reauthentication_required`. Un défi explicite de réauthentification
+et les paramètres des clients restent les prochaines étapes.

@@ -85,6 +85,8 @@ impl App {
         for query in [
             "DELETE FROM auth_challenges WHERE token_hash IN (SELECT token_hash FROM auth_challenges WHERE expires_at<=now() AND (receipt_expires_at IS NULL OR receipt_expires_at<=now()) LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM factor_setups WHERE id IN (SELECT id FROM factor_setups WHERE expires_at<=now() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
+            "UPDATE factor_backup_regenerations SET receipt_cipher=NULL WHERE id IN (SELECT id FROM factor_backup_regenerations WHERE expires_at<=clock_timestamp() AND receipt_cipher IS NOT NULL LIMIT 1000 FOR UPDATE SKIP LOCKED)",
+            "DELETE FROM factor_backup_regenerations WHERE id IN (SELECT id FROM factor_backup_regenerations WHERE created_at<=clock_timestamp()-interval '1 day' LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM sessions WHERE token_hash IN (SELECT token_hash FROM sessions WHERE expires_at<=now() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM session_devices WHERE id IN (SELECT d.id FROM session_devices d WHERE NOT EXISTS(SELECT 1 FROM sessions s WHERE s.device_id=d.id) LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM session_rotations WHERE old_hash IN (SELECT old_hash FROM session_rotations WHERE expires_at<=now() LIMIT 1000 FOR UPDATE SKIP LOCKED)",

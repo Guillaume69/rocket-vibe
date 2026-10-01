@@ -121,6 +121,7 @@ export class NativeTransport {
   beginFactorSetup(input:NativeTypes['BeginFactorSetup']):Promise<NativeTypes['FactorSetup']> { return this.request('FactorSetup','/api/v1/me/factors/totp/setup',input); }
   enableFactor(input:NativeTypes['EnableFactor']):Promise<NativeTypes['FactorBackupCodes']> { return this.request('FactorBackupCodes','/api/v1/me/factors/totp/enable',input); }
   async disableFactor(input:NativeTypes['DisableFactor']):Promise<void> { await this.value('/api/v1/me/factors/totp/disable',input); }
+  regenerateFactorBackups(input:NativeTypes['RegenerateFactorBackups']):Promise<NativeTypes['FactorBackupCodes']> { return this.request('FactorBackupCodes','/api/v1/me/factors/recovery/regenerate',input); }
   acceptInvitation(input: NativeTypes['AcceptInvitation']):Promise<NativeTypes['User']> {
     return this.request('User','/api/v1/auth/invitations/accept',input,true);
   }

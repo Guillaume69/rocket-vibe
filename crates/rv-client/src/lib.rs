@@ -303,6 +303,13 @@ impl NativeClient {
         self.empty_input(Method::POST, "/api/v1/me/factors/totp/disable", Some(input))
             .await
     }
+    pub async fn regenerate_factor_backups(
+        &self,
+        input: &rv_protocol::parity::RegenerateFactorBackups,
+    ) -> Result<rv_protocol::parity::FactorBackupCodes, Error> {
+        self.post("/api/v1/me/factors/recovery/regenerate", input)
+            .await
+    }
     /// Clones share one account's rotating credential.
     pub fn update_token(&self, token: String) {
         *self.token.lock().expect("native credential lock") = Some(token);

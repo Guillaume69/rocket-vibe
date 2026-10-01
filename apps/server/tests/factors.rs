@@ -143,6 +143,563 @@ async fn reset_limits(pool: &PgPool) {
         .unwrap();
 }
 
+async fn full_login(server: &Server, code: &str, operation: &str) -> Session {
+    let challenge = server.challenge().await;
+    let response = server
+        .finish(
+            &challenge,
+            code,
+            "recovery_code",
+            &auth::random_token(),
+            operation,
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    response.json().await.unwrap()
+}
+
+async fn factor_version(server: &Server, token: &str) -> String {
+    let status: Value = server.get("/me/factors", token).await.json().await.unwrap();
+    status["factor_version"].as_str().unwrap().to_owned()
+}
+
+#[sqlx::test]
+async fn backup_regeneration_is_atomic_and_replays_the_same_device_receipt_after_restart_and_rotation(
+    pool: PgPool,
+) {
+    let (app, server, enrolling) = fixture(&pool).await;
+    let (_, original) = enroll(&server, &enrolling).await;
+    reset_limits(&pool).await;
+    let session = full_login(&server, &original.codes[0], "full-login").await;
+    let old_challenge = server.challenge().await;
+    let version = factor_version(&server, &session.token).await;
+    let input = json!({"factor_version":version,"operation_id":"regenerate-1"});
+    assert_eq!(
+        server
+            .post(
+                "/me/factors/recovery/regenerate",
+                Some(&enrolling.token),
+                input.clone()
+            )
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    let before: (String, Vec<u8>, i64) =
+        sqlx::query_as("SELECT version,totp_cipher,last_totp_counter FROM user_factors")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let (a, b) = tokio::join!(
+        server.post(
+            "/me/factors/recovery/regenerate",
+            Some(&session.token),
+            input.clone()
+        ),
+        server.post(
+            "/me/factors/recovery/regenerate",
+            Some(&session.token),
+            input.clone()
+        )
+    );
+    assert!(matches!(a.status(), StatusCode::OK | StatusCode::CONFLICT));
+    assert!(matches!(b.status(), StatusCode::OK | StatusCode::CONFLICT));
+    assert!(a.status() == StatusCode::OK || b.status() == StatusCode::OK);
+    let response = if a.status() == StatusCode::OK { a } else { b };
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let codes: FactorBackupCodes = response.json().await.unwrap();
+    assert_eq!(codes.codes.len(), 10);
+    assert!(codes.codes.iter().all(|c| !original.codes.contains(c)));
+    let after: (String, Vec<u8>, i64) =
+        sqlx::query_as("SELECT version,totp_cipher,last_totp_counter FROM user_factors")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(
+        before == after,
+        "regenerating backups must retain the authenticator and replay counter"
+    );
+    assert_ne!(factor_version(&server, &session.token).await, version);
+    assert_eq!(
+        server.get("/me", &enrolling.token).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM factor_setups")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        server
+            .finish(
+                &old_challenge,
+                &original.codes[1],
+                "recovery_code",
+                &auth::random_token(),
+                "stale-challenge"
+            )
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let current_challenge = server.challenge().await;
+    assert_eq!(
+        server
+            .finish(
+                &current_challenge,
+                &original.codes[1],
+                "recovery_code",
+                &auth::random_token(),
+                "old-code"
+            )
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let other = full_login(&server, &codes.codes[0], "new-device").await;
+    let other_input = input.clone();
+    assert_eq!(
+        server
+            .post(
+                "/me/factors/recovery/regenerate",
+                Some(&other.token),
+                other_input
+            )
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let rotated = server
+        .post(
+            "/auth/renew",
+            Some(&session.token),
+            json!({"operation_id":"rotate-after-regeneration","next_token":auth::random_token()}),
+        )
+        .await
+        .json::<Session>()
+        .await
+        .unwrap();
+    drop(server);
+    let server = Server::start(app).await;
+    // The receipt proves the original authorized operation; recovering it must
+    // not require another factor or regenerate the accepted codes.
+    sqlx::query("UPDATE session_devices SET created_at=clock_timestamp()-interval '20 minutes' WHERE id=(SELECT device_id FROM sessions WHERE token_hash=$1)")
+        .bind(auth::hash_token(&rotated.token)).execute(&pool).await.unwrap();
+    let mut sdk = rv_client::NativeClient::new(&server.base).unwrap();
+    sdk.restore(rotated.token.clone());
+    let recovered = sdk
+        .regenerate_factor_backups(&rv_protocol::parity::RegenerateFactorBackups {
+            factor_version: version.clone(),
+            operation_id: "regenerate-1".into(),
+        })
+        .await
+        .unwrap();
+    assert!(
+        recovered.codes == codes.codes,
+        "lost acknowledgement must recover the same code bag"
+    );
+    assert_eq!(
+        server.get("/me", &other.token).await.status(),
+        StatusCode::OK,
+        "receipt replay must not revoke a device created after the original commit"
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM factor_backup_codes WHERE consumed_at IS NULL"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        9
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM factor_backup_regenerations")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        1
+    );
+    let stored: Value = sqlx::query_scalar("SELECT to_jsonb(r) FROM factor_backup_regenerations r")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let stored = stored.to_string();
+    assert!(codes.codes.iter().all(|c| !stored.contains(c)));
+    assert_eq!(
+        server
+            .post(
+                "/me/factors/recovery/regenerate",
+                Some(&rotated.token),
+                json!({"factor_version":version,"operation_id":"different-operation"})
+            )
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+}
+
+#[sqlx::test]
+async fn backup_regeneration_quota_survives_source_device_revocation(pool: PgPool) {
+    let (_, server, enrolling) = fixture(&pool).await;
+    let (_, original) = enroll(&server, &enrolling).await;
+    reset_limits(&pool).await;
+    let session = full_login(&server, &original.codes[0], "full-login").await;
+    let mut latest = FactorBackupCodes { codes: vec![] };
+    let mut last_input = json!({});
+    for i in 0..3 {
+        last_input = json!({"factor_version":factor_version(&server, &session.token).await,"operation_id":format!("regenerate-{i}")});
+        let response = server
+            .post(
+                "/me/factors/recovery/regenerate",
+                Some(&session.token),
+                last_input.clone(),
+            )
+            .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        latest = response.json().await.unwrap();
+    }
+    let replay = server
+        .post(
+            "/me/factors/recovery/regenerate",
+            Some(&session.token),
+            last_input,
+        )
+        .await;
+    assert_eq!(replay.status(), StatusCode::OK);
+    assert!(replay.json::<FactorBackupCodes>().await.unwrap().codes == latest.codes);
+    let other = full_login(&server, &latest.codes[0], "replacement-device").await;
+    let device: String = sqlx::query_scalar("SELECT device_id FROM sessions WHERE token_hash=$1")
+        .bind(auth::hash_token(&session.token))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        server
+            .http
+            .delete(format!("{}/api/v1/me/sessions/{device}", server.base))
+            .bearer_auth(&other.token)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM factor_backup_regenerations WHERE device_id IS NULL"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        3
+    );
+    let rejected = server.post("/me/factors/recovery/regenerate", Some(&other.token), json!({"factor_version":factor_version(&server, &other.token).await,"operation_id":"quota-bypass"})).await;
+    assert_eq!(rejected.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(rejected.headers()["retry-after"], "900");
+    assert_eq!(
+        rejected.json::<Value>().await.unwrap()["code"],
+        "factor_regeneration_limit"
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM factor_backup_codes WHERE consumed_at IS NULL"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        9
+    );
+}
+
+#[sqlx::test]
+async fn backup_regeneration_receipts_are_bound_to_cipher_purpose_generation_and_authority(
+    pool: PgPool,
+) {
+    let (_, server, enrolling) = fixture(&pool).await;
+    let (_, original) = enroll(&server, &enrolling).await;
+    reset_limits(&pool).await;
+    let session = full_login(&server, &original.codes[0], "full-login").await;
+    let input = json!({"factor_version":factor_version(&server, &session.token).await,"operation_id":"regenerate-1"});
+    assert_eq!(
+        server
+            .post(
+                "/me/factors/recovery/regenerate",
+                Some(&session.token),
+                input.clone()
+            )
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    let cipher: Vec<u8> =
+        sqlx::query_scalar("SELECT receipt_cipher FROM factor_backup_regenerations")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    sqlx::query("UPDATE factor_backup_regenerations SET receipt_cipher=(SELECT totp_cipher FROM user_factors)").execute(&pool).await.unwrap();
+    assert_eq!(
+        server
+            .post(
+                "/me/factors/recovery/regenerate",
+                Some(&session.token),
+                input.clone()
+            )
+            .await
+            .status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    sqlx::query("UPDATE factor_backup_regenerations SET receipt_cipher=$1")
+        .bind(cipher)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let epoch: String = sqlx::query_scalar("SELECT data_epoch FROM instance")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE instance SET data_epoch=$1")
+        .bind(auth::random_token())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        server
+            .post(
+                "/me/factors/recovery/regenerate",
+                Some(&session.token),
+                input.clone()
+            )
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    sqlx::query("UPDATE instance SET data_epoch=$1")
+        .bind(epoch)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET admin=NOT admin")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        server
+            .post(
+                "/me/factors/recovery/regenerate",
+                Some(&session.token),
+                input
+            )
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM factor_backup_regenerations")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM factor_backup_codes WHERE consumed_at IS NULL"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        10
+    );
+}
+
+#[sqlx::test]
+async fn backup_regeneration_expiry_is_checked_after_receipt_lock_and_pruning_cannot_reapply_it(
+    pool: PgPool,
+) {
+    let (app, server, enrolling) = fixture(&pool).await;
+    let (_, original) = enroll(&server, &enrolling).await;
+    reset_limits(&pool).await;
+    let session = full_login(&server, &original.codes[0], "full-login").await;
+    let input = json!({"factor_version":factor_version(&server, &session.token).await,"operation_id":"regenerate-1"});
+    assert_eq!(
+        server
+            .post(
+                "/me/factors/recovery/regenerate",
+                Some(&session.token),
+                input.clone()
+            )
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    let mut lock = pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM factor_backup_regenerations FOR UPDATE")
+        .fetch_one(&mut *lock)
+        .await
+        .unwrap();
+    let base = server.base.clone();
+    let token = session.token.clone();
+    let pending_input = input.clone();
+    let task = tokio::spawn(async move {
+        Client::new()
+            .post(format!("{base}/api/v1/me/factors/recovery/regenerate"))
+            .bearer_auth(token)
+            .json(&pending_input)
+            .send()
+            .await
+            .unwrap()
+    });
+    let mut waiting = false;
+    for _ in 0..100 {
+        waiting = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT id,requested_version,committed_version,%')").fetch_one(&pool).await.unwrap();
+        if waiting {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(
+        waiting,
+        "the HTTP retry must wait for the real receipt lock"
+    );
+    sqlx::query(
+        "UPDATE factor_backup_regenerations SET expires_at=clock_timestamp()-interval '1 second'",
+    )
+    .execute(&mut *lock)
+    .await
+    .unwrap();
+    lock.commit().await.unwrap();
+    assert_eq!(task.await.unwrap().status(), StatusCode::CONFLICT);
+    app.cleanup().await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM factor_backup_regenerations WHERE receipt_cipher IS NOT NULL"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        0
+    );
+    sqlx::query(
+        "UPDATE factor_backup_regenerations SET created_at=clock_timestamp()-interval '2 days'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    app.cleanup().await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM factor_backup_regenerations")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        server
+            .post(
+                "/me/factors/recovery/regenerate",
+                Some(&session.token),
+                input
+            )
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM factor_backup_codes WHERE consumed_at IS NULL"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        10
+    );
+}
+
+#[sqlx::test]
+async fn backup_regeneration_fails_closed_on_invalid_authority_recent_proof_and_operator_key(
+    pool: PgPool,
+) {
+    let (_, server, enrolling) = fixture(&pool).await;
+    let (_, original) = enroll(&server, &enrolling).await;
+    reset_limits(&pool).await;
+    let session = full_login(&server, &original.codes[0], "full-login").await;
+    let version = factor_version(&server, &session.token).await;
+    let input = json!({"factor_version":version,"operation_id":"regenerate-1"});
+    assert_eq!(server.post("/me/factors/recovery/regenerate", Some(&session.token), json!({"factor_version":version,"operation_id":"forged","user_id":enrolling.user.id})).await.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        server
+            .post(
+                "/me/factors/recovery/regenerate",
+                Some(&session.token),
+                json!({"factor_version":"stale","operation_id":"old-version"})
+            )
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let broken = App::from_pool_with_auth_key(
+        pool.clone(),
+        Some(AuthKey::from_hex(&"39".repeat(32)).unwrap()),
+    )
+    .await
+    .unwrap();
+    let broken = Server::start(broken).await;
+    assert_eq!(
+        broken
+            .post(
+                "/me/factors/recovery/regenerate",
+                Some(&session.token),
+                input.clone()
+            )
+            .await
+            .status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    sqlx::query("UPDATE session_devices SET created_at=clock_timestamp()-interval '20 minutes'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let rotated = server
+        .post(
+            "/auth/renew",
+            Some(&session.token),
+            json!({"operation_id":"rotate-old-proof","next_token":auth::random_token()}),
+        )
+        .await
+        .json::<Session>()
+        .await
+        .unwrap();
+    assert_eq!(
+        server
+            .post(
+                "/me/factors/recovery/regenerate",
+                Some(&rotated.token),
+                input
+            )
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM factor_backup_codes WHERE consumed_at IS NULL"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        9
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM factor_backup_regenerations")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(factor_version(&server, &rotated.token).await, version);
+}
+
 #[sqlx::test]
 async fn enrollment_and_totp_are_single_use_but_lost_ack_replays_one_session(pool: PgPool) {
     let (app, server, enrolling) = fixture(&pool).await;

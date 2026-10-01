@@ -315,6 +315,25 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, régénération des secours serveur / SDK : migration 0014 et endpoint
+  privé visant une version précise et une opération persistée. La transaction
+  remplace dix codes, conserve secret / compteur TOTP, avance l'autorité et
+  révoque les autres familles / reprises de sync. Un reçu chiffré de cinq minutes
+  permet au même appareil de récupérer le lot après réponse perdue, restart ou
+  rotation, sans seconde révocation. Le quota de trois succès / quinze minutes
+  survit à la révocation de l'appareil ; ciphertext expiré et métadonnées sont
+  nettoyés par lots bornés. Cinq régressions HTTP / PostgreSQL supplémentaires
+  couvrent concurrence, version périmée, preuves anciennes, clé incorrecte,
+  ciphertext d'un autre usage, génération / autorité, expiration après verrou,
+  pruning et absence de nouvelle consommation / révocation au rejeu. Le SDK
+  Rust récupère le reçu après restart / rotation ; le vrai transport TypeScript
+  perd l'ACK puis retrouve le même lot avec un transport recréé.
+  Vérifications : 72 tests serveur, sept tests de protocole, 82 tests TypeScript
+  natifs et 1 032 régressions mobiles passent ; formatage, Clippy, typecheck,
+  lint, schéma / génération et inventaire réussis. Paramètres des trois clients,
+  réauthentification explicite et SMTP restent ouverts ; aucun facteur activé
+  sur une instance utilisateur.
+
 - P01 / P02, expiration sous verrou : le verrou d'autorisation relit l'horloge
   PostgreSQL après acquisition du compte et de la session. `now()` reste figé
   au début de la transaction, et un prédicat avec `clock_timestamp()` peut aussi
@@ -323,6 +342,7 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   attentes de verrou donnent désormais `401`, avec le nom initial inchangé.
   Formatage / Clippy et toutes les régressions serveur PostgreSQL passent,
   dont 28 scénarios API, facteurs, invitations, récupération et clients natifs.
+  La CI native `36866737534` passe ses quatre jobs Linux / Windows / Swift.
 
 - P02, connexion FFI / SwiftUI : objet UniFFI opaque pour la tentative, coffre
   privé non indexé et formulaire existant raccordé à TOTP / secours. Le commit

@@ -12,8 +12,10 @@ public final class LoginModel {
     public var password = ""
     public var code = ""
     public var registering = false
+    public var recovering = false
     public var invitation = ""
     public private(set) var canRegister = false
+    public private(set) var canRecover = false
     /// The 2FA method the server asked a code for: the form shows the code field.
     public private(set) var method: String?
     public private(set) var error: String?
@@ -32,8 +34,10 @@ public final class LoginModel {
         code = ""
         method = nil
         registering = false
+        recovering = false
         invitation = ""
         canRegister = false
+        canRecover = false
         self.error = error
     }
 
@@ -41,10 +45,12 @@ public final class LoginModel {
     public func probe(client: Client) async {
         let asked = server
         canRegister = false
+        canRecover = false
         do {
             let p = try await client.probe(server: asked)
             guard asked == server else { return }
             canRegister = p.genre == "rocketvibe" && p.accountInvitations
+            canRecover = p.genre == "rocketvibe" && p.accountRecovery
             if !p.passwordLogin {
                 probeLine = L("login.probe_no_password")
                 probeBad = true
@@ -76,6 +82,7 @@ public final class LoginModel {
         let (address, username, secret, challenge, answer) =
             (server, user.trimmingCharacters(in: .whitespaces), password, method, code)
         let invite = registering && canRegister ? invitation.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+        let recovery = recovering && canRecover ? invitation.trimmingCharacters(in: .whitespacesAndNewlines) : nil
         let asking = method != nil
         error = nil
         busy = true
@@ -85,7 +92,9 @@ public final class LoginModel {
             let native = try await client.isNativeServer(server: address)
             guard address == server else { return nil }
             if native {
-                if let invite {
+                if let recovery {
+                    chat = .rocketVibe(try await client.nativeRecover(server: address, user: username, password: secret, code: recovery))
+                } else if let invite {
                     chat = .rocketVibe(try await client.nativeRegister(server: address, user: username, password: secret, invitation: invite))
                 } else {
                     chat = .rocketVibe(try await client.nativeLogin(server: address, user: username, password: secret))
@@ -100,9 +109,12 @@ public final class LoginModel {
             password = ""
             invitation = ""
             registering = false
+            recovering = false
             return chat
         } catch let RvError.Server(status, message, errorCode, twoFactor, _, _) {
             if errorCode == "invitation_rejected" { error = L("login.invitation_rejected"); return nil }
+            if errorCode == "recovery_rejected" { error = L("login.recovery_rejected"); return nil }
+            if errorCode == "invalid_request" && recovery != nil { error = L("login.recovery_help"); return nil }
             if errorCode == "invalid_request" && invite != nil { error = L("login.invitation_help"); return nil }
             if let challenge = twoFactor {
                 method = challenge.method

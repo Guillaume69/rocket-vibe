@@ -159,6 +159,24 @@ impl Client {
         accounts::set_active(&self.dirs, &info);
         self.start_native(info)
     }
+    pub async fn native_recover(
+        &self,
+        server: String,
+        user: String,
+        password: String,
+        code: String,
+    ) -> Result<Arc<NativeChat>, RvError> {
+        let url =
+            rv_core::session::normalize_server(&server).ok_or_else(|| RvError::local("invalid server address"))?;
+        let info = on_tokio(async move {
+            let discovery =
+                rv_core::native::probe(&url).await?.ok_or(rv_core::native::Error::Protocol("not_native"))?;
+            rv_core::native::recover(&url, &discovery, &code, &user, &password).await
+        })
+        .await
+        .map_err(native_error)?;
+        self.save_native_login(info).await
+    }
 }
 impl Client {
     async fn save_native_login(&self, info: rv_core::session::SessionInfo) -> Result<Arc<NativeChat>, RvError> {

@@ -162,7 +162,9 @@ impl NativeClient {
 
     fn budget(path: &str, method: &Method) -> Option<&'static str> {
         match path {
-            "/api/v1/auth/login" | "/api/v1/auth/invitations/accept" => Some("login"),
+            "/api/v1/auth/login" | "/api/v1/auth/invitations/accept" | "/api/v1/auth/recovery" => {
+                Some("login")
+            }
             "/api/v1/auth/renew" => Some("session_rotation"),
             "/api/v1/sync/ticket" => Some("ticket"),
             "/api/v1/sync/snapshots" => Some("snapshot"),
@@ -292,6 +294,14 @@ impl NativeClient {
             true,
         )
         .await
+    }
+
+    pub async fn recover_account(
+        &self,
+        input: &rv_protocol::parity::RecoverAccount,
+    ) -> Result<User, Error> {
+        self.request(Method::POST, "/api/v1/auth/recovery", Some(input), true)
+            .await
     }
 
     pub async fn me(&self) -> Result<User, Error> {

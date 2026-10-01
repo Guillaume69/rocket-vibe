@@ -22,7 +22,7 @@ services:
       DATABASE_URL: postgres://pilot:native-pilot-disposable-db-password@postgres/pilot
       RV_USER_PASSWORD: native-pilot-test-password
     entrypoint: [/bin/sh, -ec]
-    command: ['umask 077; rv-server create-user mobile && rv-server create-user desktop && rv-server invite > /pilot-invitations/mobile.json && rv-server invite > /pilot-invitations/desktop.json && rv-server invite > /pilot-invitations/swift.json']
+    command: ['umask 077; rv-server create-user mobile && rv-server create-user desktop && rv-server invite > /pilot-invitations/mobile.json && rv-server invite > /pilot-invitations/desktop.json && rv-server invite > /pilot-invitations/swift.json && rv-server create-user mobile-recovery && rv-server create-user gtk-recovery && rv-server create-user swift-recovery && rv-server recover-user mobile-recovery > /pilot-invitations/mobile-recovery.json && rv-server recover-user gtk-recovery > /pilot-invitations/desktop-recovery.json && rv-server recover-user swift-recovery > /pilot-invitations/swift-recovery.json']
     depends_on:
       postgres: {condition: service_healthy}
   session-policy:
@@ -55,6 +55,7 @@ services:
       RV_PEER_URL: http://server:3400
       RV_PEER_PASSWORD: native-pilot-test-password
       RV_NATIVE_INVITATION_FILE: /pilot-invitations/mobile.json
+      RV_NATIVE_RECOVERY_FILE: /pilot-invitations/mobile-recovery.json
     command: [node, scripts/native-desktop-peer.ts]
     depends_on: [server]
   desktop:
@@ -70,6 +71,7 @@ services:
       RV_PEER_URL: http://server:3400
       RV_PEER_PASSWORD: native-pilot-test-password
       RV_NATIVE_INVITATION_FILE: /pilot-invitations/desktop.json
+      RV_NATIVE_RECOVERY_FILE: /pilot-invitations/desktop-recovery.json
     command: [bash, scripts/native-smoke.sh]
     depends_on: [mobile]
   swift:
@@ -80,6 +82,7 @@ services:
       RV_NATIVE_TEST_SERVER: http://server:3400
       RV_NATIVE_TEST_PASSWORD: native-pilot-test-password
       RV_NATIVE_TEST_INVITATION_FILE: /pilot-invitations/swift.json
+      RV_NATIVE_TEST_RECOVERY_FILE: /pilot-invitations/swift-recovery.json
     command: [bash, macos/scripts/native-smoke.sh]
     depends_on: [server]
 

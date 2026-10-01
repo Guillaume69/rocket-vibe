@@ -31,7 +31,19 @@ enum Command {
     /// List invitation metadata, without secrets.
     ListInvitations,
     /// Revoke an invitation by its public identifier (never its secret).
-    RevokeInvitation { id: String },
+    RevokeInvitation {
+        id: String,
+    },
+    /// Issue a password recovery code for a verified owner; stdout is secret.
+    RecoverUser {
+        username: String,
+        #[arg(long, default_value_t = 24)]
+        hours: u32,
+    },
+    ListRecoveryCodes,
+    RevokeRecoveryCode {
+        id: String,
+    },
 }
 
 #[tokio::main]
@@ -95,6 +107,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .await
                 .map_err(|e| format!("Cannot revoke invitation: {}", e.code))?;
             println!("Invitation revoked");
+        }
+        Command::RecoverUser { username, hours } => {
+            let issued = rv_server::recovery::issue(&app, &username, hours)
+                .await
+                .map_err(|e| format!("Cannot issue recovery code: {}", e.code))?;
+            println!("{}", serde_json::to_string(&issued)?);
+        }
+        Command::ListRecoveryCodes => {
+            let codes = rv_server::recovery::list(&app)
+                .await
+                .map_err(|e| format!("Cannot list recovery codes: {}", e.code))?;
+            println!("{}", serde_json::to_string(&codes)?);
+        }
+        Command::RevokeRecoveryCode { id } => {
+            rv_server::recovery::revoke(&app, &id)
+                .await
+                .map_err(|e| format!("Cannot revoke recovery code: {}", e.code))?;
+            println!("Recovery code revoked");
         }
     }
     Ok(())

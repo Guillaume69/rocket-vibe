@@ -72,12 +72,15 @@ fn database_path(info: &SessionInfo) -> PathBuf {
     data_dir().join(format!("{host}-{}.sqlite", info.user_id))
 }
 
-fn describe(e: &RestError, asking_code: bool) -> String {
+fn describe(e: &RestError, asking_code: bool, recovering: bool) -> String {
+    if e.error.as_deref() == Some("recovery_rejected") {
+        return t("login.recovery_rejected").into();
+    }
     if e.error.as_deref() == Some("invitation_rejected") {
         return t("login.invitation_rejected").into();
     }
     if e.error.as_deref() == Some("invalid_request") {
-        return t("login.invitation_help").into();
+        return t(if recovering { "login.recovery_help" } else { "login.invitation_help" }).into();
     }
     match e.status {
         0 => t("login.unreachable").into(),
@@ -297,6 +300,8 @@ impl AppWindow {
             return;
         }
         let invitation = self.login.invitation();
+        let recovery_code = self.login.recovery_code();
+        let recovering = recovery_code.is_some();
         let asking = self.pending.borrow().as_ref().is_some_and(|p| p.method.is_some());
         if !asking {
             let Some(server) = session::normalize_server(&self.login.server()) else {
@@ -323,7 +328,13 @@ impl AppWindow {
         glib::spawn_future_local(async move {
             let (s, u, p) = (server.clone(), user.clone(), password);
             let result = on_tokio(async move {
-                if let Some(invitation) = invitation {
+                if let Some(code) = recovery_code {
+                    let discovery =
+                        rv_core::native::probe(&s).await.map_err(rv_core::native::rest_error)?.ok_or_else(|| {
+                            rv_core::native::rest_error(rv_core::native::Error::Protocol("recovery_unavailable"))
+                        })?;
+                    rv_core::native::recover(&s, &discovery, &code, &u, &p).await.map_err(rv_core::native::rest_error)
+                } else if let Some(invitation) = invitation {
                     let discovery =
                         rv_core::native::probe(&s).await.map_err(rv_core::native::rest_error)?.ok_or_else(|| {
                             rv_core::native::rest_error(rv_core::native::Error::Protocol("invitation_unavailable"))
@@ -363,7 +374,7 @@ impl AppWindow {
                         runtime().spawn(async move { session::request_email_code(&server, &user).await });
                     }
                 }
-                Err(e) => this.login.set_error(Some(&describe(&e, asking))),
+                Err(e) => this.login.set_error(Some(&describe(&e, asking, recovering))),
             }
         });
     }

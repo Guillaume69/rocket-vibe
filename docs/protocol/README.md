@@ -37,6 +37,7 @@ présence ne déclare pas les endpoints correspondants disponibles.
 | GET | `/health/live`, `/health/ready` | État du processus et de la base |
 | POST | `/auth/login` | `{ username, password }` → session, expiration, utilisateur |
 | POST | `/auth/invitations/accept` | `{ token, username, password }` → utilisateur ; anonyme, sans session ni droit admin |
+| POST | `/auth/recovery` | `{ token, username, new_password }` → utilisateur conservé ; révoque les anciennes sessions, login normal ensuite |
 | POST | `/auth/logout` | Révoquer cette session et ses tickets WebSocket |
 | GET | `/me`, `/users` | Compte courant ; annuaire de l'instance limité à 100 entrées |
 | GET | `/me/permissions` | Droits effectifs de création et d'administration |
@@ -106,6 +107,29 @@ quatre places de connexion, retenues pendant le calcul malgré une annulation.
 Révoquer le code ne désactive pas le compte qu'il a déjà créé. Les clients
 vérifient instance / génération avant et après création / login et comparent
 l'UID avant de sauvegarder la session. Code et mot de passe restent transitoires.
+
+### Récupération de mot de passe
+
+`account_recovery` permet la variante des écrans de connexion existants. La CLI
+émet un code de 32 octets pour un propriétaire de compte vérifié par l'opérateur,
+conservé sous SHA-256, lié à son UID, autorité actuelle et génération. Durée
+1–24 h ; 3 codes actifs par compte, 1 000 par génération. Le code d'invitation
+ne peut servir de code de récupération et réciproquement.
+
+L'entrée anonyme stricte change le hash Argon2 et l'autorité de connexion, révoque
+les appareils, leurs sessions / tickets / reçus et les reprises de snapshots / journal.
+Elle conserve UID, permissions, conversations et données de chiffrement. Elle
+retourne `User` avec `no-store`, puis le client exécute le login normal. Aucun
+facteur indépendant n'est désactivé et aucune clé E2EE n'est récupérée.
+
+Un reçu lié à la nouvelle autorité permet le rejeu pendant cinq minutes avec
+le nouveau mot de passe, sans nouvelle réinitialisation ni révocation des sessions
+postérieures. Les autres codes sont révoqués. Expiration après attente de verrou,
+changement d'autorité / génération, compte désactivé ou mauvais code donnent
+`400 recovery_rejected`. Quotas de connexion global / IP / identifiant partagés,
+plus 10 tentatives par code et minute ; même limite Argon2 avec maintien du permis
+après annulation. Le login revérifie son hash sous verrou, empêchant un ancien
+mot de passe vérifié avant la récupération de créer une session après elle.
 
 ### Renouvellement et appareils
 

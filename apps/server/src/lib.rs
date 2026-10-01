@@ -8,6 +8,7 @@ mod marks;
 mod message_actions;
 mod permissions;
 mod reactions;
+pub mod recovery;
 mod sessions;
 mod snapshots;
 mod store;
@@ -71,6 +72,7 @@ impl App {
             "DELETE FROM sync_cursors WHERE token IN (SELECT token FROM sync_cursors WHERE expires_at<=now() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM login_windows WHERE key IN (SELECT key FROM login_windows WHERE expires_at<=now() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM account_invitations WHERE id IN (SELECT id FROM account_invitations WHERE expires_at<now()-interval '30 days' LIMIT 1000 FOR UPDATE SKIP LOCKED)",
+            "DELETE FROM account_recovery_codes WHERE id IN (SELECT id FROM account_recovery_codes WHERE expires_at<now()-interval '30 days' LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM snapshot_heads WHERE id IN (SELECT id FROM snapshot_heads WHERE expires_at<=now() LIMIT 8 FOR UPDATE SKIP LOCKED)",
         ] {
             sqlx::query(query).execute(&self.pool).await?;

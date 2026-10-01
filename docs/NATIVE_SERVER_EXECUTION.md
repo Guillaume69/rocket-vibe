@@ -315,6 +315,27 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P01, récupération opérateur : CLI `recover-user` / liste / révocation et
+  variante « Mot de passe oublié » dans la connexion mobile / GTK / SwiftUI.
+  Code CSPRNG lié à UID, autorité et génération, hash seul en PostgreSQL ;
+  1–24 h, 3 codes actifs par compte. La transaction change Argon2 et l'autorité,
+  révoque les appareils / tickets / reçus et les reprises de snapshot / journal,
+  tout en conservant compte, permissions et conversations. Le reçu se rejoue
+  cinq minutes avec le nouveau mot de passe sans révoquer les sessions récentes.
+  Aucun facteur ni donnée E2EE n'est effacé ; le login normal reste distinct.
+  Cinq tests PostgreSQL couvrent concurrence, nouvelle session après rejeu,
+  autorité / génération / compte / expiration, attente réelle de verrou et course
+  d'un login ayant déjà vérifié l'ancien mot de passe. 59 tests TypeScript natifs
+  et 1 009 tests mobiles, typecheck / lint / export Android passent, ainsi que
+  Clippy / cœur / bindings / GTK et les modèles Swift. Le banc mobile vérifie UID,
+  conversation conservée dans SQLite, ancien bearer refusé et reprise. GTK
+  utilise le vrai formulaire puis Secret Service après redémarrage ; Swift
+  teste récupération / ancienne session HTTP 401 / reprise du trousseau / logout.
+  Le binaire opérateur réel est testé pour émission, liste sans secret,
+  révocation idempotente et refus de durée hors politique ; le script refuse
+  toute base autre que le banc jetable. Récupération par email, facteurs P02 et
+  qualification physique restent ouverts.
+
 - P01, invitations : CLI `invite` / `list-invitations` / `revoke-invitation` et
   inscription dans les écrans de connexion mobile / GTK / SwiftUI existants.
   Inscription publique fermée ; code aléatoire conservé sous empreinte seulement,

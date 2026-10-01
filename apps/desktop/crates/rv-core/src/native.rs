@@ -130,20 +130,49 @@ pub async fn register(
     username: &str,
     password: &str,
 ) -> Result<SessionInfo, Error> {
+    account_code_login(base, discovery, token, username, password, false).await
+}
+pub async fn recover(
+    base: &url::Url,
+    discovery: &Discovery,
+    token: &str,
+    username: &str,
+    password: &str,
+) -> Result<SessionInfo, Error> {
+    account_code_login(base, discovery, token, username, password, true).await
+}
+async fn account_code_login(
+    base: &url::Url,
+    discovery: &Discovery,
+    token: &str,
+    username: &str,
+    password: &str,
+    recovery: bool,
+) -> Result<SessionInfo, Error> {
     let client = NativeClient::new(base.as_str())?;
     let identity = Identity { instance_id: discovery.instance_id.clone(), data_epoch: discovery.data_epoch.clone() };
     let fresh = client.discover().await?;
     check(&identity, &fresh)?;
-    if !fresh.capabilities.account_invitations {
-        return Err(Error::Protocol("invitation_unavailable"));
+    if !(if recovery { fresh.capabilities.account_recovery } else { fresh.capabilities.account_invitations }) {
+        return Err(Error::Protocol(if recovery { "recovery_unavailable" } else { "invitation_unavailable" }));
     }
-    let user = client
-        .accept_invitation(&rv_protocol::parity::AcceptInvitation {
-            token: token.into(),
-            username: username.into(),
-            password: password.into(),
-        })
-        .await?;
+    let user = if recovery {
+        client
+            .recover_account(&rv_protocol::parity::RecoverAccount {
+                token: token.into(),
+                username: username.into(),
+                new_password: password.into(),
+            })
+            .await?
+    } else {
+        client
+            .accept_invitation(&rv_protocol::parity::AcceptInvitation {
+                token: token.into(),
+                username: username.into(),
+                password: password.into(),
+            })
+            .await?
+    };
     check(&identity, &client.discover().await?)?;
     let info = login(base, discovery, username, password).await?;
     if info.user_id != user.id {

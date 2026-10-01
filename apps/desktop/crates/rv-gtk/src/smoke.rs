@@ -119,7 +119,10 @@ pub fn install(window: &Rc<AppWindow>) {
             let Some(w) = weak.upgrade() else { return };
             if !tried.replace(true) {
                 w.login.fill(&parts[0], &parts[1], &parts[2]);
-                if let Ok(path) = std::env::var("RV_SMOKE_INVITATION_FILE") {
+                let recovering = std::env::var_os("RV_SMOKE_RECOVERY_FILE").is_some();
+                if let Ok(path) =
+                    std::env::var("RV_SMOKE_RECOVERY_FILE").or_else(|_| std::env::var("RV_SMOKE_INVITATION_FILE"))
+                {
                     let data: serde_json::Value =
                         serde_json::from_str(&std::fs::read_to_string(path).expect("pilot invitation file"))
                             .expect("pilot invitation JSON");
@@ -127,12 +130,12 @@ pub fn install(window: &Rc<AppWindow>) {
                     let mut polls = 0;
                     glib::timeout_add_local(Duration::from_millis(250), move || {
                         polls += 1;
-                        if w.login.fill_invitation(&token) {
+                        if if recovering { w.login.fill_recovery(&token) } else { w.login.fill_invitation(&token) } {
                             w.submit_login();
                             return glib::ControlFlow::Break;
                         }
                         if polls >= 40 {
-                            check("signup offered by native discovery", false, polls);
+                            check("account-code form offered by native discovery", false, polls);
                             return glib::ControlFlow::Break;
                         }
                         glib::ControlFlow::Continue
@@ -346,10 +349,14 @@ pub fn install(window: &Rc<AppWindow>) {
         let texts = w.chat.message_texts();
         if native {
             check("native session", w.chat.native_session().is_some(), texts.len());
-            if std::env::var_os("RV_SMOKE_INVITATION_FILE").is_some() {
+            if std::env::var_os("RV_SMOKE_INVITATION_FILE").is_some()
+                || std::env::var_os("RV_SMOKE_RECOVERY_FILE").is_some()
+            {
                 check(
-                    "signup clears transient secrets",
-                    w.login.invitation().is_none() && w.login.password().is_empty(),
+                    "account-code form clears transient secrets",
+                    w.login.invitation().is_none()
+                        && w.login.recovery_code().is_none()
+                        && w.login.password().is_empty(),
                     0,
                 );
             }

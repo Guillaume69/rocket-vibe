@@ -100,6 +100,20 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("login.bad_code", "Code refusé. Réessaie.", "Code rejected. Try again."),
     ("login.rejected", "Identifiant ou mot de passe refusé.", "Username or password rejected."),
     ("login.create_account", "Créer un compte sur invitation", "Create an account with an invitation"),
+    ("login.recover_account", "Mot de passe oublié", "Forgot password"),
+    ("login.reset_password", "Réinitialiser et me connecter", "Reset password and sign in"),
+    ("login.new_password", "Nouveau mot de passe", "New password"),
+    ("login.recovery_code", "Code de récupération", "Recovery code"),
+    (
+        "login.recovery_help",
+        "Demande un code à l'administrateur et choisis un mot de passe d'au moins 12 caractères. Tes autres appareils seront déconnectés. Ce parcours ne récupère pas tes clés de chiffrement.",
+        "Ask the administrator for a code and choose a password of at least 12 characters. Other devices will be signed out. This does not recover encryption keys.",
+    ),
+    (
+        "login.recovery_rejected",
+        "Code refusé ou expiré. Vérifie identifiant et code. Si le mot de passe a déjà été changé, connecte-toi avec le nouveau.",
+        "Code rejected or expired. Check username and code. If the password was already changed, sign in with the new one.",
+    ),
     ("login.invitation", "Code d'invitation", "Invitation code"),
     (
         "login.invitation_help",

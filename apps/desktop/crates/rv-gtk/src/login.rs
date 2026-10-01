@@ -29,6 +29,7 @@ pub struct LoginPage {
     user: gtk::Entry,
     password: gtk::Entry,
     signup: gtk::CheckButton,
+    recovery: gtk::CheckButton,
     invitation: gtk::Entry,
     code_step: gtk::Box,
     code_intro: gtk::Label,
@@ -83,6 +84,7 @@ impl LoginPage {
         let (server_group, server) = widgets::pill_field(t("login.server"), "chat.example.com", false);
         let (user_group, user) = widgets::pill_field(t("login.user"), "jane.doe", false);
         let (password_group, password) = widgets::pill_field(t("login.password"), "", true);
+        let password_caption = password_group.first_child().and_downcast::<gtk::Label>().expect("password caption");
         let credentials = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(14).build();
         credentials.append(&hero());
         credentials.append(&server_group);
@@ -101,7 +103,11 @@ impl LoginPage {
         credentials.append(&password_group);
         let signup = gtk::CheckButton::builder().label(t("login.create_account")).visible(false).build();
         credentials.append(&signup);
+        let recovery = gtk::CheckButton::builder().label(t("login.recover_account")).visible(false).build();
+        credentials.append(&recovery);
         let (invitation_group, invitation) = widgets::pill_field(t("login.invitation"), "", true);
+        let invitation_caption =
+            invitation_group.first_child().and_downcast::<gtk::Label>().expect("invitation caption");
         invitation_group.set_visible(false);
         let invitation_help =
             gtk::Label::builder().label(t("login.invitation_help")).wrap(true).xalign(0.0).visible(false).build();
@@ -133,6 +139,12 @@ impl LoginPage {
         let submit = widgets::cta(t("login.sign_in"));
         signup.connect_toggled(glib::clone!(
             #[weak]
+            recovery,
+            #[weak]
+            invitation_caption,
+            #[weak]
+            password_caption,
+            #[weak]
             invitation_group,
             #[weak]
             invitation_help,
@@ -141,10 +153,44 @@ impl LoginPage {
             #[weak]
             submit,
             move |button| {
+                if button.is_active() {
+                    recovery.set_active(false);
+                }
+                invitation_caption.set_label(t("login.invitation"));
+                password_caption.set_label(t("login.password"));
+                invitation_help.set_label(t("login.invitation_help"));
                 invitation_group.set_visible(button.is_active());
                 invitation_help.set_visible(button.is_active());
                 invitation.set_text("");
                 submit.set_label(t(if button.is_active() { "login.create_account" } else { "login.sign_in" }));
+            }
+        ));
+        recovery.connect_toggled(glib::clone!(
+            #[weak]
+            signup,
+            #[weak]
+            invitation_group,
+            #[weak]
+            invitation_help,
+            #[weak]
+            invitation,
+            #[weak]
+            invitation_caption,
+            #[weak]
+            password_caption,
+            #[weak]
+            submit,
+            move |button| {
+                if button.is_active() {
+                    signup.set_active(false);
+                }
+                invitation_group.set_visible(button.is_active());
+                invitation_help.set_visible(button.is_active());
+                invitation.set_text("");
+                invitation_caption.set_label(t("login.recovery_code"));
+                password_caption.set_label(t(if button.is_active() { "login.new_password" } else { "login.password" }));
+                invitation_help.set_label(t("login.recovery_help"));
+                submit.set_label(t(if button.is_active() { "login.reset_password" } else { "login.sign_in" }));
             }
         ));
         let cancel = gtk::Button::builder().label(t("login.cancel_add")).css_classes(["flat"]).visible(false).build();
@@ -190,9 +236,13 @@ impl LoginPage {
             probe,
             #[weak]
             signup,
+            #[weak]
+            recovery,
             move |entry| {
                 signup.set_active(false);
                 signup.set_visible(false);
+                recovery.set_active(false);
+                recovery.set_visible(false);
                 let current = generation.get() + 1;
                 generation.set(current);
                 let text = entry.text().to_string();
@@ -219,6 +269,7 @@ impl LoginPage {
                             }
                             Ok(p) => {
                                 signup.set_visible(p.genre == "rocketvibe" && p.account_invitations);
+                                recovery.set_visible(p.genre == "rocketvibe" && p.account_recovery);
                                 let product = if p.genre == "rocketvibe" { "RocketVibe" } else { "Rocket.Chat" };
                                 let mut facts = vec![format!("{product} {}", p.version)];
                                 if p.two_factor {
@@ -246,6 +297,7 @@ impl LoginPage {
             user,
             password,
             signup,
+            recovery,
             invitation,
             code_step,
             code_intro,
@@ -327,10 +379,22 @@ impl LoginPage {
         self.invitation.set_text(token);
         true
     }
+    pub fn recovery_code(&self) -> Option<String> {
+        (self.recovery.is_visible() && self.recovery.is_active()).then(|| self.invitation.text().trim().to_owned())
+    }
+    pub fn fill_recovery(&self, token: &str) -> bool {
+        if !self.recovery.is_visible() {
+            return false;
+        }
+        self.recovery.set_active(true);
+        self.invitation.set_text(token);
+        true
+    }
     pub fn clear_secrets(&self) {
         self.password.set_text("");
         self.invitation.set_text("");
         self.signup.set_active(false);
+        self.recovery.set_active(false);
     }
     pub fn is_busy(&self) -> bool {
         !self.submit.is_sensitive()
@@ -355,7 +419,13 @@ impl LoginPage {
         self.submit.set_label(match (busy, asking) {
             (true, _) => t("login.signing_in"),
             (false, true) => t("login.confirm"),
-            (false, false) => t(if self.signup.is_active() { "login.create_account" } else { "login.sign_in" }),
+            (false, false) => t(if self.recovery.is_active() {
+                "login.reset_password"
+            } else if self.signup.is_active() {
+                "login.create_account"
+            } else {
+                "login.sign_in"
+            }),
         });
     }
 

@@ -9,6 +9,10 @@ section here.
 
 ### Added
 
+- Operator-code password recovery in the existing GTK / SwiftUI sign-in forms,
+  preserving account identity and conversations while revoking old sessions.
+  Lost acknowledgements resume once; encryption keys remain unchanged.
+
 - Invitation signup in the existing GTK and SwiftUI sign-in forms, offered only
   by capable RocketVibe servers. Lost acknowledgements resume the same account;
   instance, generation and user checks precede secure session storage.

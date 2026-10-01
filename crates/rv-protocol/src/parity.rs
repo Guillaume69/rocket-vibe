@@ -259,6 +259,8 @@ pub struct RoomKeyEnvelope {
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct ParityContract {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recover_account: Option<RecoverAccount>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accept_invitation: Option<AcceptInvitation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub renew_session: Option<RenewSession>,
@@ -295,4 +297,14 @@ pub struct AcceptInvitation {
     pub token: String,
     pub username: String,
     pub password: String,
+}
+
+/// Operator code resets login credentials; it never recovers E2EE keys or
+/// authenticates the account in place of its normal second-factor login.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RecoverAccount {
+    pub token: String,
+    pub username: String,
+    pub new_password: String,
 }

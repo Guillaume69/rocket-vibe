@@ -46,15 +46,26 @@ struct LoginView: View {
                     TextField(L("login.user"), text: $login.user)
                         .focused($focus, equals: .user)
                         .textContentType(.username)
-                    SecureField(L("login.password"), text: $login.password)
+                    SecureField(L(login.recovering ? "login.new_password" : "login.password"), text: $login.password)
                         .focused($focus, equals: .password)
                         .textContentType(.password)
                         .onSubmit(submit)
                     if login.canRegister {
                         Toggle(L("login.create_account"), isOn: $login.registering)
+                            .onChange(of: login.registering) { _, active in if active { login.recovering = false }; login.invitation = "" }
                         if login.registering {
                             Text(L("login.invitation_help")).font(.caption)
                             SecureField(L("login.invitation"), text: $login.invitation)
+                                .focused($focus, equals: .invitation)
+                                .onSubmit(submit)
+                        }
+                    }
+                    if login.canRecover {
+                        Toggle(L("login.recover_account"), isOn: $login.recovering)
+                            .onChange(of: login.recovering) { _, active in if active { login.registering = false }; login.invitation = "" }
+                        if login.recovering {
+                            Text(L("login.recovery_help")).font(.caption)
+                            SecureField(L("login.recovery_code"), text: $login.invitation)
                                 .focused($focus, equals: .invitation)
                                 .onSubmit(submit)
                         }
@@ -80,7 +91,7 @@ struct LoginView: View {
                 } else if app.signedIn {
                     Button(L("login.cancel_add")) { app.cancelLogin() }
                 }
-                Button(login.busy ? L("login.signing_in") : (login.method == nil ? L(login.registering && login.canRegister ? "login.create_account" : "login.sign_in") : L("login.confirm")), action: submit)
+                Button(login.busy ? L("login.signing_in") : (login.method == nil ? L(login.recovering && login.canRecover ? "login.reset_password" : login.registering && login.canRegister ? "login.create_account" : "login.sign_in") : L("login.confirm")), action: submit)
                     .buttonStyle(VibeButtonStyle())
                     .keyboardShortcut(.defaultAction)
                     .disabled(login.busy)
@@ -91,7 +102,7 @@ struct LoginView: View {
         .background { LoginSky() }
         .onAppear { focus = login.user.isEmpty ? .user : .password }
         .onChange(of: login.method) { _, method in if method != nil { focus = .code } }
-        .onChange(of: login.server) { _, _ in login.registering = false; login.invitation = "" }
+        .onChange(of: login.server) { _, _ in login.registering = false; login.recovering = false; login.invitation = "" }
         .task(id: login.server) {
             try? await Task.sleep(nanoseconds: 600_000_000)
             if !Task.isCancelled { await login.probe(client: app.client) }

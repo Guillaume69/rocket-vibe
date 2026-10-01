@@ -9,6 +9,10 @@ release, et ses notes sont la section de la version ici.
 
 ### Ajouté
 
+- Récupération du mot de passe RocketVibe par code opérateur dans la connexion
+  existante : identité et conversations conservées, anciennes sessions révoquées
+  et confirmation perdue reprenable. Les clés de chiffrement sont préservées.
+
 - Création d'un compte RocketVibe sur invitation dans l'écran de connexion existant.
   La reprise après réponse perdue conserve le même compte ; le parcours vérifie
   l'identité et la génération du serveur avant de sauvegarder la session.

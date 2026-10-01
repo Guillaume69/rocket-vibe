@@ -32,11 +32,19 @@ export async function nativeLogin(baseUrl: string, discovered: Discovery, creden
   };
 }
 export async function nativeRegister(baseUrl:string, discovered:Discovery, credentials:Credentials, token:string, fetcher?:typeof fetch):Promise<Session> {
+  return accountCodeLogin(baseUrl,discovered,credentials,token,false,fetcher);
+}
+export async function nativeRecover(baseUrl:string, discovered:Discovery, credentials:Credentials, token:string, fetcher?:typeof fetch):Promise<Session> {
+  return accountCodeLogin(baseUrl,discovered,credentials,token,true,fetcher);
+}
+async function accountCodeLogin(baseUrl:string, discovered:Discovery, credentials:Credentials, token:string, recovery:boolean, fetcher?:typeof fetch):Promise<Session> {
   const transport=new NativeTransport(baseUrl,fetcher);
   const fresh=await transport.discover();
   if (fresh.instance_id!==discovered.instance_id || fresh.data_epoch!==discovered.data_epoch) throw new NativeError(409,'server_identity_changed');
-  if (!fresh.capabilities.account_invitations) throw new NativeError(409,'invitation_unavailable');
-  const user=await transport.acceptInvitation({token,username:credentials.utilisateur,password:credentials.motDePasse});
+  if (!(recovery?fresh.capabilities.account_recovery:fresh.capabilities.account_invitations)) throw new NativeError(409,recovery?'recovery_unavailable':'invitation_unavailable');
+  const user=recovery
+    ? await transport.recoverAccount({token,username:credentials.utilisateur,new_password:credentials.motDePasse})
+    : await transport.acceptInvitation({token,username:credentials.utilisateur,password:credentials.motDePasse});
   const after=await transport.discover();
   if (after.instance_id!==fresh.instance_id || after.data_epoch!==fresh.data_epoch) throw new NativeError(409,'server_identity_changed');
   const session=await nativeLogin(baseUrl,discovered,credentials,fetcher);

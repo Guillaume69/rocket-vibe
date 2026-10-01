@@ -47,14 +47,23 @@ pub async fn invitation_attempt(
     peer: Option<IpAddr>,
     token: &str,
 ) -> Result<()> {
-    auth_attempt(app, username, peer, Some(token)).await
+    auth_attempt(app, username, peer, Some(("invite", token))).await
+}
+
+pub async fn recovery_attempt(
+    app: &App,
+    username: &str,
+    peer: Option<IpAddr>,
+    token: &str,
+) -> Result<()> {
+    auth_attempt(app, username, peer, Some(("recovery", token))).await
 }
 
 async fn auth_attempt(
     app: &App,
     username: &str,
     peer: Option<IpAddr>,
-    invitation: Option<&str>,
+    invitation: Option<(&str, &str)>,
 ) -> Result<()> {
     let mut tx = app.pool.begin().await?;
     let mut keys = vec![
@@ -64,8 +73,8 @@ async fn auth_attempt(
     if let Some(peer) = peer {
         keys.push((format!("ip:{}", hash_token(&peer.to_string())), 30));
     }
-    if let Some(token) = invitation {
-        keys.push((format!("invite:{}", hash_token(token)), 10));
+    if let Some((kind, token)) = invitation {
+        keys.push((format!("{kind}:{}", hash_token(token)), 10));
     }
     for (key, maximum) in keys {
         let (attempts, retry): (i32, i64) = sqlx::query_as(

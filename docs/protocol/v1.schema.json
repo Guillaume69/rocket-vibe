@@ -93,6 +93,10 @@
           "default": false,
           "type": "boolean"
         },
+        "account_recovery": {
+          "default": false,
+          "type": "boolean"
+        },
         "calls": {
           "type": "boolean"
         },
@@ -822,6 +826,16 @@
         "read_state": {
           "$ref": "#/$defs/ReadState"
         },
+        "recover_account": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RecoverAccount"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "rename_device": {
           "anyOf": [
             {
@@ -1054,6 +1068,27 @@
         "mentions",
         "group_mentions",
         "favorite"
+      ],
+      "type": "object"
+    },
+    "RecoverAccount": {
+      "additionalProperties": false,
+      "description": "Operator code resets login credentials; it never recovers E2EE keys or\nauthenticates the account in place of its normal second-factor login.",
+      "properties": {
+        "new_password": {
+          "type": "string"
+        },
+        "token": {
+          "type": "string"
+        },
+        "username": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "token",
+        "username",
+        "new_password"
       ],
       "type": "object"
     },

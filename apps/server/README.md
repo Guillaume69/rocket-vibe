@@ -17,8 +17,9 @@ appareils du compte. Les clients renouvellent leur session via SecureStore ou
 le trousseau système, avec reprise d'un successeur durable après réponse perdue.
 Les paramètres existants des trois clients exposent les noms, dates et la
 révocation d'un autre appareil après connexion récente. La qualification sur
-appareils et la récupération restent suivies dans P01. Les écrans de connexion
-existants proposent la création d'un compte avec une invitation opérateur.
+appareils et la récupération email restent suivies dans P01/P02. Les écrans de
+connexion existants proposent inscription sur invitation et récupération par code
+opérateur, avec conservation de l'identité et révocation des anciennes sessions.
 
 Les [écrans mobiles existants](../../docs/NATIVE_MOBILE_PILOT.md) et les interfaces
 [GTK / SwiftUI existantes](../../docs/NATIVE_DESKTOP_PILOT.md) accueillent les deux
@@ -73,6 +74,27 @@ suit. Une réponse d'inscription perdue peut être reprise, avant expiration, av
 le même identifiant et le mot de passe du compte créé. Révocation, désactivation,
 suppression du compte ou changement de génération ferment cette reprise.
 Aucun email n'est envoyé automatiquement.
+
+Pour un propriétaire de compte vérifié par l'opérateur, émettre un code de
+récupération de mot de passe ; sa valeur ne passe jamais dans les arguments :
+
+```sh
+docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm server recover-user alice --hours 24
+docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm server list-recovery-codes
+docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm server revoke-recovery-code IDENTIFIANT
+```
+
+Le JSON de `recover-user` affiche le code secret une seule fois. Durée : 1–24 h,
+au plus 3 codes actifs par compte et 1 000 par génération. Dans le formulaire
+existant, choisir « Mot de passe oublié », entrer le code et un nouveau mot de
+passe. Ce parcours conserve UID, rôles et conversations, révoque toutes les
+familles d'appareils puis passe par le login normal. La récupération ne crée pas
+de session par elle-même, ne retire pas de facteur 2FA et ne restaure aucune clé
+E2EE. Une confirmation perdue se reprend avec le nouveau mot de passe pendant
+cinq minutes, sans révoquer les sessions créées depuis. Le changement invalide
+les autres codes de récupération ; les codes sont liés à l'autorité du compte
+et à la génération des données. Pas d'envoi email implicite ni d'énumération
+publique pour demander un code.
 
 Découverte et état :
 

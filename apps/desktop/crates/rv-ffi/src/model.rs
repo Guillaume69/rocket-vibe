@@ -75,6 +75,7 @@ pub struct ServerProfile {
     pub e2e: bool,
     pub oauth: Vec<String>,
     pub account_invitations: bool,
+    pub account_recovery: bool,
 }
 
 impl From<rv_core::server::ServerProfile> for ServerProfile {
@@ -88,6 +89,7 @@ impl From<rv_core::server::ServerProfile> for ServerProfile {
             e2e: p.e2e,
             oauth: p.oauth,
             account_invitations: p.account_invitations,
+            account_recovery: p.account_recovery,
         }
     }
 }

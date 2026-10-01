@@ -7,7 +7,7 @@ import { SERVEUR_PAR_DEFAUT } from '../db/migrer.ts';
 import { demanderCodeParEmail, preparerCodeDeuxFacteurs, seConnecter } from '../lib/auth.ts';
 import { ClientRest, ErreurDeuxFacteurs, ErreurRest, type CodeDeuxFacteurs } from '../lib/rest.ts';
 import { discoverServer, type ServerProfile as ProfilServeur } from '../lib/serverKind.ts';
-import { nativeLogin, nativeRegister } from '../fournisseurs/rocketvibe/auth.ts';
+import { nativeLogin, nativeRegister, nativeRecover } from '../fournisseurs/rocketvibe/auth.ts';
 import { NativeError } from '../fournisseurs/rocketvibe/transport.ts';
 import { hacher, lireDernierServeur, listerServeursConnus } from '../lib/sessionStore.ts';
 import { VueEvitantLeClavier } from '../ui/clavier.tsx';
@@ -53,6 +53,7 @@ export default function EcranConnexion() {
   const [motDePasse, setMotDePasse] = useState('');
   const [code, setCode] = useState('');
   const [inscription, setInscription] = useState(false);
+  const [recuperation, setRecuperation] = useState(false);
   const [invitation, setInvitation] = useState('');
   const [occupe, setOccupe] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -151,7 +152,9 @@ export default function EcranConnexion() {
       setMessage(null);
       try {
         const session = phase.profil.native
-          ? inscription
+          ? recuperation
+            ? await nativeRecover(phase.profil.baseUrl, phase.profil.native, { utilisateur: utilisateur.trim(), motDePasse }, invitation.trim())
+            : inscription
             ? await nativeRegister(phase.profil.baseUrl, phase.profil.native, { utilisateur: utilisateur.trim(), motDePasse }, invitation.trim())
             : await nativeLogin(phase.profil.baseUrl, phase.profil.native, { utilisateur: utilisateur.trim(), motDePasse })
           : await seConnecter(
@@ -162,14 +165,18 @@ export default function EcranConnexion() {
         // `Site_Url` vient du sondage, pas du login : c'est ICI qu'il entre
         // dans la session persistée — voir `Session.siteUrl` (lib/auth.ts).
         await connecter({ ...session, siteUrl: phase.profil.siteUrl });
-        setInvitation(''); setInscription(false); setMotDePasse('');
+        setInvitation(''); setInscription(false); setRecuperation(false); setMotDePasse('');
         // Navigation explicite : le <Redirect> en tête de rendu couvre la
         // reprise de session, mais il est neutralisé quand on est venu par
         // « changer de serveur » (`?changer=1`) — sans ceci, un login réussi
         // depuis ce chemin laisserait l'utilisateur planté ici.
         routeur.replace('/');
       } catch (e) {
-        if (e instanceof NativeError && e.code === 'invitation_rejected') {
+        if (e instanceof NativeError && e.code === 'recovery_rejected') {
+          setMessage(t('connexion.recuperationRefusee'));
+        } else if (e instanceof NativeError && e.code === 'invalid_request' && recuperation) {
+          setMessage(t('connexion.recuperationAide'));
+        } else if (e instanceof NativeError && e.code === 'invitation_rejected') {
           setMessage(t('connexion.invitationRefusee'));
         } else if (e instanceof NativeError && e.code === 'invalid_request' && inscription) {
           setMessage(t('connexion.invitationAide'));
@@ -204,7 +211,7 @@ export default function EcranConnexion() {
         setOccupe(false);
       }
     },
-    [phase, utilisateur, motDePasse, connecter, routeur, t, inscription, invitation],
+    [phase, utilisateur, motDePasse, connecter, routeur, t, inscription, invitation, recuperation],
   );
 
   const validerCode = useCallback(async () => {
@@ -235,7 +242,7 @@ export default function EcranConnexion() {
   }, [phase, utilisateur, t]);
 
   const revenirAuServeur = useCallback(() => {
-    setInvitation(''); setInscription(false);
+    setInvitation(''); setInscription(false); setRecuperation(false);
     setMotDePasse('');
     setCode('');
     setMessage(null);
@@ -312,14 +319,19 @@ export default function EcranConnexion() {
         {phase.nom === 'identifiants' && (
           <>
             {phase.profil.native?.capabilities.account_invitations === true && (
-              <Pressable disabled={occupe} onPress={() => { setInscription(!inscription); setInvitation(''); setMessage(null); }}>
+              <Pressable disabled={occupe} onPress={() => { setInscription(!inscription); setRecuperation(false); setInvitation(''); setMotDePasse(''); setMessage(null); }}>
                 <Text style={[styles.lien, { color: c.cyan }]}>{t(inscription ? 'connexion.dejaUnCompte' : 'connexion.creerCompte')}</Text>
               </Pressable>
             )}
-            {inscription && (
+            {phase.profil.native?.capabilities.account_recovery === true && (
+              <Pressable disabled={occupe} onPress={() => { setRecuperation(!recuperation); setInscription(false); setInvitation(''); setMotDePasse(''); setMessage(null); }}>
+                <Text style={[styles.lien, { color: c.cyan }]}>{t(recuperation ? 'connexion.dejaUnCompte' : 'connexion.recupererCompte')}</Text>
+              </Pressable>
+            )}
+            {(inscription || recuperation) && (
               <>
-                <Text style={{ color: c.attenue }}>{t('connexion.invitationAide')}</Text>
-                <ChampPilule c={c} etiquette={t('connexion.invitation')} valeur={invitation} onChangeText={setInvitation} secureTextEntry editable={!occupe} />
+                <Text style={{ color: c.attenue }}>{t(recuperation ? 'connexion.recuperationAide' : 'connexion.invitationAide')}</Text>
+                <ChampPilule c={c} etiquette={t(recuperation ? 'connexion.codeRecuperation' : 'connexion.invitation')} valeur={invitation} onChangeText={setInvitation} secureTextEntry editable={!occupe} />
               </>
             )}
             <ChampPilule
@@ -334,20 +346,20 @@ export default function EcranConnexion() {
             />
             <ChampPilule
               c={c}
-              etiquette={t('connexion.motDePasse')}
+              etiquette={t(recuperation ? 'connexion.nouveauMotDePasse' : 'connexion.motDePasse')}
               valeur={motDePasse}
               editable={!occupe}
               onChangeText={setMotDePasse}
               onSubmitEditing={() => void tenterConnexion()}
               placeholder="••••••••"
-              autoComplete={inscription ? 'new-password' : 'current-password'}
+              autoComplete={inscription || recuperation ? 'new-password' : 'current-password'}
               secureTextEntry
             />
             <BoutonPrincipal
               c={c}
               occupe={occupe}
               onPress={() => void tenterConnexion()}
-              titre={t(inscription ? 'connexion.creerCompte' : 'connexion.seConnecter')}
+              titre={t(recuperation ? 'connexion.reinitialiser' : inscription ? 'connexion.creerCompte' : 'connexion.seConnecter')}
             />
           </>
         )}

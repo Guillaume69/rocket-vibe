@@ -30,6 +30,7 @@ pub fn router(app: App) -> Router {
         .route("/health/ready", get(ready))
         .route("/api/v1/auth/login", post(login))
         .route("/api/v1/auth/invitations/accept", post(accept_invitation))
+        .route("/api/v1/auth/recovery", post(recover_account))
         .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/auth/renew", post(renew_session))
         .route("/api/v1/me/sessions", get(device_sessions))
@@ -148,6 +149,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             session_rotation: true,
             device_sessions: true,
             account_invitations: true,
+            account_recovery: true,
             ..Default::default()
         },
     }))
@@ -176,6 +178,15 @@ async fn accept_invitation(
     input: Input<rv_protocol::parity::AcceptInvitation>,
 ) -> Result<Response> {
     let user = crate::invitations::accept(&app, body(input)?, peer.map(|p| p.0.0.ip())).await?;
+    Ok(secret_session(user))
+}
+
+async fn recover_account(
+    State(app): State<App>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    input: Input<rv_protocol::parity::RecoverAccount>,
+) -> Result<Response> {
+    let user = crate::recovery::accept(&app, body(input)?, peer.map(|p| p.0.0.ip())).await?;
     Ok(secret_session(user))
 }
 

@@ -116,3 +116,11 @@ et le logout. Le pair mobile inscrit un compte, reprend la réponse puis connect
 son fournisseur SQLite. Le volume d'invitations est supprimé avec `down -v` ;
 aucun code ne rejoint les logs ou les artifacts. Ces essais ne remplacent pas
 la qualification des appareils physiques.
+
+Le banc émet aussi des codes opérateur liés à trois comptes de récupération.
+GTK passe par sa variante « Mot de passe oublié » puis reprend la nouvelle session
+après redémarrage. Swift vérifie en plus le rejet HTTP 401 de l'ancien bearer.
+Le pair mobile conserve l'UID et une conversation réellement écrite avant reset,
+revérifie son contenu dans SQLite et rejoue la confirmation sans révoquer sa
+session récente. Codes d'invitation et de récupération partagent le volume
+privé jetable, jamais les artifacts.

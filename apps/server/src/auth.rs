@@ -188,19 +188,20 @@ pub async fn login_from(
     })
     .await
     .map_err(|_| Error::internal())?;
-    let Some((id, username, display_name, _)) = record.filter(|_| valid) else {
+    let Some((id, username, display_name, verified_hash)) = record.filter(|_| valid) else {
         return Err(Error::unauthorized());
     };
     let token = random_token();
     let expires_at: DateTime<Utc> = Utc::now() + chrono::Duration::days(30);
     let mut tx = app.pool.begin().await?;
     mutation_deadlines(&mut tx).await?;
-    let active: Option<String> =
-        sqlx::query_scalar("SELECT id FROM users WHERE id=$1 AND NOT disabled FOR NO KEY UPDATE")
-            .bind(&id)
-            .fetch_optional(&mut *tx)
-            .await?;
-    if active.is_none() {
+    let active: Option<String> = sqlx::query_scalar(
+        "SELECT password_hash FROM users WHERE id=$1 AND NOT disabled FOR NO KEY UPDATE",
+    )
+    .bind(&id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if active.as_deref() != Some(&verified_hash) {
         return Err(Error::unauthorized());
     }
     let count: i64 =

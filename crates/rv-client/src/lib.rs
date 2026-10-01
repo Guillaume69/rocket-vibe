@@ -297,6 +297,22 @@ impl NativeClient {
         )
         .await
     }
+    pub async fn set_reaction(
+        &self,
+        id: &str,
+        input: &rv_protocol::parity::SetReaction,
+    ) -> Result<Message, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.request(
+            Method::PUT,
+            &format!("/api/v1/messages/{id}/reactions"),
+            Some(input),
+            false,
+        )
+        .await
+    }
     pub async fn add_member(&self, room: &str, user: &str) -> Result<(), Error> {
         if !path_segment(room) || !path_segment(user) {
             return Err(Error::InvalidUrl);

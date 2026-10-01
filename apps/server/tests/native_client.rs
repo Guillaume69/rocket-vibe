@@ -429,6 +429,15 @@ async fn message_action_cooldown_is_shared_but_does_not_block_reads() {
     assert!(
         matches!(client.clone().delete_message("message-id",&delete).await,Err(rv_client::Error::Server{status:429,request_id,retry_after,..}) if request_id.as_deref()==Some("action-request") && retry_after==Some(1))
     );
+    let reaction = rv_protocol::parity::SetReaction {
+        operation_id: "reaction-id".into(),
+        emoji: "heart".into(),
+        present: true,
+    };
+    assert!(
+        matches!(client.clone().set_reaction("message-id", &reaction).await,
+        Err(rv_client::Error::Server { status: 429, request_id, .. }) if request_id.as_deref() == Some("action-request"))
+    );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
     assert!(client.delete_message("message-id", &delete).await.is_err());

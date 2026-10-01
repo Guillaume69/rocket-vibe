@@ -13,7 +13,7 @@ export const CAPACITES_ROCKETVIBE: Capacites = {
   edition:true, suppression:true,
   typing:false, presence:false, push:false, e2ee:false, emojisCustom:false,
   appelVideo:false, recherche:false, modeleFil:'tmid',
-  fichiers:false, fils:false, reactions:false, marques:false, profil:false, infosSalon:false, citations:false,
+  fichiers:false, fils:false, reactions:true, marques:false, profil:false, infosSalon:false, citations:false,
 };
 const unsupported = async (): Promise<never> => { throw new NativeError(501,'unsupported_feature'); };
 const noSubscription = () => () => {};
@@ -56,7 +56,7 @@ export function creerFournisseurRV(session: Session, client: ClientRest, generer
       versSalon:() => null, versAbonnement:() => null,
     },
     actions:{
-      reagir:unsupported,
+      reagir:(rid,id,emoji,present) => chat.react(rid,id,emoji,present),
       modifier:async (rid,id,text,chiffreur,revision) => {
         if (chiffreur) return unsupported();
         if (!revision) throw new NativeError(409,'revision_required');

@@ -48,7 +48,7 @@ fn parity_commands_reject_forged_rights_and_plaintext_inside_ciphertext() {
     );
     assert!(
         serde_json::from_str::<SetReaction>(
-            r#"{"emoji":"rocket","present":true,"user_id":"other"}"#
+            r#"{"operation_id":"reaction-id","emoji":"rocket","present":true,"user_id":"other"}"#
         )
         .is_err()
     );

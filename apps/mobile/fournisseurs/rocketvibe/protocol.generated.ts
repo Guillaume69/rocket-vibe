@@ -14,10 +14,11 @@ export type EncryptedKeyBackup = { "ciphertext": string; "crypto_identity": stri
 export type FileDescriptor = { "bytes": string; "encrypted": boolean; "filename"?: string | null; "id": string; "media_type": string; "room_id": string; "sha256": string; };
 export type Login = { "password": string; "username": string; };
 export type MarkRead = { "reply_position": string; "root_position": string; };
-export type Message = { "author": User; "created_at": string; "deleted"?: boolean; "edited_at"?: string | null; "id": string; "position": string; "revision": string; "room_id": string; "text": string; };
+export type Message = { "author": User; "created_at": string; "deleted"?: boolean; "edited_at"?: string | null; "id": string; "position": string; "reactions"?: (MessageReaction)[]; "revision": string; "room_id": string; "text": string; };
 export type MessageContent = { "files": (string)[]; "kind": "plain"; "markdown": string; "mentions": (string)[]; "quotes": (QuoteReference)[]; } | { "format": string; "key_version": string; "kind": "encrypted"; "payload": string; };
 export type MessagePage = { "has_more": boolean; "messages": (Message)[]; };
 export type MessagePermissions = { "delete": boolean; "edit": boolean; "edit_until"?: string | null; "message_id": string; "pin": boolean; "react": boolean; "revision": string; "star": boolean; };
+export type MessageReaction = { "emoji": string; "users": (User)[]; };
 export type ParityContract = { "account_permissions": AccountPermissions; "auth_challenge": AuthChallenge; "complete_upload": CompleteUpload; "delete_message": DeleteMessage; "edit_message": EditMessage; "file": FileDescriptor; "key_backup": EncryptedKeyBackup; "mark": SetMark; "mark_read": MarkRead; "message_permissions": MessagePermissions; "preferences": UserPreferences; "prepare_upload": PrepareUpload; "profile": UserProfile; "public_device_key": PublicDeviceKey; "reaction": SetReaction; "read_state": ReadState; "room_key_envelope": RoomKeyEnvelope; "room_permissions": RoomPermissions; "verify_factor": VerifyFactor; };
 export type PrepareUpload = { "bytes": string; "encrypted": boolean; "filename"?: string | null; "media_type": string; "operation_id": string; "room_id": string; "sha256": string; };
 export type PublicDeviceKey = { "device_id": string; "fingerprint": string; "format": string; "public_key": string; "revision": string; "user_id": string; };
@@ -33,8 +34,8 @@ export type RoomRole = "owner" | "moderator" | "member";
 export type SecondFactor = "totp" | "email" | "recovery_code";
 export type SendMessage = { "operation_id": string; "text": string; };
 export type Session = { "expires_at": string; "token": string; "user": User; };
-export type SetMark = { "present": boolean; };
-export type SetReaction = { "emoji": string; "present": boolean; };
+export type SetMark = { "operation_id": string; "present": boolean; };
+export type SetReaction = { "emoji": string; "operation_id": string; "present": boolean; };
 export type Snapshot = { "cursor": string; "messages": (Message)[]; "protocol_version": number; "rooms": (Room)[]; };
 export type SnapshotPage = { "cursor"?: string | null; "messages": (Message)[]; "next"?: string | null; "page_index": number; "protocol_version": number; "rooms": (Room)[]; "snapshot_id": string; };
 export type SocketTicket = { "expires_at": string; "ticket": string; };
@@ -44,7 +45,7 @@ export type UserPreferences = { "clock_24h": boolean; "language": string; "push_
 export type UserProfile = { "avatar_file_id"?: string | null; "bio": string; "revision": string; "status_text": string; "user": User; };
 export type VerifyFactor = { "challenge_id": string; "code": string; "method": SecondFactor; };
 
-export type NativeTypes = { AccountPermissions: AccountPermissions; ApiError: ApiError; AuthChallenge: AuthChallenge; Capabilities: Capabilities; Change: Change; CompleteUpload: CompleteUpload; CreateRoom: CreateRoom; DeleteMessage: DeleteMessage; DirectMessage: DirectMessage; Discovery: Discovery; EditMessage: EditMessage; EncryptedKeyBackup: EncryptedKeyBackup; FileDescriptor: FileDescriptor; Login: Login; MarkRead: MarkRead; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; ParityContract: ParityContract; PrepareUpload: PrepareUpload; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; QuoteReference: QuoteReference; ReadState: ReadState; Room: Room; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomPermissions: RoomPermissions; RoomRole: RoomRole; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetReaction: SetReaction; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; SyncBatch: SyncBatch; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; };
+export type NativeTypes = { AccountPermissions: AccountPermissions; ApiError: ApiError; AuthChallenge: AuthChallenge; Capabilities: Capabilities; Change: Change; CompleteUpload: CompleteUpload; CreateRoom: CreateRoom; DeleteMessage: DeleteMessage; DirectMessage: DirectMessage; Discovery: Discovery; EditMessage: EditMessage; EncryptedKeyBackup: EncryptedKeyBackup; FileDescriptor: FileDescriptor; Login: Login; MarkRead: MarkRead; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; MessageReaction: MessageReaction; ParityContract: ParityContract; PrepareUpload: PrepareUpload; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; QuoteReference: QuoteReference; ReadState: ReadState; Room: Room; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomPermissions: RoomPermissions; RoomRole: RoomRole; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetReaction: SetReaction; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; SyncBatch: SyncBatch; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; };
 
 export const nativeSchema = {
   "$defs": {
@@ -548,6 +549,12 @@ export const nativeSchema = {
         "position": {
           "type": "string"
         },
+        "reactions": {
+          "items": {
+            "$ref": "#/$defs/MessageReaction"
+          },
+          "type": "array"
+        },
         "revision": {
           "type": "string"
         },
@@ -694,6 +701,24 @@ export const nativeSchema = {
         "react",
         "pin",
         "star"
+      ],
+      "type": "object"
+    },
+    "MessageReaction": {
+      "properties": {
+        "emoji": {
+          "type": "string"
+        },
+        "users": {
+          "items": {
+            "$ref": "#/$defs/User"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "emoji",
+        "users"
       ],
       "type": "object"
     },
@@ -1118,11 +1143,15 @@ export const nativeSchema = {
     "SetMark": {
       "additionalProperties": false,
       "properties": {
+        "operation_id": {
+          "type": "string"
+        },
         "present": {
           "type": "boolean"
         }
       },
       "required": [
+        "operation_id",
         "present"
       ],
       "type": "object"
@@ -1133,11 +1162,15 @@ export const nativeSchema = {
         "emoji": {
           "type": "string"
         },
+        "operation_id": {
+          "type": "string"
+        },
         "present": {
           "type": "boolean"
         }
       },
       "required": [
+        "operation_id",
         "emoji",
         "present"
       ],

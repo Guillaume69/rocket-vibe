@@ -44,6 +44,7 @@ pub(crate) struct MessageRow {
     pub revision: i64,
     pub deleted: bool,
     pub edited_at: Option<DateTime<Utc>>,
+    pub reactions: Json<Vec<rv_protocol::MessageReaction>>,
 }
 
 impl MessageRow {
@@ -62,11 +63,12 @@ impl MessageRow {
             revision: self.revision.to_string(),
             deleted: self.deleted,
             edited_at: self.edited_at.map(|time| time.to_rfc3339()),
+            reactions: self.reactions.0,
         }
     }
 }
 
-pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,m.text,m.created_at,m.position,m.revision,m.deleted,m.edited_at FROM messages m JOIN users u ON u.id=m.author_id";
+pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,m.text,m.created_at,m.position,m.revision,m.deleted,m.edited_at,COALESCE((SELECT jsonb_agg(jsonb_build_object('emoji',g.emoji,'users',g.users) ORDER BY g.emoji) FROM (SELECT e.emoji,jsonb_agg(jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name) ORDER BY a.id) AS users FROM message_reactions e JOIN users a ON a.id=e.user_id WHERE e.message_id=m.id GROUP BY e.emoji) g),'[]'::jsonb) AS reactions FROM messages m JOIN users u ON u.id=m.author_id";
 
 pub(crate) fn send_fingerprint(room: &str, text: &str) -> String {
     crate::auth::hash_token(&serde_json::json!([room, text]).to_string())

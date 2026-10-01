@@ -9,6 +9,10 @@ section here.
 
 ### Added
 
+- Native reactions in the existing GTK and SwiftUI menus and message chips.
+  Emoji aliases share one state; pending actions survive lost responses and
+  restarts without changing message order or marking the text as edited.
+
 - Native edit/delete actions in the existing GTK and SwiftUI menus and editors.
   SQLite commands retain their operation IDs and original revisions across
   retries and restarts; rejected edit drafts remain available for review.

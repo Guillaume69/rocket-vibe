@@ -20,7 +20,7 @@ use crate::{
     App, auth,
     delivery::{ReadProof, Scope},
     error::{Error, Result},
-    limits, message_actions, permissions, snapshots, store, sync,
+    limits, message_actions, permissions, reactions, snapshots, store, sync,
 };
 
 pub fn router(app: App) -> Router {
@@ -44,6 +44,10 @@ pub fn router(app: App) -> Router {
         .route(
             "/api/v1/messages/{message}",
             get(message).patch(edit_message).delete(delete_message),
+        )
+        .route(
+            "/api/v1/messages/{message}/reactions",
+            axum::routing::put(set_reaction),
         )
         .route("/api/v1/rooms/{room}/join", post(join_public))
         .route("/api/v1/direct-messages", post(direct))
@@ -121,6 +125,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             fine_permissions: true,
             editing: true,
             deletion: true,
+            reactions: true,
             ..Default::default()
         },
     }))
@@ -251,6 +256,17 @@ async fn delete_message(
         message_actions::Command::Delete(body(input)?),
     )
     .await?;
+    message(State(app), headers, Path(id)).await
+}
+
+async fn set_reaction(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    input: Input<rv_protocol::parity::SetReaction>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    reactions::apply(&app, &actor, &id, body(input)?).await?;
     message(State(app), headers, Path(id)).await
 }
 

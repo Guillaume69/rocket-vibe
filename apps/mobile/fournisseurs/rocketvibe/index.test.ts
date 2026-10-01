@@ -41,7 +41,7 @@ test('one provider selector keeps Rocket.Chat features and supplies the native d
     assert.equal((await store.pending())[0].id,id);
     await outbox.abandonner(id);
     assert.deepEqual(await store.messages(room.id),[]);
-    await assert.rejects(native.actions.reagir(room.id,id,'heart',true),/unsupported_feature/);
+    await assert.rejects(native.actions.reagir(room.id,id,'heart',true),/offline/);
     await assert.rejects(native.native!.chat.users(),/offline/);
   } finally { native.native!.chat.stop(); rc.listener.fermer(); h.db.close(); }
 });

@@ -22,6 +22,13 @@ pub struct Identity {
     pub data_epoch: String,
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReactionIntent {
+    emoji: String,
+    present: bool,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
@@ -273,6 +280,8 @@ impl NativeSession {
             return;
         }
         self.paused.store(false, Ordering::SeqCst);
+        self.verified.store(false, Ordering::SeqCst);
+        self.set_status(Connection::Connecting, None);
         self.signal();
     }
     pub fn shutdown(&self) {
@@ -301,6 +310,7 @@ impl NativeSession {
                     room_discovery: true,
                     editing: true,
                     deletion: true,
+                    reactions: true,
                     fine_permissions: true,
                     ..Default::default()
                 })
@@ -468,6 +478,13 @@ impl NativeSession {
     pub async fn delete(&self, rid: &str, id: &str, revision: &str) -> Result<(), Error> {
         self.submit_command(rid, id, revision, store::MessageCommandKind::Delete, "").await
     }
+    pub async fn react(&self, rid: &str, id: &str, emoji: &str, present: bool) -> Result<(), Error> {
+        let emoji = rv_protocol::emojis::canonical(emoji).ok_or(Error::Protocol("unknown_emoji"))?;
+        let text = serde_json::to_string(&ReactionIntent { emoji: emoji.into(), present })
+            .map_err(|_| Error::Protocol("invalid_message_action"))?;
+        // Explicit state actions have no content-revision precondition.
+        self.submit_command(rid, id, "0", store::MessageCommandKind::React, &text).await
+    }
     async fn submit_command(
         &self,
         rid: &str,
@@ -493,12 +510,13 @@ impl NativeSession {
         result
     }
     async fn apply_command(&self, command: &store::PendingCommand) -> Result<(), Error> {
-        use rv_protocol::parity::{DeleteMessage, EditMessage, MessageContent};
+        use rv_protocol::parity::{DeleteMessage, EditMessage, MessageContent, SetReaction};
         let _guard = self.command_lock.lock().await;
         self.ready()?;
         let supported = self.capabilities.lock().unwrap().as_ref().is_some_and(|c| match command.kind {
             store::MessageCommandKind::Edit => c.editing,
             store::MessageCommandKind::Delete => c.deletion,
+            store::MessageCommandKind::React => c.reactions,
         });
         if !supported {
             return Err(Error::Protocol("unsupported_feature"));
@@ -530,6 +548,16 @@ impl NativeSession {
                             operation_id: command.id.clone(),
                             expected_revision: command.expected_revision.clone(),
                         },
+                    )
+                    .await?
+            }
+            store::MessageCommandKind::React => {
+                let intent: ReactionIntent =
+                    serde_json::from_str(&command.text).map_err(|_| Error::Protocol("invalid_message_action"))?;
+                self.client
+                    .set_reaction(
+                        &command.message_id,
+                        &SetReaction { operation_id: command.id.clone(), emoji: intent.emoji, present: intent.present },
                     )
                     .await?
             }
@@ -650,5 +678,5 @@ impl NativeSession {
 
 fn permanent_command_error(error: &Error) -> bool {
     matches!(error,Error::Network(rv_client::Error::Server{status,code,..}) if (400..500).contains(status) && *status!=401 && *status!=429 && code!="delivery_revalidate")
-        || matches!(error, Error::Protocol("unsupported_feature"))
+        || matches!(error, Error::Protocol("unsupported_feature" | "invalid_message_action" | "unknown_emoji"))
 }

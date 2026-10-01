@@ -16,6 +16,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { abonnements, messages, salons } from '../db/schema.ts';
+import { nativeReactions } from '../fournisseurs/rocketvibe/store.ts';
+import { canonicalEmoji } from '../fournisseurs/rocketvibe/emojis.ts';
 import {
   actionsPossibles,
   messageDisparuDuServeur,
@@ -185,7 +187,7 @@ export default function EcranActionsMessage() {
           texte: contexteNatif?.message.text ?? brut.texte,
           auteurNom: brut.auteurNom,
           piecesJointes: brut.piecesJointes,
-          reactions: brut.reactions,
+          reactions: contexteNatif ? nativeReactions(contexteNatif.message.reactions) : brut.reactions,
           epingle: brut.epingle,
           etoiles: brut.etoiles,
         },
@@ -196,6 +198,7 @@ export default function EcranActionsMessage() {
           ...(brut.texte ? ['copier', 'partager'] as const : []),
           ...(droitsNatifs?.edit && fournisseur?.capacites.edition ? ['modifier'] as const : []),
           ...(droitsNatifs?.delete && fournisseur?.capacites.suppression ? ['supprimer'] as const : []),
+          ...(droitsNatifs?.react && fournisseur?.capacites.reactions ? ['reagir'] as const : []),
         ] : actionsPossibles({
           message: {
             auteurId: brut.auteurId,
@@ -234,9 +237,9 @@ export default function EcranActionsMessage() {
       new Set(
         listeReactions(charge?.message.reactions ?? null, monUsername)
           .filter((r) => r.parMoi)
-          .map((r) => r.code),
+          .map((r) => client?.genre==='rocketvibe' ? canonicalEmoji(r.code) ?? r.code : r.code),
       ),
-    [charge, monUsername],
+    [charge, monUsername, client],
   );
 
   // Garde de réentrance dans une ref : l'état React d'un rendu passé
@@ -361,7 +364,7 @@ export default function EcranActionsMessage() {
       {!enEdition && actions.includes('reagir') && (
         <View style={styles.rangeeEmojis}>
           {CODES_REACTION.map((code) => {
-            const dejaPosee = mesReactions.has(code);
+            const dejaPosee = mesReactions.has(client?.genre==='rocketvibe' ? canonicalEmoji(code) ?? code : code);
             return (
               <Appuyable
                 key={code}

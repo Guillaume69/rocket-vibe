@@ -42,7 +42,17 @@ final class NativeProviderTests: XCTestCase {
         let message = try XCTUnwrap(room.messages.last)
         XCTAssertTrue(message.mine)
         XCTAssertFalse(message.body.isEmpty)
-        try await until { room.actions(for: message).contains(.edit) && room.actions(for: message).contains(.delete) }
+        try await until { room.actions(for: message).contains(.edit) && room.actions(for: message).contains(.delete) && room.actions(for: message).contains(.react) }
+        XCTAssertEqual(room.quickReactions.count, 6)
+        await room.react(message, shortcode: ":+1:", add: true)
+        try await until { room.messages.first { $0.id == message.id }?.reactions.count == 1 }
+        let reacted = try XCTUnwrap(room.messages.first { $0.id == message.id })
+        XCTAssertTrue(reacted.reactions[0].mine)
+        XCTAssertEqual(reacted.reactions[0].glyph, "👍")
+        XCTAssertEqual(reacted.ts, message.ts)
+        XCTAssertTrue(room.quickReactionIsMine(reacted, shortcode: ":+1:"))
+        await room.react(reacted, shortcode: ":thumbsup:", add: false)
+        try await until { room.messages.first { $0.id == message.id }?.reactions.isEmpty == true }
         XCTAssertTrue(room.supportsEditing)
         try await room.prepareMutation(message, editing: true)
         try await room.edit(message, text: "Swift native edited")
@@ -66,7 +76,7 @@ final class NativeProviderTests: XCTestCase {
         try await room.prepareMutation(latest, editing: false)
         try await room.delete(latest)
         try await until { !room.messages.contains { $0.id == message.id } }
-        XCTAssertTrue(room.quickReactions.isEmpty)
+        XCTAssertEqual(room.quickReactions.count, 6)
 
         let directoryClient = Client(home: home + "/directory-owner")
         let directoryOwner = try await directoryClient.nativeLogin(server: server, user: "mobile", password: password)

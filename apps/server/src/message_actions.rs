@@ -136,6 +136,13 @@ pub async fn apply(app: &App, account: &Account, id: &str, command: Command) -> 
     if message.revision.to_string() != *expected {
         return Err(Error::new(StatusCode::CONFLICT, "revision_conflict"));
     }
+    crate::limits::message_action(&mut tx, &account.id).await?;
+    if text.is_none() {
+        sqlx::query("DELETE FROM message_reactions WHERE message_id=$1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
     // Invalidate views before the sequencer. All readers use room -> membership
     // -> snapshot locks, so a materialized pre-edit page cannot survive.
     // A reserved head exposes an empty room_ids until its materialization

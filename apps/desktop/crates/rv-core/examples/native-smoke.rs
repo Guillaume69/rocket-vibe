@@ -94,6 +94,12 @@ async fn main() {
     assert!(rights.edit && rights.delete);
     desktop.edit(&rid, &id, &message.revision, "Edited from desktop SQLite").await.unwrap();
     until(|| has(&desktop, &rid, "Edited from desktop SQLite")).await;
+    desktop.react(&rid, &id, "+1", true).await.unwrap();
+    let reacted = control.message(&id).await.unwrap();
+    assert_eq!(reacted.reactions.len(), 1);
+    assert_eq!(reacted.position, message.position);
+    desktop.react(&rid, &id, ":thumbsup:", false).await.unwrap();
+    assert!(control.message(&id).await.unwrap().reactions.is_empty());
     let (message, _) = desktop.message_action_context(&id).await.unwrap();
     desktop.delete(&rid, &id, &message.revision).await.unwrap();
     until(|| !desktop.store.messages(&rid, 1000).unwrap().iter().any(|m| m.id == id)).await;
@@ -141,6 +147,6 @@ async fn main() {
     tokio::time::sleep(Duration::from_millis(50)).await;
     std::fs::remove_file(path).unwrap();
     println!(
-        "Native desktop core: mobile exchange, edit/delete commands, public discovery/join, on-disk outbox replay, drafts, DM, creation and withdrawal passed"
+        "Native desktop core: mobile exchange, edit/delete/reaction commands, public discovery/join, on-disk outbox replay, drafts, DM, creation and withdrawal passed"
     );
 }

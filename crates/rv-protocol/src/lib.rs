@@ -3,6 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+pub mod emojis;
 pub mod parity;
 
 pub const VERSION: u32 = 1;
@@ -208,6 +209,12 @@ pub struct DirectMessage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct MessageReaction {
+    pub emoji: String,
+    pub users: Vec<User>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct Message {
     pub id: String,
     pub room_id: String,
@@ -220,6 +227,8 @@ pub struct Message {
     pub deleted: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edited_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reactions: Vec<MessageReaction>,
 }
 
 fn is_false(value: &bool) -> bool {

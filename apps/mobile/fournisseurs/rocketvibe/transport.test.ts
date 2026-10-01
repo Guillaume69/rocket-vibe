@@ -75,7 +75,7 @@ describe('native protocol contract', () => {
       (e: unknown) => e instanceof NativeError && e.status === 0);
     assert.equal(calls,2);
   });
-  test('action cooldown spans edits and deletes while keeping message reads available',async t => {
+  test('action cooldown spans edits, deletes and reactions while keeping message reads available',async t => {
     t.mock.timers.enable({apis:['Date']});
     const verbs:string[]=[];
     const client=new NativeTransport('https://example.org',async (_,options) => {
@@ -88,6 +88,7 @@ describe('native protocol contract', () => {
     await assert.rejects(client.editMessage('message-id',{...input,content:{kind:'plain',markdown:'Edited',mentions:[],quotes:[],files:[]}}),limited);
     assert.equal((await client.message('message-id')).id,fixture.message.id);
     await assert.rejects(client.deleteMessage('message-id',input),limited);
+    await assert.rejects(client.setReaction('message-id',{operation_id:'reaction-id',emoji:'heart',present:true}),limited);
     assert.deepEqual(verbs,['PATCH','GET']);
     t.mock.timers.tick(1000);
     await assert.rejects(client.deleteMessage('message-id',input),limited);

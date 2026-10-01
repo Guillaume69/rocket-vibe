@@ -175,8 +175,15 @@ public final class RoomModel {
     }
 
     public func react(_ message: MessageItem, shortcode: String, add: Bool) async {
-        guard active, let chat else { return }
-        try? await chat.react(messageId: message.id, shortcode: shortcode, add: add)
+        guard active else { return }
+        do {
+            if let native = provider.native {
+                try await native.react(room: room.rid, messageId: message.id, emoji: shortcode, present: add)
+                if active { reload() }
+            } else if let chat {
+                try await chat.react(messageId: message.id, shortcode: shortcode, add: add)
+            }
+        } catch { if active { self.error = mutationError(error) } }
     }
 
     public func actions(for message: MessageItem) -> [MessageAction] {
@@ -193,6 +200,7 @@ public final class RoomModel {
             let unexpired = deadline.map { $0 > Date() } ?? (rights.editUntil == nil)
             if rights.edit && unexpired && supportsEditing { result.append(.edit) }
             if rights.delete && provider.native?.supportedFeatures().contains("deletion") == true { result.append(.delete) }
+            if rights.react && provider.native?.supportedFeatures().contains("reactions") == true { result.append(.react) }
             return result
         }
         if let known = actionsOf[message.id] { return known }
@@ -238,7 +246,16 @@ public final class RoomModel {
         return L("actions.refused")
     }
 
-    public var quickReactions: [String] { chat?.quickReactions() ?? [] }
+    public var quickReactions: [String] {
+        if let chat { return chat.quickReactions() }
+        return provider.native?.supportedFeatures().contains("reactions") == true
+            ? [":+1:", ":heart:", ":joy:", ":tada:", ":open_mouth:", ":pray:"] : []
+    }
+    public func quickReactionIsMine(_ message: MessageItem, shortcode: String) -> Bool {
+        guard provider.native != nil else { return false }
+        let glyph = replaceShortcodes(text: shortcode)
+        return message.reactions.contains { $0.mine && $0.glyph == glyph }
+    }
 
     private func editableChat() throws -> Chat {
         guard active, let chat else { throw RvError.Local(message: L("native.error")) }

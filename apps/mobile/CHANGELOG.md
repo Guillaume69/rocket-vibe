@@ -9,6 +9,10 @@ release, et ses notes sont la section de la version ici.
 
 ### Ajouté
 
+- Réactions RocketVibe dans la feuille d'actions et les pastilles existantes.
+  Les alias d'emojis sont dédupliqués ; les intentions SQLite reprennent après
+  une réponse perdue ou un redémarrage sans modifier l'ordre des messages.
+
 - Édition et suppression RocketVibe dans la feuille d'actions existante, selon les
   droits du serveur. Les intentions et révisions sont conservées dans SQLite,
   reprises après coupure ; le texte d'une édition refusée reste récupérable à

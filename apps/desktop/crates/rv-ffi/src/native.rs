@@ -25,6 +25,7 @@ pub struct NativeMessageActions {
     pub revision: String,
     pub edit: bool,
     pub delete: bool,
+    pub react: bool,
     pub edit_until: Option<String>,
     pub draft: Option<String>,
 }
@@ -278,6 +279,7 @@ impl NativeChat {
             revision: rights.revision,
             edit: rights.edit,
             delete: rights.delete,
+            react: rights.react,
             edit_until: rights.edit_until,
             draft,
         })
@@ -289,6 +291,10 @@ impl NativeChat {
     pub async fn delete(&self, room: String, message_id: String, revision: String) -> Result<(), RvError> {
         let s = self.session.clone();
         on_tokio(async move { s.delete(&room, &message_id, &revision).await }).await.map_err(native_error)
+    }
+    pub async fn react(&self, room: String, message_id: String, emoji: String, present: bool) -> Result<(), RvError> {
+        let s = self.session.clone();
+        on_tokio(async move { s.react(&room, &message_id, &emoji, present).await }).await.map_err(native_error)
     }
     pub async fn create_room(&self, name: String, private: bool) -> Result<String, RvError> {
         let s = self.session.clone();
@@ -338,6 +344,7 @@ fn native_message_items(
             rid: rid.into(),
             ts: row.ts,
             edited: row.edited,
+            reactions: row.reactions,
             text: Some(row.text),
             author: Some(row.author),
             author_id: if row.status.is_some() { uid.into() } else { row.author_id },
@@ -368,6 +375,7 @@ mod tests {
             ts,
             status,
             edited: false,
+            reactions: None,
         };
         let items = native_message_items(
             vec![

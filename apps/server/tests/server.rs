@@ -83,6 +83,15 @@ impl Server {
             .await
             .unwrap()
     }
+    async fn put(&self, token: &str, path: &str, body: Value) -> reqwest::Response {
+        self.client
+            .put(format!("{}{path}", self.base))
+            .bearer_auth(token)
+            .json(&body)
+            .send()
+            .await
+            .unwrap()
+    }
     async fn changes(&self, token: &str, cursor: &str) -> SyncBatch {
         self.get(token, &format!("/api/v1/sync/changes?cursor={cursor}"))
             .await
@@ -98,6 +107,390 @@ async fn user(app: &App, username: &str) -> rv_protocol::User {
     auth::create_user(app, username, "test-password-2026".into(), false)
         .await
         .unwrap()
+}
+
+#[sqlx::test]
+async fn reaction_states_deduplicate_aliases_and_replay_without_reverting_later_intentions(
+    pool: PgPool,
+) {
+    let app = App::from_pool(pool.clone()).await.unwrap();
+    let alice_user = user(&app, "alice").await;
+    let bob_user = user(&app, "bob").await;
+    user(&app, "outsider").await;
+    let server = Server::start(pool.clone()).await;
+    let alice = server.login("alice").await;
+    let bob = server.login("bob").await;
+    let outsider = server.login("outsider").await;
+    let room: Room = server
+        .post(
+            &alice.token,
+            "/api/v1/rooms",
+            json!({"name":"Reactions","private":true}),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        server
+            .post(
+                &alice.token,
+                &format!("/api/v1/rooms/{}/members/{}", room.id, bob_user.id),
+                json!(null)
+            )
+            .await
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    let original: Message = server
+        .post(
+            &alice.token,
+            &format!("/api/v1/rooms/{}/messages", room.id),
+            json!({"operation_id":"reaction-target","text":"React without editing"}),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    let page: SnapshotPage = server
+        .post(&alice.token, "/api/v1/sync/snapshots", json!(null))
+        .await
+        .json()
+        .await
+        .unwrap();
+    let path = format!("/api/v1/messages/{}/reactions", original.id);
+    let add = json!({"operation_id":"alice-add","emoji":":+1:","present":true});
+    let added: Message = server
+        .put(&alice.token, &path, add.clone())
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(added.position, original.position);
+    assert_eq!(added.text, original.text);
+    assert_eq!(added.edited_at, None);
+    assert_eq!(
+        added.reactions[0].emoji,
+        rv_protocol::emojis::canonical("+1").unwrap()
+    );
+    assert_eq!(added.reactions[0].users[0].id, alice_user.id);
+    let (one, two) = tokio::join!(
+        server.put(
+            &bob.token,
+            &path,
+            json!({"operation_id":"bob-add","emoji":"thumbsup","present":true})
+        ),
+        server.put(
+            &bob.token,
+            &path,
+            json!({"operation_id":"bob-add","emoji":":thumbsup:","present":true})
+        )
+    );
+    let one: Message = one.json().await.unwrap();
+    let two: Message = two.json().await.unwrap();
+    assert_eq!(one, two);
+    assert_eq!(one.reactions[0].users.len(), 2);
+    let replay: Message = server
+        .put(&alice.token, &path, add.clone())
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(replay, one);
+    assert_eq!(
+        server
+            .put(
+                &alice.token,
+                &path,
+                json!({"operation_id":"alice-add","emoji":"thumbsup","present":false})
+            )
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let removed: Message = server
+        .put(
+            &alice.token,
+            &path,
+            json!({"operation_id":"alice-remove","emoji":"+1","present":false}),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(removed.reactions[0].users.len(), 1);
+    assert_eq!(removed.reactions[0].users[0].id, bob_user.id);
+    assert_eq!(
+        server
+            .put(&alice.token, &path, add.clone())
+            .await
+            .json::<Message>()
+            .await
+            .unwrap(),
+        removed
+    );
+    let changes = server
+        .changes(&alice.token, page.cursor.as_deref().unwrap())
+        .await;
+    assert!(changes.changes.iter().any(|change|matches!(change,Change::MessageUpsert(message) if message.reactions==removed.reactions)));
+    assert!(
+        page.messages
+            .iter()
+            .all(|message| message.reactions.is_empty()),
+        "the fixed snapshot retains its pre-reaction cut"
+    );
+    assert_eq!(
+        server
+            .put(&outsider.token, &path, add.clone())
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    drop(server);
+    let restarted = Server::start(pool.clone()).await;
+    assert_eq!(
+        restarted
+            .put(&alice.token, &path, add)
+            .await
+            .json::<Message>()
+            .await
+            .unwrap(),
+        removed
+    );
+    sqlx::query("UPDATE rooms SET read_only=true WHERE id=$1")
+        .bind(&room.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        restarted
+            .put(
+                &bob.token,
+                &path,
+                json!({"operation_id":"bob-remove","emoji":"thumbsup","present":false})
+            )
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        restarted
+            .put(
+                &bob.token,
+                &path,
+                json!({"operation_id":"bob-add","emoji":"thumbsup","present":true})
+            )
+            .await
+            .status(),
+        StatusCode::OK,
+        "old receipts remain readable when writing is revoked"
+    );
+    let current: Message = restarted
+        .get(&alice.token, &format!("/api/v1/messages/{}", original.id))
+        .await
+        .json()
+        .await
+        .unwrap();
+    let deleted: Message = restarted
+        .client
+        .delete(format!(
+            "{}/api/v1/messages/{}",
+            restarted.base, original.id
+        ))
+        .bearer_auth(&alice.token)
+        .json(&json!({"operation_id":"delete-reacted","expected_revision":current.revision}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(deleted.deleted && deleted.reactions.is_empty());
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM message_reactions WHERE message_id=$1")
+            .bind(&original.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        restarted
+            .put(
+                &alice.token,
+                &path,
+                json!({"operation_id":"alice-add","emoji":"thumbsup","present":true})
+            )
+            .await
+            .json::<Message>()
+            .await
+            .unwrap(),
+        deleted
+    );
+    assert_eq!(
+        restarted
+            .put(
+                &alice.token,
+                &path,
+                json!({"operation_id":"after-delete","emoji":"rocket","present":true})
+            )
+            .await
+            .status(),
+        StatusCode::GONE
+    );
+    let payloads: Vec<sqlx::types::Json<Change>> =
+        sqlx::query_scalar("SELECT change FROM journal WHERE change #>> '{data,id}'=$1")
+            .bind(&original.id)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert!(payloads.iter().all(|change| matches!(&change.0,Change::MessageUpsert(message) if message.deleted && message.text.is_empty() && message.reactions.is_empty())));
+}
+
+#[sqlx::test]
+async fn reaction_limits_forged_fields_and_action_quotas_are_enforced(pool: PgPool) {
+    let app = App::from_pool(pool.clone()).await.unwrap();
+    let account = user(&app, "alice").await;
+    let server = Server::start(pool.clone()).await;
+    let alice = server.login("alice").await;
+    let room: Room = server
+        .post(
+            &alice.token,
+            "/api/v1/rooms",
+            json!({"name":"Bounded reactions","private":true}),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    let message: Message = server
+        .post(
+            &alice.token,
+            &format!("/api/v1/rooms/{}/messages", room.id),
+            json!({"operation_id":"bounded-target","text":"Bounded metadata"}),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    let path = format!("/api/v1/messages/{}/reactions", message.id);
+    assert_eq!(server.put(&alice.token,&path,json!({"operation_id":"forged","emoji":"rocket","present":true,"user_id":"someone-else"})).await.status(),StatusCode::BAD_REQUEST);
+    assert_eq!(
+        server
+            .put(
+                &alice.token,
+                &path,
+                json!({"operation_id":"unknown","emoji":"not_a_real_emoji","present":true})
+            )
+            .await
+            .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        server
+            .put(
+                &alice.token,
+                &path,
+                json!({"operation_id":"bounded-target","emoji":"rocket","present":true})
+            )
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let aliases: std::collections::HashMap<String, String> = serde_json::from_str(include_str!(
+        "../../../crates/rv-protocol/data/emoji-aliases.json"
+    ))
+    .unwrap();
+    let codes: Vec<_> = aliases
+        .into_values()
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .take(17)
+        .collect();
+    for (index, code) in codes.iter().take(16).enumerate() {
+        assert_eq!(
+            server
+                .put(
+                    &alice.token,
+                    &path,
+                    json!({"operation_id":format!("bounded-{index}"),"emoji":code,"present":true})
+                )
+                .await
+                .status(),
+            StatusCode::OK
+        );
+    }
+    assert_eq!(
+        server
+            .put(
+                &alice.token,
+                &path,
+                json!({"operation_id":"too-many","emoji":codes[16],"present":true})
+            )
+            .await
+            .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    sqlx::query("UPDATE message_action_windows SET attempts=30 WHERE user_id=$1")
+        .bind(&account.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let limited = server
+        .put(
+            &alice.token,
+            &path,
+            json!({"operation_id":"limited","emoji":codes[0],"present":false}),
+        )
+        .await;
+    assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert!(
+        limited.headers()["retry-after"]
+            .to_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap()
+            > 0
+    );
+    let error: Value = limited.json().await.unwrap();
+    assert_eq!(error["code"], "message_action_limit");
+    assert!(error["request_id"].is_string());
+    drop(server);
+    let restarted = Server::start(pool.clone()).await;
+    assert_eq!(
+        restarted
+            .put(
+                &alice.token,
+                &path,
+                json!({"operation_id":"limited","emoji":codes[0],"present":false})
+            )
+            .await
+            .status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    assert_eq!(
+        restarted
+            .put(
+                &alice.token,
+                &path,
+                json!({"operation_id":"bounded-0","emoji":codes[0],"present":true})
+            )
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    sqlx::query("UPDATE message_action_windows SET expires_at=clock_timestamp()-interval '1 second' WHERE user_id=$1").bind(&account.id).execute(&pool).await.unwrap();
+    assert_eq!(
+        restarted
+            .put(
+                &alice.token,
+                &path,
+                json!({"operation_id":"limited","emoji":codes[0],"present":false})
+            )
+            .await
+            .status(),
+        StatusCode::OK
+    );
 }
 
 #[sqlx::test]

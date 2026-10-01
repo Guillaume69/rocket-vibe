@@ -17,12 +17,14 @@ pub struct Pending {
 pub enum MessageCommandKind {
     Edit,
     Delete,
+    React,
 }
 impl MessageCommandKind {
     fn value(self) -> &'static str {
         match self {
             Self::Edit => "edit",
             Self::Delete => "delete",
+            Self::React => "react",
         }
     }
 }
@@ -44,6 +46,7 @@ fn command_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PendingCommand> {
         kind: match kind.as_str() {
             "edit" => MessageCommandKind::Edit,
             "delete" => MessageCommandKind::Delete,
+            "react" => MessageCommandKind::React,
             _ => return Err(rusqlite::Error::InvalidQuery),
         },
         expected_revision: row.get(4)?,
@@ -59,6 +62,7 @@ pub struct MessageRow {
     pub ts: i64,
     pub status: Option<String>,
     pub edited: bool,
+    pub reactions: Option<String>,
 }
 pub struct NativeStore {
     conn: Mutex<Connection>,
@@ -84,6 +88,16 @@ impl NativeStore {
             CREATE TABLE IF NOT EXISTS native_drafts(rid TEXT PRIMARY KEY,text TEXT NOT NULL);")?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_room_creations(id TEXT PRIMARY KEY,name TEXT NOT NULL,private INTEGER NOT NULL,UNIQUE(name,private));")?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_commands(id TEXT PRIMARY KEY,rid TEXT NOT NULL,message_id TEXT NOT NULL UNIQUE,kind TEXT NOT NULL CHECK(kind IN ('edit','delete')),expected_revision TEXT NOT NULL,text TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',error TEXT);")?;
+        let command_schema: String =
+            conn.query_row("SELECT sql FROM sqlite_master WHERE name='native_commands'", [], |r| r.get(0))?;
+        if !command_schema.contains("'react'") {
+            conn.execute_batch("BEGIN IMMEDIATE;
+                ALTER TABLE native_commands RENAME TO native_commands_previous;
+                CREATE TABLE native_commands(id TEXT PRIMARY KEY,rid TEXT NOT NULL,message_id TEXT NOT NULL UNIQUE,kind TEXT NOT NULL CHECK(kind IN ('edit','delete','react')),expected_revision TEXT NOT NULL,text TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',error TEXT);
+                INSERT INTO native_commands SELECT * FROM native_commands_previous;
+                DROP TABLE native_commands_previous;
+                COMMIT;")?;
+        }
         let (changes, _) = broadcast::channel(64);
         let columns = conn
             .prepare("PRAGMA table_info(native_messages)")?
@@ -94,6 +108,7 @@ impl NativeStore {
             ("ts", "INTEGER NOT NULL DEFAULT 0"),
             ("deleted", "INTEGER NOT NULL DEFAULT 0"),
             ("edited", "INTEGER NOT NULL DEFAULT 0"),
+            ("reactions", "TEXT"),
         ] {
             if !columns.iter().any(|c| c == name) {
                 conn.execute_batch(&format!("ALTER TABLE native_messages ADD COLUMN {name} {declaration}"))?;
@@ -300,7 +315,12 @@ impl NativeStore {
         let ts = chrono::DateTime::parse_from_rfc3339(&message.created_at)
             .map_err(|_| rusqlite::Error::InvalidQuery)?
             .timestamp_millis();
-        tx.execute("INSERT INTO native_messages(id,rid,position,revision,text,author,author_id,ts,deleted,edited) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) ON CONFLICT(id) DO UPDATE SET position=excluded.position,revision=excluded.revision,text=excluded.text,author=excluded.author,author_id=excluded.author_id,ts=excluded.ts,deleted=excluded.deleted,edited=excluded.edited",params![message.id,message.room_id,message.position,message.revision,message.text,message.author.username,message.author.id,ts,message.deleted,message.edited_at.is_some()])?;
+        let reactions = if message.reactions.is_empty() {
+            None
+        } else {
+            Some(json(&message.reactions.iter().map(|reaction|(format!(":{}:",reaction.emoji),serde_json::json!({"usernames":reaction.users.iter().map(|user|&user.username).collect::<Vec<_>>()}))).collect::<std::collections::BTreeMap<_,_>>())?)
+        };
+        tx.execute("INSERT INTO native_messages(id,rid,position,revision,text,author,author_id,ts,deleted,edited,reactions) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11) ON CONFLICT(id) DO UPDATE SET position=excluded.position,revision=excluded.revision,text=excluded.text,author=excluded.author,author_id=excluded.author_id,ts=excluded.ts,deleted=excluded.deleted,edited=excluded.edited,reactions=excluded.reactions",params![message.id,message.room_id,message.position,message.revision,message.text,message.author.username,message.author.id,ts,message.deleted,message.edited_at.is_some(),reactions])?;
         tx.execute("DELETE FROM native_outbox WHERE id=?1", [&message.id])?;
         Ok(())
     }
@@ -404,7 +424,7 @@ impl NativeStore {
         if !self.same(&conn)? {
             return Ok(vec![]);
         }
-        let mut rows=conn.prepare("SELECT m.id,m.text,m.author,o.status,m.author_id,m.ts,m.edited FROM native_messages m LEFT JOIN native_outbox o ON o.id=m.id WHERE m.rid=?1 AND NOT m.deleted ORDER BY m.position IS NULL DESC,o.created DESC,length(m.position) DESC,m.position DESC,m.id DESC LIMIT ?2")?.query_map(params![rid,limit as i64],|r|Ok(MessageRow {id:r.get(0)?,text:r.get(1)?,author:r.get(2)?,status:r.get(3)?,author_id:r.get(4)?,ts:r.get(5)?,edited:r.get(6)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut rows=conn.prepare("SELECT m.id,m.text,m.author,o.status,m.author_id,m.ts,m.edited,m.reactions FROM native_messages m LEFT JOIN native_outbox o ON o.id=m.id WHERE m.rid=?1 AND NOT m.deleted ORDER BY m.position IS NULL DESC,o.created DESC,length(m.position) DESC,m.position DESC,m.id DESC LIMIT ?2")?.query_map(params![rid,limit as i64],|r|Ok(MessageRow {id:r.get(0)?,text:r.get(1)?,author:r.get(2)?,status:r.get(3)?,author_id:r.get(4)?,ts:r.get(5)?,edited:r.get(6)?,reactions:r.get(7)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
         rows.reverse();
         Ok(rows)
     }
@@ -680,6 +700,52 @@ mod tests {
         assert!(store.pending_commands().unwrap().is_empty());
         assert!(store.messages(&message.room_id, 10).unwrap().is_empty());
         drop(store);
+        std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn reaction_migration_preserves_old_commands_and_projects_without_reordering_or_edit_markers() {
+        let path = std::env::temp_dir().join(format!("rv-react-upgrade-{:032x}.sqlite", fastrand::u128(..)));
+        let initial = snapshot();
+        let message = &initial.messages[0];
+        let first = NativeStore::open(&path, identity()).unwrap();
+        first.snapshot(&initial).unwrap();
+        // Recreate the preceding application's schema before upgrading it.
+        first.conn.lock().unwrap().execute_batch("DROP TABLE native_commands;
+            CREATE TABLE native_commands(id TEXT PRIMARY KEY,rid TEXT NOT NULL,message_id TEXT NOT NULL UNIQUE,kind TEXT NOT NULL CHECK(kind IN ('edit','delete')),expected_revision TEXT NOT NULL,text TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',error TEXT);").unwrap();
+        let old = first
+            .command(&message.room_id, &message.id, &message.revision, MessageCommandKind::Edit, "Keep draft")
+            .unwrap()
+            .unwrap();
+        drop(first);
+        let store = NativeStore::open(&path, identity()).unwrap();
+        assert_eq!(store.pending_commands().unwrap()[0].id, old.id);
+        assert_eq!(store.command_draft(&message.id).unwrap().as_deref(), Some("Keep draft"));
+        store.fail_command(&old.id, "revision_conflict").unwrap();
+        let command = store
+            .command(
+                &message.room_id,
+                &message.id,
+                "0",
+                MessageCommandKind::React,
+                r#"{"emoji":"heart","present":true}"#,
+            )
+            .unwrap()
+            .unwrap();
+        let mut reacted = message.clone();
+        reacted.reactions =
+            vec![rv_protocol::MessageReaction { emoji: "heart".into(), users: vec![message.author.clone()] }];
+        reacted.revision = "9007199254740994".into();
+        store.confirm_command(&command.id, &reacted, store.projection_token()).unwrap();
+        store.ingest(std::slice::from_ref(message)).unwrap();
+        let rows = store.messages(&message.room_id, 10).unwrap();
+        assert_eq!(rows[0].ts, chrono::DateTime::parse_from_rfc3339(&message.created_at).unwrap().timestamp_millis());
+        assert!(!rows[0].edited);
+        let groups: serde_json::Value = serde_json::from_str(rows[0].reactions.as_deref().unwrap()).unwrap();
+        assert_eq!(groups[":heart:"]["usernames"][0], message.author.username);
+        drop(store);
+        let reopened = NativeStore::open(&path, identity()).unwrap();
+        assert_eq!(reopened.messages(&message.room_id, 10).unwrap()[0].reactions, rows[0].reactions);
+        drop(reopened);
         std::fs::remove_file(path).unwrap();
     }
     #[test]

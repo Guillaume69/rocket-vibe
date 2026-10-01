@@ -109,6 +109,7 @@ pub struct DeleteMessage {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SetReaction {
+    pub operation_id: String,
     pub emoji: String,
     pub present: bool,
 }
@@ -116,6 +117,7 @@ pub struct SetReaction {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SetMark {
+    pub operation_id: String,
     pub present: bool,
 }
 

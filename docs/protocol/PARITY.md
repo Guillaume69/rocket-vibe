@@ -95,6 +95,15 @@ durable d'ID. Réactions / favoris / épingles sont des états explicites
 `present`, jamais des toggles. Les favoris de messages ne sont diffusés qu'à
 leur propriétaire. Les commandes refusent champs inconnus et droits forgés.
 
+Les réactions sont implémentées côté serveur, GTK, SwiftUI et mobile dans les
+interfaces existantes. Les aliases sont partagés et les opérations conservées
+dans SQLite avant l'envoi ; une reprise garde son identité même après réception
+du journal. Une action différente attend la résolution de l'intention en cours
+pour ce message. Des tests PostgreSQL / WebSocket et SQLite sur disque couvrent
+réponse perdue, alias, retrait, ancien reçu, quotas, droits, suppression et reprise.
+Le parcours GTK sous Xvfb vérifie les pastilles ; les modèles Swift consomment
+les bindings et le stockage sécurisé réels. Les essais sur appareils restent ouverts.
+
 ### Contenu, fichiers et clés
 
 `MessageContent` distingue Markdown clair et enveloppe chiffrée. Mentions et
@@ -167,7 +176,7 @@ ouverte tant que serveur, clients concernés et scénario de parité manquent.
 | P07 Markdown / emojis / citations | J2–J3 | Corpus testé ; références / messages système / catalogue natif et raccordement |
 | P08 Envoi / brouillons | J1 | Socle livré ; crash réel après commit / réponse perdue, Android ↔ Windows |
 | P09 Édition / suppression | J2 | API, droits / délais, tombstones, intentions SQLite et menus / éditeurs des 3 clients livrés ; parcours appareils à qualifier |
-| P10 Réactions / épingles / étoiles | J2 | Ajouts / retraits explicites, états privés, listes et saut au message |
+| P10 Réactions / épingles / étoiles | J2 | Réactions explicites et idempotentes, alias partagés, journal / SQLite et UI des 3 clients livrés ; épingles, étoiles privées, listes et saut à livrer |
 | P11 Fils | J2 | Racine, réponses et compteurs, même écran / composer de fil |
 | P12 Présence / saisie | J2 | Expiration, émission / écoute, dégradation hors ligne sans journal durable |
 | P13 Recherche | J2 / J4 | Recherche PG avec ACL ; index chiffré local borné / purge après verrouillage |

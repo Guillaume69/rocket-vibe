@@ -5,6 +5,7 @@ mod http;
 mod limits;
 mod message_actions;
 mod permissions;
+mod reactions;
 mod snapshots;
 mod store;
 mod sync;

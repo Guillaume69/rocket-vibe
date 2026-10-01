@@ -151,7 +151,7 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/crates/rv-core/src/uploads.rs:352](../../apps/desktop/crates/rv-core/src/uploads.rs#L352) | endpoint | rooms.mediaConfirm/{…}/{…} |
 | [apps/desktop/crates/rv-core/src/uploads.rs:372](../../apps/desktop/crates/rv-core/src/uploads.rs#L372) | call:UPLOAD | &format!("rooms.media/{…}", task_row.rid), |
 | [apps/desktop/crates/rv-core/src/uploads.rs:374](../../apps/desktop/crates/rv-core/src/uploads.rs#L374) | endpoint | rooms.media/{…} |
-| [apps/desktop/crates/rv-gtk/src/chat_native.rs:413](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L413) | endpoint | rooms.new |
+| [apps/desktop/crates/rv-gtk/src/chat_native.rs:458](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L458) | endpoint | rooms.new |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:79](../../apps/desktop/crates/rv-gtk/src/chat.rs#L79) | endpoint | rooms.favorite_add |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:79](../../apps/desktop/crates/rv-gtk/src/chat.rs#L79) | endpoint | rooms.favorite_remove |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:217](../../apps/desktop/crates/rv-gtk/src/chat.rs#L217) | endpoint | rooms.offline |
@@ -213,8 +213,8 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:291](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L291) | endpoint | e2e.no_keys |
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:292](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L292) | endpoint | e2e.failed |
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:295](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L295) | endpoint | e2e.failed |
-| [apps/mobile/app/actions-message.tsx:75](../../apps/mobile/app/actions-message.tsx#L75) | call:GET | 'settings.public' |
-| [apps/mobile/app/actions-message.tsx:76](../../apps/mobile/app/actions-message.tsx#L76) | endpoint | settings.public |
+| [apps/mobile/app/actions-message.tsx:77](../../apps/mobile/app/actions-message.tsx#L77) | call:GET | 'settings.public' |
+| [apps/mobile/app/actions-message.tsx:78](../../apps/mobile/app/actions-message.tsx#L78) | endpoint | settings.public |
 | [apps/mobile/app/connexion.tsx:283](../../apps/mobile/app/connexion.tsx#L283) | endpoint | chat.exemple.fr |
 | [apps/mobile/app/deverrouiller-e2e.tsx:45](../../apps/mobile/app/deverrouiller-e2e.tsx#L45) | endpoint | e2e.erreurGenerique |
 | [apps/mobile/app/deverrouiller-e2e.tsx:45](../../apps/mobile/app/deverrouiller-e2e.tsx#L45) | endpoint | e2e.erreurMotDePasse |

@@ -1139,7 +1139,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat_native.rs",
-      "line": 413,
+      "line": 458,
       "kind": "endpoint",
       "surface": "rooms.new"
     },
@@ -1511,13 +1511,13 @@
     },
     {
       "file": "apps/mobile/app/actions-message.tsx",
-      "line": 75,
+      "line": 77,
       "kind": "call:GET",
       "surface": "'settings.public'"
     },
     {
       "file": "apps/mobile/app/actions-message.tsx",
-      "line": 76,
+      "line": 78,
       "kind": "endpoint",
       "surface": "settings.public"
     },

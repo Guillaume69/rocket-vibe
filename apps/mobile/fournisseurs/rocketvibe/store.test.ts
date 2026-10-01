@@ -177,3 +177,21 @@ test('an unresolved action survives disk reopen and journal acknowledgement with
     unlinkSync(filename); rmdirSync(directory);
   }
 });
+
+test('reaction metadata survives replay and projection reopen without altering message time, order or the edited marker',async () => {
+  const {db,adapter,store}=setup();
+  try {
+    await store.applySnapshot(snapshot);
+    const reacted={...message,revision:'9007199254740994',reactions:[{emoji:'heart',users:[message.author]}]};
+    await store.ingest([reacted]); await store.ingest([message]);
+    const row=db.prepare('SELECT reactions,modifie_le,horodatage FROM messages WHERE id=?').get(message.id)!;
+    assert.deepEqual(JSON.parse(row.reactions as string),{':heart:':{usernames:[message.author.username]}});
+    assert.equal(row.modifie_le,null);
+    assert.equal(row.horodatage,Date.parse(message.created_at));
+    assert.equal(await store.oldestPosition(room.id),message.position);
+    const resumed=new NativeStore(adapter,creerFileEcritures(),session);
+    assert.equal((await resumed.messages(room.id))[0].id,message.id);
+    await resumed.ingest([{...reacted,revision:'9007199254740995',reactions:[]}]);
+    assert.equal(db.prepare('SELECT reactions FROM messages WHERE id=?').get(message.id)!.reactions,null);
+  } finally { db.close(); }
+});

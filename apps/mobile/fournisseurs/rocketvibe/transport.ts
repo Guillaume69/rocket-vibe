@@ -116,6 +116,7 @@ export class NativeTransport {
   message(id: string): Promise<Message> { return this.request('Message',`/api/v1/messages/${encodeURIComponent(id)}`); }
   editMessage(id: string,input: NativeTypes['EditMessage']): Promise<Message> { return this.request('Message',`/api/v1/messages/${encodeURIComponent(id)}`,input,false,undefined,'PATCH'); }
   deleteMessage(id: string,input: NativeTypes['DeleteMessage']): Promise<Message> { return this.request('Message',`/api/v1/messages/${encodeURIComponent(id)}`,input,false,undefined,'DELETE'); }
+  setReaction(id: string,input: NativeTypes['SetReaction']): Promise<Message> { return this.request('Message',`/api/v1/messages/${encodeURIComponent(id)}/reactions`,input,false,undefined,'PUT'); }
   async users(): Promise<NativeTypes['User'][]> {
     const users = await this.value('/api/v1/users');
     if (!Array.isArray(users)) throw new Error('Invalid native directory');

@@ -785,8 +785,56 @@ fn edit_checks(chat: Rc<crate::chat::ChatPage>, tag: String) {
             list.set_edit_text(&format!("{tag} after"));
             glib::timeout_add_local_once(Duration::from_millis(save_after), move || {
                 chat.play(crate::rows::RowEvent::SaveEdit, false);
+                if chat.native_session().is_some() {
+                    native_reaction_checks(chat, format!("{tag} after"));
+                }
             });
         });
+    });
+}
+
+fn native_reaction_checks(chat: Rc<crate::chat::ChatPage>, text: String) {
+    glib::spawn_future_local(async move {
+        let Some(session) = chat.native_session() else { return };
+        let Some(rid) = chat.current_rid() else { return };
+        let mut id = None;
+        for _ in 0..100 {
+            id = session
+                .store
+                .messages(&rid, 100)
+                .ok()
+                .and_then(|rows| rows.into_iter().find(|r| r.text == text && r.edited).map(|r| r.id));
+            if id.is_some() {
+                break;
+            }
+            glib::timeout_future(Duration::from_millis(20)).await;
+        }
+        let Some(id) = id else {
+            check("reaction edited target", false, 0);
+            return;
+        };
+        for (shortcode, add) in [(":+1:", true), (":thumbsup:", false)] {
+            chat.play(crate::rows::RowEvent::React { id: id.clone(), shortcode: shortcode.into(), add }, false);
+            let mut rendered = false;
+            for _ in 0..100 {
+                let row = chat.room_list().row(&id);
+                let reactions = rv_core::actions::reactions(
+                    row.as_ref().and_then(|r| r.reactions.as_deref()),
+                    &session.info.username,
+                );
+                rendered =
+                    row.is_some() && if add { reactions.len() == 1 && reactions[0].mine } else { reactions.is_empty() };
+                if rendered {
+                    break;
+                }
+                glib::timeout_future(Duration::from_millis(20)).await;
+            }
+            check(
+                if add { "native GTK reaction chip" } else { "native GTK reaction removal" },
+                rendered,
+                usize::from(rendered),
+            );
+        }
     });
 }
 

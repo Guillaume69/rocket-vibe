@@ -1,12 +1,57 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Session } from '../../lib/auth.ts';
 import { creerFileEcritures } from '../../db/fileEcritures.ts';
 import { NativeChat } from './chat.ts';
 import { NativeStore } from './store.ts';
 import { nativeTestDatabase } from './testDatabase.ts';
 import { NativeError, NativeTransport } from './transport.ts';
+
+test('a persisted reaction retries one canonical intention after process restart and cannot be overwritten while pending',async () => {
+  const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',genre:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const directory=mkdtempSync(join(tmpdir(),'rv-react-command-'));
+  const filename=join(directory,'account.sqlite');
+  let h=nativeTestDatabase(filename);
+  let store=new NativeStore(h.adapter,creerFileEcritures(),session);
+  await store.applySnapshot({protocol_version:1,rooms:[fixture.room],messages:[fixture.message],cursor:'initial'});
+  let accepted=false; let ids=0;
+  const calls:{operation_id:string;emoji:string;present:boolean}[]=[];
+  const transport={
+    discover:async()=>({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,reactions:true}}),me:async()=>fixture.session.user,
+    changes:async()=>({protocol_version:1,changes:[],cursor:'initial',has_more:false}),socketUrl:async()=>'ws://localhost/fake',
+    setReaction:async(_:string,input:{operation_id:string;emoji:string;present:boolean})=>{
+      calls.push(input);
+      if (!accepted) throw new NativeError(503,'response_lost');
+      return {...fixture.message,revision:'9007199254740994',reactions:[{emoji:input.emoji,users:[fixture.message.author]}]};
+    },
+  } as unknown as NativeTransport;
+  const makeChat=()=>new NativeChat(session,store,()=>`react-${++ids}`,{transport,socket:()=>{
+    const socket={readyState:0,onopen:null,onclose:null,onerror:null,onmessage:null,close:()=>{}} as unknown as WebSocket;
+    queueMicrotask(()=>socket.onopen?.(new Event('open')));return socket;
+  }});
+  let chat=makeChat();
+  try {
+    await chat.connect();
+    await assert.rejects(chat.react(fixture.room.id,fixture.message.id,'+1',true),/response_lost/);
+    await assert.rejects(chat.react(fixture.room.id,fixture.message.id,':thumbsup:',true),/response_lost/);
+    await assert.rejects(chat.react(fixture.room.id,fixture.message.id,':thumbsup:',false),/message_action_pending/);
+    assert.equal(ids,1);
+    chat.stop(); await store.state(); h.db.close();
+    h=nativeTestDatabase(filename,false); store=new NativeStore(h.adapter,creerFileEcritures(),session);
+    accepted=true; chat=makeChat(); await chat.connect();
+    assert.deepEqual(await store.pendingCommands(),[]);
+    assert.equal(ids,1);
+    assert.equal(calls.length,3);
+    assert(calls.every(c=>c.operation_id==='react-1' && c.emoji==='thumbsup' && c.present));
+    assert(h.db.prepare('SELECT reactions FROM messages WHERE id=?').get(fixture.message.id)!.reactions);
+    await assert.rejects(chat.react(fixture.room.id,fixture.message.id,'constructor',true),/unknown_emoji/);
+    assert.equal(calls.length,3);
+  } finally {chat.stop();await store.state();h.db.close();rmSync(directory,{recursive:true,force:true});}
+});
 
 test('a session rejected before socket opening closes the retained provider without queuing stale sends',async () => {
   const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));

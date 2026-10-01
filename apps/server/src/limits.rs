@@ -22,6 +22,18 @@ pub const TICKETS_PER_SESSION: i64 = 4;
 pub const SOCKETS_TOTAL: usize = 128;
 pub const SOCKETS_PER_SESSION: usize = 4;
 
+pub(crate) async fn message_action(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    user: &str,
+) -> Result<()> {
+    let (attempts,retry):(i32,i64)=sqlx::query_as("INSERT INTO message_action_windows(user_id,attempts,expires_at) VALUES($1,1,clock_timestamp()+interval '60 seconds') ON CONFLICT(user_id) DO UPDATE SET attempts=CASE WHEN message_action_windows.expires_at<=clock_timestamp() THEN 1 ELSE message_action_windows.attempts+1 END,expires_at=CASE WHEN message_action_windows.expires_at<=clock_timestamp() THEN clock_timestamp()+interval '60 seconds' ELSE message_action_windows.expires_at END RETURNING attempts,GREATEST(1,ceil(extract(epoch from expires_at-clock_timestamp())))::bigint")
+        .bind(user).fetch_one(&mut **tx).await?;
+    if attempts > 30 {
+        return Err(Error::throttled("message_action_limit", retry as u64));
+    }
+    Ok(())
+}
+
 /// A rejected reservation is rolled back, so it neither extends the window nor
 /// locks out unrelated accounts. The global row is locked first in every process.
 /// It also bounds insertion of arbitrary username / IP keys (120 admissions/min).

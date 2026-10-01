@@ -6,6 +6,7 @@ import { NativeStore, type NativeCommand } from './store.ts';
 import { NativeError, type NativeTransport } from './transport.ts';
 import { decodeNative } from './validation.ts';
 import type { Capabilities } from './protocol.generated.ts';
+import { canonicalEmoji } from './emojis.ts';
 
 export type NativeStatus = { online: boolean; error: string | null };
 export class NativeChat {
@@ -183,6 +184,11 @@ export class NativeChat {
   async delete(rid: string,id: string,revision: string): Promise<void> {
     return this.submitCommand(rid,id,revision,'delete','');
   }
+  async react(rid:string,id:string,code:string,present:boolean):Promise<void> {
+    const emoji=canonicalEmoji(code);
+    if (!emoji) throw new NativeError(422,'unknown_emoji');
+    return this.submitCommand(rid,id,'0','react',JSON.stringify({emoji,present}));
+  }
   private async submitCommand(rid: string,id: string,revision: string,kind: NativeCommand['kind'],text: string): Promise<void> {
     this.ready();
     const command=await this.store.command(rid,id,revision,kind,text,this.id);
@@ -193,11 +199,15 @@ export class NativeChat {
   private async applyCommand(command: NativeCommand): Promise<void> {
     const operation=this.commands.then(async () => {
       this.ready();
-      if (!(command.kind==='edit'?this.capabilities?.editing:this.capabilities?.deletion)) throw new NativeError(501,'unsupported_feature');
+      const supported=command.kind==='edit'?this.capabilities?.editing:command.kind==='delete'?this.capabilities?.deletion:this.capabilities?.reactions;
+      if (!supported) throw new NativeError(501,'unsupported_feature');
       const generation=this.generation;
       const projection=this.store.projectionToken();
       const input={operation_id:command.id,expected_revision:command.expected_revision};
-      const message=command.kind==='edit'
+      const reaction=command.kind==='react'?reactionIntent(command.text):null;
+      const message=reaction
+        ? await this.transport.setReaction(command.message_id,{operation_id:command.id,...reaction})
+        : command.kind==='edit'
         ? await this.transport.editMessage(command.message_id,{...input,content:{kind:'plain',markdown:command.text,mentions:[],quotes:[],files:[]}})
         : await this.transport.deleteMessage(command.message_id,input);
       if (this.stopped || generation!==this.generation) throw new NativeError(0,'session_closed');
@@ -348,6 +358,14 @@ export class NativeChat {
 function permanentCommandError(error: unknown): boolean {
   return error instanceof NativeError && error.status>=400 && error.status<500 && error.status!==401 && error.status!==429 && error.code!=='delivery_revalidate'
     || error instanceof NativeError && error.code==='unsupported_feature';
+}
+
+function reactionIntent(text:string):{emoji:string;present:boolean} {
+  try {
+    const value=JSON.parse(text);
+    if (value && typeof value.emoji==='string' && typeof value.present==='boolean' && Object.keys(value).length===2 && canonicalEmoji(value.emoji)) return value;
+  } catch { /* Invalid persisted input is quarantined, never retried in a loop. */ }
+  throw new NativeError(422,'invalid_message_action');
 }
 
 function utf8RoomBytes(value: string): number {

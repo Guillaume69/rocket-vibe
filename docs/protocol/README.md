@@ -50,6 +50,7 @@ présence ne déclare pas les endpoints correspondants disponibles.
 | GET | `/messages/{id}` | Message courant ou tombstone, pour un membre actuel |
 | PATCH | `/messages/{id}` | `EditMessage` avec opération et révision attendue ; Markdown clair |
 | DELETE | `/messages/{id}` | Corps `DeleteMessage` avec opération et révision attendue ; tombstone |
+| PUT | `/messages/{id}/reactions` | `{ operation_id, emoji, present }` → état courant du message |
 | GET | `/sync/snapshot` | Vue cohérente des salons, 50 messages récents par salon, curseur |
 | POST | `/sync/snapshots` | Matérialiser une vue immuable ; première `SnapshotPage` |
 | GET | `/sync/snapshots/{token}` | Page suivante liée au compte ; curseur uniquement sur la dernière |
@@ -58,7 +59,8 @@ présence ne déclare pas les endpoints correspondants disponibles.
 | GET / upgrade | `/sync/socket?ticket=…&cursor=…` | Même format `SyncBatch`, replay puis suivi |
 
 La création de compte est une commande locale, pas une inscription HTTP publique.
-Les capacités `threads`, `reactions`, `uploads`, `push`, `e2ee`, `calls` sont fausses.
+Les capacités `threads`, `uploads`, `push`, `e2ee`, `calls` sont fausses.
+`reactions` annonce les ajouts / retraits explicites, disponibles dans les trois clients.
 `room_discovery` annonce l'annuaire et l'adhésion ; `idempotent_room_creation`
 annonce les reçus de création. Leurs handlers sont disponibles dans les trois clients.
 Les droits d'administration ne donnent pas accès aux conversations privées.
@@ -76,6 +78,23 @@ Les changements de rôle, politique de salon et droits du compte changent leur
 version ; une réponse préparée avant eux est revalidée et leurs mises à jour
 attendent la fin d'une livraison déjà autorisée. Aucune autorité cliente forgée
 n'est acceptée dans les commandes.
+
+### Réactions
+
+Les shortcodes standard proviennent de la table emoji-toolkit utilisée par les
+clients. Les alias d'un glyphe sont canonicalisés, avec ou sans `:` ; Unicode
+brut et noms inconnus sont refusés. L'état est unique par message, compte et emoji.
+Un reçu réutilise l'opération persistée sans réappliquer un ancien état : rejouer
+un ajout après un retrait retourne le message actuel. Une opération déjà utilisée
+avec un autre contenu est refusée. L'adhésion actuelle est exigée, y compris pour
+consulter un reçu ; la lecture seule bloque les nouvelles réactions de membres.
+
+Limites : 16 réactions par auteur et message, 32 groupes et 256 participations
+par message ; 30 nouvelles actions de message par compte et minute, partagées
+avec édition / suppression. Les reçus existants contournent ce quota ; `429`
+fournit `Retry-After`. Un changement augmente la révision et émet un upsert sans
+changer la position de création ni le marqueur d'édition. La suppression du
+message efface les participations et remplace ses anciens événements par le tombstone.
 
 ### Édition et suppression
 

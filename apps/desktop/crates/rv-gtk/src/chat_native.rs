@@ -233,6 +233,7 @@ impl ChatPage {
     pub(super) fn native_row_event(self: &Rc<Self>, event: RowEvent) {
         match event {
             RowEvent::Retry(id) => self.retry(id),
+            RowEvent::React { id, shortcode, add } => self.native_react(id, shortcode, add),
             RowEvent::CancelEdit => {
                 self.native_edit.replace(None);
                 self.list.stop_edit();
@@ -319,6 +320,36 @@ impl ChatPage {
                             return;
                         }
                         let Ok((message, rights)) = context else { return };
+                        if rights.react && expected.supported_features().iter().any(|f| f == "reactions") {
+                            let quick = gtk::Box::builder().spacing(4).margin_bottom(4).build();
+                            for shortcode in rv_core::actions::QUICK_REACTIONS {
+                                let glyph = rv_core::emoji::unicode(shortcode);
+                                let mine = message.reactions.iter().any(|r| {
+                                    rv_core::emoji::unicode(&r.emoji) == glyph
+                                        && r.users.iter().any(|u| u.id == expected.info.user_id)
+                                });
+                                let button = gtk::Button::builder()
+                                    .label(rv_core::emoji::unicode(shortcode).unwrap_or(shortcode))
+                                    .css_classes(if mine {
+                                        vec!["quick-reaction", "mine"]
+                                    } else {
+                                        vec!["quick-reaction"]
+                                    })
+                                    .build();
+                                let (weak, s, p, id) =
+                                    (weak.clone(), expected.clone(), popover.clone(), row.id.clone());
+                                button.connect_clicked(move |_| {
+                                    if let Some(this) = weak.upgrade()
+                                        && this.native_session().is_some_and(|current| Arc::ptr_eq(&current, &s))
+                                    {
+                                        p.popdown();
+                                        this.native_react(id.clone(), shortcode.into(), !mine);
+                                    }
+                                });
+                                quick.append(&button);
+                            }
+                            list.prepend(&quick);
+                        }
                         for (key, edit, allowed) in
                             [("actions.edit", true, rights.edit), ("actions.delete", false, rights.delete)]
                         {
@@ -378,6 +409,20 @@ impl ChatPage {
             }
             _ => {}
         }
+    }
+
+    fn native_react(self: &Rc<Self>, id: String, emoji: String, present: bool) {
+        let (Some(s), Some(rid)) = (self.native_session(), self.current_rid()) else { return };
+        let (weak, expected) = (Rc::downgrade(self), s.clone());
+        glib::spawn_future_local(async move {
+            let result = on_tokio(async move { s.react(&rid, &id, &emoji, present).await }).await;
+            if let Err(error) = result
+                && let Some(this) = weak.upgrade()
+                && this.native_session().is_some_and(|s| Arc::ptr_eq(&s, &expected))
+            {
+                this.native_error(&error);
+            }
+        });
     }
 
     pub(super) fn start_native_edit(self: &Rc<Self>, mut row: rv_core::store::MessageRow) {

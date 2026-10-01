@@ -500,6 +500,12 @@
         "position": {
           "type": "string"
         },
+        "reactions": {
+          "items": {
+            "$ref": "#/$defs/MessageReaction"
+          },
+          "type": "array"
+        },
         "revision": {
           "type": "string"
         },
@@ -646,6 +652,24 @@
         "react",
         "pin",
         "star"
+      ],
+      "type": "object"
+    },
+    "MessageReaction": {
+      "properties": {
+        "emoji": {
+          "type": "string"
+        },
+        "users": {
+          "items": {
+            "$ref": "#/$defs/User"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "emoji",
+        "users"
       ],
       "type": "object"
     },
@@ -1070,11 +1094,15 @@
     "SetMark": {
       "additionalProperties": false,
       "properties": {
+        "operation_id": {
+          "type": "string"
+        },
         "present": {
           "type": "boolean"
         }
       },
       "required": [
+        "operation_id",
         "present"
       ],
       "type": "object"
@@ -1085,11 +1113,15 @@
         "emoji": {
           "type": "string"
         },
+        "operation_id": {
+          "type": "string"
+        },
         "present": {
           "type": "boolean"
         }
       },
       "required": [
+        "operation_id",
         "emoji",
         "present"
       ],

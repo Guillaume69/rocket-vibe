@@ -494,7 +494,7 @@ struct MessageRow: View, Equatable {
             Menu("😀") {
                 ForEach(model?.quickReactions ?? [], id: \.self) { code in
                     Button(replaceShortcodes(text: code)) {
-                        Task { await model?.react(message, shortcode: code, add: true) }
+                        Task { await model?.react(message, shortcode: code, add: !(model?.quickReactionIsMine(message, shortcode: code) ?? false)) }
                     }
                 }
             }

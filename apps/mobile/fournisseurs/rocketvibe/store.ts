@@ -22,7 +22,14 @@ export type NativeState = { instance_id: string; data_epoch: string; cursor: str
 export type NativeRoomRow = { rid: string; nom: string; type: string; dernier_message: string | null };
 export type NativeMessageRow = { id: string; texte: string; auteur_nom: string; auteur_id: string; horodatage: number; statut: string | null };
 export type NativePending = { id: string; rid: string; texte: string };
-export type NativeCommand = {id:string;rid:string;message_id:string;kind:'edit'|'delete';expected_revision:string;text:string};
+export type NativeCommand = {id:string;rid:string;message_id:string;kind:'edit'|'delete'|'react';expected_revision:string;text:string};
+
+/** Projection consumed by the existing message renderer and action sheet. */
+export function nativeReactions(reactions: Message['reactions']): string|null {
+  return reactions?.length ? JSON.stringify(Object.fromEntries(reactions.map(reaction=>[
+    `:${reaction.emoji}:`,{usernames:reaction.users.map(user=>user.username)},
+  ]))) : null;
+}
 
 export function localMessage(message: Message): MessageLocal {
   const time = Date.parse(message.created_at);
@@ -33,7 +40,7 @@ export function localMessage(message: Message): MessageLocal {
     id: message.id, rid: message.room_id, texte: message.text, horodatage: time,
     auteurId: message.author.id, auteurNom: message.author.username, typeSysteme: null,
     filId: null, filReponses: 0, filDernier: null, filAffiche: false, modifieLe: edited,
-    md: null, piecesJointes: null, reactions: null, urls: null, appelId: null,
+    md: null, piecesJointes: null, reactions: nativeReactions(message.reactions), urls: null, appelId: null,
     chiffreBrut: null, epingle: false, etoiles: null, misAJourLe: time,
   };
 }
@@ -194,7 +201,7 @@ export class NativeStore {
     return this.queue(async () => {
       if (!await this.sameGeneration()) return [];
       const commands=await this.db.getAllAsync<NativeCommand>("SELECT id,rid,message_id,kind,expected_revision,text FROM native_commands WHERE state='pending' ORDER BY rowid",[]);
-      if (commands.some(c => c.kind!=='edit' && c.kind!=='delete')) throw new Error('Invalid native command');
+      if (commands.some(c => c.kind!=='edit' && c.kind!=='delete' && c.kind!=='react')) throw new Error('Invalid native command');
       return commands;
     });
   }

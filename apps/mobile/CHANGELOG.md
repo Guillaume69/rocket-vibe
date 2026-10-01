@@ -9,6 +9,10 @@ release, et ses notes sont la section de la version ici.
 
 ### Ajouté
 
+- Double authentification RocketVibe dans le formulaire existant : application
+  TOTP ou code de secours. Une validation interrompue se reprend depuis le
+  stockage sécurisé sans consommer un deuxième code ni modifier un autre compte.
+
 - Récupération du mot de passe RocketVibe par code opérateur dans la connexion
   existante : identité et conversations conservées, anciennes sessions révoquées
   et confirmation perdue reprenable. Les clés de chiffrement sont préservées.

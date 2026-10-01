@@ -1,7 +1,7 @@
 # Authentification native — P02, socle TOTP et secours
 
-Ce lot livre le serveur et les SDK. P02 reste ouvert : raccordement des formulaires
-GTK, SwiftUI et mobile, gestion des facteurs dans leurs paramètres, email vérifié /
+Ce lot livre le serveur, les SDK et la connexion mobile. P02 reste ouvert : raccordement des formulaires
+GTK et SwiftUI, gestion des facteurs dans les paramètres des trois clients, email vérifié /
 SMTP et qualification des appareils. Le fournisseur Rocket.Chat garde son parcours.
 
 Les coordinateurs `rv-core::native::authentication` et
@@ -11,10 +11,45 @@ le candidat via un callback de trousseau avant validation, puis le sondent en
 priorité après réponse perdue. Une session déjà committée se récupère même après
 expiration du défi. Seul un `401 session_rejected` compris autorise un nouvel
 envoi du code ; refus de proxy, panne réseau ou réponse ambiguë conservent le
-pending. Les paramètres du défi doivent encore être reliés aux coffres privés
-des plateformes. Le pending n'est effacé qu'après sauvegarde de la session active.
+pending. Le formulaire mobile utilise désormais son coffre SecureStore privé ;
+le raccordement des coffres bureau reste à livrer. Le pending n'est effacé
+qu'après sauvegarde de la session active.
 Inscription et récupération passent par le même parcours complet et comparent
 l'UID rendu par le code opérateur avec celui du challenge / de la session.
+
+### Coffre et formulaire mobile
+
+L'écran de connexion existant propose TOTP et les secours annoncés par le serveur.
+Mot de passe et code opérateur quittent son état dès le défi ; les codes TOTP /
+secours restent seulement en mémoire. Retour ou perte du focus empêche une
+réponse tardive de commencer l'installation du compte. Le fournisseur Rocket.Chat
+garde son parcours de facteur existant.
+
+Le coffre utilise une clé `native-auth-` dérivée d'un tuple JSON domaine / URL
+canonique / identifiant, distincte des sessions et des clés E2EE. SecureStore
+emploie `WHEN_UNLOCKED_THIS_DEVICE_ONLY` ; ni SQLite, ni extension push ne lisent
+ce candidat. Une file partagée entre instances couvre lectures, écritures,
+HTTP et comparaison du pending. Les données corrompues échouent sans exposer
+leur JSON dans une erreur.
+
+Une nouvelle preuve de mot de passe sonde d'abord le candidat précédent. Elle
+le conserve tant que l'ancien défi peut encore valider une requête retardée.
+Son remplacement exige un nouveau défi émis après l'expiration du précédent
+(TTL serveur fixe de cinq minutes) et une sonde après cette barrière : `start`
+et `verify` détiennent le même verrou de compte. Une erreur ambiguë, un UID,
+une instance ou une génération différents ne peuvent effacer ce pending.
+
+Après perte de réponse, « Valider » sans code sonde la session déjà acceptée.
+Après redémarrage, une nouvelle connexion par mot de passe reprend ce même
+candidat avant toute demande d'un nouveau code. Le nettoyage compare défi,
+identité et bearer réellement sauvegardé ; une session renouvelée ou une autre
+tentative conserve le pending par prudence. Un échec du stockage actif garde
+la reprise possible ; une erreur de nettoyage ne défait pas un compte installé.
+
+Onze tests du coffre couvrent interruptions, concurrence, preuve fraîche,
+comparaison du stockage et isolement. Le banc HTTP / PostgreSQL utilise un
+adaptateur portable, pas le Keystore Android : la qualification SecureStore
+sur appareil, processus réellement tué et verrouillage système reste ouverte.
 
 ## Clé opérateur
 

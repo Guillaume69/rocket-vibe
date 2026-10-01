@@ -1,4 +1,4 @@
-import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Redirect, Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,7 +7,10 @@ import { SERVEUR_PAR_DEFAUT } from '../db/migrer.ts';
 import { demanderCodeParEmail, preparerCodeDeuxFacteurs, seConnecter } from '../lib/auth.ts';
 import { ClientRest, ErreurDeuxFacteurs, ErreurRest, type CodeDeuxFacteurs } from '../lib/rest.ts';
 import { discoverServer, type ServerProfile as ProfilServeur } from '../lib/serverKind.ts';
-import { nativeLogin, nativeRegister, nativeRecover } from '../fournisseurs/rocketvibe/auth.ts';
+import { startNativeLogin, startNativeAccountCodeLogin, type LoginChallenge } from '../fournisseurs/rocketvibe/authentication.ts';
+import type { SecondFactor } from '../fournisseurs/rocketvibe/protocol.generated.ts';
+import { nativeAuthenticationVault, completeNativeAuthentication } from '../lib/nativeAuthenticationStore.ts';
+import type { Session } from '../lib/auth.ts';
 import { NativeError } from '../fournisseurs/rocketvibe/transport.ts';
 import { hacher, lireDernierServeur, listerServeursConnus } from '../lib/sessionStore.ts';
 import { VueEvitantLeClavier } from '../ui/clavier.tsx';
@@ -31,6 +34,7 @@ import { type Couleurs, POLICES, useCouleurs } from '../ui/theme.ts';
 type Phase =
   | { nom: 'serveur' }
   | { nom: 'identifiants'; profil: ProfilServeur; client: ClientRest }
+  | { nom: 'facteurNatif'; profil: ProfilServeur; client: ClientRest; challenge: LoginChallenge; methode: SecondFactor }
   | {
       nom: 'deuxFacteurs';
       profil: ProfilServeur;
@@ -64,7 +68,16 @@ export default function EcranConnexion() {
   // consommations du même code TOTP à usage unique.
   const enVol = useRef(false);
   const requete = useRef<AbortController | null>(null);
-  useEffect(() => () => requete.current?.abort(), []);
+  const monte = useRef(true);
+  const generation = useRef(0);
+  useFocusEffect(useCallback(() => {
+    generation.current++;
+    return () => { generation.current++; };
+  }, []));
+  useEffect(() => {
+    monte.current = true;
+    return () => { monte.current = false; requete.current?.abort(); };
+  }, []);
 
   // Pré-remplir avec le dernier serveur utilisé, sans écraser une saisie déjà
   // commencée — et charger le registre des serveurs connus (5.3).
@@ -146,25 +159,45 @@ export default function EcranConnexion() {
 
   const tenterConnexion = useCallback(
     async (deuxFacteurs?: CodeDeuxFacteurs) => {
-      if (enVol.current || phase.nom === 'serveur') return;
+      if (enVol.current || phase.nom === 'serveur' || phase.nom === 'facteurNatif') return;
+      const depart = generation.current;
+      const courant = () => monte.current && depart === generation.current;
       enVol.current = true;
       setOccupe(true);
       setMessage(null);
       try {
-        const session = phase.profil.native
-          ? recuperation
-            ? await nativeRecover(phase.profil.baseUrl, phase.profil.native, { utilisateur: utilisateur.trim(), motDePasse }, invitation.trim())
-            : inscription
-            ? await nativeRegister(phase.profil.baseUrl, phase.profil.native, { utilisateur: utilisateur.trim(), motDePasse }, invitation.trim())
-            : await nativeLogin(phase.profil.baseUrl, phase.profil.native, { utilisateur: utilisateur.trim(), motDePasse })
-          : await seConnecter(
-          phase.client,
-          { utilisateur: utilisateur.trim(), motDePasse },
-          deuxFacteurs,
-        );
+        let session: Session;
+        let aNettoyer: LoginChallenge | null = null;
+        if (phase.profil.native) {
+          const identifiants = { utilisateur: utilisateur.trim(), motDePasse };
+          let etape = recuperation || inscription
+            ? await startNativeAccountCodeLogin(phase.profil.baseUrl, phase.profil.native, identifiants, invitation.trim(), recuperation)
+            : await startNativeLogin(phase.profil.baseUrl, phase.profil.native, identifiants);
+          if (!courant()) return;
+          if (etape.kind === 'challenge') {
+            const nouveau = etape.challenge;
+            etape = await nativeAuthenticationVault.stage(nouveau);
+            if (!courant()) return;
+            if (etape.kind === 'challenge') {
+              const methode = etape.challenge.challenge.methods.find(m => m === 'totp' || m === 'recovery_code');
+              if (!methode) throw new NativeError(503, 'factor_unavailable');
+              setMotDePasse(''); setInvitation(''); setInscription(false); setRecuperation(false); setCode('');
+              setPhase({ nom: 'facteurNatif', profil: phase.profil, client: phase.client, challenge: etape.challenge, methode });
+              return;
+            }
+            // A previous verification may have succeeded before the app died.
+            aNettoyer = await nativeAuthenticationVault.load(nouveau.baseUrl, nouveau.user.username);
+          }
+          session = etape.session;
+        } else {
+          session = await seConnecter(phase.client, { utilisateur: utilisateur.trim(), motDePasse }, deuxFacteurs);
+        }
+        if (!courant()) return;
         // `Site_Url` vient du sondage, pas du login : c'est ICI qu'il entre
         // dans la session persistée — voir `Session.siteUrl` (lib/auth.ts).
         await connecter({ ...session, siteUrl: phase.profil.siteUrl });
+        if (aNettoyer) await completeNativeAuthentication(aNettoyer).catch(() => {});
+        if (!courant()) return;
         setInvitation(''); setInscription(false); setRecuperation(false); setMotDePasse('');
         // Navigation explicite : le <Redirect> en tête de rendu couvre la
         // reprise de session, mais il est neutralisé quand on est venu par
@@ -172,6 +205,7 @@ export default function EcranConnexion() {
         // depuis ce chemin laisserait l'utilisateur planté ici.
         routeur.replace('/');
       } catch (e) {
+        if (!courant()) return;
         if (e instanceof NativeError && e.code === 'recovery_rejected') {
           setMessage(t('connexion.recuperationRefusee'));
         } else if (e instanceof NativeError && e.code === 'invalid_request' && recuperation) {
@@ -201,18 +235,52 @@ export default function EcranConnexion() {
         ) {
           // Même dualité error/errorType que `totp-required` : voir lib/rest.ts.
           setMessage(t('connexion.codeRefuse'));
-        } else if (e instanceof ErreurRest && e.statut === 401) {
+        } else if (e instanceof NativeError && e.code === 'factor_unavailable') {
+          setMessage(t('connexion.facteurIndisponible'));
+        } else if (e instanceof NativeError && e.status === 401 && e.code === 'session_rejected' || e instanceof ErreurRest && e.statut === 401) {
           setMessage(t('connexion.identifiantsRefuses'));
         } else {
           setMessage(e instanceof Error ? e.message : t('connexion.connexionImpossible'));
         }
       } finally {
         enVol.current = false;
-        setOccupe(false);
+        if (monte.current) setOccupe(false);
       }
     },
     [phase, utilisateur, motDePasse, connecter, routeur, t, inscription, invitation, recuperation],
   );
+
+  const validerFacteurNatif = useCallback(async () => {
+    if (enVol.current || phase.nom !== 'facteurNatif' || !code.trim() && !phase.challenge.pending) return;
+    const depart = generation.current;
+    const courant = () => monte.current && depart === generation.current;
+    enVol.current = true; setOccupe(true); setMessage(null);
+    try {
+      const session = await nativeAuthenticationVault.finish(phase.challenge, phase.methode, code);
+      if (!courant()) return;
+      // The pre-auth candidate remains durable until the ACTIVE account write
+      // succeeds. A cleanup error must not undo a successfully saved account.
+      await connecter({ ...session, siteUrl: phase.profil.siteUrl });
+      await completeNativeAuthentication(phase.challenge).catch(() => {});
+      if (!courant()) return;
+      setCode(''); routeur.replace('/');
+    } catch (e) {
+      if (!courant()) return;
+      setMessage(t(e instanceof NativeError && e.code === 'factor_expired' ? 'connexion.facteurExpire'
+        : e instanceof NativeError && e.code === 'factor_unavailable' ? 'connexion.facteurIndisponible'
+        : e instanceof NativeError && ['factor_rejected', 'invalid_factor_code'].includes(e.code) ? 'connexion.codeRefuse'
+        : 'connexion.facteurReessayer'));
+      // An ACK can disappear after the server consumes the code. Re-read the
+      // durable candidate so a blank retry can recover it without another OTP.
+      const stockee = await nativeAuthenticationVault.load(phase.challenge.baseUrl, phase.challenge.user.username).catch(() => null);
+      if (courant() && stockee?.challenge.challenge_id === phase.challenge.challenge.challenge_id) {
+        setPhase({ ...phase, challenge: stockee });
+      }
+    } finally {
+      enVol.current = false;
+      if (monte.current) setOccupe(false);
+    }
+  }, [phase, code, connecter, routeur, t]);
 
   const validerCode = useCallback(async () => {
     if (phase.nom !== 'deuxFacteurs' || code.trim() === '') return;
@@ -242,6 +310,7 @@ export default function EcranConnexion() {
   }, [phase, utilisateur, t]);
 
   const revenirAuServeur = useCallback(() => {
+    if (enVol.current) return;
     setInvitation(''); setInscription(false); setRecuperation(false);
     setMotDePasse('');
     setCode('');
@@ -282,7 +351,7 @@ export default function EcranConnexion() {
         {phase.nom !== 'serveur' && (
           <View style={[styles.chipServeur, { backgroundColor: c.carte, borderColor: c.bordure }]}>
             <Text style={[styles.chipTexte, { color: c.attenue }]}>
-              {phase.client.baseUrl} · Rocket.Chat {phase.profil.version}
+              {phase.client.baseUrl} · {phase.profil.native ? 'RocketVibe' : 'Rocket.Chat'} {phase.profil.version}
             </Text>
           </View>
         )}
@@ -377,6 +446,12 @@ export default function EcranConnexion() {
           />
         )}
 
+        {phase.nom === 'facteurNatif' && (
+          <SectionFacteurNatif c={c} challenge={phase.challenge} methode={phase.methode} code={code} occupe={occupe}
+            onChangeCode={setCode} onValider={() => void validerFacteurNatif()}
+            onMethode={methode => { if (enVol.current) return; setCode(''); setMessage(null); setPhase({ ...phase, methode }); }} />
+        )}
+
         {message !== null && (
           <View style={[styles.carte, { backgroundColor: c.carteErreur, borderColor: c.danger }]}>
             <Text style={[styles.messageErreur, { color: c.texteErreur }]}>{message}</Text>
@@ -430,6 +505,27 @@ function RetourConnexion({
       <Text style={[styles.retourTitre, { color: c.texte }]}>{t('connexion.titre')}</Text>
     </Pressable>
   );
+}
+
+function SectionFacteurNatif({ c, challenge, methode, code, occupe, onChangeCode, onValider, onMethode }: {
+  c: Couleurs; challenge: LoginChallenge; methode: SecondFactor; code: string; occupe: boolean;
+  onChangeCode: (value: string) => void; onValider: () => void; onMethode: (method: SecondFactor) => void;
+}) {
+  const t = useT();
+  const secours = methode === 'recovery_code';
+  return <>
+    <BlasonDeuxFacteurs c={c} sousTitre={t(secours ? 'connexion.introSecours' : 'connexion.introTotp')} />
+    <ChampPilule c={c} etiquette={t(secours ? 'connexion.codeSecours' : 'connexion.etiquetteTotp')}
+      valeur={code} onChangeText={onChangeCode} onSubmitEditing={onValider} editable={!occupe}
+      keyboardType={secours ? 'default' : 'number-pad'} autoComplete={secours ? 'off' : 'one-time-code'}
+      secureTextEntry={secours} grand={!secours} autoFocus />
+    <BoutonPrincipal c={c} occupe={occupe} onPress={onValider} titre={t('connexion.valider')} />
+    {challenge.pending && <Text style={{ color: c.attenue }}>{t('connexion.facteurReprise')}</Text>}
+    {challenge.challenge.methods.filter(m => m !== methode && m !== 'email').map(m =>
+      <Pressable key={m} disabled={occupe} onPress={() => onMethode(m)}>
+        <Text style={[styles.lien, { color: c.cyan }]}>{t(m === 'recovery_code' ? 'connexion.utiliserSecours' : 'connexion.utiliserTotp')}</Text>
+      </Pressable>)}
+  </>;
 }
 
 function SectionDeuxFacteurs({

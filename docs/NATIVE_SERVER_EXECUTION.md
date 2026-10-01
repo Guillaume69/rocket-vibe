@@ -315,6 +315,20 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, connexion mobile : formulaire existant raccordé à TOTP / secours et coffre
+  SecureStore séparé par serveur / identifiant. Le candidat est écrit avant HTTP,
+  la reprise sonde un code déjà accepté et le nettoyage attend le stockage actif.
+  Une nouvelle preuve de mot de passe ne remplace pas un pending encore ambigu ;
+  le verrou de compte et l'expiration du défi bornent son remplacement. Les
+  instances du coffre partagent leur file, les formulaires périmés ne suppriment
+  pas une nouvelle tentative et une erreur de proxy conserve le candidat.
+  Vérifications : 1 032 tests mobiles, onze nouveaux scénarios de coffre,
+  typecheck / lint sans avertissement et export Android / Hermes réussis.
+  Banc PostgreSQL : réponse perdue, deux reprises concurrentes, nouveau mot de
+  passe et un seul secours consommé. Ce banc exerce le coffre portable ; le vrai
+  SecureStore Android reste à qualifier. Les formulaires GTK / SwiftUI et les
+  paramètres des trois clients restent la suite de P02.
+
 - P02, coordinateurs d'authentification bureau / mobile : étapes session / défi
   distinctes, identités épinglées, candidat durable avant code, sonde du candidat
   et validation du seul appareil courant avant installation. Une réponse perdue

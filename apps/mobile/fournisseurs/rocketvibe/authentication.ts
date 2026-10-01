@@ -14,6 +14,8 @@ export type FactorDependencies={
   fetcher?:typeof fetch;
 };
 const token=(value:unknown):value is string=>typeof value==='string' && /^[a-f0-9]{64}$/.test(value);
+const timestamp=(value:unknown):value is string=>typeof value==='string'
+  && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(value) && Number.isFinite(Date.parse(value));
 function identity(record:LoginChallenge,discovery:Discovery):void {
   if(record.instanceId!==discovery.instance_id || record.dataEpoch!==discovery.data_epoch) throw new NativeError(409,'server_identity_changed');
 }
@@ -24,8 +26,11 @@ export function validLoginChallenge(value:unknown):value is LoginChallenge {
   if(typeof record.baseUrl!=='string' || typeof record.instanceId!=='string' || !record.instanceId || record.instanceId.length>128
     || typeof record.dataEpoch!=='string' || !record.dataEpoch || record.dataEpoch.length>128
     || typeof record.user?.id!=='string' || !record.user.id || record.user.id.length>128
-    || typeof record.user.username!=='string' || typeof record.user.display_name!=='string'
-    || !token(record.challenge?.challenge_id) || !Number.isFinite(Date.parse(record.challenge.expires_at))
+    || typeof record.user.username!=='string' || !record.user.username || record.user.username.length>128 || typeof record.user.display_name!=='string'
+    || Object.keys(record.user).some(k=>!['id','username','display_name'].includes(k))
+    || !token(record.challenge?.challenge_id) || !timestamp(record.challenge.expires_at)
+    || Object.keys(record.challenge).some(k=>!['challenge_id','methods','expires_at','resend_after_seconds'].includes(k))
+    || !Number.isInteger(record.challenge.resend_after_seconds) || record.challenge.resend_after_seconds<0 || record.challenge.resend_after_seconds>4_294_967_295
     || !Array.isArray(record.challenge.methods) || record.challenge.methods.length<1 || record.challenge.methods.length>3
     || new Set(record.challenge.methods).size!==record.challenge.methods.length
     || record.challenge.methods.some(m=>!['totp','email','recovery_code'].includes(m)))return false;
@@ -41,7 +46,7 @@ function validate(record:LoginChallenge):void {
 }
 function account(record:Pick<LoginChallenge,'baseUrl'|'instanceId'|'dataEpoch'>,session:Session,expected?:string):AccountSession {
   if(!token(session.token) || !session.user.id || session.user.id.length>128 || expected!==undefined && session.user.id!==expected
-    || !Number.isFinite(Date.parse(session.expires_at)) || Date.parse(session.expires_at)<=Date.now())throw new NativeError(502,'invalid_native_session');
+    || !timestamp(session.expires_at) || Date.parse(session.expires_at)<=Date.now())throw new NativeError(502,'invalid_native_session');
   return {baseUrl:record.baseUrl,userId:session.user.id,username:session.user.username,authToken:session.token,genre:'rocketvibe',siteUrl:null,
     nativeInstanceId:record.instanceId,nativeDataEpoch:record.dataEpoch,nativeExpiresAt:session.expires_at};
 }

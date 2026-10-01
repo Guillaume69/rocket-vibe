@@ -39,6 +39,13 @@ export async function cleSession(baseUrl: string, hacher: Hacheur): Promise<stri
   return `session-${(await hacher(sansSlashFinal(baseUrl))).slice(0, 32)}`;
 }
 
+/** Pre-authentication has its own namespace, keyed by server AND username.
+ * JSON tuple framing prevents delimiter/path ambiguities; nothing secret is a key. */
+export async function cleAuthentificationNative(baseUrl:string,username:string,hacher:Hacheur):Promise<string> {
+  const canonical=sansSlashFinal(new URL(baseUrl).toString());
+  return `native-auth-${(await hacher(JSON.stringify(['native-auth-v1',canonical,username]))).slice(0,32)}`;
+}
+
 /**
  * Clé privée E2EE, propre au couple (serveur, compte).
  *

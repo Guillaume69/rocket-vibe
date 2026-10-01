@@ -187,6 +187,7 @@
     "apps/mobile/lib/marques.ts",
     "apps/mobile/lib/messagesSysteme.ts",
     "apps/mobile/lib/monProfil.ts",
+    "apps/mobile/lib/nativeAuthenticationStore.ts",
     "apps/mobile/lib/normaliser.ts",
     "apps/mobile/lib/notificationId.ts",
     "apps/mobile/lib/origine.ts",
@@ -1527,7 +1528,7 @@
     },
     {
       "file": "apps/mobile/app/connexion.tsx",
-      "line": 301,
+      "line": 370,
       "kind": "endpoint",
       "surface": "chat.exemple.fr"
     },
@@ -2283,73 +2284,73 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 179,
+      "line": 187,
       "kind": "endpoint",
       "surface": "e2e.titre"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 180,
+      "line": 188,
       "kind": "endpoint",
       "surface": "e2e.explication"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 182,
+      "line": 190,
       "kind": "endpoint",
       "surface": "e2e.champ"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 183,
+      "line": 191,
       "kind": "endpoint",
       "surface": "e2e.deverrouiller"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 184,
+      "line": 192,
       "kind": "endpoint",
       "surface": "e2e.erreurMotDePasse"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 185,
+      "line": 193,
       "kind": "endpoint",
       "surface": "e2e.erreurGenerique"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 620,
+      "line": 636,
       "kind": "endpoint",
       "surface": "e2e.titre"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 621,
+      "line": 637,
       "kind": "endpoint",
       "surface": "e2e.explication"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 623,
+      "line": 639,
       "kind": "endpoint",
       "surface": "e2e.champ"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 624,
+      "line": 640,
       "kind": "endpoint",
       "surface": "e2e.deverrouiller"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 625,
+      "line": 641,
       "kind": "endpoint",
       "surface": "e2e.erreurMotDePasse"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 626,
+      "line": 642,
       "kind": "endpoint",
       "surface": "e2e.erreurGenerique"
     }

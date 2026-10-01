@@ -315,6 +315,27 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, paramètres SwiftUI / objet FFI : la section Sécurité rejoint les
+  préférences groupées existantes, sur le `NativeChat` et la famille courante.
+  L'objet opaque partage le coffre `rv-core::native::security` avec GTK ; les
+  candidats / IDs de preuve, opération et reçu restent internes. Les saisies
+  sont transitoires et les confirmations sont liées à la révision affichée.
+  La copie relit intention et version avant son callback MainActor, encore
+  conditionné au compte / fournisseur / visibilité. Fermeture et suspension
+  effacent les valeurs privées et invalident les callbacks ; Actualiser peut
+  reprendre la même intention après reconnexion sans rejouer mot de passe ou
+  code. Le banc dédié PostgreSQL avec deux processus Swift / Secret Service
+  passe connexion et preuve avec ACK perdus, code incorrect, régénération,
+  reprise du reçu après restart, confirmations périmées, copie en cours de
+  fermeture, ancien fournisseur et désactivation avec ACK perdu. Les contrôles
+  SQL confirment une seule famille, une preuve complète, deux codes consommés,
+  une régénération et l'âge originel. Bindings et modèles Swift compilent ; six
+  tests locaux passent et huit parcours restent conditionnels hors banc, dont
+  ce nouveau parcours exécuté réellement deux fois. Les 240 tests cœur / FFI,
+  Clippy et compilation GTK passent. Ce banc rejoint le job Swift de CI ; la
+  compilation de l'interface SwiftUI macOS et les trousseaux des apps installées
+  demeurent distincts du test Linux. SMTP / email vérifié restent à livrer.
+
 - P02, paramètres GTK / coffre commun bureau : les préférences existantes et
   le dialogue Appareils ouvrent la confirmation d'identité sur la famille
   courante. Configuration TOTP, dix secours avec confirmation explicite,
@@ -338,8 +359,9 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   seule famille, une seule preuve complète, deux secours consommés, une seule
   régénération et l'âge / expiration originels de la preuve. Le dialogue rendu
   tient à 435 px et les captures excluent les codes privés. Ce banc est ajouté
-  au job CI bureau. SwiftUI, SMTP et les trousseaux / appareils physiques
-  restent la suite de P02 ; ce lot ne qualifie pas une app Windows ou macOS installée.
+  au job CI bureau. SwiftUI est raccordé dans le lot suivant ci-dessus. SMTP et
+  les trousseaux / appareils physiques restent la suite de P02 ; ce lot ne
+  qualifie pas une app Windows ou macOS installée.
 
 - P02, paramètres / coffres mobile : la section Sécurité de l'écran existant
   configure TOTP, conserve puis confirme les dix secours, régénère ou désactive

@@ -9,6 +9,13 @@ section here.
 
 ### Added
 
+- Native security in the existing SwiftUI settings, sharing the GTK private
+  system-keychain vault. Opaque FFI handles keep proof and operation IDs private;
+  confirmations bind to the displayed revision, and copied secrets are checked
+  again before entering the clipboard. Hiding settings or switching accounts
+  clears transient input and blocks late callbacks. Original backup receipts
+  survive a process restart and lost responses.
+
 - Native security in the existing GTK preferences: confirm identity on the
   current device family, configure TOTP, explicitly save backup codes,
   regenerate them or disable the factor. Private system-keychain intents resume

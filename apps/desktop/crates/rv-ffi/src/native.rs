@@ -335,6 +335,15 @@ impl NativeChat {
     pub fn supported_features(&self) -> Vec<String> {
         self.session.supported_features()
     }
+    pub fn security_supported(&self) -> bool {
+        self.session.security_supported()
+    }
+    pub async fn security(&self) -> Result<Arc<crate::native_security::NativeSecurity>, RvError> {
+        let (session, dirs) = (self.session.clone(), self.dirs.clone());
+        on_tokio(async move { crate::native_security::NativeSecurity::open(session, dirs).await })
+            .await
+            .map_err(native_error)
+    }
     pub fn rooms(&self) -> Result<Vec<NativeRoom>, RvError> {
         Ok(self
             .session

@@ -281,7 +281,7 @@ fn button(key: &str, class: &str) -> adw::ButtonRow {
 }
 fn private_label(class: &str) -> gtk::Label {
     gtk::Label::builder()
-        .selectable(true)
+        .selectable(false)
         .wrap(true)
         .xalign(0.0)
         .margin_top(10)

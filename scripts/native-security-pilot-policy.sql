@@ -3,7 +3,7 @@
 -- an explicit proof. Preserve expiry and real session rotation.
 CREATE FUNCTION pilot_security_device_age() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF NEW.user_id=(SELECT id FROM users WHERE username='gtk-security')
+  IF NEW.user_id IN (SELECT id FROM users WHERE username IN ('gtk-security','swift-security'))
      AND EXISTS(SELECT 1 FROM user_factors WHERE user_id=NEW.user_id) THEN
     NEW.created_at:=clock_timestamp()-interval '20 minutes';
   END IF;

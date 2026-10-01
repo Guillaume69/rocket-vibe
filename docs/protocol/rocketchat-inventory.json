@@ -56,6 +56,7 @@
     "apps/desktop/crates/rv-ffi/src/model.rs",
     "apps/desktop/crates/rv-ffi/src/native.rs",
     "apps/desktop/crates/rv-ffi/src/native_auth.rs",
+    "apps/desktop/crates/rv-ffi/src/native_security.rs",
     "apps/desktop/crates/rv-ffi/src/people.rs",
     "apps/desktop/crates/rv-ffi/src/writing.rs",
     "apps/desktop/crates/rv-gtk/build.rs",
@@ -125,6 +126,7 @@
     "apps/desktop/macos/Sources/RocketVibe/RocketVibeApp.swift",
     "apps/desktop/macos/Sources/RocketVibe/RoomView.swift",
     "apps/desktop/macos/Sources/RocketVibe/ScrollBench.swift",
+    "apps/desktop/macos/Sources/RocketVibe/SecuritySection.swift",
     "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
     "apps/desktop/macos/Sources/RocketVibe/Theme.swift",
     "apps/desktop/macos/Sources/RocketVibe/ThreadView.swift",
@@ -137,6 +139,7 @@
     "apps/desktop/macos/Sources/RocketVibeKit/Pending.swift",
     "apps/desktop/macos/Sources/RocketVibeKit/Relay.swift",
     "apps/desktop/macos/Sources/RocketVibeKit/RoomModel.swift",
+    "apps/desktop/macos/Sources/RocketVibeKit/SecurityModel.swift",
     "apps/desktop/macos/Sources/RocketVibeKit/Strings.swift",
     "apps/desktop/macos/Sources/rv-rooms/main.swift",
     "apps/mobile/app/+native-intent.tsx",
@@ -1475,25 +1478,25 @@
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
-      "line": 41,
+      "line": 44,
       "kind": "endpoint",
       "surface": "e2e.status"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
-      "line": 43,
+      "line": 46,
       "kind": "endpoint",
       "surface": "e2e.locked"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
-      "line": 43,
+      "line": 46,
       "kind": "endpoint",
       "surface": "e2e.unlocked"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
-      "line": 46,
+      "line": 49,
       "kind": "endpoint",
       "surface": "e2e.lock"
     },

@@ -35,3 +35,18 @@ services:
       PGPASSWORD: native-pilot-disposable-db-password
     volumes: ['../scripts/native-security-pilot-check.sql:/security-check.sql:ro']
     command: [psql, -h, postgres, -U, pilot, -d, pilot, -v, ON_ERROR_STOP=1, -f, /security-check.sql]
+  security-swift:
+    image: rocket-vibe-swift
+    cap_add: [IPC_LOCK]
+    working_dir: /workspace/apps/desktop
+    volumes: ['..:/workspace', 'pilot-invitations:/pilot-invitations:ro']
+    environment:
+      RV_NATIVE_SECURITY_TEST_SERVER: http://factor-proxy:3401
+      RV_NATIVE_SECURITY_TEST_PASSWORD: native-pilot-test-password
+      RV_NATIVE_SECURITY_TEST_FACTOR_FILE: /pilot-invitations/swift-security-factors.json
+    command: [bash, macos/scripts/native-security-smoke.sh]
+    depends_on: [factor-proxy]
+  security-swift-check:
+    extends: security-check
+    environment:
+      PGOPTIONS: -c rocketvibe.pilot_security_user=swift-security

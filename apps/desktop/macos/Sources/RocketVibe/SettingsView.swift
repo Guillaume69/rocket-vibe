@@ -37,6 +37,9 @@ struct SettingsView: View {
             if app.native?.supportedFeatures().contains("device_sessions") == true {
                 DevicesSection()
             }
+            if app.native?.securitySupported() == true {
+                SecuritySection()
+            }
             if app.chat != nil {
                 Section(L("e2e.status")) {
                     HStack {

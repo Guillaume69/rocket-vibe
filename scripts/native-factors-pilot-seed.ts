@@ -11,7 +11,7 @@ for(let i=0;i<60;i++){
 }
 if(!ready)throw new Error('Pilot server unavailable');
 const accounts=[['gtk-factor','gtk-factors.json'],['swift-factor','swift-factors.json']];
-if(process.env.RV_PILOT_SECURITY==='1')accounts.push(['gtk-security','gtk-security-factors.json']);
+if(process.env.RV_PILOT_SECURITY==='1')accounts.push(['gtk-security','gtk-security-factors.json'],['swift-security','swift-security-factors.json']);
 for(const [username,file] of accounts){
   const client=new NativeTransport(base);await client.login(username,process.env.RV_PEER_PASSWORD);
   const setup=await client.beginFactorSetup({operation_id:`pilot-${username}-setup`});

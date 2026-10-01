@@ -1,7 +1,13 @@
 \set ON_ERROR_STOP on
 DO $$
-DECLARE account text := (SELECT id FROM users WHERE username='gtk-security');
+DECLARE
+  fixture text := coalesce(nullif(current_setting('rocketvibe.pilot_security_user',true),''),'gtk-security');
+  account text;
 BEGIN
+  IF fixture NOT IN ('gtk-security','swift-security') THEN
+    RAISE EXCEPTION 'Requires the disposable GTK or Swift security fixture';
+  END IF;
+  SELECT id INTO STRICT account FROM users WHERE username=fixture;
   IF (SELECT count(*) FROM session_devices WHERE user_id=account)<>1 THEN
     RAISE EXCEPTION 'Security settings created another session family';
   END IF;

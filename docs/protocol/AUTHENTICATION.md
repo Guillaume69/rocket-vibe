@@ -1,10 +1,9 @@
 # Authentification native — P02, socle TOTP et secours
 
 Ce lot livre le serveur, les SDK et les connexions mobile / GTK / SwiftUI, ainsi
-que les API de régénération des secours et réauthentification. P02 reste ouvert :
-coffres / formulaires de réauthentification et gestion des facteurs dans les
-paramètres des trois clients, email vérifié /
-SMTP et qualification des appareils. Le fournisseur Rocket.Chat garde son parcours.
+que la réauthentification et la gestion des facteurs dans les paramètres des
+trois clients. P02 reste ouvert pour l'email vérifié / SMTP et la qualification
+des appareils. Le fournisseur Rocket.Chat garde son parcours.
 
 Les coordinateurs `rv-core::native::authentication` et
 `fournisseurs/rocketvibe/authentication.ts` préparent ce raccordement. Ils séparent
@@ -355,4 +354,34 @@ jetable distinct, valide les vrais widgets GTK, les ACK perdus, le reçu privé
 après redémarrage de Secret Service et la reconnexion. Ses contrôles SQL sans
 secret prouvent une famille, une preuve complète, deux secours consommés,
 une régénération et l'âge original de la preuve. Les captures ne conservent
-aucun code de secours. SwiftUI et les trousseaux sur appareils restent à qualifier.
+aucun code de secours. Les trousseaux sur appareils restent à qualifier.
+
+### Paramètres SwiftUI et objet de sécurité FFI
+
+`NativeSecurity` utilise ce même coffre privé et la famille du `NativeChat`
+existant. Sa portée reste épinglée entre appels ; aucun candidat, identifiant
+de preuve / opération / reçu ou bearer n'est exposé à Swift. Le DTO ne contient
+que l'état de formulaire et les valeurs privées nécessaires à l'affichage.
+Le mutex pris **dans le travail Tokio réel** reste détenu après annulation d'un
+appel Swift. Le verrou OS du coffre protège aussi les autres processus GTK / FFI.
+
+Les confirmations d'activation, remplacement, désactivation et sauvegarde
+portent la révision affichée. Une ancienne confirmation est refusée avant
+mutation ou effacement du reçu ; les identifiants originaux restent internes.
+La copie relit le coffre et la version courante avant de rendre secret, URI ou
+secours. `SecurityModel` vérifie encore compte, fournisseur, visibilité et
+génération avant son callback synchrone sur MainActor qui écrit le presse-papiers.
+Fermeture / suspension efface champs saisis et DTO, en conservant l'intention
+privée à reprendre ; un handle fermé refuse tous ses appels ultérieurs.
+
+La section est ajoutée au formulaire groupé existant quand le serveur annonce
+la réauthentification et son retrait sûr. Actualiser peut reprendre après le
+changement de connexion causé par le facteur, sur cette seule portée et sans
+renvoyer une saisie. Le projet jetable `rocketvibe-swift-security-pilot` utilise
+l'overlay ci-dessus et deux processus de tests Swift avec un vrai Secret Service.
+Il perd les réponses de connexion, preuve et mutation, reprend le reçu après
+restart, vérifie copie / confirmation périmées, sortie en cours de copie et
+ancien fournisseur. Les mêmes postconditions PostgreSQL prouvent une famille,
+une preuve, deux codes consommés et une régénération, sans renouveler l'âge de
+preuve. Ce banc Linux qualifie les modèles et la FFI ; la compilation SwiftUI
+macOS et le Keychain d'une app installée sont des validations distinctes.

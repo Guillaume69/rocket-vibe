@@ -6,6 +6,7 @@ pub mod markup;
 pub mod model;
 mod native;
 mod native_auth;
+mod native_security;
 pub mod people;
 pub mod writing;
 

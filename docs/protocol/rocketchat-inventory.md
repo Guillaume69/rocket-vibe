@@ -2,7 +2,7 @@
 
 Commande : `node scripts/inventory-rocketchat.mjs`. Contrôle : ajouter `--check`.
 
-285 fichiers de production parcourus ; 344 occurrences.
+288 fichiers de production parcourus ; 344 occurrences.
 Les appels à premier argument dynamique restent visibles : leur résolution est
 consignée dans [le contrat de parité](PARITY.md). Les lignes sont des repères de
 source au moment de la génération. Le JSON conserve le périmètre et tous les fichiers.
@@ -205,10 +205,10 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:169](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L169) | endpoint | e2e.password |
 | [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:176](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L176) | endpoint | e2e.unlock |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:30](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L30) | endpoint | rooms.sign_out |
-| [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:41](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L41) | endpoint | e2e.status |
-| [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:43](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L43) | endpoint | e2e.locked |
-| [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:43](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L43) | endpoint | e2e.unlocked |
-| [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:46](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L46) | endpoint | e2e.lock |
+| [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:44](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L44) | endpoint | e2e.status |
+| [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:46](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L46) | endpoint | e2e.locked |
+| [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:46](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L46) | endpoint | e2e.unlocked |
+| [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:49](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L49) | endpoint | e2e.lock |
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:293](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L293) | endpoint | e2e.wrong |
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:294](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L294) | endpoint | e2e.no_keys |
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:295](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L295) | endpoint | e2e.failed |

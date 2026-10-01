@@ -186,6 +186,9 @@ struct AuthenticationStorage;
 pub fn authentication_vault(dirs: &Dirs) -> rv_core::native::authentication_vault::Vault {
     rv_core::native::authentication_vault::Vault::new(dirs.config.clone(), std::sync::Arc::new(AuthenticationStorage))
 }
+pub fn security_vault(dirs: &Dirs) -> rv_core::native::security::Vault {
+    rv_core::native::security::Vault::new(dirs.config.clone(), std::sync::Arc::new(AuthenticationStorage))
+}
 async fn authentication_operation<T: Send + 'static>(
     lease: std::sync::Arc<std::fs::File>,
     operation: impl FnOnce() -> Result<T, String> + Send + 'static,

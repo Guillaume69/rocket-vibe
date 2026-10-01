@@ -6,7 +6,7 @@ import { creerFileEcritures } from '../../db/fileEcritures.ts';
 import { NativeChat } from './chat.ts';
 import { NativeStore } from './store.ts';
 import { nativeTestDatabase } from './testDatabase.ts';
-import { NativeError, type NativeTransport } from './transport.ts';
+import { NativeError, NativeTransport } from './transport.ts';
 
 test('stopping during the WebSocket handshake cancels its timer and detaches every callback',async () => {
   const fixture = JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
@@ -68,5 +68,42 @@ test('a delivery revalidation keeps the durable send pending and retries its sam
     }
     assert.deepEqual(attempts,[id,id]);
     assert.equal((await store.pending()).length,0);
+  } finally { chat.stop(); db.close(); }
+});
+
+test('room creation keeps its persisted ID after a lost response and reuses existing discovery models',async () => {
+  const fixture = JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',genre:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const {db,adapter}=nativeTestDatabase();
+  const store=new NativeStore(adapter,creerFileEcritures(),session);
+  await store.applySnapshot({protocol_version:1,rooms:[],messages:[],cursor:'initial'});
+  const intentions:string[]=[];
+  const transport=new NativeTransport(session.baseUrl,async (url,options) => {
+    const path=new URL(String(url)).pathname;
+    if (path==='/.well-known/rocketvibe') return Response.json({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,idempotent_room_creation:true,room_discovery:true}});
+    if (path==='/api/v1/me') return Response.json(fixture.session.user);
+    if (path==='/api/v1/sync/changes') return Response.json({protocol_version:1,changes:[],cursor:'initial',has_more:false});
+    if (path==='/api/v1/sync/ticket') return Response.json(fixture.socket_ticket);
+    if (path==='/api/v1/rooms') {
+      intentions.push(JSON.parse(String(options?.body)).operation_id);
+      if (intentions.length===1) throw new Error('Response lost after commit');
+      return Response.json(fixture.room);
+    }
+    if (path==='/api/v1/rooms/public') return Response.json(fixture.public_room_page);
+    return Response.json(fixture.error,{status:404});
+  });
+  transport.restore(session.authToken);
+  const socket={readyState:0,onopen:null,onclose:null,onerror:null,onmessage:null,close:() => {}} as unknown as WebSocket;
+  let sequence=0;
+  const chat=new NativeChat(session,store,() => `room-intent-${++sequence}`,{transport,socket:() => {queueMicrotask(() => socket.onopen?.(new Event('open')));return socket;}});
+  try {
+    await chat.connect();
+    await assert.rejects(chat.createRoom('  Durable room  ',true),e => e instanceof NativeError && e.status===0);
+    const page=await chat.publicRooms('Public');
+    assert.equal(page.rooms[0].room.id,'public-room-id');
+    assert.equal(await chat.createRoom('Durable room',true),fixture.room.id);
+    assert.deepEqual(intentions,['room-intent-1','room-intent-1']);
+    assert.equal(sequence,1);
+    assert.equal(db.prepare('SELECT count(*) AS n FROM native_room_creations').get()?.n,0);
   } finally { chat.stop(); db.close(); }
 });

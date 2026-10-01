@@ -246,6 +246,29 @@ lint des fichiers mobiles concernés et génération / inventaire sans diff.
 GTK et bindings / modèles Swift sont compilés ; les validations sur appareils
 physiques restent ouvertes.
 
+## Neuvième incrément : création durable et salons publics
+
+Les clients enregistrent dans SQLite l'intention d'un formulaire de création avant
+sa requête. Après une réponse perdue ou un redémarrage, le même formulaire reprend
+son identité ; PostgreSQL renvoie son salon déjà créé, sans second événement.
+Les anciens clients v1 peuvent encore créer sans identité. Les reçus sont durables
+et refusent une identité réutilisée avec un autre nom / genre ou un envoi de message.
+
+L'annuaire public est paginé, borné à 20 entrées, avec recherche littérale et
+adhésion personnelle idempotente. Il ne révèle pas les salons privés / DM ; sa
+livraison protège aussi la visibilité et la révision des métadonnées. Le join
+préserve un rôle existant et publie un seul événement personnel. Les écrans de
+recherche mobile, GTK et SwiftUI consomment leurs modèles habituels.
+
+Vérifications locales : 37 tests Rust natifs, 33 TypeScript natifs, 983 tests
+mobiles et 206 tests cœur / bindings bureau ; formatage, Clippy, typecheck, lint,
+schéma et inventaire passent. Le serveur de production est construit puis testé
+avec PostgreSQL jetable : mobile et cœur bureau découvrent / rejoignent les salons
+de l'autre, GTK échange dans l'interface existante et reprend son compte du trousseau.
+Le modèle SwiftUI trouve un salon d'un autre compte, le rejoint et y envoie un
+message avec les vrais bindings et le vrai Secret Service. Les essais physiques
+restent ouverts.
+
 ## Pour fermer J1
 
 - [x] Pilote mobile : sonde, connexion, stockage sécurisé, SQLite et outbox.
@@ -260,7 +283,7 @@ physiques restent ouvertes.
 - [x] Pagination d'un snapshot matérialisé pour dépasser les bornes du pilote.
 - [x] Ordonnancement des révocations avec les réponses / sockets actives, barrière
   PostgreSQL et vérification des versions d'autorisation avant livraison.
-- [ ] Création de salon idempotente et découverte / adhésion aux salons publics.
+- [x] Création de salon idempotente et découverte / adhésion aux salons publics.
 
 Le parcours mobile pilote et les tests sans appareil ne ferment pas J1 : il exige
 les parcours Android / bureau et les garanties restantes ci-dessus.

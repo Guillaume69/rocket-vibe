@@ -9,6 +9,10 @@ release, et ses notes sont la section de la version ici.
 
 ### Ajouté
 
+- Recherche et adhésion aux salons publics RocketVibe dans l'écran existant.
+  Une création interrompue conserve son identité dans SQLite pour être retentée
+  après reconnexion ou redémarrage sans créer un second salon.
+
 - Reprise automatique des envois RocketVibe après revalidation des droits,
   sans marquer l'intention persistante comme définitivement refusée.
 

@@ -158,7 +158,7 @@ ouverte tant que serveur, clients concernés et scénario de parité manquent.
 | P01 Découverte / comptes / sessions | J1–J2 | Socle livré ; rotation, appareils, récupération et invitations à livrer |
 | P02 2FA | J2 | Défis TOTP / email / secours, quotas et parcours existants dans les 3 clients |
 | P03 Multi-serveurs | J1 | Isolation livrée ; validation appareils / liens et générations après restauration |
-| P04 Salons / DM | J1–J2 | DM / membres livrés ; création idempotente, découverte / join, détails / rôles / UI |
+| P04 Salons / DM | J1–J2 | DM / membres, création idempotente et découverte / join livrés ; détails / rôles à compléter |
 | P05 Favoris / non-lus / mentions | J2 | Modèle figé ; états personnels et compteurs atomiques à livrer |
 | P06 Historique / temps réel | J1–J2 | Socle, snapshots matérialisés et barrière de révocation livrés ; tombstones / actions J2 |
 | P07 Markdown / emojis / citations | J2–J3 | Corpus testé ; références / messages système / catalogue natif et raccordement |

@@ -33,6 +33,8 @@ pub fn router(app: App) -> Router {
         .route("/api/v1/me", get(me))
         .route("/api/v1/users", get(users))
         .route("/api/v1/rooms", get(rooms).post(create_room))
+        .route("/api/v1/rooms/public", get(public_rooms))
+        .route("/api/v1/rooms/{room}/join", post(join_public))
         .route("/api/v1/direct-messages", post(direct))
         .route(
             "/api/v1/rooms/{room}/members/{user}",
@@ -103,6 +105,8 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
         api_path: "/api/v1".into(),
         capabilities: rv_protocol::Capabilities {
             snapshot_paging: true,
+            idempotent_room_creation: true,
+            room_discovery: true,
             ..Default::default()
         },
     }))
@@ -172,6 +176,42 @@ async fn create_room(
     let hash = auth::bearer(&headers)?;
     let account = auth::authenticate(&app, &hash).await?;
     let room = store::create_room(&app, &account, body(input)?).await?;
+    let proof = ReadProof::capture(&app, &account, Scope::Room(&room.id)).await?;
+    proof
+        .json(&app, &hash, &room, std::slice::from_ref(&room.id), None)
+        .await
+}
+
+#[derive(Deserialize)]
+struct Directory {
+    q: Option<String>,
+    after: Option<String>,
+}
+
+async fn public_rooms(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(input): Query<Directory>,
+) -> Result<Response> {
+    let (account, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    let page = store::public_rooms(
+        &app,
+        &account,
+        input.q.as_deref().unwrap_or(""),
+        input.after.as_deref(),
+    )
+    .await?;
+    proof.public_json(&app, &hash, &page).await
+}
+
+async fn join_public(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+) -> Result<Response> {
+    let hash = auth::bearer(&headers)?;
+    let account = auth::authenticate(&app, &hash).await?;
+    let room = store::join_public(&app, &account, &room).await?;
     let proof = ReadProof::capture(&app, &account, Scope::Room(&room.id)).await?;
     proof
         .json(&app, &hash, &room, std::slice::from_ref(&room.id), None)

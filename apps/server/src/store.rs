@@ -103,11 +103,45 @@ pub(crate) async fn require_member(
 
 pub async fn create_room(app: &App, account: &Account, input: CreateRoom) -> Result<Room> {
     let name = input.name.trim();
-    if name.is_empty() || name.len() > 128 {
+    if name.is_empty()
+        || name.len() > 128
+        || input
+            .operation_id
+            .as_deref()
+            .is_some_and(|id| !identifier(id))
+    {
         return Err(Error::invalid());
     }
     let mut tx = app.pool.begin().await?;
     lock_active(&mut tx, account).await?;
+    if let Some(operation) = &input.operation_id {
+        let previous: Option<(String,bool,String)> = sqlx::query_as("SELECT name,private,room_id FROM room_creation_requests WHERE user_id=$1 AND operation_id=$2")
+            .bind(&account.id).bind(operation).fetch_optional(&mut *tx).await?;
+        if let Some((previous_name, private, room_id)) = previous {
+            if previous_name != name || private != input.private {
+                return Err(Error::conflict());
+            }
+            require_member(&mut tx, &room_id, &account.id).await?;
+            let room =
+                sqlx::query_as::<_, RoomRow>("SELECT id,name,kind,revision FROM rooms WHERE id=$1")
+                    .bind(room_id)
+                    .fetch_one(&mut *tx)
+                    .await?
+                    .wire();
+            tx.commit().await?;
+            return Ok(room);
+        }
+        let used: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM messages WHERE author_id=$1 AND operation_id=$2)",
+        )
+        .bind(&account.id)
+        .bind(operation)
+        .fetch_one(&mut *tx)
+        .await?;
+        if used {
+            return Err(Error::conflict());
+        }
+    }
     let id = random_token()[..24].to_owned();
     let kind = if input.private { "private" } else { "public" };
     sqlx::query("INSERT INTO rooms(id,name,kind) VALUES($1,$2,$3)")
@@ -134,6 +168,10 @@ pub async fn create_room(app: &App, account: &Account, input: CreateRoom) -> Res
         revision: position,
     }
     .wire();
+    if let Some(operation) = input.operation_id {
+        sqlx::query("INSERT INTO room_creation_requests(user_id,operation_id,name,private,room_id) VALUES($1,$2,$3,$4,$5)")
+            .bind(&account.id).bind(operation).bind(name).bind(input.private).bind(&room.id).execute(&mut *tx).await?;
+    }
     event(
         &mut tx,
         position,
@@ -142,6 +180,80 @@ pub async fn create_room(app: &App, account: &Account, input: CreateRoom) -> Res
         Change::RoomUpsert(room.clone()),
     )
     .await?;
+    tx.commit().await?;
+    Ok(room)
+}
+
+pub async fn public_rooms(
+    app: &App,
+    account: &Account,
+    query: &str,
+    after: Option<&str>,
+) -> Result<rv_protocol::PublicRoomPage> {
+    if query.len() > 128 || after.is_some_and(|id| !identifier(id)) {
+        return Err(Error::invalid());
+    }
+    // Literal substring search: user '%'/'_' characters are not SQL wildcards.
+    let rows: Vec<(String,String,String,i64,bool)> = sqlx::query_as("SELECT r.id,r.name,r.kind,r.revision,EXISTS(SELECT 1 FROM members m WHERE m.room_id=r.id AND m.user_id=$1) FROM rooms r WHERE r.kind='public' AND strpos(lower(r.name),lower($2))>0 AND r.id>$3 ORDER BY r.id LIMIT 21")
+        .bind(&account.id).bind(query.trim()).bind(after.unwrap_or("")).fetch_all(&app.pool).await?;
+    let more = rows.len() > 20;
+    let rooms: Vec<_> = rows
+        .into_iter()
+        .take(20)
+        .map(
+            |(id, name, kind, revision, joined)| rv_protocol::PublicRoom {
+                room: RoomRow {
+                    id,
+                    name,
+                    kind,
+                    revision,
+                }
+                .wire(),
+                joined,
+            },
+        )
+        .collect();
+    let next = if more {
+        rooms.last().map(|r| r.room.id.clone())
+    } else {
+        None
+    };
+    Ok(rv_protocol::PublicRoomPage { rooms, next })
+}
+
+pub async fn join_public(app: &App, account: &Account, room_id: &str) -> Result<Room> {
+    if !identifier(room_id) {
+        return Err(Error::invalid());
+    }
+    let mut tx = app.pool.begin().await?;
+    lock_active(&mut tx, account).await?;
+    let room = sqlx::query_as::<_, RoomRow>(
+        "SELECT id,name,kind,revision FROM rooms WHERE id=$1 AND kind='public' FOR UPDATE",
+    )
+    .bind(room_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(Error::missing)?
+    .wire();
+    let inserted = sqlx::query(
+        "INSERT INTO members(room_id,user_id,role) VALUES($1,$2,'member') ON CONFLICT DO NOTHING",
+    )
+    .bind(room_id)
+    .bind(&account.id)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    if inserted > 0 {
+        let position = next_position(&mut tx).await?;
+        event(
+            &mut tx,
+            position,
+            room_id,
+            Some(&account.id),
+            Change::RoomUpsert(room.clone()),
+        )
+        .await?;
+    }
     tx.commit().await?;
     Ok(room)
 }
@@ -318,6 +430,16 @@ pub async fn send(
     // operation IDs across rooms, including malicious cross-room replays.
     lock_active(&mut tx, account).await?;
     require_member(&mut tx, room_id, &account.id).await?;
+    let used: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM room_creation_requests WHERE user_id=$1 AND operation_id=$2)",
+    )
+    .bind(&account.id)
+    .bind(&input.operation_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if used {
+        return Err(Error::conflict());
+    }
     let query = format!("{MESSAGE_SELECT} WHERE m.author_id=$1 AND m.operation_id=$2");
     if let Some(existing) = sqlx::query_as::<_, MessageRow>(&query)
         .bind(&account.id)

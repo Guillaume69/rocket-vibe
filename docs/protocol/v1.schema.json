@@ -96,6 +96,10 @@
           "default": false,
           "type": "boolean"
         },
+        "idempotent_room_creation": {
+          "default": false,
+          "type": "boolean"
+        },
         "pins": {
           "default": false,
           "type": "boolean"
@@ -260,6 +264,13 @@
       "properties": {
         "name": {
           "type": "string"
+        },
+        "operation_id": {
+          "description": "Absent only for clients predating durable room creation.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "private": {
           "type": "boolean"
@@ -778,6 +789,41 @@
       ],
       "type": "object"
     },
+    "PublicRoom": {
+      "properties": {
+        "joined": {
+          "type": "boolean"
+        },
+        "room": {
+          "$ref": "#/$defs/Room"
+        }
+      },
+      "required": [
+        "room",
+        "joined"
+      ],
+      "type": "object"
+    },
+    "PublicRoomPage": {
+      "properties": {
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rooms": {
+          "items": {
+            "$ref": "#/$defs/PublicRoom"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "rooms"
+      ],
+      "type": "object"
+    },
     "QuoteReference": {
       "properties": {
         "message_id": {
@@ -1286,6 +1332,9 @@
     "parity": {
       "$ref": "#/$defs/ParityContract"
     },
+    "public_room_page": {
+      "$ref": "#/$defs/PublicRoomPage"
+    },
     "room": {
       "$ref": "#/$defs/Room"
     },
@@ -1314,6 +1363,7 @@
     "session",
     "room",
     "create_room",
+    "public_room_page",
     "direct_message",
     "send_message",
     "message",

@@ -34,7 +34,9 @@ présence ne déclare pas les endpoints correspondants disponibles.
 | POST | `/auth/login` | `{ username, password }` → session, expiration, utilisateur |
 | POST | `/auth/logout` | Révoquer cette session et ses tickets WebSocket |
 | GET | `/me`, `/users` | Compte courant ; annuaire de l'instance limité à 100 entrées |
-| GET / POST | `/rooms` | Salons dont je suis membre ; créer `{ name, private }` |
+| GET / POST | `/rooms` | Salons dont je suis membre ; créer `{ name, private, operation_id? }` |
+| GET | `/rooms/public?q=…&after=…` | Noms des salons publics, 20 entrées, `PublicRoomPage` |
+| POST | `/rooms/{room}/join` | Adhérer soi-même à un salon public ; rejouable |
 | POST | `/direct-messages` | `{ user_id }` → DM unique pour cette paire |
 | POST / DELETE | `/rooms/{room}/members/{user}` | Ajouter / retirer, propriétaire du salon uniquement |
 | GET | `/rooms/{room}/messages?before=…&limit=…` | Historique décroissant, keyset, limite 1–100 |
@@ -48,8 +50,31 @@ présence ne déclare pas les endpoints correspondants disponibles.
 
 La création de compte est une commande locale, pas une inscription HTTP publique.
 Les capacités `threads`, `reactions`, `uploads`, `push`, `e2ee`, `calls` sont fausses.
-Les salons publics existent mais leur découverte / adhésion libre restent à livrer.
+`room_discovery` annonce l'annuaire et l'adhésion ; `idempotent_room_creation`
+annonce les reçus de création. Leurs handlers sont disponibles dans les trois clients.
 Les droits d'administration ne donnent pas accès aux conversations privées.
+
+### Création et découverte des salons
+
+Les clients récents enregistrent l'identité de création dans SQLite avant la
+requête. Un formulaire interrompu reprend la même identité et le même nom / genre
+après réessai ou redémarrage ; ils ne lancent pas automatiquement une autre création.
+Après réception du résultat, le formulaire est terminé ; une création ultérieure
+est une nouvelle intention. Un serveur natif plus ancien reçoit encore `{name,private}`.
+
+Les reçus PostgreSQL sont liés au compte et persistants. Un rejeu renvoie le même
+salon sans événement supplémentaire, après vérification de son adhésion ; une
+identité utilisée avec un autre nom / genre ou une opération d'envoi produit
+`409 operation_conflict`. `operation_id` reste facultatif pour les anciens clients
+v1, qui n'ont donc pas cette garantie de création. Le nom est normalisé par `trim`.
+
+L'annuaire expose uniquement les métadonnées publiques, recherche une sous-chaîne
+littérale sans joker et utilise l'ID du dernier résultat comme `after`. Il ne
+donne accès ni aux messages ni aux adhésions des autres comptes. Chaque livraison
+retient les salons publics et revérifie leur nom / révision / visibilité ; une
+visibilité devenue privée invalide une réponse préparée. L'adhésion ne vise que
+l'acteur, conserve un rôle existant et ajoute un seul `room_upsert` personnel au
+journal. Les salons privés, DM et IDs absents renvoient le même `404`.
 
 ## Garanties de l'incrément
 
@@ -166,6 +191,6 @@ un Content-Length trop grand. La qualification de mémoire sur Android reste ouv
   PostgreSQL ; la charge, les appareils et les fonctions restantes de la RFC
   doivent encore être qualifiés avant de remplacer une instance Rocket.Chat.
 - Modifications / suppressions de messages, compteurs de non-lus et reste de la
-  matrice sont absents. Une création de salon n'a pas encore de clé d'idempotence.
+  matrice sont absents. La création est idempotente sur les clients natifs récents.
 
 Ces limites délimitent le pilote ; elles ne réduisent pas le périmètre de la RFC.

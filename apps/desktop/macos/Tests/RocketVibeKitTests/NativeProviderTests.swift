@@ -45,17 +45,38 @@ final class NativeProviderTests: XCTestCase {
         XCTAssertEqual(room.actions(for: message), [.copy])
         XCTAssertTrue(room.quickReactions.isEmpty)
 
+        let directoryClient = Client(home: home + "/directory-owner")
+        let directoryOwner = try await directoryClient.nativeLogin(server: server, user: "mobile", password: password)
+        defer { directoryOwner.shutdown() }
+        try await until { directoryOwner.status().state == .online }
+        let publicName = "swift-directory-\(UUID())"
+        let publicId = try await directoryOwner.createRoom(name: publicName, private: false)
+        XCTAssertFalse(app.rooms.contains { $0.rid == publicId })
+        let found = try await app.provider!.spotlight(query: publicName)
+        XCTAssertEqual(found.count, 1)
+        await app.go(to: found[0])
+        try await until { app.room?.room.rid == publicId && app.room?.loading == false }
+        XCTAssertEqual(app.room?.room.kind, "c")
+        let publicView = try XCTUnwrap(app.room)
+        publicView.draft = "Swift joined public directory"
+        await publicView.send()
+        try await until { publicView.messages.contains { $0.text == "Swift joined public directory" && $0.delivery == .sent } }
+        try await directoryOwner.logout()
+        app.open(rid)
+        let originalView = try XCTUnwrap(app.room)
+        try await until { !originalView.loading }
+
         native.suspend()
         try await until { app.connection == .offline }
-        room.draft = "Swift offline durable"
-        await room.send()
-        XCTAssertEqual(room.messages.last?.delivery, .pending)
-        let intent = try XCTUnwrap(room.messages.last?.id)
-        room.draft = "draft before switching"
+        originalView.draft = "Swift offline durable"
+        await originalView.send()
+        XCTAssertEqual(originalView.messages.last?.delivery, .pending)
+        let intent = try XCTUnwrap(originalView.messages.last?.id)
+        originalView.draft = "draft before switching"
         // The debounced save must be flushed even when switching immediately.
         let resumed = await app.resume(account)
         XCTAssertTrue(resumed)
-        XCTAssertTrue(room.messages.isEmpty, "The old room model must be inactive after switching")
+        XCTAssertTrue(originalView.messages.isEmpty, "The old room model must be inactive after switching")
         try await until { app.connection == .online }
         app.open(rid)
         let reopened = try XCTUnwrap(app.room)
@@ -63,8 +84,8 @@ final class NativeProviderTests: XCTestCase {
         try await until { reopened.messages.contains { $0.id == intent && $0.delivery == .sent } }
         XCTAssertEqual(reopened.messages.filter { $0.text == "Swift offline durable" }.count, 1)
         // Retained views / callbacks of the old account cannot enqueue another message.
-        room.draft = "stale callback"
-        await room.send()
+        originalView.draft = "stale callback"
+        await originalView.send()
         XCTAssertFalse(reopened.messages.contains { $0.text == "stale callback" })
 
         app.showLogin(error: nil)

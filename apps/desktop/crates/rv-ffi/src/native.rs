@@ -171,13 +171,13 @@ impl NativeChat {
     }
     pub async fn spotlight(&self, query: String) -> Result<Vec<Found>, RvError> {
         let s = self.session.clone();
-        let users = on_tokio(async move { s.users().await }).await.map_err(native_error)?;
-        let query = query.trim().to_lowercase();
-        Ok(users
+        let found = on_tokio(async move { s.spotlight(&query).await }).await.map_err(native_error)?;
+        Ok(found
             .into_iter()
-            .filter(|u| u.id != self.session.info.user_id && u.username.to_lowercase().contains(&query))
-            .take(50)
-            .map(|u| Found::User { id: u.id, username: u.username, name: None })
+            .map(|f| match f {
+                rv_core::rooms::Found::User { id, username, name } => Found::User { id, username, name },
+                rv_core::rooms::Found::Room { id, name, kind } => Found::Room { id, name, kind },
+            })
             .collect())
     }
     pub fn account(&self) -> Account {
@@ -257,6 +257,10 @@ impl NativeChat {
     pub async fn direct(&self, username: String) -> Result<String, RvError> {
         let s = self.session.clone();
         on_tokio(async move { s.direct(&username).await }).await.map_err(RvError::local)
+    }
+    pub async fn join_public(&self, room: String) -> Result<String, RvError> {
+        let s = self.session.clone();
+        on_tokio(async move { s.join_public(&room).await }).await.map_err(native_error)
     }
     pub async fn invite(&self, room: String, username: String) -> Result<(), RvError> {
         let s = self.session.clone();

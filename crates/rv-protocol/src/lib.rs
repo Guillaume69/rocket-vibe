@@ -50,6 +50,8 @@ pub struct Capabilities {
     pub quotes: bool,
     #[serde(default)]
     pub snapshot_paging: bool,
+    #[serde(default)]
+    pub idempotent_room_creation: bool,
 }
 
 impl Default for Capabilities {
@@ -80,6 +82,7 @@ impl Default for Capabilities {
             custom_emojis: false,
             quotes: false,
             snapshot_paging: false,
+            idempotent_room_creation: false,
         }
     }
 }
@@ -178,6 +181,21 @@ pub struct Room {
 pub struct CreateRoom {
     pub name: String,
     pub private: bool,
+    /// Absent only for clients predating durable room creation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct PublicRoom {
+    pub room: Room,
+    pub joined: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct PublicRoomPage {
+    pub rooms: Vec<PublicRoom>,
+    pub next: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -269,6 +287,7 @@ pub struct Contract {
     pub session: Session,
     pub room: Room,
     pub create_room: CreateRoom,
+    pub public_room_page: PublicRoomPage,
     pub direct_message: DirectMessage,
     pub send_message: SendMessage,
     pub message: Message,

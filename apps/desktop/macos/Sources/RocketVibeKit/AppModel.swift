@@ -318,7 +318,7 @@ public final class AppModel {
             case let .user(_, username, _):
                 rid = try await provider.direct(username: username)
             case let .room(id, _, _):
-                if !rooms.contains(where: { $0.rid == id }), let chat { try await chat.joinChannel(rid: id) }
+                if !rooms.contains(where: { $0.rid == id }) { try await provider.join(rid: id) }
                 rid = id
             }
             for _ in 0..<40 where !rooms.contains(where: { $0.rid == rid }) {

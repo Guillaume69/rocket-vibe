@@ -51,7 +51,7 @@ export class NativeStore {
   prepare(): Promise<void> {
     return this.atomic(async () => {
       if (await this.sameGeneration()) return;
-      for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+      for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs','native_room_creations']) await this.db.runAsync(`DELETE FROM ${table}`, []);
     });
   }
   drafts(): DepotBrouillons {
@@ -109,7 +109,7 @@ export class NativeStore {
       const old = await this.db.getFirstAsync<NativeState>('SELECT instance_id,data_epoch,cursor FROM native_sync_state WHERE singleton=1', []);
       if (!old || old.instance_id !== this.session.nativeInstanceId || old.data_epoch !== this.session.nativeDataEpoch) {
         // A fresh login to a different generation must never replay its predecessor's outbox.
-        for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'brouillons', 'native_positions', 'etat_synchro', 'utilisateurs']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+        for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'brouillons', 'native_positions', 'etat_synchro', 'utilisateurs', 'native_room_creations']) await this.db.runAsync(`DELETE FROM ${table}`, []);
       } else {
         const live = new Set(snapshot.rooms.map(room => room.id));
         const known = await this.db.getAllAsync<{rid:string}>('SELECT rid FROM salons', []);
@@ -141,6 +141,20 @@ export class NativeStore {
   }
   rooms(): Promise<NativeRoomRow[]> {
     return this.queue(async () => await this.sameGeneration() ? this.db.getAllAsync<NativeRoomRow>('SELECT rid,COALESCE(nom_affiche,nom,rid) AS nom,type,dernier_message FROM salons ORDER BY COALESCE(horodatage_dernier_message,0) DESC,rid', []) : []);
+  }
+  async roomCreation(name: string, privateRoom: boolean, generateId: () => string): Promise<string> {
+    let id='';
+    await this.atomic(async () => {
+      if (!await this.sameGeneration()) throw new Error('Native generation unavailable');
+      const previous = await this.db.getFirstAsync<{id:string}>('SELECT id FROM native_room_creations WHERE name=? AND private=?',[name,privateRoom?1:0]);
+      if (previous) { id=previous.id; return; }
+      id=generateId();
+      await this.db.runAsync('INSERT INTO native_room_creations(id,name,private) VALUES(?,?,?)',[id,name,privateRoom?1:0]);
+    });
+    return id;
+  }
+  completeRoomCreation(id: string): Promise<void> {
+    return this.queue(async () => { await this.db.runAsync('DELETE FROM native_room_creations WHERE id=?',[id]); });
   }
   messages(rid: string, limit = 500): Promise<NativeMessageRow[]> {
     if (!Number.isSafeInteger(limit) || limit < 1) throw new Error('Invalid message window');

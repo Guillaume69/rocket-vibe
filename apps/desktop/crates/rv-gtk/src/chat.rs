@@ -1228,8 +1228,23 @@ impl ChatPage {
     }
 
     fn new_conversation(self: &Rc<Self>) {
-        if self.native_session().is_some() {
-            self.native_conversation(false);
+        if let Some(session) = self.native_session() {
+            let (w1, w2, w3) = (Rc::downgrade(self), Rc::downgrade(self), Rc::downgrade(self));
+            crate::spotlight::open_native(
+                &self.split,
+                session,
+                move |rid| w1.upgrade().is_some_and(|this| this.rooms.borrow().iter().any(|r| r.rid == rid)),
+                move |found| {
+                    if let Some(this) = w2.upgrade() {
+                        this.go_to(found);
+                    }
+                },
+                move || {
+                    if let Some(this) = w3.upgrade() {
+                        this.native_conversation(false);
+                    }
+                },
+            );
             return;
         }
         let Some(session) = self.session() else { return };
@@ -1249,6 +1264,31 @@ impl ChatPage {
     /// A person: their DM, created if needed. A channel: joined if needed. Then opened.
     pub fn go_to(self: &Rc<Self>, found: rv_core::rooms::Found) {
         use rv_core::rooms::Found;
+        if let Some(session) = self.native_session() {
+            let weak = Rc::downgrade(self);
+            let expected = session.clone();
+            glib::spawn_future_local(async move {
+                let result = on_tokio(async move {
+                    match found {
+                        Found::User { username, .. } => session.direct(&username).await,
+                        Found::Room { id, .. } => session.join_public(&id).await,
+                    }
+                })
+                .await;
+                let Some(this) = weak.upgrade() else { return };
+                if this.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &expected)) {
+                    return;
+                }
+                match result {
+                    Ok(rid) => {
+                        this.reload_rooms();
+                        this.open_room(&rid);
+                    }
+                    Err(_) => this.toast(t("spotlight.open_failed").to_owned()),
+                }
+            });
+            return;
+        }
         let Some(session) = self.session() else { return };
         let joined = |rid: &str| self.rooms.borrow().iter().any(|r| r.rid == rid);
         let known = match &found {

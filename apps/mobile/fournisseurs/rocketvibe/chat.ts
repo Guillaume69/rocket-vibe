@@ -194,8 +194,12 @@ export class NativeChat {
   async createRoom(name: string, privateRoom: boolean): Promise<string> {
     this.ready();
     const generation = this.generation;
-    const room = await this.transport.createRoom({name:name.trim(),private:privateRoom});
+    name=name.trim();
+    if (!name || utf8RoomBytes(name)>128) throw new NativeError(400,'invalid_request');
+    const operation = this.capabilities?.idempotent_room_creation ? await this.store.roomCreation(name,privateRoom,this.id) : undefined;
+    const room = await this.transport.createRoom({name,private:privateRoom,...(operation?{operation_id:operation}:{})});
     if (this.stopped || generation !== this.generation) throw new NativeError(0,'session_closed');
+    if (operation) await this.store.completeRoomCreation(operation);
     // The next journal batch provides authoritative membership and the durable cursor.
     this.refresh(); return room.id;
   }
@@ -223,4 +227,24 @@ export class NativeChat {
     if (this.stopped || generation !== this.generation) throw new NativeError(0,'session_closed');
     return users;
   }
+  async publicRooms(query: string): Promise<import('./protocol.generated.ts').PublicRoomPage> {
+    this.ready();
+    if (!this.capabilities?.room_discovery) return {rooms:[],next:null};
+    const generation=this.generation;
+    const page=await this.transport.publicRooms(query);
+    if (this.stopped || generation!==this.generation) throw new NativeError(0,'session_closed');
+    return page;
+  }
+  async joinPublic(rid: string): Promise<string> {
+    this.ready();
+    if (!this.capabilities?.room_discovery) throw new NativeError(501,'unsupported_feature');
+    const generation=this.generation;
+    const room=await this.transport.joinPublic(rid);
+    if (this.stopped || generation!==this.generation) throw new NativeError(0,'session_closed');
+    this.refresh(); return room.id;
+  }
+}
+
+function utf8RoomBytes(value: string): number {
+  return encodeURIComponent(value).replace(/%[0-9A-F]{2}|./g,'x').length;
 }

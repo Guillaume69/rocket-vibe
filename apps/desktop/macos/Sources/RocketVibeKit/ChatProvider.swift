@@ -81,4 +81,8 @@ public enum ChatProvider {
         switch self { case let .rocketChat(chat): return try await chat.openDm(username: username)
         case let .rocketVibe(chat): return try await chat.direct(username: username) }
     }
+    func join(rid: String) async throws {
+        switch self { case let .rocketChat(chat): try await chat.joinChannel(rid: rid)
+        case let .rocketVibe(chat): _ = try await chat.joinPublic(room: rid) }
+    }
 }

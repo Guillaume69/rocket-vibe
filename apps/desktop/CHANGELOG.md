@@ -9,6 +9,9 @@ section here.
 
 ### Added
 
+- Native public rooms in the existing GTK / SwiftUI search and join flows;
+  interrupted room creation keeps its SQLite operation ID across retries and restarts.
+
 - Native sends remain retryable after a permission revalidation race and preserve
   their durable operation ID during reconnection.
 

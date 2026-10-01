@@ -42,6 +42,7 @@ impl NativeStore {
             CREATE INDEX IF NOT EXISTS native_messages_room ON native_messages(rid);
             CREATE TABLE IF NOT EXISTS native_outbox(id TEXT PRIMARY KEY,rid TEXT NOT NULL,text TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',error TEXT,created INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS native_drafts(rid TEXT PRIMARY KEY,text TEXT NOT NULL);")?;
+        conn.execute_batch("CREATE TABLE IF NOT EXISTS native_room_creations(id TEXT PRIMARY KEY,name TEXT NOT NULL,private INTEGER NOT NULL,UNIQUE(name,private));")?;
         let (changes, _) = broadcast::channel(64);
         let columns = conn
             .prepare("PRAGMA table_info(native_messages)")?
@@ -59,7 +60,14 @@ impl NativeStore {
     }
     pub fn clear(&self) -> rusqlite::Result<()> {
         self.atomic(|tx| {
-            for table in ["native_state", "native_rooms", "native_messages", "native_outbox", "native_drafts"] {
+            for table in [
+                "native_state",
+                "native_rooms",
+                "native_messages",
+                "native_outbox",
+                "native_drafts",
+                "native_room_creations",
+            ] {
                 tx.execute(&format!("DELETE FROM {table}"), [])?;
             }
             Ok(())
@@ -94,6 +102,37 @@ impl NativeStore {
     fn cursor_in(&self, tx: &Transaction, cursor: &str) -> rusqlite::Result<()> {
         tx.execute("INSERT INTO native_state VALUES(1,?1,?2,?3) ON CONFLICT(singleton) DO UPDATE SET instance=excluded.instance,epoch=excluded.epoch,cursor=excluded.cursor",params![self.identity.instance_id,self.identity.data_epoch,cursor])?;
         Ok(())
+    }
+    /// Repeating an unresolved form, including after process restart, retains
+    /// its intent. A received result completes it; transport failure does not.
+    pub fn room_creation(&self, name: &str, private: bool) -> rusqlite::Result<String> {
+        self.atomic(|tx| {
+            if !self.same(tx)? {
+                return Err(rusqlite::Error::InvalidQuery);
+            }
+            if let Some(id) = tx
+                .query_row(
+                    "SELECT id FROM native_room_creations WHERE name=?1 AND private=?2",
+                    params![name, private],
+                    |r| r.get(0),
+                )
+                .optional()?
+            {
+                return Ok(id);
+            }
+            let id = format!("{:032x}", fastrand::u128(..));
+            tx.execute(
+                "INSERT INTO native_room_creations(id,name,private) VALUES(?1,?2,?3)",
+                params![id, name, private],
+            )?;
+            Ok(id)
+        })
+    }
+    pub fn complete_room_creation(&self, id: &str) -> rusqlite::Result<()> {
+        self.atomic(|tx| {
+            tx.execute("DELETE FROM native_room_creations WHERE id=?1", [id])?;
+            Ok(())
+        })
     }
     fn room(tx: &Transaction, room: &Room) -> rusqlite::Result<()> {
         tx.execute(
@@ -140,7 +179,9 @@ impl NativeStore {
         }
         self.atomic(|tx| {
             if !self.same(tx)? {
-                for table in ["native_rooms", "native_messages", "native_outbox", "native_drafts"] {
+                for table in
+                    ["native_rooms", "native_messages", "native_outbox", "native_drafts", "native_room_creations"]
+                {
                     tx.execute(&format!("DELETE FROM {table}"), [])?;
                 }
             } else {
@@ -341,6 +382,21 @@ mod tests {
         assert_eq!(store.cursor().unwrap().as_deref(), Some("initial"));
         assert_eq!(store.pending().unwrap().len(), 1);
         assert_eq!(store.messages("room-id", 100).unwrap().last().unwrap().text, "queued");
+    }
+    #[test]
+    fn unresolved_room_creation_survives_reopen_and_reuses_its_intent() {
+        let path = std::env::temp_dir().join(format!("rv-room-{:032x}.sqlite", fastrand::u128(..)));
+        let original = NativeStore::open(&path, identity()).unwrap();
+        original.snapshot(&snapshot()).unwrap();
+        let id = original.room_creation("Durable room", true).unwrap();
+        drop(original);
+        let resumed = NativeStore::open(&path, identity()).unwrap();
+        assert_eq!(resumed.room_creation("Durable room", true).unwrap(), id);
+        resumed.complete_room_creation(&id).unwrap();
+        assert_ne!(resumed.room_creation("Durable room", true).unwrap(), id);
+        resumed.clear().unwrap();
+        drop(resumed);
+        std::fs::remove_file(path).unwrap();
     }
     #[test]
     fn withdrawal_and_late_history_cannot_restore_private_data() {

@@ -24,12 +24,16 @@ test('closing and reopening an on-disk SQLite database preserves the outbox and 
   try {
     const store = new NativeStore(original.adapter,creerFileEcritures(),session);
     await store.applySnapshot(snapshot); await store.enqueue('durable-intent',room.id,'Queued offline');
+    assert.equal(await store.roomCreation('Durable room',true,() => 'durable-room-intent'),'durable-room-intent');
     original.db.close();
     reopened = nativeTestDatabase(filename,false);
     const resumed = new NativeStore(reopened.adapter,creerFileEcritures(),session);
     assert.equal((await resumed.state())?.cursor,'initial');
     assert.deepEqual((await resumed.pending()).map(row => ({...row})),[{id:'durable-intent',rid:room.id,texte:'Queued offline'}]);
     assert.equal((await resumed.messages(room.id))[0].statut,'en-attente');
+    assert.equal(await resumed.roomCreation('Durable room',true,() => {throw new Error('must reuse persisted intent');}),'durable-room-intent');
+    await resumed.completeRoomCreation('durable-room-intent');
+    assert.equal(await resumed.roomCreation('Durable room',true,() => 'explicit-next-creation'),'explicit-next-creation');
   } finally {
     reopened?.db.close();
     if (!reopened) { try { original.db.close(); } catch { /* Already closed before an open failure. */ } }
@@ -56,7 +60,7 @@ test('failed batch never deletes the outbox or acknowledges an uncommitted messa
   await assert.rejects(store.applyBatch(batch));
   assert.equal((await store.state())?.cursor,'initial');
   assert.equal((await store.pending()).length,1);
-  assert.equal((await store.messages(room.id))[0].statut,'en-attente');
+    assert.equal((await store.messages(room.id))[0].statut,'en-attente');
   failWhen(null); await store.applyBatch(batch);
   assert.equal((await store.pending()).length,0);
   assert.equal((await store.state())?.cursor,'next');

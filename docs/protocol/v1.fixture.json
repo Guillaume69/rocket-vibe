@@ -20,6 +20,7 @@
   },
   "room": { "id": "room-id", "name": "A room", "kind": "private", "revision": "9007199254740993" },
   "create_room": { "name": "A room", "private": true },
+  "public_room_page": { "rooms": [{ "room": { "id": "public-room-id", "name": "Public room", "kind": "public", "revision": "9007199254740993" }, "joined": false }], "next": null },
   "direct_message": { "user_id": "bob-id" },
   "send_message": { "operation_id": "message-id", "text": "Bonjour 🚀" },
   "message": {

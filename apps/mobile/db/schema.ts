@@ -10,7 +10,7 @@
  * ambiguïté de fuseau.
  */
 
-import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 /** Type de salon Rocket.Chat : c=canal, p=groupe privé, d=direct, l=livechat. */
 export type TypeSalon = 'c' | 'p' | 'd' | 'l';
@@ -303,3 +303,9 @@ export const nativePositions = sqliteTable('native_positions', {
   position: text('position').notNull(),
   revision: text('revision').notNull(),
 }, (t) => [index('idx_native_positions_room').on(t.rid)]);
+
+export const nativeRoomCreations = sqliteTable('native_room_creations', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  privateRoom: integer('private', {mode:'boolean'}).notNull(),
+}, (t) => [uniqueIndex('idx_native_room_creation_form').on(t.name,t.privateRoom)]);

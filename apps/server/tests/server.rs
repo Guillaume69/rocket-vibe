@@ -101,6 +101,248 @@ async fn user(app: &App, username: &str) -> rv_protocol::User {
 }
 
 #[sqlx::test]
+async fn room_creation_replays_after_restart_without_duplicate_events(pool: PgPool) {
+    let app = App::from_pool(pool.clone()).await.unwrap();
+    user(&app, "alice").await;
+    let server = Server::start(pool.clone()).await;
+    let alice = server.login("alice").await;
+    let input = json!({"operation_id":"create-intent","name":"  Durable room  ","private":true});
+    // Ignore the response: the client cannot know the committed room ID.
+    assert_eq!(
+        server
+            .post(&alice.token, "/api/v1/rooms", input.clone())
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    drop(server);
+    let server = Server::start(pool.clone()).await;
+    let replies = futures_util::future::join_all(
+        (0..4).map(|_| server.post(&alice.token, "/api/v1/rooms", input.clone())),
+    )
+    .await;
+    let mut ids = std::collections::HashSet::new();
+    for reply in replies {
+        ids.insert(
+            reply
+                .error_for_status()
+                .unwrap()
+                .json::<Room>()
+                .await
+                .unwrap()
+                .id,
+        );
+    }
+    assert_eq!(ids.len(), 1);
+    let count: (i64, i64) =
+        sqlx::query_as("SELECT (SELECT count(*) FROM rooms),(SELECT count(*) FROM journal)")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(count, (1, 1));
+    for body in [
+        json!({"operation_id":"create-intent","name":"Other","private":true}),
+        json!({"operation_id":"create-intent","name":"Durable room","private":false}),
+    ] {
+        assert_eq!(
+            server
+                .post(&alice.token, "/api/v1/rooms", body)
+                .await
+                .status(),
+            StatusCode::CONFLICT
+        );
+    }
+    let id = ids.into_iter().next().unwrap();
+    assert_eq!(
+        server
+            .post(
+                &alice.token,
+                &format!("/api/v1/rooms/{id}/messages"),
+                json!({"operation_id":"create-intent","text":"Collision"})
+            )
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    server
+        .post(
+            &alice.token,
+            &format!("/api/v1/rooms/{id}/messages"),
+            json!({"operation_id":"send-intent","text":"Original"}),
+        )
+        .await
+        .error_for_status()
+        .unwrap();
+    assert_eq!(
+        server
+            .post(
+                &alice.token,
+                "/api/v1/rooms",
+                json!({"operation_id":"send-intent","name":"Collision","private":true})
+            )
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+}
+
+#[sqlx::test]
+async fn public_directory_pages_and_join_preserve_privacy_and_roles(pool: PgPool) {
+    let app = App::from_pool(pool.clone()).await.unwrap();
+    let alice_user = user(&app, "alice").await;
+    user(&app, "bob").await;
+    let server = Server::start(pool.clone()).await;
+    let alice = server.login("alice").await;
+    let bob = server.login("bob").await;
+    let private: Room = server
+        .post(
+            &alice.token,
+            "/api/v1/rooms",
+            json!({"name":"Secret directory name","private":true}),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    let direct: Room = server
+        .post(
+            &bob.token,
+            "/api/v1/direct-messages",
+            json!({"user_id":alice_user.id}),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    let mut public_ids = std::collections::HashSet::new();
+    for index in 0..25 {
+        let room: Room = server
+            .post(
+                &alice.token,
+                "/api/v1/rooms",
+                json!({"name":format!("Directory {index}%"),"private":false}),
+            )
+            .await
+            .json()
+            .await
+            .unwrap();
+        public_ids.insert(room.id);
+    }
+    let mut after = None;
+    let mut discovered = std::collections::HashSet::new();
+    loop {
+        let path = format!(
+            "/api/v1/rooms/public?q={}",
+            after
+                .as_ref()
+                .map(|id| format!("&after={id}"))
+                .unwrap_or_default()
+        );
+        let page: rv_protocol::PublicRoomPage = server
+            .get(&bob.token, &path)
+            .await
+            .error_for_status()
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert!(page.rooms.len() <= 20);
+        for hit in page.rooms {
+            assert!(!hit.joined);
+            assert_eq!(hit.room.kind, rv_protocol::RoomKind::Public);
+            assert!(discovered.insert(hit.room.id));
+        }
+        after = page.next;
+        if after.is_none() {
+            break;
+        }
+    }
+    assert_eq!(discovered, public_ids);
+    let absent: rv_protocol::PublicRoomPage = server
+        .get(&bob.token, "/api/v1/rooms/public?q=Secret")
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(absent.rooms.is_empty());
+    let literal: rv_protocol::PublicRoomPage = server
+        .get(&bob.token, "/api/v1/rooms/public?q=%25")
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(literal.rooms.len(), 20);
+    for id in [private.id, direct.id, "absent".into()] {
+        assert_eq!(
+            server
+                .post(&bob.token, &format!("/api/v1/rooms/{id}/join"), json!({}))
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+    let id = public_ids.into_iter().min().unwrap();
+    assert_eq!(
+        server
+            .get(&bob.token, &format!("/api/v1/rooms/{id}/messages"))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let snapshot = server.snapshot(&bob.token).await;
+    for _ in 0..2 {
+        server
+            .post(&bob.token, &format!("/api/v1/rooms/{id}/join"), json!({}))
+            .await
+            .error_for_status()
+            .unwrap();
+    }
+    let replay = server.changes(&bob.token, &snapshot.cursor).await;
+    assert_eq!(replay.changes.len(), 1);
+    assert!(matches!(&replay.changes[0],Change::RoomUpsert(r) if r.id==id));
+    server
+        .post(&alice.token, &format!("/api/v1/rooms/{id}/join"), json!({}))
+        .await
+        .error_for_status()
+        .unwrap();
+    let owner: String =
+        sqlx::query_scalar("SELECT role FROM members WHERE room_id=$1 AND user_id=$2")
+            .bind(&id)
+            .bind(&alice_user.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(owner, "owner");
+    let page: rv_protocol::PublicRoomPage = server
+        .get(&bob.token, "/api/v1/rooms/public?q=Directory")
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        page.rooms
+            .iter()
+            .find(|hit| hit.room.id == id)
+            .unwrap()
+            .joined
+    );
+    let underscore: rv_protocol::PublicRoomPage = server
+        .get(&bob.token, "/api/v1/rooms/public?q=Directory%202_")
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        underscore.rooms.is_empty(),
+        "directory wildcards must be literal"
+    );
+    assert_eq!(
+        server.get("invalid", "/api/v1/rooms/public").await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[sqlx::test]
 async fn sends_and_direct_creation_allow_foreign_key_checks(pool: PgPool) {
     let app = App::from_pool(pool.clone()).await.unwrap();
     let alice = user(&app, "alice").await;

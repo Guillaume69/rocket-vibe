@@ -115,6 +115,10 @@ export class NativeTransport {
     return users.map(user => decodeNative('User', user));
   }
   createRoom(input: CreateRoom): Promise<Room> { return this.request('Room', '/api/v1/rooms', input); }
+  publicRooms(query: string, after?: string): Promise<NativeTypes['PublicRoomPage']> {
+    return this.request('PublicRoomPage', `/api/v1/rooms/public?q=${encodeURIComponent(query)}${after?`&after=${encodeURIComponent(after)}`:''}`);
+  }
+  joinPublic(room: string): Promise<Room> { return this.request('Room', `/api/v1/rooms/${encodeURIComponent(room)}/join`, {}); }
   direct(input: DirectMessage): Promise<Room> { return this.request('Room', '/api/v1/direct-messages', input); }
   async addMember(room: string, user: string): Promise<void> { await this.value(`/api/v1/rooms/${encodeURIComponent(room)}/members/${encodeURIComponent(user)}`, {}); }
   send(room: string, input: SendMessage): Promise<Message> { return this.request('Message', `/api/v1/rooms/${encodeURIComponent(room)}/messages`, input); }

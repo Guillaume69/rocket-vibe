@@ -52,6 +52,21 @@ async fn main() {
     let rid = room(&desktop, "native-pilot").unwrap();
     let private = room(&desktop, "native-withdrawal").unwrap();
     until(|| has(&desktop, &rid, "Message du mobile") && has(&desktop, &private, "Private before withdrawal")).await;
+    let discovery = desktop.spotlight("native-discovery").await.unwrap();
+    let discovered = discovery
+        .into_iter()
+        .find_map(|hit| match hit {
+            rv_core::rooms::Found::Room { id, .. } => Some(id),
+            _ => None,
+        })
+        .unwrap();
+    assert!(!desktop.store.rooms().unwrap().iter().any(|r| r.id == discovered));
+    assert_eq!(desktop.join_public(&discovered).await.unwrap(), discovered);
+    until(|| {
+        desktop.status().connection == Connection::Online
+            && desktop.store.rooms().unwrap().iter().any(|r| r.id == discovered)
+    })
+    .await;
     let mut control = NativeClient::new(&base).unwrap();
     control.restore(info.auth_token.clone());
     desktop.suspend();
@@ -82,6 +97,15 @@ async fn main() {
     })
     .await;
     desktop.invite(&created, "mobile").await.unwrap();
+    let public = desktop.create_room("Desktop public discovery", false).await.unwrap();
+    until(|| {
+        desktop.status().connection == Connection::Online
+            && desktop.store.rooms().unwrap().iter().any(|r| r.id == public)
+    })
+    .await;
+    marker(&control, &rid, "desktop-public-created").await;
+    remote_has(&control, &rid, "mobile-public-joined").await;
+    remote_has(&control, &public, "Mobile joined desktop public").await;
     let dm = desktop.direct("mobile").await.unwrap();
     until(|| {
         desktop.status().connection == Connection::Online && desktop.store.rooms().unwrap().iter().any(|r| r.id == dm)
@@ -109,5 +133,7 @@ async fn main() {
     drop(desktop);
     tokio::time::sleep(Duration::from_millis(50)).await;
     std::fs::remove_file(path).unwrap();
-    println!("Native desktop core: mobile exchange, on-disk outbox replay, drafts, DM, creation and withdrawal passed");
+    println!(
+        "Native desktop core: mobile exchange, public discovery/join, on-disk outbox replay, drafts, DM, creation and withdrawal passed"
+    );
 }

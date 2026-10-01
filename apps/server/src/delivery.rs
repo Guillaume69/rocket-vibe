@@ -167,16 +167,45 @@ impl ReadProof {
     ) -> Result<Response> {
         let bytes = Bytes::from(serde_json::to_vec(value).map_err(|_| Error::internal())?);
         let lease = self.lock(app, session, rooms, snapshot).await?;
-        let length = bytes.len();
-        let mut response = Response::new(Body::from_stream(LeasedBody::new(bytes, lease)));
-        response
-            .headers_mut()
-            .insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
-        response
-            .headers_mut()
-            .insert(header::CONTENT_LENGTH, length.into());
-        Ok(response)
+        Ok(leased_json(bytes, lease))
     }
+
+    pub async fn public_json(
+        &self,
+        app: &App,
+        session: &str,
+        page: &rv_protocol::PublicRoomPage,
+    ) -> Result<Response> {
+        let bytes = Bytes::from(serde_json::to_vec(page).map_err(|_| Error::internal())?);
+        let mut lease = self.lock(app, session, &[], None).await?;
+        let ids: Vec<_> = page.rooms.iter().map(|r| r.room.id.clone()).collect();
+        let current:Vec<(String,String,i64)>=sqlx::query_as("SELECT id,name,revision FROM rooms WHERE kind='public' AND id=ANY($1) ORDER BY id FOR SHARE")
+            .bind(&ids).fetch_all(&mut *lease).await?;
+        if current.len() != page.rooms.len()
+            || page.rooms.iter().any(|hit| {
+                !current.iter().any(|(id, name, revision)| {
+                    id == &hit.room.id
+                        && name == &hit.room.name
+                        && revision.to_string() == hit.room.revision
+                })
+            })
+        {
+            return Err(changed());
+        }
+        Ok(leased_json(bytes, lease))
+    }
+}
+
+fn leased_json(bytes: Bytes, lease: Transaction<'static, Postgres>) -> Response {
+    let length = bytes.len();
+    let mut response = Response::new(Body::from_stream(LeasedBody::new(bytes, lease)));
+    response
+        .headers_mut()
+        .insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
+    response
+        .headers_mut()
+        .insert(header::CONTENT_LENGTH, length.into());
+    response
 }
 
 /// The task owns the transaction so an unpolled body cannot retain locks
@@ -263,6 +292,7 @@ mod tests {
             CreateRoom {
                 name: "Secret".into(),
                 private: true,
+                operation_id: None,
             },
         )
         .await
@@ -380,6 +410,66 @@ mod tests {
                 .await
                 .unwrap();
         }
+    }
+
+    #[sqlx::test]
+    async fn public_metadata_cannot_be_delivered_after_its_visibility_changes(pool: PgPool) {
+        let f = fixture(pool.clone()).await;
+        let room = store::create_room(
+            &f.app,
+            &f.owner,
+            CreateRoom {
+                name: "Public metadata".into(),
+                private: false,
+                operation_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let proof = ReadProof::capture(&f.app, &f.reader, Scope::None)
+            .await
+            .unwrap();
+        let page = store::public_rooms(&f.app, &f.reader, "Public metadata", None)
+            .await
+            .unwrap();
+        let response = proof.public_json(&f.app, &f.hash, &page).await.unwrap();
+        let other = pool.clone();
+        let id = room.id.clone();
+        let change = tokio::spawn(async move {
+            sqlx::query("UPDATE rooms SET kind='private' WHERE id=$1")
+                .bind(id)
+                .execute(&other)
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(2),async {
+            loop {
+                let blocked:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'UPDATE rooms SET kind%')").fetch_one(&pool).await.unwrap();
+                if blocked { break; }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }).await.unwrap();
+        assert!(!change.is_finished());
+        to_bytes(response.into_body(), 4096).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(2), change)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            proof
+                .public_json(&f.app, &f.hash, &page)
+                .await
+                .unwrap_err()
+                .code,
+            "delivery_revalidate"
+        );
+        assert!(
+            store::public_rooms(&f.app, &f.reader, "Public metadata", None)
+                .await
+                .unwrap()
+                .rooms
+                .is_empty()
+        );
     }
 
     #[sqlx::test]
@@ -630,7 +720,8 @@ mod tests {
                     &f.reader,
                     CreateRoom {
                         name: "Must not exist".into(),
-                        private: true
+                        private: true,
+                        operation_id: None
                     }
                 )
                 .await

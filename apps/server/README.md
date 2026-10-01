@@ -6,7 +6,8 @@ transport Rust réutilisable `rv-client`. Le workspace natif à la racine exclut
 workspace bureau existant.
 
 Disponible : comptes créés par CLI, connexion par mot de passe, sessions révocables,
-salons privés / publics avec adhésions contrôlées, DM uniques, messages idempotents,
+salons privés / publics avec création idempotente et adhésions contrôlées,
+annuaire paginé des salons publics et adhésion personnelle, DM uniques, messages idempotents,
 historique paginé, snapshot cohérent et reprise du journal par HTTP / WebSocket.
 
 Les [écrans mobiles existants](../../docs/NATIVE_MOBILE_PILOT.md) et les interfaces

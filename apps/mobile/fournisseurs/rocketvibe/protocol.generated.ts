@@ -2,10 +2,10 @@
 export type AccountPermissions = { "create_private_room": boolean; "create_public_room": boolean; "manage_accounts": boolean; "manage_instance": boolean; };
 export type ApiError = { "code": string; "request_id": string; };
 export type AuthChallenge = { "challenge_id": string; "expires_at": string; "methods": (SecondFactor)[]; "resend_after_seconds": number; };
-export type Capabilities = { "calls": boolean; "custom_emojis"?: boolean; "deletion"?: boolean; "direct_messages": boolean; "durable_sync": boolean; "e2ee": boolean; "editing"?: boolean; "favorites"?: boolean; "pins"?: boolean; "presence"?: boolean; "private_rooms": boolean; "profiles"?: boolean; "push": boolean; "quotes"?: boolean; "reactions": boolean; "read_markers"?: boolean; "room_discovery"?: boolean; "room_info"?: boolean; "search"?: boolean; "snapshot_paging"?: boolean; "stars"?: boolean; "text_messages": boolean; "threads": boolean; "typing"?: boolean; "uploads": boolean; };
+export type Capabilities = { "calls": boolean; "custom_emojis"?: boolean; "deletion"?: boolean; "direct_messages": boolean; "durable_sync": boolean; "e2ee": boolean; "editing"?: boolean; "favorites"?: boolean; "idempotent_room_creation"?: boolean; "pins"?: boolean; "presence"?: boolean; "private_rooms": boolean; "profiles"?: boolean; "push": boolean; "quotes"?: boolean; "reactions": boolean; "read_markers"?: boolean; "room_discovery"?: boolean; "room_info"?: boolean; "search"?: boolean; "snapshot_paging"?: boolean; "stars"?: boolean; "text_messages": boolean; "threads": boolean; "typing"?: boolean; "uploads": boolean; };
 export type Change = { "data": Room; "type": "room_upsert"; } | { "data": Message; "type": "message_upsert"; } | { "data": { "room_id": string; }; "type": "room_removed"; };
 export type CompleteUpload = { "content": MessageContent; "operation_id": string; "reply_to"?: string | null; };
-export type CreateRoom = { "name": string; "private": boolean; };
+export type CreateRoom = { "name": string; "operation_id"?: string | null; "private": boolean; };
 export type DeleteMessage = { "expected_revision": string; "operation_id": string; };
 export type DirectMessage = { "user_id": string; };
 export type Discovery = { "api_path": string; "capabilities": Capabilities; "data_epoch": string; "instance_id": string; "product": string; "protocol_versions": (number)[]; "server_version": string; };
@@ -21,6 +21,8 @@ export type MessagePermissions = { "delete": boolean; "edit": boolean; "edit_unt
 export type ParityContract = { "account_permissions": AccountPermissions; "auth_challenge": AuthChallenge; "complete_upload": CompleteUpload; "delete_message": DeleteMessage; "edit_message": EditMessage; "file": FileDescriptor; "key_backup": EncryptedKeyBackup; "mark": SetMark; "mark_read": MarkRead; "message_permissions": MessagePermissions; "preferences": UserPreferences; "prepare_upload": PrepareUpload; "profile": UserProfile; "public_device_key": PublicDeviceKey; "reaction": SetReaction; "read_state": ReadState; "room_key_envelope": RoomKeyEnvelope; "room_permissions": RoomPermissions; "verify_factor": VerifyFactor; };
 export type PrepareUpload = { "bytes": string; "encrypted": boolean; "filename"?: string | null; "media_type": string; "operation_id": string; "room_id": string; "sha256": string; };
 export type PublicDeviceKey = { "device_id": string; "fingerprint": string; "format": string; "public_key": string; "revision": string; "user_id": string; };
+export type PublicRoom = { "joined": boolean; "room": Room; };
+export type PublicRoomPage = { "next"?: string | null; "rooms": (PublicRoom)[]; };
 export type QuoteReference = { "message_id": string; "revision": string; "room_id": string; };
 export type ReadState = { "favorite": boolean; "group_mentions": string; "mentions": string; "reply_position": string; "revision": string; "room_id": string; "root_position": string; "unread_replies": string; "unread_roots": string; };
 export type Room = { "id": string; "kind": RoomKind; "name": string; "revision": string; };
@@ -42,7 +44,7 @@ export type UserPreferences = { "clock_24h": boolean; "language": string; "push_
 export type UserProfile = { "avatar_file_id"?: string | null; "bio": string; "revision": string; "status_text": string; "user": User; };
 export type VerifyFactor = { "challenge_id": string; "code": string; "method": SecondFactor; };
 
-export type NativeTypes = { AccountPermissions: AccountPermissions; ApiError: ApiError; AuthChallenge: AuthChallenge; Capabilities: Capabilities; Change: Change; CompleteUpload: CompleteUpload; CreateRoom: CreateRoom; DeleteMessage: DeleteMessage; DirectMessage: DirectMessage; Discovery: Discovery; EditMessage: EditMessage; EncryptedKeyBackup: EncryptedKeyBackup; FileDescriptor: FileDescriptor; Login: Login; MarkRead: MarkRead; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; ParityContract: ParityContract; PrepareUpload: PrepareUpload; PublicDeviceKey: PublicDeviceKey; QuoteReference: QuoteReference; ReadState: ReadState; Room: Room; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomPermissions: RoomPermissions; RoomRole: RoomRole; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetReaction: SetReaction; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; SyncBatch: SyncBatch; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; };
+export type NativeTypes = { AccountPermissions: AccountPermissions; ApiError: ApiError; AuthChallenge: AuthChallenge; Capabilities: Capabilities; Change: Change; CompleteUpload: CompleteUpload; CreateRoom: CreateRoom; DeleteMessage: DeleteMessage; DirectMessage: DirectMessage; Discovery: Discovery; EditMessage: EditMessage; EncryptedKeyBackup: EncryptedKeyBackup; FileDescriptor: FileDescriptor; Login: Login; MarkRead: MarkRead; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; ParityContract: ParityContract; PrepareUpload: PrepareUpload; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; QuoteReference: QuoteReference; ReadState: ReadState; Room: Room; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomPermissions: RoomPermissions; RoomRole: RoomRole; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetReaction: SetReaction; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; SyncBatch: SyncBatch; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; };
 
 export const nativeSchema = {
   "$defs": {
@@ -139,6 +141,10 @@ export const nativeSchema = {
           "type": "boolean"
         },
         "favorites": {
+          "default": false,
+          "type": "boolean"
+        },
+        "idempotent_room_creation": {
           "default": false,
           "type": "boolean"
         },
@@ -306,6 +312,13 @@ export const nativeSchema = {
       "properties": {
         "name": {
           "type": "string"
+        },
+        "operation_id": {
+          "description": "Absent only for clients predating durable room creation.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "private": {
           "type": "boolean"
@@ -824,6 +837,41 @@ export const nativeSchema = {
       ],
       "type": "object"
     },
+    "PublicRoom": {
+      "properties": {
+        "joined": {
+          "type": "boolean"
+        },
+        "room": {
+          "$ref": "#/$defs/Room"
+        }
+      },
+      "required": [
+        "room",
+        "joined"
+      ],
+      "type": "object"
+    },
+    "PublicRoomPage": {
+      "properties": {
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rooms": {
+          "items": {
+            "$ref": "#/$defs/PublicRoom"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "rooms"
+      ],
+      "type": "object"
+    },
     "QuoteReference": {
       "properties": {
         "message_id": {
@@ -1332,6 +1380,9 @@ export const nativeSchema = {
     "parity": {
       "$ref": "#/$defs/ParityContract"
     },
+    "public_room_page": {
+      "$ref": "#/$defs/PublicRoomPage"
+    },
     "room": {
       "$ref": "#/$defs/Room"
     },
@@ -1360,6 +1411,7 @@ export const nativeSchema = {
     "session",
     "room",
     "create_room",
+    "public_room_page",
     "direct_message",
     "send_message",
     "message",

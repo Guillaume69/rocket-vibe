@@ -30,14 +30,23 @@ const outbox=provider.creerEnvoi(creerDepotEnvoi(database.adapter,queue),async()
 async function until(check:()=>Promise<boolean>) {const end=Date.now()+120_000;while(!await check()){if(Date.now()>end)throw new Error('Desktop/mobile peer timed out');await new Promise(r=>setTimeout(r,50));}}
 async function has(text:string){return(await store.messages(publicRoom.id,1000)).some(m=>m.texte===text);}
 try {
-  await chat.connect();await outbox.envoyer(publicRoom.id,'Message du mobile');await outbox.envoyer(privateRoom.id,'Private before withdrawal');
+  await chat.connect();
+  await chat.createRoom('native-discovery',false);
+  await outbox.envoyer(publicRoom.id,'Message du mobile');await outbox.envoyer(privateRoom.id,'Private before withdrawal');
   await until(()=>has('desktop-offline-trigger'));
   await outbox.envoyer(publicRoom.id,'mobile-missed-while-desktop-offline');
+  await until(()=>has('desktop-public-created'));
+  const directory=await chat.publicRooms('Desktop public discovery');
+  assert.equal(directory.rooms.length,1);assert.equal(directory.rooms[0].joined,false);
+  const joined=await chat.joinPublic(directory.rooms[0].room.id);
+  await until(async()=>chat.status.online && (await store.rooms()).some(r=>r.rid===joined));
+  await outbox.envoyer(joined,'Mobile joined desktop public');
+  await outbox.envoyer(publicRoom.id,'mobile-public-joined');
   await until(()=>has('desktop-request-withdrawal'));
   const removed=await fetch(`${base}/api/v1/rooms/${privateRoom.id}/members/${desktop.id}`,{method:'DELETE',headers:{authorization:`Bearer ${login.token}`}});assert.equal(removed.status,204);
   await outbox.envoyer(publicRoom.id,'mobile-withdrawal-complete');
   await until(()=>has('desktop-core-complete'));
   await until(()=>has('Message du bureau GTK'));
   await outbox.envoyer(publicRoom.id,'Réponse du mobile au bureau GTK');
-  console.log('Mobile peer: desktop exchange, offline replay and private withdrawal passed');
+  console.log('Mobile peer: desktop exchange, public discovery/join, offline replay and private withdrawal passed');
 } finally {chat.stop();database.db.close();}

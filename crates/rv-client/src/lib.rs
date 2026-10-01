@@ -240,6 +240,26 @@ impl NativeClient {
     pub async fn create_room(&self, input: &CreateRoom) -> Result<Room, Error> {
         self.post("/api/v1/rooms", input).await
     }
+    pub async fn public_rooms(
+        &self,
+        query: &str,
+        after: Option<&str>,
+    ) -> Result<rv_protocol::PublicRoomPage, Error> {
+        let mut url = Url::parse(&format!("{}/api/v1/rooms/public", self.base))
+            .map_err(|_| Error::InvalidUrl)?;
+        url.query_pairs_mut().append_pair("q", query);
+        if let Some(after) = after {
+            url.query_pairs_mut().append_pair("after", after);
+        }
+        self.get(&format!("{}?{}", url.path(), url.query().unwrap_or("")))
+            .await
+    }
+    pub async fn join_public(&self, room: &str) -> Result<Room, Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        self.post(&format!("/api/v1/rooms/{room}/join"), &()).await
+    }
     pub async fn direct(&self, user_id: &str) -> Result<Room, Error> {
         self.post(
             "/api/v1/direct-messages",

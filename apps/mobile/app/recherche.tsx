@@ -81,10 +81,11 @@ function Recherche({
   const chercherSpotlight = useCallback(
     async (propre: string): Promise<ReponseSpotlight> => {
       if (!fournisseur.native) return client.get<ReponseSpotlight>('spotlight', { params: { query: propre } });
-      const users = await fournisseur.native.chat.users();
+      const [users,page] = await Promise.all([fournisseur.native.chat.users(),fournisseur.native.chat.publicRooms(propre)]);
       return {users: users.filter(user => user.id !== client.identifiants?.userId &&
         (user.username + ' ' + user.display_name).toLowerCase().includes(propre.toLowerCase()))
-        .slice(0,20).map(user => ({_id:user.id,username:user.username,name:user.display_name}))};
+        .slice(0,20).map(user => ({_id:user.id,username:user.username,name:user.display_name})),
+        rooms:page.rooms.map(hit => ({_id:hit.room.id,name:hit.room.name,fname:hit.room.name,t:'c'}))};
     },
     [client,fournisseur],
   );
@@ -130,6 +131,10 @@ function Recherche({
       setOccupe(true);
       setMessage(null);
       try {
+        if (fournisseur.native) {
+          const rid=await fournisseur.native.chat.joinPublic(salon._id);
+          await ouvrirSalon(undefined,rid); return;
+        }
         const reponse = await client.post<{ channel?: Record<string, unknown> }>('channels.join', {
           corps: { roomId: salon._id },
         });
@@ -141,7 +146,7 @@ function Recherche({
         setOccupe(false);
       }
     },
-    [client, ouvrirSalon, setMessage, t],
+    [client, fournisseur, ouvrirSalon, setMessage, t],
   );
 
   type Ligne =

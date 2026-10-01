@@ -5,6 +5,91 @@ use rv_core::session::SessionInfo;
 use serde_json::json;
 
 #[tokio::test]
+async fn room_creation_retries_a_lost_reply_with_its_durable_intention() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../../docs/protocol/v1.fixture.json")).unwrap();
+    let replies = fixture.clone();
+    let count = Arc::new(AtomicUsize::new(0));
+    let attempts = count.clone();
+    let server = FakeHttp::start(move |r| match r.path() {
+        "/.well-known/rocketvibe" => {
+            let mut d = replies["discovery"].clone();
+            d["capabilities"]["idempotent_room_creation"] = json!(true);
+            d["capabilities"]["room_discovery"] = json!(true);
+            respond(200, &d.to_string())
+        }
+        "/api/v1/me" => respond(200, &replies["session"]["user"].to_string()),
+        "/api/v1/users" => respond(200, &json!([replies["session"]["user"]]).to_string()),
+        "/api/v1/sync/ticket" => respond(200, &replies["socket_ticket"].to_string()),
+        "/api/v1/sync/socket" => common::Response { websocket: true, ..Default::default() },
+        "/api/v1/sync/changes" => {
+            respond(200, &json!({"protocol_version":1,"changes":[],"cursor":"initial","has_more":false}).to_string())
+        }
+        "/api/v1/rooms" => {
+            if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                common::dropped()
+            } else {
+                respond(200, &replies["room"].to_string())
+            }
+        }
+        "/api/v1/rooms/public" => respond(200, &replies["public_room_page"].to_string()),
+        _ => respond(404, r#"{"code":"not_found","request_id":"fake"}"#),
+    })
+    .await;
+    let identity = Identity { instance_id: "fixture-instance".into(), data_epoch: "fixture-epoch".into() };
+    let path = std::env::temp_dir().join(format!("rv-creation-{:032x}.sqlite", fastrand::u128(..)));
+    let store = native::store::NativeStore::open(&path, identity.clone()).unwrap();
+    store
+        .snapshot(&rv_protocol::Snapshot {
+            protocol_version: 1,
+            rooms: vec![],
+            messages: vec![],
+            cursor: "initial".into(),
+        })
+        .unwrap();
+    drop(store);
+    let session = native::NativeSession::start(
+        SessionInfo {
+            base_url: server.url.to_string(),
+            user_id: "alice-id".into(),
+            username: "alice".into(),
+            auth_token: "fixture-token".into(),
+            native: Some(identity),
+        },
+        &path,
+    )
+    .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while session.status().connection != rv_core::session::Connection::Online {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(session.create_room("  Durable room  ", true).await.is_err());
+    assert_eq!(
+        session.spotlight("Public").await.unwrap(),
+        vec![rv_core::rooms::Found::Room { id: "public-room-id".into(), name: "Public room".into(), kind: "c".into() }]
+    );
+    assert_eq!(session.create_room("Durable room", true).await.unwrap(), "room-id");
+    common::close_native(session).await;
+    let requests = server.requests();
+    let sends: Vec<_> = requests
+        .iter()
+        .filter(|r| r.path() == "/api/v1/rooms")
+        .map(|r| serde_json::from_str::<serde_json::Value>(&r.body).unwrap())
+        .collect();
+    assert_eq!(sends.len(), 2);
+    assert_eq!(sends[0]["operation_id"], sends[1]["operation_id"]);
+    assert!(sends[0]["operation_id"].as_str().is_some_and(|id| !id.is_empty()));
+    std::fs::remove_file(path).unwrap();
+}
+
+#[tokio::test]
 async fn official_rocket_chat_discovery_and_password_login_keep_their_original_contract() {
     let server = FakeHttp::start(|r| match r.path() {
         "/.well-known/rocketvibe" => respond(404, "{}"),

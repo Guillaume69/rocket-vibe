@@ -264,7 +264,9 @@ impl NativeSession {
             .lock()
             .unwrap()
             .as_ref()
-            .map(|server| server.supported_features(&rv_protocol::Capabilities::default()))
+            .map(|server| {
+                server.supported_features(&rv_protocol::Capabilities { room_discovery: true, ..Default::default() })
+            })
             .unwrap_or_default()
     }
     async fn snapshot(&self) -> Result<(), Error> {
@@ -386,8 +388,20 @@ impl NativeSession {
     }
     pub async fn create_room(&self, name: &str, private: bool) -> Result<String, Error> {
         self.ready()?;
-        let room = self.client.create_room(&rv_protocol::CreateRoom { name: name.trim().into(), private }).await?;
+        let name = name.trim();
+        if name.is_empty() || name.len() > 128 {
+            return Err(Error::Protocol("invalid_room"));
+        }
+        let supported = self.capabilities.lock().unwrap().as_ref().is_some_and(|caps| caps.idempotent_room_creation);
+        let operation_id = if supported { Some(self.store.room_creation(name, private)?) } else { None };
+        let room = self
+            .client
+            .create_room(&rv_protocol::CreateRoom { name: name.into(), private, operation_id: operation_id.clone() })
+            .await?;
         self.ready()?;
+        if let Some(id) = operation_id {
+            self.store.complete_room_creation(&id)?;
+        }
         self.reconnect();
         Ok(room.id)
     }
@@ -400,6 +414,47 @@ impl NativeSession {
             .find(|u| u.username == username.trim())
             .map(|u| u.id)
             .ok_or(Error::Protocol("user_not_found"))
+    }
+    pub async fn public_rooms(&self, query: &str) -> Result<rv_protocol::PublicRoomPage, Error> {
+        self.ready()?;
+        if !self.supported_features().iter().any(|f| f == "room_discovery") {
+            return Err(Error::Protocol("unsupported_feature"));
+        }
+        let page = self.client.public_rooms(query, None).await?;
+        self.ready()?;
+        Ok(page)
+    }
+    pub async fn spotlight(&self, query: &str) -> Result<Vec<crate::rooms::Found>, Error> {
+        let query = query.trim();
+        let users = self.users().await?;
+        let needle = query.to_lowercase();
+        let mut found: Vec<_> = users
+            .into_iter()
+            .filter(|u| {
+                u.id != self.info.user_id
+                    && format!("{} {}", u.username, u.display_name).to_lowercase().contains(&needle)
+            })
+            .take(20)
+            .map(|u| crate::rooms::Found::User { id: u.id, username: u.username, name: Some(u.display_name) })
+            .collect();
+        if self.supported_features().iter().any(|f| f == "room_discovery") {
+            found.extend(self.public_rooms(query).await?.rooms.into_iter().map(|r| crate::rooms::Found::Room {
+                id: r.room.id,
+                name: r.room.name,
+                kind: "c".into(),
+            }));
+        }
+        Ok(found)
+    }
+    pub async fn join_public(&self, rid: &str) -> Result<String, Error> {
+        self.ready()?;
+        if !self.supported_features().iter().any(|f| f == "room_discovery") {
+            return Err(Error::Protocol("unsupported_feature"));
+        }
+        let room = self.client.join_public(rid).await?;
+        self.ready()?;
+        self.reconnect();
+        Ok(room.id)
     }
     pub async fn direct(&self, username: &str) -> Result<String, Error> {
         let uid = self.user_id(username).await?;

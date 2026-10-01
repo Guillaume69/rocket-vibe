@@ -18,14 +18,31 @@ use crate::widgets::{self, TileSize};
 
 const DEBOUNCE_MS: u64 = 300;
 
-fn result_row(session: &Arc<Session>, found: &Found, joined: bool) -> gtk::Widget {
+#[derive(Clone)]
+enum Source {
+    RocketChat(Arc<Session>),
+    Native(Arc<rv_core::native::NativeSession>),
+}
+impl Source {
+    async fn spotlight(&self, query: &str) -> Result<Vec<Found>, String> {
+        match self {
+            Self::RocketChat(session) => session.spotlight(query).await.map_err(|e| e.to_string()),
+            Self::Native(session) => session.spotlight(query).await.map_err(|e| e.to_string()),
+        }
+    }
+    fn legacy(&self) -> Option<&Arc<Session>> {
+        if let Self::RocketChat(session) = self { Some(session) } else { None }
+    }
+}
+
+fn result_row(session: &Source, found: &Found, joined: bool) -> gtk::Widget {
     let row = gtk::Box::builder().spacing(12).css_classes(["spotlight-row"]).build();
     let (tile, title, detail) = match found {
         Found::User { username, name, .. } => (
             with_photo(
                 widgets::tile(username, &widgets::initial(username), TileSize::Message, false),
-                Some(session),
-                Some(avatar_path(AvatarTarget::User(username), None)),
+                session.legacy(),
+                session.legacy().map(|_| avatar_path(AvatarTarget::User(username), None)),
             ),
             name.clone().unwrap_or_else(|| username.clone()),
             format!("@{username}"),
@@ -53,6 +70,26 @@ pub fn open(
     joined: impl Fn(&str) -> bool + 'static,
     pick: impl Fn(Found) + 'static,
 ) {
+    open_source(parent, Source::RocketChat(session), joined, pick, None);
+}
+
+pub fn open_native(
+    parent: &impl IsA<gtk::Widget>,
+    session: Arc<rv_core::native::NativeSession>,
+    joined: impl Fn(&str) -> bool + 'static,
+    pick: impl Fn(Found) + 'static,
+    create: impl Fn() + 'static,
+) {
+    open_source(parent, Source::Native(session), joined, pick, Some(Rc::new(create)));
+}
+
+fn open_source(
+    parent: &impl IsA<gtk::Widget>,
+    session: Source,
+    joined: impl Fn(&str) -> bool + 'static,
+    pick: impl Fn(Found) + 'static,
+    create: Option<Rc<dyn Fn()>>,
+) {
     let search = gtk::SearchEntry::builder().placeholder_text(t("spotlight.placeholder")).hexpand(true).build();
     let results = gtk::ListBox::builder().selection_mode(gtk::SelectionMode::None).css_classes(["boxed-list"]).build();
     let status = gtk::Label::builder().css_classes(["dim-label"]).visible(false).build();
@@ -73,6 +110,15 @@ pub fn open(
     view.set_content(Some(&column));
     let dialog =
         adw::Dialog::builder().title(t("rooms.new")).content_width(420).content_height(480).child(&view).build();
+    if let Some(create) = create {
+        let button = gtk::Button::builder().label(t("native.create")).build();
+        let d = dialog.clone();
+        button.connect_clicked(move |_| {
+            d.close();
+            create();
+        });
+        column.append(&button);
+    }
 
     let found: Rc<std::cell::RefCell<Vec<Found>>> = Rc::default();
     let generation = Rc::new(Cell::new(0u64));

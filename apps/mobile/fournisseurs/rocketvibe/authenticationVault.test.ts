@@ -92,7 +92,7 @@ test('an unresolved candidate survives fresh password proofs until the old expir
   const step=await vault.stage(fresh);assert.equal(step.kind,'challenge');
   if(step.kind==='challenge')assert.equal(step.challenge.challenge.challenge_id,old.challenge.challenge_id);
   assert.deepEqual(await vault.load(old.baseUrl,old.user.username),old);
-  const expired={...old,challenge:{...old.challenge,expires_at:new Date(Date.now()-1).toISOString()}};
+  const expired={...old,challenge:{...old.challenge,expires_at:new Date(Date.parse(fresh.challenge.expires_at)-300_000-1).toISOString()}};
   h.values.set(key,JSON.stringify(expired));await vault.stage(fresh);
   assert.deepEqual(await vault.load(old.baseUrl,old.user.username),fresh);assert.equal(h.verifies,0);
 });

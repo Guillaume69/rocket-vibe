@@ -30,8 +30,9 @@ ses formulaires clients et paramètres sont raccordés. Le
 [parcours d'adresse e-mail vérifiée](../../docs/protocol/EMAIL.md) dispose de routes
 privées, SDK et file SMTP chiffrée durable. Les formulaires mobile, GTK et SwiftUI
 sont raccordés. Le retrait conditionnel du contact est disponible côté serveur
-et SDK, même sans SMTP ; ses coffres et boutons clients, le second facteur
-e-mail et la récupération e-mail restent à livrer. Fichiers, push, appels,
+et SDK, même sans SMTP ; le mobile est raccordé. Les coffres et boutons de
+retrait sur bureau, le second facteur e-mail et la récupération e-mail restent
+à livrer. Fichiers, push, appels,
 chiffrement et parité complète restent au backlog. Les limites sont explicites dans
 le [contrat du pilote](../../docs/protocol/README.md).
 

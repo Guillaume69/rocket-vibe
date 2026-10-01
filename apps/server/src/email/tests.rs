@@ -53,12 +53,21 @@ async fn actual_typescript_provider_and_private_vault_resume_lost_mail_replies(p
     let server = tokio::spawn(async move {
         axum::serve(listener, router).await.unwrap();
     });
+    let no_mail = App::from_pool(pool.clone()).await.unwrap();
+    let no_mail_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let no_mail_base = format!("http://{}", no_mail_listener.local_addr().unwrap());
+    let no_mail_server = tokio::spawn(async move {
+        axum::serve(no_mail_listener, no_mail.router())
+            .await
+            .unwrap();
+    });
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(120),
         tokio::process::Command::new("node")
             .arg(root.join("scripts/native-email-mobile-pilot.ts"))
             .arg(base)
+            .arg(no_mail_base)
             .env("RV_EMAIL_PILOT_PASSWORD", PASSWORD)
             .current_dir(root)
             .kill_on_drop(true)
@@ -68,6 +77,7 @@ async fn actual_typescript_provider_and_private_vault_resume_lost_mail_replies(p
     .expect("native TypeScript pilot timed out")
     .expect("Node 24 is required by the contract suite");
     server.abort();
+    no_mail_server.abort();
     assert!(
         output.status.success(),
         "{}",
@@ -76,9 +86,9 @@ async fn actual_typescript_provider_and_private_vault_resume_lost_mail_replies(p
     assert!(
         String::from_utf8_lossy(&output.stdout).contains("native email mobile pilot: verified")
     );
-    let result:(i64,i64,i64,i64,bool,bool)=sqlx::query_as("SELECT (SELECT count(*) FROM session_devices),(SELECT count(*) FROM sessions),(SELECT count(*) FROM email_verifications),(SELECT count(*) FROM email_delivery_admissions),(SELECT activation_version=$1 FROM users WHERE id=$2),(SELECT sent_at IS NOT NULL AND payload_cipher IS NULL FROM email_outbox)")
+    let result:(i64,i64,i64,i64,bool,i64,i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM session_devices),(SELECT count(*) FROM sessions),(SELECT count(*) FROM email_verifications),(SELECT count(*) FROM email_delivery_admissions),(SELECT activation_version=$1 FROM users WHERE id=$2),(SELECT count(*) FROM email_outbox),(SELECT count(*) FROM account_emails),(SELECT count(*) FROM email_removals)")
         .bind(original).bind(user.id).fetch_one(&pool).await.unwrap();
-    assert_eq!(result, (1, 1, 1, 1, true, true));
+    assert_eq!(result, (1, 1, 0, 1, true, 0, 0, 1));
 }
 
 pub(super) struct Relay {

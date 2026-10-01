@@ -86,6 +86,15 @@ test('an unreceived start retries only its persisted original body and a pruned 
   const pending=await h.vault().resume(scope,h.remote);assert.equal(pending.kind,'pending');assert(h.rows.has(candidate));assert.equal(h.starts,2);
   h.prune();assert.equal((await h.vault().resume(scope,h.remote)).kind,'stale');assert.equal(h.starts,2);
 });
+
+test('an unreceived verification remains closable when SMTP is disabled',async()=>{
+  const h=harness();h.changeContact();h.beforeBegin=true;
+  await assert.rejects(h.vault().start(scope,h.remote,'later@example.org',await h.remote.status()),/network_or_protocol_error/);
+  h.remote.begin=async()=>{throw new NativeError(501,'unsupported_feature');};
+  const stale=await h.vault().resume(scope,h.remote);if(stale.kind!=='stale')throw new Error();
+  const closed=await h.vault().cancel(scope,h.remote,stale.receipt);
+  assert.equal(closed.kind,'idle');assert.equal(closed.status.address,'other@example.org');assert.equal(h.values.size,0);
+});
 test('two vaults serialize a start across HTTP and cannot replace a pending address',async()=>{
   const h=harness(),initial=await h.remote.status();
   const [first,second]=await Promise.all([h.vault().start(scope,h.remote,'first@example.org',initial),h.vault().start(scope,h.remote,'second@example.org',initial)]);

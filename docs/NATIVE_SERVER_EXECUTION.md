@@ -315,6 +315,29 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, retrait du contact mobile : bouton avec confirmation native dans les
+  paramètres existants, révision / focus épinglés et saisies transitoires.
+  SecureStore contient une seule intention e-mail, vérification ou retrait,
+  avant HTTP ; les anciennes vérifications restent lisibles. Le retrait garde
+  portée / versions / opération et reçu, sans ancienne adresse. Une réponse
+  perdue reste non confirmée, une acceptation connue exige ses versions et
+  l'absence de contact ; un reçu nettoyé sans réponse enregistrée reste périmé.
+  Annuler ne relance jamais le start et conserve une acceptation gagnante jusqu'à
+  Terminer. Le contact reste lisible / retirable sans SMTP ni configuration
+  TOTP, et une vérification non reçue peut être fermée après arrêt de SMTP.
+  Le banc connecté réutilise le même bearer et la même famille contre un second
+  runtime sans SMTP / clé de facteurs. Il annule avant réception, refuse un
+  start ancien, perd la réponse de retrait, refuse une écriture privée puis
+  reprend le reçu. PostgreSQL constate une famille, une admission et un reçu
+  de retrait, sans contact, défi ou job restant.
+  Vérifications : 12 tests du coffre de retrait, 12 de vérification et gardes
+  fournisseur ; 119 tests serveur et 7 contrat / client, 126 tests SDK et
+  1 076 tests mobiles passent, avec Clippy, typecheck, lint, bundle Android et
+  contrats. Les repères de lignes de l'inventaire Rocket.Chat sont régénérés
+  après les traductions. ADB voit zéro appareil connecté le 2026-10-02.
+  Les boutons / coffres GTK et SwiftUI, le facteur e-mail et la récupération
+  restent la suite de P02. Les widgets / SecureStore installés restent ouverts.
+
 - P02, retrait du contact serveur / SDK : migration 0018 et trois routes privées
   start / resume / retire, avec capacité additive indépendante de SMTP. Le
   premier retrait exige une preuve récente et les versions affichées ; il
@@ -332,6 +355,8 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   et lint. Un premier lancement en parallèle des builds a dépassé la seconde
   d'un ancien test de verrouillage ; ce test passe isolément puis dans la suite
   avec `RUST_TEST_THREADS=4`. Aucun test ou délai produit n'a été modifié.
+  La CI `native-server` du commit `39177c1` est entièrement verte, avec Fedora,
+  cœur Windows, serveur / mobile et modèles / bancs Swift.
   Les coffres et boutons de retrait mobile / GTK / SwiftUI restent le prochain
   lot ; le facteur e-mail, la récupération et les appareils installés restent
   ouverts. Ce socle ne ferme pas P02.

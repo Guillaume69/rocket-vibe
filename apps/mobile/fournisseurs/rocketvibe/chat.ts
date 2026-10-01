@@ -198,14 +198,23 @@ export class NativeChat {
       if(!this.capabilities?.second_factors)throw new NativeError(501,'unsupported_feature');
       return call(action);
     };
-    const emailCall=async<T>(action:()=>Promise<T>):Promise<T>=>{
-      if(!this.capabilities?.email_verification)throw new NativeError(501,'unsupported_feature');
+    const emailCall=async<T>(action:()=>Promise<T>,verificationOnly=false):Promise<T>=>{
+      if(verificationOnly?!this.capabilities?.email_verification:!(this.capabilities?.email_verification || this.capabilities?.email_removal))throw new NativeError(501,'unsupported_feature');
+      return call(action);
+    };
+    const removalCall=async<T>(action:()=>Promise<T>):Promise<T>=>{
+      if(!this.capabilities?.email_removal)throw new NativeError(501,'unsupported_feature');
       return call(action);
     };
     return {scope,alive,email:{
-      status:()=>emailCall(()=>this.transport.emailStatus()),begin:input=>emailCall(()=>this.transport.beginEmailVerification(input)),
+      status:()=>emailCall(()=>this.transport.emailStatus()),begin:input=>emailCall(()=>this.transport.beginEmailVerification(input),true),
       resume:input=>emailCall(()=>this.transport.resumeEmailVerification(input)),confirm:input=>emailCall(()=>this.transport.confirmEmailVerification(input)),
       retire:input=>emailCall(()=>this.transport.retireEmailVerification(input)),
+      ...(this.capabilities?.email_removal?{removal:{
+        begin:input=>removalCall(()=>this.transport.removeVerifiedEmail(input)),
+        resume:input=>removalCall(()=>this.transport.resumeEmailRemoval(input)),
+        retire:input=>removalCall(()=>this.transport.retireEmailRemoval(input)),
+      }}:{}),
     },remote:{
       proof:{status:()=>call(async()=>{const next=await this.transport.reauthenticationStatus();checkSecurityScope(scope,next);return next;}),
         begin:input=>call(()=>this.transport.beginReauthentication(input)),resume:input=>call(()=>this.transport.resumeReauthentication(input)),

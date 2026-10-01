@@ -14,7 +14,8 @@ annoncée seulement avec transport SMTP et clé opérateur configurés.
 Les formulaires mobile, GTK et SwiftUI rejoignent leurs paramètres de sécurité
 existants, avec SecureStore ou trousseau système privé et reprise de l'intention
 initiale. La migration 0018 et les SDK permettent aussi le retrait conditionnel
-du contact, même sans SMTP ; ses coffres et boutons clients restent à raccorder.
+du contact, même sans SMTP ; le mobile est raccordé, les coffres et boutons
+GTK / SwiftUI restent à livrer.
 Le second facteur e-mail et la récupération par e-mail restent à implémenter. La présence
 de `SecondFactor::Email` dans les types et de `FactorStatus.email=false` ne
 signifie pas que ces deux dernières opérations soient disponibles.
@@ -28,6 +29,19 @@ L'annulation de la vérification est conditionnelle et reprend d'abord un reçu 
 course ; un ancien bouton ne peut effacer la tentative suivante. Le reçu
 accepté reste privé jusqu'à Terminer. L'horloge du serveur décide l'expiration,
 même si l'appareil corrige son horloge.
+
+Le mobile conserve vérification ou retrait dans une seule entrée privée ; le
+format des vérifications déjà enregistrées reste lisible. Le retrait ne stocke
+pas l'ancienne adresse, seulement la portée, l'opération, les versions initiales
+et son reçu éventuel. La confirmation native épingle la révision et le contact
+affichés. Suspension, fermeture, changement de compte ou nouvelle vue invalident
+son callback. Une réponse perdue expose un retrait non confirmé, reprenable ou
+annulable. Une annulation ne renvoie jamais le start ; si le reçu a déjà gagné,
+il reste affiché jusqu'à Terminer. Un reçu serveur nettoyé sans acceptation
+enregistrée devient périmé ; l'absence de contact ne suffit pas à annoncer le
+succès. Une acceptation connue reste affichable seulement avec ses versions et
+le contact toujours absent. L'ancienne intention ne retire jamais un contact
+remplacé depuis.
 
 GTK et Swift partagent `rv-core::native::security::email`. Le verrou OS reste
 commun aux preuves, facteurs et vérifications e-mail, y compris pendant le
@@ -156,9 +170,11 @@ Si elles sont toujours celles affichées, elle ouvre une nouvelle tête et bloqu
 le start ancien, sans retirer le contact. Après remplacement du contact, elle
 préserve une nouvelle vérification même si cet appareil a encore la même tête.
 Si le retrait a déjà gagné, l'annulation ne l'inverse pas : le client devra
-reprendre son reçu avant de conclure ou d'effacer l'intention locale. Les coffres
-et formulaires des trois clients constituent le prochain lot ; ces endpoints
-seuls ne qualifient pas encore ce parcours utilisateur.
+reprendre son reçu avant de conclure ou d'effacer l'intention locale. Le coffre
+et le formulaire mobile implémentent ces règles, avec lecture / retrait sans
+SMTP ou configuration TOTP. Une vérification non reçue devenue indisponible
+reste explicitement fermable. Les coffres et formulaires GTK / SwiftUI restent
+le prochain lot ; le parcours mobile installé reste à qualifier.
 
 ## Contrat de la suite du chantier
 
@@ -221,8 +237,12 @@ teste les vraies routes HTTP, leur confidentialité et l'annulation conditionnel
 Le banc `scripts/native-email-mobile-pilot.ts`, lancé par un test SQLx privé,
 fait tourner le vrai `NativeChat` avec SQLite, HTTP et WebSocket contre
 PostgreSQL. Il perd les réponses start / confirm, simule une écriture de reçu
-refusée, reprend avec un nouveau coffre et conserve une seule famille, une
-vérification et une admission. Sa boîte SMTP et sa route de lecture de code
+refusée, reprend avec un nouveau coffre et conserve une seule famille et une
+admission. Il reprend ensuite le même bearer contre un runtime sans SMTP ni
+clé de facteurs : annulation avant réception, start ancien refusé, réponse de
+retrait perdue, écriture de reçu refusée puis reprise acceptée jusqu'à Terminer.
+PostgreSQL exige une famille et un reçu de retrait, sans contact, défi ni job
+SMTP restant. Sa boîte SMTP et sa route de lecture de code
 existent uniquement dans le serveur de test ; aucun envoi extérieur ne part.
 Le stockage privé de ce banc est simulé. Typecheck, lint, tests mobiles et
 export du bundle Android passent ; ils ne prouvent pas le SecureStore ou les

@@ -9,6 +9,9 @@ release, et ses notes sont la section de la version ici.
 
 ### Sécurité RocketVibe
 
+- Retrait du contact e-mail après confirmation, avec reprise de l’intention
+  originale depuis SecureStore et reçu privé jusqu’à Terminer. Une annulation
+  retardée préserve le contact suivant ; le parcours reste disponible sans SMTP.
 - Une adresse refusée peut être fermée explicitement avant une nouvelle saisie,
   sans bloquer le formulaire ni effacer le contact déjà vérifié.
 - Adresse e-mail privée dans les paramètres existants : code de vérification,

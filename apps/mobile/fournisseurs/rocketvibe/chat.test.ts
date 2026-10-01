@@ -50,6 +50,43 @@ test('private e-mail access rejects changed identity, disabled capability and ca
   }
 });
 
+test('removal access works without SMTP or factor configuration and rejects stale runner callbacks',async()=>{
+  const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:fixture.session.user.id,username:'alice',genre:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  for(const scenario of ['normal','disabled','changed-epoch','hidden','closed-during-removal'] as const){
+    const {db,adapter}=nativeTestDatabase(),store=new NativeStore(adapter,creerFileEcritures(),session);
+    await store.applySnapshot({protocol_version:1,rooms:[],messages:[],cursor:'initial'});
+    let visible=true,changed=false,hidden=false,mutations=0,serial=0,removed=false;
+    let started:()=>void=()=>{},release:()=>void=()=>{};const waiting=new Promise<void>(resolve=>{started=resolve;});
+    const context={user_id:session.userId,device_id:'mobile',instance_id:session.nativeInstanceId!,data_epoch:session.nativeDataEpoch!};
+    const transport={
+      discover:async()=>{if(hidden)visible=false;return {...fixture.discovery,data_epoch:changed?'another-epoch':fixture.discovery.data_epoch,capabilities:{...fixture.discovery.capabilities,reauthentication:true,reauthentication_retirement:true,second_factors:false,email_verification:false,email_removal:scenario!=='disabled'}};},
+      me:async()=>fixture.session.user,changes:async()=>({protocol_version:1,changes:[],cursor:'initial',has_more:false}),socketUrl:async()=>'ws://localhost/fake',
+      reauthenticationStatus:async()=>({...context,proof_version:'proof',recent:true}),
+      emailStatus:async()=>({context,version:removed?'removed-contact':'contact',verification_version:removed?'removed-head':'head',address:removed?null:'owner@example.org',verified_at:removed?null:'2026-10-01T12:00:00Z'}),
+      removeVerifiedEmail:async()=>{mutations++;removed=true;started();if(scenario==='closed-during-removal')await new Promise<void>(resolve=>{release=resolve;});return {context,version:'removed-contact',verification_version:'removed-head'};},
+    } as unknown as NativeTransport;
+    const chat=new NativeChat(session,store,()=>{throw new Error('No send');},{transport,socket:()=>{
+      const socket={readyState:0,onopen:null,onclose:null,onerror:null,onmessage:null,close:()=>{}} as unknown as WebSocket;
+      queueMicrotask(()=>socket.onopen?.(new Event('open')));return socket;
+    }});
+    const values=new Map<string,string>(),vault=new EmailVault({hash:async(value:string)=>createHash('sha256').update(value).digest('hex'),token:async()=>String(++serial).padStart(64,'0'),
+      storage:{read:async key=>values.get(key)??null,write:async(key,value)=>{values.set(key,value);},remove:async key=>{values.delete(key);}}});
+    try{
+      await chat.connect();const access=await chat.security(()=>visible);
+      if(scenario==='disabled'){assert.equal(access.email.removal,undefined);await assert.rejects(vault.resume(access.scope,access.email,access.alive),/unsupported_feature/);continue;}
+      const initial=await vault.resume(access.scope,access.email,access.alive);
+      await assert.rejects(access.email.begin({address:'later@example.org',verification_id:'candidate',operation_id:'operation',context,expected_version:'contact',verification_version:'head'}),/unsupported_feature/);
+      changed=scenario==='changed-epoch';hidden=scenario==='hidden';
+      const request=vault.removeContact(access.scope,access.email,initial.status,access.alive);
+      if(changed || hidden){await assert.rejects(request,changed?/server_identity_changed/:/session_closed/);assert.equal(values.size,0);assert.equal(mutations,0);continue;}
+      if(scenario==='closed-during-removal'){await waiting;chat.stop();release();await assert.rejects(request,/session_closed/);assert.equal(JSON.parse([...values.values()][0]).accepted,null);}
+      else {assert.equal((await request).kind,'removed');chat.stop();await assert.rejects(access.email.status(),/session_closed/);}
+      assert.equal(mutations,1);
+    }finally{chat.stop();await store.state();db.close();}
+  }
+});
+
 test('security callbacks pin account, epoch and runner/focus generation before and after HTTP',async()=>{
   const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
   const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:fixture.session.user.id,username:'alice',genre:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};

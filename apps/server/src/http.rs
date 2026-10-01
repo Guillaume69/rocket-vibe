@@ -19,7 +19,7 @@ use std::{net::SocketAddr, time::Duration};
 use crate::{
     App, auth,
     error::{Error, Result},
-    limits, store, sync,
+    limits, snapshots, store, sync,
 };
 
 pub fn router(app: App) -> Router {
@@ -39,6 +39,8 @@ pub fn router(app: App) -> Router {
         )
         .route("/api/v1/rooms/{room}/messages", get(history).post(send))
         .route("/api/v1/sync/snapshot", get(snapshot))
+        .route("/api/v1/sync/snapshots", post(begin_snapshot))
+        .route("/api/v1/sync/snapshots/{token}", get(snapshot_page))
         .route("/api/v1/sync/changes", get(changes))
         .route("/api/v1/sync/ticket", post(ticket))
         .route("/api/v1/sync/socket", get(socket))
@@ -75,7 +77,10 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
         server_version: env!("CARGO_PKG_VERSION").into(),
         protocol_versions: vec![VERSION],
         api_path: "/api/v1".into(),
-        capabilities: Default::default(),
+        capabilities: rv_protocol::Capabilities {
+            snapshot_paging: true,
+            ..Default::default()
+        },
     }))
 }
 
@@ -211,6 +216,23 @@ async fn snapshot(
 ) -> Result<Json<rv_protocol::Snapshot>> {
     Ok(Json(
         sync::snapshot(&app, &account(&app, &headers).await?).await?,
+    ))
+}
+async fn begin_snapshot(
+    State(app): State<App>,
+    headers: HeaderMap,
+) -> Result<Json<rv_protocol::SnapshotPage>> {
+    Ok(Json(
+        snapshots::begin(&app, &account(&app, &headers).await?).await?,
+    ))
+}
+async fn snapshot_page(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(token): Path<String>,
+) -> Result<Json<rv_protocol::SnapshotPage>> {
+    Ok(Json(
+        snapshots::page(&app, &account(&app, &headers).await?, &token).await?,
     ))
 }
 #[derive(Deserialize)]

@@ -69,9 +69,11 @@ exerce la façade mobile réelle contre PostgreSQL avec le desktop GTK.
 
 L'export compile JavaScript / Hermes, sans installer un APK. Le rendu sur Android,
 les kills réels et les échanges Android / Windows restent à exercer. L'annuaire
-est limité à 100 comptes ; le snapshot refuse plus de 100 salons / 8 Mio et reste
-non paginé. Les curseurs expirent et sont élagués ; le moteur demande alors un nouveau
+est limité à 100 comptes ; le snapshot matérialisé permet 1 000 salons et 64 Mio,
+avec des pages de 1 Mio et une durée de 5 minutes. Le moteur n'applique que la vue
+entière validée ; les anciens serveurs natifs gardent la route de 100 salons / 8 Mio.
+Les curseurs expirent et sont élagués ; le moteur demande alors un nouveau
 snapshot en conservant brouillons et outbox des salons toujours autorisés. Ce
 parcours est testé avec expiration réelle en PostgreSQL et le moteur SQLite mobile.
-Les refus `429` suspendent les requêtes login / ticket jusqu'au délai de reprise.
+Les refus `429` suspendent les requêtes login / ticket / snapshot jusqu'au délai de reprise.
 La rétention du cache reste à définir. J1 reste ouvert dans le [suivi](NATIVE_SERVER_EXECUTION.md).

@@ -10,7 +10,12 @@ use crate::{
     store::{MESSAGE_SELECT, MessageRow, RoomRow},
 };
 
-async fn cursor(pool: &PgPool, user: &str, epoch: &str, position: i64) -> Result<String> {
+pub(crate) async fn cursor(
+    pool: &PgPool,
+    user: &str,
+    epoch: &str,
+    position: i64,
+) -> Result<String> {
     let mut tx = pool.begin().await?;
     // Consistent single-user lock also bounds concurrent devices' cursor pruning.
     sqlx::query("SELECT id FROM users WHERE id=$1 FOR NO KEY UPDATE")

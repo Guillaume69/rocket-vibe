@@ -30,6 +30,7 @@
   },
   "message_page": { "messages": [], "has_more": false },
   "snapshot": { "protocol_version": 1, "rooms": [], "messages": [], "cursor": "opaque-fixture" },
+  "snapshot_page": { "protocol_version": 1, "snapshot_id": "opaque-snapshot", "page_index": 0, "rooms": [], "messages": [], "next": null, "cursor": "opaque-fixture" },
   "sync_batch": { "protocol_version": 1, "changes": [{ "type": "room_removed", "data": { "room_id": "room-id" } }], "cursor": "opaque-fixture", "has_more": false },
   "socket_ticket": { "ticket": "fixture-ticket", "expires_at": "2026-09-30T12:00:30+00:00" },
   "error": { "code": "session_rejected", "request_id": "fixture-request" },

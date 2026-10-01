@@ -12,6 +12,10 @@ use crate::{
 };
 
 pub const SNAPSHOT_BYTES: usize = 8 * 1024 * 1024;
+pub const SNAPSHOT_PAGE_BYTES: usize = 1024 * 1024;
+pub const SNAPSHOT_TOTAL_BYTES: usize = 64 * 1024 * 1024;
+pub const SNAPSHOTS_PER_USER: i64 = 4;
+pub const SNAPSHOTS_TOTAL: i64 = 16;
 pub const BATCH_BYTES: usize = 1024 * 1024;
 pub const CURSORS_PER_USER: i64 = 512;
 pub const TICKETS_PER_SESSION: i64 = 4;

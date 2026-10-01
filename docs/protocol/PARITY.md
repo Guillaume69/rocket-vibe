@@ -160,7 +160,7 @@ ouverte tant que serveur, clients concernés et scénario de parité manquent.
 | P03 Multi-serveurs | J1 | Isolation livrée ; validation appareils / liens et générations après restauration |
 | P04 Salons / DM | J1–J2 | DM / membres livrés ; création idempotente, découverte / join, détails / rôles / UI |
 | P05 Favoris / non-lus / mentions | J2 | Modèle figé ; états personnels et compteurs atomiques à livrer |
-| P06 Historique / temps réel | J1–J2 | Socle livré ; snapshot matérialisé, révocation strictement ordonnée, tombstones |
+| P06 Historique / temps réel | J1–J2 | Socle et snapshots matérialisés livrés ; révocation strictement ordonnée, tombstones |
 | P07 Markdown / emojis / citations | J2–J3 | Corpus testé ; références / messages système / catalogue natif et raccordement |
 | P08 Envoi / brouillons | J1 | Socle livré ; crash réel après commit / réponse perdue, Android ↔ Windows |
 | P09 Édition / suppression | J2 | Révisions, règles / délais, commandes et tombstones dans chaque client |
@@ -190,7 +190,8 @@ Sans solliciter l'utilisateur pendant le chantier, on adopte un **banc initial**
 de 100 comptes, 50 appareils connectés simultanément, 100 salons par compte et
 1 million de messages clairs ; hôte de référence proposé : 2 vCPU / 4 Gio,
 PostgreSQL et fichiers locaux. Ce sont des cibles de mesure à publier, pas des
-capacités promises. Limites actuelles : snapshot 8 Mio, lots 1 Mio, 128 sockets
+capacités promises. Limites actuelles : snapshot matérialisé 64 Mio / pages 1 Mio,
+ancienne route 8 Mio, lots 1 Mio, 128 sockets
 par processus. Fichiers proposés : 100 Mio par objet, quota initial 50 Gio à
 configurer ; ne pas annoncer ces limites avant leur application effective.
 

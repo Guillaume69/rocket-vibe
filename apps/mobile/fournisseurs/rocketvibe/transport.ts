@@ -2,6 +2,12 @@
 import type { CreateRoom, Discovery, DirectMessage, Message, MessagePage, NativeTypes, Room, SendMessage, Session, Snapshot, SocketTicket, SyncBatch } from './protocol.generated.ts';
 import { decodeNative } from './validation.ts';
 
+function utf8Bytes(text: string): number {
+  let bytes = 0;
+  for (const char of text) { const code = char.codePointAt(0)!; bytes += code <= 0x7f ? 1 : code <= 0x7ff ? 2 : code <= 0xffff ? 3 : 4; }
+  return bytes;
+}
+
 export class NativeError extends Error {
   readonly status: number;
   readonly code: string;
@@ -21,6 +27,7 @@ export class NativeTransport {
   readonly baseUrl: string;
   private readonly fetcher: typeof fetch;
   private token: string | null = null;
+  private snapshotPaging: boolean | null = null;
   private readonly cooldowns = new Map<string, {until:number; code:string}>();
   surJetonRefuse: ((token: string) => void) | null = null;
 
@@ -34,7 +41,7 @@ export class NativeTransport {
   private async value(path: string, input?: unknown, anonymous = false, signal?: AbortSignal): Promise<unknown> {
     if (!anonymous && this.token === null) throw new NativeError(401, 'session_rejected');
     const sent = anonymous ? null : this.token;
-    const budget = path === '/api/v1/auth/login' ? 'login' : path === '/api/v1/sync/ticket' ? 'ticket' : null;
+    const budget = path === '/api/v1/auth/login' ? 'login' : path === '/api/v1/sync/ticket' ? 'ticket' : path === '/api/v1/sync/snapshots' ? 'snapshot' : null;
     const cooldown = budget === null ? undefined : this.cooldowns.get(budget);
     if (cooldown && cooldown.until > Date.now()) throw new NativeError(429,cooldown.code,Math.ceil((cooldown.until-Date.now())/1000));
     const controller = new AbortController();
@@ -58,6 +65,18 @@ export class NativeTransport {
       if (response.status === 429 && budget !== null) this.cooldowns.set(budget,{until:Date.now()+retry*1000,code:error.code});
       throw new NativeError(response.status, error.code, response.status === 429 ? retry : undefined, error.request_id);
     }
+      if (path === '/api/v1/sync/snapshots' || path.startsWith('/api/v1/sync/snapshots/')) {
+        const length = response.headers.get('content-length');
+        if (length && /^\d+$/.test(length) && Number(length)>1024*1024) {
+          controller.abort();
+          throw new NativeError(0,'invalid_snapshot');
+        }
+        // React Native fetch buffers the response; check its actual UTF-8 body
+        // before JSON parsing too, even when no length header was supplied.
+        const text = await response.text();
+        if (utf8Bytes(text)>1024*1024) throw new NativeError(0,'invalid_snapshot');
+        return JSON.parse(text);
+      }
       return response.status === 204 ? undefined : await response.json();
     } catch (error) {
       if (error instanceof NativeError) throw error;
@@ -77,6 +96,7 @@ export class NativeTransport {
   async discover(signal?: AbortSignal): Promise<Discovery> {
     const discovery = await this.request('Discovery', '/.well-known/rocketvibe', undefined, true, signal);
     if (discovery.product !== 'rocketvibe' || !discovery.protocol_versions.includes(1) || discovery.api_path !== '/api/v1') throw new Error('Unsupported RocketVibe protocol');
+    this.snapshotPaging = discovery.capabilities.snapshot_paging === true;
     return discovery;
   }
 
@@ -99,7 +119,36 @@ export class NativeTransport {
   async addMember(room: string, user: string): Promise<void> { await this.value(`/api/v1/rooms/${encodeURIComponent(room)}/members/${encodeURIComponent(user)}`, {}); }
   send(room: string, input: SendMessage): Promise<Message> { return this.request('Message', `/api/v1/rooms/${encodeURIComponent(room)}/messages`, input); }
   history(room: string, before?: string): Promise<MessagePage> { return this.request('MessagePage', `/api/v1/rooms/${encodeURIComponent(room)}/messages${before === undefined ? '' : '?before=' + encodeURIComponent(before)}`); }
-  snapshot(): Promise<Snapshot> { return this.request('Snapshot', '/api/v1/sync/snapshot'); }
+  async snapshot(): Promise<Snapshot> {
+    if (this.token === null) throw new NativeError(401,'session_rejected');
+    if (this.snapshotPaging === null) await this.discover();
+    if (!this.snapshotPaging) return this.request('Snapshot', '/api/v1/sync/snapshot');
+    const started = Date.now();
+    let page = await this.request('SnapshotPage','/api/v1/sync/snapshots',{});
+    const id = page.snapshot_id;
+    const snapshot: Snapshot = {protocol_version:1,rooms:[],messages:[],cursor:''};
+    const rooms = new Set<string>(), messages = new Set<string>(), tokens = new Set<string>();
+    let total = 0;
+    const invalid = () => new NativeError(0,'invalid_snapshot');
+    for (let index=0;index<128;index++) {
+      // Count UTF-8 bytes, including JSON escaping. RN doesn't require TextEncoder.
+      const bytes = utf8Bytes(JSON.stringify(page));
+      total += bytes;
+      if (page.protocol_version !== 1 || page.snapshot_id !== id || !id || page.page_index !== index
+        || bytes>1024*1024 || total>64*1024*1024 || Date.now()-started>300_000) throw invalid();
+      for (const room of page.rooms) { if (rooms.has(room.id)) throw invalid(); rooms.add(room.id); snapshot.rooms.push(room); }
+      for (const message of page.messages) { if (messages.has(message.id)) throw invalid(); messages.add(message.id); snapshot.messages.push(message); }
+      if (page.next == null) {
+        if (!page.cursor || snapshot.messages.some(m => !rooms.has(m.room_id))) throw invalid();
+        snapshot.cursor = page.cursor;
+        return snapshot;
+      }
+      if (page.cursor != null || !page.next || !/^[a-zA-Z0-9_-]{1,128}$/.test(page.next) || tokens.has(page.next)) throw invalid();
+      tokens.add(page.next);
+      page = await this.request('SnapshotPage',`/api/v1/sync/snapshots/${page.next}`);
+    }
+    throw invalid();
+  }
   changes(cursor: string): Promise<SyncBatch> { return this.request('SyncBatch', `/api/v1/sync/changes?cursor=${encodeURIComponent(cursor)}`); }
 
   async socketUrl(cursor: string): Promise<string> {

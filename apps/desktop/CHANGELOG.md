@@ -9,6 +9,9 @@ section here.
 
 ### Added
 
+- Materialized native snapshots shared by GTK and SwiftUI, assembled and validated
+  before the atomic cache update, with bounded pages and older-server compatibility.
+
 - Native feature discovery shared by GTK and SwiftUI, limited to features implemented
   by both the server and the installed client.
 

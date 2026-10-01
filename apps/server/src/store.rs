@@ -264,6 +264,14 @@ pub async fn membership(
             .bind(room_id).bind(target).execute(&mut *tx).await?.rows_affected()
     };
     if rows > 0 {
+        if remove {
+            // Never deliver another immutable page containing a withdrawn room.
+            // This also prevents remove/re-add from reviving an old snapshot.
+            sqlx::query("DELETE FROM snapshot_heads WHERE user_id=$1")
+                .bind(target)
+                .execute(&mut *tx)
+                .await?;
+        }
         let position = next_position(&mut tx).await?;
         let change = if remove {
             Change::RoomRemoved {

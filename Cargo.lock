@@ -1638,6 +1638,7 @@ dependencies = [
  "reqwest",
  "rv-protocol",
  "serde",
+ "serde_json",
  "thiserror",
  "url",
 ]

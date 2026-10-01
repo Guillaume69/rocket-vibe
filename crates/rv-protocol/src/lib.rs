@@ -48,6 +48,8 @@ pub struct Capabilities {
     pub custom_emojis: bool,
     #[serde(default)]
     pub quotes: bool,
+    #[serde(default)]
+    pub snapshot_paging: bool,
 }
 
 impl Default for Capabilities {
@@ -77,6 +79,7 @@ impl Default for Capabilities {
             presence: false,
             custom_emojis: false,
             quotes: false,
+            snapshot_paging: false,
         }
     }
 }
@@ -233,6 +236,19 @@ pub struct Snapshot {
     pub cursor: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SnapshotPage {
+    pub protocol_version: u32,
+    pub snapshot_id: String,
+    pub page_index: u32,
+    pub rooms: Vec<Room>,
+    pub messages: Vec<Message>,
+    /// Opaque page token, authenticated and bound to the same account/generation.
+    pub next: Option<String>,
+    /// Only the last page publishes the fixed watermark's replay cursor.
+    pub cursor: Option<String>,
+}
+
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SocketTicket {
     pub ticket: String,
@@ -258,6 +274,7 @@ pub struct Contract {
     pub message: Message,
     pub message_page: MessagePage,
     pub snapshot: Snapshot,
+    pub snapshot_page: SnapshotPage,
     pub sync_batch: SyncBatch,
     pub socket_ticket: SocketTicket,
     pub error: ApiError,

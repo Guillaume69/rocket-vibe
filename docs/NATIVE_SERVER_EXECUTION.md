@@ -189,6 +189,30 @@ Le [contrat de parité J0](protocol/PARITY.md) distingue les schémas de destina
 des endpoints réellement disponibles. Le diagnostic bureau doit encore propager
 le request ID natif. La présence de DTO de clés ne constitue aucune garantie crypto.
 
+## Septième incrément : snapshots paginés immuables
+
+Le serveur matérialise les pages dans une seule vue transactionnelle, conserve
+leurs données dans PostgreSQL et ne publie le curseur que sur la dernière page.
+Les nouveaux clients Rust / mobile assemblent et valident la vue entière avant
+l'application SQLite atomique ; un serveur natif plus ancien garde sa route initiale.
+Quotas : 1 000 salons, 50 messages récents par salon, 1 Mio par page / 64 Mio au
+total, durée 5 minutes, 4 vues par compte / 16 dans l'instance. Retrait de salon
+et restauration invalident les pages, y compris après réadhésion. Un échec de
+construction annule les pages partielles et libère la réservation.
+
+Le banc réel PostgreSQL teste un snapshot supérieur à 8 Mio avec arrivée pendant
+le téléchargement, puis replay au watermark capturé. Rust et le moteur mobile
+avec SQLite lisent cette vue ; aucune page intermédiaire ne modifie le cache.
+Les tests couvrent quotas concurrents, taille totale dépassée, 110 salons,
+expiration, retrait / réadhésion, restauration et séquences de pages corrompues.
+Les essais physiques et l'ordonnancement strict des diffusions restent ouverts.
+
+Vérifications locales : 26 tests Rust natifs, 31 tests TypeScript natifs et 981
+tests mobiles réussis ; schémas / génération / inventaire sans diff, typecheck
+et lint des fichiers mobiles concernés réussis.
+Les 203 tests du cœur / bindings bureau et Clippy passent dans Fedora ; le binaire
+GTK est compilé avec le transport paginé partagé par SwiftUI.
+
 ## Pour fermer J1
 
 - [x] Pilote mobile : sonde, connexion, stockage sécurisé, SQLite et outbox.
@@ -200,7 +224,7 @@ le request ID natif. La présence de DTO de clés ne constitue aucune garantie c
 - [ ] Parcours réel Android ↔ Windows, avec réseau coupé et processus clients tués.
 - [x] Heartbeats, rythme de diffusion, limites et essais d'authentification bornés.
 - [x] Tailles maximales de snapshot / lots et nettoyage des tickets / curseurs.
-- [ ] Pagination d'un snapshot matérialisé pour dépasser les bornes du pilote.
+- [x] Pagination d'un snapshot matérialisé pour dépasser les bornes du pilote.
 - [ ] Ordonnancement strict des révocations avec les réponses / sockets actives.
 - [ ] Création de salon idempotente et découverte / adhésion aux salons publics.
 

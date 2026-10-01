@@ -137,6 +137,10 @@
           "default": false,
           "type": "boolean"
         },
+        "snapshot_paging": {
+          "default": false,
+          "type": "boolean"
+        },
         "stars": {
           "default": false,
           "type": "boolean"
@@ -1063,6 +1067,57 @@
       ],
       "type": "object"
     },
+    "SnapshotPage": {
+      "properties": {
+        "cursor": {
+          "description": "Only the last page publishes the fixed watermark's replay cursor.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "messages": {
+          "items": {
+            "$ref": "#/$defs/Message"
+          },
+          "type": "array"
+        },
+        "next": {
+          "description": "Opaque page token, authenticated and bound to the same account/generation.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "page_index": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "protocol_version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rooms": {
+          "items": {
+            "$ref": "#/$defs/Room"
+          },
+          "type": "array"
+        },
+        "snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "snapshot_id",
+        "page_index",
+        "rooms",
+        "messages"
+      ],
+      "type": "object"
+    },
     "SocketTicket": {
       "properties": {
         "expires_at": {
@@ -1243,6 +1298,9 @@
     "snapshot": {
       "$ref": "#/$defs/Snapshot"
     },
+    "snapshot_page": {
+      "$ref": "#/$defs/SnapshotPage"
+    },
     "socket_ticket": {
       "$ref": "#/$defs/SocketTicket"
     },
@@ -1261,6 +1319,7 @@
     "message",
     "message_page",
     "snapshot",
+    "snapshot_page",
     "sync_batch",
     "socket_ticket",
     "error",

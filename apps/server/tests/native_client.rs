@@ -3,6 +3,146 @@ use rv_protocol::SendMessage;
 use rv_server::{App, auth};
 use sqlx::PgPool;
 
+#[tokio::test]
+async fn rust_snapshot_bounds_chunked_wire_bodies_before_json_decoding() {
+    use axum::{
+        Json, Router,
+        body::{Body, Bytes},
+        routing::{get, post},
+    };
+    use serde_json::{Value, json};
+    let mut discovery: Value =
+        serde_json::from_str::<Value>(include_str!("../../../docs/protocol/v1.fixture.json"))
+            .unwrap()["discovery"]
+            .clone();
+    discovery["capabilities"]["snapshot_paging"] = json!(true);
+    let router = Router::new()
+        .route(
+            "/.well-known/rocketvibe",
+            get(move || {
+                let discovery = discovery.clone();
+                async move { Json(discovery) }
+            }),
+        )
+        .route(
+            "/api/v1/sync/snapshots",
+            post(|| async {
+                // No Content-Length, and valid JSON can contain arbitrarily much
+                // whitespace. The client must bound the download before decoding it.
+                Body::from_stream(futures_util::stream::iter([
+                    Ok::<_, std::io::Error>(Bytes::from(vec![b' '; 600_000])),
+                    Ok(Bytes::from(vec![b' '; 600_000])),
+                    Ok(Bytes::from_static(b"{}")),
+                ]))
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut client =
+        NativeClient::new(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+    client.restore("session".into());
+    let task = tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    assert!(matches!(
+        client.snapshot().await,
+        Err(rv_client::Error::InvalidSnapshot)
+    ));
+    task.abort();
+}
+
+#[tokio::test]
+async fn rust_snapshot_rejects_corrupted_or_incomplete_page_sequences() {
+    use axum::{
+        Json, Router,
+        routing::{get, post},
+    };
+    use serde_json::{Value, json};
+    let fixture: Value =
+        serde_json::from_str(include_str!("../../../docs/protocol/v1.fixture.json")).unwrap();
+    let mut discovery = fixture["discovery"].clone();
+    discovery["capabilities"]["snapshot_paging"] = json!(true);
+    let room = fixture["room"].clone();
+    let message = fixture["message"].clone();
+    let first = json!({"protocol_version":1,"snapshot_id":"view","page_index":0,"rooms":[room],"messages":[],"next":"next","cursor":null});
+    let last = json!({"protocol_version":1,"snapshot_id":"view","page_index":1,"rooms":[],"messages":[message],"next":null,"cursor":"final-cursor"});
+    let mut invalid = Vec::new();
+    for (field, value) in [
+        ("page_index", json!(2)),
+        ("snapshot_id", json!("other")),
+        ("protocol_version", json!(99)),
+        ("cursor", Value::Null),
+        ("next", json!("https://foreign.example/page")),
+    ] {
+        let mut page = last.clone();
+        page[field] = value;
+        invalid.push(page);
+    }
+    let mut duplicate = last.clone();
+    duplicate["messages"] = json!([message, message]);
+    invalid.push(duplicate);
+    let mut duplicate_room = last.clone();
+    duplicate_room["rooms"] = json!([room]);
+    invalid.push(duplicate_room);
+    let mut foreign_room = last.clone();
+    foreign_room["messages"][0]["room_id"] = json!("forbidden");
+    invalid.push(foreign_room);
+    let mut early_cursor = last.clone();
+    early_cursor["next"] = json!("another");
+    invalid.push(early_cursor);
+    let mut repeated_next = last.clone();
+    repeated_next["next"] = json!("next");
+    repeated_next["cursor"] = Value::Null;
+    invalid.push(repeated_next);
+    for page in invalid.into_iter().chain([last]) {
+        let valid = page["page_index"] == 1
+            && page["snapshot_id"] == "view"
+            && page["protocol_version"] == 1
+            && page["cursor"] == "final-cursor"
+            && page["next"].is_null()
+            && page["rooms"].as_array().unwrap().is_empty()
+            && page["messages"].as_array().unwrap().len() == 1
+            && page["messages"][0]["room_id"] == room["id"];
+        let info = discovery.clone();
+        let start = first.clone();
+        let router = Router::new()
+            .route(
+                "/.well-known/rocketvibe",
+                get(move || {
+                    let info = info.clone();
+                    async move { Json(info) }
+                }),
+            )
+            .route(
+                "/api/v1/sync/snapshots",
+                post(move || {
+                    let start = start.clone();
+                    async move { Json(start) }
+                }),
+            )
+            .route(
+                "/api/v1/sync/snapshots/next",
+                get(move || {
+                    let page = page.clone();
+                    async move { Json(page) }
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut client =
+            NativeClient::new(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+        client.restore("session".into());
+        let task = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let result = client.snapshot().await;
+        if valid {
+            assert_eq!(result.unwrap().messages.len(), 1);
+        } else {
+            assert!(matches!(result, Err(rv_client::Error::InvalidSnapshot)));
+        }
+        task.abort();
+    }
+}
+
 #[sqlx::test]
 async fn rust_client_exchanges_and_replays_on_real_server(pool: PgPool) {
     use std::{process::Stdio, time::Duration};

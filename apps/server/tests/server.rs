@@ -1,7 +1,8 @@
 use futures_util::StreamExt;
 use reqwest::{Client, StatusCode};
 use rv_protocol::{
-    Change, Discovery, Message, MessagePage, Room, Session, Snapshot, SocketTicket, SyncBatch,
+    Change, Discovery, Message, MessagePage, Room, Session, Snapshot, SnapshotPage, SocketTicket,
+    SyncBatch,
 };
 use rv_server::{App, auth};
 use serde_json::{Value, json};
@@ -1135,6 +1136,93 @@ async fn large_json_is_bounded_without_skipping_replay_events(pool: PgPool) {
         cursors_before, cursors_after,
         "a partial snapshot must not publish a cursor"
     );
+    let first_bytes = server
+        .post(&alice.token, "/api/v1/sync/snapshots", json!({}))
+        .await
+        .error_for_status()
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap();
+    assert!(first_bytes.len() <= 1024 * 1024);
+    let first: SnapshotPage = serde_json::from_slice(&first_bytes).unwrap();
+    assert!(first.next.is_some());
+    assert!(
+        first.cursor.is_none(),
+        "partial pages cannot publish a replay cursor"
+    );
+    let frozen_ids = ids.clone();
+    let future = "after-materialization";
+    server
+        .post(
+            &alice.token,
+            &format!("/api/v1/rooms/{last_room}/messages"),
+            json!({"operation_id":future,"text":"arrived between snapshot pages"}),
+        )
+        .await
+        .error_for_status()
+        .unwrap();
+    ids.push(future.into());
+    let mut page = first;
+    let mut snapshot_ids = Vec::new();
+    let snapshot_id = page.snapshot_id.clone();
+    let mut index = 0;
+    let frozen_cursor = loop {
+        assert_eq!(page.snapshot_id, snapshot_id);
+        assert_eq!(page.page_index, index);
+        snapshot_ids.extend(page.messages.iter().map(|m| m.id.clone()));
+        if let Some(next) = page.next {
+            assert!(page.cursor.is_none());
+            let bytes = server
+                .get(&alice.token, &format!("/api/v1/sync/snapshots/{next}"))
+                .await
+                .error_for_status()
+                .unwrap()
+                .bytes()
+                .await
+                .unwrap();
+            assert!(bytes.len() <= 1024 * 1024);
+            page = serde_json::from_slice(&bytes).unwrap();
+            index += 1;
+        } else {
+            break page.cursor.unwrap();
+        }
+    };
+    assert!(index > 1);
+    snapshot_ids.sort();
+    let mut sorted_frozen = frozen_ids;
+    sorted_frozen.sort();
+    assert_eq!(
+        snapshot_ids, sorted_frozen,
+        "every page must come from the same immutable view"
+    );
+    let after_snapshot = server.changes(&alice.token, &frozen_cursor).await;
+    assert!(
+        matches!(after_snapshot.changes.as_slice(), [Change::MessageUpsert(m)] if m.id==future)
+    );
+    let mut native = rv_client::NativeClient::new(&server.base).unwrap();
+    native.restore(alice.token.clone());
+    let assembled = native.snapshot().await.unwrap();
+    assert_eq!(assembled.messages.len(), 150);
+    assert!(assembled.messages.iter().any(|m| m.id == future));
+    let mobile = tokio::time::timeout(
+        Duration::from_secs(60),
+        tokio::process::Command::new("node")
+            .arg("../../scripts/native-snapshot-smoke.ts")
+            .env("RV_SMOKE_URL", &server.base)
+            .env("RV_SMOKE_PASSWORD", "test-password-2026")
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .expect("large mobile snapshot timed out")
+    .expect("Node 24 is required");
+    assert!(
+        mobile.status.success(),
+        "mobile snapshot: {} {}",
+        String::from_utf8_lossy(&mobile.stdout),
+        String::from_utf8_lossy(&mobile.stderr)
+    );
     let mut cursor = initial.cursor;
     let mut delivered = Vec::new();
     let mut batches = 0;
@@ -1187,4 +1275,277 @@ async fn large_json_is_bounded_without_skipping_replay_events(pool: PgPool) {
             .changes
             .is_empty()
     );
+}
+
+#[sqlx::test]
+async fn materialized_pages_expire_and_cannot_survive_withdrawal_or_restore(pool: PgPool) {
+    let app = App::from_pool(pool.clone()).await.unwrap();
+    user(&app, "alice").await;
+    user(&app, "bob").await;
+    let server = Server::start(pool.clone()).await;
+    let alice = server.login("alice").await;
+    let bob = server.login("bob").await;
+    let room: Room = server
+        .post(
+            &alice.token,
+            "/api/v1/rooms",
+            json!({"name":"Paged private", "private":true}),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    server
+        .post(
+            &alice.token,
+            &format!("/api/v1/rooms/{}/members/{}", room.id, bob.user.id),
+            json!({}),
+        )
+        .await
+        .error_for_status()
+        .unwrap();
+    for n in 0..24 {
+        server
+            .post(
+                &alice.token,
+                &format!("/api/v1/rooms/{}/messages", room.id),
+                json!({"operation_id":format!("paged-{n}"),"text":"\"".repeat(30_000)}),
+            )
+            .await
+            .error_for_status()
+            .unwrap();
+    }
+    let first: SnapshotPage = server
+        .post(&bob.token, "/api/v1/sync/snapshots", json!({}))
+        .await
+        .json()
+        .await
+        .unwrap();
+    let next = first.next.unwrap();
+    let path = format!("/api/v1/sync/snapshots/{next}");
+    assert_eq!(
+        server.get(&alice.token, &path).await.status(),
+        StatusCode::CONFLICT,
+        "a page belongs to one account"
+    );
+    let again = server.get(&bob.token, &path).await.bytes().await.unwrap();
+    assert_eq!(
+        again,
+        server.get(&bob.token, &path).await.bytes().await.unwrap(),
+        "lost page responses can be retried"
+    );
+    server
+        .client
+        .delete(format!(
+            "{}/api/v1/rooms/{}/members/{}",
+            server.base, room.id, bob.user.id
+        ))
+        .bearer_auth(&alice.token)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    assert_eq!(
+        server.get(&bob.token, &path).await.status(),
+        StatusCode::CONFLICT
+    );
+    server
+        .post(
+            &alice.token,
+            &format!("/api/v1/rooms/{}/members/{}", room.id, bob.user.id),
+            json!({}),
+        )
+        .await
+        .error_for_status()
+        .unwrap();
+    assert_eq!(
+        server.get(&bob.token, &path).await.status(),
+        StatusCode::CONFLICT,
+        "rejoining must not revive a withdrawn snapshot"
+    );
+    let fresh: SnapshotPage = server
+        .post(&bob.token, "/api/v1/sync/snapshots", json!({}))
+        .await
+        .json()
+        .await
+        .unwrap();
+    let fresh_path = format!("/api/v1/sync/snapshots/{}", fresh.next.unwrap());
+    sqlx::query("UPDATE snapshot_heads SET expires_at=now()-interval '1 second'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        server.get(&bob.token, &fresh_path).await.status(),
+        StatusCode::CONFLICT
+    );
+    app.cleanup().await.unwrap();
+    let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM snapshot_pages")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        remaining, 0,
+        "cleanup must cascade to the immutable payload pages"
+    );
+    let before_restore: SnapshotPage = server
+        .post(&bob.token, "/api/v1/sync/snapshots", json!({}))
+        .await
+        .json()
+        .await
+        .unwrap();
+    sqlx::query("UPDATE instance SET data_epoch=$1")
+        .bind(auth::random_token())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        server
+            .get(
+                &bob.token,
+                &format!("/api/v1/sync/snapshots/{}", before_restore.next.unwrap())
+            )
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+}
+
+#[sqlx::test]
+async fn concurrent_snapshot_admission_keeps_account_and_global_storage_bounded(pool: PgPool) {
+    let app = App::from_pool(pool.clone()).await.unwrap();
+    user(&app, "alice").await;
+    user(&app, "bob").await;
+    let server = Server::start(pool.clone()).await;
+    let alice = server.login("alice").await;
+    let bob = server.login("bob").await;
+    for _ in 0..3 {
+        server
+            .post(&alice.token, "/api/v1/sync/snapshots", json!({}))
+            .await
+            .error_for_status()
+            .unwrap();
+    }
+    let results = futures_util::future::join_all(
+        (0..8).map(|_| server.post(&alice.token, "/api/v1/sync/snapshots", json!({}))),
+    )
+    .await;
+    assert_eq!(
+        results
+            .iter()
+            .filter(|r| r.status() == StatusCode::OK)
+            .count(),
+        1
+    );
+    for result in results.into_iter().filter(|r| r.status() != StatusCode::OK) {
+        assert_eq!(result.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(result.headers()["retry-after"], "30");
+        assert_eq!(
+            result.json::<rv_protocol::ApiError>().await.unwrap().code,
+            "snapshot_busy"
+        );
+    }
+    let own: i64 = sqlx::query_scalar("SELECT count(*) FROM snapshot_heads WHERE user_id=$1")
+        .bind(&alice.user.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(own, 4);
+    sqlx::query("INSERT INTO snapshot_heads(id,user_id,data_epoch) SELECT $1||n,$2,data_epoch FROM instance CROSS JOIN generate_series(1,12) n")
+        .bind(auth::random_token()).bind(&alice.user.id).execute(&pool).await.unwrap();
+    assert_eq!(
+        server
+            .post(&bob.token, "/api/v1/sync/snapshots", json!({}))
+            .await
+            .status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    sqlx::query("UPDATE snapshot_heads SET expires_at=now()-interval '1 second'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        server
+            .post(&bob.token, "/api/v1/sync/snapshots", json!({}))
+            .await
+            .status(),
+        StatusCode::OK
+    );
+}
+
+#[sqlx::test]
+async fn snapshot_room_and_total_byte_limits_refund_failed_reservations(pool: PgPool) {
+    let app = App::from_pool(pool.clone()).await.unwrap();
+    user(&app, "alice").await;
+    let server = Server::start(pool.clone()).await;
+    let alice = server.login("alice").await;
+    sqlx::query("INSERT INTO rooms(id,name,kind) SELECT 'small-room-'||n,'Small '||n,'private' FROM generate_series(1,110) n")
+        .execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO members(room_id,user_id,role) SELECT id,$1,'owner' FROM rooms")
+        .bind(&alice.user.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        server
+            .get(&alice.token, "/api/v1/sync/snapshot")
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let mut native = rv_client::NativeClient::new(&server.base).unwrap();
+    native.restore(alice.token.clone());
+    assert_eq!(native.snapshot().await.unwrap().rooms.len(), 110);
+    sqlx::query("UPDATE snapshot_heads SET expires_at=now()-interval '1 second'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    app.cleanup().await.unwrap();
+    sqlx::query("INSERT INTO rooms(id,name,kind) SELECT 'quota-room-'||n,'Quota '||n,'private' FROM generate_series(1,22) n")
+        .execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO members(room_id,user_id,role) SELECT id,$1,'owner' FROM rooms WHERE id LIKE 'quota-room-%'")
+        .bind(&alice.user.id).execute(&pool).await.unwrap();
+    // Escaping 32,000 quotes doubles the wire size. 22 x 50 messages exceeds
+    // the 64 MiB budget after several pages were inserted in the transaction.
+    sqlx::query("INSERT INTO messages(id,room_id,author_id,operation_id,text,position,revision) SELECT 'quota-message-'||n,'quota-room-'||((n-1)/50+1),$1,'quota-send-'||n,$2,n,1 FROM generate_series(1,1100) n")
+        .bind(&alice.user.id).bind("\"".repeat(32_000)).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE instance SET position=1100 WHERE singleton")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let response = server
+        .post(&alice.token, "/api/v1/sync/snapshots", json!({}))
+        .await;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        response.json::<rv_protocol::ApiError>().await.unwrap().code,
+        "snapshot_limit"
+    );
+    let counts: (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM snapshot_heads),(SELECT count(*) FROM snapshot_pages)",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        counts,
+        (0, 0),
+        "a failed build refunds its reservation and every partial page"
+    );
+    sqlx::query("INSERT INTO rooms(id,name,kind) SELECT 'overflow-room-'||n,'Overflow '||n,'private' FROM generate_series(1,950) n")
+        .execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO members(room_id,user_id,role) SELECT id,$1,'owner' FROM rooms WHERE id LIKE 'overflow-room-%'")
+        .bind(&alice.user.id).execute(&pool).await.unwrap();
+    assert_eq!(
+        server
+            .post(&alice.token, "/api/v1/sync/snapshots", json!({}))
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM snapshot_heads")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(remaining, 0);
 }

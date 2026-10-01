@@ -9,6 +9,10 @@ release, et ses notes sont la section de la version ici.
 
 ### Ajouté
 
+- Snapshots RocketVibe paginés et immuables, téléchargés puis validés avant
+  remplacement atomique du cache ; pages expirées ou retirées rejetées sans
+  appliquer de vue partielle. Compatibilité conservée avec les anciens serveurs natifs.
+
 - Capacités RocketVibe vérifiées à chaque reconnexion et limitées aux fonctions
   prises en charge par l'app ; diagnostics fournisseur avec identifiant de requête.
 

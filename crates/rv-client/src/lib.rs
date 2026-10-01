@@ -4,7 +4,7 @@
 use reqwest::Method;
 use rv_protocol::{
     ApiError, CreateRoom, DirectMessage, Discovery, Login, Message, MessagePage, Room, SendMessage,
-    Session, Snapshot, SocketTicket, SyncBatch, User,
+    Session, Snapshot, SnapshotPage, SocketTicket, SyncBatch, User,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use std::{
@@ -20,6 +20,8 @@ pub enum Error {
     InvalidUrl,
     #[error("unsupported RocketVibe protocol")]
     UnsupportedProtocol,
+    #[error("invalid or oversized native snapshot")]
+    InvalidSnapshot,
     #[error("session missing")]
     SessionMissing,
     #[error("server refused request ({status}): {code}")]
@@ -34,6 +36,7 @@ pub struct NativeClient {
     http: reqwest::Client,
     token: Option<String>,
     cooldowns: Arc<Mutex<HashMap<&'static str, (Instant, String)>>>,
+    snapshot_paging: Arc<Mutex<Option<bool>>>,
 }
 
 impl NativeClient {
@@ -56,6 +59,7 @@ impl NativeClient {
                 .build()?,
             token: None,
             cooldowns: Arc::default(),
+            snapshot_paging: Arc::default(),
         })
     }
 
@@ -74,7 +78,7 @@ impl NativeClient {
         if let Some(input) = input {
             request = request.json(input);
         }
-        let response = request.send().await?;
+        let mut response = request.send().await?;
         if !response.status().is_success() {
             let status = response.status().as_u16();
             let retry = response
@@ -101,6 +105,22 @@ impl NativeClient {
                 code: error.code,
             });
         }
+        if path == "/api/v1/sync/snapshots" || path.starts_with("/api/v1/sync/snapshots/") {
+            // Refuse oversized wire bodies before allocating/decoding a page,
+            // including whitespace and chunked responses without Content-Length.
+            const MAX: usize = 1024 * 1024;
+            if response.content_length().is_some_and(|n| n > MAX as u64) {
+                return Err(Error::InvalidSnapshot);
+            }
+            let mut bytes = Vec::new();
+            while let Some(chunk) = response.chunk().await? {
+                if bytes.len() + chunk.len() > MAX {
+                    return Err(Error::InvalidSnapshot);
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            return serde_json::from_slice(&bytes).map_err(|_| Error::InvalidSnapshot);
+        }
         Ok(response.json().await?)
     }
 
@@ -108,6 +128,7 @@ impl NativeClient {
         match path {
             "/api/v1/auth/login" => Some("login"),
             "/api/v1/sync/ticket" => Some("ticket"),
+            "/api/v1/sync/snapshots" => Some("snapshot"),
             _ => None,
         }
     }
@@ -150,6 +171,8 @@ impl NativeClient {
         {
             return Err(Error::UnsupportedProtocol);
         }
+        *self.snapshot_paging.lock().expect("native discovery lock") =
+            Some(info.capabilities.snapshot_paging);
         Ok(info)
     }
 
@@ -246,7 +269,70 @@ impl NativeClient {
         .await
     }
     pub async fn snapshot(&self) -> Result<Snapshot, Error> {
-        self.get("/api/v1/sync/snapshot").await
+        if self.token.is_none() {
+            return Err(Error::SessionMissing);
+        }
+        let mut paging = *self.snapshot_paging.lock().expect("native discovery lock");
+        if paging.is_none() {
+            paging = Some(self.discover().await?.capabilities.snapshot_paging);
+        }
+        if paging != Some(true) {
+            return self.get("/api/v1/sync/snapshot").await;
+        }
+        let started = Instant::now();
+        let mut page: SnapshotPage = self.post("/api/v1/sync/snapshots", &()).await?;
+        let id = page.snapshot_id.clone();
+        let mut snapshot = Snapshot {
+            protocol_version: rv_protocol::VERSION,
+            rooms: Vec::new(),
+            messages: Vec::new(),
+            cursor: String::new(),
+        };
+        let mut total = 0;
+        let mut room_ids = std::collections::HashSet::new();
+        let mut message_ids = std::collections::HashSet::new();
+        let mut tokens = std::collections::HashSet::new();
+        for index in 0..128 {
+            let bytes = serde_json::to_vec(&page)
+                .map_err(|_| Error::InvalidSnapshot)?
+                .len();
+            total += bytes;
+            if page.protocol_version != rv_protocol::VERSION
+                || page.snapshot_id != id
+                || id.is_empty()
+                || page.page_index != index
+                || bytes > 1024 * 1024
+                || total > 64 * 1024 * 1024
+                || started.elapsed() > Duration::from_secs(300)
+                || page.rooms.iter().any(|r| !room_ids.insert(r.id.clone()))
+                || page
+                    .messages
+                    .iter()
+                    .any(|m| !message_ids.insert(m.id.clone()))
+            {
+                return Err(Error::InvalidSnapshot);
+            }
+            snapshot.rooms.extend(page.rooms);
+            snapshot.messages.extend(page.messages);
+            match (page.next, page.cursor) {
+                (None, Some(cursor)) if !cursor.is_empty() => {
+                    if snapshot
+                        .messages
+                        .iter()
+                        .any(|m| !room_ids.contains(&m.room_id))
+                    {
+                        return Err(Error::InvalidSnapshot);
+                    }
+                    snapshot.cursor = cursor;
+                    return Ok(snapshot);
+                }
+                (Some(next), None) if path_segment(&next) && tokens.insert(next.clone()) => {
+                    page = self.get(&format!("/api/v1/sync/snapshots/{next}")).await?;
+                }
+                _ => return Err(Error::InvalidSnapshot),
+            }
+        }
+        Err(Error::InvalidSnapshot)
     }
     pub async fn changes(&self, cursor: &str) -> Result<SyncBatch, Error> {
         if !path_segment(cursor) {

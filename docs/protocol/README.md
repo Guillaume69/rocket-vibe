@@ -18,7 +18,7 @@ sont versionnés et vérifiés sans diff en CI.
 - Dates RFC 3339 UTC ; IDs opaques ; positions / révisions en chaînes décimales.
 - Erreurs métier : `{ code, request_id }`. Aucun texte SQL ou secret dans la réponse.
 - `429` conserve cette enveloppe et ajoute `Retry-After` en secondes entières.
-  Les transports natifs gardent le délai (borné à 5 min) par famille login / ticket,
+  Les transports natifs gardent le délai (borné à 5 min) par famille login / ticket / snapshot,
   sans révoquer la session ni bloquer la consultation ou le logout.
 
 ## Routes disponibles
@@ -40,6 +40,8 @@ présence ne déclare pas les endpoints correspondants disponibles.
 | GET | `/rooms/{room}/messages?before=…&limit=…` | Historique décroissant, keyset, limite 1–100 |
 | POST | `/rooms/{room}/messages` | `{ operation_id, text }` → message committé |
 | GET | `/sync/snapshot` | Vue cohérente des salons, 50 messages récents par salon, curseur |
+| POST | `/sync/snapshots` | Matérialiser une vue immuable ; première `SnapshotPage` |
+| GET | `/sync/snapshots/{token}` | Page suivante liée au compte ; curseur uniquement sur la dernière |
 | GET | `/sync/changes?cursor=…` | Lot ordonné, curseur opaque suivant, `has_more` |
 | POST | `/sync/ticket` | Ticket WebSocket à usage unique, valable 30 secondes |
 | GET / upgrade | `/sync/socket?ticket=…&cursor=…` | Même format `SyncBatch`, replay puis suivi |
@@ -72,15 +74,44 @@ Une socket inactive reçoit au moins toutes les 15 secondes un `SyncBatch` vide,
 avec son curseur courant et `has_more: false`. Le pilote mobile ferme et reprend
 une connexion n'ayant reçu aucune trame pendant plus de 45 secondes.
 
+### Snapshots matérialisés
+
+La capacité additive `snapshot_paging` annonce les deux nouvelles routes. Les
+clients mobiles et bureau l'utilisent lorsqu'elle est présente et conservent la
+route historique pour les serveurs v1 antérieurs. `snapshot_id` et `page_index`
+identifient une vue capturée dans une unique transaction PostgreSQL repeatable read.
+Les pages sont immuables : une arrivée pendant le téléchargement sera rejouée après
+le curseur final. Aucun curseur n'est publié sur une page intermédiaire.
+
+Une vue contient au plus 1 000 salons, 50 messages récents par salon, 1 Mio de JSON
+par page et 64 Mio au total. Elle expire 5 minutes après réservation ; 4 vues par
+compte et 16 dans l'instance, admissions concurrentes sérialisées en base. Refus
+`429 snapshot_busy` avec délai de 30 s ou `409 snapshot_limit` ; un échec de
+matérialisation annule ses pages et restitue sa réservation. Une construction
+annulée sans résultat reste bornée par ces quotas jusqu'à expiration.
+
+Chaque page revérifie compte, génération et adhésions. Un retrait invalide toutes
+les vues du compte dans la transaction de révocation ; une nouvelle adhésion ne
+réactive aucun ancien token. Expiration, restauration ou retrait donnent
+`409 sync_reset_required`. Le nettoyage supprime 8 vues périmées par passage et
+cascade sur leurs pages, sans purger le journal ni les messages.
+
+Les clients vérifient identité, ordre, doublons, références, taille, tokens locaux
+et présence du seul curseur final avant de remplacer atomiquement leur cache.
+Ils bornent l'assemblage à 128 pages / 64 Mio / 5 minutes. Rust borne également
+les octets reçus avant décodage, y compris une réponse chunked ; le fetch mobile
+tamponne son corps natif puis contrôle la taille avant parsing, et interrompt dès
+un Content-Length trop grand. La qualification de mémoire sur Android reste ouverte.
+
 ## Limites connues
 
 - Le [mobile](../NATIVE_MOBILE_PILOT.md) et les clients [GTK / SwiftUI](../NATIVE_DESKTOP_PILOT.md)
   utilisent leurs écrans existants pour les deux fournisseurs. Les essais manuels
   sur appareils restent ouverts.
-- Snapshot non paginé, maximum 100 salons (refus explicite au-delà) et 50 messages
+- Route historique de snapshot non paginé : maximum 100 salons (refus explicite au-delà) et 50 messages
   récents par salon ; taille JSON maximum 8 Mio, refus `409 snapshot_limit` sans
   création de curseur ni réponse partielle. Les autres messages se chargent par
-  l'historique. La pagination de snapshots matérialisés reste à livrer.
+  l'historique. Les clients actuels utilisent les pages matérialisées décrites ci-dessus.
 - Lots HTTP / WebSocket : maximum 100 événements scannés et 1 Mio de JSON. Le
   curseur n'avance pas au-delà d'un événement livré dans le lot suivant.
 - Tickets valables 30 s, maximum 4 non consommés par session. Le démarrage et un

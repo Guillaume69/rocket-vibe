@@ -96,10 +96,13 @@ de proxies explicitement approuvés reste à définir avant une exposition publi
 
 Maximum 4 tickets non consommés par session, 128 sockets par processus et 4 par
 session. Les sockets restent vérifiées toutes les 250 ms, avec heartbeat à 15 s et
-délai d'envoi / fermeture de 5 s. Snapshot : 100 salons, 50 messages par salon et
-8 Mio de JSON ; refus `409 snapshot_limit` sans vue partielle au-delà. Les lots de
+délai d'envoi / fermeture de 5 s. Snapshot historique : 100 salons, 50 messages par salon et
+8 Mio de JSON ; refus `409 snapshot_limit` sans vue partielle au-delà. Le snapshot
+matérialisé permet 1 000 salons, 1 Mio par page / 64 Mio au total ; sa vue immuable
+expire après 5 minutes, avec 4 vues par compte / 16 pour l'instance. Le dernier
+curseur n'est rendu qu'après téléchargement complet. Les lots de
 journal sont limités à 100 événements et 1 Mio, sans sauter l'événement qui ne tient
-pas dans le lot. La pagination de snapshots matérialisés reste à développer.
+pas dans le lot. Voir le [contrat de pagination](../../docs/protocol/README.md#snapshots-matérialisés).
 
 Un curseur expire après 7 jours sans renouvellement ; 512 curseurs au maximum par
 compte. Un curseur expiré / élagué exige un nouveau snapshot via

@@ -155,25 +155,16 @@ pub fn possible_actions(ctx: &ActionContext) -> Vec<Action> {
     out
 }
 
-/// The permissions the message actions depend on.
-pub const ACTION_PERMISSIONS: [&str; 6] = [
-    "edit-message",
-    "delete-message",
-    "delete-own-message",
-    "force-delete-message",
-    "bypass-time-limit-edit-and-delete",
-    "pin-message",
-];
-
 /// A permission and the roles that hold it.
 pub type PermissionRoles = (String, Vec<String>);
 
-/// Each permission `permissions.listAll` lists with its roles, kept for ours.
+/// Each permission `permissions.listAll` lists with its roles: the message
+/// actions' and the slash commands'.
 pub fn permission_roles(response: &Value) -> Vec<PermissionRoles> {
     let list = response.get("update").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
     list.iter()
         .filter_map(|p| {
-            let id = p.get("_id").and_then(Value::as_str).filter(|id| ACTION_PERMISSIONS.contains(id))?;
+            let id = p.get("_id").and_then(Value::as_str)?;
             let roles = p.get("roles").and_then(Value::as_array)?;
             Some((id.to_owned(), roles.iter().filter_map(Value::as_str).map(str::to_owned).collect()))
         })
@@ -503,9 +494,9 @@ mod tests {
             {"_id": "view-logs", "roles": ["user"]},
         ]});
         let known = permission_roles(&response);
-        assert_eq!(known.len(), 2);
-        assert_eq!(granted(&known, &["user".into(), "owner".into()]), ["pin-message"]);
-        assert!(granted(&known, &["user".into()]).is_empty());
+        assert_eq!(known.len(), 3);
+        assert_eq!(granted(&known, &["user".into(), "owner".into()]), ["pin-message", "view-logs"]);
+        assert!(granted(&known, &["guest".into()]).is_empty());
         let s = settings();
         let none: Vec<String> = vec![];
         assert!(!possible_actions(&ctx(&s, &none, "me", 1)).contains(&Action::Pin));

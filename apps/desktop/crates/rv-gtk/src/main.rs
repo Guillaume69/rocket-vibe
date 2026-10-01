@@ -25,6 +25,7 @@ mod marked;
 mod media;
 mod message_list;
 mod notifier;
+mod player;
 mod recorder;
 mod rows;
 mod secrets;

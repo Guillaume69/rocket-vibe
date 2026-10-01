@@ -396,7 +396,11 @@ struct MessageRow: View, Equatable {
             FileCard(file: file)
         }
         ForEach(Array(message.cards.enumerated()), id: \.offset) { _, card in
-            LinkCard(card: card)
+            if let page = card.player {
+                VideoCard(card: card, page: page)
+            } else {
+                LinkCard(card: card)
+            }
         }
         if !message.reactions.isEmpty {
             HStack(spacing: 6) {

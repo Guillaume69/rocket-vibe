@@ -59,7 +59,7 @@ the same rv-core, with these differences:
 - [x] Custom emoji images (`emoji-custom.list`)
 - [x] Mentions open the profile
 - [x] Link previews from `message.urls` (card, inline image)
-- [x] YouTube/Dailymotion/Vimeo cards
+- [x] YouTube/Dailymotion/Vimeo cards (desktop: played in the card; Android opens the app or browser)
 - [x] Video attachments (player)
 - [x] Audio and voice messages (player)
 - [x] Other files: download, open
@@ -85,6 +85,7 @@ the same rv-core, with these differences:
 - [x] Checks against `FileUpload_MaxFileSize` and `FileUpload_MediaTypeWhiteList`
 - [x] Upload in two steps (`rooms.media`, `rooms.mediaConfirm`) with progress
 - [x] Voice recording
+- [x] Slash commands (`commands.list`, `commands.run`), their private answers above the composer: desktop only
 
 ## 5. Message actions
 

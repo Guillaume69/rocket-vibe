@@ -52,6 +52,27 @@ pub struct TrayLabels<'a> {
     pub quit: &'a str,
 }
 
+/// Where the inline video player lets a navigation go.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Go {
+    Allow,
+    /// Cancelled in the player, opened in the browser.
+    Browser,
+    Block,
+}
+
+/// (address, main frame, followed link) → where it goes.
+pub type Decide = fn(&str, bool, bool) -> Go;
+
+/// A rectangle of the window, in its logical pixels from its top-left corner.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Rect {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
 /// The macOS launch agent's label.
 pub const LOGIN_ENTRY: &str = "com.rocketvibe.app";
 
@@ -63,11 +84,15 @@ mod windows_call;
 #[cfg(windows)]
 mod windows_impl;
 #[cfg(windows)]
+mod windows_player;
+#[cfg(windows)]
 mod windows_shell;
 #[cfg(windows)]
 pub use windows_call::call_window;
 #[cfg(windows)]
 pub use windows_impl::{available, badge, delivered, init, set_window, show, withdraw};
+#[cfg(windows)]
+pub use windows_player::{Player, player};
 #[cfg(windows)]
 pub use windows_shell::{app_events, autostart, autostart_supported, claim_instance, set_autostart, tray};
 
@@ -76,11 +101,15 @@ mod macos_call;
 #[cfg(target_os = "macos")]
 mod macos_impl;
 #[cfg(target_os = "macos")]
+mod macos_player;
+#[cfg(target_os = "macos")]
 mod macos_shell;
 #[cfg(target_os = "macos")]
 pub use macos_call::call_window;
 #[cfg(target_os = "macos")]
 pub use macos_impl::{available, badge, delivered, init, set_window, show, withdraw};
+#[cfg(target_os = "macos")]
+pub use macos_player::{Player, player};
 #[cfg(target_os = "macos")]
 pub use macos_shell::{app_events, autostart, autostart_supported, claim_instance, set_autostart, tray};
 
@@ -134,6 +163,11 @@ pub fn input_language_changed() {}
 #[cfg(any(windows, target_os = "macos"))]
 pub(crate) fn call_event(what: &str, detail: &str) {
     println!("native: call {what} {detail}");
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+pub(crate) fn player_event(what: &str, detail: &str) {
+    println!("native: player {what} {detail}");
 }
 
 /// What a second launch asks of the first, from its arguments (one per line):

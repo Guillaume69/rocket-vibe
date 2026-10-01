@@ -59,6 +59,11 @@ pub enum SessionEvent {
     E2e,
     /// A new message from someone else that my notification preference wants shown.
     Incoming(Box<crate::notify::Incoming>),
+    /// What the server told me alone in a room: a slash command's answer.
+    Private {
+        rid: String,
+        text: String,
+    },
 }
 
 pub fn normalize_server(input: &str) -> Option<Url> {
@@ -142,6 +147,7 @@ pub struct Session {
     settings: tokio::sync::OnceCell<ServerSettings>,
     /// `permissions.listAll` (ours only) and my global roles, fetched once.
     access: tokio::sync::OnceCell<(Vec<actions::PermissionRoles>, Vec<String>)>,
+    commands: tokio::sync::OnceCell<Vec<crate::commands::Command>>,
     typing: Mutex<live::Typing>,
     call_available: Mutex<Option<bool>>,
     /// Photo versions learnt from `updateAvatar`, by username.
@@ -185,6 +191,7 @@ impl Session {
         let (ddp, ddp_events) = ddp::spawn(websocket_url(&base), Timeouts::default());
         ddp.subscribe(STREAM_NOTIFY_USER, &format!("{}/subscriptions-changed", info.user_id));
         ddp.subscribe(STREAM_NOTIFY_USER, &format!("{}/rooms-changed", info.user_id));
+        ddp.subscribe(STREAM_NOTIFY_USER, &format!("{}/{}", info.user_id, live::PRIVATE_MESSAGE));
         ddp.subscribe(STREAM_ROOM_MESSAGES, MY_MESSAGES);
         ddp.subscribe(live::STREAM_NOTIFY_LOGGED, live::USER_STATUS);
         ddp.subscribe(live::STREAM_NOTIFY_LOGGED, UPDATE_AVATAR);
@@ -206,6 +213,7 @@ impl Session {
             tasks: Mutex::default(),
             settings: tokio::sync::OnceCell::new(),
             access: tokio::sync::OnceCell::new(),
+            commands: tokio::sync::OnceCell::new(),
             typing: Mutex::default(),
             call_available: Mutex::default(),
             avatars: Mutex::default(),
@@ -284,6 +292,12 @@ impl Session {
             if let Some((uid, presence)) = live::presence_event(args) {
                 self.presence.lock().unwrap().get_or_insert_default().insert(uid, presence);
                 let _ = self.events.send(SessionEvent::Presence);
+            }
+            return;
+        }
+        if collection == STREAM_NOTIFY_USER && key == format!("{}/{}", self.info.user_id, live::PRIVATE_MESSAGE) {
+            if let Some((rid, text)) = live::private_message(args) {
+                let _ = self.events.send(SessionEvent::Private { rid, text });
             }
             return;
         }
@@ -763,6 +777,39 @@ impl Session {
         let mut roles = global.clone();
         roles.extend(self.store.room_roles(rid));
         Some(actions::granted(permissions, &roles))
+    }
+
+    /// The server's slash commands, read once per session.
+    pub async fn commands(&self) -> Result<&[crate::commands::Command], RestError> {
+        let commands = self
+            .commands
+            .get_or_try_init(|| async {
+                let list = self.rest.get("commands.list", CallOptions::params([("count", "0")])).await?;
+                Ok::<_, RestError>(crate::commands::parse_list(&list, crate::i18n::current()))
+            })
+            .await?;
+        Ok(commands)
+    }
+
+    /// Runs `text` as a slash command when it names one the server knows;
+    /// None when it is a message to send. Its answer, if any, comes as
+    /// `SessionEvent::Private`.
+    pub async fn run_command(&self, rid: &str, text: &str, thread_id: Option<&str>) -> Option<Result<(), RestError>> {
+        let (name, params) = crate::commands::split(text)?;
+        let known = self.commands().await.ok()?.iter().any(|c| c.name == name);
+        if !known {
+            return None;
+        }
+        let mut body = json!({
+            "command": name,
+            "roomId": rid,
+            "params": params,
+            "triggerId": format!("{:016x}", fastrand::u64(..)),
+        });
+        if let Some(tmid) = thread_id {
+            body["tmid"] = json!(tmid);
+        }
+        Some(self.rest.post("commands.run", CallOptions::body(body)).await.map(|_| ()))
     }
 
     /// The permalink the server recognises: built on `Site_Url`, else on our base URL.

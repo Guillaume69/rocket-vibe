@@ -360,6 +360,8 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("actions.saved", "Enregistré dans Téléchargements", "Saved to Downloads"),
     ("actions.save_failed", "Impossible d'enregistrer ce fichier.", "Couldn't save this file."),
     ("composer.replying", "Réponse à {name}", "Replying to {name}"),
+    ("command.only_you", "Visible par toi uniquement", "Only you can see this"),
+    ("command.failed", "Commande refusée : {error}", "Command refused: {error}"),
     ("thread.title", "Fil", "Thread"),
     ("thread.not_found", "Fil introuvable.", "Thread not found."),
     ("sys.uj", "a rejoint le salon", "joined the channel"),

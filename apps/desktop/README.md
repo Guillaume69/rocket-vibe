@@ -75,7 +75,8 @@ release's `rocket-vibe-desktop-<version>-linux-x86_64.AppImage` into
 place. The AppImage is built by `scripts/package-appimage.sh`, in pkgforge-dev's Arch
 Linux image (`scripts/appimage-build.sh`): Anylinux's quick-sharun gathers the binary
 with every library it loads, glibc and its loader included, GTK, libadwaita, GStreamer
-with its codecs (H.264 and AAC through libav, Opus and Ogg for voice messages), Mesa,
+with its codecs (H.264 and AAC through libav, Opus and Ogg for voice messages), WebKitGTK
+for the inline video player, Mesa,
 the Adwaita icons, the Hunspell dictionaries and Noto Color Emoji; its runtime mounts
 it with FUSE when there is one, and otherwise runs it from namespaces or a temporary
 extraction. A bug report from the AppImage therefore runs the same libraries everywhere.
@@ -83,7 +84,7 @@ Uninstalling leaves the accounts and messages in `~/.config/rocket-vibe-rs` and
 `~/.local/share/rocket-vibe-rs`.
 
 The release also carries a tarball of the bare binary, which uses the system's
-libraries: GTK 4.12 and libadwaita 1.6 or later, Pango 1.56, and a C library as recent
+libraries: GTK 4.12 and libadwaita 1.6 or later, Pango 1.56, WebKitGTK 6.0, and a C library as recent
 as Fedora 44's (a rolling distribution: Arch, Fedora). From a checkout:
 
 ```sh

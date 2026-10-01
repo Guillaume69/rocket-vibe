@@ -146,8 +146,7 @@ async fn prepared_delivery_conflict_keeps_the_desktop_intention_retryable() {
     })
     .await
     .unwrap();
-    session.shutdown();
-    drop(session);
+    common::close_native(session).await;
     let requests = server.requests();
     let sends: Vec<_> = requests.iter().filter(|r| r.path() == "/api/v1/rooms/room-id/messages").collect();
     assert!(sends.len() >= 2);

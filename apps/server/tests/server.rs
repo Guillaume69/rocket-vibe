@@ -1712,8 +1712,16 @@ async fn snapshot_room_and_total_byte_limits_refund_failed_reservations(pool: Pg
         .await
         .unwrap();
     let response = server
-        .post(&alice.token, "/api/v1/sync/snapshots", json!({}))
-        .await;
+        .client
+        .post(format!("{}/api/v1/sync/snapshots", server.base))
+        .bearer_auth(&alice.token)
+        .json(&json!({}))
+        // This test deliberately materializes over 64 MiB on a shared CI runner.
+        // It measures storage rejection/refund, independently of client deadlines.
+        .timeout(Duration::from_secs(60))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::CONFLICT);
     assert_eq!(
         response.json::<rv_protocol::ApiError>().await.unwrap().code,

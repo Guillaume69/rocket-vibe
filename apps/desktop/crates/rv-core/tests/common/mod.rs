@@ -27,6 +27,7 @@ pub struct Response {
     pub headers: Vec<(String, String)>,
     /// Close the connection without answering: a network failure for the client.
     pub drop: bool,
+    pub websocket: bool,
 }
 
 pub fn respond(status: u16, body: &str) -> Response {
@@ -38,6 +39,21 @@ pub fn dropped() -> Response {
 }
 
 type Handler = Box<dyn Fn(&Request) -> Response + Send + Sync>;
+
+/// Tokio cancellation releases its session on the executor, after abort().
+/// Wait for that release before deleting an on-disk SQLite file on Windows.
+pub async fn close_native(session: Arc<rv_core::native::NativeSession>) {
+    let weak = Arc::downgrade(&session);
+    session.shutdown();
+    drop(session);
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while weak.upgrade().is_some() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("native task did not release its session after shutdown");
+}
 
 /// Raw HTTP/1.1 server: one canned response per request, from `handler`.
 pub struct FakeHttp {
@@ -90,6 +106,35 @@ impl FakeHttp {
                         log.lock().unwrap().push(request.clone());
                         let response = handler(&request);
                         if response.drop {
+                            return;
+                        }
+                        if response.websocket {
+                            let mut upgrade = tokio_tungstenite::tungstenite::http::Request::builder()
+                                .method("GET")
+                                .uri(&request.target);
+                            for (key, value) in &request.headers {
+                                upgrade = upgrade.header(key, value);
+                            }
+                            let accepted = tokio_tungstenite::tungstenite::handshake::server::create_response(
+                                &upgrade.body(()).unwrap(),
+                            )
+                            .unwrap();
+                            let mut out = String::from("HTTP/1.1 101 Switching Protocols\r\n");
+                            for (key, value) in accepted.headers() {
+                                out.push_str(&format!("{key}: {}\r\n", value.to_str().unwrap()));
+                            }
+                            out.push_str("\r\n");
+                            if socket.write_all(out.as_bytes()).await.is_err() {
+                                return;
+                            }
+                            let mut ws = tokio_tungstenite::WebSocketStream::from_raw_socket(
+                                socket,
+                                tokio_tungstenite::tungstenite::protocol::Role::Server,
+                                None,
+                            )
+                            .await;
+                            use futures_util::StreamExt;
+                            while ws.next().await.is_some() {}
                             return;
                         }
                         let mut out = format!(

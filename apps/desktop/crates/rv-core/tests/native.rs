@@ -76,7 +76,9 @@ async fn reaction_intentions_survive_restart_and_normalize_aliases_before_retryi
         while session.status().connection != rv_core::session::Connection::Online {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-    }).await.unwrap();
+    })
+    .await
+    .unwrap();
     assert!(session.react("room-id", "message-id", "+1", true).await.is_err());
     let command = session.store.pending_commands().unwrap().remove(0);
     assert!(session.react("room-id", "message-id", ":thumbsup:", true).await.is_err());

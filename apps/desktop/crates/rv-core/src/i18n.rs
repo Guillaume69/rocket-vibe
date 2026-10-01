@@ -318,6 +318,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("file.play", "Lire", "Play"),
     ("file.loading", "Téléchargement…", "Downloading…"),
     ("file.failed", "Échec du téléchargement", "Download failed"),
+    ("file.downloading", "Téléchargement… {percent} %", "Downloading… {percent}%"),
     ("file.no_app", "Aucune application pour ouvrir ce fichier", "No application to open this file"),
     ("video.fullscreen", "Plein écran", "Fullscreen"),
     (

@@ -276,10 +276,10 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/mobile/lib/appel.ts:55](../../apps/mobile/lib/appel.ts#L55) | endpoint | video-conference.join |
 | [apps/mobile/lib/appel.ts:81](../../apps/mobile/lib/appel.ts#L81) | call:GET | 'video-conference.capabilities' |
 | [apps/mobile/lib/appel.ts:81](../../apps/mobile/lib/appel.ts#L81) | endpoint | video-conference.capabilities |
-| [apps/mobile/lib/auth.ts:84](../../apps/mobile/lib/auth.ts#L84) | call:POST | 'login' |
-| [apps/mobile/lib/auth.ts:98](../../apps/mobile/lib/auth.ts#L98) | call:POST | 'login' |
-| [apps/mobile/lib/auth.ts:144](../../apps/mobile/lib/auth.ts#L144) | call:POST | 'users.2fa.sendEmailCode' |
-| [apps/mobile/lib/auth.ts:166](../../apps/mobile/lib/auth.ts#L166) | call:POST | 'logout' |
+| [apps/mobile/lib/auth.ts:87](../../apps/mobile/lib/auth.ts#L87) | call:POST | 'login' |
+| [apps/mobile/lib/auth.ts:101](../../apps/mobile/lib/auth.ts#L101) | call:POST | 'login' |
+| [apps/mobile/lib/auth.ts:147](../../apps/mobile/lib/auth.ts#L147) | call:POST | 'users.2fa.sendEmailCode' |
+| [apps/mobile/lib/auth.ts:169](../../apps/mobile/lib/auth.ts#L169) | call:POST | 'logout' |
 | [apps/mobile/lib/deconnexionDifferee.ts:78](../../apps/mobile/lib/deconnexionDifferee.ts#L78) | call:POST | 'logout' |
 | [apps/mobile/lib/e2e/moteur.ts:105](../../apps/mobile/lib/e2e/moteur.ts#L105) | call:GET | 'e2e.fetchMyKeys' |
 | [apps/mobile/lib/e2e/moteur.ts:105](../../apps/mobile/lib/e2e/moteur.ts#L105) | endpoint | e2e.fetchMyKeys |

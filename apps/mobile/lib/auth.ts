@@ -35,6 +35,9 @@ export type Session = {
   /** Identity pinned during native login; never infer it from a stored URL. */
   nativeInstanceId?: string;
   nativeDataEpoch?: string;
+  nativeExpiresAt?: string;
+  /** Exists only in SecureStore while an opaque-session renewal is unresolved. */
+  nativeRenewal?: {operation_id:string;next_token:string};
 };
 
 /** SHA-256 hexadécimal, en minuscules. */

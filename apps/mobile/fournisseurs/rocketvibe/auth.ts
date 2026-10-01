@@ -26,6 +26,7 @@ export async function nativeLogin(baseUrl: string, discovered: Discovery, creden
     baseUrl: transport.baseUrl, userId: result.user.id, username: result.user.username,
     authToken: result.token, genre: 'rocketvibe', siteUrl: null,
     nativeInstanceId: fresh.instance_id, nativeDataEpoch: fresh.data_epoch,
+    nativeExpiresAt: result.expires_at,
   };
 }
 export async function resumeNative(client: ClientRest, session: Session): Promise<Session> {

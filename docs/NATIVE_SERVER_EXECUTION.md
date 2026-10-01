@@ -315,6 +315,22 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P01, renouvellement dans les apps : SecureStore mobile et trousseaux GTK / Swift
+  conservent le successeur avant HTTP puis le reprennent après réponse perdue.
+  Les écritures par compte sont sérialisées, y compris quand l'appelant d'une
+  écriture de trousseau déjà engagée est annulé ; l'ancien bearer ne peut éjecter
+  une session renouvelée. Les connexions longues vérifient quotidiennement
+  l'expiration. Les brouillons, outbox et commandes SQLite restent au même compte.
+  Vérifications : 27 tests API PostgreSQL, 52 tests TypeScript natifs, 1 002
+  régressions mobiles, Clippy / tests cœur et bindings / compilation GTK, ainsi
+  que génération et tests Swift. Le banc jetable raccourcit le premier bearer
+  à J+1 : GTK reprend son compte du vrai Secret Service après redémarrage et
+  les modèles Swift passent connexion / envoi / reprise / déconnexion. Des
+  compteurs SQL sans secret prouvent les rotations des deux comptes ; le runner
+  mobile réel renouvelle aussi avant la reprise HTTP / socket. SecureStore Android
+  et les trousseaux Windows / macOS restent à qualifier sur appareils. Les écrans
+  d'appareils, invitations / récupération et P02 restent à livrer.
+
 - J2, troisième lot : menus et éditeurs mobile / GTK / SwiftUI existants raccordés
   aux actions natives. Texte / droits / révision sont vérifiés avant ouverture ;
   la sauvegarde utilise cette révision, avec conflit explicite si un autre appareil

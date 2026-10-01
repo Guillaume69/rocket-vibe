@@ -16,7 +16,14 @@ export type RenewalDependencies={
 export function renewalDue(record:CredentialRecord,now=Date.now()):boolean {
   return record.pending!==null || (record.expires_at!==null && Date.parse(record.expires_at)<=now+2*86_400_000);
 }
+export function validRenewal(value:unknown,current:string):value is RenewSession {
+  if(typeof value!=='object' || value===null)return false;
+  const p=value as Partial<RenewSession>;
+  return Object.keys(p).length===2 && typeof p.operation_id==='string' && /^[a-zA-Z0-9_-]{1,128}$/.test(p.operation_id)
+    && typeof p.next_token==='string' && /^[a-f0-9]{64}$/.test(p.next_token) && p.next_token!==current;
+}
 export async function renewCredentials(record:CredentialRecord,deps:RenewalDependencies):Promise<CredentialRecord> {
+  if(record.pending && !validRenewal(record.pending,record.session.authToken))throw new NativeError(0,'invalid_native_credentials');
   record={...record,session:{...record.session},pending:record.pending && {...record.pending}};
   const transport=(deps.transport??transportFor)(record.session);
   transport.surJetonRefuse=null;
@@ -34,11 +41,11 @@ export async function renewCredentials(record:CredentialRecord,deps:RenewalDepen
     }
     if (user) {
       if (user.id!==record.session.userId) throw new NativeError(401,'session_rejected');
-      const current=(await transport.deviceSessions()).find(d=>d.current);
-      if (!current) throw new NativeError(401,'session_rejected');
+      const current=(await transport.deviceSessions()).filter(d=>d.current);
+      if (current.length!==1 || !Number.isFinite(Date.parse(current[0].expires_at))) throw new NativeError(502,'invalid_native_session');
       checkIdentity(record.session,await transport.discover());
       record.session={...record.session,authToken:record.pending.next_token,username:user.username};
-      record.expires_at=current.expires_at;record.pending=null;
+      record.expires_at=current[0].expires_at;record.pending=null;
       await deps.save(record);return record;
     }
   } else {

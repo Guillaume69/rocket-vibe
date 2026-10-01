@@ -20,6 +20,8 @@
  */
 
 import * as Crypto from 'expo-crypto';
+import {preparerSessionNative} from '../lib/sessionStore.ts';
+import {NativeError} from '../fournisseurs/rocketvibe/transport.ts';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { AppState } from 'react-native';
 
@@ -146,7 +148,7 @@ export type EtatSynchro =
 const Contexte = createContext<EtatSynchro | null>(null);
 
 export function SynchroProvider({ children }: { children: React.ReactNode }) {
-  const { etat } = useSession();
+  const { etat,adopterSessionRenouvelee } = useSession();
   const [synchro, setSynchro] = useState<EtatSynchro>({ phase: 'inactif' });
 
   useEffect(() => {
@@ -179,7 +181,14 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         const store = new NativeStore(brute,fileEcritures,session);
         await store.prepare();
         if (!alive) return;
-        const fournisseur = creerFournisseur(session,client,() => idDepuisOctets(Crypto.getRandomBytes(12)),store);
+        const fournisseur = creerFournisseur(session,client,() => idDepuisOctets(Crypto.getRandomBytes(12)),store,{
+          credentials:async(previous)=>{
+            const fresh=await preparerSessionNative(previous);
+            if(!alive)throw new NativeError(0,'session_closed');
+            if(fresh.authToken!==previous.authToken && !adopterSessionRenouvelee(previous,fresh))throw new NativeError(0,'session_closed');
+            return fresh;
+          },
+        });
         const chat = fournisseur.native!.chat;
         runner = chat;
         const moteur = new MoteurSynchro(creerDepot(brute,fileEcritures),fournisseur.traducteur);
@@ -661,7 +670,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       ddp.fermer();
       ddp.reinitialiser();
     };
-  }, [etat]);
+  }, [etat,adopterSessionRenouvelee]);
 
   return <Contexte.Provider value={synchro}>{children}</Contexte.Provider>;
 }

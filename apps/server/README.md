@@ -13,8 +13,10 @@ Les actions natives comprennent édition, suppression, réactions, épingles et
 étoiles privées, avec reçus idempotents, droits et intentions persistées par les
 clients. Les listes marquées utilisent les écrans existants des trois clients.
 L'API fournit aussi la rotation des sessions et la liste / révocation des
-appareils du compte. La reprise commune est testée ; son raccordement aux
-stockages sécurisés et aux parcours clients est suivi dans P01.
+appareils du compte. Les clients renouvellent leur session via SecureStore ou
+le trousseau système, avec reprise d'un successeur durable après réponse perdue.
+Les interfaces de gestion des appareils, récupération et invitations restent
+suivies dans P01.
 
 Les [écrans mobiles existants](../../docs/NATIVE_MOBILE_PILOT.md) et les interfaces
 [GTK / SwiftUI existantes](../../docs/NATIVE_DESKTOP_PILOT.md) accueillent les deux

@@ -350,7 +350,11 @@ impl AppWindow {
         if info.native.is_some() {
             let started = {
                 let _guard = runtime().enter();
-                rv_core::native::NativeSession::start(info, &path)
+                rv_core::native::NativeSession::start_with_credentials(
+                    info,
+                    &path,
+                    Some(crate::secrets::native_credentials()),
+                )
             };
             match started {
                 Ok(session) => {

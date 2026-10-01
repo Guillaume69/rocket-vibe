@@ -83,20 +83,118 @@ pub async fn e2e_key(info: &SessionInfo) -> Option<String> {
 }
 
 async fn save_with(info: &SessionInfo, jwk: Option<&str>) {
+    let lease = if info.native.is_some() {
+        match rv_core::native::credentials::lease(&glib::user_config_dir().join("rocket-vibe-rs"), info).await {
+            Ok(lease) => Some(std::sync::Arc::new(lease)),
+            Err(_) => {
+                eprintln!("Keychain write failed: credentials lock unavailable");
+                return;
+            }
+        }
+    } else {
+        None
+    };
     let mut secret = info.secret();
     if let Some(jwk) = jwk {
         secret["e2eKey"] = json!(jwk);
     }
     let secret = secret.to_string();
-    match tokio::time::timeout(TIMEOUT, keychain::put(&account_key(info), secret.into_bytes())).await {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => eprintln!("Keychain write failed: {e}"),
-        Err(_) => eprintln!("Keychain write timed out."),
+    if put_locked(account_key(info), secret.into_bytes(), lease).await.is_err() {
+        eprintln!("Keychain write failed: secure storage unavailable");
     }
 }
 
+/// A timed-out or cancelled caller must not release the account lease while a
+/// D-Bus mutation can still finish. The task keeps it until the actual answer.
+async fn put_locked(
+    key: String,
+    secret: Vec<u8>,
+    lease: Option<std::sync::Arc<std::fs::File>>,
+) -> Result<(), rv_core::native::Error> {
+    use rv_core::native::Error;
+    let mut task = tokio::spawn(async move {
+        let _lease = lease;
+        keychain::put(&key, secret).await.map_err(|_| Error::Protocol("secure_storage_unavailable"))
+    });
+    tokio::time::timeout(TIMEOUT, &mut task)
+        .await
+        .map_err(|_| Error::Protocol("secure_storage_unavailable"))?
+        .map_err(|_| Error::Protocol("secure_storage_unavailable"))?
+}
+
 pub async fn remove(info: &SessionInfo) {
-    let _ = tokio::time::timeout(TIMEOUT, keychain::delete(&account_key(info))).await;
+    let lease = if info.native.is_some() {
+        let Ok(lease) =
+            rv_core::native::credentials::lease(&glib::user_config_dir().join("rocket-vibe-rs"), info).await
+        else {
+            return;
+        };
+        Some(lease)
+    } else {
+        None
+    };
+    let key = account_key(info);
+    let mut task = tokio::spawn(async move {
+        let _lease = lease;
+        keychain::delete(&key).await;
+    });
+    let _ = tokio::time::timeout(TIMEOUT, &mut task).await;
+}
+
+struct NativeCredentials {
+    config: std::path::PathBuf,
+}
+pub fn native_credentials() -> std::sync::Arc<dyn rv_core::native::credentials::Provider> {
+    std::sync::Arc::new(NativeCredentials { config: glib::user_config_dir().join("rocket-vibe-rs") })
+}
+async fn raw_native(info: &SessionInfo) -> Result<Value, rv_core::native::Error> {
+    use rv_core::native::Error;
+    let secrets = tokio::time::timeout(TIMEOUT, keychain::all())
+        .await
+        .map_err(|_| Error::Protocol("secure_storage_unavailable"))?;
+    secrets
+        .into_iter()
+        .filter_map(|raw| serde_json::from_slice::<Value>(&raw).ok())
+        .find(|v| SessionInfo::from_secret(v).is_some_and(|s| account_key(&s) == account_key(info)))
+        .ok_or(Error::Protocol("secure_storage_unavailable"))
+}
+impl rv_core::native::credentials::Provider for NativeCredentials {
+    fn resume(&self, expected: SessionInfo) -> rv_core::native::credentials::CredentialFuture {
+        let config = self.config.clone();
+        Box::pin(async move {
+            use rv_core::native::{Error, credentials};
+            let lease = std::sync::Arc::new(credentials::lease(&config, &expected).await?);
+            let raw = raw_native(&expected).await?;
+            let record = credentials::Record::from_secret(&raw).ok_or(Error::Protocol("invalid_native_credentials"))?;
+            if record.info.base_url != expected.base_url
+                || record.info.user_id != expected.user_id
+                || record.info.native != expected.native
+            {
+                return Err(Error::Protocol("server_identity_changed"));
+            }
+            let prior = std::sync::Arc::new(std::sync::Mutex::new(record.info.auth_token.clone()));
+            let record = credentials::prepare(record, move |record| {
+                let (prior, lease) = (prior.clone(), lease.clone());
+                async move {
+                    let old = raw_native(&record.info).await?;
+                    let previous =
+                        SessionInfo::from_secret(&old).ok_or(Error::Protocol("invalid_native_credentials"))?;
+                    if previous.auth_token != *prior.lock().unwrap() || previous.native != record.info.native {
+                        return Err(Error::Protocol("credentials_changed"));
+                    }
+                    let mut value = record.secret();
+                    if let Some(key) = old.get("e2eKey") {
+                        value["e2eKey"] = key.clone();
+                    }
+                    put_locked(account_key(&record.info), value.to_string().into_bytes(), Some(lease)).await?;
+                    *prior.lock().unwrap() = record.info.auth_token;
+                    Ok(())
+                }
+            })
+            .await?;
+            Ok(record.info)
+        })
+    }
 }
 
 #[cfg(target_os = "linux")]

@@ -185,9 +185,17 @@ pub struct NativeSession {
     closed: AtomicBool,
     command_lock: tokio::sync::Mutex<()>,
     task: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    credentials: Option<Arc<dyn credentials::Provider>>,
 }
 impl NativeSession {
     pub fn start(info: SessionInfo, path: &Path) -> Result<Arc<Self>, Error> {
+        Self::start_with_credentials(info, path, None)
+    }
+    pub fn start_with_credentials(
+        info: SessionInfo,
+        path: &Path,
+        credentials: Option<Arc<dyn credentials::Provider>>,
+    ) -> Result<Arc<Self>, Error> {
         let identity = info.native.clone().ok_or(Error::Protocol("native_identity_missing"))?;
         let store = Arc::new(store::NativeStore::open(path, identity)?);
         let mut client = NativeClient::new(&info.base_url)?;
@@ -213,6 +221,7 @@ impl NativeSession {
             closed: AtomicBool::new(false),
             command_lock: tokio::sync::Mutex::new(()),
             task: Mutex::new(None),
+            credentials,
         });
         let weak = Arc::downgrade(&session);
         let task = tokio::spawn(async move {
@@ -254,6 +263,13 @@ impl NativeSession {
     }
     pub fn status(&self) -> Status {
         self.status.lock().unwrap().clone()
+    }
+    pub fn credential_info(&self) -> SessionInfo {
+        let mut info = self.info.clone();
+        if let Some(token) = self.client.saved_token() {
+            info.auth_token = token;
+        }
+        info
     }
     fn set_status(&self, connection: Connection, error: Option<String>) {
         *self.status.lock().unwrap() = Status { connection, error, request_id: None, retry_after: None };
@@ -315,6 +331,7 @@ impl NativeSession {
                     pins: true,
                     stars: true,
                     fine_permissions: true,
+                    session_rotation: self.credentials.is_some(),
                     ..Default::default()
                 })
             })
@@ -328,6 +345,16 @@ impl NativeSession {
     }
     async fn cycle(&self) -> Result<(), Error> {
         self.identity().await?;
+        if let Some(credentials) = &self.credentials {
+            let fresh = credentials.resume(self.credential_info()).await?;
+            if fresh.base_url != self.info.base_url
+                || fresh.user_id != self.info.user_id
+                || fresh.native != self.info.native
+            {
+                return Err(Error::Protocol("server_identity_changed"));
+            }
+            self.client.update_token(fresh.auth_token);
+        }
         if self.client.me().await?.id != self.info.user_id {
             return Err(Error::Protocol("session_rejected"));
         }
@@ -362,6 +389,7 @@ impl NativeSession {
                 .map_err(|_| Error::Protocol("socket_closed"))?;
         self.set_status(Connection::Online, None);
         let mut last = tokio::time::Instant::now();
+        let credential_check = tokio::time::Instant::now() + Duration::from_secs(24 * 60 * 60);
         loop {
             tokio::select! {
                 frame=socket.next()=>{
@@ -372,6 +400,7 @@ impl NativeSession {
                     }
                 }
                 _=self.wake.notified()=>self.flush().await?,
+                _=tokio::time::sleep_until(credential_check), if self.credentials.is_some()=>return Ok(()),
                 _=tokio::time::sleep_until(last+Duration::from_secs(45))=>return Err(Error::Protocol("socket_timeout")),
             }
         }

@@ -215,14 +215,14 @@ pub async fn login_from(
         .bind(&id)
         .execute(&mut *tx)
         .await?;
-    sqlx::query(
-        "INSERT INTO sessions(token_hash,user_id,expires_at,device_id) VALUES($1,$2,$3,$4)",
+    let expires_at:DateTime<Utc> = sqlx::query_scalar(
+        "INSERT INTO sessions(token_hash,user_id,expires_at,device_id) VALUES($1,$2,$3,$4) RETURNING expires_at",
     )
     .bind(hash_token(&token))
     .bind(&id)
     .bind(expires_at)
     .bind(device)
-    .execute(&mut *tx)
+    .fetch_one(&mut *tx)
     .await?;
     tx.commit().await?;
     Ok(Session {

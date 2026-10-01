@@ -22,13 +22,28 @@ services:
     command: ['rv-server create-user mobile && rv-server create-user desktop']
     depends_on:
       postgres: {condition: service_healthy}
+  session-policy:
+    image: postgres:18-alpine
+    environment:
+      PGPASSWORD: native-pilot-disposable-db-password
+    volumes: ['../scripts/native-session-pilot.sql:/pilot.sql:ro']
+    command: [psql, -h, postgres, -U, pilot, -d, pilot, -v, ON_ERROR_STOP=1, -f, /pilot.sql]
+    depends_on:
+      bootstrap: {condition: service_completed_successfully}
   server:
     image: rocketvibe-native-server
     environment:
       DATABASE_URL: postgres://pilot:native-pilot-disposable-db-password@postgres/pilot
       RV_BIND: 0.0.0.0:3400
     depends_on:
-      bootstrap: {condition: service_completed_successfully}
+      session-policy: {condition: service_completed_successfully}
+  session-check:
+    image: postgres:18-alpine
+    environment:
+      PGPASSWORD: native-pilot-disposable-db-password
+    volumes: ['../scripts/native-session-pilot-check.sql:/pilot-check.sql:ro']
+    command: [psql, -h, postgres, -U, pilot, -d, pilot, -v, ON_ERROR_STOP=1, -f, /pilot-check.sql]
+    depends_on: [server]
   mobile:
     image: rocketvibe-native-check
     working_dir: /src

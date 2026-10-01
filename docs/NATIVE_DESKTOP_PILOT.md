@@ -81,6 +81,7 @@ docker run --rm -v "$PWD:/workspace" -v rv-cargo:/cargo \
   '
 docker compose -f docker/compose.native-pilot.yml up -d mobile
 docker compose -f docker/compose.native-pilot.yml run --rm --no-deps desktop
+docker compose -f docker/compose.native-pilot.yml run --rm --no-deps session-check
 docker compose -f docker/compose.native-pilot.yml logs --no-color
 docker compose -f docker/compose.native-pilot.yml down
 ```
@@ -92,5 +93,11 @@ Il vérifie échange, reprise après réouverture du fichier, brouillon, unicit�
 création / invitation, retrait privé, révocation et widgets affichés, en large et à
 435 pixels. Captures : `artifacts/native-desktop*.png`.
 
-Le banc ne fournit pas de trousseau système. Reprise sécurisée sur appareil,
-Android / Windows réels et garanties restantes : [suivi](NATIVE_SERVER_EXECUTION.md).
+GTK et les modèles Swift utilisent un vrai Secret Service dans ce banc Linux.
+La politique SQL jetable raccourcit le premier jeton à un jour, ce qui déclenche
+son renouvellement dans les clients existants. `session-check` exige une rotation
+pour les deux comptes, même si les sessions ont ensuite été déconnectées ; ses
+compteurs ne contiennent aucun secret. Le pair mobile exerce la vraie façade
+SQLite et la reprise portable, avec une sauvegarde en mémoire propre au banc.
+La qualification SecureStore Android, le trousseau Windows / macOS et les essais
+sur appareils restent ouverts dans le [suivi](NATIVE_SERVER_EXECUTION.md).

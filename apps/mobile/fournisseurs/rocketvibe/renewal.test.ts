@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {test} from 'node:test';
 import type {Session} from '../../lib/auth.ts';
-import {renewCredentials,renewalDue,type CredentialRecord} from './renewal.ts';
+import {renewCredentials,renewalDue,validRenewal,type CredentialRecord} from './renewal.ts';
 import {NativeError,NativeTransport} from './transport.ts';
 const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
 const session:Session={baseUrl:'http://localhost:3400',authToken:'a'.repeat(64),userId:fixture.session.user.id,username:'alice',genre:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
@@ -55,4 +55,26 @@ test('identity changes and a successor belonging to another account cannot repla
   transport.discover=async()=>({...fixture.discovery,data_epoch:'restored'});
   await assert.rejects(renewCredentials(record,{token:async()=>'',save:async()=>{writes++;},transport:()=>transport}),/server_identity_changed/);
   assert.equal(writes,0);
+});
+
+test('recovery retains the durable successor when current device metadata is invalid',async()=>{
+  const record={...initial(),pending:{operation_id:'b'.repeat(64),next_token:'c'.repeat(64)}};
+  let writes=0;
+  const active={id:'device-1',label:'Mobile',created_at:'2026-10-01T00:00:00Z',last_seen_at:'2026-10-01T00:00:00Z',expires_at:'2026-11-01T00:00:00Z',current:true};
+  let devices=[active];
+  const transport={restore:()=>{},discover:async()=>({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,session_rotation:true}}),me:async()=>fixture.session.user,deviceSessions:async()=>devices} as unknown as NativeTransport;
+  const deps={token:async()=>{throw new Error('No new secret');},save:async()=>{writes++;},transport:()=>transport};
+  for (const invalid of [[],[active,active],[{...active,expires_at:'invalid'}]]) {
+    devices=invalid;
+    await assert.rejects(renewCredentials(record,deps),/invalid_native_session/);
+    assert.equal(writes,0);assert(record.pending);
+  }
+  devices=[active];await renewCredentials(record,deps);assert.equal(writes,1);
+});
+
+test('malformed secure-store intentions are rejected before discovery or authenticated requests',async()=>{
+  const intent={operation_id:'b'.repeat(64),next_token:'c'.repeat(64)};
+  assert(validRenewal(intent,session.authToken));
+  for (const value of [null,{...intent,next_token:session.authToken},{...intent,extra:'field'},{...intent,operation_id:'contains space'},{...intent,next_token:'C'.repeat(64)}]) assert(!validRenewal(value,session.authToken));
+  await assert.rejects(renewCredentials({...initial(),pending:{...intent,next_token:'short'}},{token:async()=>'',save:async()=>{throw new Error('Unexpected save');},transport:()=>{throw new Error('Unexpected discovery');}}),/invalid_native_credentials/);
 });

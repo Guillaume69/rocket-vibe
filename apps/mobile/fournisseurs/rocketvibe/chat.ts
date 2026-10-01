@@ -12,7 +12,8 @@ export type NativeStatus = { online: boolean; error: string | null };
 export class NativeChat {
   readonly store: NativeStore;
   readonly transport: NativeTransport;
-  private readonly session: Session;
+  private session: Session;
+  private readonly credentials:((session:Session)=>Promise<Session>)|undefined;
   private readonly id: () => string;
   private readonly socketFactory: (url: string) => WebSocket;
   private readonly reconnect: Reconnecteur;
@@ -31,13 +32,16 @@ export class NativeChat {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private retryAt = 0;
   private retryAttempt = 0;
+  private credentialCheckAt=Date.now()+24*60*60*1000;
   status: NativeStatus = {online:false,error:null};
   capabilities: Capabilities | null = null;
 
   constructor(session: Session, store: NativeStore, id: () => string, options: {
     transport?: NativeTransport; socket?: (url:string) => WebSocket; revoke?: (token:string) => void;
+    credentials?:(session:Session)=>Promise<Session>;
   } = {}) {
     this.session = session; this.store = store; this.id = id;
+    this.credentials=options.credentials;
     this.transport = options.transport ?? transportFor(session,options.revoke);
     this.socketFactory = options.socket ?? (url => new WebSocket(url));
     this.reconnect = new Reconnecteur({connecter: () => this.connect()});
@@ -74,6 +78,14 @@ export class NativeChat {
       const discovery = await this.transport.discover();
       checkIdentity(this.session, discovery);
       if (!alive()) return;
+      if (this.credentials && discovery.capabilities.session_rotation) {
+        const fresh=await this.credentials(this.session);
+        if(!alive())return;
+        checkIdentity(fresh,discovery);
+        if(fresh.baseUrl!==this.session.baseUrl || fresh.userId!==this.session.userId)throw new NativeError(401,'session_rejected');
+        this.session=fresh;this.transport.restore(fresh.authToken);
+        this.credentialCheckAt=Date.now()+24*60*60*1000;
+      }
       this.capabilities = discovery.capabilities;
       const me = await this.transport.me();
       if (me.id !== this.session.userId) throw new NativeError(401,'session_rejected');
@@ -115,6 +127,7 @@ export class NativeChat {
       this.status = {online:true,error:null}; this.notify();
       this.lastFrame = Date.now();
       this.watchdog = setInterval(() => {
+        if(this.credentials && Date.now()>=this.credentialCheckAt){this.refresh();return;}
         if (Date.now() - this.lastFrame > 45_000) this.lost();
       },15_000);
     } catch (error) {

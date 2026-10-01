@@ -1890,25 +1890,25 @@
     },
     {
       "file": "apps/mobile/lib/auth.ts",
-      "line": 84,
+      "line": 87,
       "kind": "call:POST",
       "surface": "'login'"
     },
     {
       "file": "apps/mobile/lib/auth.ts",
-      "line": 98,
+      "line": 101,
       "kind": "call:POST",
       "surface": "'login'"
     },
     {
       "file": "apps/mobile/lib/auth.ts",
-      "line": 144,
+      "line": 147,
       "kind": "call:POST",
       "surface": "'users.2fa.sendEmailCode'"
     },
     {
       "file": "apps/mobile/lib/auth.ts",
-      "line": 166,
+      "line": 169,
       "kind": "call:POST",
       "surface": "'logout'"
     },

@@ -10,6 +10,44 @@ import { NativeStore } from './store.ts';
 import { nativeTestDatabase } from './testDatabase.ts';
 import { NativeError, NativeTransport } from './transport.ts';
 
+test('secure renewal precedes replay and a stopped runner cannot adopt its delayed result',async()=>{
+  const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'old-token',userId:fixture.session.user.id,username:'alice',genre:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  for (const outcome of ['success','stopped','other-account','other-server','legacy-capability'] as const) {
+    const {db,adapter}=nativeTestDatabase();const store=new NativeStore(adapter,creerFileEcritures(),session);
+    await store.applySnapshot({protocol_version:1,rooms:[fixture.room],messages:[],cursor:'initial'});
+    const steps:string[]=[];let token=session.authToken;
+    let release:(session:Session)=>void=()=>{throw new Error('No renewal waiter');};
+    let started:()=>void=()=>{};const renewing=new Promise<void>(resolve=>{started=resolve;});
+    const transport={
+      discover:async()=>({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,session_rotation:outcome!=='legacy-capability'}}),
+      restore:(next:string)=>{steps.push('restore');token=next;},
+      me:async()=>{steps.push('me');assert.equal(token,outcome==='legacy-capability'?'old-token':'new-token');return fixture.session.user;},
+      changes:async()=>{steps.push('changes');return {protocol_version:1,changes:[],cursor:'initial',has_more:false};},socketUrl:async()=>'ws://localhost/fake',
+    } as unknown as NativeTransport;
+    const chat=new NativeChat(session,store,()=>{throw new Error('No send expected');},{transport,credentials:async(expected)=>{
+      assert.equal(expected.authToken,'old-token');steps.push('renew');started();
+      if(outcome==='stopped')return new Promise<Session>(resolve=>{release=resolve;});
+      return {...expected,authToken:'new-token',userId:outcome==='other-account'?'another':expected.userId,nativeInstanceId:outcome==='other-server'?'another':expected.nativeInstanceId};
+    },socket:()=>{
+      const socket={readyState:0,onopen:null,onclose:null,onerror:null,onmessage:null,close:()=>{}} as unknown as WebSocket;
+      queueMicrotask(()=>socket.onopen?.(new Event('open')));return socket;
+    }});
+    try {
+      const connecting=chat.connect();
+      if(outcome==='stopped') {
+        await renewing;chat.stop();release({...session,authToken:'new-token'});await connecting;
+        assert.deepEqual(steps,['renew']);assert.equal(token,'old-token');
+      } else if(outcome==='other-account' || outcome==='other-server') {
+        await assert.rejects(connecting,/session_rejected|server_identity_changed/);assert.deepEqual(steps,['renew']);
+      } else {
+        await connecting;assert(chat.status.online);
+        assert.deepEqual(steps,outcome==='success'?['renew','restore','me','changes']:['me','changes']);
+      }
+    } finally {chat.stop();await store.state();db.close();}
+  }
+});
+
 test('a persisted reaction retries one canonical intention after process restart and cannot be overwritten while pending',async () => {
   const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
   const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',genre:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};

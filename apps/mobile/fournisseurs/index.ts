@@ -20,12 +20,13 @@ export function creerFournisseur(
   client: ClientRest,
   genererId: () => string,
   nativeStore?: NativeStore,
+  nativeOptions:Parameters<typeof creerFournisseurRV>[4]={},
 ): Fournisseur {
   switch (session.genre) {
     case 'rocketchat':
       return creerFournisseurRC(session, client, genererId);
     case 'rocketvibe':
       if (!nativeStore) throw new Error('Native provider requires its account store');
-      return creerFournisseurRV(session,client,genererId,nativeStore);
+      return creerFournisseurRV(session,client,genererId,nativeStore,nativeOptions);
   }
 }

@@ -56,6 +56,7 @@ type ContexteSession = {
    * garderaient l'ancien pseudo jusqu'à une déconnexion/reconnexion.
    */
   majProfilSession: (maj: { username?: string }) => Promise<void>;
+  adopterSessionRenouvelee:(previous:Session,fresh:Session)=>boolean;
 };
 
 const Contexte = createContext<ContexteSession | null>(null);
@@ -96,8 +97,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   // (déconnexion puis reconnexion pendant que la requête volait) effacerait la
   // session toute neuve — même serveur, donc même clé de stockage.
   const jetonCourant = useRef<string | null>(null);
+  const sessionCourante=useRef<Session|null>(null);
   useEffect(() => {
     jetonCourant.current = etat.phase === 'connecte' ? etat.session.authToken : null;
+    sessionCourante.current=etat.phase==='connecte'?etat.session:null;
     // Le préchargement de fiche (`lib/profilPreload`) ouvre `/profil` depuis des
     // fonctions de rendu sans client sous la main : on lui pose le client actif.
     definirClientProfil(etat.phase === 'connecte' && etat.session.genre === 'rocketchat' ? etat.client : null);
@@ -321,9 +324,16 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     [etat],
   );
 
+  const adopterSessionRenouvelee=useCallback((previous:Session,fresh:Session)=>{
+    const current=sessionCourante.current;
+    if(!current || jetonCourant.current!==previous.authToken || current.baseUrl!==previous.baseUrl || current.userId!==previous.userId || current.genre!=='rocketvibe' || fresh.baseUrl!==current.baseUrl || fresh.userId!==current.userId || fresh.nativeInstanceId!==current.nativeInstanceId || fresh.nativeDataEpoch!==current.nativeDataEpoch)return false;
+    jetonCourant.current=fresh.authToken;sessionCourante.current=fresh;
+    const client=clientPour(fresh,token=>revoquer(fresh,token));
+    setEtat({phase:'connecte',session:fresh,client});return true;
+  },[revoquer]);
   const valeur = useMemo(
-    () => ({ etat, connecter, deconnecter, changerDeServeur, majProfilSession }),
-    [etat, connecter, deconnecter, changerDeServeur, majProfilSession],
+    () => ({ etat, connecter, deconnecter, changerDeServeur, majProfilSession,adopterSessionRenouvelee }),
+    [etat, connecter, deconnecter, changerDeServeur, majProfilSession,adopterSessionRenouvelee],
   );
 
   return <Contexte.Provider value={valeur}>{children}</Contexte.Provider>;

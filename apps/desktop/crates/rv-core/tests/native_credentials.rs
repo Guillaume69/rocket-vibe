@@ -14,6 +14,60 @@ use std::sync::{
 };
 
 #[tokio::test]
+async fn account_leases_serialize_writers_and_release_cancelled_waiters() {
+    use std::time::Duration;
+    let info = SessionInfo {
+        base_url: "http://localhost:3400".into(),
+        user_id: "fixture-user".into(),
+        username: "alice".into(),
+        auth_token: "fixture-secret".into(),
+        native: None,
+    };
+    let directory = std::env::temp_dir().join(format!("rv-credential-lock-{:032x}", fastrand::u128(..)));
+    let first = credentials::lease(&directory, &info).await.unwrap();
+    let (path, user) = (directory.clone(), info.clone());
+    let waiting = tokio::spawn(async move { credentials::lease(&path, &user).await });
+    tokio::time::sleep(Duration::from_millis(75)).await;
+    assert!(!waiting.is_finished());
+    waiting.abort();
+    assert!(waiting.await.unwrap_err().is_cancelled());
+    drop(first);
+    let second =
+        tokio::time::timeout(Duration::from_secs(1), credentials::lease(&directory, &info)).await.unwrap().unwrap();
+    drop(second);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[tokio::test]
+async fn a_response_for_a_rotated_bearer_cannot_reject_the_current_session() {
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../../docs/protocol/v1.fixture.json")).unwrap();
+    let updater = Arc::new(Mutex::new(None::<rv_client::NativeClient>));
+    let shared = updater.clone();
+    let server = FakeHttp::start(move |request| {
+        if request.headers.get("authorization") == Some(&format!("Bearer {}", "a".repeat(64))) {
+            shared.lock().unwrap().as_ref().unwrap().update_token("c".repeat(64));
+            respond(401, r#"{"code":"session_rejected","request_id":"stale-bearer"}"#)
+        } else {
+            respond(200, &fixture["session"]["user"].to_string())
+        }
+    })
+    .await;
+    let mut client = rv_client::NativeClient::new(server.url.as_str()).unwrap();
+    client.restore("a".repeat(64));
+    *updater.lock().unwrap() = Some(client.clone());
+    let error = client.me().await.unwrap_err();
+    assert!(
+        matches!(error,rv_client::Error::Server{status:409,code,request_id,..} if code=="delivery_revalidate" && request_id.as_deref()==Some("stale-bearer"))
+    );
+    assert!(client.me().await.is_ok());
+    client.restore("a".repeat(64));
+    assert!(
+        matches!(client.logout().await,Err(rv_client::Error::Server{status:409,code,..}) if code=="delivery_revalidate")
+    );
+}
+
+#[tokio::test]
 async fn a_lost_renewal_ack_recovers_the_durable_successor_without_a_second_rotation() {
     let fixture: serde_json::Value =
         serde_json::from_str(include_str!("../../../../../docs/protocol/v1.fixture.json")).unwrap();

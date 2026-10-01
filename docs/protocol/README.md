@@ -100,8 +100,13 @@ expiration et indicateur `current`. `PATCH /me/sessions/{id}` renomme un apparei
 ne peut modifier ni révoquer sa session. Aucun bearer ni empreinte n'est exposé
 dans la liste. Révoquer un autre appareil exige une connexion datant de moins
 de 15 minutes ; une rotation ne renouvelle pas cette ancienneté. Les primitives
-de reprise Rust / TypeScript sont testées ; leur
-raccordement au stockage sécurisé et aux parcours des apps suit dans P01.
+de reprise Rust / TypeScript sont raccordées aux clients existants : SecureStore
+mobile, Secret Service / Credential Manager GTK et Keychain Swift. GTK et Swift
+sérialisent leurs écritures avec un fichier de verrou vide commun ; aucun secret
+de renouvellement ne rejoint SQLite. Les écritures déjà engagées conservent le
+verrou si leur appelant est annulé. La connexion et un contrôle quotidien déclenchent
+un renouvellement à moins de deux jours de l'expiration. Les interfaces appareils
+et la qualification sur systèmes / appareils réels restent dans P01.
 
 ### Réactions
 
@@ -292,7 +297,7 @@ un Content-Length trop grand. La qualification de mémoire sur Android reste ouv
 - Tickets valables 30 s, maximum 4 non consommés par session. Le démarrage et un
   passage chaque minute nettoient par lots de 1 000 les sessions, tickets, curseurs
   et quotas périmés, sans attendre les lignes verrouillées. Le journal reste conservé.
-- Sessions valables 30 jours ; renouvellement et 2FA non livrés. La concurrence des
+- Sessions valables 30 jours et renouvelables ; 2FA non livré. La concurrence des
   calculs Argon2 reste bornée à 4 par processus après annulation HTTP. Connexion :
   10 essais par pseudo, 30 par IP TCP et 120 au total par fenêtre de 60 s, en base
   et conservés après redémarrage ; `429 auth_busy` / `auth_rate_limited` avec délai.

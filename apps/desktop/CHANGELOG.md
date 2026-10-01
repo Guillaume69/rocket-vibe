@@ -9,6 +9,10 @@ section here.
 
 ### Added
 
+- Native sessions renew before expiry through the system keychain. A durable
+  successor recovers a lost response, and GTK / Swift serialize credential writes
+  without discarding SQLite drafts or pending actions.
+
 - Native pins and private stars in the existing GTK / SwiftUI menus and marked
   lists. Explicit states survive restarts; personal revisions prevent concurrent
   public message updates from clearing a star.

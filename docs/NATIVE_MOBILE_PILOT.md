@@ -57,6 +57,15 @@ Le texte d'une édition refusée peut être retrouvé en rouvrant l'éditeur.
 
 ## Vérification et limites
 
+Le renouvellement est raccordé à SecureStore : intention durable avant HTTP,
+reprise par le successeur après une réponse perdue, et sérialisation des écritures
+par serveur. La publication du nouveau jeton remplace le fournisseur actif en
+conservant le cache, les brouillons et l'outbox du compte. Le runner renouvelle à
+la connexion et vérifie quotidiennement les connexions longues. Les callbacks
+d'un ancien fournisseur arrêté ne peuvent pas publier un renouvellement tardif.
+Les tests portables et le banc PostgreSQL prouvent le protocole et le runner ;
+le Keystore et le cycle de vie natif Android exigent encore un appareil.
+
 Depuis `apps/mobile` :
 
 ```sh

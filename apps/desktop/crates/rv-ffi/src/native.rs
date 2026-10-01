@@ -5,6 +5,51 @@ use rv_core::native::NativeSession;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast::error::RecvError;
 
+struct CredentialStore {
+    dirs: Arc<accounts::Dirs>,
+}
+impl rv_core::native::credentials::Provider for CredentialStore {
+    fn resume(&self, expected: rv_core::session::SessionInfo) -> rv_core::native::credentials::CredentialFuture {
+        let dirs = self.dirs.clone();
+        Box::pin(async move {
+            use rv_core::native::{Error, credentials};
+            let lease = Arc::new(credentials::lease(&dirs.config, &expected).await?);
+            let key = expected.clone();
+            let reading = lease.clone();
+            let record = blocking(move || {
+                let _lease = reading;
+                accounts::native_record(&key)
+            })
+            .await
+            .map_err(|_| Error::Protocol("secure_storage_unavailable"))?;
+            if record.info.base_url != expected.base_url
+                || record.info.user_id != expected.user_id
+                || record.info.native != expected.native
+            {
+                return Err(Error::Protocol("server_identity_changed"));
+            }
+            let prior = Arc::new(Mutex::new(record.info.auth_token.clone()));
+            let fresh = credentials::prepare(record, move |record| {
+                let (lease, prior) = (lease.clone(), prior.clone());
+                async move {
+                    let token = prior.lock().unwrap().clone();
+                    let next = record.info.auth_token.clone();
+                    blocking(move || {
+                        let _lease = lease;
+                        accounts::replace_native_record(&record, &token)
+                    })
+                    .await
+                    .map_err(|_| Error::Protocol("secure_storage_unavailable"))?;
+                    *prior.lock().unwrap() = next;
+                    Ok(())
+                }
+            })
+            .await?;
+            Ok(fresh.info)
+        })
+    }
+}
+
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct NativeRoom {
     pub id: String,
@@ -100,7 +145,12 @@ impl Client {
         let path = self.dirs.database(&info);
         let _guard = runtime().enter();
         Ok(Arc::new(NativeChat {
-            session: NativeSession::start(info, &path).map_err(RvError::local)?,
+            session: NativeSession::start_with_credentials(
+                info,
+                &path,
+                Some(Arc::new(CredentialStore { dirs: self.dirs.clone() })),
+            )
+            .map_err(RvError::local)?,
             dirs: self.dirs.clone(),
             forward: Mutex::default(),
         }))

@@ -39,7 +39,7 @@ pub enum Error {
 pub struct NativeClient {
     base: String,
     http: reqwest::Client,
-    token: Option<String>,
+    token: Arc<Mutex<Option<String>>>,
     cooldowns: Arc<Mutex<HashMap<&'static str, Cooldown>>>,
     snapshot_paging: Arc<Mutex<Option<bool>>>,
 }
@@ -78,7 +78,7 @@ impl NativeClient {
                 .timeout(Duration::from_secs(15))
                 .redirect(reqwest::redirect::Policy::none())
                 .build()?,
-            token: None,
+            token: Arc::default(),
             cooldowns: Arc::default(),
             snapshot_paging: Arc::default(),
         })
@@ -93,9 +93,14 @@ impl NativeClient {
     ) -> Result<T, Error> {
         let budget = Self::budget(path, &method);
         self.check_cooldown(budget)?;
+        let sent = if anonymous {
+            None
+        } else {
+            Some(self.saved_token().ok_or(Error::SessionMissing)?)
+        };
         let mut request = self.http.request(method, format!("{}{path}", self.base));
         if !anonymous {
-            request = request.bearer_auth(self.token.as_ref().ok_or(Error::SessionMissing)?);
+            request = request.bearer_auth(sent.as_ref().expect("authenticated credential"));
         }
         if let Some(input) = input {
             request = request.json(input);
@@ -105,6 +110,18 @@ impl NativeClient {
             let status = response.status().as_u16();
             let retry = retry_after(&response);
             let error: ApiError = response.json().await?;
+            if status == 401
+                && error.code == "session_rejected"
+                && sent.is_some()
+                && sent != self.saved_token()
+            {
+                return Err(Error::Server {
+                    status: 409,
+                    code: "delivery_revalidate".into(),
+                    request_id: Some(error.request_id),
+                    retry_after: None,
+                });
+            }
             if status == 429
                 && let Some(key) = budget
             {
@@ -222,12 +239,19 @@ impl NativeClient {
                 true,
             )
             .await?;
-        self.token = Some(session.token.clone());
+        self.update_token(session.token.clone());
         Ok(session)
     }
 
     pub fn restore(&mut self, token: String) {
-        self.token = Some(token);
+        self.update_token(token);
+    }
+    /// Clones share one account's rotating credential.
+    pub fn update_token(&self, token: String) {
+        *self.token.lock().expect("native credential lock") = Some(token);
+    }
+    pub fn saved_token(&self) -> Option<String> {
+        self.token.lock().expect("native credential lock").clone()
     }
     pub async fn renew(&self, input: &rv_protocol::parity::RenewSession) -> Result<Session, Error> {
         self.post("/api/v1/auth/renew", input).await
@@ -401,10 +425,11 @@ impl NativeClient {
         path: &str,
         input: Option<&impl Serialize>,
     ) -> Result<(), Error> {
+        let sent = self.saved_token().ok_or(Error::SessionMissing)?;
         let mut request = self
             .http
             .request(method, format!("{}{path}", self.base))
-            .bearer_auth(self.token.as_ref().ok_or(Error::SessionMissing)?);
+            .bearer_auth(&sent);
         if let Some(input) = input {
             request = request.json(input);
         }
@@ -413,6 +438,17 @@ impl NativeClient {
             let status = response.status().as_u16();
             let retry = retry_after(&response);
             let error: ApiError = response.json().await?;
+            if status == 401
+                && error.code == "session_rejected"
+                && self.saved_token().as_deref() != Some(sent.as_str())
+            {
+                return Err(Error::Server {
+                    status: 409,
+                    code: "delivery_revalidate".into(),
+                    request_id: Some(error.request_id),
+                    retry_after: None,
+                });
+            }
             return Err(Error::Server {
                 status,
                 code: error.code,
@@ -477,7 +513,7 @@ impl NativeClient {
         .await
     }
     pub async fn snapshot(&self) -> Result<Snapshot, Error> {
-        if self.token.is_none() {
+        if self.saved_token().is_none() {
             return Err(Error::SessionMissing);
         }
         let mut paging = *self.snapshot_paging.lock().expect("native discovery lock");

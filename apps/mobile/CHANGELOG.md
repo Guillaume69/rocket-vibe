@@ -9,6 +9,10 @@ release, et ses notes sont la section de la version ici.
 
 ### Ajouté
 
+- Renouvellement des sessions RocketVibe avant expiration via SecureStore.
+  L'intention sauvegardée reprend après une réponse perdue ; la reconnexion
+  conserve les brouillons et l'outbox du compte.
+
 - Épingles publiques et étoiles personnelles RocketVibe dans les actions et
   listes existantes. Les intentions reprennent après redémarrage ; les étoiles
   restent privées et conservent leur état lors des mises à jour du message.

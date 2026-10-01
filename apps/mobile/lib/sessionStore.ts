@@ -21,6 +21,18 @@ import {
 } from './clesStockage.ts';
 import type { DeconnexionEnSuspens } from './deconnexionDifferee.ts';
 import { normaliserGenre } from './fournisseur.ts';
+import {renewCredentials,renewalDue,validRenewal,type CredentialRecord} from '../fournisseurs/rocketvibe/renewal.ts';
+import {checkIdentity,transportFor} from '../fournisseurs/rocketvibe/auth.ts';
+import {NativeError} from '../fournisseurs/rocketvibe/transport.ts';
+
+const transactionsSession=new Map<string,Promise<void>>();
+function transactionSession<T>(baseUrl:string,action:()=>Promise<T>):Promise<T> {
+  const key=sansSlashFinal(baseUrl);
+  const result=(transactionsSession.get(key)??Promise.resolve()).then(action);
+  const done=result.then(()=>{},()=>{});transactionsSession.set(key,done);
+  void done.then(()=>{if(transactionsSession.get(key)===done)transactionsSession.delete(key);});
+  return result;
+}
 
 /** SHA-256 hexadécimal — l'implémentation de `Hacheur` côté application. */
 export function hacher(texte: string): Promise<string> {
@@ -45,7 +57,43 @@ const ACCES_EXTENSION_PUSH: SecureStore.SecureStoreOptions = {
 };
 
 export async function enregistrerSession(session: Session): Promise<void> {
+  return transactionSession(session.baseUrl,()=>ecrireSession(session));
+}
+async function ecrireSession(session:Session):Promise<void> {
   await SecureStore.setItemAsync(await cle(session.baseUrl), JSON.stringify(session), ACCES_EXTENSION_PUSH);
+}
+
+/** Hold the account lease through durable intent, network confirmation and save. */
+export function preparerSessionNative(expected:Session):Promise<Session> {
+  return transactionSession(expected.baseUrl,async()=>{
+    const stored=await lireSession(expected.baseUrl);
+    if (!stored || stored.userId!==expected.userId || stored.genre!=='rocketvibe') throw new NativeError(0,'session_closed');
+    if(stored.nativeRenewal!==undefined && !validRenewal(stored.nativeRenewal,stored.authToken))throw new NativeError(0,'invalid_native_credentials');
+    const transport=transportFor(stored);const discovery=await transport.discover();
+    checkIdentity(expected,discovery);checkIdentity(stored,discovery);
+    if (!discovery.capabilities.session_rotation) return stored;
+    let record:CredentialRecord={session:stored,pending:stored.nativeRenewal??null,expires_at:stored.nativeExpiresAt??null};
+    let previous=stored.authToken;
+    const save=async(update:CredentialRecord)=>{
+      const current=await lireSession(expected.baseUrl);
+      if (!current || current.userId!==stored.userId || current.authToken!==previous || current.nativeInstanceId!==stored.nativeInstanceId || current.nativeDataEpoch!==stored.nativeDataEpoch) throw new NativeError(0,'session_closed');
+      const session={...update.session};delete session.nativeRenewal;
+      if (update.pending) session.nativeRenewal=update.pending;
+      if (update.expires_at) session.nativeExpiresAt=update.expires_at;
+      await ecrireSession(session);previous=session.authToken;
+    };
+    if (!record.pending && (!record.expires_at || !Number.isFinite(Date.parse(record.expires_at)))) {
+      const devices=await transport.deviceSessions();const active=devices.filter(d=>d.current);
+      if (active.length!==1 || !Number.isFinite(Date.parse(active[0].expires_at))) throw new NativeError(502,'invalid_native_session');
+      record={...record,expires_at:active[0].expires_at};await save(record);
+    }
+    if (renewalDue(record)) {
+      record=await renewCredentials(record,{save,token:async()=>Array.from(Crypto.getRandomBytes(32),b=>b.toString(16).padStart(2,'0')).join('')});
+    }
+    const fresh={...record.session};delete fresh.nativeRenewal;
+    if(record.expires_at)fresh.nativeExpiresAt=record.expires_at;
+    return fresh;
+  });
 }
 
 export async function lireSession(baseUrl: string): Promise<Session | null> {
@@ -75,7 +123,7 @@ export async function lireSession(baseUrl: string): Promise<Session | null> {
 }
 
 export async function effacerSession(baseUrl: string): Promise<void> {
-  await SecureStore.deleteItemAsync(await cle(baseUrl));
+  await transactionSession(baseUrl,async()=>{await SecureStore.deleteItemAsync(await cle(baseUrl));});
 }
 
 /**

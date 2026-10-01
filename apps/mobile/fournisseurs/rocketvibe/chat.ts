@@ -26,6 +26,9 @@ export class NativeChat {
   private watchdog: ReturnType<typeof setInterval> | null = null;
   private cancelOpening: (() => void) | null = null;
   private flushing: Promise<void> | null = null;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private retryAt = 0;
+  private retryAttempt = 0;
   status: NativeStatus = {online:false,error:null};
   capabilities: Capabilities | null = null;
 
@@ -43,6 +46,8 @@ export class NativeChat {
   private disconnect(): void {
     this.generation++;
     this.verified = false;
+    if (this.retryTimer!==null) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
     const socket = this.socket; this.socket = null;
     this.cancelOpening?.(); this.cancelOpening = null;
     if (socket) { socket.onopen = null; socket.onclose = null; socket.onerror = null; socket.onmessage = null; socket.close(); }
@@ -160,8 +165,24 @@ export class NativeChat {
   async flush(): Promise<void> {
     if (this.flushing) { await this.flushing; return this.flush(); }
     if (!this.verified || this.stopped) return;
-    this.flushing = this.flushOnce().finally(() => { this.flushing = null; });
+    if (Date.now()<this.retryAt) { this.armRetry(); return; }
+    this.flushing = this.flushOnce().catch(error => {
+      if (this.verified && !this.stopped) this.deferSend(error);
+    }).finally(() => { this.flushing = null; });
     return this.flushing;
+  }
+  private armRetry(): void {
+    if (this.retryTimer!==null) clearTimeout(this.retryTimer);
+    if (!this.verified || this.stopped) { this.retryTimer=null; return; }
+    this.retryTimer=setTimeout(() => { this.retryTimer=null; void this.flush(); },Math.max(1,this.retryAt-Date.now()));
+  }
+  private deferSend(error: unknown): void {
+    const ceiling=Math.min(30_000,1000*2**Math.min(this.retryAttempt++,5));
+    const delay=error instanceof NativeError && error.status===429
+      ? Math.min(300,Math.max(1,error.retryAfter??1))*1000+Math.random()*250
+      : ceiling/2+Math.random()*ceiling/2;
+    this.retryAt=Date.now()+delay;
+    this.armRetry();
   }
   private async flushOnce(): Promise<void> {
     for (const pending of await this.store.pending()) {
@@ -172,10 +193,14 @@ export class NativeChat {
         if (this.stopped || generation !== this.generation) return;
         // The echo and outbox deletion commit together; a failed commit remains retryable.
         await this.store.ingest([message]); this.notify();
+        this.retryAttempt=0; this.retryAt=0;
       } catch (error) {
         if (this.stopped || !this.verified) return;
-        if (error instanceof NativeError && error.code === 'delivery_revalidate') { this.lost(); return; }
-        if (!(error instanceof NativeError) || error.status === 0 || error.status >= 500 || error.status === 429 || error.status === 401) return;
+        if (error instanceof NativeError && error.status===401 && error.code==='session_rejected') {
+          this.status={online:false,error:error.code}; this.stop(); return;
+        }
+        if (error instanceof NativeError && error.code === 'delivery_revalidate') { this.deferSend(error); this.lost(); return; }
+        if (!(error instanceof NativeError) || error.status === 0 || error.status >= 500 || error.status === 429 || error.status === 401) { this.deferSend(error); return; }
         await this.store.fail(pending.id,error.code); this.notify();
       }
     }

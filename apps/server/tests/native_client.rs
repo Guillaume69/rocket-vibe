@@ -236,6 +236,48 @@ async fn rust_client_exchanges_and_replays_on_real_server(pool: PgPool) {
     server.abort();
 }
 
+#[sqlx::test]
+async fn mobile_retries_lost_acknowledgement_with_real_socket(pool: PgPool) {
+    let app = App::from_pool(pool.clone()).await.unwrap();
+    auth::create_user(&app, "alice", "test-password-2026".into(), false)
+        .await
+        .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.router()
+                .into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        tokio::process::Command::new("node")
+            .arg("../../scripts/native-retry-smoke.ts")
+            .env("RV_SMOKE_URL", &base)
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .expect("mobile retry must finish within 30 seconds")
+    .expect("Node 24 is required for the mobile SQLite integration test");
+    assert!(
+        output.status.success(),
+        "{} {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM messages WHERE id='retry-message'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    server.abort();
+}
+
 #[tokio::test]
 async fn rust_transport_respects_retry_after_across_clones() {
     use axum::{Json, Router, routing::post};

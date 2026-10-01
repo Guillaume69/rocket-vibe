@@ -287,6 +287,15 @@ restent conditionnés à leurs services de test.
 
 ## Pour fermer J1
 
+La file mobile reprend aussi ses refus temporaires lorsque la socket reste
+connectée : backoff borné avec jitter, `Retry-After`, annulation en suspension
+et arrêt sur révocation comprise de la session. Un test traverse HTTP,
+PostgreSQL, une vraie socket authentifiée et SQLite : l'acceptation initiale
+perd sa réponse, le journal est retardé sans avancer son curseur, puis le client
+rejoue automatiquement la même intention. Un seul message existe en base.
+Les erreurs SQLite après confirmation et les transitions 503 / 429 sont
+également couvertes. Vérifications : 985 tests mobiles, typecheck et lint passent.
+
 - [x] Pilote mobile : sonde, connexion, stockage sécurisé, SQLite et outbox.
 - [x] Intégration mobile au contrat fournisseur et aux écrans partagés, brouillons
   persistants et navigation salon / DM / comptes.

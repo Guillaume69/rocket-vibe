@@ -107,3 +107,83 @@ test('room creation keeps its persisted ID after a lost response and reuses exis
     assert.equal(db.prepare('SELECT count(*) AS n FROM native_room_creations').get()?.n,0);
   } finally { chat.stop(); db.close(); }
 });
+
+test('an online outbox retries transient failures, honors Retry-After and cancels when suspended',async () => {
+  const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',genre:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const {db,adapter}=nativeTestDatabase();
+  const store=new NativeStore(adapter,creerFileEcritures(),session);
+  await store.applySnapshot({protocol_version:1,rooms:[fixture.room],messages:[],cursor:'initial'});
+  const calls:{id:string;at:number}[]=[];
+  let permanentlyBusy=false;
+  const transport={
+    discover:async()=>fixture.discovery,me:async()=>fixture.session.user,
+    changes:async()=>({protocol_version:1,changes:[],cursor:'initial',has_more:false}),socketUrl:async()=>'ws://localhost/fake',
+    send:async(_:string,input:{operation_id:string;text:string})=>{
+      calls.push({id:input.operation_id,at:Date.now()});
+      if (calls.length===1) throw new NativeError(503,'service_busy');
+      if (calls.length===2 || permanentlyBusy) throw new NativeError(429,'send_busy',1,'rate-limit-request');
+      return {...fixture.message,id:input.operation_id,text:input.text};
+    },
+  } as unknown as NativeTransport;
+  const socket={readyState:0,onopen:null,onclose:null,onerror:null,onmessage:null,close:()=>{}} as unknown as WebSocket;
+  let sequence=0;
+  const chat=new NativeChat(session,store,()=>`retry-${++sequence}`,{transport,socket:()=>{queueMicrotask(()=>socket.onopen?.(new Event('open')));return socket;}});
+  try {
+    await chat.connect();
+    const id=await chat.send(fixture.room.id,'Resume without a socket loss');
+    assert.equal(chat.status.online,true);
+    assert.equal((await store.pending()).length,1);
+    const deadline=Date.now()+10_000;
+    while ((await store.pending()).length) { assert(Date.now()<deadline,'online outbox did not retry'); await new Promise(resolve=>setTimeout(resolve,10)); }
+    assert.deepEqual(calls.map(call=>call.id),[id,id,id]);
+    assert(calls[1].at-calls[0].at>=490,'exponential retry must not spin');
+    assert(calls[2].at-calls[1].at>=1000,'Retry-After must not be shortened');
+    permanentlyBusy=true;
+    await chat.send(fixture.room.id,'Wait across suspend');
+    const before=calls.length;
+    chat.suspend();
+    await new Promise(resolve=>setTimeout(resolve,1300));
+    assert.equal(calls.length,before,'a suspended runner must cancel its pending timer');
+    permanentlyBusy=false;
+    await chat.connect();
+    assert.equal((await store.pending()).length,0);
+  } finally { chat.stop(); db.close(); }
+});
+
+test('a failed SQLite echo retries the same committed send and a rejected session stops stale callbacks',async () => {
+  const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',genre:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const {db,adapter,failWhen}=nativeTestDatabase();
+  const store=new NativeStore(adapter,creerFileEcritures(),session);
+  await store.applySnapshot({protocol_version:1,rooms:[fixture.room],messages:[],cursor:'initial'});
+  const calls:string[]=[];
+  let revoked=false;
+  const transport={
+    discover:async()=>fixture.discovery,me:async()=>fixture.session.user,
+    changes:async()=>({protocol_version:1,changes:[],cursor:'initial',has_more:false}),socketUrl:async()=>'ws://localhost/fake',
+    send:async(_:string,input:{operation_id:string;text:string})=>{
+      calls.push(input.operation_id);
+      if (revoked) throw new NativeError(401,'session_rejected',undefined,'rejected-request');
+      if (calls.length===1) failWhen(sql=>sql.startsWith('INSERT INTO native_positions'));
+      return {...fixture.message,id:input.operation_id,text:input.text};
+    },
+  } as unknown as NativeTransport;
+  const socket={readyState:0,onopen:null,onclose:null,onerror:null,onmessage:null,close:()=>{}} as unknown as WebSocket;
+  let sequence=0;
+  const chat=new NativeChat(session,store,()=>`sqlite-retry-${++sequence}`,{transport,socket:()=>{queueMicrotask(()=>socket.onopen?.(new Event('open')));return socket;}});
+  try {
+    await chat.connect();
+    const id=await chat.send(fixture.room.id,'Accepted remotely before local commit failure');
+    assert.equal((await store.pending()).length,1);
+    failWhen(null);
+    const deadline=Date.now()+5000;
+    while ((await store.pending()).length) { assert(Date.now()<deadline); await new Promise(resolve=>setTimeout(resolve,10)); }
+    assert.deepEqual(calls,[id,id]);
+    revoked=true;
+    await chat.send(fixture.room.id,'Session rejected');
+    assert.equal(chat.status.error,'session_rejected');
+    await assert.rejects(chat.send(fixture.room.id,'Stale retained view'),e=>e instanceof NativeError && e.code==='session_closed');
+    assert.equal((await store.pending()).length,1);
+  } finally { chat.stop(); db.close(); }
+});

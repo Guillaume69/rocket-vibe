@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use rand_core::{OsRng, RngCore};
 use rv_protocol::{Session, User};
 use sha2::{Digest, Sha256};
-use sqlx::FromRow;
+use sqlx::{FromRow, Postgres, Transaction};
 use std::net::IpAddr;
 
 use crate::{
@@ -45,12 +45,14 @@ pub fn bearer(headers: &HeaderMap) -> Result<String> {
     Ok(hash_token(token))
 }
 
-#[derive(FromRow)]
+#[derive(Clone, FromRow)]
 pub struct Account {
     pub id: String,
     pub username: String,
     pub display_name: String,
     pub admin: bool,
+    pub(crate) session_hash: String,
+    pub(crate) activation_version: String,
 }
 
 impl Account {
@@ -64,8 +66,52 @@ impl Account {
 }
 
 pub async fn authenticate(app: &App, session_hash: &str) -> Result<Account> {
-    sqlx::query_as::<_, Account>("SELECT u.id, u.username, u.display_name, u.admin FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND NOT u.disabled")
+    sqlx::query_as::<_, Account>("SELECT u.id, u.username, u.display_name, u.admin,u.activation_version,s.token_hash AS session_hash FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND NOT u.disabled")
         .bind(session_hash).fetch_optional(&app.pool).await?.ok_or_else(Error::unauthorized)
+}
+
+/// Authentication at HTTP admission is not enough for a delayed mutation.
+/// Retain account/session locks through its commit, in user-then-session order.
+pub(crate) async fn mutation_deadlines(tx: &mut Transaction<'_, Postgres>) -> Result<()> {
+    // A mutation may legitimately wait for the five-second delivery lease.
+    sqlx::query("SET LOCAL lock_timeout='6s'")
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query("SET LOCAL statement_timeout='8s'")
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query("SET LOCAL idle_in_transaction_session_timeout='10s'")
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+pub(crate) async fn lock_active(
+    tx: &mut Transaction<'_, Postgres>,
+    account: &Account,
+) -> Result<()> {
+    mutation_deadlines(tx).await?;
+    let user: Option<String> = sqlx::query_scalar(
+        "SELECT activation_version FROM users WHERE id=$1 AND NOT disabled FOR NO KEY UPDATE",
+    )
+    .bind(&account.id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    if user.is_none() {
+        return Err(Error::unauthorized());
+    }
+    let session: Option<String> = sqlx::query_scalar("SELECT token_hash FROM sessions WHERE token_hash=$1 AND user_id=$2 AND expires_at>now() FOR SHARE")
+        .bind(&account.session_hash).bind(&account.id).fetch_optional(&mut **tx).await?;
+    if session.is_none() {
+        return Err(Error::unauthorized());
+    }
+    if user.as_deref() != Some(&account.activation_version) {
+        return Err(Error::new(
+            axum::http::StatusCode::CONFLICT,
+            "delivery_revalidate",
+        ));
+    }
+    Ok(())
 }
 
 pub async fn create_user(app: &App, username: &str, password: String, admin: bool) -> Result<User> {

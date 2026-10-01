@@ -9,6 +9,9 @@ section here.
 
 ### Added
 
+- Native sends remain retryable after a permission revalidation race and preserve
+  their durable operation ID during reconnection.
+
 - Materialized native snapshots shared by GTK and SwiftUI, assembled and validated
   before the atomic cache update, with bounded pages and older-server compatibility.
 

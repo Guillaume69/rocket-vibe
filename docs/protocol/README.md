@@ -70,6 +70,40 @@ pas les positions globales des événements inaccessibles. Une suppression d'adh
 produit `room_removed` pour son ancien membre ; replay et historique filtrent les
 messages avec les droits présents. Après logout la socket est fermée au prochain tick.
 
+### Révocation pendant une livraison
+
+Une lecture capture la version opaque de chaque adhésion et la génération avant
+de construire son résultat. Juste avant livraison, le serveur revérifie ces
+versions, le compte et la session puis conserve des verrous PostgreSQL sur ces
+lignes. Un retrait / changement de rôle, logout, compte désactivé ou restauration
+attend la fin de cette livraison autorisée ; un retrait suivi de réadhésion ne
+valide pas une réponse préparée avec l'ancienne autorisation.
+Une activation de compte porte également une version opaque. Les transactions
+d'écriture retiennent et revérifient compte / session jusqu'au commit ; un acteur
+authentifié avant un logout ou une désactivation ne peut pas publier ensuite.
+La gestion des curseurs possède son verrou séparé : une écriture attendant le
+séquenceur ne bloque pas la lecture du dernier watermark committé.
+
+Les réponses JSON remettent un seul corps au transport HTTP sous ce verrou ; la
+socket conserve son verrou jusqu'à la fin de l'envoi de la trame. Une réponse
+abandonnée libère le verrou. Un corps HTTP non consommé expire après 5 secondes
+et ne peut plus produire de contenu ; l'envoi WebSocket garde son délai de 5 s.
+Les verrous sont en base, y compris entre deux processus serveur. Les incréments
+du séquenceur restent compatibles avec le verrou de génération.
+
+Une course détectée avant remise HTTP donne `409 delivery_revalidate` ; le client
+reprend avec ses intentions locales conservées. La socket relit le journal depuis
+son dernier curseur envoyé. L'événement minimal `room_removed` passe sans exposer
+le salon ; aucune charge utile ne le suit sur cette connexion tant qu'une nouvelle
+adhésion n'est pas accordée. Un autre salon autorisé continue sur la même socket.
+Les vues matérialisées retiennent également leur ligne de validité pendant remise.
+
+Ces garanties portent sur l'autorisation et l'ordre d'émission serveur. Des octets
+déjà remis au transport peuvent être tamponnés et arriver plus tard sur un autre
+réseau / une autre connexion ; aucun mécanisme ne les efface sur un appareil.
+Tout endpoint futur d'historique, recherche ou fichiers doit utiliser cette même
+barrière, avec son propre transfert borné pour les objets.
+
 Une socket inactive reçoit au moins toutes les 15 secondes un `SyncBatch` vide,
 avec son curseur courant et `has_more: false`. Le pilote mobile ferme et reprend
 une connexion n'ayant reçu aucune trame pendant plus de 45 secondes.
@@ -128,10 +162,9 @@ un Content-Length trop grand. La qualification de mémoire sur Android reste ouv
   4 par session ; `429 socket_limit` avec délai dès la demande de ticket, puis
   nouveau contrôle à l'upgrade pour les courses concurrentes. Les heartbeats sont
   présents ; la charge et les déploiements multiprocessus restent à qualifier.
-- Les réponses historiques / snapshots utilisent des transactions cohérentes,
-  mais la garantie stricte de retrait en cours de diffusion exige encore un test
-  et un ordonnancement de révocation avec les sockets. Ne pas annoncer cette
-  version comme prête pour des données sensibles ou pour remplacer Rocket.Chat.
+- La barrière de livraison et les révocations HTTP / WebSocket sont testées en
+  PostgreSQL ; la charge, les appareils et les fonctions restantes de la RFC
+  doivent encore être qualifiés avant de remplacer une instance Rocket.Chat.
 - Modifications / suppressions de messages, compteurs de non-lus et reste de la
   matrice sont absents. Une création de salon n'a pas encore de clé d'idempotence.
 

@@ -67,3 +67,94 @@ fn keychain_sessions_pin_the_native_identity_and_migrate_legacy_accounts() {
         native::database_name(&SessionInfo { base_url: "https://example.org/other".into(), ..info })
     );
 }
+
+#[tokio::test]
+async fn prepared_delivery_conflict_keeps_the_desktop_intention_retryable() {
+    use std::{
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+        time::Duration,
+    };
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../../docs/protocol/v1.fixture.json")).unwrap();
+    let can_confirm = Arc::new(AtomicBool::new(false));
+    let confirmation = can_confirm.clone();
+    let responses = fixture.clone();
+    let server = FakeHttp::start(move |request| match request.path() {
+        "/.well-known/rocketvibe" => respond(200, &responses["discovery"].to_string()),
+        "/api/v1/me" => respond(200, &responses["session"]["user"].to_string()),
+        "/api/v1/sync/changes" => respond(
+            200,
+            &json!({"protocol_version":1,"changes":[],"cursor":"opaque-fixture","has_more":false}).to_string(),
+        ),
+        "/api/v1/rooms/room-id/messages" => {
+            if !confirmation.load(Ordering::SeqCst) {
+                return respond(409, r#"{"code":"delivery_revalidate","request_id":"prepared-read"}"#);
+            }
+            let input: serde_json::Value = serde_json::from_str(&request.body).unwrap();
+            let mut message = responses["message"].clone();
+            message["id"] = input["operation_id"].clone();
+            message["text"] = input["text"].clone();
+            respond(200, &message.to_string())
+        }
+        _ => respond(404, r#"{"code":"not_found","request_id":"fake"}"#),
+    })
+    .await;
+    let identity = Identity {
+        instance_id: fixture["discovery"]["instance_id"].as_str().unwrap().into(),
+        data_epoch: fixture["discovery"]["data_epoch"].as_str().unwrap().into(),
+    };
+    let path = std::env::temp_dir().join(format!("rv-delivery-{:032x}.sqlite", fastrand::u128(..)));
+    let store = native::store::NativeStore::open(&path, identity.clone()).unwrap();
+    store
+        .snapshot(&rv_protocol::Snapshot {
+            protocol_version: 1,
+            rooms: vec![serde_json::from_value(fixture["room"].clone()).unwrap()],
+            messages: vec![],
+            cursor: "opaque-fixture".into(),
+        })
+        .unwrap();
+    store.enqueue("retained-intention", "room-id", "durable retry", "alice").unwrap();
+    drop(store);
+    let session = native::NativeSession::start(
+        SessionInfo {
+            base_url: server.url.as_str().into(),
+            user_id: "alice-id".into(),
+            username: "alice".into(),
+            auth_token: "fixture-token".into(),
+            native: Some(identity),
+        },
+        &path,
+    )
+    .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while session.status().error.as_deref() != Some("delivery_revalidate") {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(session.store.pending().unwrap().len(), 1);
+    can_confirm.store(true, Ordering::SeqCst);
+    session.reconnect();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !session.store.pending().unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    session.shutdown();
+    drop(session);
+    let requests = server.requests();
+    let sends: Vec<_> = requests.iter().filter(|r| r.path() == "/api/v1/rooms/room-id/messages").collect();
+    assert!(sends.len() >= 2);
+    assert!(
+        sends.iter().all(
+            |r| serde_json::from_str::<serde_json::Value>(&r.body).unwrap()["operation_id"] == "retained-intention"
+        )
+    );
+    std::fs::remove_file(path).unwrap();
+}

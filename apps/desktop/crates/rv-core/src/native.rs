@@ -335,7 +335,9 @@ impl NativeSession {
             {
                 Ok(message) => self.store.ingest(&[message])?,
                 Err(error @ rv_client::Error::Server { status: 401, .. }) => return Err(error.into()),
-                Err(rv_client::Error::Server { status, code }) if (400..500).contains(&status) && status != 429 => {
+                Err(rv_client::Error::Server { status, code })
+                    if (400..500).contains(&status) && status != 429 && code != "delivery_revalidate" =>
+                {
                     self.store.fail(&pending.id, &code)?
                 }
                 Err(error) => return Err(error.into()),

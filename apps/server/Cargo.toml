@@ -24,6 +24,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rv-client = { path = "../../crates/rv-client" }
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
 tokio-tungstenite = "0.28"
+tower = { version = "0.5", features = ["util"] }
 
 [lints.rust]
 unsafe_code = "forbid"

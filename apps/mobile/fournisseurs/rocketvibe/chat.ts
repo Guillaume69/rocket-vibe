@@ -99,6 +99,7 @@ export class NativeChat {
       this.verified = true;
       this.notify();
       await this.flush();
+      if (!alive()) return;
       const cursor = (await this.store.state())!.cursor;
       const url = await this.transport.socketUrl(cursor);
       if (!alive()) return;
@@ -173,6 +174,7 @@ export class NativeChat {
         await this.store.ingest([message]); this.notify();
       } catch (error) {
         if (this.stopped || !this.verified) return;
+        if (error instanceof NativeError && error.code === 'delivery_revalidate') { this.lost(); return; }
         if (!(error instanceof NativeError) || error.status === 0 || error.status >= 500 || error.status === 429 || error.status === 401) return;
         await this.store.fail(pending.id,error.code); this.notify();
       }

@@ -3,7 +3,7 @@ RUN dnf install -y --setopt=install_weak_deps=False \
       rust cargo clippy rustfmt gcc pkgconf-pkg-config llvm mold \
       gtk4-devel libadwaita-devel \
       gstreamer1-devel gstreamer1-plugins-base-devel gstreamer1-plugins-good \
-      xorg-x11-server-Xvfb dbus-daemon curl \
+      xorg-x11-server-Xvfb dbus-daemon gnome-keyring curl \
       google-noto-sans-fonts google-noto-color-emoji-fonts \
     && dnf clean all \
     && ln -sf /usr/bin/mold /usr/bin/ld

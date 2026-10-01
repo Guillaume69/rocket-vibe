@@ -18,6 +18,7 @@ use std::{net::SocketAddr, time::Duration};
 
 use crate::{
     App, auth,
+    delivery::{ReadProof, Scope},
     error::{Error, Result},
     limits, snapshots, store, sync,
 };
@@ -56,6 +57,29 @@ fn body<T>(input: Input<T>) -> Result<T> {
 
 async fn account(app: &App, headers: &HeaderMap) -> Result<auth::Account> {
     auth::authenticate(app, &auth::bearer(headers)?).await
+}
+
+async fn read_access(
+    app: &App,
+    headers: &HeaderMap,
+    scope: Scope<'_>,
+) -> Result<(auth::Account, String, ReadProof)> {
+    let hash = auth::bearer(headers)?;
+    let account = auth::authenticate(app, &hash).await?;
+    let proof = ReadProof::capture(app, &account, scope).await?;
+    Ok((account, hash, proof))
+}
+
+fn batch_rooms(batch: &rv_protocol::SyncBatch) -> Vec<String> {
+    batch
+        .changes
+        .iter()
+        .filter_map(|change| match change {
+            rv_protocol::Change::RoomUpsert(room) => Some(room.id.clone()),
+            rv_protocol::Change::MessageUpsert(message) => Some(message.room_id.clone()),
+            rv_protocol::Change::RoomRemoved { .. } => None,
+        })
+        .collect()
 }
 
 async fn ready(State(app): State<App>) -> Result<StatusCode> {
@@ -111,51 +135,60 @@ async fn logout(State(app): State<App>, headers: HeaderMap) -> Result<StatusCode
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn me(State(app): State<App>, headers: HeaderMap) -> Result<Json<rv_protocol::User>> {
-    Ok(Json(account(&app, &headers).await?.user()))
+async fn me(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    let (account, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    proof.json(&app, &hash, &account.user(), &[], None).await
 }
 
-async fn users(State(app): State<App>, headers: HeaderMap) -> Result<Json<Vec<rv_protocol::User>>> {
-    account(&app, &headers).await?;
+async fn users(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    let (_, hash, proof) = read_access(&app, &headers, Scope::None).await?;
     let users: Vec<(String, String, String)> = sqlx::query_as(
         "SELECT id,username,display_name FROM users WHERE NOT disabled ORDER BY username LIMIT 100",
     )
     .fetch_all(&app.pool)
     .await?;
-    Ok(Json(
-        users
-            .into_iter()
-            .map(|(id, username, display_name)| rv_protocol::User {
-                id,
-                username,
-                display_name,
-            })
-            .collect(),
-    ))
+    let users: Vec<_> = users
+        .into_iter()
+        .map(|(id, username, display_name)| rv_protocol::User {
+            id,
+            username,
+            display_name,
+        })
+        .collect();
+    proof.json(&app, &hash, &users, &[], None).await
 }
 
-async fn rooms(State(app): State<App>, headers: HeaderMap) -> Result<Json<Vec<rv_protocol::Room>>> {
-    Ok(Json(
-        store::rooms(&app, &account(&app, &headers).await?).await?,
-    ))
+async fn rooms(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    let (account, hash, proof) = read_access(&app, &headers, Scope::All).await?;
+    let rooms = store::rooms(&app, &account).await?;
+    let ids = rooms.iter().map(|r| r.id.clone()).collect::<Vec<_>>();
+    proof.json(&app, &hash, &rooms, &ids, None).await
 }
 async fn create_room(
     State(app): State<App>,
     headers: HeaderMap,
     input: Input<CreateRoom>,
-) -> Result<Json<rv_protocol::Room>> {
-    Ok(Json(
-        store::create_room(&app, &account(&app, &headers).await?, body(input)?).await?,
-    ))
+) -> Result<Response> {
+    let hash = auth::bearer(&headers)?;
+    let account = auth::authenticate(&app, &hash).await?;
+    let room = store::create_room(&app, &account, body(input)?).await?;
+    let proof = ReadProof::capture(&app, &account, Scope::Room(&room.id)).await?;
+    proof
+        .json(&app, &hash, &room, std::slice::from_ref(&room.id), None)
+        .await
 }
 async fn direct(
     State(app): State<App>,
     headers: HeaderMap,
     input: Input<DirectMessage>,
-) -> Result<Json<rv_protocol::Room>> {
-    Ok(Json(
-        store::direct(&app, &account(&app, &headers).await?, &body(input)?.user_id).await?,
-    ))
+) -> Result<Response> {
+    let hash = auth::bearer(&headers)?;
+    let account = auth::authenticate(&app, &hash).await?;
+    let room = store::direct(&app, &account, &body(input)?.user_id).await?;
+    let proof = ReadProof::capture(&app, &account, Scope::Room(&room.id)).await?;
+    proof
+        .json(&app, &hash, &room, std::slice::from_ref(&room.id), None)
+        .await
 }
 
 async fn add_member(
@@ -180,10 +213,10 @@ async fn send(
     headers: HeaderMap,
     Path(room): Path<String>,
     input: Input<SendMessage>,
-) -> Result<Json<rv_protocol::Message>> {
-    Ok(Json(
-        store::send(&app, &account(&app, &headers).await?, &room, body(input)?).await?,
-    ))
+) -> Result<Response> {
+    let (account, hash, proof) = read_access(&app, &headers, Scope::Room(&room)).await?;
+    let message = store::send(&app, &account, &room, body(input)?).await?;
+    proof.json(&app, &hash, &message, &[room], None).await
 }
 
 #[derive(Deserialize)]
@@ -196,7 +229,7 @@ async fn history(
     headers: HeaderMap,
     Path(room): Path<String>,
     Query(input): Query<History>,
-) -> Result<Json<rv_protocol::MessagePage>> {
+) -> Result<Response> {
     let before = input
         .before
         .map(|s| s.parse::<i64>().map_err(|_| Error::invalid()))
@@ -205,35 +238,38 @@ async fn history(
     if !(1..=100).contains(&limit) {
         return Err(Error::invalid());
     }
-    Ok(Json(
-        store::history(&app, &account(&app, &headers).await?, &room, before, limit).await?,
-    ))
+    let (account, hash, proof) = read_access(&app, &headers, Scope::Room(&room)).await?;
+    let messages = store::history(&app, &account, &room, before, limit).await?;
+    proof.json(&app, &hash, &messages, &[room], None).await
 }
 
-async fn snapshot(
-    State(app): State<App>,
-    headers: HeaderMap,
-) -> Result<Json<rv_protocol::Snapshot>> {
-    Ok(Json(
-        sync::snapshot(&app, &account(&app, &headers).await?).await?,
-    ))
+async fn snapshot(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    let (account, hash, proof) = read_access(&app, &headers, Scope::All).await?;
+    let snapshot = sync::snapshot(&app, &account).await?;
+    let rooms = snapshot
+        .rooms
+        .iter()
+        .map(|r| r.id.clone())
+        .collect::<Vec<_>>();
+    proof.json(&app, &hash, &snapshot, &rooms, None).await
 }
-async fn begin_snapshot(
-    State(app): State<App>,
-    headers: HeaderMap,
-) -> Result<Json<rv_protocol::SnapshotPage>> {
-    Ok(Json(
-        snapshots::begin(&app, &account(&app, &headers).await?).await?,
-    ))
+async fn begin_snapshot(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    let (account, hash, proof) = read_access(&app, &headers, Scope::All).await?;
+    let page = snapshots::begin(&app, &account).await?;
+    proof
+        .json(&app, &hash, &page, &[], Some(&page.snapshot_id))
+        .await
 }
 async fn snapshot_page(
     State(app): State<App>,
     headers: HeaderMap,
     Path(token): Path<String>,
-) -> Result<Json<rv_protocol::SnapshotPage>> {
-    Ok(Json(
-        snapshots::page(&app, &account(&app, &headers).await?, &token).await?,
-    ))
+) -> Result<Response> {
+    let (account, hash, proof) = read_access(&app, &headers, Scope::All).await?;
+    let page = snapshots::page(&app, &account, &token).await?;
+    proof
+        .json(&app, &hash, &page, &[], Some(&page.snapshot_id))
+        .await
 }
 #[derive(Deserialize)]
 struct Changes {
@@ -243,10 +279,12 @@ async fn changes(
     State(app): State<App>,
     headers: HeaderMap,
     Query(input): Query<Changes>,
-) -> Result<Json<rv_protocol::SyncBatch>> {
-    Ok(Json(
-        sync::changes(&app, &account(&app, &headers).await?, &input.cursor, 100).await?,
-    ))
+) -> Result<Response> {
+    let (account, hash, proof) = read_access(&app, &headers, Scope::All).await?;
+    let batch = sync::changes(&app, &account, &input.cursor, 100).await?;
+    proof
+        .json(&app, &hash, &batch, &batch_rooms(&batch), None)
+        .await
 }
 
 async fn ticket(State(app): State<App>, headers: HeaderMap) -> Result<Json<SocketTicket>> {
@@ -337,14 +375,20 @@ async fn stream(
             },
             _ = interval.tick() => {
                 let account = match auth::authenticate(&app, &session_hash).await { Ok(a) => a, Err(_) => break };
+                let proof = match ReadProof::capture(&app,&account,Scope::All).await { Ok(p) => p, Err(_) => break };
                 let batch = match sync::changes(&app, &account, &cursor, 100).await { Ok(b) => b, Err(_) => break };
                 // Send empty batches too when their cursor advanced over private events.
                 // An idle batch is also a heartbeat. Clients can detect a half-open
                 // socket without advancing their durable cursor or sending a token.
                 if batch.cursor == cursor && last_sent.elapsed() < Duration::from_secs(15) { continue; }
-                cursor = batch.cursor.clone();
                 let Ok(text) = serde_json::to_string(&batch) else { break };
+                let _lease = match proof.lock(&app,&session_hash,&batch_rooms(&batch),None).await {
+                    Ok(lease) => lease,
+                    Err(error) if error.code=="delivery_revalidate" => continue,
+                    Err(_) => break,
+                };
                 if !matches!(tokio::time::timeout(Duration::from_secs(5), ws.send(WsMessage::Text(text.into()))).await, Ok(Ok(()))) { break; }
+                cursor = batch.cursor.clone();
                 last_sent = tokio::time::Instant::now();
             }
         }

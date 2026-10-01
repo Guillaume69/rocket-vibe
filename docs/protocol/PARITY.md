@@ -160,7 +160,7 @@ ouverte tant que serveur, clients concernés et scénario de parité manquent.
 | P03 Multi-serveurs | J1 | Isolation livrée ; validation appareils / liens et générations après restauration |
 | P04 Salons / DM | J1–J2 | DM / membres livrés ; création idempotente, découverte / join, détails / rôles / UI |
 | P05 Favoris / non-lus / mentions | J2 | Modèle figé ; états personnels et compteurs atomiques à livrer |
-| P06 Historique / temps réel | J1–J2 | Socle et snapshots matérialisés livrés ; révocation strictement ordonnée, tombstones |
+| P06 Historique / temps réel | J1–J2 | Socle, snapshots matérialisés et barrière de révocation livrés ; tombstones / actions J2 |
 | P07 Markdown / emojis / citations | J2–J3 | Corpus testé ; références / messages système / catalogue natif et raccordement |
 | P08 Envoi / brouillons | J1 | Socle livré ; crash réel après commit / réponse perdue, Android ↔ Windows |
 | P09 Édition / suppression | J2 | Révisions, règles / délais, commandes et tombstones dans chaque client |

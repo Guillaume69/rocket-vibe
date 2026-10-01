@@ -28,7 +28,7 @@ final class NativeProviderTests: XCTestCase {
         let native = try XCTUnwrap(app.native)
         let account = try XCTUnwrap(app.account)
         XCTAssertEqual(account.genre, "rocketvibe")
-        try await until { app.connection == .online }
+        try await until(diagnostics: { "Native connection: \(native.status())" }) { app.connection == .online }
 
         let rid = try await native.createRoom(name: "swift-native-\(UUID())", private: true)
         try await until { app.rooms.contains { $0.rid == rid } }
@@ -83,12 +83,12 @@ final class NativeProviderTests: XCTestCase {
     }
 
     @MainActor
-    private func until(_ condition: @escaping @MainActor () -> Bool) async throws {
+    private func until(file: StaticString = #filePath, line: UInt = #line, diagnostics: () -> String = { "" }, _ condition: @escaping @MainActor () -> Bool) async throws {
         for _ in 0..<300 {
             if condition() { return }
             try await Task.sleep(nanoseconds: 100_000_000)
         }
-        XCTFail("Native model condition did not become true")
+        XCTFail("Native model condition did not become true. \(diagnostics())", file: file, line: line)
         throw RvError.Local(message: "test timeout")
     }
 }

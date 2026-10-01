@@ -40,6 +40,8 @@ services:
     depends_on: [server]
   desktop:
     image: rocket-vibe-rs-build
+    # Fedora's Secret Service daemon requires locked memory for its key material.
+    cap_add: [IPC_LOCK]
     working_dir: /workspace/apps/desktop
     volumes: ['..:/workspace']
     environment:

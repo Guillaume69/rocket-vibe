@@ -213,6 +213,39 @@ et lint des fichiers mobiles concernés réussis.
 Les 203 tests du cœur / bindings bureau et Clippy passent dans Fedora ; le binaire
 GTK est compilé avec le transport paginé partagé par SwiftUI.
 
+## Huitième incrément : révocations et autorisations
+
+Le huitième incrément ferme la course entre lecture et émission : version opaque
+par adhésion, barrière PostgreSQL avant remise HTTP / envoi de trame, session /
+compte / génération revérifiés et délai de livraison de 5 secondes. Les tests
+retiennent réellement une réponse non consommée et constatent que le retrait d'un
+membre, depuis un autre objet serveur, attend son verrou. Ils couvrent abandon,
+expiration, réadhésion, rôle, session et restauration ; le séquenceur reste actif.
+Une vraie socket est maintenue pendant des envois concurrents au retrait, reçoit
+son événement minimal puis continue dans un autre salon sans recevoir de nouvelle
+charge utile du salon retiré. Les outboxes conservent et rejouent la même intention
+sur `delivery_revalidate`, avec tests SQLite dans le mobile et le cœur bureau.
+
+Les octets déjà remis au transport peuvent encore être tamponnés par le réseau.
+Les futures lectures de recherche / fichiers devront employer la même barrière.
+
+Les écritures revérifient également l'acteur et retiennent sa session jusqu'au
+commit. Le verrou de quota des curseurs est séparé de celui des mutations, pour
+conserver le replay du watermark déjà committé pendant une écriture retardée.
+Les écritures bornent les attentes de verrou à 6 secondes, les instructions à
+8 secondes et une transaction inactive à 10 secondes ; le délai de verrou laisse
+expirer la livraison de 5 secondes. Un éditeur bloqué libère ainsi sa session et
+permet la déconnexion, avec rollback vérifié dans PostgreSQL.
+Le banc GTK démarre un vrai Secret Service ; son second lancement recharge le
+compte enregistré sans injection de login, dans un nouveau processus / bus.
+Le modèle Swift connecté passe aussi avec ce trousseau et le serveur jetable.
+
+Vérifications locales : 34 tests Rust natifs, 32 tests TypeScript natifs, 982 tests
+mobiles et 204 tests cœur / bindings bureau réussis ; formatage, Clippy, typecheck,
+lint des fichiers mobiles concernés et génération / inventaire sans diff.
+GTK et bindings / modèles Swift sont compilés ; les validations sur appareils
+physiques restent ouvertes.
+
 ## Pour fermer J1
 
 - [x] Pilote mobile : sonde, connexion, stockage sécurisé, SQLite et outbox.
@@ -225,7 +258,8 @@ GTK est compilé avec le transport paginé partagé par SwiftUI.
 - [x] Heartbeats, rythme de diffusion, limites et essais d'authentification bornés.
 - [x] Tailles maximales de snapshot / lots et nettoyage des tickets / curseurs.
 - [x] Pagination d'un snapshot matérialisé pour dépasser les bornes du pilote.
-- [ ] Ordonnancement strict des révocations avec les réponses / sockets actives.
+- [x] Ordonnancement des révocations avec les réponses / sockets actives, barrière
+  PostgreSQL et vérification des versions d'autorisation avant livraison.
 - [ ] Création de salon idempotente et découverte / adhésion aux salons publics.
 
 Le parcours mobile pilote et les tests sans appareil ne ferment pas J1 : il exige

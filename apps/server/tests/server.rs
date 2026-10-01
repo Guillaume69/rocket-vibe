@@ -501,6 +501,157 @@ async fn removal_filters_replay_and_prevents_writes(pool: PgPool) {
 }
 
 #[sqlx::test]
+async fn active_socket_never_sends_room_payload_after_its_withdrawal(pool: PgPool) {
+    let app = App::from_pool(pool.clone()).await.unwrap();
+    user(&app, "alice").await;
+    user(&app, "bob").await;
+    let server = Server::start(pool).await;
+    let alice = server.login("alice").await;
+    let bob = server.login("bob").await;
+    let mut rooms = Vec::new();
+    for name in ["withdrawn", "still-authorized"] {
+        let room: Room = server
+            .post(
+                &alice.token,
+                "/api/v1/rooms",
+                json!({"name":name,"private":true}),
+            )
+            .await
+            .error_for_status()
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        server
+            .post(
+                &alice.token,
+                &format!("/api/v1/rooms/{}/members/{}", room.id, bob.user.id),
+                json!({}),
+            )
+            .await
+            .error_for_status()
+            .unwrap();
+        rooms.push(room);
+    }
+    let snapshot = server.snapshot(&bob.token).await;
+    let ticket: SocketTicket = server
+        .post(&bob.token, "/api/v1/sync/ticket", json!({}))
+        .await
+        .json()
+        .await
+        .unwrap();
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!(
+        "{}/api/v1/sync/socket?ticket={}&cursor={}",
+        server.base.replace("http://", "ws://"),
+        ticket.ticket,
+        snapshot.cursor
+    ))
+    .await
+    .unwrap();
+    let public_path = format!("/api/v1/rooms/{}/messages", rooms[1].id);
+    server
+        .post(
+            &alice.token,
+            &public_path,
+            json!({"operation_id":"socket-ready","text":"ready"}),
+        )
+        .await
+        .error_for_status()
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let frame = ws.next().await.unwrap().unwrap();
+            if let Ok(text) = frame.to_text() {
+                let batch: SyncBatch = serde_json::from_str(text).unwrap();
+                if batch
+                    .changes
+                    .iter()
+                    .any(|c| matches!(c,Change::MessageUpsert(m) if m.id=="socket-ready"))
+                {
+                    break;
+                }
+            }
+        }
+    })
+    .await
+    .unwrap();
+    let private_path = format!("/api/v1/rooms/{}/messages", rooms[0].id);
+    let sends = futures_util::future::join_all((0..8).map(|n| {
+        server.post(
+            &alice.token,
+            &private_path,
+            json!({"operation_id":format!("racing-{n}"),"text":"private during withdrawal"}),
+        )
+    }));
+    let withdrawal = server
+        .client
+        .delete(format!(
+            "{}/api/v1/rooms/{}/members/{}",
+            server.base, rooms[0].id, bob.user.id
+        ))
+        .bearer_auth(&alice.token)
+        .send();
+    let (sends, withdrawal) = tokio::join!(sends, withdrawal);
+    for response in sends {
+        response.error_for_status().unwrap();
+    }
+    withdrawal.unwrap().error_for_status().unwrap();
+    // Keep using the same live socket. Its other room continues to work.
+    server
+        .post(
+            &alice.token,
+            &private_path,
+            json!({"operation_id":"strictly-after-withdrawal","text":"must remain private"}),
+        )
+        .await
+        .error_for_status()
+        .unwrap();
+    server
+        .post(
+            &alice.token,
+            &public_path,
+            json!({"operation_id":"public-barrier","text":"still connected"}),
+        )
+        .await
+        .error_for_status()
+        .unwrap();
+    let mut withdrawn = false;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let frame = ws.next().await.unwrap().unwrap();
+            if let Ok(text) = frame.to_text() {
+                let batch: SyncBatch = serde_json::from_str(text).unwrap();
+                let mut complete = false;
+                for change in batch.changes {
+                    match change {
+                        Change::RoomRemoved { room_id } if room_id == rooms[0].id => {
+                            withdrawn = true
+                        }
+                        Change::MessageUpsert(message) => {
+                            assert!(
+                                !(withdrawn && message.room_id == rooms[0].id),
+                                "no payload may follow its withdrawal on this connection"
+                            );
+                            assert_ne!(message.id, "strictly-after-withdrawal");
+                            complete |= message.id == "public-barrier";
+                        }
+                        Change::RoomUpsert(room) => assert!(!(withdrawn && room.id == rooms[0].id)),
+                        _ => (),
+                    }
+                }
+                if complete {
+                    assert!(withdrawn);
+                    break;
+                }
+            }
+        }
+    })
+    .await
+    .unwrap();
+    ws.close(None).await.unwrap();
+}
+
+#[sqlx::test]
 async fn concurrent_dm_and_pagination(pool: PgPool) {
     let app = App::from_pool(pool.clone()).await.unwrap();
     let alice = user(&app, "alice").await;
@@ -597,6 +748,53 @@ async fn late_commit_cannot_be_skipped_by_a_cursor(pool: PgPool) {
             .len(),
         1
     );
+}
+
+#[sqlx::test]
+async fn a_stalled_publisher_releases_its_session_before_logout_times_out(pool: PgPool) {
+    let app = App::from_pool(pool.clone()).await.unwrap();
+    user(&app, "alice").await;
+    let server = Server::start(pool.clone()).await;
+    let alice = server.login("alice").await;
+    let mut stalled = pool.begin().await.unwrap();
+    sqlx::query("UPDATE instance SET position=position+1 WHERE singleton")
+        .execute(&mut *stalled)
+        .await
+        .unwrap();
+    let request = server
+        .client
+        .post(format!("{}/api/v1/rooms", server.base))
+        .bearer_auth(&alice.token)
+        .json(&json!({"name":"Must roll back","private":true}));
+    let publish = tokio::spawn(async move { request.send().await.unwrap() });
+    tokio::time::timeout(Duration::from_secs(2),async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'UPDATE instance SET position%')").fetch_one(&pool).await.unwrap();
+            if waiting { break; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    let logout = server
+        .client
+        .post(format!("{}/api/v1/auth/logout", server.base))
+        .bearer_auth(&alice.token)
+        .send();
+    let (publish, logout) = tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::join!(publish, logout)
+    })
+    .await
+    .unwrap();
+    assert_eq!(publish.unwrap().status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(logout.unwrap().status(), StatusCode::NO_CONTENT);
+    let rooms: i64 = sqlx::query_scalar("SELECT count(*) FROM rooms")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        rooms, 0,
+        "the blocked mutation must roll back before releasing its session"
+    );
+    stalled.rollback().await.unwrap();
 }
 
 #[sqlx::test]

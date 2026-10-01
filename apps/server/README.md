@@ -104,6 +104,14 @@ curseur n'est rendu qu'après téléchargement complet. Les lots de
 journal sont limités à 100 événements et 1 Mio, sans sauter l'événement qui ne tient
 pas dans le lot. Voir le [contrat de pagination](../../docs/protocol/README.md#snapshots-matérialisés).
 
+Les réponses et trames revérifient la version de leurs autorisations juste avant
+remise, puis retiennent des verrous PostgreSQL jusqu'à cette remise. Retrait,
+réadhésion, rôle, session ou génération ne valident pas une ancienne réponse.
+Un corps HTTP abandonné / bloqué libère sa barrière au plus tard après 5 s.
+Les mutations retiennent leur session jusqu'au commit, avec attente de verrou
+limitée à 6 s, instruction à 8 s et transaction inactive à 10 s.
+Voir les [garanties de révocation](../../docs/protocol/README.md#révocation-pendant-une-livraison).
+
 Un curseur expire après 7 jours sans renouvellement ; 512 curseurs au maximum par
 compte. Un curseur expiré / élagué exige un nouveau snapshot via
 `409 sync_reset_required`, sans effacer les intentions locales encore autorisées.

@@ -9,6 +9,9 @@ release, et ses notes sont la section de la version ici.
 
 ### Ajouté
 
+- Reprise automatique des envois RocketVibe après revalidation des droits,
+  sans marquer l'intention persistante comme définitivement refusée.
+
 - Snapshots RocketVibe paginés et immuables, téléchargés puis validés avant
   remplacement atomique du cache ; pages expirées ou retirées rejetées sans
   appliquer de vue partielle. Compatibilité conservée avec les anciens serveurs natifs.

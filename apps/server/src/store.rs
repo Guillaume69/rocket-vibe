@@ -4,7 +4,7 @@ use sqlx::{FromRow, Postgres, Transaction, types::Json};
 
 use crate::{
     App,
-    auth::{Account, identifier, random_token},
+    auth::{Account, identifier, lock_active, random_token},
     error::{Error, Result},
 };
 
@@ -107,6 +107,7 @@ pub async fn create_room(app: &App, account: &Account, input: CreateRoom) -> Res
         return Err(Error::invalid());
     }
     let mut tx = app.pool.begin().await?;
+    lock_active(&mut tx, account).await?;
     let id = random_token()[..24].to_owned();
     let kind = if input.private { "private" } else { "public" };
     sqlx::query("INSERT INTO rooms(id,name,kind) VALUES($1,$2,$3)")
@@ -152,6 +153,7 @@ pub async fn direct(app: &App, account: &Account, target: &str) -> Result<Room> 
     let mut tx = app.pool.begin().await?;
     let mut users = [account.id.as_str(), target];
     users.sort_unstable();
+    crate::auth::mutation_deadlines(&mut tx).await?;
     // Serialize concurrent creation in both directions, with a consistent lock order.
     // Keep foreign-key KEY SHARE checks compatible with these domain locks.
     let found: Vec<(String, String)> = sqlx::query_as(
@@ -160,6 +162,10 @@ pub async fn direct(app: &App, account: &Account, target: &str) -> Result<Room> 
     .bind(users.to_vec())
     .fetch_all(&mut *tx)
     .await?;
+    if !found.iter().any(|(id, _)| id == &account.id) {
+        return Err(Error::unauthorized());
+    }
+    lock_active(&mut tx, account).await?;
     if found.len() != 2 {
         return Err(Error::missing());
     }
@@ -224,6 +230,7 @@ pub async fn membership(
         return Err(Error::invalid());
     }
     let mut tx = app.pool.begin().await?;
+    lock_active(&mut tx, account).await?;
     let kind: Option<String> = sqlx::query_scalar("SELECT kind FROM rooms WHERE id=$1 FOR UPDATE")
         .bind(room_id)
         .fetch_optional(&mut *tx)
@@ -309,10 +316,7 @@ pub async fn send(
     let mut tx = app.pool.begin().await?;
     // All sends by a user serialize before room / journal locks. This also protects
     // operation IDs across rooms, including malicious cross-room replays.
-    sqlx::query("SELECT id FROM users WHERE id=$1 FOR NO KEY UPDATE")
-        .bind(&account.id)
-        .execute(&mut *tx)
-        .await?;
+    lock_active(&mut tx, account).await?;
     require_member(&mut tx, room_id, &account.id).await?;
     let query = format!("{MESSAGE_SELECT} WHERE m.author_id=$1 AND m.operation_id=$2");
     if let Some(existing) = sqlx::query_as::<_, MessageRow>(&query)

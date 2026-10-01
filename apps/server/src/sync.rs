@@ -17,8 +17,13 @@ pub(crate) async fn cursor(
     position: i64,
 ) -> Result<String> {
     let mut tx = pool.begin().await?;
-    // Consistent single-user lock also bounds concurrent devices' cursor pruning.
-    sqlx::query("SELECT id FROM users WHERE id=$1 FOR NO KEY UPDATE")
+    // Keep cursor bookkeeping independent of an author waiting for the journal
+    // sequencer: readers must still see the last committed watermark.
+    sqlx::query("INSERT INTO cursor_budgets(user_id) VALUES($1) ON CONFLICT DO NOTHING")
+        .bind(user)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("SELECT user_id FROM cursor_budgets WHERE user_id=$1 FOR UPDATE")
         .bind(user)
         .execute(&mut *tx)
         .await?;

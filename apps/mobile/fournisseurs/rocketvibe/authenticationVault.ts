@@ -53,7 +53,9 @@ export class AuthenticationVault {
         // same account lock as verify, so a new proof issued after old expiry
         // cannot race an old verification that will commit in the future.
         const issued=Date.parse(fresh.challenge.expires_at)-300_000;
-        if(Date.parse(previous.challenge.expires_at)>issued)return {kind:'challenge',challenge:previous};
+        // Date.parse truncates PostgreSQL's sub-millisecond precision. Equality
+        // is ambiguous: retain the old proof until at least one whole ms later.
+        if(Date.parse(previous.challenge.expires_at)>=issued)return {kind:'challenge',challenge:previous};
       }
       await this.deps.storage.write(key,JSON.stringify(fresh));
       return {kind:'challenge',challenge:{...fresh,user:{...fresh.user},challenge:{...fresh.challenge,methods:[...fresh.challenge.methods]},pending:null}};

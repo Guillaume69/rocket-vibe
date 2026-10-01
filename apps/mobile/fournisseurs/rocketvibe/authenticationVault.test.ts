@@ -92,6 +92,13 @@ test('an unresolved candidate survives fresh password proofs until the old expir
   const step=await vault.stage(fresh);assert.equal(step.kind,'challenge');
   if(step.kind==='challenge')assert.equal(step.challenge.challenge.challenge_id,old.challenge.challenge_id);
   assert.deepEqual(await vault.load(old.baseUrl,old.user.username),old);
+  // PostgreSQL can put old expiry AFTER fresh issuance within the same ms.
+  // JavaScript Date.parse collapses those instants; equality must retain it.
+  const ambiguous={...old,challenge:{...old.challenge,expires_at:new Date(Date.parse(fresh.challenge.expires_at)-300_000).toISOString().replace('Z','999Z')}};
+  h.values.set(key,JSON.stringify(ambiguous));
+  const retained=await vault.stage(fresh);assert.equal(retained.kind,'challenge');
+  if(retained.kind==='challenge')assert.equal(retained.challenge.challenge.challenge_id,old.challenge.challenge_id);
+  assert.deepEqual(await vault.load(old.baseUrl,old.user.username),ambiguous);
   const expired={...old,challenge:{...old.challenge,expires_at:new Date(Date.parse(fresh.challenge.expires_at)-300_000-1).toISOString()}};
   h.values.set(key,JSON.stringify(expired));await vault.stage(fresh);
   assert.deepEqual(await vault.load(old.baseUrl,old.user.username),fresh);assert.equal(h.verifies,0);

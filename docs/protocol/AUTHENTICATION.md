@@ -38,6 +38,9 @@ Son remplacement exige un nouveau défi émis après l'expiration du précédent
 (TTL serveur fixe de cinq minutes) et une sonde après cette barrière : `start`
 et `verify` détiennent le même verrou de compte. Une erreur ambiguë, un UID,
 une instance ou une génération différents ne peuvent effacer ce pending.
+Le mobile conserve aussi le pending si les deux instants tombent dans la même
+milliseconde : PostgreSQL est plus précis que `Date.parse`, et cette égalité
+ne prouve pas que l'ancien défi était déjà expiré au moment de la nouvelle preuve.
 
 Après perte de réponse, « Valider » sans code sonde la session déjà acceptée.
 Après redémarrage, une nouvelle connexion par mot de passe reprend ce même

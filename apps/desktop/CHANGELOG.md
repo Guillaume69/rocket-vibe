@@ -12,6 +12,8 @@ section here.
 - A large video (tens of MB) plays: its download no longer stops after 15 seconds, leaving the
   card black. Video and file cards show the download's progress; a video already downloaded
   shows its first image, whatever its size.
+- The update card's Restart brings the app back on Linux sessions where it only closed it
+  (seen on Omarchy).
 
 ## [0.6.0] - 2026-10-01
 

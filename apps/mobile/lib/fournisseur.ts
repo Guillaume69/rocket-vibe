@@ -240,6 +240,11 @@ export interface Fournisseur {
    */
   souscriptionsSalon(rid: string): readonly (readonly [nom: string, cle: string])[];
   /**
+   * Ce qu'un événement du transport me dit à moi seul dans un salon (la
+   * réponse d'une commande slash), ou `null` s'il ne s'agit pas de cela.
+   */
+  notePrivee(evenement: Evenement): { rid: string; texte: string } | null;
+  /**
    * Une page d'historique du salon (les plus récents d'abord), ingérée dans le
    * moteur. `type` : le type du salon tel que stocké (`salons.type`) ; `latest` :
    * borne keyset ISO — absente, la page part du présent. Rend le plus ancien

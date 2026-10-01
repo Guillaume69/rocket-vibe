@@ -10,7 +10,9 @@ for(let i=0;i<60;i++){
   try{await new NativeTransport(base).discover();ready=true;break;}catch{await new Promise(resolve=>setTimeout(resolve,500));}
 }
 if(!ready)throw new Error('Pilot server unavailable');
-for(const [username,file] of [['gtk-factor','gtk-factors.json'],['swift-factor','swift-factors.json']]){
+const accounts=[['gtk-factor','gtk-factors.json'],['swift-factor','swift-factors.json']];
+if(process.env.RV_PILOT_SECURITY==='1')accounts.push(['gtk-security','gtk-security-factors.json']);
+for(const [username,file] of accounts){
   const client=new NativeTransport(base);await client.login(username,process.env.RV_PEER_PASSWORD);
   const setup=await client.beginFactorSetup({operation_id:`pilot-${username}-setup`});
   const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';let bits='';
@@ -22,4 +24,4 @@ for(const [username,file] of [['gtk-factor','gtk-factors.json'],['swift-factor',
   await writeFile(`/pilot-invitations/${file}`,JSON.stringify(backup),{mode:0o600});
   await client.logout();secret.fill(0);digest.fill(0);
 }
-console.log('Native pilot factors provisioned for two disposable accounts');
+console.log(`Native pilot factors provisioned for ${accounts.length} disposable accounts`);

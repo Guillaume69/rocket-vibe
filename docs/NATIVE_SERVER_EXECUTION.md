@@ -315,6 +315,32 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, paramètres GTK / coffre commun bureau : les préférences existantes et
+  le dialogue Appareils ouvrent la confirmation d'identité sur la famille
+  courante. Configuration TOTP, dix secours avec confirmation explicite,
+  régénération et désactivation utilisent `rv-core::native::security` et le
+  trousseau privé existant. Le dialogue reste lié à l'URL / UID / famille /
+  instance / génération ; les secrets saisis sont effacés avant envoi et à la
+  fermeture. Les opérations HTTP et KV sont sérialisées par un verrou OS,
+  conservé par le vrai travail de stockage même après annulation de l'appelant.
+  Les réponses d'une ancienne connexion sont refusées. Actualiser reprend
+  l'intention originale après la reconnexion provoquée par une mutation de
+  facteur ; il ne renvoie jamais le mot de passe ou un autre code.
+  Huit tests couvrent reprise start / finish et activation / remplacement /
+  désactivation, stockage indisponible / corrompu, verrou après annulation,
+  ancien fournisseur, réponse tardive et capacités retirées. Vérifications :
+  240 régressions cœur / FFI, Clippy et compilation GTK réussis ; inventaire et
+  changelog contrôlés. Le test FFI `live` demeure conditionnel dans cette suite.
+  Le banc PostgreSQL jetable avec deux vrais processus GTK / Secret Service
+  exerce mot de passe, code incorrect, ACK perdus de start / finish,
+  régénération, reçu privé après restart, confirmation des secours et
+  désactivation après changement de génération du socket. SQL confirme une
+  seule famille, une seule preuve complète, deux secours consommés, une seule
+  régénération et l'âge / expiration originels de la preuve. Le dialogue rendu
+  tient à 435 px et les captures excluent les codes privés. Ce banc est ajouté
+  au job CI bureau. SwiftUI, SMTP et les trousseaux / appareils physiques
+  restent la suite de P02 ; ce lot ne qualifie pas une app Windows ou macOS installée.
+
 - P02, paramètres / coffres mobile : la section Sécurité de l'écran existant
   configure TOTP, conserve puis confirme les dix secours, régénère ou désactive
   le facteur. La confirmation d'identité reste sur la famille courante, y compris
@@ -343,8 +369,8 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   APK installé ni une validation du Keystore. Les fichiers Firebase Android /
   iOS restent absents et les parcours sur appareils demeurent ouverts.
   Les paramètres / coffres GTK et SwiftUI, SMTP et validations sur appareils
-  restent la suite de P02. La CI du lot précédent `4c4374a` est entièrement verte
-  (run `36877393518`, quatre jobs).
+  restent la suite de P02. La CI du lot mobile `7e7c10e` est entièrement verte
+  (run `36885412776`, quatre jobs).
 
 - P02, réauthentification serveur / SDK : migration 0015, statut de preuve et
   parcours start / finish / resume sur la famille courante, sans nouveau bearer

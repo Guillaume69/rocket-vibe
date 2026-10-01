@@ -335,4 +335,24 @@ effacés de l'écran à la sortie / suspension. Toutes ces entrées utilisent
 
 Ces parcours et leurs pertes d'ACK sont éprouvés via les vrais endpoints sur
 PostgreSQL jetable et des coffres portables ; ce banc ne valide pas le Keystore
-sur téléphone physique. Coffres / paramètres GTK et SwiftUI restent à raccorder.
+sur téléphone physique.
+
+GTK raccorde les mêmes opérations dans les préférences existantes. Le coffre
+commun `rv-core::native::security` utilise des entrées privées du trousseau,
+hors index des comptes / SQLite ; seul un fichier de verrou sans secret est
+créé. Le verrou OS couvre HTTP et KV et reste détenu jusqu'à la fin du vrai
+travail de trousseau, même si son appelant est annulé. Les intentions / reçus
+portent les cinq champs de portée, la version initiale et l'opération originale.
+Le dialogue garde cette portée entre appels et efface ses secrets à la fermeture.
+Chaque accès vérifie aussi la génération de connexion avant et après HTTP.
+Une fermeture de socket après mutation de facteur refuse le résultat ancien ;
+Actualiser peut reprendre sur le nouveau runner de cette même famille, de façon
+bornée et sans renvoyer mot de passe ou code saisi. Fermeture du fournisseur,
+changement d'identité ou sortie du dialogue interdisent cette reprise.
+
+Le banc `compose.native-security-pilot.yml`, ajouté en overlay d'un projet
+jetable distinct, valide les vrais widgets GTK, les ACK perdus, le reçu privé
+après redémarrage de Secret Service et la reconnexion. Ses contrôles SQL sans
+secret prouvent une famille, une preuve complète, deux secours consommés,
+une régénération et l'âge original de la preuve. Les captures ne conservent
+aucun code de secours. SwiftUI et les trousseaux sur appareils restent à qualifier.

@@ -9,6 +9,12 @@ section here.
 
 ### Added
 
+- Native security in the existing GTK preferences: confirm identity on the
+  current device family, configure TOTP, explicitly save backup codes,
+  regenerate them or disable the factor. Private system-keychain intents resume
+  lost responses and survive process restarts; closed views and reconnected
+  providers reject late callbacks.
+
 - Native TOTP and backup-code sign-in in the existing GTK / SwiftUI forms, with a private
   system-keychain proof, recovery after a lost response and activation only
   after session storage succeeds. Hiding or leaving the form invalidates late

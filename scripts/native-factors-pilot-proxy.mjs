@@ -2,10 +2,21 @@
 // Callers must recover their durable candidate through /me; no secret is logged.
 import http from 'node:http';
 import net from 'node:net';
+// Only the dedicated disposable settings pilot enables this. Each successful
+// endpoint is lost once; the original operation's receipt can then be replayed.
+const discarded=new Set();
+const securityPaths=new Set(['/api/v1/me/reauth/start','/api/v1/me/reauth/finish',
+  '/api/v1/me/factors/recovery/regenerate','/api/v1/me/factors/totp/disable']);
 const server=http.createServer((request,response)=>{
   if(!request.url?.startsWith('/')){response.writeHead(400).end();return;}
   const upstream=http.request({hostname:'server',port:3400,path:request.url,method:request.method,headers:{...request.headers,host:'server:3400'}},answer=>{
-    if(request.url==='/api/v1/auth/factors/verify' && answer.statusCode===200){
+    if(process.env.RV_PILOT_SECURITY==='1')console.log(`Pilot HTTP ${request.method} ${request.url.split('?')[0]} ${answer.statusCode}`);
+    const securityLoss=process.env.RV_PILOT_SECURITY==='1' &&
+      securityPaths.has(request.url) && !discarded.has(request.url) &&
+      answer.statusCode>=200 && answer.statusCode<300;
+    if(securityLoss)discarded.add(request.url);
+    if((request.url==='/api/v1/auth/factors/verify' && answer.statusCode===200) || securityLoss){
+      if(securityLoss)console.log(`Disposable security response discarded: ${request.url}`);
       answer.resume();answer.once('end',()=>response.destroy());return;
     }
     response.writeHead(answer.statusCode??502,answer.headers);answer.pipe(response);

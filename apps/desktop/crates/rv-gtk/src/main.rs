@@ -24,6 +24,7 @@ mod markdown_view;
 mod marked;
 mod media;
 mod message_list;
+mod native_security;
 mod notifier;
 mod recorder;
 mod rows;

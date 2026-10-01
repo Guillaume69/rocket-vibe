@@ -2,6 +2,7 @@
 pub mod authentication;
 pub mod authentication_vault;
 pub mod credentials;
+pub mod security;
 pub mod store;
 
 use crate::rest::RestError;
@@ -14,7 +15,7 @@ use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use std::time::Duration;
 use tokio::sync::{Notify, broadcast, watch};
@@ -248,6 +249,7 @@ pub struct NativeSession {
     command_lock: tokio::sync::Mutex<()>,
     task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     credentials: Option<Arc<dyn credentials::Provider>>,
+    security_generation: AtomicU64,
 }
 impl NativeSession {
     pub fn start(info: SessionInfo, path: &Path) -> Result<Arc<Self>, Error> {
@@ -284,6 +286,7 @@ impl NativeSession {
             command_lock: tokio::sync::Mutex::new(()),
             task: Mutex::new(None),
             credentials,
+            security_generation: AtomicU64::new(0),
         });
         let weak = Arc::downgrade(&session);
         let task = tokio::spawn(async move {
@@ -298,6 +301,7 @@ impl NativeSession {
                 }
                 s.set_status(Connection::Connecting, None);
                 let result = tokio::select! {result=s.cycle()=>Some(result), _=changed.changed()=>None};
+                s.security_generation.fetch_add(1, Ordering::SeqCst);
                 s.verified.store(false, Ordering::SeqCst);
                 if let Some(Err(error)) = result {
                     let terminal = error.terminal();
@@ -347,11 +351,13 @@ impl NativeSession {
         self.control.send_modify(|n| *n = n.wrapping_add(1));
     }
     pub fn suspend(&self) {
+        self.security_generation.fetch_add(1, Ordering::SeqCst);
         self.paused.store(true, Ordering::SeqCst);
         self.verified.store(false, Ordering::SeqCst);
         self.signal();
     }
     pub fn reconnect(&self) {
+        self.security_generation.fetch_add(1, Ordering::SeqCst);
         if self.closed.load(Ordering::SeqCst) {
             return;
         }
@@ -364,6 +370,7 @@ impl NativeSession {
         self.signal();
     }
     pub fn shutdown(&self) {
+        self.security_generation.fetch_add(1, Ordering::SeqCst);
         self.closed.store(true, Ordering::SeqCst);
         self.paused.store(true, Ordering::SeqCst);
         self.verified.store(false, Ordering::SeqCst);
@@ -371,6 +378,9 @@ impl NativeSession {
             task.abort();
         }
         self.set_status(Connection::Offline, None);
+    }
+    pub fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::SeqCst)
     }
     async fn identity(&self) -> Result<(), Error> {
         let discovery = self.client.discover().await?;

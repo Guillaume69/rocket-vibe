@@ -155,6 +155,12 @@ pub fn authentication_vault() -> rv_core::native::authentication_vault::Vault {
         std::sync::Arc::new(AuthenticationStorage),
     )
 }
+pub fn security_vault() -> rv_core::native::security::Vault {
+    rv_core::native::security::Vault::new(
+        glib::user_config_dir().join("rocket-vibe-rs"),
+        std::sync::Arc::new(AuthenticationStorage),
+    )
+}
 async fn authentication_operation<T: Send + 'static>(
     lease: std::sync::Arc<std::fs::File>,
     operation: impl std::future::Future<Output = Result<T, String>> + Send + 'static,

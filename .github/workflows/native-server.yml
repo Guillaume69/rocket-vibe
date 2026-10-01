@@ -13,6 +13,7 @@ on:
       - 'docs/protocol/**'
       - 'docker/compose.rocketvibe.yml'
       - 'docker/compose.native-pilot.yml'
+      - 'docker/compose.native-security-pilot.yml'
       - 'scripts/*native*'
       - 'scripts/inventory-rocketchat.mjs'
       - '.github/workflows/native-server.yml'
@@ -26,6 +27,7 @@ on:
       - 'apps/desktop/**'
       - 'docs/protocol/**'
       - 'docker/compose.native-pilot.yml'
+      - 'docker/compose.native-security-pilot.yml'
       - 'scripts/*native*'
       - 'scripts/inventory-rocketchat.mjs'
       - '.github/workflows/native-server.yml'
@@ -125,11 +127,18 @@ jobs:
           test "$(docker inspect -f '{{.State.ExitCode}}' rocketvibe-pilot-mobile-1)" = 0
           test "$(docker inspect -f '{{.State.Running}}' rocketvibe-pilot-mobile-1)" = false
           docker compose -f docker/compose.native-pilot.yml run --rm --no-deps session-check
+      - name: Existing GTK security settings and private receipt after restart
+        run: |
+          docker compose -p rocketvibe-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml up -d factor-proxy
+          docker compose -p rocketvibe-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml run --rm --no-deps security-desktop
+          docker compose -p rocketvibe-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml run --rm --no-deps security-check
       - name: Integration logs and cleanup
         if: always()
         run: |
           docker compose -f docker/compose.native-pilot.yml logs --no-color > artifacts/native-pilot.log
           docker compose -f docker/compose.native-pilot.yml down -v
+          docker compose -p rocketvibe-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml logs --no-color > artifacts/native-security-pilot.log
+          docker compose -p rocketvibe-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml down -v
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -61,6 +61,8 @@ use gtk::glib;
 
 use crate::window::AppWindow;
 
+mod security;
+
 static FAILED: AtomicBool = AtomicBool::new(false);
 
 thread_local! {
@@ -99,6 +101,7 @@ pub fn install_early() {
 
 pub fn install(window: &Rc<AppWindow>) {
     SMOKE_WINDOW.with_borrow_mut(|w| *w = Rc::downgrade(window));
+    security::install(window);
     let login = std::env::var("RV_SMOKE_LOGIN").unwrap_or_default();
     let room = std::env::var("RV_SMOKE_ROOM").unwrap_or_default();
     let text = std::env::var("RV_SMOKE_SEND").unwrap_or_default();
@@ -390,6 +393,15 @@ pub fn install(window: &Rc<AppWindow>) {
         }
         let width = w.window.width();
         let height = w.window.height();
+        if std::env::var_os("RV_SMOKE_SECURITY").is_some()
+            && find_by_class(w.window.upcast_ref(), "native-security-codes")
+                .and_downcast::<gtk::Label>()
+                .is_some_and(|codes| !codes.text().is_empty())
+        {
+            check("private security bag closed before screenshot", false, 0);
+            w.window.application().expect("application").quit();
+            return;
+        }
         let paintable = gtk::WidgetPaintable::new(Some(&w.window));
         let snapshot = gtk::Snapshot::new();
         paintable.snapshot(&snapshot, width as f64, height as f64);

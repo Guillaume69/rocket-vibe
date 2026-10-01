@@ -1,0 +1,37 @@
+# Overlay for a fresh project: compose -p rocketvibe-security-pilot
+# -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml
+services:
+  security-policy:
+    image: postgres:18-alpine
+    environment:
+      PGPASSWORD: native-pilot-disposable-db-password
+    volumes: ['../scripts/native-security-pilot-policy.sql:/security-policy.sql:ro']
+    command: [psql, -h, postgres, -U, pilot, -d, pilot, -v, ON_ERROR_STOP=1, -f, /security-policy.sql]
+    depends_on:
+      session-policy: {condition: service_completed_successfully}
+  factor-seed:
+    environment:
+      RV_PILOT_SECURITY: '1'
+    depends_on:
+      security-policy: {condition: service_completed_successfully}
+  factor-proxy:
+    environment:
+      RV_PILOT_SECURITY: '1'
+  security-desktop:
+    image: rocket-vibe-rs-build
+    cap_add: [IPC_LOCK]
+    working_dir: /workspace/apps/desktop
+    volumes: ['..:/workspace', 'pilot-invitations:/pilot-invitations:ro']
+    environment:
+      HOME: /tmp/rv-native-security-home
+      LANG: fr_FR.UTF-8
+      LANGUAGE: fr
+      RV_NATIVE_SECURITY_FACTOR_FILE: /pilot-invitations/gtk-security-factors.json
+    command: [bash, scripts/native-security-smoke.sh]
+    depends_on: [factor-proxy]
+  security-check:
+    image: postgres:18-alpine
+    environment:
+      PGPASSWORD: native-pilot-disposable-db-password
+    volumes: ['../scripts/native-security-pilot-check.sql:/security-check.sql:ro']
+    command: [psql, -h, postgres, -U, pilot, -d, pilot, -v, ON_ERROR_STOP=1, -f, /security-check.sql]

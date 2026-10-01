@@ -41,6 +41,9 @@ pub fn open_native(
     if session.supported_features().iter().any(|f| f == "device_sessions") {
         page.add(&native_devices_group(&dialog, session.clone()));
     }
+    if session.security_supported() {
+        page.add(&crate::native_security::group(&dialog, session.clone()));
+    }
     if crate::background::SUPPORTED {
         page.add(&background_group(&dialog));
     }
@@ -91,6 +94,17 @@ fn native_devices_group(
         group.add(&status);
         page.add(&group);
         dialog.add(&page);
+        if session.security_supported() {
+            let reauth =
+                adw::ButtonRow::builder().title(t("security.verify")).css_classes(["native-devices-reauth"]).build();
+            group.add(&reauth);
+            let (parent, s) = (dialog.downgrade(), session.clone());
+            reauth.connect_activated(move |_| {
+                if let Some(parent) = parent.upgrade() {
+                    crate::native_security::open_dialog(&parent, s.clone());
+                }
+            });
+        }
         dialog.present(Some(&parent));
         let weak = dialog.downgrade();
         let session = session.clone();

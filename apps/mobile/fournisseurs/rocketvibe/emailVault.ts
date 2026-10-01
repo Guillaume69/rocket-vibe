@@ -58,6 +58,9 @@ function recordFor(scope:SecurityScope,value:Record):Record {
 function missing(error:unknown):boolean {
   return error instanceof NativeError && error.status===400 && error.code==='email_verification_rejected';
 }
+function invalidStart(error:unknown):boolean {
+  return error instanceof NativeError && error.status===400 && ['invalid_request','invalid_email_address'].includes(error.code);
+}
 
 export class EmailVault {
   private readonly deps:SecurityDependencies;
@@ -116,7 +119,7 @@ export class EmailVault {
       // The server's durable reservation forbids recreating a pruned challenge.
       if(record.expires_at!==null || status.version!==input.expected_version || status.verification_version!==input.verification_version)return {kind:'stale',status,receipt:input.operation_id};
       try {result=await remote.begin({...input,context:securityContext(scope)});securityAlive(guard);}
-      catch(error){securityAlive(guard);if(missing(error) || (error instanceof NativeError && error.status===409 && error.code==='operation_conflict'))return {kind:'stale',status,receipt:input.operation_id};throw error;}
+      catch(error){securityAlive(guard);if(missing(error) || invalidStart(error) || (error instanceof NativeError && error.status===409 && error.code==='operation_conflict'))return {kind:'stale',status,receipt:input.operation_id};throw error;}
     }
     return this.result(key,saved,result,remote,guard);
   }
@@ -136,8 +139,13 @@ export class EmailVault {
       const input:BeginEmailVerification={address:value,verification_id:candidate,operation_id:operation,
         expected_version:status.version,verification_version:status.verification_version,context:securityContext(scope)};
       const saved=await this.save(key,scope,null,{scope,input,expires_at:null,accepted:null},guard);
-      const result=await remote.begin({...input,context:securityContext(scope)});securityAlive(guard);
-      return this.result(key,saved,result,remote,guard);
+      try {
+        const result=await remote.begin({...input,context:securityContext(scope)});securityAlive(guard);
+        return this.result(key,saved,result,remote,guard);
+      } catch(error){
+        securityAlive(guard);if(!invalidStart(error))throw error;
+        return {kind:'stale',status:await this.live(scope,remote,guard),receipt:operation};
+      }
     });
   }
   async confirm(scope:SecurityScope,remote:EmailRemote,receipt:string,code:string,guard:SecurityGuard=()=>true):Promise<EmailView> {

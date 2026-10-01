@@ -12,6 +12,8 @@ public final class SecurityModel {
     public var password = ""
     public var code = ""
     public var setupCode = ""
+    public var emailAddress = ""
+    public var emailCode = ""
     public var method = "" { didSet { if method != oldValue { code = "" } } }
     @ObservationIgnored private weak var app: AppModel?
     @ObservationIgnored private let chat: NativeChat?
@@ -31,6 +33,7 @@ public final class SecurityModel {
         visible = false; generation = UUID()
         handle?.close(); handle = nil
         value = nil; password = ""; code = ""; setupCode = ""; method = ""
+        emailAddress = ""; emailCode = ""
         busy = false; error = nil
     }
     public func open() async {
@@ -58,6 +61,21 @@ public final class SecurityModel {
     public func acknowledge(revision: UInt64) async {
         await run { try await $0.acknowledge(viewRevision: revision) }
     }
+    public func startEmail(revision: UInt64) async {
+        let input = emailAddress.trimmingCharacters(in: .whitespacesAndNewlines); emailAddress = ""; emailCode = ""
+        await run { try await $0.startEmail(address: input, viewRevision: revision) }
+    }
+    public func confirmEmail(revision: UInt64) async {
+        let input = emailCode.trimmingCharacters(in: .whitespacesAndNewlines); emailCode = ""
+        await run { try await $0.confirmEmail(code: input, viewRevision: revision) }
+    }
+    public func cancelEmail(revision: UInt64) async {
+        emailCode = ""
+        await run { try await $0.cancelEmail(viewRevision: revision) }
+    }
+    public func acknowledgeEmail(revision: UInt64) async {
+        await run { try await $0.acknowledgeEmail(viewRevision: revision) }
+    }
     /// The callback runs synchronously on MainActor immediately after the view
     /// guard check. A disappearing view cannot populate a clipboard afterwards.
     public func copy(_ kind: NativeSecurityCopy, revision: UInt64, receive: @MainActor (String) -> Void) async {
@@ -77,7 +95,7 @@ public final class SecurityModel {
     private func install(_ fresh: NativeSecurityState) {
         value = fresh
         if !fresh.methods.contains(method) { method = fresh.methods.first ?? "" }
-        code = ""; setupCode = ""
+        code = ""; setupCode = ""; emailCode = ""
     }
     private func run(_ action: (NativeSecurity) async throws -> NativeSecurityState) async {
         let expected = generation
@@ -106,10 +124,14 @@ public final class SecurityModel {
         if case let RvError.Server(_, _, code, _, _, _) = caught {
             if code == "reauthentication_required" { key = "security.required" }
             else if code == "reauthentication_rejected" || code == "factor_rejected" { key = "security.rejected" }
+            else if code == "invalid_email_address" { key = "email.invalid" }
+            else if code == "email_verification_rejected" { key = "email.rejected" }
+            else if code == "email_queue_limit" || code == "email_delivery_limit" { key = "email.limited" }
         }
         if handle.isClosed() {
             handle.close(); self.handle = nil; value = nil
             password = ""; code = ""; setupCode = ""; method = ""
+            emailAddress = ""; emailCode = ""
         }
         else { install(handle.state()) }
         self.error = L(key)

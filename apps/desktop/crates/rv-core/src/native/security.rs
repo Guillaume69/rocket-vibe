@@ -1,5 +1,6 @@
 //! Private settings operations on the current native family. GTK and SwiftUI
 //! share intent keys, an OS lease spanning HTTP, and fallible trousseau storage.
+pub mod email;
 use super::{Error, NativeSession, authentication::method_name, authentication_vault::Storage};
 use rv_protocol::parity::*;
 pub use rv_protocol::parity::{FactorSetup as Setup, FactorStatus as Status};

@@ -66,6 +66,9 @@ struct SecuritySection: View {
                             }
                         }
                     }
+                    if value.supportsEmail, let email = value.email {
+                        emailSettings(model, value, email)
+                    }
                 } else if !model.busy { Text(L("security.loading")).foregroundStyle(.secondary) }
                 if let error = model.error { Text(error).foregroundStyle(.red) }
                 Button(L("security.refresh")) { Task { await model.refresh() } }
@@ -110,6 +113,48 @@ struct SecuritySection: View {
     }
     private func methodTitle(_ method: String) -> String {
         L(method == "recovery_code" ? "login.factor_backup" : "login.factor_totp")
+    }
+    @ViewBuilder
+    private func emailSettings(_ model: SecurityModel, _ value: NativeSecurityState, _ email: NativeEmailState) -> some View {
+        VStack(alignment: .leading) {
+            Text(L("email.title")).font(.headline)
+            Text(L("email.private")).font(.caption).foregroundStyle(.secondary)
+            if let address = email.address {
+                Text(L("email.current")).font(.caption).foregroundStyle(.secondary)
+                Text(address)
+            } else { Text(L("email.none")).foregroundStyle(.secondary) }
+        }
+        if email.phase == .idle {
+            TextField(L("email.address"), text: input(model, \.emailAddress))
+            Button(L("email.start")) { Task { await model.startEmail(revision: value.viewRevision) } }
+                .disabled(value.proof != .ready)
+        }
+        if email.phase == .pending {
+            Text(L("email.pending")).font(.caption).foregroundStyle(.secondary)
+            Text(email.pendingAddress ?? "")
+            if let delivery = email.delivery { Text(deliveryTitle(delivery)).font(.caption).foregroundStyle(.secondary) }
+            SecureField(L("email.code"), text: input(model, \.emailCode))
+            Button(L("email.confirm")) { Task { await model.confirmEmail(revision: value.viewRevision) } }
+                .disabled(value.proof != .ready)
+            Button(L("email.cancel")) { Task { await model.cancelEmail(revision: value.viewRevision) } }
+        }
+        if email.phase == .verified {
+            Text(L("email.verified"))
+            Button(L("email.done")) { Task { await model.acknowledgeEmail(revision: value.viewRevision) } }
+        }
+        if email.phase == .stale {
+            Text(L("email.stale")).foregroundStyle(.secondary)
+            Button(L("email.restart")) { Task { await model.cancelEmail(revision: value.viewRevision) } }
+        }
+    }
+    private func deliveryTitle(_ delivery: NativeEmailDelivery) -> String {
+        switch delivery {
+        case .queued: return L("email.queued")
+        case .sending: return L("email.sending")
+        case .deferred: return L("email.deferred")
+        case .accepted: return L("email.accepted")
+        case .exhausted: return L("email.exhausted")
+        }
     }
     private func title(_ action: NativeFactorAction?) -> String {
         L(action == .disable ? "security.disable" : "security.regenerate")

@@ -1,6 +1,26 @@
 # Overlay for a fresh project: compose -p rocketvibe-security-pilot
 # -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml
 services:
+  security-mail-config:
+    image: rocketvibe-native-check
+    working_dir: /src
+    volumes: ['..:/src:ro', 'pilot-invitations:/pilot-invitations']
+    command: [node, scripts/native-email-pilot-relay.mjs, configure]
+    depends_on:
+      bootstrap: {condition: service_completed_successfully}
+  server:
+    environment:
+      RV_SMTP_CONFIG_FILE: /pilot-invitations/smtp-pilot.json
+    volumes: ['../apps/server/tests/fixtures:/mail-fixtures:ro']
+    depends_on:
+      security-mail-config: {condition: service_completed_successfully}
+  security-mail-relay:
+    image: rocketvibe-native-check
+    network_mode: 'service:server'
+    working_dir: /src
+    volumes: ['..:/src:ro', 'pilot-invitations:/pilot-invitations']
+    command: [node, scripts/native-email-pilot-relay.mjs]
+    depends_on: [server]
   security-policy:
     image: postgres:18-alpine
     environment:
@@ -17,6 +37,9 @@ services:
   factor-proxy:
     environment:
       RV_PILOT_SECURITY: '1'
+      RV_PILOT_EMAIL: '1'
+    depends_on:
+      security-mail-relay: {condition: service_started}
   security-desktop:
     image: rocket-vibe-rs-build
     cap_add: [IPC_LOCK]
@@ -27,6 +50,7 @@ services:
       LANG: fr_FR.UTF-8
       LANGUAGE: fr
       RV_NATIVE_SECURITY_FACTOR_FILE: /pilot-invitations/gtk-security-factors.json
+      RV_NATIVE_SECURITY_EMAIL_FILE: /pilot-invitations/gtk-security-mail.json
     command: [bash, scripts/native-security-smoke.sh]
     depends_on: [factor-proxy]
   security-check:
@@ -44,6 +68,7 @@ services:
       RV_NATIVE_SECURITY_TEST_SERVER: http://factor-proxy:3401
       RV_NATIVE_SECURITY_TEST_PASSWORD: native-pilot-test-password
       RV_NATIVE_SECURITY_TEST_FACTOR_FILE: /pilot-invitations/swift-security-factors.json
+      RV_NATIVE_SECURITY_TEST_EMAIL_FILE: /pilot-invitations/swift-security-mail.json
     command: [bash, macos/scripts/native-security-smoke.sh]
     depends_on: [factor-proxy]
   security-swift-check:

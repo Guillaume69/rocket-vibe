@@ -7,6 +7,10 @@ import net from 'node:net';
 const discarded=new Set();
 const securityPaths=new Set(['/api/v1/me/reauth/start','/api/v1/me/reauth/finish',
   '/api/v1/me/factors/recovery/regenerate','/api/v1/me/factors/totp/disable']);
+if(process.env.RV_PILOT_EMAIL==='1'){
+  securityPaths.add('/api/v1/me/email/verification/start');
+  securityPaths.add('/api/v1/me/email/verification/confirm');
+}
 const server=http.createServer((request,response)=>{
   if(!request.url?.startsWith('/')){response.writeHead(400).end();return;}
   const upstream=http.request({hostname:'server',port:3400,path:request.url,method:request.method,headers:{...request.headers,host:'server:3400'}},answer=>{

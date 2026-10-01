@@ -28,6 +28,7 @@ function harness(){
     status:async()=>structuredClone(status),
     begin:async input=>{
       assertSaved(input);starts++;
+      if(input.address.includes('@@'))throw new NativeError(400,'invalid_request');
       if(beforeBegin){beforeBegin=false;throw new NativeError(0,'network_or_protocol_error');}
       const found=rows.get(input.verification_id);if(found)return structuredClone(found);
       if(claimed || input.verification_version!==status.verification_version || input.expected_version!==status.version)throw new NativeError(409,'operation_conflict');
@@ -146,4 +147,15 @@ test('device clock correction cannot invalidate a pending response accepted by t
   const h=harness();await h.vault().start(scope,h.remote,'first@example.org',await h.remote.status());
   t.mock.timers.tick(3_600_000);
   assert.equal((await h.vault().resume(scope,h.remote)).kind,'pending');assert.equal(h.starts,1);
+});
+
+test('a rejected address remains explicitly cancellable before starting a corrected address',async()=>{
+  const h=harness(),declined=await h.vault().start(scope,h.remote,'bad@@example.org',await h.remote.status());
+  assert.equal(declined.kind,'stale');if(declined.kind!=='stale')throw new Error();
+  assert.equal((await h.vault().resume(scope,h.remote)).kind,'stale');
+  assert.equal(h.values.size,1);assert.equal(h.rows.size,0);
+  assert.equal((await h.vault().cancel(scope,h.remote,declined.receipt)).kind,'idle');
+  assert.equal(h.values.size,0);
+  const corrected=await h.vault().start(scope,h.remote,'good@example.org',await h.remote.status());
+  assert.equal(corrected.kind,'pending');assert.equal(h.rows.size,1);
 });

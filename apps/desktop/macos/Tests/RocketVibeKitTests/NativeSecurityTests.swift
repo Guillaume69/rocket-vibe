@@ -87,10 +87,20 @@ final class NativeSecurityTests: XCTestCase {
                 copied = text == bag.codes.joined(separator: "\n")
             }
             XCTAssertTrue(copied, "Copy must read the original private receipt through the FFI")
+            XCTAssertEqual(model.value?.supportsEmail, true)
+            model.emailAddress = "swift-security@example.test"
+            await model.startEmail(revision: try XCTUnwrap(model.value?.viewRevision))
+            XCTAssertTrue(model.emailAddress.isEmpty)
+            XCTAssertNotNil(model.error, "The proxy discards the committed email-start response")
+            await recover(model) { $0.email?.phase == .pending }
+            XCTAssertEqual(model.value?.email?.pendingAddress, "swift-security@example.test")
+            XCTAssertNil(model.value?.email?.address)
             model.password = "transient-password"; model.code = "transient-code"; model.setupCode = "transient-setup"
+            model.emailAddress = "transient@example.test"; model.emailCode = "00000000"
             model.close()
             XCTAssertNil(model.value)
             XCTAssertTrue(model.password.isEmpty && model.code.isEmpty && model.setupCode.isEmpty && model.method.isEmpty)
+            XCTAssertTrue(model.emailAddress.isEmpty && model.emailCode.isEmpty)
             await model.acknowledge(revision: bag.viewRevision)
             XCTAssertNil(model.value, "A closed view cannot acknowledge the durable receipt")
             // app.end() closes the socket without logging out. The next process
@@ -106,7 +116,40 @@ final class NativeSecurityTests: XCTestCase {
             XCTAssertEqual(restored.factor, .codes)
             XCTAssertFalse(restored.codes.isEmpty)
             XCTAssertEqual(restored.proof, .ready)
+            XCTAssertEqual(restored.email?.phase, .pending, "The original email intent survives a real process/keyring restart")
+            let mailPath = try XCTUnwrap(env["RV_NATIVE_SECURITY_TEST_EMAIL_FILE"])
+            var delivered: [String: Any]?
+            for _ in 0..<100 {
+                if let data = try? Data(contentsOf: URL(fileURLWithPath: mailPath)) {
+                    delivered = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+                    if delivered != nil { break }
+                }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            let delivery = try XCTUnwrap(delivered)
+            XCTAssertEqual(delivery["address"] as? String, "swift-security@example.test")
+            let mailCode = try XCTUnwrap(delivery["code"] as? String)
             await model.refresh()
+            model.emailCode = mailCode
+            await model.confirmEmail(revision: restored.viewRevision)
+            XCTAssertNotNil(model.error, "An old displayed revision cannot confirm the email")
+            XCTAssertTrue(model.emailCode.isEmpty)
+            XCTAssertEqual(model.value?.email?.phase, .pending)
+            model.emailCode = mailCode
+            await model.confirmEmail(revision: try XCTUnwrap(model.value?.viewRevision))
+            XCTAssertNotNil(model.error, "The proxy discards the committed email-confirmation response")
+            XCTAssertTrue(model.emailCode.isEmpty)
+            await recover(model) { $0.email?.phase == .verified }
+            XCTAssertEqual(model.value?.email?.address, "swift-security@example.test")
+            await model.acknowledgeEmail(revision: try XCTUnwrap(model.value?.viewRevision))
+            XCTAssertEqual(model.value?.email?.phase, .idle)
+            model.emailAddress = "bad@@example.test"
+            await model.startEmail(revision: try XCTUnwrap(model.value?.viewRevision))
+            XCTAssertEqual(model.value?.email?.phase, .stale)
+            await model.cancelEmail(revision: try XCTUnwrap(model.value?.viewRevision))
+            XCTAssertNil(model.error)
+            XCTAssertEqual(model.value?.email?.phase, .idle)
+            XCTAssertEqual(model.value?.email?.address, "swift-security@example.test")
             await model.acknowledge(revision: restored.viewRevision)
             XCTAssertNotNil(model.error, "An old confirmation cannot acknowledge a refreshed view")
             XCTAssertEqual(model.value?.factor, .codes)

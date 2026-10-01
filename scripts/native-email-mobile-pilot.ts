@@ -55,6 +55,13 @@ async function main(){
     assert.equal(verified.kind,'verified');if(verified.kind!=='verified')throw new Error();
     assert.equal(verified.status.address,'owner@example.test');
     await vault().acknowledge(access.scope,access.email,verified.receipt,access.alive);assert.equal(values.size,0);
+    phase='invalid address recovery';
+    const current=await vault().resume(access.scope,access.email,access.alive);
+    const invalid=await vault().start(access.scope,access.email,'bad@@example.test',current.status,access.alive);
+    assert.equal(invalid.kind,'stale');if(invalid.kind!=='stale')throw new Error();
+    assert.equal((await vault().resume(access.scope,access.email,access.alive)).kind,'stale');
+    const cancelled=await vault().cancel(access.scope,access.email,invalid.receipt,access.alive);
+    assert.equal(cancelled.kind,'idle');assert.equal(cancelled.status.address,'owner@example.test');assert.equal(values.size,0);
     phase='closed provider';chat.stop();await assert.rejects(access.email.status(),/session_closed/);
     process.stdout.write('native email mobile pilot: verified\n');
   } finally {chat.stop();await store.state();db.close();}

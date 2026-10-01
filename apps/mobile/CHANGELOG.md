@@ -9,6 +9,8 @@ release, et ses notes sont la section de la version ici.
 
 ### Sécurité RocketVibe
 
+- Une adresse refusée peut être fermée explicitement avant une nouvelle saisie,
+  sans bloquer le formulaire ni effacer le contact déjà vérifié.
 - Adresse e-mail privée dans les paramètres existants : code de vérification,
   état de livraison et reprise depuis SecureStore après une coupure. Le code
   saisi reste transitoire et une ancienne vérification ne remplace pas la suivante.

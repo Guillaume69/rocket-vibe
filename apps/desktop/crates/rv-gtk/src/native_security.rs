@@ -5,11 +5,12 @@ use crate::{
     on_tokio, secrets,
 };
 use adw::prelude::*;
+use email::{EmailDeliveryState, EmailStatus};
 use gtk::glib;
 use rv_core::native::{
     NativeSession,
     authentication::{SecondFactor, method_name},
-    security::{Access, FactorAction, FactorState, Guard, ProofAttempt, ProofState, Remote, Scope, Setup},
+    security::{Access, FactorAction, FactorState, Guard, ProofAttempt, ProofState, Remote, Scope, Setup, email},
 };
 use std::{
     cell::{Cell, RefCell},
@@ -99,6 +100,34 @@ pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) 
         actions.add(row);
     }
     page.add(&actions);
+    let email_group = adw::PreferencesGroup::builder().title(t("email.title")).description(t("email.private")).build();
+    let email_current =
+        adw::ActionRow::builder().title(t("email.none")).css_classes(["native-security-email-current"]).build();
+    let email_address =
+        adw::EntryRow::builder().title(t("email.address")).css_classes(["native-security-email-address"]).build();
+    let email_start = button("email.start", "native-security-email-start");
+    let email_pending =
+        adw::ActionRow::builder().title(t("email.pending")).css_classes(["native-security-email-pending"]).build();
+    let email_code =
+        adw::PasswordEntryRow::builder().title(t("email.code")).css_classes(["native-security-email-code"]).build();
+    let email_confirm = button("email.confirm", "native-security-email-confirm");
+    let email_cancel = button("email.cancel", "native-security-email-cancel");
+    let email_verified = adw::ActionRow::builder().title(t("email.verified")).build();
+    let email_ack = button("email.done", "native-security-email-acknowledge");
+    let email_stale = adw::ActionRow::builder().title(t("email.stale")).build();
+    let email_retire = button("email.restart", "native-security-email-retire");
+    email_group.add(&email_current);
+    email_group.add(&email_address);
+    email_group.add(&email_start);
+    email_group.add(&email_pending);
+    email_group.add(&email_code);
+    email_group.add(&email_confirm);
+    email_group.add(&email_cancel);
+    email_group.add(&email_verified);
+    email_group.add(&email_ack);
+    email_group.add(&email_stale);
+    email_group.add(&email_retire);
+    page.add(&email_group);
     let refresh_group = adw::PreferencesGroup::new();
     let refresh = button("security.refresh", "native-security-refresh");
     refresh_group.add(&refresh);
@@ -126,6 +155,19 @@ pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) 
         setup,
         regenerate,
         disable,
+        email_group,
+        email_current,
+        email_address,
+        email_start,
+        email_pending,
+        email_code,
+        email_confirm,
+        email_cancel,
+        email_verified,
+        email_ack,
+        email_stale,
+        email_retire,
+        email: RefCell::new(None),
         proof: RefCell::new(ProofState::Password),
         factor: RefCell::new(FactorState::Idle),
         factor_status: RefCell::new(None),
@@ -267,6 +309,46 @@ pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) 
         });
     }
     let weak = Rc::downgrade(&state);
+    state.email_start.connect_activated(move |_| {
+        if let Some(state) = weak.upgrade() {
+            let expected = state
+                .email
+                .borrow()
+                .as_ref()
+                .and_then(|view| matches!(view.state, email::State::Idle).then(|| view.status.clone()));
+            let address = state.email_address.text().trim().to_owned();
+            state.email_address.set_text("");
+            if let Some(expected) = expected {
+                state.run(Work::EmailStart(address, expected));
+            }
+        }
+    });
+    let weak = Rc::downgrade(&state);
+    state.email_confirm.connect_activated(move |_| {
+        if let Some(state) = weak.upgrade() {
+            let receipt = state.email.borrow().as_ref().and_then(|view| {
+                if let email::State::Pending { receipt_id, .. } = &view.state { Some(receipt_id.clone()) } else { None }
+            });
+            let code = state.email_code.text().trim().to_owned();
+            state.email_code.set_text("");
+            if let Some(receipt) = receipt {
+                state.run(Work::EmailConfirm(receipt, code));
+            }
+        }
+    });
+    for (row, acknowledge) in [(&state.email_cancel, false), (&state.email_retire, false), (&state.email_ack, true)] {
+        let weak = Rc::downgrade(&state);
+        row.connect_activated(move |_| {
+            if let Some(state) = weak.upgrade() {
+                let receipt = state.email.borrow().as_ref().and_then(|view| view.state.receipt().map(str::to_owned));
+                state.email_code.set_text("");
+                if let Some(receipt) = receipt {
+                    state.run(if acknowledge { Work::EmailAck(receipt) } else { Work::EmailCancel(receipt) });
+                }
+            }
+        });
+    }
+    let weak = Rc::downgrade(&state);
     refresh.connect_activated(move |_| {
         if let Some(state) = weak.upgrade() {
             state.run(Work::Refresh);
@@ -305,6 +387,10 @@ enum Work {
     Enable(Setup, String),
     Clear(String),
     Copy(CopyKind),
+    EmailStart(String, EmailStatus),
+    EmailConfirm(String, String),
+    EmailCancel(String),
+    EmailAck(String),
 }
 struct Loaded {
     access: Access,
@@ -313,6 +399,7 @@ struct Loaded {
     status: rv_core::native::security::Status,
     recent: bool,
     clipboard: Option<String>,
+    email: Option<email::View>,
 }
 struct Controller {
     dialog: glib::WeakRef<adw::PreferencesDialog>,
@@ -336,6 +423,19 @@ struct Controller {
     setup: adw::ButtonRow,
     regenerate: adw::ButtonRow,
     disable: adw::ButtonRow,
+    email_group: adw::PreferencesGroup,
+    email_current: adw::ActionRow,
+    email_address: adw::EntryRow,
+    email_start: adw::ButtonRow,
+    email_pending: adw::ActionRow,
+    email_code: adw::PasswordEntryRow,
+    email_confirm: adw::ButtonRow,
+    email_cancel: adw::ButtonRow,
+    email_verified: adw::ActionRow,
+    email_ack: adw::ButtonRow,
+    email_stale: adw::ActionRow,
+    email_retire: adw::ButtonRow,
+    email: RefCell<Option<email::View>>,
     proof: RefCell<ProofState>,
     factor: RefCell<FactorState>,
     factor_status: RefCell<Option<rv_core::native::security::Status>>,
@@ -355,6 +455,11 @@ impl Controller {
         self.proof.replace(ProofState::Password);
         self.factor.replace(FactorState::Idle);
         self.factor_status.replace(None);
+        self.email_address.set_text("");
+        self.email_code.set_text("");
+        self.email_current.set_subtitle("");
+        self.email_pending.set_subtitle("");
+        self.email.replace(None);
     }
     fn render(&self) {
         let proof = self.proof.borrow();
@@ -411,6 +516,47 @@ impl Controller {
         } else {
             t(if matches!(*proof, ProofState::Ready) { "security.ready" } else { "security.required" }).into()
         });
+        let email = self.email.borrow();
+        let email_loaded = loaded && self.session.email_supported() && email.is_some();
+        self.email_group.set_visible(email_loaded);
+        let ready = matches!(*proof, ProofState::Ready);
+        let phase = email.as_ref().map(|view| &view.state);
+        self.email_address.set_visible(matches!(phase, Some(email::State::Idle)));
+        self.email_start.set_visible(matches!(phase, Some(email::State::Idle)));
+        self.email_start.set_sensitive(ready);
+        self.email_pending.set_visible(matches!(phase, Some(email::State::Pending { .. })));
+        self.email_code.set_visible(matches!(phase, Some(email::State::Pending { .. })));
+        self.email_confirm.set_visible(matches!(phase, Some(email::State::Pending { .. })));
+        self.email_confirm.set_sensitive(ready);
+        self.email_cancel.set_visible(matches!(phase, Some(email::State::Pending { .. })));
+        self.email_verified.set_visible(matches!(phase, Some(email::State::Verified { .. })));
+        self.email_ack.set_visible(matches!(phase, Some(email::State::Verified { .. })));
+        self.email_stale.set_visible(matches!(phase, Some(email::State::Stale { .. })));
+        self.email_retire.set_visible(matches!(phase, Some(email::State::Stale { .. })));
+        self.email_current.set_title(t(if email.as_ref().is_some_and(|view| view.status.address.is_some()) {
+            "email.current"
+        } else {
+            "email.none"
+        }));
+        self.email_current.set_subtitle(email.as_ref().and_then(|view| view.status.address.as_deref()).unwrap_or(""));
+        if let Some(email::State::Pending { address, delivery, .. }) = phase {
+            self.email_pending.set_title(t("email.pending"));
+            self.email_pending.set_subtitle(&format!(
+                "{address}\n{}",
+                t(match delivery {
+                    EmailDeliveryState::Queued => "email.queued",
+                    EmailDeliveryState::Sending => "email.sending",
+                    EmailDeliveryState::Deferred => "email.deferred",
+                    EmailDeliveryState::Accepted => "email.accepted",
+                    EmailDeliveryState::Exhausted => "email.exhausted",
+                })
+            ));
+        } else {
+            self.email_pending.set_subtitle("");
+        }
+        if !ready {
+            self.email_code.set_text("");
+        }
     }
     fn run(self: &Rc<Self>, work: Work) {
         if self.busy.get() || !self.guard.alive() {
@@ -443,6 +589,7 @@ impl Controller {
                         let mut proof = None;
                         let mut factor = None;
                         let mut clipboard = None;
+                        let mut email = None;
                         match work {
                             Work::Refresh => {
                                 proof = Some(vault.prepare(&scope, &access, "", &guard).await?);
@@ -488,11 +635,34 @@ impl Controller {
                                 };
                                 factor = Some(fresh);
                             }
+                            Work::EmailStart(address, expected) => {
+                                email = Some(vault.email_start(&scope, &access, &address, &expected, &guard).await?)
+                            }
+                            Work::EmailConfirm(receipt, code) => {
+                                email = Some(vault.email_confirm(&scope, &access, &receipt, &code, &guard).await?)
+                            }
+                            Work::EmailCancel(receipt) => {
+                                email = Some(vault.email_cancel(&scope, &access, &receipt, &guard).await?)
+                            }
+                            Work::EmailAck(receipt) => {
+                                email = Some(vault.email_acknowledge(&scope, &access, &receipt, &guard).await?)
+                            }
+                        }
+                        if email.is_none() && session.email_supported() {
+                            email = Some(vault.email_resume(&scope, &access, &guard).await?);
                         }
                         let status = access.factor_status().await?;
                         let recent = access.status().await?.recent;
                         access.check()?;
-                        Ok::<_, rv_core::native::Error>(Loaded { access, proof, factor, status, recent, clipboard })
+                        Ok::<_, rv_core::native::Error>(Loaded {
+                            access,
+                            proof,
+                            factor,
+                            status,
+                            recent,
+                            clipboard,
+                            email,
+                        })
                     }
                     .await;
                     let retry =
@@ -546,6 +716,8 @@ impl Controller {
                         state.factor.replace(factor);
                     }
                     state.factor_status.replace(Some(loaded.status));
+                    state.email_code.set_text("");
+                    state.email.replace(loaded.email);
                     if !loaded.recent && matches!(*state.proof.borrow(), ProofState::Ready) {
                         state.proof.replace(ProofState::Password);
                     }
@@ -586,15 +758,19 @@ impl Controller {
                     }
                     state.render();
                     if let Some(dialog) = state.dialog.upgrade() {
-                        dialog.add_toast(adw::Toast::new(t(
-                            if matches!(error.code(), "reauthentication_rejected" | "factor_rejected") {
-                                "security.rejected"
-                            } else if error.code() == "reauthentication_required" {
-                                "security.required"
-                            } else {
-                                "security.failed"
-                            },
-                        )));
+                        dialog.add_toast(adw::Toast::new(t(if error.code() == "invalid_email_address" {
+                            "email.invalid"
+                        } else if error.code() == "email_verification_rejected" {
+                            "email.rejected"
+                        } else if matches!(error.code(), "email_queue_limit" | "email_delivery_limit") {
+                            "email.limited"
+                        } else if matches!(error.code(), "reauthentication_rejected" | "factor_rejected") {
+                            "security.rejected"
+                        } else if error.code() == "reauthentication_required" {
+                            "security.required"
+                        } else {
+                            "security.failed"
+                        })));
                     }
                 }
             }

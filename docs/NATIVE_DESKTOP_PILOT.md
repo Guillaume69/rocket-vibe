@@ -153,3 +153,35 @@ ses compteurs propres avec :
 docker compose -f docker/compose.native-pilot.yml run --rm --no-deps \
   -e 'PGOPTIONS=-c rocketvibe.pilot_factor_user=swift-factor' factor-check
 ```
+
+## Paramètres de sécurité et adresse e-mail
+
+L'overlay `docker/compose.native-security-pilot.yml` vérifie les paramètres
+existants dans deux processus GTK ou Swift, avec le vrai Secret Service Linux.
+Il ajoute un relais SMTP TLS local dans l'espace réseau du serveur ; son
+certificat de localhost est une fixture synthétique explicitement publique.
+La configuration SMTP privée et les codes reçus restent dans le volume jetable
+d'invitations, sans port hôte ni adresse extérieure. Le proxy perd une réponse
+réussie par endpoint. L'adresse en attente survit au restart, sa confirmation
+se reprend sans nouveau code et une adresse refusée peut être fermée sans
+effacer le contact. La vérification SQL exige une famille, une preuve, un mail
+admis et confirmé, puis l'effacement de la charge de livraison chiffrée.
+
+Après construction des images et binaires ci-dessus, lancer un projet frais :
+
+```sh
+docker compose -p rocketvibe-email-gtk-pilot -f docker/compose.native-pilot.yml \
+  -f docker/compose.native-security-pilot.yml up -d factor-proxy
+docker compose -p rocketvibe-email-gtk-pilot -f docker/compose.native-pilot.yml \
+  -f docker/compose.native-security-pilot.yml run --rm --no-deps security-desktop
+docker compose -p rocketvibe-email-gtk-pilot -f docker/compose.native-pilot.yml \
+  -f docker/compose.native-security-pilot.yml run --rm --no-deps security-check
+docker compose -p rocketvibe-email-gtk-pilot -f docker/compose.native-pilot.yml \
+  -f docker/compose.native-security-pilot.yml down -v
+```
+
+Pour les modèles Swift, générer les bindings et tests avec
+`apps/desktop/macos/scripts/check-linux.sh`, puis utiliser un autre projet frais
+avec `security-swift` et `security-swift-check`. La CI lance ces deux parcours.
+Ces essais Linux ne ferment pas la qualification des trousseaux Windows /
+macOS, de SecureStore Android installé ou du rendu SwiftUI sur macOS.

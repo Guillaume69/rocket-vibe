@@ -11,10 +11,10 @@ PostgreSQL ; le worker reprend leur livraison après restart. Les SDK Rust et
 TypeScript exposent le parcours. La capacité additive `email_verification` est
 annoncée seulement avec transport SMTP et clé opérateur configurés.
 
-Le formulaire mobile rejoint la section Sécurité existante, avec coffre privé
-SecureStore et reprise de l'intention initiale. Les formulaires GTK / SwiftUI,
-le retrait d'une adresse, le second
-facteur e-mail et la récupération par e-mail restent à implémenter. La présence
+Les formulaires mobile, GTK et SwiftUI rejoignent leurs paramètres de sécurité
+existants, avec SecureStore ou trousseau système privé et reprise de l'intention
+initiale. Le retrait d'une adresse, le second facteur e-mail et la récupération
+par e-mail restent à implémenter. La présence
 de `SecondFactor::Email` dans les types et de `FactorStatus.email=false` ne
 signifie pas que ces deux dernières opérations soient disponibles.
 
@@ -27,6 +27,17 @@ Le retrait est conditionnel et reprend d'abord un reçu qui aurait gagné la
 course ; un ancien bouton ne peut effacer la tentative suivante. Le reçu
 accepté reste privé jusqu'à Terminer. L'horloge du serveur décide l'expiration,
 même si l'appareil corrige son horloge.
+
+GTK et Swift partagent `rv-core::native::security::email`. Le verrou OS reste
+commun aux preuves, facteurs et vérifications e-mail, y compris pendant le
+travail réel d'une écriture de trousseau dont l'appelant a été annulé. Le handle
+UniFFI conserve candidats, reçus, portée et versions : Swift reçoit seulement
+les valeurs d'affichage, et chaque action e-mail porte la révision affichée.
+Une adresse refusée conserve un reçu périmé explicitement annulable ; aucun
+client ne remplace ou efface silencieusement cette intention. Les bancs GTK et
+Swift utilisent deux processus et le vrai Secret Service Linux, avec perte des
+réponses start / confirm et relais SMTP TLS loopback. Les trousseaux Windows /
+macOS et SecureStore sur appareil installé restent à qualifier.
 
 ## Configuration du transport
 

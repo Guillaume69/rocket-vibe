@@ -4,7 +4,7 @@ use super::{check, find_by_class};
 use crate::{on_tokio, window::AppWindow};
 use adw::prelude::*;
 use gtk::glib;
-use rv_core::native::security::{FactorState, Guard, Remote};
+use rv_core::native::security::{FactorState, Guard, Remote, email};
 use std::{rc::Rc, time::Duration};
 
 pub(super) fn install(window: &Rc<AppWindow>) {
@@ -152,6 +152,92 @@ async fn run(window: Rc<AppWindow>, phase: String) {
             .is_some_and(|bounds| bounds.x() >= 0.0 && bounds.x() + bounds.width() <= dialog.width() as f32)
     });
     check("security code bag fits narrow existing preferences", fits, 0);
+    let email_code = find_by_class(root, "native-security-email-code").and_downcast::<adw::PasswordEntryRow>().unwrap();
+    let email_current = find_by_class(root, "native-security-email-current").and_downcast::<adw::ActionRow>().unwrap();
+    if phase == "proof-regenerate" {
+        check("email verification requires configured private capability", session.email_supported(), 0);
+        let address = find_by_class(root, "native-security-email-address").and_downcast::<adw::EntryRow>().unwrap();
+        address.set_text("gtk-security@example.test");
+        activate(root, "native-security-email-start");
+        check("email address clears before dispatch", address.text().is_empty(), 0);
+        if !idle(root).await {
+            return;
+        }
+        check("lost email start does not display an unconfirmed attempt", !email_code.is_visible(), 0);
+        activate(root, "native-security-refresh");
+        if !idle(root).await {
+            return;
+        }
+        check("email start resumes the original private candidate", email_code.is_visible(), 0);
+        email_code.set_text("00000000");
+    } else {
+        check("pending email survives actual process and keyring restart", email_code.is_visible(), 0);
+        let path = std::env::var("RV_NATIVE_SECURITY_EMAIL_FILE").unwrap();
+        let mut delivered = None;
+        for _ in 0..200 {
+            if let Ok(raw) = std::fs::read_to_string(&path) {
+                delivered = serde_json::from_str::<serde_json::Value>(&raw).ok();
+                if delivered.is_some() {
+                    break;
+                }
+            }
+            glib::timeout_future(Duration::from_millis(25)).await;
+        }
+        let delivered = delivered.expect("disposable TLS relay delivered mail into private volume");
+        check(
+            "TLS mail reaches only the intended disposable contact",
+            delivered["address"] == "gtk-security@example.test",
+            0,
+        );
+        email_code.set_text(delivered["code"].as_str().unwrap());
+        activate(root, "native-security-email-confirm");
+        check("email code clears before confirmation dispatch", email_code.text().is_empty(), 0);
+        if !idle(root).await {
+            return;
+        }
+        check("lost mail confirmation keeps the recoverable original view", email_code.is_visible(), 0);
+        activate(root, "native-security-refresh");
+        if !idle(root).await {
+            return;
+        }
+        check(
+            "accepted mail confirmation resumes without another code",
+            !email_code.is_visible() && email_current.subtitle().as_deref() == Some("gtk-security@example.test"),
+            0,
+        );
+        activate(root, "native-security-email-acknowledge");
+        if !idle(root).await {
+            return;
+        }
+        let s = session.clone();
+        let restored = on_tokio(async move {
+            let access = s.security(Guard::new()).await?;
+            crate::secrets::security_vault().email_resume(access.scope(), &access, &access.guard()).await
+        })
+        .await;
+        check(
+            "explicit mail acknowledgement removes only its private receipt",
+            matches!(restored, Ok(email::View { state: email::State::Idle, .. })),
+            0,
+        );
+        let address = find_by_class(root, "native-security-email-address").and_downcast::<adw::EntryRow>().unwrap();
+        address.set_text("bad@@example.test");
+        activate(root, "native-security-email-start");
+        if !idle(root).await {
+            return;
+        }
+        let retire = find_by_class(root, "native-security-email-retire").unwrap();
+        check("refused mail address remains explicitly cancellable", retire.is_visible(), 0);
+        activate(root, "native-security-email-retire");
+        if !idle(root).await {
+            return;
+        }
+        check(
+            "cancelling refused mail preserves the verified contact",
+            address.is_visible() && email_current.subtitle().as_deref() == Some("gtk-security@example.test"),
+            0,
+        );
+    }
     if phase == "restart-ack-disable" {
         activate(root, "native-security-acknowledge");
         if !idle(root).await {
@@ -204,6 +290,11 @@ async fn run(window: Rc<AppWindow>, phase: String) {
     dialog.close();
     glib::timeout_future(Duration::from_millis(500)).await;
     check("closing security removes private visible code bag", codes.text().is_empty(), 0);
+    check(
+        "closing security clears transient mail inputs and display",
+        email_code.text().is_empty() && email_current.subtitle().as_deref().is_none_or(str::is_empty),
+        0,
+    );
     if phase == "restart-ack-disable" {
         let _ = open(root).await;
     }

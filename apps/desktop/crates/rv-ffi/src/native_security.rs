@@ -1,10 +1,11 @@
 //! One opaque settings handle pins an existing family. No proof candidate,
 //! operation ID or credential crosses UniFFI. Private display data is transient.
 use crate::{accounts, model::RvError, on_tokio};
+use email::EmailDeliveryState;
 use rv_core::native::{
     Error, NativeSession,
     authentication::{SecondFactor, method_name},
-    security::{Access, FactorAction, FactorState, Guard, ProofState, Remote, Scope, Status},
+    security::{Access, FactorAction, FactorState, Guard, ProofState, Remote, Scope, Status, email},
 };
 use std::sync::{Arc, Mutex};
 
@@ -33,6 +34,60 @@ pub enum NativeSecurityCopy {
     Uri,
     Codes,
 }
+#[derive(Clone, Copy, uniffi::Enum)]
+pub enum NativeEmailPhase {
+    Idle,
+    Pending,
+    Verified,
+    Stale,
+}
+#[derive(Clone, Copy, uniffi::Enum)]
+pub enum NativeEmailDelivery {
+    Queued,
+    Sending,
+    Deferred,
+    Accepted,
+    Exhausted,
+}
+/// Only display values cross the ABI; original candidates, receipt IDs, scope
+/// and authority versions remain in the opaque handle and private trousseau.
+#[derive(Clone, uniffi::Record)]
+pub struct NativeEmailState {
+    pub phase: NativeEmailPhase,
+    pub address: Option<String>,
+    pub pending_address: Option<String>,
+    pub expires_at: Option<String>,
+    pub delivery: Option<NativeEmailDelivery>,
+}
+impl From<&email::View> for NativeEmailState {
+    fn from(view: &email::View) -> Self {
+        let mut value = Self {
+            phase: NativeEmailPhase::Idle,
+            address: view.status.address.clone(),
+            pending_address: None,
+            expires_at: None,
+            delivery: None,
+        };
+        value.phase = match &view.state {
+            email::State::Idle => NativeEmailPhase::Idle,
+            email::State::Verified { .. } => NativeEmailPhase::Verified,
+            email::State::Stale { .. } => NativeEmailPhase::Stale,
+            email::State::Pending { address, expires_at, delivery, .. } => {
+                value.pending_address = Some(address.clone());
+                value.expires_at = Some(expires_at.clone());
+                value.delivery = Some(match delivery {
+                    EmailDeliveryState::Queued => NativeEmailDelivery::Queued,
+                    EmailDeliveryState::Sending => NativeEmailDelivery::Sending,
+                    EmailDeliveryState::Deferred => NativeEmailDelivery::Deferred,
+                    EmailDeliveryState::Accepted => NativeEmailDelivery::Accepted,
+                    EmailDeliveryState::Exhausted => NativeEmailDelivery::Exhausted,
+                });
+                NativeEmailPhase::Pending
+            }
+        };
+        value
+    }
+}
 
 /// Deliberately has no Debug / serde implementation. The revision binds a UI
 /// confirmation to this exact private display, even across delayed callbacks.
@@ -49,16 +104,19 @@ pub struct NativeSecurityState {
     pub setup_secret: Option<String>,
     pub setup_uri: Option<String>,
     pub codes: Vec<String>,
+    pub supports_email: bool,
+    pub email: Option<NativeEmailState>,
 }
 struct State {
     revision: u64,
     proof: ProofState,
     factor: FactorState,
     status: Option<Status>,
+    email: Option<email::View>,
 }
 impl Default for State {
     fn default() -> Self {
-        Self { revision: 0, proof: ProofState::Password, factor: FactorState::Idle, status: None }
+        Self { revision: 0, proof: ProofState::Password, factor: FactorState::Idle, status: None, email: None }
     }
 }
 impl State {
@@ -66,8 +124,9 @@ impl State {
         self.proof = ProofState::Password;
         self.factor = FactorState::Idle;
         self.status = None;
+        self.email = None;
     }
-    fn snapshot(&self, supported: bool) -> NativeSecurityState {
+    fn snapshot(&self, supported: bool, supports_email: bool) -> NativeSecurityState {
         let (proof, methods) = match &self.proof {
             ProofState::Ready => (NativeProofPhase::Ready, vec![]),
             ProofState::Password => (NativeProofPhase::Password, vec![]),
@@ -99,6 +158,8 @@ impl State {
             setup_secret: secret,
             setup_uri: uri,
             codes,
+            supports_email,
+            email: if supports_email { self.email.as_ref().map(NativeEmailState::from) } else { None },
         }
     }
     fn revision(&self, expected: u64) -> Result<(), Error> {
@@ -134,6 +195,10 @@ enum Action {
     Factor(NativeFactorAction, u64),
     Enable(String, u64),
     Clear(u64),
+    EmailStart(String, u64),
+    EmailConfirm(String, u64),
+    EmailCancel(u64),
+    EmailAcknowledge(u64),
 }
 fn error(error: Error) -> RvError {
     rv_core::native::rest_error(error).into()
@@ -213,6 +278,7 @@ impl Inner {
         let (scope, guard) = (&self.scope, &self.guard);
         let mut proof = None;
         let mut factor = None;
+        let mut email = None;
         match action {
             Action::Refresh => {
                 proof = Some(vault.prepare(scope, &access, "", guard).await?);
@@ -268,6 +334,33 @@ impl Inner {
                 }
                 factor = Some(FactorState::Idle);
             }
+            Action::EmailStart(address, revision) => {
+                let expected = {
+                    let state = self.state.lock().unwrap();
+                    state.revision(revision)?;
+                    let view = state.email.as_ref().ok_or(Error::Protocol("credentials_changed"))?;
+                    if !matches!(view.state, email::State::Idle) {
+                        return Err(Error::Protocol("credentials_changed"));
+                    }
+                    view.status.clone()
+                };
+                email = Some(vault.email_start(scope, &access, &address, &expected, guard).await?);
+            }
+            Action::EmailConfirm(code, revision) => {
+                let receipt = self.email_receipt(revision, NativeEmailPhase::Pending)?;
+                email = Some(vault.email_confirm(scope, &access, &receipt, &code, guard).await?);
+            }
+            Action::EmailCancel(revision) => {
+                let receipt = self.email_receipt(revision, NativeEmailPhase::Stale)?;
+                email = Some(vault.email_cancel(scope, &access, &receipt, guard).await?);
+            }
+            Action::EmailAcknowledge(revision) => {
+                let receipt = self.email_receipt(revision, NativeEmailPhase::Verified)?;
+                email = Some(vault.email_acknowledge(scope, &access, &receipt, guard).await?);
+            }
+        }
+        if email.is_none() && self.session.email_supported() {
+            email = Some(vault.email_resume(scope, &access, guard).await?);
         }
         let status = access.factor_status().await?;
         let recent = access.status().await?.recent;
@@ -289,7 +382,23 @@ impl Inner {
             state.factor = FactorState::Stale { receipt_id: receipt_id.clone() };
         }
         state.status = Some(status);
-        Ok(state.snapshot(self.session.factors_supported()))
+        state.email = email;
+        Ok(state.snapshot(self.session.factors_supported(), self.session.email_supported()))
+    }
+    fn email_receipt(&self, revision: u64, phase: NativeEmailPhase) -> Result<String, Error> {
+        let state = self.state.lock().unwrap();
+        state.revision(revision)?;
+        let view = state.email.as_ref().ok_or(Error::Protocol("credentials_changed"))?;
+        let allowed = matches!(
+            (&view.state, phase),
+            (email::State::Pending { .. }, NativeEmailPhase::Pending | NativeEmailPhase::Stale)
+                | (email::State::Stale { .. }, NativeEmailPhase::Stale)
+                | (email::State::Verified { .. }, NativeEmailPhase::Verified)
+        );
+        if !allowed {
+            return Err(Error::Protocol("credentials_changed"));
+        }
+        view.state.receipt().map(str::to_owned).ok_or(Error::Protocol("credentials_changed"))
     }
 }
 #[uniffi::export]
@@ -306,7 +415,7 @@ impl NativeSecurity {
         if !self.inner.guard.alive() || self.inner.session.is_closed() {
             state.clear();
         }
-        state.snapshot(self.inner.session.factors_supported())
+        state.snapshot(self.inner.session.factors_supported(), self.inner.session.email_supported())
     }
     pub async fn refresh(&self) -> Result<NativeSecurityState, RvError> {
         self.perform(Action::Refresh).await
@@ -329,6 +438,18 @@ impl NativeSecurity {
     }
     pub async fn acknowledge(&self, view_revision: u64) -> Result<NativeSecurityState, RvError> {
         self.perform(Action::Clear(view_revision)).await
+    }
+    pub async fn start_email(&self, address: String, view_revision: u64) -> Result<NativeSecurityState, RvError> {
+        self.perform(Action::EmailStart(address, view_revision)).await
+    }
+    pub async fn confirm_email(&self, code: String, view_revision: u64) -> Result<NativeSecurityState, RvError> {
+        self.perform(Action::EmailConfirm(code, view_revision)).await
+    }
+    pub async fn cancel_email(&self, view_revision: u64) -> Result<NativeSecurityState, RvError> {
+        self.perform(Action::EmailCancel(view_revision)).await
+    }
+    pub async fn acknowledge_email(&self, view_revision: u64) -> Result<NativeSecurityState, RvError> {
+        self.perform(Action::EmailAcknowledge(view_revision)).await
     }
     pub async fn copy(&self, kind: NativeSecurityCopy, view_revision: u64) -> Result<String, RvError> {
         let inner = self.inner.clone();

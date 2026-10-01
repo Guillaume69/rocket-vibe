@@ -9,6 +9,12 @@ section here.
 
 ### Added
 
+- Private email verification in the existing GTK and SwiftUI security settings:
+  delivery status, original-attempt recovery after lost replies and process
+  restarts, explicit cancellation and receipt acknowledgement. GTK and Swift
+  share the system-keychain vault; input codes stay transient and stale view
+  confirmations cannot affect a newer attempt.
+
 - Native security in the existing SwiftUI settings, sharing the GTK private
   system-keychain vault. Opaque FFI handles keep proof and operation IDs private;
   confirmations bind to the displayed revision, and copied secrets are checked

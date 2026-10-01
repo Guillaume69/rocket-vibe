@@ -315,6 +315,25 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, adresse e-mail bureau : formulaires dans les paramètres GTK / SwiftUI
+  existants, traduction FR / EN et coffre Rust partagé avec preuves et facteurs.
+  Le candidat précède HTTP dans le trousseau ; aucun code saisi ni identifiant
+  privé de l'opération ne traverse l'ABI Swift. La révision affichée lie ses
+  actions à la bonne tentative. Neuf tests couvrent pertes d'ACK, refus / délai
+  / identité altérés, ancien reçu, write failure et deux coffres sous un verrou
+  OS, retenu jusqu'à la fin réelle de l'écriture après annulation de l'appelant.
+  Les bancs GTK (435 px) et Swift passent avec deux processus, vrai Secret
+  Service et SMTP TLS local : tentative en attente au restart, confirmation
+  perdue reprise sans autre code, reçu explicitement fermé, adresse refusée
+  annulée sans retirer le contact. PostgreSQL exige une famille, une preuve
+  d'identité, un mail admis / confirmé et la charge livrée effacée. Tous les
+  tests / Clippy du workspace bureau passent ; les modèles Swift compilent
+  avec bindings réellement générés. La validation SwiftUI macOS passe ensuite
+  par sa CI dédiée ; les trousseaux Windows / macOS installés restent ouverts.
+  La correction d'adresse refusée mobile passe aussi contre HTTP / PostgreSQL /
+  SMTP, avec 11 tests de coffre et 1 060 tests mobiles verts, typecheck et lint.
+  Le retrait du contact, les défis e-mail et la récupération restent dans P02.
+
 - P02, adresse e-mail mobile : la section Sécurité existante affiche le contact
   privé, propose un code et son état de livraison, puis reprend / annule une
   vérification ou confirme son reçu. Les saisies disparaissent à la sortie /

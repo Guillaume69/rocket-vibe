@@ -86,9 +86,13 @@ final class NativeSecurityTests: XCTestCase {
             await recover(model) { $0.factor == .codes && !$0.codes.isEmpty }
             var copied = false
             let bag = try XCTUnwrap(model.value)
+            // Exercise the real asynchronous reconnect fence, even when the
+            // factor-change socket event happened before this process got here.
+            app.reconnect()
             await model.copy(.codes, revision: bag.viewRevision) { text in
                 copied = text == bag.codes.joined(separator: "\n")
             }
+            XCTAssertNil(model.error)
             XCTAssertTrue(copied, "Copy must read the original private receipt through the FFI")
             XCTAssertEqual(model.value?.supportsEmail, true)
             await startEmailAfterReconnect(model, address: "swift-security@example.test")

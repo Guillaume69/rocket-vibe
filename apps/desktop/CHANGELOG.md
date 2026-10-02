@@ -7,6 +7,12 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- SwiftUI security can copy the original private backup-code receipt while the
+  native connection restarts after a factor change. Reading retries retain the
+  displayed revision and family; closed views and stale confirmations still fail.
+
 ### Added
 
 - Private email removal in the existing GTK and SwiftUI security settings,

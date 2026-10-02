@@ -315,6 +315,17 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, copie privée Swift pendant la reconnexion : la CI `36955805765` du
+  commit mobile `020b5b6` a relevé une course entre la régénération des secours
+  et leur copie. La lecture FFI reprend le même reçu après reconnexion, avec
+  la même famille, révision affichée et garde de vue ; aucune mutation nouvelle
+  n'est déclenchée. Le parcours connecté force cette reconnexion et conserve
+  les refus de copie obsolète ou après fermeture. Vérifications locales : 275
+  tests Rust bureau, Clippy, compilation GTK, bindings et six tests locaux
+  Swift passent ; trois processus Swift avec Secret Service réel et contrôle
+  PostgreSQL passent. Le banc jetable et son volume privé sont supprimés.
+  Le raccordement des défis OTP aux formulaires bureau reste le point suivant.
+
 - P02, défis OTP mobile : connexion et confirmation d'identité proposent e-mail
   dans les formulaires existants, avec reprise du candidat de livraison dans les
   coffres privés, garde de vue pour les renvois et conservation de l'échéance.

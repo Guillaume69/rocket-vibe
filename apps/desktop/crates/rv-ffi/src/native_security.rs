@@ -265,16 +265,7 @@ impl NativeSecurity {
                     }
                     return result;
                 }
-                for _ in 0..200 {
-                    inner.guard.check()?;
-                    if inner.session.is_closed() {
-                        return Err(Error::Protocol("session_closed"));
-                    }
-                    if inner.session.status().connection == rv_core::session::Connection::Online {
-                        break;
-                    }
-                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                }
+                inner.wait_connected().await?;
                 action = Some(Action::Refresh);
             }
             unreachable!()
@@ -284,6 +275,67 @@ impl NativeSecurity {
     }
 }
 impl Inner {
+    async fn wait_connected(&self) -> Result<(), Error> {
+        for _ in 0..200 {
+            self.guard.check()?;
+            if self.session.is_closed() {
+                return Err(Error::Protocol("session_closed"));
+            }
+            if self.session.status().connection == rv_core::session::Connection::Online {
+                return Ok(());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        Err(Error::Protocol("offline"))
+    }
+    // Reading the same private receipt may cross the asynchronous socket fence
+    // caused by a successful factor change. Retry only this read, keeping the
+    // displayed revision, family, receipt and view guard unchanged.
+    async fn copy(&self, kind: NativeSecurityCopy, revision: u64) -> Result<String, Error> {
+        self.guard.check()?;
+        let expected = {
+            let state = self.state.lock().unwrap();
+            state.revision(revision)?;
+            match (&state.factor, kind) {
+                (FactorState::Setup(setup), NativeSecurityCopy::Secret | NativeSecurityCopy::Uri) => {
+                    setup.setup_id.clone()
+                }
+                (FactorState::Codes { receipt_id, .. }, NativeSecurityCopy::Codes) => receipt_id.clone(),
+                _ => return Err(Error::Protocol("credentials_changed")),
+            }
+        };
+        for attempt in 0..3 {
+            self.guard.check()?;
+            self.state.lock().unwrap().revision(revision)?;
+            let result = self.copy_receipt(kind, &expected).await;
+            let retry = result.as_ref().is_err_and(|e| matches!(e.code(), "offline" | "session_closed"));
+            if !retry || !self.guard.alive() || self.session.is_closed() || attempt == 2 {
+                if result.as_ref().is_err_and(|e| matches!(e.code(), "server_identity_changed" | "session_rejected")) {
+                    self.guard.cancel();
+                    self.state.lock().unwrap().clear();
+                }
+                return result;
+            }
+            self.wait_connected().await?;
+        }
+        unreachable!()
+    }
+    async fn copy_receipt(&self, kind: NativeSecurityCopy, expected: &str) -> Result<String, Error> {
+        let access = self.access().await?;
+        let fresh = accounts::security_vault(&self.dirs).factor_resume(&self.scope, &access, &self.guard).await?;
+        let text = match (fresh, kind) {
+            (FactorState::Setup(setup), NativeSecurityCopy::Secret) if setup.setup_id == expected => setup.secret,
+            (FactorState::Setup(setup), NativeSecurityCopy::Uri) if setup.setup_id == expected => {
+                setup.provisioning_uri
+            }
+            (FactorState::Codes { receipt_id, codes }, NativeSecurityCopy::Codes) if receipt_id == expected => {
+                codes.codes.join("\n")
+            }
+            _ => return Err(Error::Protocol("credentials_changed")),
+        };
+        access.check()?;
+        Ok(text)
+    }
     async fn access(&self) -> Result<Access, Error> {
         self.guard.check()?;
         let access = self.session.security(self.guard.clone()).await?;
@@ -504,32 +556,7 @@ impl NativeSecurity {
         let inner = self.inner.clone();
         on_tokio(async move {
             let _operation = inner.operation.lock().await;
-            let access = inner.access().await?;
-            let expected = {
-                let state = inner.state.lock().unwrap();
-                state.revision(view_revision)?;
-                match (&state.factor, kind) {
-                    (FactorState::Setup(setup), NativeSecurityCopy::Secret | NativeSecurityCopy::Uri) => {
-                        setup.setup_id.clone()
-                    }
-                    (FactorState::Codes { receipt_id, .. }, NativeSecurityCopy::Codes) => receipt_id.clone(),
-                    _ => return Err(Error::Protocol("credentials_changed")),
-                }
-            };
-            let fresh =
-                accounts::security_vault(&inner.dirs).factor_resume(&inner.scope, &access, &inner.guard).await?;
-            let text = match (fresh, kind) {
-                (FactorState::Setup(setup), NativeSecurityCopy::Secret) if setup.setup_id == expected => setup.secret,
-                (FactorState::Setup(setup), NativeSecurityCopy::Uri) if setup.setup_id == expected => {
-                    setup.provisioning_uri
-                }
-                (FactorState::Codes { receipt_id, codes }, NativeSecurityCopy::Codes) if receipt_id == expected => {
-                    codes.codes.join("\n")
-                }
-                _ => return Err(Error::Protocol("credentials_changed")),
-            };
-            access.check()?;
-            Ok(text)
+            inner.copy(kind, view_revision).await
         })
         .await
         .map_err(error)

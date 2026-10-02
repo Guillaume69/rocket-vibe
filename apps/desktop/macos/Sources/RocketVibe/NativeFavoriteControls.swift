@@ -30,7 +30,7 @@ struct NativeFavoriteControls: View {
     }
     func perform(_ action:() throws -> Void) {
         do {try action();error=nil}
-        catch {error=L("rooms.conflict")}
+        catch {self.error=L("rooms.conflict")}
         state=try? model.favoriteState()
     }
 }

@@ -506,6 +506,26 @@ mod tests {
             }
         }
         assert!(payload.quotes[0].excerpt.is_none());
+        assert!(payload.quotes[0].source_membership_version.is_some());
+        // An unavailable source still exposes the reader's grant lifetime. Its
+        // removal must be revalidated before this stamped result is delivered.
+        let proof = ReadProof::capture(&f.app, &f.reader, Scope::All)
+            .await
+            .unwrap();
+        store::membership(&f.app, &f.owner, &f.room.id, &f.reader.id, true)
+            .await
+            .unwrap();
+        let error = proof
+            .json(
+                &f.app,
+                &f.hash,
+                &payload,
+                &crate::quotes::delivery_rooms(std::slice::from_ref(&payload)),
+                None,
+            )
+            .await
+            .expect_err("a removed source grant was delivered with an unavailable excerpt");
+        assert_eq!(error.code, "delivery_revalidate");
     }
 
     #[sqlx::test]

@@ -1391,6 +1391,17 @@
         },
         "reference": {
           "$ref": "#/$defs/QuoteReference"
+        },
+        "source_membership_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "view_position": {
+          "default": "0",
+          "description": "Consistent read watermark, including unavailable resolutions. Zero from\nan older prototype must never authorize or restore a cached excerpt.",
+          "type": "string"
         }
       },
       "required": [

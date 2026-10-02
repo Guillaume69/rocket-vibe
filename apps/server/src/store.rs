@@ -72,6 +72,8 @@ impl MessageRow {
                     .map(|reference| rv_protocol::MessageQuote {
                         reference,
                         excerpt: None,
+                        view_position: "0".into(),
+                        source_membership_version: None,
                     })
                     .collect()
             },

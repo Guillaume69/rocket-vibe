@@ -44,7 +44,7 @@ export type Message = { "author": User; "body"?: Document | null; "created_at": 
 export type MessageContent = { "files": (string)[]; "kind": "plain"; "markdown": string; "mentions": (string)[]; "quotes": (QuoteReference)[]; } | { "format": string; "key_version": string; "kind": "encrypted"; "payload": string; };
 export type MessagePage = { "has_more": boolean; "messages": (Message)[]; };
 export type MessagePermissions = { "delete": boolean; "edit": boolean; "edit_until"?: string | null; "message_id": string; "pin": boolean; "react": boolean; "revision": string; "star": boolean; };
-export type MessageQuote = { "excerpt"?: QuoteExcerpt | null; "reference": QuoteReference; };
+export type MessageQuote = { "excerpt"?: QuoteExcerpt | null; "reference": QuoteReference; "source_membership_version"?: string | null; "view_position"?: string; };
 export type MessageReaction = { "emoji": string; "users": (User)[]; };
 export type Node = { "kind": "text"; "text": string; } | { "children": (Node)[]; "kind": "paragraph"; } | { "children": (Node)[]; "kind": "bold"; } | { "children": (Node)[]; "kind": "italic"; } | { "children": (Node)[]; "kind": "strike"; } | { "kind": "inline_code"; "text": string; } | { "kind": "code_block"; "language": string; "text": string; } | { "children": (Node)[]; "kind": "heading"; "level": number; } | { "children": (Node)[]; "kind": "quote"; } | { "children": (Node)[]; "kind": "list"; "start"?: number | null; } | { "checked"?: boolean | null; "children": (Node)[]; "kind": "list_item"; } | { "children": (Node)[]; "href": string; "kind": "link"; } | { "kind": "mention"; "name": string; } | { "kind": "room_mention"; "name": string; } | { "kind": "emoji"; "shortcode": string; } | { "kind": "break"; } | { "kind": "rule"; };
 export type ParityContract = { "accept_invitation"?: AcceptInvitation | null; "account_permissions": AccountPermissions; "auth_challenge": AuthChallenge; "authentication_step"?: AuthenticationStep | null; "begin_email_verification"?: BeginEmailVerification | null; "begin_factor_setup"?: BeginFactorSetup | null; "begin_reauthentication"?: BeginReauthentication | null; "change_email_factor"?: ChangeEmailFactor | null; "change_room_role"?: ChangeRoomRole | null; "complete_upload": CompleteUpload; "confirm_email_verification"?: ConfirmEmailVerification | null; "delete_message": DeleteMessage; "device_session"?: DeviceSession | null; "disable_factor"?: DisableFactor | null; "edit_message": EditMessage; "email_factor_change"?: EmailFactorChange | null; "email_recovery_requested"?: EmailRecoveryRequested | null; "email_removal_receipt"?: EmailRemovalReceipt | null; "email_status"?: EmailStatus | null; "email_verification_step"?: EmailVerificationStep | null; "enable_factor"?: EnableFactor | null; "factor_backup_codes"?: FactorBackupCodes | null; "factor_email_delivery"?: FactorEmailDelivery | null; "factor_setup"?: FactorSetup | null; "factor_status"?: FactorStatus | null; "file": FileDescriptor; "finish_factor"?: FinishFactor | null; "finish_reauthentication"?: FinishReauthentication | null; "key_backup": EncryptedKeyBackup; "leave_room"?: LeaveRoom | null; "mark": SetMark; "mark_read": MarkRead; "message_permissions": MessagePermissions; "preferences": UserPreferences; "prepare_upload": PrepareUpload; "profile": UserProfile; "public_device_key": PublicDeviceKey; "reaction": SetReaction; "read_state": ReadState; "reauthentication_grant"?: ReauthenticationGrant | null; "reauthentication_status"?: ReauthenticationStatus | null; "reauthentication_step"?: ReauthenticationStep | null; "recover_account"?: RecoverAccount | null; "regenerate_factor_backups"?: RegenerateFactorBackups | null; "remove_verified_email"?: RemoveVerifiedEmail | null; "rename_device"?: RenameDevice | null; "renew_session"?: RenewSession | null; "request_email_recovery"?: RequestEmailRecovery | null; "request_factor_email"?: RequestFactorEmail | null; "resume_email_removal"?: ResumeEmailRemoval | null; "resume_email_verification"?: ResumeEmailVerification | null; "resume_reauthentication"?: ResumeReauthentication | null; "retire_email_removal"?: RetireEmailRemoval | null; "retire_email_verification"?: RetireEmailVerification | null; "retire_reauthentication"?: RetireReauthentication | null; "room_command_receipt"?: RoomCommandReceipt | null; "room_details"?: RoomDetails | null; "room_favorite"?: SetRoomFavorite | null; "room_key_envelope": RoomKeyEnvelope; "room_members"?: RoomMemberPage | null; "room_permissions": RoomPermissions; "update_room"?: UpdateRoom | null; "verify_factor": VerifyFactor; };
@@ -1493,6 +1493,17 @@ export const nativeSchema = {
         },
         "reference": {
           "$ref": "#/$defs/QuoteReference"
+        },
+        "source_membership_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "view_position": {
+          "default": "0",
+          "description": "Consistent read watermark, including unavailable resolutions. Zero from\nan older prototype must never authorize or restore a cached excerpt.",
+          "type": "string"
         }
       },
       "required": [

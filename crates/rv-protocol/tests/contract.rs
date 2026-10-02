@@ -34,6 +34,20 @@ fn quotes_accept_only_typed_references_and_preserve_exact_source_revisions() {
 }
 
 #[test]
+fn quote_resolution_stamps_are_exact_and_legacy_views_are_not_authority() {
+    let legacy = serde_json::json!({"reference":{"room_id":"origin","message_id":"source","revision":"1"},"excerpt":null});
+    let quote: rv_protocol::MessageQuote = serde_json::from_value(legacy.clone()).unwrap();
+    assert_eq!(quote.view_position, "0");
+    assert!(quote.source_membership_version.is_none());
+    let mut stamped = legacy;
+    stamped["view_position"] = "9007199254740993".into();
+    stamped["source_membership_version"] = "current-grant".into();
+    let quote: rv_protocol::MessageQuote = serde_json::from_value(stamped.clone()).unwrap();
+    assert_eq!(quote.view_position, "9007199254740993");
+    assert_eq!(serde_json::to_value(quote).unwrap(), stamped);
+}
+
+#[test]
 fn parity_fixture_keeps_permissions_personal_counts_and_opaque_crypto_separate() {
     let contract: Contract =
         serde_json::from_str(include_str!("../../../docs/protocol/v1.fixture.json")).unwrap();

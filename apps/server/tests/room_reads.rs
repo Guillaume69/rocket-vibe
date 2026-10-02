@@ -180,6 +180,21 @@ impl QuoteBench {
     }
 }
 
+fn assert_quote_view(message: &rv_protocol::Message, allowed: bool) {
+    let quote = &message.quotes[0];
+    let view = quote.view_position.parse::<i64>().unwrap();
+    assert!(view >= message.revision.parse::<i64>().unwrap());
+    assert_eq!(quote.source_membership_version.is_some(), allowed);
+    assert_eq!(quote.excerpt.is_some(), allowed);
+    if let Some(excerpt) = &quote.excerpt {
+        assert_eq!(
+            Some(&excerpt.membership_version),
+            quote.source_membership_version.as_ref()
+        );
+        assert!(view >= excerpt.revision.parse::<i64>().unwrap());
+    }
+}
+
 #[sqlx::test(migrations = "./migrations")]
 async fn quotes_resolve_per_reader_in_every_read_without_private_journal_excerpts(pool: PgPool) {
     let q = QuoteBench::start(pool).await;
@@ -195,7 +210,9 @@ async fn quotes_resolve_per_reader_in_every_read_without_private_journal_excerpt
         q.source.text
     );
     assert_eq!(reply.quotes[0].reference, q.reference());
+    assert_quote_view(&reply, true);
     let private = q.outsider.message(&reply.id).await.unwrap();
+    assert_quote_view(&private, false);
     assert_eq!(private.text, "Ma réponse");
     assert!(
         private.quotes[0].excerpt.is_none(),
@@ -209,7 +226,7 @@ async fn quotes_resolve_per_reader_in_every_read_without_private_journal_excerpt
             history.messages.iter().find(|m| m.id == reply.id).unwrap(),
             snapshot.messages.iter().find(|m| m.id == reply.id).unwrap(),
         ] {
-            assert_eq!(message.quotes[0].excerpt.is_some(), allowed);
+            assert_quote_view(message, allowed);
         }
         let cursor = if allowed {
             &initial_reader.cursor
@@ -225,7 +242,7 @@ async fn quotes_resolve_per_reader_in_every_read_without_private_journal_excerpt
                 _ => None,
             })
             .unwrap();
-        assert_eq!(message.quotes[0].excerpt.is_some(), allowed);
+        assert_quote_view(message, allowed);
     }
     q.owner
         .set_mark(
@@ -282,6 +299,8 @@ async fn quotes_resolve_per_reader_in_every_read_without_private_journal_excerpt
     for change in journal {
         if change["type"] == "message_upsert" {
             assert!(change["data"]["quotes"][0]["excerpt"].is_null());
+            assert_eq!(change["data"]["quotes"][0]["view_position"], "0");
+            assert!(change["data"]["quotes"][0]["source_membership_version"].is_null());
         }
     }
     let room = q
@@ -313,6 +332,15 @@ async fn quotes_follow_current_source_acl_edits_deletion_and_original_send_recei
         .clone();
     let source = edit(&q.owner, &q.source, "quote-source-edit", "Extrait actuel").await;
     let current = q.reader.message(&reply.id).await.unwrap();
+    assert_eq!(
+        current.revision, reply.revision,
+        "source resolution is independent of the reply revision"
+    );
+    assert!(
+        current.quotes[0].view_position.parse::<i64>().unwrap()
+            > reply.quotes[0].view_position.parse::<i64>().unwrap()
+    );
+    assert_quote_view(&current, true);
     assert_eq!(
         current.quotes[0].excerpt.as_ref().unwrap().text,
         "Extrait actuel"
@@ -357,10 +385,11 @@ async fn quotes_follow_current_source_acl_edits_deletion_and_original_send_recei
             .status(),
         StatusCode::NO_CONTENT
     );
+    let withdrawn = q.reader.message(&reply.id).await.unwrap();
+    assert_quote_view(&withdrawn, false);
     assert!(
-        q.reader.message(&reply.id).await.unwrap().quotes[0]
-            .excerpt
-            .is_none()
+        withdrawn.quotes[0].view_position.parse::<i64>().unwrap()
+            > current.quotes[0].view_position.parse::<i64>().unwrap()
     );
     // A reply can keep the reference when its author loses source access.
     let retained = q
@@ -399,6 +428,11 @@ async fn quotes_follow_current_source_acl_edits_deletion_and_original_send_recei
         StatusCode::NO_CONTENT
     );
     let rejoined = q.reader.message(&reply.id).await.unwrap();
+    assert_quote_view(&rejoined, true);
+    assert!(
+        rejoined.quotes[0].view_position.parse::<i64>().unwrap()
+            > withdrawn.quotes[0].view_position.parse::<i64>().unwrap()
+    );
     assert_ne!(
         rejoined.quotes[0]
             .excerpt
@@ -417,10 +451,15 @@ async fn quotes_follow_current_source_acl_edits_deletion_and_original_send_recei
         )
         .await
         .unwrap();
+    let unavailable = q.reader.message(&reply.id).await.unwrap();
+    assert!(unavailable.quotes[0].excerpt.is_none());
+    assert_eq!(
+        unavailable.quotes[0].source_membership_version,
+        rejoined.quotes[0].source_membership_version
+    );
     assert!(
-        q.reader.message(&reply.id).await.unwrap().quotes[0]
-            .excerpt
-            .is_none()
+        unavailable.quotes[0].view_position.parse::<i64>().unwrap()
+            > rejoined.quotes[0].view_position.parse::<i64>().unwrap()
     );
     assert_eq!(
         q.reader.send(&q.destination, &input).await.unwrap().id,
@@ -456,6 +495,42 @@ async fn quotes_follow_current_source_acl_edits_deletion_and_original_send_recei
             assert!(message.deleted && message.quotes.is_empty());
         }
     }
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn quotes_watermarks_and_unicode_excerpts_preserve_exact_current_read_state(pool: PgPool) {
+    let q = QuoteBench::start(pool).await;
+    let reply = q
+        .reader
+        .send(&q.destination, &q.input("quote-watermark", "Réponse"))
+        .await
+        .unwrap();
+    sqlx::query("UPDATE instance SET position=9007199254740993 WHERE singleton")
+        .execute(&q.b.app.pool)
+        .await
+        .unwrap();
+    let source = edit(
+        &q.owner,
+        &q.source,
+        "quote-unicode-edit",
+        &"🚀".repeat(1025),
+    )
+    .await;
+    let resolved = q.reader.message(&reply.id).await.unwrap();
+    assert_quote_view(&resolved, true);
+    assert_eq!(resolved.revision, reply.revision);
+    assert_eq!(resolved.quotes[0].view_position, source.revision);
+    assert!(resolved.quotes[0].view_position.parse::<i64>().unwrap() > 9007199254740993);
+    assert_eq!(
+        resolved.quotes[0].excerpt.as_ref().unwrap().text,
+        "🚀".repeat(1024)
+    );
+    let hidden = q.outsider.message(&reply.id).await.unwrap();
+    assert_quote_view(&hidden, false);
+    assert_eq!(
+        hidden.quotes[0].view_position,
+        resolved.quotes[0].view_position
+    );
 }
 
 #[sqlx::test(migrations = "./migrations")]

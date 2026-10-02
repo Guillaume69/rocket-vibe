@@ -332,6 +332,16 @@ pub struct SendMessage {
 pub struct MessageQuote {
     pub reference: parity::QuoteReference,
     pub excerpt: Option<Box<QuoteExcerpt>>,
+    /// Consistent read watermark, including unavailable resolutions. Zero from
+    /// an older prototype must never authorize or restore a cached excerpt.
+    #[serde(default = "zero_position")]
+    pub view_position: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_membership_version: Option<String>,
+}
+
+fn zero_position() -> String {
+    "0".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]

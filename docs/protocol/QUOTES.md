@@ -28,7 +28,8 @@ référence existante devenue inaccessible, sans conserver son extrait privé.
 
 ## Lectures et autorisation
 
-`Message.quotes` contient des `MessageQuote` : `reference` et `excerpt`. L'extrait
+`Message.quotes` contient des `MessageQuote` : `reference`, `excerpt`,
+`view_position` et `source_membership_version`. L'extrait
 est absent (`null`) si la source est supprimée ou inaccessible au lecteur.
 L'administration de l'instance ne contourne pas l'adhésion au salon source.
 Une référence inaccessible ne contient ni texte ni identité de l'auteur source.
@@ -39,6 +40,13 @@ le salon source. La référence conserve la révision observée lors de la séle
 L'extrait suit le contenu actuel ; une ancienne copie du texte n'est pas conservée
 dans le message de réponse. Les références ne déclenchent aucune mention.
 
+Chaque résolution porte une `view_position`, chaîne décimale exacte du journal
+d'instance, même quand l'extrait est absent. La source, l'adhésion et cette position
+sont lus dans une seule vue SQL. `source_membership_version` est présent si le
+lecteur appartient au salon source, y compris après suppression du message cité ;
+il est absent sans adhésion. Quand l'extrait existe, ses deux durées d'adhésion
+doivent correspondre. Ces champs n'entrent pas dans l'événement partagé.
+
 La table PostgreSQL des messages et le journal partagé ne reçoivent pas de copie
 d'extrait serveur : les
 événements SQL gardent les références. Historique, message, épingles / étoiles,
@@ -47,7 +55,7 @@ Les snapshots matérialisés personnalisés incluent ces extraits dans leurs bud
 et sont invalidés au changement de contenu ou d'accès à la source.
 
 La preuve de remise couvre le salon de destination et chaque salon source dont
-un extrait est inclus. Elle revérifie identité d'instance, compte / session,
+un extrait ou une durée d'adhésion est inclus. Elle revérifie identité d'instance, compte / session,
 adhésion et version d'autorité, puis garde les verrous jusqu'à la soumission du
 corps HTTP ou au flush WebSocket. Retrait / réadhésion ou modification de la
 source pendant la construction de la réponse empêchent la remise des anciens
@@ -58,6 +66,12 @@ octets ; la vérification porte sur la source même si la destination reste lisi
 Les adaptateurs doivent traduire les références vers les cartes de citation
 existantes. Le cache des extraits doit rester distinct de la révision publique
 de la réponse, suivre les révisions de la source et être lié à son adhésion.
+Les positions de résolution ordonnent aussi les résultats sans extrait : une
+ancienne réponse ne doit jamais restaurer le texte après une suppression ou un
+retrait. À position égale, un résultat indisponible prévaut sur un extrait.
+La position par défaut `0` d'un ancien prototype ne fournit aucune autorité
+pour restaurer ou effacer le cache. Une réponse antérieure à une réadhésion ne
+peut effacer l'extrait de la nouvelle adhésion.
 Un retrait purge les extraits de cette origine jusque dans les autres salons ;
 une réponse tardive de l'ancienne adhésion ne les restaure pas. Une édition ou
 suppression reçue de la source actualise les citations déjà affichées ailleurs.

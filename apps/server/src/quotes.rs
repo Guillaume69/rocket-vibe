@@ -8,8 +8,36 @@ use sqlx::{Postgres, Transaction};
 use crate::{
     auth::identifier,
     error::{Error, Result},
-    store::{MESSAGE_SELECT, MessageRow},
 };
+
+#[derive(sqlx::FromRow)]
+struct Resolution {
+    message_id: String,
+    room_id: String,
+    view_position: i64,
+    membership_version: Option<String>,
+    source_author: Option<String>,
+    source_username: Option<String>,
+    source_display_name: Option<String>,
+    source_text: Option<String>,
+    source_created_at: Option<chrono::DateTime<chrono::Utc>>,
+    source_revision: Option<i64>,
+}
+impl Resolution {
+    fn excerpt(&self) -> Option<QuoteExcerpt> {
+        Some(QuoteExcerpt {
+            author: rv_protocol::User {
+                id: self.source_author.clone()?,
+                username: self.source_username.clone()?,
+                display_name: self.source_display_name.clone()?,
+            },
+            text: self.source_text.clone()?,
+            created_at: self.source_created_at?.to_rfc3339(),
+            revision: self.source_revision?.to_string(),
+            membership_version: self.membership_version.clone()?,
+        })
+    }
+}
 
 pub(crate) fn valid_references(references: &[QuoteReference], own: &str) -> bool {
     let mut ids = BTreeSet::new();
@@ -83,59 +111,54 @@ pub(crate) async fn personalize(
     for message in messages.iter_mut() {
         for quote in &mut message.quotes {
             quote.excerpt = None;
+            quote.view_position = "0".into();
+            quote.source_membership_version = None;
         }
         if message.deleted {
             message.quotes.clear();
         }
     }
-    let ids: Vec<_> = messages
+    let references: Vec<_> = messages
         .iter()
-        .flat_map(|m| m.quotes.iter().map(|q| q.reference.message_id.as_str()))
+        .flat_map(|m| {
+            m.quotes
+                .iter()
+                .map(|q| (&q.reference.message_id, &q.reference.room_id))
+        })
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
-    if ids.is_empty() {
+    if references.is_empty() {
         return Ok(());
     }
-    let query = format!(
-        "{MESSAGE_SELECT} WHERE m.id=ANY($1) AND NOT m.deleted AND EXISTS(SELECT 1 FROM members g WHERE g.room_id=m.room_id AND g.user_id=$2)"
-    );
-    let sources = sqlx::query_as::<_, MessageRow>(&query)
-        .bind(&ids)
-        .bind(user)
-        .fetch_all(&mut *conn)
-        .await?;
-    let memberships: Vec<(String, String)> = sqlx::query_as(
-        "SELECT room_id,membership_version FROM room_read_states WHERE user_id=$1 AND room_id IN (SELECT room_id FROM messages WHERE id=ANY($2))",
-    )
-    .bind(user)
-    .bind(&ids)
-    .fetch_all(&mut *conn)
-    .await?;
+    let ids: Vec<_> = references.iter().map(|r| r.0.as_str()).collect();
+    let rooms: Vec<_> = references.iter().map(|r| r.1.as_str()).collect();
+    // One statement gives the watermark, grant and source the same MVCC view,
+    // even for the send response's READ COMMITTED pooled connection. In
+    // particular, a pre-join unavailable result cannot receive a post-join stamp.
+    let resolutions = sqlx::query_as::<_, Resolution>(
+        "SELECT q.message_id,q.room_id,i.position AS view_position,s.membership_version,\
+         m.author_id AS source_author,u.username AS source_username,u.display_name AS source_display_name,\
+         left(m.text,1024) AS source_text,m.created_at AS source_created_at,m.revision AS source_revision \
+         FROM unnest($1::text[],$2::text[]) q(message_id,room_id) CROSS JOIN instance i \
+         LEFT JOIN room_read_states s ON s.room_id=q.room_id AND s.user_id=$3 \
+         LEFT JOIN messages m ON m.id=q.message_id AND m.room_id=q.room_id AND NOT m.deleted AND s.membership_version IS NOT NULL \
+         LEFT JOIN users u ON u.id=m.author_id WHERE i.singleton",
+    ).bind(ids).bind(rooms).bind(user).fetch_all(&mut *conn).await?;
     for quote in messages.iter_mut().flat_map(|m| &mut m.quotes) {
-        if let Some(source) = sources
-            .iter()
-            .find(|s| s.id == quote.reference.message_id && s.room_id == quote.reference.room_id)
-            && let Some((_, membership)) = memberships.iter().find(|m| m.0 == source.room_id)
-        {
-            quote.excerpt = Some(Box::new(QuoteExcerpt {
-                author: rv_protocol::User {
-                    id: source.author_id.clone(),
-                    username: source.username.clone(),
-                    display_name: source.display_name.clone(),
-                },
-                text: source.text.chars().take(1024).collect(),
-                created_at: source.created_at.to_rfc3339(),
-                revision: source.revision.to_string(),
-                membership_version: membership.clone(),
-            }));
+        if let Some(resolution) = resolutions.iter().find(|s| {
+            s.message_id == quote.reference.message_id && s.room_id == quote.reference.room_id
+        }) {
+            quote.excerpt = resolution.excerpt().map(Box::new);
+            quote.view_position = resolution.view_position.to_string();
+            quote.source_membership_version = resolution.membership_version.clone();
         }
     }
     Ok(())
 }
 
-/// Delivery must lease both the destination and every source whose bytes are
-/// included. Unavailable references carry no source-room content to lease.
+/// Delivery leases the destination and every included source membership, even
+/// when its source is deleted. A grant's absence includes no source authority.
 pub(crate) fn delivery_rooms(messages: &[Message]) -> Vec<String> {
     messages
         .iter()
@@ -144,7 +167,7 @@ pub(crate) fn delivery_rooms(messages: &[Message]) -> Vec<String> {
                 message
                     .quotes
                     .iter()
-                    .filter(|q| q.excerpt.is_some())
+                    .filter(|q| q.excerpt.is_some() || q.source_membership_version.is_some())
                     .map(|q| q.reference.room_id.clone()),
             )
         })

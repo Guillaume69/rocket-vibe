@@ -315,6 +315,20 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P07, positions de résolution des citations : extrait, adhésion source et
+  position d'instance sont lus dans une seule vue SQL. Les résultats sans extrait
+  portent aussi cette position ; un message source supprimé conserve la durée
+  d'adhésion du lecteur, protégée par la preuve de remise. Cela fournit aux caches
+  existants l'ordre nécessaire pour rejeter les extraits tardifs après suppression
+  ou retrait, indépendamment de la révision de la réponse. Les valeurs restent
+  exactes au-delà de la précision JavaScript et le texte est borné en caractères
+  Unicode. Aucun écran ni composant de message n'est remplacé.
+  Vérifications ciblées : cinq tests PostgreSQL de citations, deux protections
+  de remise et huit tests du contrat Rust réussis ; Clippy du workspace serveur,
+  génération des types, typecheck mobile et un test du contrat mobile passent.
+  Raccordement et purge dans les caches clients restent le point suivant ;
+  la capacité `quotes` demeure désactivée.
+
 - P07, références de citations côté serveur : commandes bornées et reçus
   incluant les références, résolution des extraits selon l'adhésion du lecteur,
   révision actuelle et durée d'adhésion de la source, effacement au tombstone.
@@ -333,8 +347,8 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   Le contrôle CI du lot de documents `d278c3e` a exposé l'ancienne hypothèse de
   taille du scénario de snapshot ; le jeu de données inclut maintenant le coût
   du document dans le JSON, avec les mêmes budgets et refus d'un résultat partiel.
-  Ses jobs desktop Fedora, cœur Windows, modèles Swift et SwiftUI macOS sont
-  verts ; le job serveur / mobile doit être requalifié avec cette correction.
+  La CI du commit `8563f22`, correction comprise, est verte : workflow serveur /
+  mobile / desktop / modèles Swift `37044250870` et SwiftUI macOS `37044732568`.
 
 - P07, documents natifs vers les renderers existants : `Message.text` reste la
   source et `body` fournit un document typé `native1`, sans arbre `md` Rocket.Chat

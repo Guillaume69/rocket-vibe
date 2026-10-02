@@ -83,7 +83,7 @@ impl NativeStore {
         let membership = state.membership_version.ok_or(rusqlite::Error::InvalidQuery)?;
         let position: Option<String> = tx
             .query_row(
-                "SELECT position FROM native_messages WHERE id=?1 AND rid=?2 AND NOT deleted AND position IS NOT NULL",
+                "SELECT position FROM native_messages WHERE id=?1 AND rid=?2 AND reply_to IS NULL AND NOT deleted AND position IS NOT NULL",
                 params![observed, rid],
                 |r| r.get(0),
             )

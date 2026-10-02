@@ -124,6 +124,8 @@ describe('migrations', () => {
       'native_room_operations',
       'native_star_states',
       'native_sync_state',
+      'native_thread_read_intents',
+      'native_thread_states',
       'salons',
       'sortie',
       'televersements',

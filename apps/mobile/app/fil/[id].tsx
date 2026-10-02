@@ -1,10 +1,10 @@
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, or, sql } from 'drizzle-orm';
 import { useRequeteVive } from '../../ui/requeteVive.ts';
 import * as Haptics from 'expo-haptics';
-import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Redirect, Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, StyleSheet, Text, View } from 'react-native';
 
 import type { BaseLocale } from '../../db/client.ts';
 import type { DepotBrouillons } from '../../db/depot.ts';
@@ -15,6 +15,8 @@ import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSynchro } from '../../lib/sync.ts';
 import { useActivite } from '../../ui/activite.ts';
 import { useBrouillon } from '../../ui/brouillons.ts';
+import {BorneAdhesionSalon} from '../../ui/adhesionSalon.tsx';
+import {LectureObservee} from '../../ui/lectureObservee.ts';
 import { filChargeSous, marquerFilCharge } from '../../ui/filsCharges.ts';
 import { idsHeuresRepetees, idsSuites } from '../../ui/groupeMessages.ts';
 import { insererSeparateursJour, type LigneJour } from '../../ui/separateurJour.ts';
@@ -63,7 +65,7 @@ export default function EcranFil() {
   }
 
   return (
-    <Fil
+    <FilCadre
       c={c}
       filId={id}
       base={synchro.base}
@@ -81,6 +83,13 @@ export default function EcranFil() {
   );
 }
 
+function FilCadre(props:Omit<Parameters<typeof Fil>[0],'membership'>){
+  const {data}=useRequeteVive(props.base.select({rid:messages.rid}).from(messages).where(or(eq(messages.id,props.filId),eq(messages.filId,props.filId))).limit(1),[props.filId]);
+  const rid=data?.[0]?.rid;
+  if(!props.fournisseur.native)return <Fil {...props}/>;
+  return rid?<BorneAdhesionSalon base={props.base} rid={rid}>{membership=><Fil {...props} membership={membership}/>}</BorneAdhesionSalon>:<Fil {...props} membership={null}/>;
+}
+
 function Fil({
   c,
   filId,
@@ -95,6 +104,7 @@ function Fil({
   moi,
   activite,
   generation,
+  membership,
 }: {
   c: Couleurs;
   filId: string;
@@ -110,6 +120,7 @@ function Fil({
   moi: string;
   activite: MoteurActivite;
   generation: number;
+  membership?:string|null;
 }) {
   const t = useT();
   const enSynchro = useActivite(filId);
@@ -129,7 +140,11 @@ function Fil({
       // milliseconde près est départagé de façon déterministe, pas par l'ordre
       // d'insertion. Ordre ASC ici pour rester cohérent avec le tri DESC du
       // salon — deux messages liés gardent la même relation dans les deux vues.
-      .orderBy(asc(messages.horodatage), asc(messages.id)),
+      .orderBy(...(fournisseur.ordreMessages==='sequence'?[
+        asc(sql`(SELECT position FROM native_positions WHERE id=${messages.id}) IS NULL`),
+        asc(sql`length((SELECT position FROM native_positions WHERE id=${messages.id}))`),
+        asc(sql`(SELECT position FROM native_positions WHERE id=${messages.id})`),
+      ]:[]),asc(messages.horodatage), asc(messages.id)),
     [filId],
   );
 
@@ -320,7 +335,22 @@ function Fil({
 
   // Brouillon du fil (8.7), clé `rid:tmid` : isolé du brouillon du salon.
   // `null` tant que le rid n'est pas connu — le composer attend.
-  const persistance = useBrouillon(brouillons, rid === undefined ? null : `${rid}:${filId}`);
+  const native=fournisseur.native;
+  const depot=useMemo(()=>native?native.store.drafts({room:rid??'',membership:membership??null}):brouillons,[native,brouillons,rid,membership]);
+  const persistance = useBrouillon(depot, rid === undefined ? null : `${rid}:${filId}`);
+  const envoiLie=useMemo<Outbox>(()=>native?{...envoi,envoyer:(room,text,root,_jointes,quotes)=>native.chat.send(room,text,{membership:membership??null},quotes,root)}:envoi,[native,envoi,membership]);
+  const lecture=useMemo(()=>new LectureObservee(async id=>{if(native && membership)await native.chat.markObservedThreadRead(filId,id,membership);}),[native,membership,filId]);
+  useEffect(()=>()=>lecture.fermer(),[lecture]);
+  useFocusEffect(useCallback(()=>{
+    const active=()=>lecture.activer(!!native && membership!=null && AppState.currentState==='active');
+    active();const listener=AppState.addEventListener('change',active);
+    return()=>{listener.remove();lecture.activer(false);};
+  },[lecture,native,membership]));
+  const onVisible=useCallback(({viewableItems}:{viewableItems:{item:LigneDeMessage|LigneJour;index:number|null}[]})=>{
+    const latest=viewableItems.filter(token=>!('jour' in token.item) && token.item.filId===filId && !sortieParId.has(token.item.id)).sort((a,b)=>(b.index??-1)-(a.index??-1))[0];
+    if(latest && !('jour' in latest.item))lecture.observer(latest.item.id);
+  },[lecture,filId,sortieParId]);
+  const viewability=useMemo(()=>({itemVisiblePercentThreshold:50}),[]);
 
   // Candidats à la mention (@) : ceux du SALON, pas seulement du fil — on
   // mentionne souvent dans un fil quelqu'un qui a parlé dans le flux principal.
@@ -354,6 +384,8 @@ function Fil({
             'jour' in item ? 'jour' : suites.has(item.id) ? 'suite' : 'message'
           }
           renderItem={rendreLigne}
+          onViewableItemsChanged={native?onVisible:undefined}
+          viewabilityConfig={native?viewability:undefined}
           contentContainerStyle={styles.contenu}
           // Un fil se LIT depuis sa racine : ouverture en haut — l'idiome
           // INVERSÉ du salon (8.10) n'aurait pas de sens ici. On garde donc
@@ -369,15 +401,15 @@ function Fil({
           est null : pas de pièces jointes ni de vocal dans un fil. */}
       {rid !== undefined && salon !== undefined && persistance.initial !== null && (
         <Composer
-          key={`${rid}:${filId}`}
+          key={JSON.stringify([rid,filId,membership])}
           c={c}
           rid={rid}
           filId={filId}
-          envoi={envoi}
+          envoi={envoiLie}
           fichiers={null}
           client={client}
           candidatsMention={candidatsMention}
-          lectureSeule={salon.lectureSeule}
+          lectureSeule={salon.lectureSeule || !!native && (membership==null || !racine)}
           chiffre={salon.chiffre}
           placeholder={t('fil.repondre')}
           apresEnvoi={apresEnvoi}

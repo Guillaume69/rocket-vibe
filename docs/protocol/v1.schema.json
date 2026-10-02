@@ -1167,6 +1167,18 @@
       ],
       "type": "object"
     },
+    "MarkThreadRead": {
+      "additionalProperties": false,
+      "properties": {
+        "position": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "position"
+      ],
+      "type": "object"
+    },
     "Message": {
       "properties": {
         "author": {
@@ -1228,6 +1240,13 @@
           },
           "type": "array"
         },
+        "reply_to": {
+          "description": "A reply belongs to the same room as its root. Replies cannot be roots.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "revision": {
           "type": "string"
         },
@@ -1247,6 +1266,16 @@
         },
         "text": {
           "type": "string"
+        },
+        "thread": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ThreadSummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -3167,6 +3196,12 @@
           },
           "type": "array"
         },
+        "reply_to": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "text": {
           "type": "string"
         }
@@ -3586,6 +3621,81 @@
         }
       ]
     },
+    "ThreadPage": {
+      "properties": {
+        "has_more": {
+          "type": "boolean"
+        },
+        "messages": {
+          "description": "Newest first, paged by immutable message position.",
+          "items": {
+            "$ref": "#/$defs/Message"
+          },
+          "type": "array"
+        },
+        "read_state": {
+          "$ref": "#/$defs/ThreadReadState"
+        },
+        "root": {
+          "$ref": "#/$defs/Message"
+        }
+      },
+      "required": [
+        "root",
+        "messages",
+        "has_more",
+        "read_state"
+      ],
+      "type": "object"
+    },
+    "ThreadReadState": {
+      "properties": {
+        "membership_version": {
+          "type": "string"
+        },
+        "position": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "room_id": {
+          "type": "string"
+        },
+        "root_id": {
+          "type": "string"
+        },
+        "unread": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "root_id",
+        "room_id",
+        "membership_version",
+        "position",
+        "revision",
+        "unread"
+      ],
+      "type": "object"
+    },
+    "ThreadSummary": {
+      "properties": {
+        "last_reply_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "replies": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "replies"
+      ],
+      "type": "object"
+    },
     "UpdateRoom": {
       "additionalProperties": false,
       "properties": {
@@ -3741,6 +3851,9 @@
     "login": {
       "$ref": "#/$defs/Login"
     },
+    "mark_thread_read": {
+      "$ref": "#/$defs/MarkThreadRead"
+    },
     "message": {
       "$ref": "#/$defs/Message"
     },
@@ -3773,6 +3886,9 @@
     },
     "sync_batch": {
       "$ref": "#/$defs/SyncBatch"
+    },
+    "thread_page": {
+      "$ref": "#/$defs/ThreadPage"
     }
   },
   "required": [
@@ -3786,6 +3902,8 @@
     "send_message",
     "message",
     "message_page",
+    "thread_page",
+    "mark_thread_read",
     "snapshot",
     "snapshot_page",
     "sync_batch",

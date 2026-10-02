@@ -67,13 +67,15 @@ présence ne déclare pas les endpoints correspondants disponibles.
 | PUT | `/rooms/{room}/members/{user}/role` | Rôle explicite, révision attendue et opération persistante |
 | POST | `/rooms/{room}/leave` | Départ versionné hors DM ; protection du dernier propriétaire |
 | GET | `/rooms/{room}/commands/{operation}` | Reçu privé de l'auteur, également après départ |
-| GET | `/rooms/{room}/messages?before=…&limit=…` | Historique décroissant, keyset, limite 1–100 |
-| POST | `/rooms/{room}/messages` | `{ operation_id, text }` → message committé |
+| GET | `/rooms/{room}/messages?before=…&limit=…` | Racines par position décroissante, keyset, limite 1–100 |
+| POST | `/rooms/{room}/messages` | `{ operation_id, text, quotes?, reply_to? }` → message committé |
+| GET | `/messages/{root}/thread?before=…&limit=…` | Racine et réponses paginées avec état personnel |
+| POST | `/messages/{root}/thread/read` | Position observée, lecture monotone de ce seul fil |
 | GET | `/messages/{id}` | Message courant ou tombstone, pour un membre actuel |
 | PATCH | `/messages/{id}` | `EditMessage` avec opération et révision attendue ; Markdown clair |
 | DELETE | `/messages/{id}` | Corps `DeleteMessage` avec opération et révision attendue ; tombstone |
 | PUT | `/messages/{id}/reactions` | `{ operation_id, emoji, present }` → état courant du message |
-| GET | `/sync/snapshot` | Vue cohérente des salons, 50 messages récents par salon, curseur |
+| GET | `/sync/snapshot` | Vue cohérente des salons, 50 racines et 50 réponses récentes par salon, curseur |
 | POST | `/sync/snapshots` | Matérialiser une vue immuable ; première `SnapshotPage` |
 | GET | `/sync/snapshots/{token}` | Page suivante liée au compte ; curseur uniquement sur la dernière |
 | GET | `/sync/changes?cursor=…` | Lot ordonné, curseur opaque suivant, `has_more` |
@@ -81,7 +83,7 @@ présence ne déclare pas les endpoints correspondants disponibles.
 | GET / upgrade | `/sync/socket?ticket=…&cursor=…` | Même format `SyncBatch`, replay puis suivi |
 
 La création de compte est une commande locale, pas une inscription HTTP publique.
-Les capacités `threads`, `uploads`, `push`, `e2ee`, `calls` sont fausses.
+La capacité [`threads`](THREADS.md) est activée ; `uploads`, `push`, `e2ee`, `calls` restent fausses.
 `reactions` annonce les ajouts / retraits explicites, disponibles dans les trois clients.
 `room_discovery` annonce l'annuaire et l'adhésion ; `idempotent_room_creation`
 annonce les reçus de création. Leurs handlers sont disponibles dans les trois clients.
@@ -348,7 +350,7 @@ identifient une vue capturée dans une unique transaction PostgreSQL repeatable 
 Les pages sont immuables : une arrivée pendant le téléchargement sera rejouée après
 le curseur final. Aucun curseur n'est publié sur une page intermédiaire.
 
-Une vue contient au plus 1 000 salons, 50 messages récents par salon, 1 Mio de JSON
+Une vue contient au plus 1 000 salons, 50 racines et 50 réponses récentes par salon, 1 Mio de JSON
 par page et 64 Mio au total. Elle expire 5 minutes après réservation ; 4 vues par
 compte et 16 dans l'instance, admissions concurrentes sérialisées en base. Refus
 `429 snapshot_busy` avec délai de 30 s ou `409 snapshot_limit` ; un échec de
@@ -373,7 +375,7 @@ un Content-Length trop grand. La qualification de mémoire sur Android reste ouv
 - Le [mobile](../NATIVE_MOBILE_PILOT.md) et les clients [GTK / SwiftUI](../NATIVE_DESKTOP_PILOT.md)
   utilisent leurs écrans existants pour les deux fournisseurs. Les essais manuels
   sur appareils restent ouverts.
-- Route historique de snapshot non paginé : maximum 100 salons (refus explicite au-delà) et 50 messages
+- Route historique de snapshot non paginé : maximum 100 salons (refus explicite au-delà) et 50 racines / 50 réponses
   récents par salon ; taille JSON maximum 8 Mio, refus `409 snapshot_limit` sans
   création de curseur ni réponse partielle. Les autres messages se chargent par
   l'historique. Les clients actuels utilisent les pages matérialisées décrites ci-dessus.

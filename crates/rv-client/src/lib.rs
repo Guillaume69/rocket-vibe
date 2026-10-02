@@ -890,6 +890,33 @@ impl NativeClient {
         ))
         .await
     }
+    pub async fn thread(
+        &self,
+        root: &str,
+        before: Option<&str>,
+    ) -> Result<rv_protocol::ThreadPage, Error> {
+        if !path_segment(root)
+            || before.is_some_and(|p| p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()))
+        {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!(
+            "/api/v1/messages/{root}/thread{}",
+            before.map(|p| format!("?before={p}")).unwrap_or_default()
+        ))
+        .await
+    }
+    pub async fn mark_thread_read(
+        &self,
+        root: &str,
+        input: &rv_protocol::MarkThreadRead,
+    ) -> Result<rv_protocol::ThreadReadState, Error> {
+        if !path_segment(root) {
+            return Err(Error::InvalidUrl);
+        }
+        self.post(&format!("/api/v1/messages/{root}/thread/read"), input)
+            .await
+    }
     pub async fn snapshot(&self) -> Result<Snapshot, Error> {
         if self.saved_token().is_none() {
             return Err(Error::SessionMissing);

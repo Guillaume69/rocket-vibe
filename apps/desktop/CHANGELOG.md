@@ -9,6 +9,10 @@ section here.
 
 ### Fixed
 
+- Native threads use the existing GTK and SwiftUI panels, menus and composers.
+  Replies retain their root across offline retries; thread drafts and observed
+  reads stay separate. Quotes work inside threads, and a deleted root preserves
+  the draft while preventing new replies.
 - Native quotes render two levels in the existing GTK and SwiftUI cards.
   Each source keeps its own access checks; removing a nested source clears its
   private text without hiding a still accessible parent.

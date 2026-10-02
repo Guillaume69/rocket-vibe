@@ -9,6 +9,10 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Fils natifs dans l'écran existant : compteur de réponses, citations dans un
+  fil, brouillon séparé et réponse durable après une coupure. Lire un fil laisse
+  les autres non lus ; supprimer sa racine conserve le brouillon et bloque
+  les nouvelles réponses.
 - Citations natives imbriquées sur deux niveaux dans les cartes existantes.
   Chaque source garde ses droits ; le retrait d'une source enfant efface son
   texte privé sans masquer le parent encore accessible, même après redémarrage.

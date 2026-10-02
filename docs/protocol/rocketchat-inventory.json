@@ -53,6 +53,8 @@
     "apps/desktop/crates/rv-core/src/native/store/read_states.rs",
     "apps/desktop/crates/rv-core/src/native/store/room_access.rs",
     "apps/desktop/crates/rv-core/src/native/store/room_operations.rs",
+    "apps/desktop/crates/rv-core/src/native/store/threads.rs",
+    "apps/desktop/crates/rv-core/src/native/store/threads/tests.rs",
     "apps/desktop/crates/rv-core/src/normalize.rs",
     "apps/desktop/crates/rv-core/src/notify.rs",
     "apps/desktop/crates/rv-core/src/outbox.rs",
@@ -1321,7 +1323,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat_native.rs",
-      "line": 625,
+      "line": 737,
       "kind": "endpoint",
       "surface": "rooms.new"
     },
@@ -1375,49 +1377,49 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1138,
+      "line": 1144,
       "kind": "endpoint",
       "surface": "rooms.online"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1139,
+      "line": 1145,
       "kind": "endpoint",
       "surface": "rooms.connecting"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1140,
+      "line": 1146,
       "kind": "endpoint",
       "surface": "rooms.offline"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1527,
+      "line": 1533,
       "kind": "endpoint",
       "surface": "rooms.section_unread"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1528,
+      "line": 1534,
       "kind": "endpoint",
       "surface": "rooms.section_favorites"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1529,
+      "line": 1535,
       "kind": "endpoint",
       "surface": "rooms.section_channels"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1530,
+      "line": 1536,
       "kind": "endpoint",
       "surface": "rooms.section_direct"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1627,
+      "line": 1633,
       "kind": "endpoint",
       "surface": "e2e.read_only"
     },
@@ -2131,25 +2133,25 @@
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 293,
+      "line": 298,
       "kind": "endpoint",
       "surface": "e2e.wrong"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 294,
+      "line": 299,
       "kind": "endpoint",
       "surface": "e2e.no_keys"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 295,
+      "line": 300,
       "kind": "endpoint",
       "surface": "e2e.failed"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 298,
+      "line": 303,
       "kind": "endpoint",
       "surface": "e2e.failed"
     },

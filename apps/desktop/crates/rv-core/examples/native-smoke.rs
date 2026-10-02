@@ -26,7 +26,12 @@ async fn marker(client: &NativeClient, rid: &str, text: &str) {
     client
         .send(
             rid,
-            &SendMessage { quotes: vec![], operation_id: format!("{:032x}", fastrand::u128(..)), text: text.into() },
+            &SendMessage {
+                reply_to: None,
+                quotes: vec![],
+                operation_id: format!("{:032x}", fastrand::u128(..)),
+                text: text.into(),
+            },
         )
         .await
         .unwrap();

@@ -13,6 +13,357 @@ struct Bench {
     http: Client,
     task: tokio::task::JoinHandle<()>,
 }
+
+async fn thread_send(
+    client: &NativeClient,
+    room: &str,
+    root: Option<&str>,
+    id: &str,
+    text: &str,
+) -> rv_protocol::Message {
+    client
+        .send(
+            room,
+            &SendMessage {
+                operation_id: id.into(),
+                text: text.into(),
+                quotes: vec![],
+                reply_to: root.map(str::to_owned),
+            },
+        )
+        .await
+        .unwrap()
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn threads_keep_roots_separate_and_reads_only_clear_the_observed_thread(pool: PgPool) {
+    let b = Bench::start(pool).await;
+    let (owner, _, token) = b.user("alice", false).await;
+    let (reader, uid, reader_token) = b.user("bob", false).await;
+    let room = b.room(&owner, &token, &uid).await;
+    let first = thread_send(&owner, &room, None, "root-one", "First root").await;
+    let second = thread_send(&owner, &room, None, "root-two", "Second root").await;
+    reader
+        .mark_room_read(
+            &room,
+            &MarkRead {
+                root_position: second.position.clone(),
+                reply_position: "0".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let a = thread_send(
+        &owner,
+        &room,
+        Some(&first.id),
+        "reply-a",
+        "@bob First response",
+    )
+    .await;
+    let c = thread_send(&owner, &room, Some(&first.id), "reply-c", "Second response").await;
+    let d = thread_send(&owner, &room, Some(&first.id), "reply-d", "Third response").await;
+    let other = thread_send(
+        &owner,
+        &room,
+        Some(&second.id),
+        "reply-other",
+        "Other thread",
+    )
+    .await;
+    let state = reader.room_read_state(&room).await.unwrap();
+    assert_eq!(
+        (
+            state.unread_roots.as_str(),
+            state.unread_replies.as_str(),
+            state.mentions.as_str()
+        ),
+        ("0", "4", "1")
+    );
+    let roots = reader.history(&room, None).await.unwrap();
+    assert!(roots.messages.iter().all(|m| m.reply_to.is_none()));
+    assert_eq!(
+        roots
+            .messages
+            .iter()
+            .find(|m| m.id == first.id)
+            .unwrap()
+            .thread
+            .as_ref()
+            .unwrap()
+            .replies,
+        "3"
+    );
+    let path = format!("/api/v1/messages/{}/thread?limit=2", first.id);
+    let page: rv_protocol::ThreadPage = b
+        .request(Method::GET, &reader_token, &path, json!({}))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(page.root.id, first.id);
+    assert!(page.has_more);
+    assert_eq!(
+        page.messages
+            .iter()
+            .map(|m| m.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![d.id.as_str(), c.id.as_str()]
+    );
+    let page: rv_protocol::ThreadPage = b
+        .request(
+            Method::GET,
+            &reader_token,
+            &format!("{path}&before={}", c.position),
+            json!({}),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(!page.has_more);
+    assert_eq!(page.messages[0].id, a.id);
+    assert!(
+        page.messages
+            .iter()
+            .all(|m| m.reply_to.as_deref() == Some(first.id.as_str()) && m.room_id == room)
+    );
+    let read = reader
+        .mark_thread_read(
+            &first.id,
+            &rv_protocol::MarkThreadRead {
+                position: d.position.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(read.unread, "0");
+    let state = reader.room_read_state(&room).await.unwrap();
+    assert_eq!(
+        (
+            state.unread_roots.as_str(),
+            state.unread_replies.as_str(),
+            state.mentions.as_str()
+        ),
+        ("0", "1", "0")
+    );
+    assert_eq!(
+        reader
+            .thread(&second.id, None)
+            .await
+            .unwrap()
+            .read_state
+            .unread,
+        "1"
+    );
+    let again = reader
+        .mark_thread_read(
+            &first.id,
+            &rv_protocol::MarkThreadRead {
+                position: a.position,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(again.position, read.position);
+    assert_eq!(again.revision, read.revision);
+    let restarted = Bench::start(b.app.pool.clone()).await;
+    let read: rv_protocol::ThreadPage = restarted
+        .request(
+            Method::GET,
+            &reader_token,
+            &format!("/api/v1/messages/{}/thread", first.id),
+            json!({}),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(read.read_state.unread, "0");
+    reader
+        .mark_room_read(
+            &room,
+            &MarkRead {
+                root_position: "0".into(),
+                reply_position: other.position,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        reader.room_read_state(&room).await.unwrap().unread_replies,
+        "0"
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn threads_enforce_same_room_roots_replays_deletions_and_withdrawal(pool: PgPool) {
+    let b = Bench::start(pool).await;
+    let (owner, _, token) = b.user("alice", false).await;
+    let (reader, uid, reader_token) = b.user("bob", false).await;
+    let (_, _, outsider_token) = b.user("carol", true).await;
+    let room = b.room(&owner, &token, &uid).await;
+    let root = thread_send(&owner, &room, None, "thread-root", "Root").await;
+    let reply = thread_send(&owner, &room, Some(&root.id), "thread-reply", "Response").await;
+    let replay = thread_send(&owner, &room, Some(&root.id), "thread-reply", "Response").await;
+    assert_eq!(reply.id, replay.id);
+    assert_eq!(
+        reader
+            .thread(&root.id, None)
+            .await
+            .unwrap()
+            .root
+            .thread
+            .as_ref()
+            .unwrap()
+            .replies,
+        "1"
+    );
+    for (op, parent, status) in [
+        (
+            "reply-as-root",
+            Some(reply.id.clone()),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        ("changed-thread-replay", None, StatusCode::CONFLICT),
+    ] {
+        let op = if op == "changed-thread-replay" {
+            "thread-reply"
+        } else {
+            op
+        };
+        assert_eq!(
+            b.request(
+                Method::POST,
+                &token,
+                &format!("/api/v1/rooms/{room}/messages"),
+                json!({"operation_id":op,"text":"Response","reply_to":parent})
+            )
+            .await
+            .status(),
+            status
+        );
+    }
+    assert_eq!(
+        b.request(
+            Method::GET,
+            &outsider_token,
+            &format!("/api/v1/messages/{}/thread", root.id),
+            json!({})
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    let elsewhere = owner
+        .create_room(&CreateRoom {
+            name: "Elsewhere".into(),
+            private: true,
+            operation_id: Some("elsewhere".into()),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        b.request(
+            Method::POST,
+            &token,
+            &format!("/api/v1/rooms/{}/messages", elsewhere.id),
+            json!({"operation_id":"wrong-room","text":"Response","reply_to":root.id})
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    reader
+        .mark_thread_read(
+            &root.id,
+            &rv_protocol::MarkThreadRead {
+                position: reply.position.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    let retained: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM thread_read_states WHERE room_id=$1 AND user_id=$2",
+    )
+    .bind(&room)
+    .bind(&uid)
+    .fetch_one(&b.app.pool)
+    .await
+    .unwrap();
+    assert_eq!(retained, 1);
+    owner
+        .delete_message(
+            &reply.id,
+            &DeleteMessage {
+                operation_id: "delete-thread-reply".into(),
+                expected_revision: reply.revision,
+            },
+        )
+        .await
+        .unwrap();
+    let page = reader.thread(&root.id, None).await.unwrap();
+    assert!(page.root.thread.is_none());
+    assert!(page.messages[0].deleted);
+    assert_eq!(page.read_state.unread, "0");
+    owner
+        .delete_message(
+            &root.id,
+            &DeleteMessage {
+                operation_id: "delete-thread-root".into(),
+                expected_revision: page.root.revision,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(reader.thread(&root.id, None).await.unwrap().root.deleted);
+    assert_eq!(
+        b.request(
+            Method::POST,
+            &token,
+            &format!("/api/v1/rooms/{room}/messages"),
+            json!({"operation_id":"deleted-root-reply","text":"Response","reply_to":root.id})
+        )
+        .await
+        .status(),
+        StatusCode::GONE
+    );
+    // A committed original remains a replay even after its root was deleted.
+    assert!(
+        thread_send(&owner, &room, Some(&root.id), "thread-reply", "Response")
+            .await
+            .deleted
+    );
+    b.request(
+        Method::DELETE,
+        &token,
+        &format!("/api/v1/rooms/{room}/members/{uid}"),
+        json!({}),
+    )
+    .await
+    .error_for_status()
+    .unwrap();
+    assert_eq!(
+        b.request(
+            Method::GET,
+            &reader_token,
+            &format!("/api/v1/messages/{}/thread", root.id),
+            json!({})
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    let retained: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM thread_read_states WHERE room_id=$1 AND user_id=$2",
+    )
+    .bind(&room)
+    .bind(&uid)
+    .fetch_one(&b.app.pool)
+    .await
+    .unwrap();
+    assert_eq!(retained, 0);
+}
 impl Drop for Bench {
     fn drop(&mut self) {
         self.task.abort();
@@ -145,6 +496,7 @@ impl QuoteBench {
             .send(
                 &origin.id,
                 &SendMessage {
+                    reply_to: None,
                     operation_id: "quote-source".into(),
                     text: "Privé @quote-outsider 🚀".into(),
                     quotes: vec![],
@@ -173,6 +525,7 @@ impl QuoteBench {
     }
     fn input(&self, operation: &str, text: &str) -> SendMessage {
         SendMessage {
+            reply_to: None,
             operation_id: operation.into(),
             text: text.into(),
             quotes: vec![self.reference()],
@@ -216,6 +569,7 @@ async fn nested_quotes_resolve_each_grant_bound_depth_and_keep_shared_journal_re
         .send(
             &q.destination,
             &SendMessage {
+                reply_to: None,
                 operation_id: "nested-outer".into(),
                 text: "Outer".into(),
                 quotes: vec![reference(&middle)],
@@ -292,6 +646,7 @@ async fn nested_quotes_resolve_each_grant_bound_depth_and_keep_shared_journal_re
         .send(
             &q.destination,
             &SendMessage {
+                reply_to: None,
                 operation_id: "nested-third".into(),
                 text: "Third".into(),
                 quotes: vec![reference(&outer)],
@@ -729,6 +1084,7 @@ async fn opposing_cross_room_quotes_use_one_domain_lock_order(pool: PgPool) {
         .send(
             &q.destination,
             &SendMessage {
+                reply_to: None,
                 operation_id: "quote-other-source".into(),
                 text: "Autre source".into(),
                 quotes: vec![],
@@ -738,6 +1094,7 @@ async fn opposing_cross_room_quotes_use_one_domain_lock_order(pool: PgPool) {
         .unwrap();
     let forward = q.input("quote-forward", "Réponse dans la destination");
     let reverse = SendMessage {
+        reply_to: None,
         operation_id: "quote-reverse".into(),
         text: "Réponse dans la source".into(),
         quotes: vec![rv_protocol::parity::QuoteReference {
@@ -872,6 +1229,7 @@ async fn reads_are_monotone_across_devices_and_only_other_new_roots_count(pool: 
         .send(
             &room,
             &SendMessage {
+                reply_to: None,
                 quotes: vec![],
                 operation_id: "first-root".into(),
                 text: "First".into(),
@@ -883,6 +1241,7 @@ async fn reads_are_monotone_across_devices_and_only_other_new_roots_count(pool: 
         .send(
             &room,
             &SendMessage {
+                reply_to: None,
                 quotes: vec![],
                 operation_id: "second-root".into(),
                 text: "Second".into(),
@@ -915,6 +1274,7 @@ async fn reads_are_monotone_across_devices_and_only_other_new_roots_count(pool: 
         .send(
             &room,
             &SendMessage {
+                reply_to: None,
                 quotes: vec![],
                 operation_id: "own-root".into(),
                 text: "Own message".into(),
@@ -1052,6 +1412,7 @@ async fn withdrawal_rejoin_purges_preferences_and_old_receipts_do_not_restore_th
         .send(
             &room,
             &SendMessage {
+                reply_to: None,
                 quotes: vec![],
                 operation_id: "while-absent".into(),
                 text: "Historical".into(),
@@ -1126,6 +1487,7 @@ async fn mentions_resolve_current_members_once_and_direct_mentions_take_priority
         StatusCode::NO_CONTENT
     );
     let input = SendMessage {
+        reply_to: None,
         quotes: vec![],
         operation_id: "mention-once".into(),
         text: "@bob @bob @all @all @alice @eve `@carol`".into(),
@@ -1233,6 +1595,7 @@ async fn edits_can_withdraw_mentions_but_cannot_ping_a_new_or_previous_recipient
         .send(
             &room,
             &SendMessage {
+                reply_to: None,
                 quotes: vec![],
                 operation_id: "mention-edit-source".into(),
                 text: "Hello @bob".into(),
@@ -1288,6 +1651,7 @@ async fn joining_after_a_group_mention_and_rejoining_do_not_receive_historical_p
         .send(
             &room,
             &SendMessage {
+                reply_to: None,
                 quotes: vec![],
                 operation_id: "mention-before-join".into(),
                 text: "@all @carol".into(),
@@ -1349,6 +1713,7 @@ async fn joining_after_a_group_mention_and_rejoining_do_not_receive_historical_p
         .send(
             &room,
             &SendMessage {
+                reply_to: None,
                 quotes: vec![],
                 operation_id: "mention-after-join".into(),
                 text: "@bob @all @here".into(),
@@ -1384,6 +1749,7 @@ async fn read_quota_keeps_retries_state_reads_and_favorite_commands_available(po
                 .send(
                     &room,
                     &SendMessage {
+                        reply_to: None,
                         quotes: vec![],
                         operation_id: format!("quota-root-{n}"),
                         text: "Quota message".into(),
@@ -1480,6 +1846,7 @@ async fn favorite_versions_and_membership_lifetimes_ignore_reads_messages_and_ro
         .send(
             &room,
             &SendMessage {
+                reply_to: None,
                 quotes: vec![],
                 operation_id: "read-version-root".into(),
                 text: "A message during the favorite form".into(),
@@ -1542,7 +1909,7 @@ async fn reads_and_preferences_reject_forged_fields_future_positions_and_private
     let room = b.room(&owner, &token, &uid).await;
     for payload in [
         json!({"root_position":"9223372036854775807","reply_position":"0"}),
-        json!({"root_position":"0","reply_position":"1"}),
+        json!({"root_position":"0","reply_position":"9223372036854775807"}),
         json!({"root_position":"00","reply_position":"0"}),
         json!({"root_position":"0","reply_position":"0","user_id":uid}),
     ] {
@@ -1578,6 +1945,7 @@ async fn reads_and_preferences_reject_forged_fields_future_positions_and_private
             .send(
                 &room,
                 &SendMessage {
+                    reply_to: None,
                     quotes: vec![],
                     operation_id: input.operation_id,
                     text: "Collision".into()

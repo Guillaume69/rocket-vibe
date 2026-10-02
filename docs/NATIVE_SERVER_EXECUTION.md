@@ -197,7 +197,7 @@ Le serveur matérialise les pages dans une seule vue transactionnelle, conserve
 leurs données dans PostgreSQL et ne publie le curseur que sur la dernière page.
 Les nouveaux clients Rust / mobile assemblent et valident la vue entière avant
 l'application SQLite atomique ; un serveur natif plus ancien garde sa route initiale.
-Quotas : 1 000 salons, 50 messages récents par salon, 1 Mio par page / 64 Mio au
+Quotas : 1 000 salons, 50 racines et 50 réponses récentes par salon depuis P11, 1 Mio par page / 64 Mio au
 total, durée 5 minutes, 4 vues par compte / 16 dans l'instance. Retrait de salon
 et restauration invalident les pages, y compris après réadhésion. Un échec de
 construction annule les pages partielles et libère la réservation.
@@ -318,6 +318,27 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 Les entrées relatent les lots livrés du plus récent au plus ancien. La matrice de
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
+
+- P11, fils (3 octobre 2026) : racines / réponses séparées, compteurs et dernière
+  réponse, pages de fil et lectures monotones par fil livrés côté Rust / transports.
+  Même écran mobile et mêmes panneaux GTK / SwiftUI : réponse durable gardant
+  sa racine après redémarrage, brouillon propre, citations dans le fil et compteur
+  dans le salon sans seconde racine. Suppression de racine : anciennes réponses
+  consultables, ancien envoi committé rejouable, nouvel envoi refusé et brouillon
+  conservé. Retrait / réadhésion : purge des données privées et callbacks anciens
+  refusés. Les snapshots gardent 50 racines et 50 réponses par salon.
+  Le fournisseur mobile réel contre PostgreSQL vérifie confirmation perdue,
+  redémarrage SQLite, rejeu après suppression, lectures indépendantes et retrait.
+  GTK exécute les menus / composeurs / cartes réels sans capture ; les modèles
+  Swift ouvrent, répondent, citent et reprennent le brouillon dans le panneau existant.
+  Vérifications : deux scénarios PostgreSQL de fils, quatre scénarios SQLite du
+  cœur bureau, tests de cache mobile et fixture commune Rust / TypeScript exacte.
+  Validation globale : 207 tests serveur / protocole (deux cibles corrigées puis
+  revalidées), 361 tests bureau, 1 187 tests mobiles puis le contrat partagé à
+  16 tests après ajout de sa fixture de fil. Clippy, compilation GTK, génération
+  Swift, typecheck / lint et inventaire passent. Le parcours GTK comporte 27
+  contrôles réussis ; le parcours Swift connecté passe. Qualification Android / Windows / macOS
+  installés encore ouverte. [Contrat P11](protocol/THREADS.md).
 
 - P07, citations imbriquées (3 octobre 2026) : résolution personnalisée sur deux
   niveaux, huit références par source, droit et position propres à chaque enfant.

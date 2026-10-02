@@ -40,6 +40,9 @@ pub(crate) struct MessageRow {
     pub username: String,
     pub display_name: String,
     pub text: String,
+    pub reply_to: Option<String>,
+    pub thread_replies: i64,
+    pub thread_last_reply: Option<DateTime<Utc>>,
     pub system: Option<Json<rv_protocol::system::SystemMessage>>,
     pub created_at: DateTime<Utc>,
     pub position: i64,
@@ -64,6 +67,13 @@ impl MessageRow {
                 display_name: self.display_name,
             }),
             text: self.text,
+            reply_to: self.reply_to,
+            thread: (self.thread_replies > 0).then(|| {
+                Box::new(rv_protocol::ThreadSummary {
+                    replies: self.thread_replies.to_string(),
+                    last_reply_at: self.thread_last_reply.map(|t| t.to_rfc3339()),
+                })
+            }),
             system: self.system.map(|system| Box::new(system.0)),
             body,
             quotes: if self.deleted {
@@ -92,7 +102,7 @@ impl MessageRow {
     }
 }
 
-pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,m.text,m.system,m.created_at,m.position,m.revision,m.deleted,m.edited_at,m.pinned,m.quote_references,COALESCE((SELECT jsonb_agg(jsonb_build_object('emoji',g.emoji,'users',g.users) ORDER BY g.emoji) FROM (SELECT e.emoji,jsonb_agg(jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name) ORDER BY a.id) AS users FROM message_reactions e JOIN users a ON a.id=e.user_id WHERE e.message_id=m.id GROUP BY e.emoji) g),'[]'::jsonb) AS reactions FROM messages m JOIN users u ON u.id=m.author_id";
+pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,m.text,m.reply_to,(SELECT count(*) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_replies,(SELECT max(r.created_at) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_last_reply,m.system,m.created_at,m.position,m.revision,m.deleted,m.edited_at,m.pinned,m.quote_references,COALESCE((SELECT jsonb_agg(jsonb_build_object('emoji',g.emoji,'users',g.users) ORDER BY g.emoji) FROM (SELECT e.emoji,jsonb_agg(jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name) ORDER BY a.id) AS users FROM message_reactions e JOIN users a ON a.id=e.user_id WHERE e.message_id=m.id GROUP BY e.emoji) g),'[]'::jsonb) AS reactions FROM messages m JOIN users u ON u.id=m.author_id";
 
 pub(crate) fn send_fingerprint(room: &str, text: &str) -> String {
     crate::auth::hash_token(&serde_json::json!([room, text]).to_string())
@@ -518,6 +528,10 @@ pub async fn send(
     input: SendMessage,
 ) -> Result<Message> {
     if !identifier(&input.operation_id)
+        || input
+            .reply_to
+            .as_ref()
+            .is_some_and(|root| !identifier(root) || root == &input.operation_id)
         || (input.text.trim().is_empty() && input.quotes.is_empty())
         || input.text.len() > 32_768
         || !crate::quotes::valid_references(&input.quotes, &input.operation_id)
@@ -553,8 +567,20 @@ pub async fn send(
                 .fetch_one(&mut *tx)
                 .await?;
         let matches = fingerprint.map_or_else(
-            || existing.text == input.text && existing.quote_references.0 == input.quotes,
-            |value| value == quoted_send_fingerprint(room_id, &input.text, &input.quotes),
+            || {
+                existing.text == input.text
+                    && existing.quote_references.0 == input.quotes
+                    && existing.reply_to == input.reply_to
+            },
+            |value| {
+                value
+                    == crate::threads::send_fingerprint(
+                        room_id,
+                        &input.text,
+                        &input.quotes,
+                        input.reply_to.as_deref(),
+                    )
+            },
         );
         if existing.room_id != room_id || !matches {
             return Err(Error::conflict());
@@ -563,19 +589,23 @@ pub async fn send(
         return Ok(existing.wire());
     }
     crate::permissions::require_send(&mut tx, room_id, &account.id).await?;
+    if let Some(root) = &input.reply_to {
+        crate::threads::validate_root(&mut tx, room_id, root).await?;
+    }
     crate::quotes::validate(&mut tx, &account.id, &input.quotes, &[]).await?;
     let id = input.operation_id;
     // Client message IDs are globally unique. A collision belonging to another user
     // is a conflict, never a response exposing that user's message.
     let result = sqlx::query(
-        "INSERT INTO messages(id,room_id,author_id,operation_id,text,send_fingerprint,quote_references) VALUES($1,$2,$3,$1,$4,$5,$6)",
+        "INSERT INTO messages(id,room_id,author_id,operation_id,text,send_fingerprint,quote_references,reply_to) VALUES($1,$2,$3,$1,$4,$5,$6,$7)",
     )
     .bind(&id)
     .bind(room_id)
     .bind(&account.id)
     .bind(&input.text)
-    .bind(quoted_send_fingerprint(room_id,&input.text,&input.quotes))
+    .bind(crate::threads::send_fingerprint(room_id,&input.text,&input.quotes,input.reply_to.as_deref()))
     .bind(Json(&input.quotes))
+    .bind(&input.reply_to)
     .execute(&mut *tx)
     .await;
     match result {
@@ -604,6 +634,9 @@ pub async fn send(
         Change::MessageUpsert(message.clone()),
     )
     .await?;
+    if let Some(root) = &input.reply_to {
+        crate::threads::refresh(&mut tx, room_id, root).await?;
+    }
     crate::room_reads::message_changed(&mut tx, room_id).await?;
     tx.commit().await?;
     Ok(message)
@@ -619,7 +652,7 @@ pub async fn history(
     let mut tx = app.pool.begin().await?;
     require_member(&mut tx, room_id, &account.id).await?;
     let query = format!(
-        "{MESSAGE_SELECT} WHERE m.room_id=$1 AND m.position<$2 ORDER BY m.position DESC LIMIT $3"
+        "{MESSAGE_SELECT} WHERE m.room_id=$1 AND m.reply_to IS NULL AND m.position<$2 ORDER BY m.position DESC LIMIT $3"
     );
     let mut messages: Vec<Message> = sqlx::query_as::<_, MessageRow>(&query)
         .bind(room_id)

@@ -495,20 +495,25 @@ export class NativeChat {
       if (error instanceof NativeError && error.code==='delivery_revalidate') this.lost();
     }
   }
-  async send(rid: string, text: string,scope?:{membership:string|null},quotes:readonly import('./quotes.ts').NativeQuoteSelection[]=[]): Promise<string> {
+  async send(rid: string, text: string,scope?:{membership:string|null},quotes:readonly import('./quotes.ts').NativeQuoteSelection[]=[],replyTo?:string|null): Promise<string> {
     if (this.stopped) throw new NativeError(0,'session_closed');
     const value = text.trim();
     let bytes = 0;
     for (const char of value) { const code = char.codePointAt(0)!; bytes += code < 128 ? 1 : code < 2048 ? 2 : code < 65536 ? 3 : 4; }
     if (!value && quotes.length===0 || bytes > 32_768) throw new NativeError(400,'invalid_message');
     const id = this.id();
-    await this.store.enqueue(id,rid,value,scope,quotes); this.notify();
+    await this.store.enqueue(id,rid,value,scope,quotes,replyTo); this.notify();
     if (this.verified) await this.flush();
     return id;
   }
   async markObservedRead(room:string,message:string,membership?:string):Promise<void> {
     this.stateStagingSupported(false);
     if(await this.store.stageRead(room,message,membership))await this.flushStateIntents();
+  }
+  async markObservedThreadRead(root:string,message:string,membership:string):Promise<void>{
+    this.stateStagingSupported(false);
+    if(!this.capabilities?.threads)throw new NativeError(501,'unsupported_feature');
+    if(await this.store.stageThreadRead(root,message,membership))await this.flushStateIntents();
   }
   async setFavorite(room:string,present:boolean,observed?:{membership:string;revision:string}):Promise<void> {
     this.stateStagingSupported(true);
@@ -578,7 +583,17 @@ export class NativeChat {
           this.deferState(false,error);break;
         }
       }
-      if(!this.readRetryAt && (await this.store.pendingReads()).length)this.readRetryAt=Date.now()+100;
+      if(!this.readRetryAt){
+        for(const saved of await this.store.pendingThreadReads()){
+          try{await this.applyObservedThreadRead(saved);}
+          catch(error){
+            if(error instanceof NativeError && ['session_rejected','server_identity_changed'].includes(error.code))throw error;
+            if(this.stopped || !this.verified)return;
+            this.deferState(false,error);break;
+          }
+        }
+      }
+      if(!this.readRetryAt && ((await this.store.pendingReads()).length || (await this.store.pendingThreadReads()).length))this.readRetryAt=Date.now()+100;
     }
   }
   private async applyObservedRead(saved:PendingRead):Promise<void> {
@@ -598,6 +613,20 @@ export class NativeChat {
     checkIdentity(this.session,await this.transport.discover());await this.stateGeneration(generation,projection,saved.room,saved.membership);
     if(confirmed.room_id!==saved.room)throw new NativeError(409,'invalid_read_state');
     if(!await this.store.cacheReadState(confirmed,projection))throw new NativeError(409,'delivery_revalidate');
+    this.notify();
+  }
+  private async applyObservedThreadRead(saved:import('./threads.ts').PendingThreadRead):Promise<void>{
+    const generation=this.generation,projection=this.store.projectionToken();
+    await this.stateGeneration(generation,projection,saved.rid,saved.membership);
+    checkIdentity(this.session,await this.transport.discover());await this.stateGeneration(generation,projection,saved.rid,saved.membership);
+    if(!this.capabilities?.threads)throw new NativeError(501,'unsupported_feature');
+    const confirmed=await this.transport.markThreadRead(saved.root,saved.position);
+    checkIdentity(this.session,await this.transport.discover());await this.stateGeneration(generation,projection,saved.rid,saved.membership);
+    if(confirmed.root_id!==saved.root || confirmed.room_id!==saved.rid || confirmed.membership_version!==saved.membership || BigInt(confirmed.position)<BigInt(saved.position))throw new NativeError(409,'invalid_read_state');
+    if(!await this.store.completeThreadRead(confirmed,projection))throw new NativeError(409,'delivery_revalidate');
+    const room=await this.transport.roomReadState(saved.rid);
+    await this.stateGeneration(generation,projection,saved.rid,saved.membership);
+    if(!await this.store.cacheReadState(room,projection))throw new NativeError(409,'delivery_revalidate');
     this.notify();
   }
   private applyFavorite(saved:SavedFavorite):Promise<void> {
@@ -658,7 +687,7 @@ export class NativeChat {
       try {
         const generation = this.generation;
         const projection=this.store.projectionToken();
-        const message = await this.transport.send(pending.rid,{operation_id:pending.id,text:pending.texte,quotes:pending.quotes});
+        const message = await this.transport.send(pending.rid,{operation_id:pending.id,text:pending.texte,quotes:pending.quotes,...(pending.reply_to?{reply_to:pending.reply_to}:{})});
         if (this.stopped || generation !== this.generation) return;
         // The echo and outbox deletion commit together; a failed commit remains retryable.
         if (!await this.store.ingest([message],projection)) throw new NativeError(409,'delivery_revalidate');
@@ -697,6 +726,31 @@ export class NativeChat {
     if (!await this.store.ingest(page.messages,projection)) throw new NativeError(409,'delivery_revalidate');
     this.notify();
     return page.has_more;
+  }
+  async loadThread(root:string,abandoned:()=>boolean=()=>false):Promise<void>{
+    this.ready();
+    if(!this.capabilities?.threads)throw new NativeError(501,'unsupported_feature');
+    const generation=this.generation,projection=this.store.projectionToken();
+    let before:string|undefined;
+    for(let index=0;index<1000;index++){
+      if(abandoned())return;
+      const page=await this.transport.thread(root,before);
+      if(abandoned())return;
+      if(this.stopped || generation!==this.generation)throw new NativeError(0,'session_closed');
+      if(page.root.id!==root)throw new NativeError(409,'invalid_thread_page');
+      let previous=before===undefined?null:BigInt(before);
+      for(const message of page.messages){
+        const position=BigInt(message.position);
+        if(position<=0n || previous!==null && position>=previous)throw new NativeError(409,'invalid_thread_page');
+        previous=position;
+      }
+      if(page.has_more && !page.messages.length)throw new NativeError(409,'invalid_thread_page');
+      if(!await this.store.cacheThread(page,projection))throw new NativeError(409,'delivery_revalidate');
+      this.notify();
+      if(!page.has_more)return;
+      before=page.messages.at(-1)!.position;
+    }
+    throw new NativeError(409,'thread_limit');
   }
   async createRoom(name: string, privateRoom: boolean): Promise<string> {
     this.ready();

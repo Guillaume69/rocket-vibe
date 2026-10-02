@@ -1,4 +1,4 @@
-//! Monotone reads and explicit, private room favorites. Roots only until P11.
+//! Monotone root/reply reads and explicit, private room favorites.
 use crate::{
     App,
     auth::{Account, identifier, lock_active},
@@ -12,7 +12,7 @@ use rv_protocol::{
 };
 use sqlx::{Postgres, Transaction};
 
-fn position(value: &str) -> Result<i64> {
+pub(crate) fn position(value: &str) -> Result<i64> {
     value
         .parse::<i64>()
         .ok()
@@ -34,7 +34,7 @@ pub(crate) async fn state(
     room: &str,
     user: &str,
 ) -> Result<ReadState> {
-    let (root,reply,favorite,revision,unread,membership,favorite_revision,mentions,groups):(i64,i64,bool,i64,i64,String,i64,i64,i64)=sqlx::query_as("SELECT s.root_position,s.reply_position,s.favorite,s.revision,c.unread,s.membership_version,s.favorite_revision,c.mentions,c.groups FROM room_read_states s CROSS JOIN LATERAL (SELECT count(*) AS unread,count(*) FILTER (WHERE EXISTS(SELECT 1 FROM message_mentions p WHERE p.message_id=m.id AND p.user_id=s.user_id AND p.kind='direct')) AS mentions,count(*) FILTER (WHERE NOT EXISTS(SELECT 1 FROM message_mentions p WHERE p.message_id=m.id AND p.user_id=s.user_id AND p.kind='direct') AND EXISTS(SELECT 1 FROM message_mentions p WHERE p.message_id=m.id AND p.user_id=s.user_id AND p.kind IN ('all','here'))) AS groups FROM messages m WHERE m.room_id=s.room_id AND m.position>s.root_position AND m.author_id<>s.user_id AND NOT m.deleted AND m.system IS NULL) c WHERE s.room_id=$1 AND s.user_id=$2")
+    let (root,reply,favorite,revision,unread,replies,membership,favorite_revision,mentions,groups):(i64,i64,bool,i64,i64,i64,String,i64,i64,i64)=sqlx::query_as("SELECT s.root_position,s.reply_position,s.favorite,s.revision,c.roots,c.replies,s.membership_version,s.favorite_revision,c.mentions,c.groups FROM room_read_states s CROSS JOIN LATERAL (SELECT count(*) FILTER(WHERE m.reply_to IS NULL) AS roots,count(*) FILTER(WHERE m.reply_to IS NOT NULL) AS replies,count(*) FILTER (WHERE EXISTS(SELECT 1 FROM message_mentions p WHERE p.message_id=m.id AND p.user_id=s.user_id AND p.kind='direct')) AS mentions,count(*) FILTER (WHERE NOT EXISTS(SELECT 1 FROM message_mentions p WHERE p.message_id=m.id AND p.user_id=s.user_id AND p.kind='direct') AND EXISTS(SELECT 1 FROM message_mentions p WHERE p.message_id=m.id AND p.user_id=s.user_id AND p.kind IN ('all','here'))) AS groups FROM messages m WHERE m.room_id=s.room_id AND m.author_id<>s.user_id AND NOT m.deleted AND m.system IS NULL AND ((m.reply_to IS NULL AND m.position>s.root_position) OR (m.reply_to IS NOT NULL AND m.position>GREATEST(s.reply_position,COALESCE((SELECT t.position FROM thread_read_states t WHERE t.root_id=m.reply_to AND t.user_id=s.user_id),0))))) c WHERE s.room_id=$1 AND s.user_id=$2")
         .bind(room).bind(user).fetch_optional(conn).await?.ok_or_else(Error::missing)?;
     Ok(ReadState {
         room_id: room.into(),
@@ -44,7 +44,7 @@ pub(crate) async fn state(
         root_position: root.to_string(),
         reply_position: reply.to_string(),
         unread_roots: unread.to_string(),
-        unread_replies: "0".into(),
+        unread_replies: replies.to_string(),
         mentions: mentions.to_string(),
         group_mentions: groups.to_string(),
         favorite,
@@ -81,7 +81,7 @@ pub(crate) async fn initialize_revision(
         .await?;
     Ok(())
 }
-async fn publish(
+pub(crate) async fn publish(
     tx: &mut Transaction<'_, Postgres>,
     room: &str,
     user: Option<&str>,
@@ -106,12 +106,6 @@ pub(crate) async fn message_changed(tx: &mut Transaction<'_, Postgres>, room: &s
 pub async fn mark(app: &App, actor: &Account, room: &str, input: MarkRead) -> Result<ReadState> {
     let root = position(&input.root_position)?;
     let reply = position(&input.reply_position)?;
-    if reply != 0 {
-        return Err(Error::new(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "unsupported_feature",
-        ));
-    }
     let mut tx = app.pool.begin().await?;
     lock_active(&mut tx, actor).await?;
     lock_room(&mut tx, room).await?;
@@ -121,14 +115,14 @@ pub async fn mark(app: &App, actor: &Account, room: &str, input: MarkRead) -> Re
             .bind(room)
             .fetch_one(&mut *tx)
             .await?;
-    if root > highest {
+    if root > highest || reply > highest {
         return Err(Error::new(StatusCode::CONFLICT, "invalid_read_position"));
     }
     let current = state(&mut tx, room, &actor.id).await?;
-    if root > position(&current.root_position)? {
+    if root > position(&current.root_position)? || reply > position(&current.reply_position)? {
         admission(&mut tx, &actor.id).await?;
         let revision = store::next_position(&mut tx).await?;
-        sqlx::query("UPDATE room_read_states SET root_position=GREATEST(root_position,$3),revision=$4 WHERE room_id=$1 AND user_id=$2").bind(room).bind(&actor.id).bind(root).bind(revision).execute(&mut *tx).await?;
+        sqlx::query("UPDATE room_read_states SET root_position=GREATEST(root_position,$3),reply_position=GREATEST(reply_position,$4),revision=$5 WHERE room_id=$1 AND user_id=$2").bind(room).bind(&actor.id).bind(root).bind(reply).bind(revision).execute(&mut *tx).await?;
         publish(&mut tx, room, Some(&actor.id), revision).await?;
     }
     let result = state(&mut tx, room, &actor.id).await?;
@@ -203,7 +197,7 @@ pub async fn favorite(
         applied_revision: revision,
     })
 }
-async fn admission(tx: &mut Transaction<'_, Postgres>, user: &str) -> Result<()> {
+pub(crate) async fn admission(tx: &mut Transaction<'_, Postgres>, user: &str) -> Result<()> {
     let (attempts,retry):(i32,i64)=sqlx::query_as("INSERT INTO room_read_windows(user_id,attempts,expires_at) VALUES($1,1,clock_timestamp()+interval '60 seconds') ON CONFLICT(user_id) DO UPDATE SET attempts=CASE WHEN room_read_windows.expires_at<=clock_timestamp() THEN 1 ELSE room_read_windows.attempts+1 END,expires_at=CASE WHEN room_read_windows.expires_at<=clock_timestamp() THEN clock_timestamp()+interval '60 seconds' ELSE room_read_windows.expires_at END RETURNING attempts,GREATEST(1,ceil(extract(epoch from expires_at-clock_timestamp())))::bigint").bind(user).fetch_one(&mut **tx).await?;
     if attempts > 60 {
         return Err(Error::throttled("room_read_limit", retry as u64));

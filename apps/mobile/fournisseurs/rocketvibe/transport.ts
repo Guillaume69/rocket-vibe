@@ -198,6 +198,8 @@ export class NativeTransport {
   async addMember(room: string, user: string): Promise<void> { await this.value(`/api/v1/rooms/${encodeURIComponent(room)}/members/${encodeURIComponent(user)}`, {}); }
   send(room: string, input: SendMessage): Promise<Message> { return this.request('Message', `/api/v1/rooms/${encodeURIComponent(room)}/messages`, input); }
   history(room: string, before?: string): Promise<MessagePage> { return this.request('MessagePage', `/api/v1/rooms/${encodeURIComponent(room)}/messages${before === undefined ? '' : '?before=' + encodeURIComponent(before)}`); }
+  thread(root:string,before?:string):Promise<NativeTypes['ThreadPage']>{return this.request('ThreadPage',`/api/v1/messages/${encodeURIComponent(root)}/thread${before===undefined?'':'?before='+encodeURIComponent(before)}`);}
+  markThreadRead(root:string,position:string):Promise<NativeTypes['ThreadReadState']>{return this.request('ThreadReadState',`/api/v1/messages/${encodeURIComponent(root)}/thread/read`,{position});}
   async snapshot(): Promise<Snapshot> {
     if (this.token === null) throw new NativeError(401,'session_rejected');
     if (this.snapshotPaging === null) await this.discover();

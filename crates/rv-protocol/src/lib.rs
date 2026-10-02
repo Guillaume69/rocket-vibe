@@ -292,6 +292,11 @@ pub struct Message {
     pub room_id: String,
     pub author: Box<User>,
     pub text: String,
+    /// A reply belongs to the same room as its root. Replies cannot be roots.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread: Option<Box<ThreadSummary>>,
     /// Server-authored, structured room activity. Never accepted by SendMessage.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system: Option<Box<system::SystemMessage>>,
@@ -328,6 +333,8 @@ fn is_false(value: &bool) -> bool {
 pub struct SendMessage {
     pub operation_id: String,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub quotes: Vec<parity::QuoteReference>,
 }
@@ -371,6 +378,37 @@ pub struct MessagePage {
     /// Newest first. The next page uses the last message's position as `before`.
     pub messages: Vec<Message>,
     pub has_more: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct ThreadSummary {
+    pub replies: String,
+    pub last_reply_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct ThreadReadState {
+    pub root_id: String,
+    pub room_id: String,
+    pub membership_version: String,
+    pub position: String,
+    pub revision: String,
+    pub unread: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MarkThreadRead {
+    pub position: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ThreadPage {
+    pub root: Message,
+    /// Newest first, paged by immutable message position.
+    pub messages: Vec<Message>,
+    pub has_more: bool,
+    pub read_state: ThreadReadState,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -436,6 +474,8 @@ pub struct Contract {
     pub send_message: SendMessage,
     pub message: Message,
     pub message_page: MessagePage,
+    pub thread_page: ThreadPage,
+    pub mark_thread_read: MarkThreadRead,
     pub snapshot: Snapshot,
     pub snapshot_page: SnapshotPage,
     pub sync_batch: SyncBatch,

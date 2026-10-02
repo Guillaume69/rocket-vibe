@@ -110,8 +110,9 @@ async fn materialize(app: &App, user: &Account, id: &str) -> Result<String> {
         current.rooms.push(room);
     }
     for room in &room_ids {
-        let query =
-            format!("{MESSAGE_SELECT} WHERE m.room_id=$1 ORDER BY m.position DESC LIMIT 50");
+        let query = format!(
+            "{MESSAGE_SELECT} WHERE m.id IN ((SELECT id FROM messages WHERE room_id=$1 AND reply_to IS NULL ORDER BY position DESC LIMIT 50) UNION ALL (SELECT id FROM messages WHERE room_id=$1 AND reply_to IS NOT NULL ORDER BY position DESC LIMIT 50)) ORDER BY m.position DESC"
+        );
         // At most 50 bounded messages in memory, plus one output page.
         let mut window: Vec<_> = sqlx::query_as::<_, MessageRow>(&query)
             .bind(room)

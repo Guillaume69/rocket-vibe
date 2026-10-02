@@ -392,6 +392,27 @@ impl NativeChat {
         let rows = self.session.store.messages(&room, limit.clamp(1, 10_000) as usize).map_err(RvError::local)?;
         Ok(native_message_items(rows, &room, &self.session.info.user_id, &self.session.info.username, None))
     }
+    pub fn thread_message_items(
+        &self,
+        room: String,
+        root: String,
+        membership: String,
+    ) -> Result<Vec<MessageItem>, RvError> {
+        self.room_revision(room.clone())?;
+        if self.membership_version(room.clone())?.as_deref() != Some(membership.as_str()) {
+            return Ok(vec![]);
+        }
+        let rows = self.session.store.thread_messages(&room, &root).map_err(RvError::local)?;
+        Ok(native_message_items(rows, &room, &self.session.info.user_id, &self.session.info.username, None))
+    }
+    pub async fn load_thread(&self, room: String, root: String) -> Result<(), RvError> {
+        let s = self.session.clone();
+        on_tokio(async move { s.load_thread(&room, &root).await }).await.map_err(native_error)
+    }
+    pub fn thread_writable(&self, room: String, root: String) -> Result<bool, RvError> {
+        self.room_revision(room.clone())?;
+        self.session.store.thread_writable(&room, &root).map_err(RvError::local)
+    }
     pub fn message_items_from_boundary(
         &self,
         room: String,
@@ -462,6 +483,14 @@ impl NativeChat {
     }
     pub fn mark_observed_read(&self, room: String, message: String, membership: String) -> Result<bool, RvError> {
         self.session.mark_observed_read_from_membership(&room, &message, &membership).map_err(native_error)
+    }
+    pub fn mark_observed_thread_read(
+        &self,
+        root: String,
+        message: String,
+        membership: String,
+    ) -> Result<bool, RvError> {
+        self.session.mark_observed_thread_read(&root, &message, &membership).map_err(native_error)
     }
     pub fn favorite_state(&self, room: String) -> Result<Option<NativeFavoriteState>, RvError> {
         self.room_revision(room.clone())?;
@@ -577,6 +606,45 @@ impl NativeChat {
     }
     pub fn draft_from_membership(&self, room: String, membership: Option<String>) -> Result<String, RvError> {
         self.session.store.draft_from_membership(&room, membership.as_deref()).map_err(RvError::local)
+    }
+    pub fn send_reply_from_membership(
+        &self,
+        room: String,
+        root: String,
+        text: String,
+        membership: Option<String>,
+        quotes: Vec<NativeQuoteSelection>,
+    ) -> Result<String, RvError> {
+        let quotes: Vec<_> = quotes.into_iter().map(NativeQuoteSelection::into_core).collect();
+        self.session
+            .send_reply_from_membership(&room, &root, &text, membership.as_deref(), &quotes)
+            .map_err(native_error)
+    }
+    pub fn thread_draft_from_membership(
+        &self,
+        room: String,
+        root: String,
+        membership: Option<String>,
+    ) -> Result<String, RvError> {
+        self.session.store.thread_draft_from_membership(&room, &root, membership.as_deref()).map_err(RvError::local)
+    }
+    pub fn set_thread_draft_from_membership(
+        &self,
+        room: String,
+        root: String,
+        text: String,
+        membership: Option<String>,
+    ) -> Result<(), RvError> {
+        if self.session.is_closed()
+            || !self
+                .session
+                .store
+                .set_thread_draft_from_membership(&room, &root, &text, membership.as_deref())
+                .map_err(RvError::local)?
+        {
+            return Err(native_error(rv_core::native::Error::Protocol("delivery_revalidate")));
+        }
+        Ok(())
     }
     pub fn set_draft_from_membership(
         &self,
@@ -782,6 +850,8 @@ mod tests {
             reactions: None,
             pinned: false,
             starred: false,
+            reply_to: None,
+            thread_replies: 0,
         };
         let items = native_message_items(
             vec![

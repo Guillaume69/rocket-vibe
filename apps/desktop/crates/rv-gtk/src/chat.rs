@@ -856,7 +856,7 @@ impl ChatPage {
 
     fn handle_event(self: &Rc<Self>, event: RowEvent, in_thread: bool) {
         if self.native_session().is_some() {
-            self.native_row_event(event);
+            self.native_row_event(event, in_thread);
             return;
         }
         let Some(session) = self.session.borrow().clone() else { return };
@@ -973,8 +973,8 @@ impl ChatPage {
     /// Up in an empty composer: my last message, edited in place if the server still allows it.
     fn edit_last(self: &Rc<Self>, in_thread: bool) {
         if let Some(session) = self.native_session() {
-            if let Some(row) = self.list.last_mine(&session.info.user_id) {
-                self.start_native_edit(row);
+            if let Some(row) = self.list_of(in_thread).last_mine(&session.info.user_id) {
+                self.start_native_edit(row, in_thread);
             }
             return;
         }
@@ -1005,7 +1005,7 @@ impl ChatPage {
                 let selected = session.store.quote_selection(&row.rid, &row.id).ok()?;
                 let source = session
                     .store
-                    .messages(&row.rid, self.limit.get() as usize)
+                    .selected_messages(std::slice::from_ref(&row.id))
                     .ok()?
                     .into_iter()
                     .find(|source| source.id == row.id)?;
@@ -1015,7 +1015,9 @@ impl ChatPage {
                 Some((selected, source))
             })();
             match prepared {
-                Some((selected, source)) => self.composer.set_native_reply(&source.author, &source.text, selected),
+                Some((selected, source)) => {
+                    self.composer_of(in_thread).set_native_reply(&source.author, &source.text, selected)
+                }
                 None => self.toast(t("quote.unavailable").to_owned()),
             }
             return;
@@ -1037,6 +1039,10 @@ impl ChatPage {
     }
 
     fn open_thread(self: &Rc<Self>, root_id: &str) {
+        if self.native_session().is_some() {
+            self.open_native_thread(root_id);
+            return;
+        }
         let Some(session) = self.session.borrow().clone() else { return };
         let Some(open) = self.current.borrow().clone() else { return };
         if self.thread.borrow().as_ref().is_some_and(|t| t.root_id == root_id) {
@@ -1646,6 +1652,9 @@ impl ChatPage {
                     &session.info.user_id,
                 ),
                 Err(error) => self.toast(error.to_string()),
+            }
+            if let Some(thread) = self.thread.borrow().as_ref() {
+                thread.reload();
             }
             return;
         }

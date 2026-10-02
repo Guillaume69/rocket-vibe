@@ -150,6 +150,35 @@ final class NativeProviderTests: XCTestCase {
         }
         await room.quote(latest)
         try await room.prepareMutation(latest, editing: false)
+        // The existing thread model keeps its composer separate from the room.
+        room.draft = "Swift room draft while a thread is open"
+        try native.setDraftFromMembership(room:rid,text:room.draft,membership:native.membershipVersion(room:rid))
+        app.openThread(quoted.id)
+        try await until { app.thread?.loading == false && app.thread?.messages.contains { $0.id == quoted.id } == true }
+        let thread = try XCTUnwrap(app.thread)
+        XCTAssertEqual(thread.draft, "")
+        XCTAssertTrue(thread.supportsObservedReads)
+        thread.draft = "Swift reply through the existing thread model"
+        await thread.send()
+        try await until { thread.messages.contains { $0.text == "Swift reply through the existing thread model" && $0.delivery == .sent } }
+        let threadReply = try XCTUnwrap(thread.messages.first { $0.text == "Swift reply through the existing thread model" })
+        XCTAssertEqual(threadReply.threadId, quoted.id)
+        try await until { room.messages.first { $0.id == quoted.id }?.threadCount == 1 }
+        XCTAssertFalse(room.messages.contains { $0.id == threadReply.id })
+        XCTAssertFalse(thread.actions(for:threadReply).contains(.replyInThread))
+        try thread.markObservedRead(messageId:threadReply.id)
+        await thread.quote(threadReply)
+        thread.draft = "Swift citation inside the existing thread"
+        await thread.send()
+        try await until { thread.messages.contains { $0.text == "Swift citation inside the existing thread" && !$0.quotes.isEmpty && $0.delivery == .sent } }
+        thread.draft = "Swift thread draft after reopening"
+        app.closeThread()
+        app.openThread(quoted.id)
+        try await until { app.thread?.loading == false }
+        XCTAssertEqual(app.thread?.draft,"Swift thread draft after reopening")
+        XCTAssertEqual(room.draft,"Swift room draft while a thread is open")
+        app.closeThread()
+        room.draft = ""
         try await room.delete(latest)
         try await until { !room.messages.contains { $0.id == message.id } }
         try await until { room.pendingQuote?.unavailable == true }

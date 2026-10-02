@@ -61,5 +61,66 @@
     "public_device_key": { "user_id": "alice-id", "device_id": "device-id", "format": "fixture-opaque-not-a-crypto-protocol", "public_key": "fixture-public", "fingerprint": "fixture-fingerprint", "revision": "9007199254740993" },
     "key_backup": { "user_id": "alice-id", "format": "fixture-opaque-not-a-crypto-protocol", "revision": "9007199254740993", "ciphertext": "fixture-ciphertext", "crypto_identity": "historical-uid-preserved", "kdf": "fixture-legacy-parameters" },
     "room_key_envelope": { "room_id": "room-id", "key_version": "9007199254740993", "recipient_user_id": "alice-id", "recipient_device_id": "device-id", "sender_device_id": "sender-device", "format": "fixture-opaque-not-a-crypto-protocol", "ciphertext": "fixture-ciphertext" }
+  },
+  "thread_page": {
+    "root": {
+      "id": "message-id",
+      "room_id": "room-id",
+      "author": {
+        "id": "alice-id",
+        "username": "alice",
+        "display_name": "Alice"
+      },
+      "text": "Bonjour 🚀",
+      "created_at": "2026-09-30T12:00:00+00:00",
+      "position": "9007199254740993",
+      "revision": "9007199254740993",
+      "thread": {
+        "replies": "2",
+        "last_reply_at": "2026-09-30T12:00:00+00:00"
+      }
+    },
+    "messages": [
+      {
+        "id": "thread-reply-second",
+        "room_id": "room-id",
+        "author": {
+          "id": "alice-id",
+          "username": "alice",
+          "display_name": "Alice"
+        },
+        "text": "Thread reply",
+        "created_at": "2026-09-30T12:00:00+00:00",
+        "position": "9007199254740995",
+        "revision": "9007199254740995",
+        "reply_to": "message-id"
+      },
+      {
+        "id": "thread-reply-first",
+        "room_id": "room-id",
+        "author": {
+          "id": "alice-id",
+          "username": "alice",
+          "display_name": "Alice"
+        },
+        "text": "Thread reply",
+        "created_at": "2026-09-30T12:00:00+00:00",
+        "position": "9007199254740994",
+        "revision": "9007199254740994",
+        "reply_to": "message-id"
+      }
+    ],
+    "has_more": false,
+    "read_state": {
+      "root_id": "message-id",
+      "room_id": "room-id",
+      "membership_version": "fixture-membership",
+      "position": "0",
+      "revision": "9007199254740996",
+      "unread": "2"
+    }
+  },
+  "mark_thread_read": {
+    "position": "9007199254740995"
   }
 }

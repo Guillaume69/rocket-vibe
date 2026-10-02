@@ -5,6 +5,7 @@ mod read_intents;
 mod read_states;
 mod room_access;
 mod room_operations;
+mod threads;
 use super::Identity;
 pub use quotes::QuoteSelection;
 pub use read_intents::{PendingRead, SavedFavorite};
@@ -16,6 +17,7 @@ use rv_protocol::{Change, Message, Room, Snapshot, SyncBatch, VERSION};
 use std::path::Path;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+pub use threads::PendingThreadRead;
 use tokio::sync::broadcast;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -24,6 +26,7 @@ pub struct Pending {
     pub room_id: String,
     pub text: String,
     pub quotes: Vec<rv_protocol::parity::QuoteReference>,
+    pub reply_to: Option<String>,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum MessageCommandKind {
@@ -91,6 +94,8 @@ pub struct MessageRow {
     pub reactions: Option<String>,
     pub pinned: bool,
     pub starred: bool,
+    pub reply_to: Option<String>,
+    pub thread_replies: i64,
 }
 impl MessageRow {
     pub fn presentation(self, rid: &str, uid: &str) -> crate::store::MessageRow {
@@ -104,6 +109,8 @@ impl MessageRow {
             attachments: self.attachments,
             pinned: self.pinned,
             starred: self.starred.then(|| uid.into()),
+            thread_id: self.reply_to,
+            thread_count: self.thread_replies,
             text: Some(self.text),
             md: self.system_type.is_none().then_some(md),
             system_type: self.system_type,
@@ -144,12 +151,16 @@ impl NativeStore {
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_read_intents(rid TEXT PRIMARY KEY,membership TEXT NOT NULL,root_position TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS native_favorite_intents(id TEXT NOT NULL UNIQUE,rid TEXT PRIMARY KEY,membership TEXT NOT NULL,payload TEXT NOT NULL,phase TEXT NOT NULL DEFAULT 'pending' CHECK(phase IN ('pending','confirmed','failed')),receipt_revision TEXT,error TEXT);")?;
         quotes::initialize(&conn)?;
+        threads::initialize(&conn)?;
         let outbox_columns = conn
             .prepare("PRAGMA table_info(native_outbox)")?
             .query_map([], |r| r.get::<_, String>(1))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         if !outbox_columns.iter().any(|name| name == "quotes") {
             conn.execute_batch("ALTER TABLE native_outbox ADD COLUMN quotes TEXT NOT NULL DEFAULT '[]';")?;
+        }
+        if !outbox_columns.iter().any(|name| name == "reply_to") {
+            conn.execute_batch("ALTER TABLE native_outbox ADD COLUMN reply_to TEXT;")?;
         }
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_commands(id TEXT PRIMARY KEY,rid TEXT NOT NULL,message_id TEXT NOT NULL UNIQUE,kind TEXT NOT NULL CHECK(kind IN ('edit','delete')),expected_revision TEXT NOT NULL,text TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',error TEXT);")?;
         let command_schema: String =
@@ -185,6 +196,8 @@ impl NativeStore {
             ("star_revision", "TEXT NOT NULL DEFAULT '0'"),
             ("body", "TEXT"),
             ("system_type", "TEXT"),
+            ("reply_to", "TEXT"),
+            ("thread_replies", "INTEGER NOT NULL DEFAULT 0"),
         ] {
             if !columns.iter().any(|c| c == name) {
                 conn.execute_batch(&format!("ALTER TABLE native_messages ADD COLUMN {name} {declaration}"))?;
@@ -212,6 +225,9 @@ impl NativeStore {
                 "native_favorite_intents",
                 "native_quote_references",
                 "native_quote_sources",
+                "native_thread_states",
+                "native_thread_read_intents",
+                "native_thread_drafts",
             ] {
                 tx.execute(&format!("DELETE FROM {table}"), [])?;
             }
@@ -410,6 +426,7 @@ impl NativeStore {
         }
         decimal(&message.position)?;
         let revision = decimal(&message.revision)?;
+        let replies = threads::validate_message(message)?;
         if message.deleted && !message.text.is_empty() {
             return Err(rusqlite::Error::InvalidQuery);
         }
@@ -446,7 +463,12 @@ impl NativeStore {
             None => (message.text.clone(), None),
         };
         if system_type.is_some()
-            && (!message.text.is_empty() || message.deleted || message.body.is_some() || !message.quotes.is_empty())
+            && (!message.text.is_empty()
+                || message.deleted
+                || message.body.is_some()
+                || !message.quotes.is_empty()
+                || message.reply_to.is_some()
+                || message.thread.is_some())
         {
             return Err(rusqlite::Error::InvalidQuery);
         }
@@ -455,7 +477,7 @@ impl NativeStore {
         } else {
             message.body.as_ref().map(json).transpose()?
         };
-        tx.execute("INSERT INTO native_messages(id,rid,position,revision,text,author,author_id,ts,deleted,edited,reactions,body,system_type) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13) ON CONFLICT(id) DO UPDATE SET position=excluded.position,revision=excluded.revision,text=excluded.text,author=excluded.author,author_id=excluded.author_id,ts=excluded.ts,deleted=excluded.deleted,edited=excluded.edited,reactions=excluded.reactions,body=excluded.body,system_type=excluded.system_type",params![message.id,message.room_id,message.position,message.revision,text,message.author.username,message.author.id,ts,message.deleted,message.edited_at.is_some(),reactions,body,system_type])?;
+        tx.execute("INSERT INTO native_messages(id,rid,position,revision,text,author,author_id,ts,deleted,edited,reactions,body,system_type,reply_to,thread_replies) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15) ON CONFLICT(id) DO UPDATE SET position=excluded.position,revision=excluded.revision,text=excluded.text,author=excluded.author,author_id=excluded.author_id,ts=excluded.ts,deleted=excluded.deleted,edited=excluded.edited,reactions=excluded.reactions,body=excluded.body,system_type=excluded.system_type,reply_to=excluded.reply_to,thread_replies=excluded.thread_replies",params![message.id,message.room_id,message.position,message.revision,text,message.author.username,message.author.id,ts,message.deleted,message.edited_at.is_some(),reactions,body,system_type,message.reply_to,replies])?;
         tx.execute("DELETE FROM native_outbox WHERE id=?1", [&message.id])?;
         tx.execute("UPDATE native_messages SET pinned=?2 WHERE id=?1", params![message.id, message.pinned])?;
         quotes::project(tx, message, true)?;
@@ -498,6 +520,9 @@ impl NativeStore {
             "native_favorite_intents",
             "native_quote_references",
             "native_quote_sources",
+            "native_thread_states",
+            "native_thread_read_intents",
+            "native_thread_drafts",
         ] {
             tx.execute(&format!("DELETE FROM {table} WHERE rid=?1"), [rid])?;
         }
@@ -523,6 +548,9 @@ impl NativeStore {
                     "native_favorite_intents",
                     "native_quote_references",
                     "native_quote_sources",
+                    "native_thread_states",
+                    "native_thread_read_intents",
+                    "native_thread_drafts",
                 ] {
                     tx.execute(&format!("DELETE FROM {table}"), [])?;
                 }
@@ -613,7 +641,7 @@ impl NativeStore {
         if !self.same(&conn)? {
             return Ok(vec![]);
         }
-        let mut rows=conn.prepare("SELECT m.id,m.text,m.author,o.status,m.author_id,m.ts,m.edited,m.reactions,m.pinned,m.starred,m.position,m.body,m.system_type FROM native_messages m LEFT JOIN native_outbox o ON o.id=m.id WHERE m.rid=?1 AND NOT m.deleted ORDER BY m.position IS NULL DESC,o.created DESC,length(m.position) DESC,m.position DESC,m.id DESC LIMIT ?2")?.query_map(params![rid,limit as i64],|r|Ok(MessageRow {id:r.get(0)?,text:r.get(1)?,author:r.get(2)?,body:r.get(11)?,system_type:r.get(12)?,attachments:None,status:r.get(3)?,author_id:r.get(4)?,ts:r.get(5)?,edited:r.get(6)?,reactions:r.get(7)?,pinned:r.get(8)?,starred:r.get(9)?,position:r.get(10)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut rows=conn.prepare(&format!("{} WHERE m.rid=?1 AND m.reply_to IS NULL AND NOT m.deleted ORDER BY m.position IS NULL DESC,o.created DESC,length(m.position) DESC,m.position DESC,m.id DESC LIMIT ?2", threads::MESSAGE_SELECT))?.query_map(params![rid,limit as i64],threads::message_row)?.collect::<rusqlite::Result<Vec<_>>>()?;
         for row in &mut rows {
             row.attachments = quotes::attachments(&conn, &row.id)?;
         }
@@ -621,34 +649,21 @@ impl NativeStore {
         Ok(rows)
     }
     pub fn oldest(&self, rid: &str) -> rusqlite::Result<Option<String>> {
-        self.conn.lock().unwrap().query_row("SELECT position FROM native_messages WHERE rid=?1 AND position IS NOT NULL ORDER BY length(position),position LIMIT 1",[rid],|r|r.get(0)).optional()
+        self.conn.lock().unwrap().query_row("SELECT position FROM native_messages WHERE rid=?1 AND reply_to IS NULL AND position IS NOT NULL ORDER BY length(position),position LIMIT 1",[rid],|r|r.get(0)).optional()
     }
     pub fn selected_messages(&self, ids: &[String]) -> rusqlite::Result<Vec<MessageRow>> {
         let conn = self.conn.lock().unwrap();
         if !self.same(&conn)? {
             return Ok(vec![]);
         }
-        let mut query = conn.prepare("SELECT id,text,author,author_id,ts,edited,reactions,pinned,starred,position,body,system_type FROM native_messages WHERE id=?1 AND NOT deleted")?;
+        let mut query = conn.prepare(&format!("{} WHERE m.id=?1 AND NOT m.deleted", threads::MESSAGE_SELECT))?;
         let mut rows = Vec::new();
         for id in ids {
             if let Some(row) = query
                 .query_row([id], |r| {
-                    Ok(MessageRow {
-                        id: r.get(0)?,
-                        position: r.get(9)?,
-                        body: r.get(10)?,
-                        system_type: r.get(11)?,
-                        attachments: quotes::attachments(&conn, id)?,
-                        text: r.get(1)?,
-                        author: r.get(2)?,
-                        author_id: r.get(3)?,
-                        ts: r.get(4)?,
-                        status: None,
-                        edited: r.get(5)?,
-                        reactions: r.get(6)?,
-                        pinned: r.get(7)?,
-                        starred: r.get(8)?,
-                    })
+                    let mut row = threads::message_row(r)?;
+                    row.attachments = quotes::attachments(&conn, id)?;
+                    Ok(row)
                 })
                 .optional()?
             {
@@ -659,7 +674,7 @@ impl NativeStore {
     }
     pub fn enqueue(&self, id: &str, rid: &str, text: &str, username: &str) -> rusqlite::Result<()> {
         self.enqueue_quoted(
-            &Pending { id: id.into(), room_id: rid.into(), text: text.into(), quotes: vec![] },
+            &Pending { id: id.into(), room_id: rid.into(), text: text.into(), quotes: vec![], reply_to: None },
             username,
             None,
             &[],
@@ -675,7 +690,7 @@ impl NativeStore {
         membership: Option<&str>,
     ) -> rusqlite::Result<bool> {
         self.enqueue_quoted(
-            &Pending { id: id.into(), room_id: rid.into(), text: text.into(), quotes: vec![] },
+            &Pending { id: id.into(), room_id: rid.into(), text: text.into(), quotes: vec![], reply_to: None },
             username,
             Some(membership),
             &[],
@@ -708,13 +723,16 @@ impl NativeStore {
                 return Err(rusqlite::Error::InvalidQuery);
             }
             quotes::enqueue(tx, &self.identity, pending, selections)?;
+            if let Some(root) = pending.reply_to.as_deref() {
+                threads::require_root(tx, rid, root)?;
+            }
             tx.execute(
-                "INSERT INTO native_messages(id,rid,text,author,ts) VALUES(?1,?2,?3,?4,?5)",
-                params![id, rid, text, username, chrono::Utc::now().timestamp_millis()],
+                "INSERT INTO native_messages(id,rid,text,author,ts,reply_to) VALUES(?1,?2,?3,?4,?5,?6)",
+                params![id, rid, text, username, chrono::Utc::now().timestamp_millis(), pending.reply_to],
             )?;
             tx.execute(
-                "INSERT INTO native_outbox(id,rid,text,created,quotes) VALUES(?1,?2,?3,?4,?5)",
-                params![id, rid, text, chrono::Utc::now().timestamp_millis(), json(&pending.quotes)?],
+                "INSERT INTO native_outbox(id,rid,text,created,quotes,reply_to) VALUES(?1,?2,?3,?4,?5,?6)",
+                params![id, rid, text, chrono::Utc::now().timestamp_millis(), json(&pending.quotes)?, pending.reply_to],
             )?;
             Ok(true)
         })
@@ -724,17 +742,20 @@ impl NativeStore {
         if !self.same(&conn)? {
             return Ok(vec![]);
         }
-        conn.prepare("SELECT id,rid,text,quotes FROM native_outbox WHERE status='pending' ORDER BY created,id")?
-            .query_map([], |r| {
-                let raw: String = r.get(3)?;
-                Ok(Pending {
-                    id: r.get(0)?,
-                    room_id: r.get(1)?,
-                    text: r.get(2)?,
-                    quotes: serde_json::from_str(&raw).map_err(|_| rusqlite::Error::InvalidQuery)?,
-                })
-            })?
-            .collect()
+        conn.prepare(
+            "SELECT id,rid,text,quotes,reply_to FROM native_outbox WHERE status='pending' ORDER BY created,id",
+        )?
+        .query_map([], |r| {
+            let raw: String = r.get(3)?;
+            Ok(Pending {
+                id: r.get(0)?,
+                room_id: r.get(1)?,
+                text: r.get(2)?,
+                quotes: serde_json::from_str(&raw).map_err(|_| rusqlite::Error::InvalidQuery)?,
+                reply_to: r.get(4)?,
+            })
+        })?
+        .collect()
     }
     pub fn fail(&self, id: &str, error: &str) -> rusqlite::Result<()> {
         self.atomic(|tx| {

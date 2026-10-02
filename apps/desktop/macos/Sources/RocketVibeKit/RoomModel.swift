@@ -26,12 +26,13 @@ public final class RoomModel {
     }
     /// The view supplies an actually displayed, confirmed ID before its delay.
     public func markObservedRead(messageId:String) throws {
-        guard active, threadId == nil, !Task.isCancelled, let native=provider.native,
+        guard active, !Task.isCancelled, let native=provider.native,
               let membership=nativeMembership,
               messages.contains(where:{$0.id == messageId && $0.delivery == .sent}) else { throw CancellationError() }
-        _ = try native.markObservedRead(room:room.rid,message:messageId,membership:membership)
+        if let threadId { _ = try native.markObservedThreadRead(root:threadId,message:messageId,membership:membership) }
+        else { _ = try native.markObservedRead(room:room.rid,message:messageId,membership:membership) }
     }
-    public var supportsObservedReads:Bool { active && threadId == nil && nativeReadEnabled }
+    public var supportsObservedReads:Bool { active && nativeReadEnabled && (threadId == nil || provider.native?.supportedFeatures().contains("threads") == true) }
     private var nativeReadEnabled = false
     public func markLegacyRead() async {
         guard active, threadId == nil, !Task.isCancelled, let chat else { return }
@@ -127,7 +128,8 @@ public final class RoomModel {
     private let nativeMembership: String?
     @ObservationIgnored private var nativeQuote: NativeQuoteSelection?
     public private(set) var pendingQuote: Quote?
-    public var canSend: Bool { !draft.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty || nativeQuote != nil }
+    public var canSend: Bool { threadWriteAllowed && (!draft.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty || nativeQuote != nil) }
+    public private(set) var threadWriteAllowed = true
     @ObservationIgnored private var actionLoads: Set<String> = []
     @ObservationIgnored private var mutations: [String: NativeMessageActions] = [:]
 
@@ -139,7 +141,10 @@ public final class RoomModel {
             draftSave = Task {
                 try? await Task.sleep(nanoseconds: 400_000_000)
                 if !Task.isCancelled {
-                    if let native = provider.native { try? native.setDraftFromMembership(room: rid, text: text, membership: membership) }
+                    if let native = provider.native {
+                        if let thread { try? native.setThreadDraftFromMembership(room:rid,root:thread,text:text,membership:membership) }
+                        else { try? native.setDraftFromMembership(room: rid, text: text, membership: membership) }
+                    }
                     else { try? provider.setDraft(rid: rid, thread: thread, text: text) }
                 }
             }
@@ -159,7 +164,10 @@ public final class RoomModel {
         nativeReadEnabled = provider.native?.supportedFeatures().contains("read_markers") == true
         let unread = room.unread > 0 || room.alert
         unreadAfter = unread && threadId == nil ? provider.legacy?.lastSeen(rid: room.rid) : nil
-        if let native = provider.native { draft = (try? native.draftFromMembership(room: room.rid, membership: nativeMembership)) ?? "" }
+        if let native = provider.native {
+            if let threadId { draft = (try? native.threadDraftFromMembership(room:room.rid,root:threadId,membership:nativeMembership)) ?? "" }
+            else { draft = (try? native.draftFromMembership(room: room.rid, membership: nativeMembership)) ?? "" }
+        }
         else { draft = (try? provider.draft(rid: room.rid, thread: threadId)) ?? "" }
         roomInformationRevision = (try? provider.native?.roomRevision(room: room.rid)) ?? "\(room.rid):\(room.name):\(room.kind)"
     }
@@ -188,7 +196,10 @@ public final class RoomModel {
         catch { return false }
     }
     private func saveDraft(_ text: String) throws {
-        if let native = provider.native { try native.setDraftFromMembership(room: room.rid, text: text, membership: nativeMembership) }
+        if let native = provider.native {
+            if let threadId { try native.setThreadDraftFromMembership(room:room.rid,root:threadId,text:text,membership:nativeMembership) }
+            else { try native.setDraftFromMembership(room: room.rid, text: text, membership: nativeMembership) }
+        }
         else { try provider.setDraft(rid: room.rid, thread: threadId, text: text) }
     }
 
@@ -216,7 +227,10 @@ public final class RoomModel {
            (try? native.quoteSelection(room:selection.roomId,messageId:selection.messageId)) != selection {
             pendingQuote = Quote(unavailable:true,link:"",author:nil,body:[],images:[],quotes:[])
         }
-        guard active, let fresh = try? provider.messages(rid: room.rid, limit: limit, thread: threadId, unreadAfter: unreadAfter, nativeBoundary:nativeReadBoundary) else { return }
+        if let native = provider.native, let threadId {
+            threadWriteAllowed = (try? native.threadWritable(room:room.rid,root:threadId)) == true
+        }
+        guard active, let fresh = try? provider.messages(rid: room.rid, limit: limit, thread: threadId, unreadAfter: unreadAfter, nativeBoundary:nativeReadBoundary,nativeMembership:nativeMembership) else { return }
         if fresh != messages {
             let changed = fresh.filter { item in messages.first { $0.id == item.id } != item }
             messages = fresh
@@ -291,7 +305,8 @@ public final class RoomModel {
             // Clear before awaiting the transport: words typed during an RC send must survive.
             try saveDraft("")
             if let native = provider.native {
-                _ = try native.sendQuotesFromMembership(room:room.rid,text:text,membership:nativeMembership,quotes:nativeQuote.map { [$0] } ?? [])
+                if let threadId { _ = try native.sendReplyFromMembership(room:room.rid,root:threadId,text:text,membership:nativeMembership,quotes:nativeQuote.map { [$0] } ?? []) }
+                else { _ = try native.sendQuotesFromMembership(room:room.rid,text:text,membership:nativeMembership,quotes:nativeQuote.map { [$0] } ?? []) }
                 cancelQuote()
             }
             else { try await provider.send(rid: room.rid, text: text, thread: threadId) }
@@ -336,6 +351,7 @@ public final class RoomModel {
             guard let rights = nativeActions[message.id] else { return [.copy] }
             var result: [MessageAction] = [.copy]
             if message.delivery == .sent && provider.native?.supportedFeatures().contains("quotes") == true { result.append(.reply) }
+            if threadId == nil && message.delivery == .sent && message.threadId == nil && !room.readOnly && provider.native?.supportedFeatures().contains("threads") == true { result.append(.replyInThread) }
             let deadline = rights.editUntil.flatMap { value -> Date? in
                 let parser = ISO8601DateFormatter()
                 parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -461,7 +477,7 @@ public final class RoomModel {
         if let native = provider.native {
             do {
                 let selected = try native.quoteSelection(room:room.rid,messageId:message.id)
-                guard let source = try native.messageItems(room:room.rid,limit:UInt32(clamping:limit)).first(where: { $0.id == message.id }),
+                guard let source = try provider.messages(rid:room.rid,limit:limit,thread:threadId,unreadAfter:unreadAfter,nativeBoundary:nativeReadBoundary,nativeMembership:nativeMembership).first(where: { $0.id == message.id }),
                       try native.quoteSelection(room:room.rid,messageId:message.id) == selected else { throw CancellationError() }
                 nativeQuote = selected
                 pendingQuote = Quote(unavailable:false,link:"",author:source.author,body:source.body,images:[],quotes:[])

@@ -12,6 +12,7 @@ import {decodeNative} from './validation.ts';
 import {nativeMarkdown} from './markdown.ts';
 import {nativeSystemMessage} from './systemMessages.ts';
 import {NativeQuoteCache,type NativeQuoteSelection} from './quotes.ts';
+import {NativeThreadCache,type PendingThreadRead} from './threads.ts';
 
 // Native revisions, checked below as exact decimal strings, order projection.
 // The shared RC statement's wall-clock condition would discard a valid edit
@@ -28,7 +29,7 @@ export interface NativeDatabase {
 export type NativeState = { instance_id: string; data_epoch: string; cursor: string };
 export type NativeRoomRow = { rid: string; nom: string; type: string; dernier_message: string | null };
 export type NativeMessageRow = { id: string; texte: string; auteur_nom: string; auteur_id: string; horodatage: number; statut: string | null };
-export type NativePending = { id: string; rid: string; texte: string;quotes:import('./protocol.generated.ts').QuoteReference[] };
+export type NativePending = { id: string; rid: string; texte: string;quotes:import('./protocol.generated.ts').QuoteReference[];reply_to?:string };
 export type NativeRoomAccess = {rid:string;revision:string;read_only:number|null;can_send:number|null;role:string|null};
 export type NativeCommand = {id:string;rid:string;message_id:string;kind:'edit'|'delete'|'react'|'pin'|'star';expected_revision:string;text:string;quotes:import('./protocol.generated.ts').QuoteReference[]|null};
 type NativeCommandRow=Omit<NativeCommand,'quotes'>&{quotes:string|null};
@@ -49,13 +50,16 @@ export function localMessage(message: Message, selfId?: string): MessageLocal {
   const time = Date.parse(message.created_at);
   const edited=message.edited_at==null?null:Date.parse(message.edited_at);
   const system=message.system==null?null:nativeSystemMessage(message.system);
-  if(system && (message.text!=='' || message.deleted || message.body!=null || message.quotes?.length))throw new Error('Invalid native system message');
+  const replies=readDecimal(message.thread?.replies??'0');
+  const last=message.thread?.last_reply_at==null?null:Date.parse(message.thread.last_reply_at);
+  if(last!==null && !Number.isFinite(last) || message.reply_to!=null && (!roomIdentifier(message.reply_to) || message.reply_to===message.id || message.thread!=null || system))throw new Error('Invalid native thread message');
+  if(system && (message.text!=='' || message.deleted || message.body!=null || message.quotes?.length || message.thread!=null))throw new Error('Invalid native system message');
   if ((edited!==null && !Number.isFinite(edited)) || (message.deleted && message.text!=='')) throw new Error('Invalid native message state');
   if (!Number.isFinite(time) || !/^\d+$/.test(message.position) || !/^\d+$/.test(message.revision)) throw new Error('Invalid native message ordering');
   return {
     id: message.id, rid: message.room_id, texte: system?.param??message.text, horodatage: time,
     auteurId: message.author.id, auteurNom: message.author.username, typeSysteme: system?.type??null,
-    filId: null, filReponses: 0, filDernier: null, filAffiche: false, modifieLe: edited,
+    filId: message.reply_to??null, filReponses: Number(replies>2147483647n?2147483647n:replies), filDernier: last, filAffiche: false, modifieLe: edited,
     md: message.deleted||system?null:nativeMarkdown(message.body), piecesJointes: null, reactions: nativeReactions(message.reactions), urls: null, appelId: null,
     chiffreBrut: null, epingle: message.pinned ?? false,
     etoiles: message.personal_star?.present && selfId ? JSON.stringify([selfId]) : null, misAJourLe: time,
@@ -67,9 +71,10 @@ export class NativeStore {
   private readonly queue: FileEcritures;
   private readonly session: AppSession;
   private readonly quotes:NativeQuoteCache;
+  private readonly threads:NativeThreadCache;
   private projection=0;
   constructor(db: NativeDatabase, queue: FileEcritures, session: AppSession) {
-    this.db = db; this.queue = queue; this.session = session;this.quotes=new NativeQuoteCache(db,{instance_id:session.nativeInstanceId??'',data_epoch:session.nativeDataEpoch??''});
+    this.db = db; this.queue = queue; this.session = session;this.quotes=new NativeQuoteCache(db,{instance_id:session.nativeInstanceId??'',data_epoch:session.nativeDataEpoch??''});this.threads=new NativeThreadCache(db);
   }
   private atomic<T>(fn: () => Promise<T>, rotate:boolean|(()=>boolean)=false): Promise<T> {
     return this.queue(async () => {
@@ -91,21 +96,22 @@ export class NativeStore {
   prepare(): Promise<void> {
     return this.atomic(async () => {
       if (await this.sameGeneration()) return;
-      for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs','native_room_creations','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+      for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs','native_room_creations','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
     });
   }
   private async membershipMatches(rid:string,membership:string|null):Promise<boolean> {
     return await this.sameGeneration() && !!await this.db.getFirstAsync('SELECT rid FROM salons WHERE rid=?',[rid]) && ((await this.readStateIn(rid))?.membership_version??null)===membership;
   }
   drafts(scope?:{room:string;membership:string|null}): DepotBrouillons {
-    const bound=async(rid:string)=>!scope || scope.room===rid && await this.membershipMatches(rid,scope.membership);
+    const room=(key:string)=>key.split(':')[0];
+    const bound=async(key:string)=>!scope || scope.room===room(key) && await this.membershipMatches(scope.room,scope.membership);
     return {
       lire:rid => this.queue(async () => {
         if (!await this.sameGeneration() || !await bound(rid)) return null;
         return (await this.db.getFirstAsync<{texte:string}>('SELECT texte FROM brouillons WHERE cle=?',[rid]))?.texte ?? null;
       }),
       ecrire:(rid,text) => this.atomic(async () => {
-        if (!await this.sameGeneration() || !await this.db.getFirstAsync('SELECT rid FROM salons WHERE rid=?',[rid]) || !await bound(rid)) return;
+        if (!await this.sameGeneration() || !await this.db.getFirstAsync('SELECT rid FROM salons WHERE rid=?',[room(rid)]) || !await bound(rid)) return;
         await this.db.runAsync('INSERT INTO brouillons(cle,texte,mis_a_jour_le) VALUES(?,?,?) ON CONFLICT(cle) DO UPDATE SET texte=excluded.texte,mis_a_jour_le=excluded.mis_a_jour_le',[rid,text,Date.now()]);
       }),
       supprimer:rid => this.atomic(async () => {
@@ -194,14 +200,14 @@ export class NativeStore {
       await this.db.runAsync('DELETE FROM messages WHERE id=?',[message.id]);
       await this.db.runAsync('DELETE FROM native_star_states WHERE id=?',[message.id]);
     } else await this.db.runAsync(NATIVE_UPSERT_MESSAGE, paramsMessage(local));
-    await this.db.runAsync('INSERT INTO native_positions(id,rid,position,revision) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET position=excluded.position,revision=excluded.revision', [message.id, message.room_id, message.position, message.revision]);
+    await this.db.runAsync('INSERT INTO native_positions(id,rid,position,revision,reply_to) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET position=excluded.position,revision=excluded.revision,reply_to=excluded.reply_to', [message.id, message.room_id, message.position, message.revision,message.reply_to??null]);
     await this.quotes.project(message,true);
     await this.db.runAsync(SUPPRIMER_SORTIE, [message.id]);
     await this.db.runAsync('DELETE FROM native_outbox_quotes WHERE id=?',[message.id]);
     await this.preview(message.room_id);
   }
   private async remove(rid: string,keepMetadata=false): Promise<void> {
-    for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'native_positions','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes']) {
+    for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'native_positions','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) {
       if(keepMetadata && table==='salons')continue;
       await this.db.runAsync(`DELETE FROM ${table} WHERE rid=?`, [rid]);
     }
@@ -215,7 +221,7 @@ export class NativeStore {
       const old = await this.db.getFirstAsync<NativeState>('SELECT instance_id,data_epoch,cursor FROM native_sync_state WHERE singleton=1', []);
       if (!old || old.instance_id !== this.session.nativeInstanceId || old.data_epoch !== this.session.nativeDataEpoch) {
         // A fresh login to a different generation must never replay its predecessor's outbox.
-        for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'brouillons', 'native_positions', 'etat_synchro', 'utilisateurs', 'native_room_creations','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+        for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'brouillons', 'native_positions', 'etat_synchro', 'utilisateurs', 'native_room_creations','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
       } else {
         const live = new Set(snapshot.rooms.map(room => room.id));
         const known = await this.db.getAllAsync<{rid:string}>('SELECT rid FROM salons', []);
@@ -252,6 +258,24 @@ export class NativeStore {
       for (const message of messages) await this.message(message);
       return true;
     });
+  }
+  cacheThread(page:import('./protocol.generated.ts').ThreadPage,token:number):Promise<boolean>{
+    return this.atomic(async()=>{
+      if(!await this.sameGeneration() || token!==this.projectionToken())return false;
+      if(page.root.reply_to!=null || page.root.system!=null || page.read_state.root_id!==page.root.id || page.read_state.room_id!==page.root.room_id || page.messages.some(m=>m.room_id!==page.root.room_id || m.reply_to!==page.root.id || m.id===page.root.id))throw new Error('Invalid native thread page');
+      await this.threads.save(page.read_state);
+      for(const message of [page.root,...page.messages])await this.message(message);
+      return true;
+    });
+  }
+  stageThreadRead(root:string,id:string,membership:string):Promise<boolean>{
+    return this.atomic(async()=>await this.sameGeneration()?this.threads.stage(root,id,membership):false);
+  }
+  pendingThreadReads():Promise<PendingThreadRead[]>{
+    return this.atomic(async()=>await this.sameGeneration()?this.threads.pending():[]);
+  }
+  completeThreadRead(state:import('./protocol.generated.ts').ThreadReadState,token:number):Promise<boolean>{
+    return this.atomic(async()=>{if(!await this.sameGeneration() || token!==this.projectionToken())return false;await this.threads.save(state);return true;});
   }
   rooms(): Promise<NativeRoomRow[]> {
     return this.queue(async () => await this.sameGeneration() ? this.db.getAllAsync<NativeRoomRow>('SELECT rid,COALESCE(nom_affiche,nom,rid) AS nom,type,dernier_message FROM salons ORDER BY COALESCE(horodatage_dernier_message,0) DESC,rid', []) : []);
@@ -491,29 +515,30 @@ export class NativeStore {
     return this.queue(async () => await this.sameGeneration() ? this.db.getAllAsync<NativeMessageRow>('SELECT m.id,m.texte,m.auteur_nom,m.auteur_id,m.horodatage,s.statut FROM messages m LEFT JOIN sortie s ON s.id=m.id LEFT JOIN native_positions p ON p.id=m.id WHERE m.rid=? ORDER BY p.position IS NULL DESC,length(p.position) DESC,p.position DESC,m.horodatage DESC,m.id DESC LIMIT ?', [rid,limit]) : []);
   }
   oldestPosition(rid: string): Promise<string | undefined> {
-    return this.queue(async () => (await this.db.getFirstAsync<{position:string}>('SELECT position FROM native_positions WHERE rid=? ORDER BY length(position),position LIMIT 1', [rid]))?.position);
+    return this.queue(async () => (await this.db.getFirstAsync<{position:string}>('SELECT position FROM native_positions WHERE rid=? AND reply_to IS NULL ORDER BY length(position),position LIMIT 1', [rid]))?.position);
   }
   quoteSelection(rid:string,id:string):Promise<NativeQuoteSelection> {
     return this.queue(async()=>{if(!await this.sameGeneration())throw new Error('Native quote generation unavailable');return this.quotes.selection(rid,id);});
   }
-  enqueue(id: string, rid: string, text: string,scope?:{membership:string|null},selected:readonly NativeQuoteSelection[]=[]): Promise<void> {
+  enqueue(id: string, rid: string, text: string,scope?:{membership:string|null},selected:readonly NativeQuoteSelection[]=[],replyTo?:string|null): Promise<void> {
     return this.atomic(async () => {
       if (!await this.sameGeneration() || !await this.db.getFirstAsync('SELECT rid FROM salons WHERE rid=?', [rid])) throw new Error('Room unavailable in this generation');
       if(scope && !await this.membershipMatches(rid,scope.membership))throw new Error('Native membership changed');
+      if(replyTo && !await this.db.getFirstAsync('SELECT m.id FROM messages m JOIN native_positions p ON p.id=m.id WHERE m.id=? AND m.rid=? AND m.fil_id IS NULL AND m.type_systeme IS NULL AND p.position<>\'0\'',[replyTo,rid]))throw new Error('Native thread root unavailable');
       const now = new Date().toISOString();
-      const local = localMessage({id,room_id:rid,text,author:{id:this.session.userId,username:this.session.username,display_name:this.session.username},created_at:now,position:'0',revision:'0'});
+      const local = localMessage({id,room_id:rid,text,reply_to:replyTo??null,author:{id:this.session.userId,username:this.session.username,display_name:this.session.username},created_at:now,position:'0',revision:'0'});
       local.misAJourLe = 0;
       await this.db.runAsync(UPSERT_MESSAGE, paramsMessage(local));
       const refs=await this.quotes.enqueue(id,rid,selected);
-      await this.db.runAsync(INSERER_SORTIE, [id,rid,text,null,Date.now()]);
+      await this.db.runAsync(INSERER_SORTIE, [id,rid,text,replyTo??null,Date.now()]);
       await this.db.runAsync('INSERT INTO native_outbox_quotes(id,rid,payload) VALUES(?,?,?)',[id,rid,JSON.stringify(refs)]);
     });
   }
   pending(): Promise<NativePending[]> {
     return this.queue(async () => {
       if(!await this.sameGeneration())return [];
-      const rows=await this.db.getAllAsync<{id:string;rid:string;texte:string;payload:string}>("SELECT s.id,s.rid,s.texte,coalesce(q.payload,'[]') AS payload FROM sortie s LEFT JOIN native_outbox_quotes q ON q.id=s.id WHERE s.statut='en-attente' ORDER BY s.cree_le,s.id",[]);
-      return rows.map(({payload,...row})=>{const raw:unknown=JSON.parse(payload);if(!Array.isArray(raw) || raw.length>8)throw new Error('Invalid native outbox references');return {...row,quotes:raw.map(r=>decodeNative('QuoteReference',r))};});
+      const rows=await this.db.getAllAsync<{id:string;rid:string;texte:string;payload:string;fil_id:string|null}>("SELECT s.id,s.rid,s.texte,s.fil_id,coalesce(q.payload,'[]') AS payload FROM sortie s LEFT JOIN native_outbox_quotes q ON q.id=s.id WHERE s.statut='en-attente' ORDER BY s.cree_le,s.id",[]);
+      return rows.map(({payload,fil_id,...row})=>{const raw:unknown=JSON.parse(payload);if(!Array.isArray(raw) || raw.length>8)throw new Error('Invalid native outbox references');return {...row,...(fil_id?{reply_to:fil_id}:{}),quotes:raw.map(r=>decodeNative('QuoteReference',r))};});
     });
   }
   fail(id: string, code: string): Promise<void> { return this.queue(async () => { await this.db.runAsync(MARQUER_SORTIE_ECHEC, [code,id]); }); }

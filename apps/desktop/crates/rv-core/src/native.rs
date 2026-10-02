@@ -426,6 +426,7 @@ impl NativeSession {
                     pins: true,
                     stars: true,
                     quotes: true,
+                    threads: true,
                     fine_permissions: true,
                     session_rotation: self.credentials.is_some(),
                     device_sessions: true,
@@ -524,6 +525,7 @@ impl NativeSession {
                 .send(
                     &pending.room_id,
                     &rv_protocol::SendMessage {
+                        reply_to: pending.reply_to.clone(),
                         quotes: pending.quotes,
                         operation_id: pending.id.clone(),
                         text: pending.text,
@@ -565,10 +567,10 @@ impl NativeSession {
         Ok(())
     }
     pub fn send(&self, rid: &str, text: &str) -> Result<String, Error> {
-        self.send_intention(rid, text, None, &[])
+        self.send_intention(rid, text, None, &[], None)
     }
     pub fn send_from_membership(&self, rid: &str, text: &str, membership: Option<&str>) -> Result<String, Error> {
-        self.send_intention(rid, text, Some(membership), &[])
+        self.send_intention(rid, text, Some(membership), &[], None)
     }
     pub fn send_quotes_from_membership(
         &self,
@@ -577,7 +579,17 @@ impl NativeSession {
         membership: Option<&str>,
         selections: &[store::QuoteSelection],
     ) -> Result<String, Error> {
-        self.send_intention(rid, text, Some(membership), selections)
+        self.send_intention(rid, text, Some(membership), selections, None)
+    }
+    pub fn send_reply_from_membership(
+        &self,
+        rid: &str,
+        root: &str,
+        text: &str,
+        membership: Option<&str>,
+        selections: &[store::QuoteSelection],
+    ) -> Result<String, Error> {
+        self.send_intention(rid, text, Some(membership), selections, Some(root))
     }
     fn send_intention(
         &self,
@@ -585,6 +597,7 @@ impl NativeSession {
         text: &str,
         membership: Option<Option<&str>>,
         selections: &[store::QuoteSelection],
+        root: Option<&str>,
     ) -> Result<String, Error> {
         if self.closed.load(Ordering::SeqCst) {
             return Err(Error::Protocol("session_closed"));
@@ -602,6 +615,7 @@ impl NativeSession {
             room_id: rid.into(),
             text: text.into(),
             quotes: selections.iter().map(|s| s.reference.clone()).collect(),
+            reply_to: root.map(str::to_owned),
         };
         if !self.store.enqueue_quoted(&pending, &self.info.username, membership, selections)? {
             return Err(Error::Protocol("delivery_revalidate"));
@@ -948,6 +962,44 @@ impl NativeSession {
             return Err(Error::Protocol("delivery_revalidate"));
         }
         Ok(page.has_more)
+    }
+    pub async fn load_thread(&self, rid: &str, root: &str) -> Result<(), Error> {
+        self.ready()?;
+        if !self.supported_features().iter().any(|f| f == "threads") {
+            return Err(Error::Protocol("unsupported_feature"));
+        }
+        let projection = self.store.projection_token();
+        let generation = self.security_generation.load(Ordering::SeqCst);
+        let membership = self
+            .store
+            .read_state(rid)?
+            .and_then(|s| s.membership_version)
+            .ok_or(Error::Protocol("delivery_revalidate"))?;
+        let mut before: Option<String> = None;
+        for _ in 0..1000 {
+            let page = self.client.thread(root, before.as_deref()).await?;
+            self.ready()?;
+            if generation != self.security_generation.load(Ordering::SeqCst)
+                || page.root.id != root
+                || page.root.room_id != rid
+                || page.read_state.membership_version != membership
+                || page.messages.first().is_some_and(|m| {
+                    before.as_ref().is_some_and(|p| {
+                        m.position.parse::<u64>().ok().zip(p.parse::<u64>().ok()).is_none_or(|(next, old)| next >= old)
+                    })
+                })
+            {
+                return Err(Error::Protocol("delivery_revalidate"));
+            }
+            if !self.store.cache_thread(&page, projection)? {
+                return Err(Error::Protocol("delivery_revalidate"));
+            }
+            if !page.has_more {
+                return Ok(());
+            }
+            before = page.messages.last().map(|m| m.position.clone());
+        }
+        Err(Error::Protocol("thread_too_large"))
     }
     pub async fn create_room(&self, name: &str, private: bool) -> Result<String, Error> {
         self.ready()?;

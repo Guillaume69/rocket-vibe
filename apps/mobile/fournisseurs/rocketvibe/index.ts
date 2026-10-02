@@ -12,8 +12,8 @@ import type { Capabilities } from './protocol.generated.ts';
 export const CAPACITES_ROCKETVIBE: Capacites = {
   edition:true, suppression:true,
   typing:false, presence:false, push:false, e2ee:false, emojisCustom:false,
-  appelVideo:false, recherche:false, modeleFil:'tmid',
-  fichiers:false, fils:false, reactions:true, marques:true, profil:false, infosSalon:true, favorisSalon:true, citations:true,
+  appelVideo:false, recherche:false, modeleFil:'root_id',
+  fichiers:false, fils:true, reactions:true, marques:true, profil:false, infosSalon:true, favorisSalon:true, citations:true,
   reglagesSalon:true,rolesSalon:true,quitterSalon:true,lecturesSalon:true,
 };
 const unsupported = async (): Promise<never> => { throw new NativeError(501,'unsupported_feature'); };
@@ -120,11 +120,10 @@ export function creerFournisseurRV(session: Session, client: ClientRest, generer
       const after = await store.oldestPosition(rid);
       return {plusAncien:null, aRecule:after !== undefined && (before === undefined || BigInt(after) < BigInt(before))};
     },
-    chargerFil:unsupported,
+    chargerFil:(_moteur,root,abandoned)=>chat.loadThread(root,abandoned),
     creerEnvoi:() => ({
       envoyer:async (rid,text,fil,_jointes,citations=[]) => {
-        if (fil) return unsupported();
-        return chat.send(rid,text,undefined,citations);
+        return chat.send(rid,text,undefined,citations,fil);
       },
       traiter:async () => chat.refresh(),
       reessayer:id => chat.retry(id),

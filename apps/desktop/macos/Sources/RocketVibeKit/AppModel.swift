@@ -224,6 +224,10 @@ public final class AppModel {
             }
         }
         onAttention?(chat?.attention() ?? 0)
+        if let thread {
+            if thread.membershipIsCurrent, let fresh = rooms.first(where: { $0.rid == thread.rid }) { thread.update(room: fresh) }
+            else { closeThread() }
+        }
     }
 
     public func open(_ rid: String, remember: Bool = true) {
@@ -250,8 +254,9 @@ public final class AppModel {
     }
 
     public func openThread(_ rootId: String) {
-        guard let chat, let room else { return }
-        let model = RoomModel(chat: chat, room: room.room, threadId: rootId)
+        guard let provider, let room else { return }
+        if let native = provider.native, !native.supportedFeatures().contains("threads") { return }
+        let model = RoomModel(provider: provider, room: room.room, threadId: rootId)
         thread?.deactivate()
         thread = model
         Task { await model.load() }

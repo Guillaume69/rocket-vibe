@@ -242,13 +242,24 @@ impl ChatPage {
         let active = self.split.root().and_downcast::<gtk::Window>().is_some_and(|w| {
             w.is_active() && gtk::prelude::RootExt::focus(&w).is_some_and(|f| f.is_ancestor(&self.split))
         });
-        if !active || !(self.split.shows_content() || !self.split.is_collapsed()) || !self.list.is_pinned() {
+        if !active || !(self.split.shows_content() || !self.split.is_collapsed()) {
             return;
         }
         let Some((rid, Some(membership))) = self.native_membership.borrow().clone() else {
             return;
         };
-        let Some(message) = self.list.visible_confirmed_id() else {
+        let thread = (self.room_nav.visible_page().and_then(|p| p.tag()).as_deref() == Some("thread"))
+            .then(|| self.thread.borrow().clone())
+            .flatten();
+        let list = thread.as_ref().map_or_else(|| self.list.clone(), |t| t.list.clone());
+        if !list.is_pinned() {
+            return;
+        }
+        let root = thread.as_ref().map(|t| t.root_id.clone());
+        if thread.as_ref().is_some_and(|t| t.membership.as_deref() != Some(&membership)) {
+            return;
+        }
+        let Some(message) = list.visible_confirmed_id() else {
             return;
         };
         if self.native_read_last.borrow().as_ref() == Some(&message) {
@@ -259,10 +270,11 @@ impl ChatPage {
             self.read_generation.clone(),
             self.native_read_pending.clone(),
             self.native_read_last.clone(),
-            self.list.clone(),
+            list,
             self.split.clone(),
         );
         self.native_read_pending.set(true);
+        let navigation = self.room_nav.clone();
         glib::timeout_add_local_once(std::time::Duration::from_millis(1500), move || {
             if counter.get() != generation {
                 return;
@@ -271,12 +283,93 @@ impl ChatPage {
             let active = split.root().and_downcast::<gtk::Window>().is_some_and(|w| {
                 w.is_active() && gtk::prelude::RootExt::focus(&w).is_some_and(|f| f.is_ancestor(&split))
             });
-            if active && (split.shows_content() || !split.is_collapsed()) && list.is_pinned() && !session.is_closed() {
-                if session.mark_observed_read_from_membership(&rid, &message, &membership).is_ok() {
+            let in_thread = navigation.visible_page().and_then(|p| p.tag()).as_deref() == Some("thread");
+            if active
+                && root.is_some() == in_thread
+                && (split.shows_content() || !split.is_collapsed())
+                && list.is_pinned()
+                && !session.is_closed()
+            {
+                let result = if let Some(root) = &root {
+                    session.mark_observed_thread_read(root, &message, &membership)
+                } else {
+                    session.mark_observed_read_from_membership(&rid, &message, &membership)
+                };
+                if result.is_ok() {
                     last.replace(Some(message));
                 }
                 list.notify_visible();
             }
+        });
+    }
+
+    pub(super) fn open_native_thread(self: &Rc<Self>, root: &str) {
+        let (Some(session), Some(rid)) = (self.native_session(), self.current_rid()) else { return };
+        if !session.supported_features().iter().any(|f| f == "threads") {
+            return;
+        }
+        if self.thread.borrow().as_ref().is_some_and(|t| t.root_id == root)
+            && self.room_nav.visible_page().and_then(|p| p.tag()).as_deref() == Some("thread")
+        {
+            return;
+        }
+        self.read_generation.set(self.read_generation.get().wrapping_add(1));
+        self.native_read_pending.set(false);
+        self.native_read_last.replace(None);
+        self.room_nav.pop_to_tag("room");
+        let thread = ThreadPage::new_native(self.session.clone(), session.clone(), &rid, root);
+        let weak = Rc::downgrade(self);
+        thread.list.connect_event(move |event| {
+            if let Some(this) = weak.upgrade() {
+                this.handle_event(event, true);
+            }
+        });
+        let (weak, s, target, opening, r, root_id) = (
+            Rc::downgrade(self),
+            session.clone(),
+            Rc::downgrade(&thread),
+            thread.membership.clone(),
+            rid.clone(),
+            root.to_owned(),
+        );
+        thread.composer.connect_submit(move |text| {
+            let (Some(this), Some(thread)) = (weak.upgrade(), target.upgrade()) else { return };
+            let quotes = thread.composer.native_reply().into_iter().collect::<Vec<_>>();
+            match s.send_reply_from_membership(&r, &root_id, &text, opening.as_deref(), &quotes) {
+                Ok(_) => thread.composer.clear_reply(),
+                Err(error) => {
+                    thread.composer.set_text(&text);
+                    this.native_error(&error);
+                }
+            }
+        });
+        let weak = Rc::downgrade(self);
+        thread.composer.connect_edit_last(move || {
+            if let Some(this) = weak.upgrade() {
+                this.edit_last(true);
+            }
+        });
+        let weak = Rc::downgrade(self);
+        thread.list.connect_visible(move || {
+            if let Some(this) = weak.upgrade() {
+                this.schedule_native_read();
+            }
+        });
+        self.room_nav.push(&thread.page);
+        self.thread.replace(Some(thread.clone()));
+        thread.reload();
+        thread.composer.grab_focus();
+        let (weak, r, root_id) = (Rc::downgrade(self), rid, root.to_owned());
+        glib::spawn_future_local(async move {
+            let result = on_tokio(async move { session.load_thread(&r, &root_id).await }).await;
+            let Some(this) = weak.upgrade() else { return };
+            if this.thread.borrow().as_ref().is_none_or(|current| !Rc::ptr_eq(current, &thread)) {
+                return;
+            }
+            if let Err(error) = result {
+                this.native_error(&error);
+            }
+            thread.reload();
         });
     }
 
@@ -333,20 +426,21 @@ impl ChatPage {
         });
     }
 
-    pub(super) fn native_row_event(self: &Rc<Self>, event: RowEvent) {
+    pub(super) fn native_row_event(self: &Rc<Self>, event: RowEvent, in_thread: bool) {
         match event {
             RowEvent::Retry(id) => self.retry(id),
             RowEvent::React { id, shortcode, add } => self.native_react(id, shortcode, add),
+            RowEvent::OpenThread(root) => self.open_thread(&root),
             RowEvent::CancelEdit => {
                 self.native_edit.replace(None);
-                self.list.stop_edit();
-                self.composer.grab_focus();
+                self.list_of(in_thread).stop_edit();
+                self.composer_of(in_thread).grab_focus();
             }
             RowEvent::SaveEdit => {
                 let Some((id, revision, initial)) = self.native_edit.borrow_mut().take() else { return };
-                let Some((edited, text)) = self.list.stop_edit() else { return };
+                let Some((edited, text)) = self.list_of(in_thread).stop_edit() else { return };
                 let (Some(session), Some(rid)) = (self.native_session(), self.current_rid()) else { return };
-                self.composer.grab_focus();
+                self.composer_of(in_thread).grab_focus();
                 if edited != id || text.trim().is_empty() || text == initial {
                     return;
                 }
@@ -362,12 +456,12 @@ impl ChatPage {
                     }
                     if let Err(error) = result {
                         this.native_error(&error);
-                        if this.list.editing().is_none()
-                            && let Some(mut row) = this.list.row(&id)
+                        if this.list_of(in_thread).editing().is_none()
+                            && let Some(mut row) = this.list_of(in_thread).row(&id)
                         {
                             row.text = Some(text);
                             this.native_edit.replace(Some((id, revision, initial)));
-                            this.list.start_edit(&row);
+                            this.list_of(in_thread).start_edit(&row);
                         }
                     }
                 });
@@ -431,8 +525,26 @@ impl ChatPage {
                                     && this.native_session().is_some_and(|current| Arc::ptr_eq(&current, &s))
                                     && this.current_rid().as_deref() == Some(&row.rid)
                                 {
-                                    this.start_reply(*row.clone(), false);
+                                    this.start_reply(*row.clone(), in_thread);
                                     p.popdown();
+                                }
+                            });
+                            list.append(&button);
+                        }
+                        if !in_thread
+                            && !message.deleted
+                            && message.reply_to.is_none()
+                            && message.system.is_none()
+                            && expected.can_send_to_room(&rid)
+                            && expected.supported_features().iter().any(|f| f == "threads")
+                        {
+                            let button =
+                                gtk::Button::builder().label(t("actions.reply_thread")).css_classes(["flat"]).build();
+                            let (weak, p, root) = (weak.clone(), popover.clone(), message.id.clone());
+                            button.connect_clicked(move |_| {
+                                p.popdown();
+                                if let Some(this) = weak.upgrade() {
+                                    this.open_thread(&root);
                                 }
                             });
                             list.append(&button);
@@ -548,7 +660,7 @@ impl ChatPage {
                                     let mut r = r.clone();
                                     r.text = Some(text.clone());
                                     this.native_edit.replace(Some((r.id.clone(), revision.clone(), initial.clone())));
-                                    this.list.start_edit(&r);
+                                    this.list_of(in_thread).start_edit(&r);
                                 } else {
                                     let (weak, s, id, rid, revision) =
                                         (weak.clone(), s.clone(), r.id.clone(), r.rid.clone(), revision.clone());
@@ -592,7 +704,7 @@ impl ChatPage {
         });
     }
 
-    pub(super) fn start_native_edit(self: &Rc<Self>, mut row: rv_core::store::MessageRow) {
+    pub(super) fn start_native_edit(self: &Rc<Self>, mut row: rv_core::store::MessageRow, in_thread: bool) {
         let Some(session) = self.native_session() else { return };
         let (weak, expected, rid, id) = (Rc::downgrade(self), session.clone(), row.rid.clone(), row.id.clone());
         glib::spawn_future_local(async move {
@@ -609,7 +721,7 @@ impl ChatPage {
                     let text = expected.store.command_draft(&row.id).ok().flatten().unwrap_or_else(|| initial.clone());
                     row.text = Some(text.clone());
                     this.native_edit.replace(Some((row.id.clone(), rights.revision, initial)));
-                    this.list.start_edit(&row);
+                    this.list_of(in_thread).start_edit(&row);
                 }
                 Ok(_) => this.toast(t("edit.too_late").to_owned()),
                 Err(error) => this.native_error(&error),

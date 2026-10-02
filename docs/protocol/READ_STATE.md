@@ -48,8 +48,10 @@ Une nouvelle adhésion initialise sa lecture au dernier message existant ;
 l'historique antérieur reste accessible, sans ajouter un arriéré de badges.
 La migration adopte la même règle pour les adhésions existantes.
 
-`reply_position` et `unread_replies` valent actuellement `"0"`. Une position de réponse non nulle produit
-`422 unsupported_feature` jusqu'au lot P11. Les réponses restent un incrément distinct.
+Les [fils P11](THREADS.md) possèdent leurs lectures propres. `reply_position`
+sert à une lecture globale des réponses du salon ; chaque réponse utilise le
+maximum de cette position et de la lecture de son fil. `unread_replies` et les
+mentions suivent cette même règle. Lire un fil ne lit pas les autres fils.
 
 ## Mentions
 

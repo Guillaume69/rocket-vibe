@@ -2,7 +2,7 @@
 //! before sending the original CAS. Neither queue controls socket health.
 use super::{
     Error, NativeSession, diagnostics, permanent_command_error,
-    store::{PendingRead, SavedFavorite},
+    store::{PendingRead, PendingThreadRead, SavedFavorite},
 };
 use std::{sync::atomic::Ordering, time::Duration};
 use tokio::time::Instant;
@@ -34,6 +34,17 @@ impl NativeSession {
         self.store.stage_favorite(room, present)?.ok_or(Error::Protocol("favorite_action_pending"))?;
         self.wake.notify_one();
         Ok(())
+    }
+    pub fn mark_observed_thread_read(&self, root: &str, message: &str, membership: &str) -> Result<bool, Error> {
+        self.state_staging_supported(false)?;
+        if !self.supported_features().iter().any(|f| f == "threads") {
+            return Err(Error::Protocol("unsupported_feature"));
+        }
+        let changed = self.store.stage_thread_read(root, message, membership)?;
+        if changed {
+            self.wake.notify_one();
+        }
+        Ok(changed)
     }
     pub fn set_favorite_from_state(
         &self,
@@ -131,7 +142,20 @@ impl NativeSession {
                     break;
                 }
             }
-            if self.read_retry.lock().unwrap().is_none() && !self.store.pending_reads()?.is_empty() {
+            if self.read_retry.lock().unwrap().is_none() {
+                for saved in self.store.pending_thread_reads()? {
+                    if let Err(error) = self.apply_observed_thread_read(&saved).await {
+                        if error.terminal() {
+                            return Err(error);
+                        }
+                        self.state_defer(false, &error);
+                        break;
+                    }
+                }
+            }
+            if self.read_retry.lock().unwrap().is_none()
+                && (!self.store.pending_reads()?.is_empty() || !self.store.pending_thread_reads()?.is_empty())
+            {
                 *self.read_retry.lock().unwrap() = Some(Instant::now() + Duration::from_millis(100));
             }
         }
@@ -235,6 +259,47 @@ impl NativeSession {
         // floor until fresh state covers it, without submitting another PUT.
         if live()? {
             *self.favorite_retry.lock().unwrap() = Some(Instant::now() + Duration::from_secs(2));
+        }
+        Ok(())
+    }
+    async fn apply_observed_thread_read(&self, saved: &PendingThreadRead) -> Result<(), Error> {
+        let generation = self.security_generation.load(Ordering::SeqCst);
+        let projection = self.store.projection_token();
+        self.state_generation(generation, projection, &saved.room, &saved.membership)?;
+        self.identity().await?;
+        self.state_generation(generation, projection, &saved.room, &saved.membership)?;
+        if !self.supported_features().iter().any(|f| f == "threads") {
+            return Err(Error::Protocol("unsupported_feature"));
+        }
+        let confirmed = self
+            .client
+            .mark_thread_read(&saved.root, &rv_protocol::MarkThreadRead { position: saved.position.clone() })
+            .await?;
+        self.identity().await?;
+        self.state_generation(generation, projection, &saved.room, &saved.membership)?;
+        if confirmed.root_id != saved.root
+            || confirmed.room_id != saved.room
+            || confirmed.membership_version != saved.membership
+            || confirmed
+                .position
+                .parse::<u64>()
+                .ok()
+                .zip(saved.position.parse::<u64>().ok())
+                .is_none_or(|(ack, observed)| ack < observed)
+        {
+            return Err(Error::Protocol("invalid_read_state"));
+        }
+        if !self.store.cache_thread_read(&confirmed, projection)? {
+            return Err(Error::Protocol("delivery_revalidate"));
+        }
+        let room = self.client.room_read_state(&saved.room).await?;
+        self.identity().await?;
+        self.state_generation(generation, projection, &saved.room, &saved.membership)?;
+        if room.room_id != saved.room {
+            return Err(Error::Protocol("invalid_read_state"));
+        }
+        if !self.store.cache_read_state(&room, projection)? {
+            return Err(Error::Protocol("delivery_revalidate"));
         }
         Ok(())
     }

@@ -386,6 +386,7 @@ mod tests {
             &f.owner,
             &f.room.id,
             SendMessage {
+                reply_to: None,
                 operation_id: "quote-lease-source".into(),
                 text: "Private quote bytes".into(),
                 quotes: vec![],
@@ -398,6 +399,7 @@ mod tests {
             &f.reader,
             &destination.id,
             SendMessage {
+                reply_to: None,
                 operation_id: "quote-lease-reply".into(),
                 text: "Reply".into(),
                 quotes: vec![rv_protocol::parity::QuoteReference {
@@ -582,6 +584,7 @@ mod tests {
             &f.reader,
             &middle.room_id,
             SendMessage {
+                reply_to: None,
                 operation_id: "nested-quote-lease".into(),
                 text: "Outer".into(),
                 quotes: vec![rv_protocol::parity::QuoteReference {
@@ -757,6 +760,7 @@ mod tests {
                 &f.owner,
                 &f.room.id,
                 SendMessage {
+                    reply_to: None,
                     quotes: vec![],
                     operation_id: format!("secret-{index}"),
                     text: "private payload".into(),
@@ -1099,6 +1103,7 @@ mod tests {
             &f.owner,
             &f.room.id,
             SendMessage {
+                reply_to: None,
                 quotes: vec![],
                 operation_id: "protected-message".into(),
                 text: "Before".into(),
@@ -1196,6 +1201,7 @@ mod tests {
             &f.owner,
             &f.room.id,
             SendMessage {
+                reply_to: None,
                 quotes: vec![],
                 operation_id: "reserved-view-message".into(),
                 text: "Secret building page".into(),
@@ -1373,6 +1379,7 @@ mod tests {
                     &f.reader,
                     &f.room.id,
                     SendMessage {
+                        reply_to: None,
                         quotes: vec![],
                         operation_id: "revoked-intention".into(),
                         text: "must not commit".into()
@@ -1424,6 +1431,7 @@ mod tests {
                         &f.reader,
                         &f.room.id,
                         SendMessage {
+                            reply_to: None,
                             quotes: vec![],
                             operation_id: "stale-activation".into(),
                             text: "must revalidate".into()

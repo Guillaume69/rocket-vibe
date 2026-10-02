@@ -24,6 +24,14 @@ const emailPending: NativeTypes['EmailVerificationStep'] = {
 };
 
 describe('native protocol contract', () => {
+  test('shared thread pages preserve exact positions and optional legacy roots',()=>{
+    const page=decodeNative('ThreadPage',fixture.thread_page);
+    assert.equal(page.root.id,fixture.message.id);
+    assert.equal(page.messages[0].position,'9007199254740995');
+    assert.equal(page.messages[0].reply_to,page.root.id);
+    assert.equal(decodeNative('MarkThreadRead',fixture.mark_thread_read).position,'9007199254740995');
+    assert.equal(decodeNative('Message',fixture.message).reply_to,undefined);
+  });
   test('mail recovery retries the original public intent without revoking an installed session', async () => {
     const requests: {url:string; options?:RequestInit}[]=[];
     let lost=true;

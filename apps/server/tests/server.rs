@@ -1580,6 +1580,7 @@ async fn edit_delete_receipts_revisions_and_erasure_survive_restart(pool: PgPool
         .unwrap();
     client.add_member(&room.id, &bob.user.id).await.unwrap();
     let original = rv_protocol::SendMessage {
+        reply_to: None,
         quotes: vec![],
         operation_id: "reserved-message".into(),
         text: "Original secret".into(),
@@ -1763,6 +1764,7 @@ async fn edit_delete_receipts_revisions_and_erasure_survive_restart(pool: PgPool
                 .send(
                     &room.id,
                     &rv_protocol::SendMessage {
+                        reply_to: None,
                         quotes: vec![],
                         operation_id: operation.into(),
                         text: "Wrong command kind".into()
@@ -1818,6 +1820,7 @@ async fn message_commands_enforce_membership_author_deadlines_and_read_only(pool
         .send(
             &room.id,
             &rv_protocol::SendMessage {
+                reply_to: None,
                 quotes: vec![],
                 operation_id: "member-message".into(),
                 text: "Author body".into(),

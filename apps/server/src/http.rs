@@ -118,6 +118,11 @@ pub fn router(app: App) -> Router {
             "/api/v1/messages/{message}",
             get(message).patch(edit_message).delete(delete_message),
         )
+        .route("/api/v1/messages/{message}/thread", get(thread))
+        .route(
+            "/api/v1/messages/{message}/thread/read",
+            post(mark_thread_read),
+        )
         .route(
             "/api/v1/messages/{message}/reactions",
             axum::routing::put(set_reaction),
@@ -246,6 +251,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             pins: true,
             stars: true,
             quotes: true,
+            threads: true,
             session_rotation: true,
             device_sessions: true,
             account_invitations: true,
@@ -1092,6 +1098,49 @@ async fn send(
 struct History {
     before: Option<String>,
     limit: Option<i64>,
+}
+async fn thread(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(root): Path<String>,
+    Query(input): Query<History>,
+) -> Result<Response> {
+    let before = input.before.map(|p| room_reads::position(&p)).transpose()?;
+    let limit = input.limit.unwrap_or(50);
+    if !(1..=100).contains(&limit) {
+        return Err(Error::invalid());
+    }
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::All).await?;
+    let page = crate::threads::page(&app, &actor, &root, before, limit).await?;
+    let mut included = page.messages.clone();
+    included.push(page.root.clone());
+    proof
+        .json(
+            &app,
+            &hash,
+            &page,
+            &crate::quotes::delivery_rooms(&included),
+            None,
+        )
+        .await
+}
+async fn mark_thread_read(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(root): Path<String>,
+    input: Input<rv_protocol::MarkThreadRead>,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::All).await?;
+    let state = crate::threads::mark(&app, &actor, &root, body(input)?).await?;
+    proof
+        .json(
+            &app,
+            &hash,
+            &state,
+            std::slice::from_ref(&state.room_id),
+            None,
+        )
+        .await
 }
 async fn history(
     State(app): State<App>,

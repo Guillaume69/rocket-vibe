@@ -6,6 +6,17 @@ fn shared_fixture_preserves_positions_above_javascript_integer_limit() {
     let contract: Contract = serde_json::from_str(fixture).unwrap();
     assert_eq!(contract.message.position, "9007199254740993");
     assert_eq!(contract.room.revision, "9007199254740993");
+    assert_eq!(contract.thread_page.root.id, contract.message.id);
+    assert_eq!(
+        contract.thread_page.messages[0].position,
+        "9007199254740995"
+    );
+    assert_eq!(
+        contract.thread_page.messages[0].reply_to.as_deref(),
+        Some(contract.message.id.as_str())
+    );
+    assert_eq!(contract.mark_thread_read.position, "9007199254740995");
+    assert!(contract.message.reply_to.is_none());
     let round_trip: Contract =
         serde_json::from_value(serde_json::to_value(contract).unwrap()).unwrap();
     assert_eq!(round_trip.message.text, "Bonjour 🚀");

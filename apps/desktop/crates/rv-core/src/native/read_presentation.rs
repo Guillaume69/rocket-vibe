@@ -54,6 +54,8 @@ mod tests {
             reactions: None,
             pinned: false,
             starred: false,
+            reply_to: None,
+            thread_replies: 0,
             body: None,
             system_type: None,
             attachments: None,

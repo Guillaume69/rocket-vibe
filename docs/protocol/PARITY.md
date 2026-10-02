@@ -203,7 +203,7 @@ ouverte tant que serveur, clients concernés et scénario de parité manquent.
 | P08 Envoi / brouillons | J1 | Socle livré ; crash réel après commit / réponse perdue, Android ↔ Windows |
 | P09 Édition / suppression | J2 | API, droits / délais, tombstones, intentions SQLite et menus / éditeurs des 3 clients livrés ; parcours appareils à qualifier |
 | P10 Réactions / épingles / étoiles | J2 | API idempotente, alias, épingles, étoiles privées, intentions SQLite et menus / listes existants des 3 clients livrés ; qualification appareils à poursuivre |
-| P11 Fils | J2 | Racine, réponses et compteurs, même écran / composer de fil |
+| P11 Fils | J2 | API, racines / réponses séparées, compteurs, lectures par fil et brouillons / outbox durables raccordés aux écrans de fil GTK / SwiftUI / mobile existants ; citations dans un fil, rejeu après suppression de racine et purge d'adhésion couverts ; [contrat](THREADS.md), qualification installée ouverte |
 | P12 Présence / saisie | J2 | Expiration, émission / écoute, dégradation hors ligne sans journal durable |
 | P13 Recherche | J2 / J4 | Recherche PG avec ACL ; index chiffré local borné / purge après verrouillage |
 | P14 Photos / documents / vidéos / vocaux | J3 | Objets protégés, upload / retry / confirmation idempotente ; partage et lecteurs |

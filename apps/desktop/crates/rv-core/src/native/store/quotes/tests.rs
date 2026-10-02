@@ -202,6 +202,7 @@ fn quoted_outbox_keeps_original_body_and_existing_cards_after_source_loss_restar
     first.snapshot(&initial()).unwrap();
     let selected = first.quote_selection("origin", "source").unwrap();
     let pending = Pending {
+        reply_to: None,
         id: "pending-reply".into(),
         room_id: "destination".into(),
         text: String::new(),
@@ -247,6 +248,7 @@ fn source_selections_are_fenced_before_atomic_enqueue_and_old_outboxes_migrate_a
     let store = store();
     let selected = store.quote_selection("origin", "source").unwrap();
     let pending = Pending {
+        reply_to: None,
         id: "pending".into(),
         room_id: "destination".into(),
         text: "Saved words".into(),
@@ -284,7 +286,13 @@ fn source_selections_are_fenced_before_atomic_enqueue_and_old_outboxes_migrate_a
     let reopened = NativeStore::open(&path, identity("epoch")).unwrap();
     assert_eq!(
         reopened.pending().unwrap(),
-        vec![Pending { id: "old".into(), room_id: "destination".into(), text: "Old words".into(), quotes: vec![] }]
+        vec![Pending {
+            reply_to: None,
+            id: "old".into(),
+            room_id: "destination".into(),
+            text: "Old words".into(),
+            quotes: vec![]
+        }]
     );
     drop(reopened);
     std::fs::remove_file(path).unwrap();

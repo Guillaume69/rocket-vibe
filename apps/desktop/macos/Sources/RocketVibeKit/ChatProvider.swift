@@ -38,11 +38,12 @@ public enum ChatProvider {
         switch self { case let .rocketChat(chat): return chat.rooms()
         case let .rocketVibe(chat): return try chat.roomGroups() }
     }
-    func messages(rid: String, limit: Int64, thread: String?, unreadAfter: Int64?, nativeBoundary:NativeRoomReadState? = nil) throws -> [MessageItem] {
+    func messages(rid: String, limit: Int64, thread: String?, unreadAfter: Int64?, nativeBoundary:NativeRoomReadState? = nil, nativeMembership:String? = nil) throws -> [MessageItem] {
         switch self {
         case let .rocketChat(chat):
             return thread.map { chat.threadMessages(rootId: $0) } ?? chat.messages(rid: rid, limit: limit, unreadAfter: unreadAfter)
         case let .rocketVibe(chat):
+            if let thread { return try chat.threadMessageItems(room:rid,root:thread,membership:nativeMembership ?? "") }
             if let boundary=nativeBoundary {
                 return try chat.messageItemsFromBoundary(room:rid,limit:UInt32(clamping:limit),membership:boundary.membership,rootPosition:boundary.rootPosition)
             }
@@ -51,18 +52,24 @@ public enum ChatProvider {
     }
     func draft(rid: String, thread: String?) throws -> String {
         switch self { case let .rocketChat(chat): return chat.draft(rid: rid, threadId: thread)
-        case let .rocketVibe(chat): return try chat.draft(room: rid) }
+        case let .rocketVibe(chat):
+            if let thread { return try chat.threadDraftFromMembership(room:rid,root:thread,membership:chat.membershipVersion(room:rid)) }
+            return try chat.draft(room: rid) }
     }
     func setDraft(rid: String, thread: String?, text: String) throws {
         switch self { case let .rocketChat(chat): chat.setDraft(rid: rid, threadId: thread, text: text)
-        case let .rocketVibe(chat): try chat.setDraft(room: rid, text: text) }
+        case let .rocketVibe(chat):
+            if let thread { try chat.setThreadDraftFromMembership(room:rid,root:thread,text:text,membership:chat.membershipVersion(room:rid)) }
+            else { try chat.setDraft(room: rid, text: text) } }
     }
     func load(room: Room, thread: String?) async throws -> Bool {
         switch self {
         case let .rocketChat(chat):
             if let thread { try await chat.loadThread(rootId: thread); return false }
             return try await chat.openRoom(rid: room.rid, kind: room.kind)
-        case let .rocketVibe(chat): return try await chat.history(room: room.rid, older: false)
+        case let .rocketVibe(chat):
+            if let thread { try await chat.loadThread(room:room.rid,root:thread); return false }
+            return try await chat.history(room: room.rid, older: false)
         }
     }
     func loadOlder(room: Room, oldestTs: Int64) async throws -> Bool {
@@ -71,7 +78,9 @@ public enum ChatProvider {
     }
     public func send(rid: String, text: String, thread: String? = nil) async throws {
         switch self { case let .rocketChat(chat): await chat.send(rid: rid, text: text, threadId: thread)
-        case let .rocketVibe(chat): _ = try chat.send(room: rid, text: text) }
+        case let .rocketVibe(chat):
+            if let thread { _ = try chat.sendReplyFromMembership(room:rid,root:thread,text:text,membership:chat.membershipVersion(room:rid),quotes:[]) }
+            else { _ = try chat.send(room: rid, text: text) } }
     }
     func retry(_ id: String) async throws {
         switch self { case let .rocketChat(chat): await chat.retry(id: id)

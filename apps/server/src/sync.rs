@@ -80,8 +80,9 @@ pub async fn snapshot(app: &App, account: &Account) -> Result<Snapshot> {
     let mut bytes = wire_len(&rooms)? + 128;
     let mut messages = Vec::new();
     for room in &rooms {
-        let query =
-            format!("{MESSAGE_SELECT} WHERE m.room_id=$1 ORDER BY m.position DESC LIMIT 50");
+        let query = format!(
+            "{MESSAGE_SELECT} WHERE m.id IN ((SELECT id FROM messages WHERE room_id=$1 AND reply_to IS NULL ORDER BY position DESC LIMIT 50) UNION ALL (SELECT id FROM messages WHERE room_id=$1 AND reply_to IS NOT NULL ORDER BY position DESC LIMIT 50)) ORDER BY m.position DESC"
+        );
         let mut window: Vec<_> = sqlx::query_as::<_, MessageRow>(&query)
             .bind(&room.id)
             .fetch_all(&mut *tx)

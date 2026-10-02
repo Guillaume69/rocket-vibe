@@ -302,6 +302,7 @@ export const nativePositions = sqliteTable('native_positions', {
   rid: text('rid').notNull(),
   position: text('position').notNull(),
   revision: text('revision').notNull(),
+  replyTo: text('reply_to'),
 }, (t) => [index('idx_native_positions_room').on(t.rid)]);
 
 /** Personal state has its own revision and is never overwritten by public upserts. */
@@ -360,6 +361,13 @@ export const nativeReadIntents = sqliteTable('native_read_intents', {
   rid: text('rid').primaryKey(),
   membership: text('membership').notNull(),
   rootPosition: text('root_position').notNull(),
+});
+
+export const nativeThreadStates = sqliteTable('native_thread_states', {
+  root: text('root').primaryKey(),rid:text('rid').notNull(),payload:text('payload').notNull(),
+});
+export const nativeThreadReadIntents = sqliteTable('native_thread_read_intents', {
+  root:text('root').primaryKey(),rid:text('rid').notNull(),membership:text('membership').notNull(),position:text('position').notNull(),
 });
 
 /** A receipt is a version floor, never a historical favorite value to project. */

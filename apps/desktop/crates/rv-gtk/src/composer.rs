@@ -583,6 +583,25 @@ impl Composer {
         self.on_changed.replace(None);
         self.completion.popdown();
     }
+    pub fn bind_native_thread(
+        &self,
+        session: &Arc<rv_core::native::NativeSession>,
+        rid: &str,
+        root: &str,
+        membership: Option<String>,
+    ) {
+        self.bind_native(session, rid);
+        self.attach.set_sensitive(false);
+        self.mic.set_sensitive(false);
+        self.on_changed.replace(None);
+        self.set_text(
+            &session.store.thread_draft_from_membership(rid, root, membership.as_deref()).unwrap_or_default(),
+        );
+        let (store, rid, root) = (session.store.clone(), rid.to_owned(), root.to_owned());
+        self.connect_changed(move |text| {
+            let _ = store.set_thread_draft_from_membership(&rid, &root, &text, membership.as_deref());
+        });
+    }
 
     /// Usernames offered after `@`, given the prefix typed.
     pub fn set_mention_source(&self, f: impl Fn(&str) -> Vec<String> + 'static) {

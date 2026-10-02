@@ -208,6 +208,11 @@ pub async fn apply(app: &App, account: &Account, id: &str, command: Command) -> 
         Change::MessageUpsert(current),
     )
     .await?;
+    if text.is_none()
+        && let Some(root) = &message.reply_to
+    {
+        crate::threads::refresh(&mut tx, &room, root).await?;
+    }
     if text.is_none() || mentions_removed {
         crate::room_reads::message_changed(&mut tx, &room).await?;
     }

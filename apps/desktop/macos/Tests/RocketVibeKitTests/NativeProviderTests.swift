@@ -62,6 +62,10 @@ final class NativeProviderTests: XCTestCase {
         app.open(rid)
         let room = try XCTUnwrap(app.room)
         try await until { !room.loading }
+        try await until { room.messages.contains { $0.system == "rv-room-created" } }
+        let created = try XCTUnwrap(room.messages.first { $0.system == "rv-room-created" })
+        XCTAssertTrue(created.body.isEmpty)
+        XCTAssertTrue(room.actions(for: created).isEmpty)
         XCTAssertFalse(room.supportsFiles)
         XCTAssertTrue(room.supportsRoomInfo)
         let roomInfo = try await room.roomDetails()

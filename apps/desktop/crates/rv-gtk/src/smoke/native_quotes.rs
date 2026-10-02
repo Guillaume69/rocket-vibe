@@ -94,6 +94,30 @@ async fn run(window: Rc<AppWindow>) {
     let session = window.chat.native_session().unwrap();
     check("native discovery enables quotes", session.supported_features().iter().any(|f| f == "quotes"), ());
     let rid = window.chat.current_rid().unwrap();
+    let activity = session
+        .store
+        .messages(&rid, 100)
+        .unwrap()
+        .into_iter()
+        .rev()
+        .find(|m| m.system_type.as_deref() == Some("room_changed_topic"))
+        .unwrap();
+    let row = activity.clone().presentation(&rid, &session.info.user_id);
+    check(
+        "native system row uses existing renderer",
+        window
+            .chat
+            .room_list()
+            .row_widget(&activity.id)
+            .is_some_and(|widget| contains(&widget, &crate::rows::system_line(&row))),
+        (),
+    );
+    check(
+        "native system row has no reply actions",
+        !rv_core::actions::has_actions(row.system_type.as_deref(), row.text.as_deref())
+            && session.store.quote_selection(&rid, &activity.id).is_err(),
+        (),
+    );
     let source =
         session.store.messages(&rid, 100).unwrap().into_iter().rev().find(|m| m.text == "GTK quote source").unwrap();
     let reply_text = format!("GTK quoted reply {}", source.id);

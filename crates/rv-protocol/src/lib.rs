@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub mod emojis;
 pub mod markdown;
 pub mod parity;
+pub mod system;
 
 pub const VERSION: u32 = 1;
 
@@ -291,6 +292,9 @@ pub struct Message {
     pub room_id: String,
     pub author: Box<User>,
     pub text: String,
+    /// Server-authored, structured room activity. Never accepted by SendMessage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<Box<system::SystemMessage>>,
     /// Optional canonical native presentation. Source remains authoritative;
     /// no Rocket.Chat tree, HTML markup, or authenticated resource URL.
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -705,6 +705,9 @@ impl NativeSession {
         if message.deleted {
             return Err(Error::Protocol("message_deleted"));
         }
+        if message.system.is_some() {
+            return Err(Error::Protocol("system_message"));
+        }
         Ok((message, permissions))
     }
     pub async fn delete(&self, rid: &str, id: &str, revision: &str) -> Result<(), Error> {

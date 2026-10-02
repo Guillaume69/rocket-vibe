@@ -1234,6 +1234,17 @@
         "room_id": {
           "type": "string"
         },
+        "system": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SystemMessage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Server-authored, structured room activity. Never accepted by SendMessage."
+        },
         "text": {
           "type": "string"
         }
@@ -3352,6 +3363,214 @@
         "has_more"
       ],
       "type": "object"
+    },
+    "SystemMessage": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "room_created",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "room_renamed",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "topic_changed",
+              "type": "string"
+            },
+            "topic": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "topic"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "description": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "description_changed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "description"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "announcement": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "announcement_changed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "announcement"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "privacy_changed",
+              "type": "string"
+            },
+            "private": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "private"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "read_only_changed",
+              "type": "string"
+            },
+            "read_only": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "read_only"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "member_joined",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "member_left",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "member_added",
+              "type": "string"
+            },
+            "user": {
+              "$ref": "#/$defs/User"
+            }
+          },
+          "required": [
+            "kind",
+            "user"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "member_removed",
+              "type": "string"
+            },
+            "user": {
+              "$ref": "#/$defs/User"
+            }
+          },
+          "required": [
+            "kind",
+            "user"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "role_changed",
+              "type": "string"
+            },
+            "previous_role": {
+              "$ref": "#/$defs/RoomRole"
+            },
+            "role": {
+              "$ref": "#/$defs/RoomRole"
+            },
+            "user": {
+              "$ref": "#/$defs/User"
+            }
+          },
+          "required": [
+            "kind",
+            "user",
+            "previous_role",
+            "role"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "UpdateRoom": {
       "additionalProperties": false,

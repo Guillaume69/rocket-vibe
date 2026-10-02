@@ -22,6 +22,7 @@ pub fn group(rows: Vec<MessageRow>, rid: &str, me: &str, after: Option<&str>) ->
         rows.iter()
             .find(|row| {
                 row.status.is_none()
+                    && row.system_type.is_none()
                     && row.author_id != me
                     && row.position.as_deref().and_then(|p| p.parse::<u64>().ok()).is_some_and(|p| p > seen)
             })
@@ -54,6 +55,7 @@ mod tests {
             pinned: false,
             starred: false,
             body: None,
+            system_type: None,
             attachments: None,
         };
         let rows = vec![

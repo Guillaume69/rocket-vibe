@@ -25,6 +25,7 @@ mod sessions;
 mod snapshots;
 mod store;
 mod sync;
+mod system_messages;
 
 use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
 use rand_core::OsRng;

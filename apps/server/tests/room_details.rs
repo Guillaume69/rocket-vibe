@@ -116,6 +116,142 @@ fn code<T>(result: Result<T, rv_client::Error>, expected: &str) {
 }
 
 #[sqlx::test]
+async fn structured_activity_is_atomic_idempotent_private_and_not_unread_chat(pool: PgPool) {
+    use rv_protocol::{Change, system::SystemMessage as S};
+    let bench = Bench::start(pool).await;
+    let (owner, _, token) = bench.user("activity-owner", false).await;
+    let (reader, uid, _) = bench.user("activity-reader", false).await;
+    let room = bench.room(&owner).await;
+    assert!(matches!(
+        owner.history(&room, None).await.unwrap().messages[0]
+            .system
+            .as_deref(),
+        Some(S::RoomCreated { .. })
+    ));
+    assert_eq!(bench.room(&owner).await, room);
+    bench.invite(&token, &room, &uid).await;
+    bench.invite(&token, &room, &uid).await;
+    let before = owner.history(&room, None).await.unwrap();
+    assert_eq!(
+        before.messages.len(),
+        2,
+        "replays must not create activity duplicates"
+    );
+    let snapshot = reader.snapshot().await.unwrap();
+    let details = owner.room_details(&room).await.unwrap();
+    let mut input = settings(&details, "activity-settings");
+    input.name = "Renamed".into();
+    input.private = false;
+    input.read_only = true;
+    input.topic = "@activity-reader is literal metadata".into();
+    input.description = "Description".into();
+    input.announcement = "Announcement".into();
+    owner.update_room(&room, &input).await.unwrap();
+    owner.update_room(&room, &input).await.unwrap();
+    let history = reader.history(&room, None).await.unwrap();
+    assert_eq!(history.messages.len(), 8);
+    assert!(
+        history
+            .messages
+            .iter()
+            .all(|m| m.text.is_empty() && m.body.is_none() && m.quotes.is_empty())
+    );
+    let activity = history
+        .messages
+        .iter()
+        .find(|m| matches!(m.system.as_deref(), Some(S::TopicChanged { .. })))
+        .unwrap();
+    let rights = owner.message_permissions(&activity.id).await.unwrap();
+    assert!(!rights.edit && !rights.delete && !rights.react && !rights.pin && !rights.star);
+    assert!(rights.edit_until.is_none());
+    assert_eq!(bench.request(Method::DELETE, &token, &format!("/api/v1/messages/{}", activity.id), Some(json!({"operation_id":"cannot-delete-activity","expected_revision":activity.revision}))).await.status(), StatusCode::FORBIDDEN);
+    assert_eq!(bench.request(Method::POST, &token, &format!("/api/v1/rooms/{room}/messages"), Some(json!({"operation_id":"cannot-forge-activity","text":"","system":{"kind":"member_joined"}}))).await.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(bench.request(Method::POST, &token, &format!("/api/v1/rooms/{room}/messages"), Some(json!({"operation_id":"cannot-quote-activity","text":"quote","quotes":[{"room_id":room,"message_id":activity.id,"revision":activity.revision}]}))).await.status(), StatusCode::NOT_FOUND);
+    let batch = reader.changes(&snapshot.cursor).await.unwrap();
+    assert_eq!(
+        batch
+            .changes
+            .iter()
+            .filter(|c| matches!(c, Change::MessageUpsert(m) if m.system.is_some()))
+            .count(),
+        6
+    );
+    let rooms = reader.rooms().await.unwrap();
+    let state = rooms
+        .iter()
+        .find(|r| r.id == room)
+        .unwrap()
+        .read_state
+        .as_ref()
+        .unwrap();
+    assert_eq!(
+        (&state.unread_roots, &state.mentions, &state.group_mentions),
+        (&"0".into(), &"0".into(), &"0".into())
+    );
+    let mut stale = input.clone();
+    stale.operation_id = "stale-activity".into();
+    stale.topic = "Rejected".into();
+    code(owner.update_room(&room, &stale).await, "revision_conflict");
+    assert_eq!(owner.history(&room, None).await.unwrap().messages.len(), 8);
+    let details = owner.room_details(&room).await.unwrap();
+    owner
+        .change_room_role(
+            &room,
+            &uid,
+            &ChangeRoomRole {
+                operation_id: "activity-role".into(),
+                expected_revision: details.revision,
+                role: RoomRole::Moderator,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        reader.history(&room, None).await.unwrap().messages[0]
+            .system
+            .as_deref(),
+        Some(S::RoleChanged {
+            role: RoomRole::Moderator,
+            previous_role: RoomRole::Member,
+            ..
+        })
+    ));
+    let cursor = reader.snapshot().await.unwrap().cursor;
+    assert_eq!(
+        bench
+            .request(
+                Method::DELETE,
+                &token,
+                &format!("/api/v1/rooms/{room}/members/{uid}"),
+                None
+            )
+            .await
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    let batch = reader.changes(&cursor).await.unwrap();
+    assert!(
+        batch
+            .changes
+            .iter()
+            .any(|c| matches!(c,Change::RoomRemoved { room_id } if room_id==&room))
+    );
+    assert!(
+        !batch
+            .changes
+            .iter()
+            .any(|c| matches!(c, Change::MessageUpsert(_)))
+    );
+    code(reader.history(&room, None).await, "not_found");
+    assert!(matches!(
+        owner.history(&room, None).await.unwrap().messages[0]
+            .system
+            .as_deref(),
+        Some(S::MemberRemoved { .. })
+    ));
+}
+
+#[sqlx::test]
 async fn actual_mobile_transport_handles_handover_and_receipts_after_self_demotion(pool: PgPool) {
     let bench = Bench::start(pool).await;
     let (owner, _, token) = bench.user("owner", false).await;

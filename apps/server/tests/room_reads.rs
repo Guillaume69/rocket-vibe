@@ -298,9 +298,11 @@ async fn quotes_resolve_per_reader_in_every_read_without_private_journal_excerpt
     );
     for change in journal {
         if change["type"] == "message_upsert" {
-            assert!(change["data"]["quotes"][0]["excerpt"].is_null());
-            assert_eq!(change["data"]["quotes"][0]["view_position"], "0");
-            assert!(change["data"]["quotes"][0]["source_membership_version"].is_null());
+            for quote in change["data"]["quotes"].as_array().into_iter().flatten() {
+                assert!(quote["excerpt"].is_null());
+                assert_eq!(quote["view_position"], "0");
+                assert!(quote["source_membership_version"].is_null());
+            }
         }
     }
     let room = q
@@ -536,6 +538,11 @@ async fn quotes_watermarks_and_unicode_excerpts_preserve_exact_current_read_stat
 #[sqlx::test(migrations = "./migrations")]
 async fn quotes_reject_forged_excerpts_and_missing_source_authorization_atomically(pool: PgPool) {
     let q = QuoteBench::start(pool).await;
+    let before: i64 = sqlx::query_scalar("SELECT count(*) FROM messages WHERE room_id=$1")
+        .bind(&q.destination)
+        .fetch_one(&q.b.app.pool)
+        .await
+        .unwrap();
     let quote = q.reference();
     let missing =
         q.b.request(
@@ -560,7 +567,7 @@ async fn quotes_reject_forged_excerpts_and_missing_source_authorization_atomical
         .fetch_one(&q.b.app.pool)
         .await
         .unwrap();
-    assert_eq!(count, 0);
+    assert_eq!(count, before);
 }
 
 fn native_error_code(error: rv_client::Error) -> String {
@@ -1390,7 +1397,7 @@ async fn reads_and_preferences_reject_forged_fields_future_positions_and_private
     let (_, _, admin) = b.user("admin", true).await;
     let room = b.room(&owner, &token, &uid).await;
     for payload in [
-        json!({"root_position":"1","reply_position":"0"}),
+        json!({"root_position":"9223372036854775807","reply_position":"0"}),
         json!({"root_position":"0","reply_position":"1"}),
         json!({"root_position":"00","reply_position":"0"}),
         json!({"root_position":"0","reply_position":"0","user_id":uid}),

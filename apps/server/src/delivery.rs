@@ -1275,6 +1275,11 @@ mod tests {
     #[sqlx::test]
     async fn a_previously_authenticated_actor_cannot_commit_after_session_revocation(pool: PgPool) {
         let mut f = fixture(pool.clone()).await;
+        let before: (i64, i64) =
+            sqlx::query_as("SELECT (SELECT count(*) FROM messages),(SELECT count(*) FROM rooms)")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         for disable in [true, false] {
             if disable {
                 sqlx::query("UPDATE users SET disabled=true WHERE id=$1")
@@ -1365,8 +1370,7 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(
-            counts,
-            (0, 1),
+            counts, before,
             "no durable mutation may be written after revocation"
         );
     }

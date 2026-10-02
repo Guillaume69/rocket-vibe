@@ -10,6 +10,7 @@ import {FAVORITE_SELECT,savedFavorite,type PendingRead,type SavedFavorite,type F
 import {roomIdentifier,roomOperation,sameRoomForm,savedRoomOperation,type RoomOperation,type RoomOperationRow,type SavedRoomOperation} from './roomOperations.ts';
 import {decodeNative} from './validation.ts';
 import {nativeMarkdown} from './markdown.ts';
+import {nativeSystemMessage} from './systemMessages.ts';
 import {NativeQuoteCache,type NativeQuoteSelection} from './quotes.ts';
 
 // Native revisions, checked below as exact decimal strings, order projection.
@@ -47,13 +48,15 @@ export function nativeReactions(reactions: Message['reactions']): string|null {
 export function localMessage(message: Message, selfId?: string): MessageLocal {
   const time = Date.parse(message.created_at);
   const edited=message.edited_at==null?null:Date.parse(message.edited_at);
+  const system=message.system==null?null:nativeSystemMessage(message.system);
+  if(system && (message.text!=='' || message.deleted || message.body!=null || message.quotes?.length))throw new Error('Invalid native system message');
   if ((edited!==null && !Number.isFinite(edited)) || (message.deleted && message.text!=='')) throw new Error('Invalid native message state');
   if (!Number.isFinite(time) || !/^\d+$/.test(message.position) || !/^\d+$/.test(message.revision)) throw new Error('Invalid native message ordering');
   return {
-    id: message.id, rid: message.room_id, texte: message.text, horodatage: time,
-    auteurId: message.author.id, auteurNom: message.author.username, typeSysteme: null,
+    id: message.id, rid: message.room_id, texte: system?.param??message.text, horodatage: time,
+    auteurId: message.author.id, auteurNom: message.author.username, typeSysteme: system?.type??null,
     filId: null, filReponses: 0, filDernier: null, filAffiche: false, modifieLe: edited,
-    md: message.deleted?null:nativeMarkdown(message.body), piecesJointes: null, reactions: nativeReactions(message.reactions), urls: null, appelId: null,
+    md: message.deleted||system?null:nativeMarkdown(message.body), piecesJointes: null, reactions: nativeReactions(message.reactions), urls: null, appelId: null,
     chiffreBrut: null, epingle: message.pinned ?? false,
     etoiles: message.personal_star?.present && selfId ? JSON.stringify([selfId]) : null, misAJourLe: time,
   };
@@ -160,8 +163,8 @@ export class NativeStore {
     return reset;
   }
   private async preview(rid: string): Promise<void> {
-    const last = await this.db.getFirstAsync<{texte:string;horodatage:number}>('SELECT m.texte,m.horodatage FROM messages m JOIN native_positions p ON p.id=m.id WHERE m.rid=? ORDER BY length(p.position) DESC,p.position DESC LIMIT 1',[rid]);
-    await this.db.runAsync('UPDATE salons SET dernier_message=?,horodatage_dernier_message=? WHERE rid=?',[last?.texte??null,last?.horodatage??null,rid]);
+    const last = await this.db.getFirstAsync<{texte:string;horodatage:number;type_systeme:string|null}>('SELECT m.texte,m.horodatage,m.type_systeme FROM messages m JOIN native_positions p ON p.id=m.id WHERE m.rid=? ORDER BY length(p.position) DESC,p.position DESC LIMIT 1',[rid]);
+    await this.db.runAsync('UPDATE salons SET dernier_message=?,horodatage_dernier_message=?,dernier_message_type=? WHERE rid=?',[last?.texte??null,last?.horodatage??null,last?.type_systeme??null,rid]);
   }
   private async message(message: Message): Promise<void> {
     // An HTTP echo/history response may arrive after a committed room_removed.

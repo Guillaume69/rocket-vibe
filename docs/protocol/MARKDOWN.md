@@ -7,6 +7,10 @@ nouvel écran, thème, composeur ou client n'est introduit par ce lot.
 
 ## Texte et document
 
+Les activités de salon portent un champ `system` structuré et n'ont pas de
+document Markdown. Elles utilisent les lignes système existantes ; voir
+[leur contrat et leurs garanties](SYSTEM_MESSAGES.md).
+
 `Message.text` reste la source. Le champ additif optionnel `body` contient un
 `Document` de format `native1`, avec des nœuds typés : texte, styles, code,
 paragraphes, titres, citations de texte, listes / tâches, liens, mentions et

@@ -9,6 +9,9 @@ section here.
 
 ### Fixed
 
+- Native room activity uses the existing translated system rows in GTK and
+  SwiftUI. Membership and settings changes stay out of unread badges and
+  message actions.
 - GTK and SwiftUI reuse their reply controls for native message references.
   Quoted sends survive retries; a rejected selection keeps the entered words.
   Unavailable sources have a translated label and discard private previews.

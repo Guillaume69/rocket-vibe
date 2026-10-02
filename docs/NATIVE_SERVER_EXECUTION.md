@@ -319,6 +319,21 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P07, activité structurée des salons (3 octobre 2026) : création, membres,
+  réglages et rôles publiés dans la transaction de leur action ; rejeux sans
+  doublon, compteurs sans activité système, actions de message refusées.
+  Projection dans les lignes traduites mobile / GTK / SwiftUI existantes,
+  conservée en SQLite, sans nouveau composant ni écran.
+  Contrat : [messages système](protocol/SYSTEM_MESSAGES.md).
+  Vérifications locales : 203 cas Rust natifs couverts par la suite globale
+  et les reprises ciblées des hypothèses d'historique ; 356 tests desktop ;
+  1 183 tests mobiles puis les projections et le séparateur finaux ciblés
+  (31 tests), typecheck / lint. Le vrai widget GTK et les modèles Swift
+  contre PostgreSQL / trousseau passent ; aucun test Swift sauté. Les CI du
+  commit précédent ont validé SwiftUI, Windows, serveur / mobile, citations
+  GTK et modèles Swift ; le banc GTK email distant reste en cours à ce relevé.
+  La qualification des applications installées reste ouverte.
+
 - P07, contrôles de citation des applications existantes : action Répondre,
   bandeaux / cartes et composeurs GTK, SwiftUI et mobile utilisent des références
   natives ; les permaliens Rocket.Chat gardent leur chemin historique. La mise

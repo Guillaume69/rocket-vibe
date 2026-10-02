@@ -9,6 +9,9 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Créations, membres et changements de réglages affichés dans les lignes
+  système existantes, en français ou anglais, sans créer de non-lus ni proposer
+  d'actions de message sur ces événements.
 - Citations natives dans l'action Répondre, le bandeau et le composeur existants,
   y compris sans texte ajouté. Les références sont transmises à la file durable ;
   une sélection refusée conserve les mots saisis. Une source indisponible porte

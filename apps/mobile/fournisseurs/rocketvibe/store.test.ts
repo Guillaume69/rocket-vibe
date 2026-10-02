@@ -5,7 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { creerFileEcritures } from '../../db/fileEcritures.ts';
 import type { Session } from '../../lib/auth.ts';
-import { NativeStore } from './store.ts';
+import { NativeStore, localMessage } from './store.ts';
+import {texteSysteme} from '../../lib/messagesSysteme.ts';
+import {traduire} from '../../ui/messages.ts';
 import { nativeTestDatabase } from './testDatabase.ts';
 import { decodeNative } from './validation.ts';
 
@@ -15,6 +17,19 @@ const room = decodeNative('Room',fixture.room);
 const session:Session = {baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',genre:'rocketvibe',siteUrl:null,nativeInstanceId:'fixture-instance',nativeDataEpoch:'fixture-epoch'};
 const snapshot = {protocol_version:1,rooms:[room],messages:[message],cursor:'initial'};
 function setup() { const harness = nativeTestDatabase(); return {...harness,store:new NativeStore(harness.adapter,creerFileEcritures(),session)}; }
+
+test('native room activity survives SQLite and uses the existing translated system rows',async()=>{
+  const {db,store}=setup();
+  const system=decodeNative('Message',{...message,text:'',body:null,system:{kind:'role_changed',user:{id:'bob',username:'bob',display_name:'Robert'},previous_role:'member',role:'moderator'}});
+  await store.applySnapshot({...snapshot,messages:[system]});
+  const row=db.prepare('SELECT * FROM messages WHERE id=?').get(message.id) as {type_systeme:string;texte:string;md:string|null};
+  assert.equal(row.type_systeme,'rv-role-moderator');assert.equal(row.texte,'bob');assert.equal(row.md,null);
+  assert.equal(texteSysteme((key,args)=>traduire('fr',key,args),row.type_systeme,row.texte),'a donné le rôle de modérateur à bob');
+  assert.equal(texteSysteme((key,args)=>traduire('en',key,args),row.type_systeme,row.texte),'made bob a moderator');
+  await assert.rejects(store.quoteSelection(room.id,system.id));
+  assert.throws(()=>localMessage({...system,text:'forged ordinary body'}));
+  db.close();
+});
 
 test('closing and reopening an on-disk SQLite database preserves the outbox and committed cursor',async () => {
   const directory = mkdtempSync(join(tmpdir(),'rocketvibe-native-'));

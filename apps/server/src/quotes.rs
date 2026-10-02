@@ -87,7 +87,7 @@ pub(crate) async fn validate(
             continue;
         }
         let revision: Option<i64> = sqlx::query_scalar(
-            "SELECT m.revision FROM messages m JOIN members g ON g.room_id=m.room_id AND g.user_id=$3 WHERE m.id=$1 AND m.room_id=$2 AND NOT m.deleted",
+            "SELECT m.revision FROM messages m JOIN members g ON g.room_id=m.room_id AND g.user_id=$3 WHERE m.id=$1 AND m.room_id=$2 AND NOT m.deleted AND m.system IS NULL",
         )
         .bind(&reference.message_id)
         .bind(&reference.room_id)
@@ -142,7 +142,7 @@ pub(crate) async fn personalize(
          left(m.text,1024) AS source_text,m.created_at AS source_created_at,m.revision AS source_revision \
          FROM unnest($1::text[],$2::text[]) q(message_id,room_id) CROSS JOIN instance i \
          LEFT JOIN room_read_states s ON s.room_id=q.room_id AND s.user_id=$3 \
-         LEFT JOIN messages m ON m.id=q.message_id AND m.room_id=q.room_id AND NOT m.deleted AND s.membership_version IS NOT NULL \
+         LEFT JOIN messages m ON m.id=q.message_id AND m.room_id=q.room_id AND NOT m.deleted AND m.system IS NULL AND s.membership_version IS NOT NULL \
          LEFT JOIN users u ON u.id=m.author_id WHERE i.singleton",
     ).bind(ids).bind(rooms).bind(user).fetch_all(&mut *conn).await?;
     for quote in messages.iter_mut().flat_map(|m| &mut m.quotes) {

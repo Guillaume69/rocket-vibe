@@ -40,6 +40,7 @@ pub(crate) struct MessageRow {
     pub username: String,
     pub display_name: String,
     pub text: String,
+    pub system: Option<Json<rv_protocol::system::SystemMessage>>,
     pub created_at: DateTime<Utc>,
     pub position: i64,
     pub revision: i64,
@@ -52,7 +53,8 @@ pub(crate) struct MessageRow {
 
 impl MessageRow {
     pub fn wire(self) -> Message {
-        let body = (!self.deleted).then(|| Box::new(rv_protocol::markdown::parse(&self.text)));
+        let body = (!self.deleted && self.system.is_none())
+            .then(|| Box::new(rv_protocol::markdown::parse(&self.text)));
         Message {
             id: self.id,
             room_id: self.room_id,
@@ -62,6 +64,7 @@ impl MessageRow {
                 display_name: self.display_name,
             }),
             text: self.text,
+            system: self.system.map(|system| Box::new(system.0)),
             body,
             quotes: if self.deleted {
                 Vec::new()
@@ -89,7 +92,7 @@ impl MessageRow {
     }
 }
 
-pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,m.text,m.created_at,m.position,m.revision,m.deleted,m.edited_at,m.pinned,m.quote_references,COALESCE((SELECT jsonb_agg(jsonb_build_object('emoji',g.emoji,'users',g.users) ORDER BY g.emoji) FROM (SELECT e.emoji,jsonb_agg(jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name) ORDER BY a.id) AS users FROM message_reactions e JOIN users a ON a.id=e.user_id WHERE e.message_id=m.id GROUP BY e.emoji) g),'[]'::jsonb) AS reactions FROM messages m JOIN users u ON u.id=m.author_id";
+pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,m.text,m.system,m.created_at,m.position,m.revision,m.deleted,m.edited_at,m.pinned,m.quote_references,COALESCE((SELECT jsonb_agg(jsonb_build_object('emoji',g.emoji,'users',g.users) ORDER BY g.emoji) FROM (SELECT e.emoji,jsonb_agg(jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name) ORDER BY a.id) AS users FROM message_reactions e JOIN users a ON a.id=e.user_id WHERE e.message_id=m.id GROUP BY e.emoji) g),'[]'::jsonb) AS reactions FROM messages m JOIN users u ON u.id=m.author_id";
 
 pub(crate) fn send_fingerprint(room: &str, text: &str) -> String {
     crate::auth::hash_token(&serde_json::json!([room, text]).to_string())
@@ -245,6 +248,15 @@ pub async fn create_room(app: &App, account: &Account, input: CreateRoom) -> Res
         Change::RoomUpsert(room.clone()),
     )
     .await?;
+    crate::system_messages::publish(
+        &mut tx,
+        account,
+        &room.id,
+        rv_protocol::system::SystemMessage::RoomCreated {
+            name: room.name.clone(),
+        },
+    )
+    .await?;
     tx.commit().await?;
     Ok(room)
 }
@@ -312,6 +324,13 @@ pub async fn join_public(app: &App, account: &Account, room_id: &str) -> Result<
         sqlx::query("DELETE FROM snapshot_heads WHERE user_id IN (SELECT user_id FROM members WHERE room_id=$1) OR $1=ANY(room_ids)")
             .bind(room_id).execute(&mut *tx).await?;
         room = crate::room_details::publish(&mut tx, room_id).await?;
+        crate::system_messages::publish(
+            &mut tx,
+            account,
+            room_id,
+            rv_protocol::system::SystemMessage::MemberJoined {},
+        )
+        .await?;
     }
     tx.commit().await?;
     Ok(room)
@@ -466,6 +485,13 @@ pub async fn membership(
             .await?;
         }
         crate::room_details::publish(&mut tx, room_id).await?;
+        let user = crate::system_messages::user(&mut tx, target).await?;
+        let activity = if remove {
+            rv_protocol::system::SystemMessage::MemberRemoved { user }
+        } else {
+            rv_protocol::system::SystemMessage::MemberAdded { user }
+        };
+        crate::system_messages::publish(&mut tx, account, room_id, activity).await?;
     }
     tx.commit().await?;
     Ok(())

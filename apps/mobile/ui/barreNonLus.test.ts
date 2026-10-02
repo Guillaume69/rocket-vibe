@@ -3,6 +3,11 @@ import { describe, test } from 'node:test';
 
 import { ID_BARRE_NON_LUS, insererBarreNonLus,insererBarreNonLusNative } from './barreNonLus.ts';
 
+test('native system activity never opens an unread divider',()=>{
+  const rows=[{id:'system',auteurId:'other',typeSysteme:'room_changed_topic'}];
+  assert.equal(insererBarreNonLusNative(rows,'1',new Map([['system','2']]),'me'),rows);
+});
+
 /** Un message minimal — DESC : construire du plus récent au plus ancien. */
 const m = (id: string, horodatage: number, auteurId: string) => ({ id, horodatage, auteurId });
 

@@ -22,6 +22,12 @@ import type { Traducteur } from '../ui/messages.ts';
  * (sujet effacé, bienvenue anonyme) sont traités à part dans `texteSysteme`.
  */
 const CLES = {
+  'rv-room-created':'sys.roomCreated',
+  'rv-room-private':'sys.roomPrivate',
+  'rv-room-public':'sys.roomPublic',
+  'rv-role-owner':'sys.roleOwner',
+  'rv-role-moderator':'sys.roleModerator',
+  'rv-role-member':'sys.roleMember',
   uj: 'sys.uj',
   ujt: 'sys.ujt',
   ul: 'sys.ul',

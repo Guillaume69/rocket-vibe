@@ -136,6 +136,7 @@ impl ChatPage {
                 };
                 let read_only = !session.can_send_to_room(&room.id);
                 let last = session.store.messages(&room.id, 1).ok().and_then(|mut r| r.pop());
+                let last_type = last.as_ref().and_then(|r| r.system_type.clone());
                 RoomRow {
                     rid: room.id,
                     kind: match room.kind {
@@ -156,7 +157,7 @@ impl ChatPage {
                     dm_other_uid: None,
                     avatar_etag: None,
                     slug: None,
-                    last_type: None,
+                    last_type,
                     last_author: last.map(|r| r.author),
                     last_encrypted: None,
                 }

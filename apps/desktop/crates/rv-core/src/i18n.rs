@@ -769,6 +769,12 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("sys.ru", "a retiré {p} du salon", "removed {p} from the channel"),
     ("sys.au", "a ajouté {p} au salon", "added {p} to the channel"),
     ("sys.r", "a renommé le salon en {p}", "renamed the channel to {p}"),
+    ("sys.room_created", "a créé le salon {p}", "created the channel {p}"),
+    ("sys.room_private", "a rendu le salon privé", "made the channel private"),
+    ("sys.room_public", "a rendu le salon public", "made the channel public"),
+    ("sys.role_owner", "a donné le rôle de propriétaire à {p}", "made {p} an owner"),
+    ("sys.role_moderator", "a donné le rôle de modérateur à {p}", "made {p} a moderator"),
+    ("sys.role_member", "a donné le rôle de membre à {p}", "made {p} a member"),
     ("sys.rm", "(message supprimé)", "(message removed)"),
     ("sys.wm_empty", "bienvenue !", "welcome!"),
     ("sys.wm", "bienvenue, {p} !", "welcome, {p}!"),
@@ -831,6 +837,12 @@ pub fn system_message(kind: &str, param: &str) -> String {
     let with_p = |key: &str| tf(key, &[("p", param)]);
     let either = |removed: &str, set: &str| if param.is_empty() { t(removed).to_owned() } else { with_p(set) };
     match kind {
+        "rv-room-created" => with_p("sys.room_created"),
+        "rv-room-private" => with_p("sys.room_private"),
+        "rv-room-public" => with_p("sys.room_public"),
+        "rv-role-owner" => with_p("sys.role_owner"),
+        "rv-role-moderator" => with_p("sys.role_moderator"),
+        "rv-role-member" => with_p("sys.role_member"),
         "wm" => either("sys.wm_empty", "sys.wm"),
         "room_changed_topic" => either("sys.topic_removed", "sys.topic"),
         "room_changed_announcement" => either("sys.announcement_removed", "sys.announcement"),

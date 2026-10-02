@@ -20,7 +20,7 @@ pub(super) fn selection(
     id: &str,
 ) -> rusqlite::Result<QuoteSelection> {
     let revision: String = conn.query_row(
-        "SELECT revision FROM native_messages WHERE id=?1 AND rid=?2 AND NOT deleted AND position IS NOT NULL",
+        "SELECT revision FROM native_messages WHERE id=?1 AND rid=?2 AND NOT deleted AND position IS NOT NULL AND system_type IS NULL",
         params![id, rid],
         |r| r.get(0),
     )?;

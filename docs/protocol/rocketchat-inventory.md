@@ -173,7 +173,7 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/crates/rv-core/src/uploads.rs:352](../../apps/desktop/crates/rv-core/src/uploads.rs#L352) | endpoint | rooms.mediaConfirm/{…}/{…} |
 | [apps/desktop/crates/rv-core/src/uploads.rs:372](../../apps/desktop/crates/rv-core/src/uploads.rs#L372) | call:UPLOAD | &format!("rooms.media/{…}", task_row.rid), |
 | [apps/desktop/crates/rv-core/src/uploads.rs:374](../../apps/desktop/crates/rv-core/src/uploads.rs#L374) | endpoint | rooms.media/{…} |
-| [apps/desktop/crates/rv-gtk/src/chat_native.rs:624](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L624) | endpoint | rooms.new |
+| [apps/desktop/crates/rv-gtk/src/chat_native.rs:625](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L625) | endpoint | rooms.new |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:79](../../apps/desktop/crates/rv-gtk/src/chat.rs#L79) | endpoint | rooms.favorite_add |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:79](../../apps/desktop/crates/rv-gtk/src/chat.rs#L79) | endpoint | rooms.favorite_remove |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:225](../../apps/desktop/crates/rv-gtk/src/chat.rs#L225) | endpoint | rooms.offline |
@@ -446,9 +446,9 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/mobile/ui/messages.ts:292](../../apps/mobile/ui/messages.ts#L292) | endpoint | e2e.deverrouiller |
 | [apps/mobile/ui/messages.ts:293](../../apps/mobile/ui/messages.ts#L293) | endpoint | e2e.erreurMotDePasse |
 | [apps/mobile/ui/messages.ts:294](../../apps/mobile/ui/messages.ts#L294) | endpoint | e2e.erreurGenerique |
-| [apps/mobile/ui/messages.ts:838](../../apps/mobile/ui/messages.ts#L838) | endpoint | e2e.titre |
-| [apps/mobile/ui/messages.ts:839](../../apps/mobile/ui/messages.ts#L839) | endpoint | e2e.explication |
-| [apps/mobile/ui/messages.ts:841](../../apps/mobile/ui/messages.ts#L841) | endpoint | e2e.champ |
-| [apps/mobile/ui/messages.ts:842](../../apps/mobile/ui/messages.ts#L842) | endpoint | e2e.deverrouiller |
-| [apps/mobile/ui/messages.ts:843](../../apps/mobile/ui/messages.ts#L843) | endpoint | e2e.erreurMotDePasse |
-| [apps/mobile/ui/messages.ts:844](../../apps/mobile/ui/messages.ts#L844) | endpoint | e2e.erreurGenerique |
+| [apps/mobile/ui/messages.ts:844](../../apps/mobile/ui/messages.ts#L844) | endpoint | e2e.titre |
+| [apps/mobile/ui/messages.ts:845](../../apps/mobile/ui/messages.ts#L845) | endpoint | e2e.explication |
+| [apps/mobile/ui/messages.ts:847](../../apps/mobile/ui/messages.ts#L847) | endpoint | e2e.champ |
+| [apps/mobile/ui/messages.ts:848](../../apps/mobile/ui/messages.ts#L848) | endpoint | e2e.deverrouiller |
+| [apps/mobile/ui/messages.ts:849](../../apps/mobile/ui/messages.ts#L849) | endpoint | e2e.erreurMotDePasse |
+| [apps/mobile/ui/messages.ts:850](../../apps/mobile/ui/messages.ts#L850) | endpoint | e2e.erreurGenerique |

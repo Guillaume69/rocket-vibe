@@ -330,6 +330,7 @@ public final class RoomModel {
 
     public func actions(for message: MessageItem) -> [MessageAction] {
         guard active else { return [] }
+        if provider.native != nil && message.system != nil { return [] }
         guard let chat else {
             loadNativeActions(message)
             guard let rights = nativeActions[message.id] else { return [.copy] }

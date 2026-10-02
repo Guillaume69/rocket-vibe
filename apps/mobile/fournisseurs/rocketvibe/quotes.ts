@@ -19,7 +19,7 @@ export class NativeQuoteCache {
   private readonly identity:{instance_id:string;data_epoch:string};
   constructor(db:NativeDatabase,identity:{instance_id:string;data_epoch:string}) {this.db=db;this.identity=identity;}
   async selection(rid:string,id:string):Promise<NativeQuoteSelection> {
-    const row=await this.db.getFirstAsync<{revision:string}>('SELECT p.revision FROM native_positions p JOIN messages m ON m.id=p.id WHERE p.id=? AND p.rid=?',[id,rid]);
+    const row=await this.db.getFirstAsync<{revision:string}>('SELECT p.revision FROM native_positions p JOIN messages m ON m.id=p.id WHERE p.id=? AND p.rid=? AND m.type_systeme IS NULL',[id,rid]);
     const grant=await this.membership(rid);
     if(!row || grant===null || !roomIdentifier(id) || !roomIdentifier(rid) || position(row.revision)===0n)throw new Error('Native quote source unavailable');
     return {reference:{message_id:id,room_id:rid,revision:row.revision},...this.identity,membership_version:grant};

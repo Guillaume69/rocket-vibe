@@ -1946,7 +1946,7 @@ async fn room_creation_replays_after_restart_without_duplicate_events(pool: PgPo
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(count, (1, 1));
+    assert_eq!(count, (1, 2));
     for body in [
         json!({"operation_id":"create-intent","name":"Other","private":true}),
         json!({"operation_id":"create-intent","name":"Durable room","private":false}),
@@ -2105,8 +2105,11 @@ async fn public_directory_pages_and_join_preserve_privacy_and_roles(pool: PgPool
             .unwrap();
     }
     let replay = server.changes(&bob.token, &snapshot.cursor).await;
-    assert_eq!(replay.changes.len(), 1);
+    assert_eq!(replay.changes.len(), 2);
     assert!(matches!(&replay.changes[0],Change::RoomUpsert(r) if r.id==id));
+    assert!(
+        matches!(&replay.changes[1],Change::MessageUpsert(m) if matches!(m.system.as_deref(), Some(rv_protocol::system::SystemMessage::MemberJoined {})))
+    );
     server
         .post(&alice.token, &format!("/api/v1/rooms/{id}/join"), json!({}))
         .await
@@ -2286,7 +2289,18 @@ async fn exchange_replay_restart_and_privacy(pool: PgPool) {
         .json()
         .await
         .unwrap();
-    assert_eq!(page.messages, vec![first.clone()]);
+    assert_eq!(
+        page.messages
+            .iter()
+            .filter(|m| m.system.is_none())
+            .cloned()
+            .collect::<Vec<_>>(),
+        vec![first.clone()]
+    );
+    assert_eq!(
+        page.messages.iter().filter(|m| m.system.is_some()).count(),
+        2
+    );
     let batch = server
         .changes(&bob_session.token, &bob_initial.cursor)
         .await;
@@ -2360,7 +2374,7 @@ async fn exchange_replay_restart_and_privacy(pool: PgPool) {
     assert_eq!(identity.data_epoch, after_identity.data_epoch);
     assert_eq!(
         restarted.snapshot(&bob_session.token).await.messages,
-        vec![first]
+        page.messages
     );
 }
 
@@ -2798,7 +2812,7 @@ async fn late_commit_cannot_be_skipped_by_a_cursor(pool: PgPool) {
             .await
             .changes
             .len(),
-        1
+        2
     );
 }
 
@@ -3509,9 +3523,17 @@ async fn large_json_is_bounded_without_skipping_replay_events(pool: PgPool) {
         assert!(batches < 30, "byte-bounded batches must keep advancing");
     }
     assert!(batches > 2, "large messages must produce smaller batches");
+    let expected: Vec<String> = sqlx::query_scalar("SELECT id FROM messages ORDER BY position")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
     assert_eq!(
-        delivered, ids,
-        "replay must preserve every event exactly once in journal order"
+        delivered, expected,
+        "replay must preserve activity and chat exactly once in journal order"
+    );
+    assert_eq!(
+        delivered.iter().filter(|id| ids.contains(id)).count(),
+        ids.len()
     );
     let page: MessagePage = server
         .get(

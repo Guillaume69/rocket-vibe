@@ -19,6 +19,35 @@ fn send_intention_rejects_unknown_server_controlled_fields() {
         )
         .is_err()
     );
+    assert!(
+        serde_json::from_str::<SendMessage>(
+            r#"{"operation_id":"id","text":"hello","system":{"kind":"member_joined"}}"#
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn native_activity_is_structured_and_projects_without_embedded_sentences() {
+    use rv_protocol::system::SystemMessage;
+    let activity: SystemMessage = serde_json::from_value(serde_json::json!({"kind":"role_changed","user":{"id":"bob","username":"bob","display_name":"Robert"},"previous_role":"member","role":"moderator"})).unwrap();
+    assert_eq!(activity.presentation(), ("rv-role-moderator", "bob".into()));
+    assert!(
+        serde_json::from_value::<SystemMessage>(
+            serde_json::json!({"kind":"member_joined","text":"forged sentence"})
+        )
+        .is_err()
+    );
+    assert!(serde_json::from_value::<SystemMessage>(serde_json::json!({"kind":"role_changed","user":{"id":"bob","username":"bob","display_name":"Robert"},"previous_role":"member","role":"administrator"})).is_err());
+    let old: rv_protocol::Message = serde_json::from_value(
+        serde_json::from_str::<serde_json::Value>(include_str!(
+            "../../../docs/protocol/v1.fixture.json"
+        ))
+        .unwrap()["message"]
+            .clone(),
+    )
+    .unwrap();
+    assert!(old.system.is_none());
 }
 
 #[test]

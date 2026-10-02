@@ -247,6 +247,7 @@ pub async fn apply(
         return Err(Error::conflict());
     }
     admission(&mut tx, &actor.id).await?;
+    let mut activities = Vec::new();
     let leaving = matches!(command, Command::Leave(_));
     let changed = match &command {
         Command::Settings(input) => {
@@ -258,6 +259,37 @@ pub async fn apply(
                 || current.description != input.description
                 || current.announcement != input.announcement;
             if changed {
+                use rv_protocol::system::SystemMessage as S;
+                if current.room.name != input.name.trim() {
+                    activities.push(S::RoomRenamed {
+                        name: input.name.trim().into(),
+                    });
+                }
+                if current.room.kind != kind {
+                    activities.push(S::PrivacyChanged {
+                        private: input.private,
+                    });
+                }
+                if current.read_only != input.read_only {
+                    activities.push(S::ReadOnlyChanged {
+                        read_only: input.read_only,
+                    });
+                }
+                if current.topic != input.topic {
+                    activities.push(S::TopicChanged {
+                        topic: input.topic.clone(),
+                    });
+                }
+                if current.description != input.description {
+                    activities.push(S::DescriptionChanged {
+                        description: input.description.clone(),
+                    });
+                }
+                if current.announcement != input.announcement {
+                    activities.push(S::AnnouncementChanged {
+                        announcement: input.announcement.clone(),
+                    });
+                }
                 sqlx::query("UPDATE rooms SET name=$2,kind=$3,read_only=$4,topic=$5,description=$6,announcement=$7 WHERE id=$1")
                     .bind(room).bind(input.name.trim()).bind(kind).bind(input.read_only).bind(&input.topic).bind(&input.description).bind(&input.announcement).execute(&mut *tx).await?;
             }
@@ -271,6 +303,11 @@ pub async fn apply(
                 require_other_owner(&mut tx, room, target).await?;
             }
             if previous != next {
+                activities.push(rv_protocol::system::SystemMessage::RoleChanged {
+                    user: crate::system_messages::user(&mut tx, target).await?,
+                    previous_role: permissions::role(&previous),
+                    role: input.role,
+                });
                 sqlx::query("UPDATE members SET role=$3 WHERE room_id=$1 AND user_id=$2")
                     .bind(room)
                     .bind(target)
@@ -281,6 +318,7 @@ pub async fn apply(
             previous != next
         }
         Command::Leave(_) => {
+            activities.push(rv_protocol::system::SystemMessage::MemberLeft {});
             if role == "owner" {
                 require_other_owner(&mut tx, room, &actor.id).await?;
             }
@@ -310,6 +348,9 @@ pub async fn apply(
             .await?;
         }
         publish(&mut tx, room).await?;
+        for activity in activities {
+            crate::system_messages::publish(&mut tx, actor, room, activity).await?;
+        }
     }
     let revision: String = sqlx::query_scalar("SELECT details_version FROM rooms WHERE id=$1")
         .bind(room)

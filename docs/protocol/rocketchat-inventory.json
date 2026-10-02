@@ -1321,7 +1321,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat_native.rs",
-      "line": 624,
+      "line": 625,
       "kind": "endpoint",
       "surface": "rooms.new"
     },
@@ -2959,37 +2959,37 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 838,
+      "line": 844,
       "kind": "endpoint",
       "surface": "e2e.titre"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 839,
+      "line": 845,
       "kind": "endpoint",
       "surface": "e2e.explication"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 841,
+      "line": 847,
       "kind": "endpoint",
       "surface": "e2e.champ"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 842,
+      "line": 848,
       "kind": "endpoint",
       "surface": "e2e.deverrouiller"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 843,
+      "line": 849,
       "kind": "endpoint",
       "surface": "e2e.erreurMotDePasse"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 844,
+      "line": 850,
       "kind": "endpoint",
       "surface": "e2e.erreurGenerique"
     }

@@ -345,6 +345,7 @@ impl NativeChat {
                 };
                 let read_only = !self.session.can_send_to_room(&room.id);
                 let last = self.session.store.messages(&room.id, 1).ok().and_then(|mut rows| rows.pop());
+                let last_type = last.as_ref().and_then(|m| m.system_type.clone());
                 rv_core::store::RoomRow {
                     rid: room.id,
                     kind: match room.kind {
@@ -366,7 +367,7 @@ impl NativeChat {
                     dm_other_uid: None,
                     avatar_etag: None,
                     slug: None,
-                    last_type: None,
+                    last_type,
                     last_encrypted: None,
                 }
             })
@@ -771,6 +772,7 @@ mod tests {
             position: None,
             text: "**hello** :smile:".into(),
             body: None,
+            system_type: None,
             attachments: None,
             author: "alice".into(),
             author_id: "alice-id".into(),

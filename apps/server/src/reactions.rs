@@ -58,6 +58,9 @@ pub async fn apply(app: &App, account: &Account, id: &str, input: SetReaction) -
     if message.deleted {
         return Err(Error::new(StatusCode::GONE, "message_deleted"));
     }
+    if message.system.is_some() {
+        return Err(Error::forbidden());
+    }
     let present:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM message_reactions WHERE message_id=$1 AND user_id=$2 AND emoji=$3)").bind(id).bind(&account.id).bind(emoji).fetch_one(&mut *tx).await?;
     if input.present && !present {
         let (total,groups,own,group_exists):(i64,i64,i64,bool)=sqlx::query_as("SELECT count(*),count(DISTINCT emoji),count(*) FILTER (WHERE user_id=$2),COALESCE(bool_or(emoji=$3),false) FROM message_reactions WHERE message_id=$1").bind(id).bind(&account.id).bind(emoji).fetch_one(&mut *tx).await?;

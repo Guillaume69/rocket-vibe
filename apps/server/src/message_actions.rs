@@ -135,6 +135,9 @@ pub async fn apply(app: &App, account: &Account, id: &str, command: Command) -> 
     }
     let own =
         message.author_id == account.id && message.created_at + Duration::minutes(15) > Utc::now();
+    if message.system.is_some() {
+        return Err(Error::forbidden());
+    }
     let elevated = role == "owner" || role == "moderator";
     let permitted = if text.is_some() {
         own && (!read_only || elevated)

@@ -92,6 +92,9 @@ pub async fn apply(
     if message.deleted {
         return Err(Error::new(StatusCode::GONE, "message_deleted"));
     }
+    if message.system.is_some() {
+        return Err(Error::forbidden());
+    }
     let present = if starred {
         sqlx::query_scalar::<_, bool>(
             "SELECT present FROM message_stars WHERE message_id=$1 AND user_id=$2",

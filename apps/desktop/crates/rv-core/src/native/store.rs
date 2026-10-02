@@ -82,6 +82,7 @@ pub struct MessageRow {
     pub text: String,
     pub author: String,
     pub body: Option<String>,
+    pub system_type: Option<String>,
     pub attachments: Option<String>,
     pub author_id: String,
     pub ts: i64,
@@ -104,7 +105,8 @@ impl MessageRow {
             pinned: self.pinned,
             starred: self.starred.then(|| uid.into()),
             text: Some(self.text),
-            md: Some(md),
+            md: self.system_type.is_none().then_some(md),
+            system_type: self.system_type,
             author: Some(self.author),
             author_id: if self.status.is_some() { uid.into() } else { self.author_id },
             outbox_status: self.status.map(|s| if s == "failed" { "failed".into() } else { "pending".into() }),
@@ -182,6 +184,7 @@ impl NativeStore {
             ("starred", "INTEGER NOT NULL DEFAULT 0"),
             ("star_revision", "TEXT NOT NULL DEFAULT '0'"),
             ("body", "TEXT"),
+            ("system_type", "TEXT"),
         ] {
             if !columns.iter().any(|c| c == name) {
                 conn.execute_batch(&format!("ALTER TABLE native_messages ADD COLUMN {name} {declaration}"))?;
@@ -437,8 +440,22 @@ impl NativeStore {
         } else {
             Some(json(&message.reactions.iter().map(|reaction|(format!(":{}:",reaction.emoji),serde_json::json!({"usernames":reaction.users.iter().map(|user|&user.username).collect::<Vec<_>>()}))).collect::<std::collections::BTreeMap<_,_>>())?)
         };
-        let body = if message.deleted { None } else { message.body.as_ref().map(json).transpose()? };
-        tx.execute("INSERT INTO native_messages(id,rid,position,revision,text,author,author_id,ts,deleted,edited,reactions,body) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12) ON CONFLICT(id) DO UPDATE SET position=excluded.position,revision=excluded.revision,text=excluded.text,author=excluded.author,author_id=excluded.author_id,ts=excluded.ts,deleted=excluded.deleted,edited=excluded.edited,reactions=excluded.reactions,body=excluded.body",params![message.id,message.room_id,message.position,message.revision,message.text,message.author.username,message.author.id,ts,message.deleted,message.edited_at.is_some(),reactions,body])?;
+        let system = message.system.as_ref().map(|activity| activity.presentation());
+        let (text, system_type) = match system {
+            Some((kind, param)) => (param, Some(kind)),
+            None => (message.text.clone(), None),
+        };
+        if system_type.is_some()
+            && (!message.text.is_empty() || message.deleted || message.body.is_some() || !message.quotes.is_empty())
+        {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        let body = if message.deleted || system_type.is_some() {
+            None
+        } else {
+            message.body.as_ref().map(json).transpose()?
+        };
+        tx.execute("INSERT INTO native_messages(id,rid,position,revision,text,author,author_id,ts,deleted,edited,reactions,body,system_type) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13) ON CONFLICT(id) DO UPDATE SET position=excluded.position,revision=excluded.revision,text=excluded.text,author=excluded.author,author_id=excluded.author_id,ts=excluded.ts,deleted=excluded.deleted,edited=excluded.edited,reactions=excluded.reactions,body=excluded.body,system_type=excluded.system_type",params![message.id,message.room_id,message.position,message.revision,text,message.author.username,message.author.id,ts,message.deleted,message.edited_at.is_some(),reactions,body,system_type])?;
         tx.execute("DELETE FROM native_outbox WHERE id=?1", [&message.id])?;
         tx.execute("UPDATE native_messages SET pinned=?2 WHERE id=?1", params![message.id, message.pinned])?;
         quotes::project(tx, message, true)?;
@@ -596,7 +613,7 @@ impl NativeStore {
         if !self.same(&conn)? {
             return Ok(vec![]);
         }
-        let mut rows=conn.prepare("SELECT m.id,m.text,m.author,o.status,m.author_id,m.ts,m.edited,m.reactions,m.pinned,m.starred,m.position,m.body FROM native_messages m LEFT JOIN native_outbox o ON o.id=m.id WHERE m.rid=?1 AND NOT m.deleted ORDER BY m.position IS NULL DESC,o.created DESC,length(m.position) DESC,m.position DESC,m.id DESC LIMIT ?2")?.query_map(params![rid,limit as i64],|r|Ok(MessageRow {id:r.get(0)?,text:r.get(1)?,author:r.get(2)?,body:r.get(11)?,attachments:None,status:r.get(3)?,author_id:r.get(4)?,ts:r.get(5)?,edited:r.get(6)?,reactions:r.get(7)?,pinned:r.get(8)?,starred:r.get(9)?,position:r.get(10)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut rows=conn.prepare("SELECT m.id,m.text,m.author,o.status,m.author_id,m.ts,m.edited,m.reactions,m.pinned,m.starred,m.position,m.body,m.system_type FROM native_messages m LEFT JOIN native_outbox o ON o.id=m.id WHERE m.rid=?1 AND NOT m.deleted ORDER BY m.position IS NULL DESC,o.created DESC,length(m.position) DESC,m.position DESC,m.id DESC LIMIT ?2")?.query_map(params![rid,limit as i64],|r|Ok(MessageRow {id:r.get(0)?,text:r.get(1)?,author:r.get(2)?,body:r.get(11)?,system_type:r.get(12)?,attachments:None,status:r.get(3)?,author_id:r.get(4)?,ts:r.get(5)?,edited:r.get(6)?,reactions:r.get(7)?,pinned:r.get(8)?,starred:r.get(9)?,position:r.get(10)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
         for row in &mut rows {
             row.attachments = quotes::attachments(&conn, &row.id)?;
         }
@@ -611,7 +628,7 @@ impl NativeStore {
         if !self.same(&conn)? {
             return Ok(vec![]);
         }
-        let mut query = conn.prepare("SELECT id,text,author,author_id,ts,edited,reactions,pinned,starred,position,body FROM native_messages WHERE id=?1 AND NOT deleted")?;
+        let mut query = conn.prepare("SELECT id,text,author,author_id,ts,edited,reactions,pinned,starred,position,body,system_type FROM native_messages WHERE id=?1 AND NOT deleted")?;
         let mut rows = Vec::new();
         for id in ids {
             if let Some(row) = query
@@ -620,6 +637,7 @@ impl NativeStore {
                         id: r.get(0)?,
                         position: r.get(9)?,
                         body: r.get(10)?,
+                        system_type: r.get(11)?,
                         attachments: quotes::attachments(&conn, id)?,
                         text: r.get(1)?,
                         author: r.get(2)?,
@@ -816,6 +834,25 @@ mod tests {
         assert_eq!(store.cursor().unwrap().as_deref(), Some("initial"));
         assert_eq!(store.pending().unwrap().len(), 1);
         assert_eq!(store.messages("room-id", 100).unwrap().last().unwrap().text, "queued");
+    }
+
+    #[test]
+    fn native_system_rows_survive_projection_without_markdown_or_reply_actions() {
+        let store = store();
+        let mut snapshot = snapshot();
+        let message = &mut snapshot.messages[0];
+        message.text.clear();
+        message.body = None;
+        message.system = Some(Box::new(rv_protocol::system::SystemMessage::PrivacyChanged { private: true }));
+        store.snapshot(&snapshot).unwrap();
+        let row = store.messages(&snapshot.rooms[0].id, 10).unwrap().remove(0);
+        assert!(row.body.is_none());
+        assert!(store.quote_selection(&snapshot.rooms[0].id, &row.id).is_err());
+        let row = row.presentation(&snapshot.rooms[0].id, "alice");
+        assert_eq!(row.system_type.as_deref(), Some("rv-room-private"));
+        assert!(crate::timeline::is_system(&row));
+        assert!(!crate::actions::has_actions(row.system_type.as_deref(), row.text.as_deref()));
+        assert!(row.md.is_none());
     }
     #[test]
     fn unresolved_room_creation_survives_reopen_and_reuses_its_intent() {

@@ -1,6 +1,9 @@
 // Actual mobile HTTP transport against a disposable PostgreSQL server.
 import assert from 'node:assert/strict';
 import {NativeTransport} from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
+import {NativeStore} from '../apps/mobile/fournisseurs/rocketvibe/store.ts';
+import {nativeTestDatabase} from '../apps/mobile/fournisseurs/rocketvibe/testDatabase.ts';
+import {creerFileEcritures} from '../apps/mobile/db/fileEcritures.ts';
 const base=process.env.RV_ROOM_PEER_URL!,room=process.env.RV_ROOM_PEER_ROOM!;
 const owner=new NativeTransport(base),reader=new NativeTransport(base);
 await owner.login('read-owner','read-test-password-2026');
@@ -39,4 +42,23 @@ assert.equal(ping.unread_roots,'1');assert.equal(ping.mentions,'1');assert.equal
 await owner.editMessage(mentioned.id,{operation_id:'ts-mention-withdraw',expected_revision:mentioned.revision,content:{kind:'plain',markdown:'Plain edited text',mentions:[],quotes:[],files:[]}});
 assert.equal((await reader.roomReadState(room)).mentions,'0');
 assert.equal((await reader.markRoomRead(room,{root_position:mentioned.position,reply_position:'0'})).unread_roots,'0');
-console.log(JSON.stringify({unreads:true,monotone:true,privateFavorite:true,lostAckRecovered:true,noSecondFavorite:true,oldReplayHarmless:true,mentions:true}));
+const discovery=await reader.discover();
+const {db,adapter}=nativeTestDatabase();
+try {
+  const cache=new NativeStore(adapter,creerFileEcritures(),{baseUrl:base,authToken:account.token,userId:account.user.id,username:account.user.username,genre:'rocketvibe',siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch});
+  await cache.applySnapshot(await reader.snapshot());
+  const originalState=(await cache.readState(room))!,projection=cache.projectionToken();
+  assert.equal(originalState.favorite,false);assert.equal(originalState.unread_roots,'0');
+  await cache.enqueue('ts-absent-send',room,'Never replay after a missed withdrawal');
+  await cache.drafts().ecrire(room,'Private before withdrawal');
+  const details=await reader.roomDetails(room);
+  await reader.leaveRoom(room,{operation_id:'ts-cache-leave',expected_revision:details.revision});
+  await owner.addMember(room,account.user.id);
+  // The client missed room_removed and reconstructs directly from a new snapshot.
+  await cache.applySnapshot(await reader.snapshot());
+  assert.notEqual((await cache.readState(room))?.membership_version,originalState.membership_version);
+  assert.deepEqual(await cache.pending(),[]);assert.equal(await cache.drafts().lire(room),null);
+  assert.equal(await cache.cacheReadState(originalState,projection),false);
+  assert.equal((await cache.readState(room))?.favorite,false);
+} finally {db.close();}
+console.log(JSON.stringify({unreads:true,monotone:true,privateFavorite:true,lostAckRecovered:true,noSecondFavorite:true,oldReplayHarmless:true,mentions:true,sqliteCache:true,missedRejoin:true}));

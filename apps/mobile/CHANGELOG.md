@@ -9,6 +9,11 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Le cache détecte un retrait suivi d'une réadhésion même après un événement
+  manqué et un nouveau snapshot : historique privé, brouillons et intentions
+  antérieurs sont purgés. Un changement de rôle conserve les intentions de
+  l'adhésion actuelle. Le premier témoin d'adhésion purge également les
+  intentions des anciens caches qui n'en possédaient pas.
 - Le composeur suit les droits effectifs après changement de réglages ou de
   rôle : propriétaires et modérateurs peuvent écrire en lecture seule, les
   membres voient le message existant. Une ancienne réponse ne rétablit aucun

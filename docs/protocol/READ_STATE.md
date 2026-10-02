@@ -109,3 +109,24 @@ seconde écriture ; son ancien rejeu ne rétablit pas le favori supprimé. Il
 vérifie aussi mentions dédupliquées, retrait par édition et lecture du message.
 Le quota réel de lecture garde disponibles l'état, les reçus et les favoris ;
 un retry ancien reçu par le serveur ne consomme aucun avancement.
+
+## Caches clients
+
+Le mobile et le cœur bureau gardent l'état personnel dans une table SQLite
+séparée des métadonnées du salon. Une réponse personnelle ancienne ne rétablit
+pas un favori ; une ancienne révision de salon n'écrase pas son nom actuel.
+Une mise à jour personnelle conserve les droits effectifs tant que la révision
+des métadonnées reste la même. Les réponses HTTP identiques ne réécrivent pas
+l'état et ne réarment pas les minuteries de lecture.
+
+Un snapshot ou événement autorisé portant une nouvelle `membership_version`
+purge les anciennes données privées, brouillons et intentions du salon, puis
+invalide les réponses d'historique / commandes en vol. Le changement de rôle
+conserve cette durée d'adhésion et les intentions courantes. Une réponse HTTP
+ne peut changer elle-même la durée d'adhésion du cache. Les caches sans témoin
+d'adhésion ne peuvent prouver que leurs anciennes intentions ont survécu à un
+retrait manqué : leur premier snapshot portant ce témoin les purge également.
+Le bureau récupère les témoins déjà présents dans ses anciens payloads de salon.
+
+Ce lot stocke l'état confirmé ; les files durables de lecture / favori et leur
+raccordement aux badges, boutons et minuteries existants restent à livrer.

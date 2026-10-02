@@ -347,3 +347,9 @@ export const nativeRoomAccess = sqliteTable('native_room_access', {
   canSend: integer('can_send',{mode:'boolean'}),
   role: text('role'),
 });
+
+/** Personal read/favorite revision is independent from metadata and actor rights. */
+export const nativeReadStates = sqliteTable('native_read_states', {
+  rid: text('rid').primaryKey(),
+  payload: text('payload').notNull(),
+});

@@ -315,6 +315,23 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P05, cache confirmé mobile / bureau : SQLite sépare versions des métadonnées
+  et de l'état personnel. Les nouvelles lectures ne font pas reculer le nom du
+  salon ni invalider ses droits ; les réponses anciennes ne restaurent aucun
+  favori. Le témoin d'adhésion détecte également un retrait / une réadhésion
+  manqués, purge l'ancien contenu privé / brouillons / intentions et invalide
+  les réponses en vol. Un rôle modifié conserve la durée d'adhésion. Le premier
+  témoin purge les intentions d'un cache ancien qui n'en possédait pas ; le
+  bureau récupère les témoins déjà présents dans ses anciens payloads de salon.
+  Vérifications : 322 tests bureau et Clippy / compilation GTK dans Fedora ;
+  1 138 tests mobiles complets puis huit cas ciblés (dont un nouveau), typecheck
+  / lint et export Android Hermes. Les dix parcours de lectures et les quinze parcours natifs / salons
+  existants contre PostgreSQL passent, avec vraie migration / base SQLite mobile,
+  snapshot après retrait / réadhésion manqués et rejet d'une réponse antérieure.
+  Inventaire : 308 fichiers / 414 occurrences. La CI du serveur / transports
+  P05 `c4a9f95` a ses quatre jobs verts (`37006738251`). Les files durables de
+  lecture / favori et les contrôles existants restent le prochain incrément.
+
 - P05, mentions côté serveur : pseudos exacts des adhérents actifs résolus lors
   du premier envoi, `@all`, répétitions dédupliquées et priorité de la mention
   nominative sur le groupe. Code, citations, liens, échappements et noms encodés

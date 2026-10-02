@@ -128,7 +128,7 @@ async fn actual_mobile_transport_recovers_lost_favorite_ack_without_a_second_wri
     let result: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         result,
-        json!({"unreads":true,"monotone":true,"privateFavorite":true,"lostAckRecovered":true,"noSecondFavorite":true,"oldReplayHarmless":true,"mentions":true})
+        json!({"unreads":true,"monotone":true,"privateFavorite":true,"lostAckRecovered":true,"noSecondFavorite":true,"oldReplayHarmless":true,"mentions":true,"sqliteCache":true,"missedRejoin":true})
     );
 }
 

@@ -9,6 +9,10 @@ section here.
 
 ### Fixed
 
+- Native caches detect room withdrawal followed by rejoining even after a missed
+  event and a snapshot reset. Older private history, drafts and pending commands
+  are purged, while role changes keep the current membership's intentions.
+  Learning the first membership stamp also clears unstamped legacy intentions.
 - Native room composers follow effective write permissions after room settings
   or role changes. Owners and moderators can still write in read-only rooms;
   members use the existing read-only presentation. Older responses cannot

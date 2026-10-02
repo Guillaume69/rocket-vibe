@@ -1,4 +1,5 @@
 //! Fallible transactions: a failed projection never acknowledges its cursor or outbox echo.
+mod read_states;
 mod room_access;
 mod room_operations;
 use super::Identity;
@@ -119,6 +120,8 @@ impl NativeStore {
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_room_creations(id TEXT PRIMARY KEY,name TEXT NOT NULL,private INTEGER NOT NULL,UNIQUE(name,private));")?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_room_operations(id TEXT PRIMARY KEY,rid TEXT NOT NULL UNIQUE,payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','failed')),error TEXT);")?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_room_access(rid TEXT PRIMARY KEY,revision TEXT NOT NULL,read_only INTEGER NOT NULL,can_send INTEGER NOT NULL,role TEXT NOT NULL);")?;
+        conn.execute_batch("CREATE TABLE IF NOT EXISTS native_read_states(rid TEXT PRIMARY KEY,payload TEXT NOT NULL);
+            INSERT INTO native_read_states SELECT id,json_extract(payload,'$.read_state') FROM native_rooms WHERE json_type(payload,'$.read_state')='object' ON CONFLICT(rid) DO NOTHING;")?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_commands(id TEXT PRIMARY KEY,rid TEXT NOT NULL,message_id TEXT NOT NULL UNIQUE,kind TEXT NOT NULL CHECK(kind IN ('edit','delete')),expected_revision TEXT NOT NULL,text TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',error TEXT);")?;
         let command_schema: String =
             conn.query_row("SELECT sql FROM sqlite_master WHERE name='native_commands'", [], |r| r.get(0))?;
@@ -166,6 +169,7 @@ impl NativeStore {
                 "native_commands",
                 "native_room_operations",
                 "native_room_access",
+                "native_read_states",
             ] {
                 tx.execute(&format!("DELETE FROM {table}"), [])?;
             }
@@ -190,9 +194,15 @@ impl NativeStore {
         rotate: bool,
         fnc: impl FnOnce(&Transaction) -> rusqlite::Result<T>,
     ) -> rusqlite::Result<T> {
+        self.atomic_invalidation(|tx| Ok((fnc(tx)?, rotate)))
+    }
+    fn atomic_invalidation<T>(
+        &self,
+        fnc: impl FnOnce(&Transaction) -> rusqlite::Result<(T, bool)>,
+    ) -> rusqlite::Result<T> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
-        let result = fnc(&tx)?;
+        let (result, rotate) = fnc(&tx)?;
         tx.commit()?;
         if rotate {
             self.projection.fetch_add(1, Ordering::SeqCst);
@@ -318,13 +328,28 @@ impl NativeStore {
             Ok(true)
         })
     }
-    fn room(tx: &Transaction, room: &Room) -> rusqlite::Result<()> {
-        tx.execute("DELETE FROM native_room_access WHERE rid=?1 AND revision<>?2", params![room.id, room.revision])?;
+    fn room(tx: &Transaction, room: &Room) -> rusqlite::Result<bool> {
+        let incoming = decimal(&room.revision)?;
+        let previous: Option<String> =
+            tx.query_row("SELECT payload FROM native_rooms WHERE id=?1", [&room.id], |r| r.get(0)).optional()?;
+        let reset = Self::personal_room(tx, room, previous.is_some())?;
+        let mut metadata = room.clone();
+        if let Some(previous) = previous {
+            let old: Room = serde_json::from_str(&previous).map_err(|_| rusqlite::Error::InvalidQuery)?;
+            if decimal(&old.revision)? > incoming {
+                metadata = old;
+            }
+        }
+        metadata.read_state = None;
+        tx.execute(
+            "DELETE FROM native_room_access WHERE rid=?1 AND revision<>?2",
+            params![room.id, metadata.revision],
+        )?;
         tx.execute(
             "INSERT INTO native_rooms VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
-            params![room.id, json(room)?],
+            params![room.id, json(&metadata)?],
         )?;
-        Ok(())
+        Ok(reset)
     }
     fn message(tx: &Transaction, message: &Message) -> rusqlite::Result<()> {
         // Late history/HTTP echoes cannot restore data after a room withdrawal.
@@ -387,6 +412,9 @@ impl NativeStore {
     }
     fn remove(tx: &Transaction, rid: &str) -> rusqlite::Result<()> {
         tx.execute("DELETE FROM native_rooms WHERE id=?1", [rid])?;
+        Self::remove_content(tx, rid)
+    }
+    fn remove_content(tx: &Transaction, rid: &str) -> rusqlite::Result<()> {
         for table in [
             "native_messages",
             "native_outbox",
@@ -394,6 +422,7 @@ impl NativeStore {
             "native_commands",
             "native_room_operations",
             "native_room_access",
+            "native_read_states",
         ] {
             tx.execute(&format!("DELETE FROM {table} WHERE rid=?1"), [rid])?;
         }
@@ -414,6 +443,7 @@ impl NativeStore {
                     "native_commands",
                     "native_room_operations",
                     "native_room_access",
+                    "native_read_states",
                 ] {
                     tx.execute(&format!("DELETE FROM {table}"), [])?;
                 }
@@ -445,18 +475,20 @@ impl NativeStore {
         if batch.protocol_version != VERSION {
             return Err(rusqlite::Error::InvalidQuery);
         }
-        self.atomic_projection(batch.changes.iter().any(|c| matches!(c, Change::RoomRemoved { .. })), |tx| {
+        self.atomic_invalidation(|tx| {
             if !self.same(tx)? {
                 return Err(rusqlite::Error::InvalidQuery);
             }
+            let mut rotate = batch.changes.iter().any(|c| matches!(c, Change::RoomRemoved { .. }));
             for change in &batch.changes {
                 match change {
-                    Change::RoomUpsert(room) => Self::room(tx, room)?,
+                    Change::RoomUpsert(room) => rotate |= Self::room(tx, room)?,
                     Change::MessageUpsert(message) => Self::message(tx, message)?,
                     Change::RoomRemoved { room_id } => Self::remove(tx, room_id)?,
                 }
             }
-            self.cursor_in(tx, &batch.cursor)
+            self.cursor_in(tx, &batch.cursor)?;
+            Ok(((), rotate))
         })
     }
     pub fn ingest(&self, messages: &[Message]) -> rusqlite::Result<()> {
@@ -481,13 +513,19 @@ impl NativeStore {
         if !self.same(&conn)? {
             return Ok(vec![]);
         }
-        conn.prepare("SELECT payload FROM native_rooms ORDER BY id")?
-            .query_map([], |r| {
-                let value: String = r.get(0)?;
-                serde_json::from_str(&value)
-                    .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))
-            })?
-            .collect()
+        conn.prepare(
+            "SELECT r.payload,s.payload FROM native_rooms r LEFT JOIN native_read_states s ON s.rid=r.id ORDER BY r.id",
+        )?
+        .query_map([], |r| {
+            let value: String = r.get(0)?;
+            let mut room: Room = serde_json::from_str(&value).map_err(|_| rusqlite::Error::InvalidQuery)?;
+            if let Some(personal) = r.get::<_, Option<String>>(1)? {
+                room.read_state =
+                    Some(Box::new(serde_json::from_str(&personal).map_err(|_| rusqlite::Error::InvalidQuery)?));
+            }
+            Ok(room)
+        })?
+        .collect()
     }
     pub fn messages(&self, rid: &str, limit: usize) -> rusqlite::Result<Vec<MessageRow>> {
         let conn = self.conn.lock().unwrap();

@@ -155,6 +155,13 @@
       "when": 1790938687138,
       "tag": "0021_redundant_dagger",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1790944408673,
+      "tag": "0022_tense_stone_men",
+      "breakpoints": true
     }
   ]
 }

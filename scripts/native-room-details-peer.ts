@@ -53,5 +53,27 @@ try{
   await actions.reprendre(room);assert.equal(writes,1);assert.equal(await actions.intention(room),null);
   const fresh=(await provider.actions.infosSalon(room)).gestion!;
   const members=await actions.membres(room,null,fresh.revision);assert.equal(members.membres[0].role,'owner');
+  await store.applySnapshot(await peer.snapshot());
+  await provider.native!.chat.refreshRoomAccess(room);
+  assert.equal((await store.roomAccess(room))?.can_send,1,'Owners can write in read-only rooms');
+  assert.equal(harness.db.prepare('SELECT lecture_seule FROM salons WHERE rid=?').get(room)?.lecture_seule,0);
+  await peer.addMember(room,a.user.id);
+  const memberHarness=nativeTestDatabase(),memberStore=new NativeStore(memberHarness.adapter,creerFileEcritures(),{...account,authToken:a.token,userId:a.user.id,username:a.user.username});
+  const memberProvider=creerFournisseurRV({...account,authToken:a.token,userId:a.user.id,username:a.user.username},new ClientRest(base,{fetch:async()=>{throw new Error('Native composer must not call Rocket.Chat');}}),()=> 'mobile-composer-original',memberStore,{transport:owner,socket:()=>{
+    const socket={readyState:0,onopen:null,onclose:null,onerror:null,onmessage:null,close:()=>{}} as unknown as WebSocket;queueMicrotask(()=>socket.onopen?.(new Event('open')));return socket;
+  }});
+  try{
+    await memberProvider.native!.chat.connect();
+    await memberProvider.native!.chat.refreshRoomAccess(room);
+    assert.equal((await memberStore.roomAccess(room))?.can_send,0);
+    assert.equal(memberHarness.db.prepare('SELECT lecture_seule FROM salons WHERE rid=?').get(room)?.lecture_seule,1);
+    await assert.rejects(owner.send(room,{operation_id:'mobile-readonly-denied',text:'Blocked member message'}),(e:unknown)=>e instanceof NativeError && e.status===403);
+    await peer.changeRoomRole(room,a.user.id,{operation_id:'mobile-composer-moderator',expected_revision:(await peer.roomDetails(room)).revision,role:'moderator'});
+    await memberStore.applySnapshot(await owner.snapshot());
+    await memberProvider.native!.chat.refreshRoomAccess(room);
+    assert.equal((await memberStore.roomAccess(room))?.can_send,1);
+    assert.equal(memberHarness.db.prepare('SELECT lecture_seule FROM salons WHERE rid=?').get(room)?.lecture_seule,0);
+    assert.equal((await owner.send(room,{operation_id:'mobile-readonly-moderator',text:'Allowed moderator message'})).text,'Allowed moderator message');
+  }finally{memberProvider.native!.chat.stop();await memberStore.state();memberHarness.db.close();}
 }finally{provider.native!.chat.stop();await store.state();harness.db.close();}
 console.log(JSON.stringify({metadata:true,handover:true,selfDemotion:true,receiptAfterLeave:true,lastOwnerProtected:true,existingMobileProvider:true,savedFormRecovered:true,noSecondPatch:true}));

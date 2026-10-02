@@ -9,6 +9,11 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Le composeur suit les droits effectifs après changement de réglages ou de
+  rôle : propriétaires et modérateurs peuvent écrire en lecture seule, les
+  membres voient le message existant. Une ancienne réponse ne rétablit aucun
+  droit après retrait ou nouvelle version du salon.
+
 - Réglages, liste paginée des membres, rôles et départ dans la fiche existante,
   selon les droits actuels. Les commandes interrompues reprennent leur reçu
   original ; un formulaire refusé reste conservé jusqu'à relecture ou effacement

@@ -219,21 +219,25 @@ final class NativeProviderTests: XCTestCase {
         try await room.updateRoom(fields: fields, revision: original.revision)
         let current = try await room.roomManagement()
         XCTAssertEqual(current.fields, fields); XCTAssertEqual(current.info.kind, "c"); XCTAssertTrue(current.info.readOnly)
+        try await until { !room.room.readOnly }
         XCTAssertNil(try room.roomIntention())
         try await native.invite(room: rid, username: "mobile")
         let invited = try await room.roomManagement()
         let members = try await room.roomMembers(after: nil, revision: invited.revision)
         let mobile = try XCTUnwrap(members.members.first { $0.username == "mobile" })
+        try await until { peer.rooms.contains { $0.rid == rid } }; peer.open(rid)
+        let peerRoom = try XCTUnwrap(peer.room)
+        try await until { !peerRoom.loading && peerRoom.room.readOnly }
         try await room.changeRoomRole(target: mobile.id, role: "owner", revision: members.revision)
+        try await until { !peerRoom.room.readOnly }
         let transferred = try await room.roomManagement()
         try await room.changeRoomRole(target: account.userId, role: "member", revision: transferred.revision)
         let demoted = try await room.roomManagement()
         XCTAssertFalse(demoted.canEdit); XCTAssertFalse(demoted.canChangeRoles); XCTAssertTrue(demoted.canLeave)
+        try await until { room.room.readOnly }
         try await room.leaveRoom(revision: demoted.revision)
         try await until { !app.rooms.contains { $0.rid == rid } }
         XCTAssertFalse(room.supportsRoomInfo)
-        try await until { peer.rooms.contains { $0.rid == rid } }; peer.open(rid)
-        let peerRoom = try XCTUnwrap(peer.room); try await until { !peerRoom.loading }
         let lastOwner = try await peerRoom.roomManagement()
         do { try await peerRoom.leaveRoom(revision: lastOwner.revision); XCTFail("The last owner must remain") }
         catch { guard case let RvError.Server(_, _, code, _, _, _) = error else { throw error }; XCTAssertEqual(code, "last_room_owner") }

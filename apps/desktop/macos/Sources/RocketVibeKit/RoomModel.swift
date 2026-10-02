@@ -84,6 +84,7 @@ public final class RoomModel {
     /// Each message's actions, asked of rv-ffi once per version of the list.
     @ObservationIgnored var actionsOf: [String: [MessageAction]] = [:]
     private var nativeActions: [String: NativeMessageActions] = [:]
+    private var roomAccessTask: Task<Void, Never>?
     @ObservationIgnored private var actionLoads: Set<String> = []
     @ObservationIgnored private var mutations: [String: NativeMessageActions] = [:]
 
@@ -117,6 +118,7 @@ public final class RoomModel {
     func deactivate() {
         guard active else { return }
         draftSave?.cancel()
+        roomAccessTask?.cancel()
         try? provider.setDraft(rid: room.rid, thread: threadId, text: draft)
         active = false
         roomInformationRevision = "closed"
@@ -132,6 +134,17 @@ public final class RoomModel {
         roomOperationRevision &+= 1
         if room != self.room { self.room = room }
         roomInformationRevision = (try? provider.native?.roomRevision(room: room.rid)) ?? "\(room.rid):\(room.name):\(room.kind)"
+        refreshRoomAccess()
+    }
+    private func refreshRoomAccess() {
+        guard active, roomAccessTask == nil, let native = provider.native,
+              native.supportedFeatures().contains("room_info") else { return }
+        let rid = room.rid
+        roomAccessTask = Task { [weak self] in
+            defer { self?.roomAccessTask = nil }
+            guard !Task.isCancelled, self?.active == true else { return }
+            try? await native.refreshRoomAccess(room: rid)
+        }
     }
 
     /// Publishes only what changed: an equal list leaves every row alone.
@@ -162,6 +175,7 @@ public final class RoomModel {
     /// Shows what the store has, then the server's newest page.
     func load() async {
         guard active, !loading else { return }
+        refreshRoomAccess()
         reload()
         if let chat {
             let rid = room.rid

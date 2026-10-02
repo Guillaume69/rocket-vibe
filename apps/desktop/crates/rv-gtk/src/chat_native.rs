@@ -56,6 +56,15 @@ impl ChatPage {
                 this.set_connection(status.connection);
                 this.native_features(&session);
                 this.reload_rooms();
+                if let Some(rid) = this.current_rid()
+                    && session.store.room_access(&rid).ok().flatten().is_none()
+                    && session.supported_features().iter().any(|f| f == "room_info")
+                {
+                    let access_session = session.clone();
+                    runtime().spawn(async move {
+                        let _ = access_session.refresh_room_access(&rid).await;
+                    });
+                }
                 if this.current_rid().is_some_and(|rid| !this.has_room(&rid)) {
                     this.current.replace(None);
                     this.list.clear();
@@ -95,6 +104,7 @@ impl ChatPage {
             .unwrap_or_default()
             .into_iter()
             .map(|room| {
+                let read_only = !session.can_send_to_room(&room.id);
                 let last = session.store.messages(&room.id, 1).ok().and_then(|mut r| r.pop());
                 RoomRow {
                     rid: room.id,
@@ -112,7 +122,7 @@ impl ChatPage {
                     alert: false,
                     favorite: false,
                     encrypted: false,
-                    read_only: false,
+                    read_only,
                     dm_other_uid: None,
                     avatar_etag: None,
                     slug: None,
@@ -141,7 +151,7 @@ impl ChatPage {
             rid: room.rid.clone(),
             kind: room.kind,
             name: room.name.clone(),
-            read_only: false,
+            read_only: room.read_only,
             encrypted: false,
             avatar: None,
             slug: None,
@@ -162,6 +172,10 @@ impl ChatPage {
         self.set_loading(false);
         self.composer.clear_reply();
         self.composer.bind_native(&session, rid);
+        let (access_session, access_room) = (session.clone(), rid.to_owned());
+        runtime().spawn(async move {
+            let _ = access_session.refresh_room_access(&access_room).await;
+        });
         self.list.clear();
         self.reload_messages();
         self.composer.grab_focus();

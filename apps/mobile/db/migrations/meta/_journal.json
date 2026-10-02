@@ -148,6 +148,13 @@
       "when": 1790933311270,
       "tag": "0020_lowly_photon",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1790938687138,
+      "tag": "0021_redundant_dagger",
+      "breakpoints": true
     }
   ]
 }

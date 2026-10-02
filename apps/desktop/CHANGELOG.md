@@ -9,6 +9,11 @@ section here.
 
 ### Fixed
 
+- Native room composers follow effective write permissions after room settings
+  or role changes. Owners and moderators can still write in read-only rooms;
+  members use the existing read-only presentation. Older responses cannot
+  restore cached permissions after withdrawal or a new room revision.
+
 - SwiftUI security can copy the original private backup-code receipt while the
   native connection restarts after a factor change. Reading retries retain the
   displayed revision and family; closed views and stale confirmations still fail.

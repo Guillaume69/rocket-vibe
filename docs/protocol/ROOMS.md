@@ -107,6 +107,18 @@ Les dialogues GTK et les vues Swift / mobile écartent les résultats après fer
 retrait du salon ou changement de génération. Aucun identifiant de commande n'est
 affiché.
 
-P04 reste ouvert : le raccordement des droits effectifs de rédaction au composeur
-des trois clients est encore à compléter. Le serveur applique déjà ces droits,
-y compris la lecture seule avec exception pour propriétaires / modérateurs.
+## Composeur et droits effectifs
+
+Les trois composeurs existants utilisent `permissions.send`. La lecture seule
+du salon laisse donc écrire propriétaires et modérateurs ; un membre voit le
+message de lecture seule existant. La fiche d'informations garde le véritable
+réglage global `read_only`, distinct de ce droit effectif.
+
+SQLite conserve ces indications par compte, génération et `Room.revision`.
+Une révision différente les invalide ; l'ouverture du salon et les changements
+de version relisent les droits. Les lectures concurrentes sont regroupées. Une
+ancienne réponse HTTP, un retrait / réadhésion ou une génération remplacée ne
+peuvent rétablir l'indication précédente. Un cache cohérent reste disponible
+hors ligne ; le serveur autorise toujours chaque envoi et la file d'envoi
+existante conserve ses intentions. Les essais des applications installées
+Android / Windows / macOS restent une qualification distincte.

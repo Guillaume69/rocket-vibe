@@ -338,3 +338,12 @@ export const nativeRoomOperations = sqliteTable('native_room_operations', {
   state: text('state').notNull().default('pending'),
   error: text('error'),
 }, (t) => [uniqueIndex('idx_native_room_operation_room').on(t.rid)]);
+
+/** Room version is persisted even before its effective actor rights are read. */
+export const nativeRoomAccess = sqliteTable('native_room_access', {
+  rid: text('rid').primaryKey(),
+  revision: text('revision').notNull(),
+  readOnly: integer('read_only',{mode:'boolean'}),
+  canSend: integer('can_send',{mode:'boolean'}),
+  role: text('role'),
+});

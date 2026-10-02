@@ -4,7 +4,7 @@ import type { FileEcritures } from '../../db/fileEcritures.ts';
 import type { DepotBrouillons } from '../../db/depot.ts';
 import { UPSERT_MESSAGE, UPSERT_SALON, UPSERT_ABONNEMENT, INSERER_SORTIE, SUPPRIMER_SORTIE, MARQUER_SORTIE_ECHEC, SUPPRIMER_BROUILLONS_SALON, paramsMessage, paramsSalon, paramsAbonnement } from '../../db/upserts.ts';
 import type { MessageLocal } from '../../lib/normaliser.ts';
-import type { Message, Room, Snapshot, SyncBatch } from './protocol.generated.ts';
+import type { Message, Room, RoomDetails, Snapshot, SyncBatch } from './protocol.generated.ts';
 import {roomIdentifier,roomOperation,sameRoomForm,savedRoomOperation,type RoomOperation,type RoomOperationRow,type SavedRoomOperation} from './roomOperations.ts';
 import {decodeNative} from './validation.ts';
 
@@ -24,6 +24,7 @@ export type NativeState = { instance_id: string; data_epoch: string; cursor: str
 export type NativeRoomRow = { rid: string; nom: string; type: string; dernier_message: string | null };
 export type NativeMessageRow = { id: string; texte: string; auteur_nom: string; auteur_id: string; horodatage: number; statut: string | null };
 export type NativePending = { id: string; rid: string; texte: string };
+export type NativeRoomAccess = {rid:string;revision:string;read_only:number|null;can_send:number|null;role:string|null};
 export type NativeCommand = {id:string;rid:string;message_id:string;kind:'edit'|'delete'|'react'|'pin'|'star';expected_revision:string;text:string};
 
 /** Projection consumed by the existing message renderer and action sheet. */
@@ -76,7 +77,7 @@ export class NativeStore {
   prepare(): Promise<void> {
     return this.atomic(async () => {
       if (await this.sameGeneration()) return;
-      for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs','native_room_creations','native_commands','native_star_states','native_room_operations']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+      for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs','native_room_creations','native_commands','native_star_states','native_room_operations','native_room_access']) await this.db.runAsync(`DELETE FROM ${table}`, []);
     });
   }
   drafts(): DepotBrouillons {
@@ -98,9 +99,11 @@ export class NativeStore {
     await this.db.runAsync('INSERT INTO native_sync_state(singleton,instance_id,data_epoch,cursor) VALUES(1,?,?,?) ON CONFLICT(singleton) DO UPDATE SET instance_id=excluded.instance_id,data_epoch=excluded.data_epoch,cursor=excluded.cursor', [this.session.nativeInstanceId!, this.session.nativeDataEpoch!, cursor]);
   }
   private async room(room: Room): Promise<void> {
+    await this.db.runAsync('INSERT INTO native_room_access(rid,revision) VALUES(?,?) ON CONFLICT(rid) DO UPDATE SET revision=excluded.revision,read_only=NULL,can_send=NULL,role=NULL WHERE revision<>excluded.revision',[room.id,room.revision]);
+    const access=await this.db.getFirstAsync<NativeRoomAccess>('SELECT * FROM native_room_access WHERE rid=?',[room.id]);
     await this.db.runAsync(UPSERT_SALON, paramsSalon({
       rid: room.id, type: room.kind === 'direct' ? 'd' : room.kind === 'private' ? 'p' : 'c',
-      nom: room.name, nomAffiche: room.name, chiffre: false, lectureSeule: false,
+      nom: room.name, nomAffiche: room.name, chiffre: false, lectureSeule: access?.can_send===0,
       dmAutreUid: null, dmAutreUsername: null, dernierMessage: null, dernierMessageType: null,
       horodatageDernierMessage: null, avatarEtag: null, misAJourLe: Date.now(),
     }));
@@ -146,7 +149,7 @@ export class NativeStore {
     await this.preview(message.room_id);
   }
   private async remove(rid: string): Promise<void> {
-    for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'native_positions','native_commands','native_star_states','native_room_operations']) await this.db.runAsync(`DELETE FROM ${table} WHERE rid=?`, [rid]);
+    for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'native_positions','native_commands','native_star_states','native_room_operations','native_room_access']) await this.db.runAsync(`DELETE FROM ${table} WHERE rid=?`, [rid]);
     await this.db.runAsync(SUPPRIMER_BROUILLONS_SALON, [rid]);
     await this.db.runAsync("DELETE FROM etat_synchro WHERE portee=?", [rid]);
   }
@@ -155,7 +158,7 @@ export class NativeStore {
       const old = await this.db.getFirstAsync<NativeState>('SELECT instance_id,data_epoch,cursor FROM native_sync_state WHERE singleton=1', []);
       if (!old || old.instance_id !== this.session.nativeInstanceId || old.data_epoch !== this.session.nativeDataEpoch) {
         // A fresh login to a different generation must never replay its predecessor's outbox.
-        for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'brouillons', 'native_positions', 'etat_synchro', 'utilisateurs', 'native_room_creations','native_commands','native_star_states','native_room_operations']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+        for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'brouillons', 'native_positions', 'etat_synchro', 'utilisateurs', 'native_room_creations','native_commands','native_star_states','native_room_operations','native_room_access']) await this.db.runAsync(`DELETE FROM ${table}`, []);
       } else {
         const live = new Set(snapshot.rooms.map(room => room.id));
         const known = await this.db.getAllAsync<{rid:string}>('SELECT rid FROM salons', []);
@@ -192,6 +195,22 @@ export class NativeStore {
   }
   rooms(): Promise<NativeRoomRow[]> {
     return this.queue(async () => await this.sameGeneration() ? this.db.getAllAsync<NativeRoomRow>('SELECT rid,COALESCE(nom_affiche,nom,rid) AS nom,type,dernier_message FROM salons ORDER BY COALESCE(horodatage_dernier_message,0) DESC,rid', []) : []);
+  }
+  roomAccess(rid:string):Promise<NativeRoomAccess|null> {
+    return this.queue(async()=>await this.sameGeneration()?this.db.getFirstAsync<NativeRoomAccess>('SELECT * FROM native_room_access WHERE rid=?',[rid]):null);
+  }
+  cacheRoomAccess(details:RoomDetails,token:number):Promise<boolean> {
+    return this.atomic(async()=>{
+      if(!await this.sameGeneration() || token!==this.projectionToken())return false;
+      const current=await this.db.getFirstAsync<NativeRoomAccess>('SELECT * FROM native_room_access WHERE rid=?',[details.room.id]);
+      if(current?.revision!==details.room.revision)return false;
+      if(current.read_only===Number(details.read_only) && current.can_send===Number(details.permissions.send) && current.role===details.permissions.role)return true;
+      await this.db.runAsync('UPDATE native_room_access SET read_only=?,can_send=?,role=? WHERE rid=? AND revision=?',[Number(details.read_only),Number(details.permissions.send),details.permissions.role,details.room.id,details.room.revision]);
+      // Shared room rows express effective write access; the info panel reads the
+      // actual room-wide read_only flag from RoomDetails.
+      await this.db.runAsync('UPDATE salons SET lecture_seule=? WHERE rid=?',[Number(!details.permissions.send),details.room.id]);
+      return true;
+    });
   }
   roomOperation(rid:string):Promise<SavedRoomOperation|null> {
     return this.queue(async()=>{

@@ -253,6 +253,7 @@ pub struct NativeSession {
     verified: AtomicBool,
     closed: AtomicBool,
     command_lock: tokio::sync::Mutex<()>,
+    room_access_lock: tokio::sync::Mutex<()>,
     task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     credentials: Option<Arc<dyn credentials::Provider>>,
     security_generation: AtomicU64,
@@ -290,6 +291,7 @@ impl NativeSession {
             verified: AtomicBool::new(false),
             closed: AtomicBool::new(false),
             command_lock: tokio::sync::Mutex::new(()),
+            room_access_lock: tokio::sync::Mutex::new(()),
             task: Mutex::new(None),
             credentials,
             security_generation: AtomicU64::new(0),
@@ -595,7 +597,31 @@ impl NativeSession {
         if projection != self.store.projection_token() || !self.store.rooms()?.iter().any(|r| r.id == room) {
             return Err(Error::Protocol("delivery_revalidate"));
         }
+        self.store.cache_room_access(&details, projection)?;
         Ok(details)
+    }
+    /// An offline cache is only a UI hint; every send is authorized by the server.
+    pub fn can_send_to_room(&self, room: &str) -> bool {
+        if !self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.room_info) {
+            return true;
+        }
+        self.store.room_access(room).ok().flatten().is_some_and(|a| a.can_send)
+    }
+    pub async fn refresh_room_access(&self, room: &str) -> Result<(), Error> {
+        let _guard = self.room_access_lock.lock().await;
+        for _ in 0..3 {
+            if self.store.room_access(room)?.is_some() {
+                return Ok(());
+            }
+            let Some(before) = self.store.rooms()?.into_iter().find(|r| r.id == room) else {
+                return Ok(());
+            };
+            self.room_details(room).await?;
+            if self.store.rooms()?.iter().find(|r| r.id == room).is_none_or(|r| r.revision == before.revision) {
+                return Ok(());
+            }
+        }
+        Ok(())
     }
     pub async fn room_info(&self, room: &str) -> Result<crate::info::RoomInfo, Error> {
         Ok(crate::info::native_room_info(self.room_details(room).await?))

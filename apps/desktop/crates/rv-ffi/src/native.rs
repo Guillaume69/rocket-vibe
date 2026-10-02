@@ -279,6 +279,7 @@ impl NativeChat {
             .map_err(RvError::local)?
             .into_iter()
             .map(|room| {
+                let read_only = !self.session.can_send_to_room(&room.id);
                 let last = self.session.store.messages(&room.id, 1).ok().and_then(|mut rows| rows.pop());
                 rv_core::store::RoomRow {
                     rid: room.id,
@@ -297,7 +298,7 @@ impl NativeChat {
                     alert: false,
                     favorite: false,
                     encrypted: false,
-                    read_only: false,
+                    read_only,
                     dm_other_uid: None,
                     avatar_etag: None,
                     slug: None,

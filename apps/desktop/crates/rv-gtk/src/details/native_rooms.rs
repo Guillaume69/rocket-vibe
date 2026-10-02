@@ -274,6 +274,7 @@ fn edit(parent: &adw::Dialog, session: Arc<NativeSession>, rid: String, input: U
     );
     let private = adw::SwitchRow::builder().title(t("native.private")).active(input.private).build();
     let read_only = adw::SwitchRow::builder().title(t("info.read_only")).active(input.read_only).build();
+    read_only.add_css_class("native-room-read-only");
     content.append(&private);
     content.append(&read_only);
     let status = centered("", &["details-sub"]);

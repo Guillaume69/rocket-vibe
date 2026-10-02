@@ -25,7 +25,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { BaseLocale } from '../../db/client.ts';
 import type { DepotBrouillons } from '../../db/depot.ts';
-import { abonnements, messages, salons, sortie, televersements } from '../../db/schema.ts';
+import { abonnements, messages, salons, sortie, televersements, nativeRoomAccess } from '../../db/schema.ts';
 import type { MoteurActivite } from '../../lib/activite.ts';
 import type {
   ActionsFournisseur,
@@ -290,6 +290,18 @@ function Salon({
     [rid],
   );
   const salon = lignesSalon?.[0];
+  const {data:droitsNatifs}=useRequeteVive(base.select().from(nativeRoomAccess).where(eq(nativeRoomAccess.rid,rid)).limit(1),[rid]);
+  const revisionDroits=droitsNatifs?.[0]?.revision;
+  const peutEcrire=droitsNatifs?.[0]?.canSend;
+  useEffect(()=>{
+    const chat=fournisseur.native?.chat;
+    if(!chat || peutEcrire!=null)return;
+    let active=true;
+    const refresh=()=>{if(active && chat.status.online)void chat.refreshRoomAccess(rid).catch(()=>{});};
+    refresh();
+    const unsubscribe=chat.subscribe(refresh);
+    return ()=>{active=false;unsubscribe();};
+  },[fournisseur,rid,revisionDroits,peutEcrire]);
   const insets = useSafeAreaInsets();
   // Sous-titre d'en-tête HONNÊTE : le nombre de membres en ligne n'est pas dans
   // le schéma, mais la présence du correspondant d'un DM, si — sinon, rien.
@@ -1003,7 +1015,7 @@ function Salon({
             fichiers={fournisseur.capacites.fichiers === false ? null : fichiers}
             client={client}
             candidatsMention={candidatsMention}
-            lectureSeule={salon.lectureSeule}
+            lectureSeule={fournisseur.native && fournisseur.capacites.infosSalon ? peutEcrire!==true : salon.lectureSeule}
             chiffre={salon.chiffre}
             placeholder={t('salon.messagePlaceholder')}
             brouillonInitial={persistance.initial}

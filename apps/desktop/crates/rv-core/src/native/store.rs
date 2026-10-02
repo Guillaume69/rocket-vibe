@@ -1,6 +1,8 @@
 //! Fallible transactions: a failed projection never acknowledges its cursor or outbox echo.
+mod room_access;
 mod room_operations;
 use super::Identity;
+pub use room_access::RoomAccess;
 pub use room_operations::{RoomOperation, SavedRoomOperation};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use rv_protocol::{Change, Message, Room, Snapshot, SyncBatch, VERSION};
@@ -116,6 +118,7 @@ impl NativeStore {
             CREATE TABLE IF NOT EXISTS native_drafts(rid TEXT PRIMARY KEY,text TEXT NOT NULL);")?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_room_creations(id TEXT PRIMARY KEY,name TEXT NOT NULL,private INTEGER NOT NULL,UNIQUE(name,private));")?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_room_operations(id TEXT PRIMARY KEY,rid TEXT NOT NULL UNIQUE,payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','failed')),error TEXT);")?;
+        conn.execute_batch("CREATE TABLE IF NOT EXISTS native_room_access(rid TEXT PRIMARY KEY,revision TEXT NOT NULL,read_only INTEGER NOT NULL,can_send INTEGER NOT NULL,role TEXT NOT NULL);")?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_commands(id TEXT PRIMARY KEY,rid TEXT NOT NULL,message_id TEXT NOT NULL UNIQUE,kind TEXT NOT NULL CHECK(kind IN ('edit','delete')),expected_revision TEXT NOT NULL,text TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',error TEXT);")?;
         let command_schema: String =
             conn.query_row("SELECT sql FROM sqlite_master WHERE name='native_commands'", [], |r| r.get(0))?;
@@ -162,6 +165,7 @@ impl NativeStore {
                 "native_room_creations",
                 "native_commands",
                 "native_room_operations",
+                "native_room_access",
             ] {
                 tx.execute(&format!("DELETE FROM {table}"), [])?;
             }
@@ -315,6 +319,7 @@ impl NativeStore {
         })
     }
     fn room(tx: &Transaction, room: &Room) -> rusqlite::Result<()> {
+        tx.execute("DELETE FROM native_room_access WHERE rid=?1 AND revision<>?2", params![room.id, room.revision])?;
         tx.execute(
             "INSERT INTO native_rooms VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
             params![room.id, json(room)?],
@@ -382,8 +387,14 @@ impl NativeStore {
     }
     fn remove(tx: &Transaction, rid: &str) -> rusqlite::Result<()> {
         tx.execute("DELETE FROM native_rooms WHERE id=?1", [rid])?;
-        for table in ["native_messages", "native_outbox", "native_drafts", "native_commands", "native_room_operations"]
-        {
+        for table in [
+            "native_messages",
+            "native_outbox",
+            "native_drafts",
+            "native_commands",
+            "native_room_operations",
+            "native_room_access",
+        ] {
             tx.execute(&format!("DELETE FROM {table} WHERE rid=?1"), [rid])?;
         }
         Ok(())
@@ -402,6 +413,7 @@ impl NativeStore {
                     "native_room_creations",
                     "native_commands",
                     "native_room_operations",
+                    "native_room_access",
                 ] {
                     tx.execute(&format!("DELETE FROM {table}"), [])?;
                 }

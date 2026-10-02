@@ -315,6 +315,27 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P04, composeurs existants : GTK / SwiftUI / mobile utilisent le droit effectif
+  `send`, avec exception des propriétaires / modérateurs dans un salon en lecture
+  seule. Les fiches gardent le réglage global. SQLite lie ces indications au
+  compte, à la génération et à la version du salon ; une nouvelle version les
+  invalide. Retrait / réadhésion et réponses tardives ne restaurent aucun droit.
+  Les lectures concurrentes sont regroupées et les drafts / intentions d'envoi
+  existants restent durables. Le serveur demeure l'autorité de chaque envoi.
+  Vérifications : 314 tests bureau, formatage / Clippy / binaire GTK, 1 128 tests
+  mobiles complets puis trois cas ciblés de droits (dont un nouveau), typecheck /
+  lint et export Android Hermes. Six tests locaux Swift et le parcours connecté
+  PostgreSQL / Secret Service passent : membre bloqué, propriétaire autorisé,
+  promotion puis rétrogradation actualisant le composeur. Le fournisseur mobile
+  réel / PostgreSQL vérifie aussi refus HTTP du membre et envoi du modérateur.
+  GTK exécute le même passage propriétaire / membre dans le formulaire et le
+  composeur réels, puis transfert / départ et purge, à 435 pixels ; sa capture
+  est inspectée.
+  Le développement P04 est terminé ; les qualifications des applications
+  installées restent ouvertes. Le prochain lot est P05, lectures / non-lus,
+  mentions et favoris personnels de salons. La CI macOS du lot `79aaa00`
+  (`36997807732`) et ses quatre jobs natifs (`36997807664`) sont verts.
+
 - P04, contrôles dans les fiches existantes : mobile / GTK / SwiftUI exposent
   les réglages, la liste paginée des membres, les rôles et le départ selon les
   droits actuels et capacités du fournisseur. Les formulaires conservent leur

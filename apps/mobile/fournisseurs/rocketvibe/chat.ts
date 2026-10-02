@@ -33,6 +33,7 @@ export class NativeChat {
   private cancelOpening: (() => void) | null = null;
   private flushing: Promise<void> | null = null;
   private commands: Promise<void> = Promise.resolve();
+  private roomAccessReads = new Map<string,Promise<void>>();
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private retryAt = 0;
   private retryAttempt = 0;
@@ -266,7 +267,28 @@ export class NativeChat {
     checkIdentity(this.session,await this.transport.discover());
     this.ready();
     if(generation!==this.generation || projection!==this.store.projectionToken())throw new NativeError(409,'delivery_revalidate');
+    await this.store.cacheRoomAccess(details,projection);
+    this.ready();
+    if(generation!==this.generation)throw new NativeError(0,'session_closed');
     return details;
+  }
+  refreshRoomAccess(room:string):Promise<void> {
+    const previous=this.roomAccessReads.get(room);
+    if(previous)return previous;
+    const request=(async()=>{
+      this.ready();
+      if(!this.capabilities?.room_info)return;
+      for(let attempt=0;attempt<3;attempt++) {
+        const access=await this.store.roomAccess(room);
+        if(!access || access.can_send!=null)return;
+        await this.roomDetails(room);
+        const fresh=await this.store.roomAccess(room);
+        if(!fresh || fresh.can_send!=null || fresh.revision===access.revision)return;
+      }
+    })();
+    this.roomAccessReads.set(room,request);
+    void request.finally(()=>{if(this.roomAccessReads.get(room)===request)this.roomAccessReads.delete(room);}).catch(()=>{});
+    return request;
   }
   private deviceAccess():number {
     this.ready();

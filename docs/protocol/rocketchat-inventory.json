@@ -42,6 +42,7 @@
     "apps/desktop/crates/rv-core/src/native/security/email_settings.rs",
     "apps/desktop/crates/rv-core/src/native/security/factor_email.rs",
     "apps/desktop/crates/rv-core/src/native/store.rs",
+    "apps/desktop/crates/rv-core/src/native/store/room_access.rs",
     "apps/desktop/crates/rv-core/src/native/store/room_operations.rs",
     "apps/desktop/crates/rv-core/src/normalize.rs",
     "apps/desktop/crates/rv-core/src/notify.rs",
@@ -1304,7 +1305,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat_native.rs",
-      "line": 508,
+      "line": 522,
       "kind": "endpoint",
       "surface": "rooms.new"
     },
@@ -1520,55 +1521,55 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 284,
+      "line": 285,
       "kind": "endpoint",
       "surface": "rooms.edit"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 323,
+      "line": 324,
       "kind": "endpoint",
       "surface": "rooms.more"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 326,
+      "line": 327,
       "kind": "endpoint",
       "surface": "rooms.members"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 396,
+      "line": 397,
       "kind": "endpoint",
       "surface": "rooms.member"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 396,
+      "line": 397,
       "kind": "endpoint",
       "surface": "rooms.moderator"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 396,
+      "line": 397,
       "kind": "endpoint",
       "surface": "rooms.owner"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 403,
+      "line": 404,
       "kind": "endpoint",
       "surface": "rooms.disabled"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 403,
+      "line": 404,
       "kind": "endpoint",
       "surface": "rooms.role"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 411,
+      "line": 412,
       "kind": "endpoint",
       "surface": "rooms.apply_role"
     },

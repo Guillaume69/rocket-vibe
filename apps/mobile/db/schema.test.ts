@@ -103,6 +103,7 @@ describe('migrations', () => {
       'messages',
       'native_commands',
       'native_positions',
+      'native_room_access',
       'native_room_creations',
       'native_room_operations',
       'native_star_states',

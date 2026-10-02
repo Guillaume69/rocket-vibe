@@ -96,6 +96,9 @@ async fn run(window: Rc<AppWindow>, phase: String) {
         ] {
             wait(root, class).await.downcast::<gtk::TextView>().unwrap().buffer().set_text(value);
         }
+        if phase == "flow" {
+            wait(root, "native-room-read-only").await.downcast::<adw::SwitchRow>().unwrap().set_active(true);
+        }
         wait(root, "native-room-save").await.downcast::<gtk::Button>().unwrap().emit_clicked();
         closed(root, "native-room-name").await;
         let (s, r) = (session.clone(), rid.clone());
@@ -105,6 +108,19 @@ async fn run(window: Rc<AppWindow>, phase: String) {
             details.room.name == "Salon réglé depuis GTK" && details.topic == "Sujet depuis le formulaire GTK",
             true,
         );
+        if phase == "flow" {
+            for _ in 0..240 {
+                if window.chat.composer().root.is_visible() {
+                    break;
+                }
+                glib::timeout_future(Duration::from_millis(25)).await;
+            }
+            check(
+                "GTK read-only owner can compose",
+                window.chat.composer().root.is_visible() && details.read_only,
+                true,
+            );
+        }
     }
     if phase == "last-owner" {
         wait(root, "native-room-leave").await.downcast::<gtk::Button>().unwrap().emit_clicked();
@@ -133,6 +149,13 @@ async fn run(window: Rc<AppWindow>, phase: String) {
             wait(root, "native-room-roster").await;
         } else {
             role(root, "desktop", 0).await;
+            for _ in 0..240 {
+                if !window.chat.composer().root.is_visible() {
+                    break;
+                }
+                glib::timeout_future(Duration::from_millis(25)).await;
+            }
+            check("GTK demoted read-only member cannot compose", !window.chat.composer().root.is_visible(), true);
             wait(root, "native-room-leave").await.downcast::<gtk::Button>().unwrap().emit_clicked();
             let alert = wait(root, "native-room-leave-confirm").await;
             find_by_class(&alert, "destructive-action").and_downcast::<gtk::Button>().unwrap().emit_clicked();

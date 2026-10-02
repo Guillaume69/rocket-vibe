@@ -2,7 +2,7 @@
 
 Commande : `node scripts/inventory-rocketchat.mjs`. Contrôle : ajouter `--check`.
 
-306 fichiers de production parcourus ; 414 occurrences.
+307 fichiers de production parcourus ; 414 occurrences.
 Les appels à premier argument dynamique restent visibles : leur résolution est
 consignée dans [le contrat de parité](PARITY.md). Les lignes sont des repères de
 source au moment de la génération. Le JSON conserve le périmètre et tous les fichiers.
@@ -173,7 +173,7 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/crates/rv-core/src/uploads.rs:352](../../apps/desktop/crates/rv-core/src/uploads.rs#L352) | endpoint | rooms.mediaConfirm/{…}/{…} |
 | [apps/desktop/crates/rv-core/src/uploads.rs:372](../../apps/desktop/crates/rv-core/src/uploads.rs#L372) | call:UPLOAD | &format!("rooms.media/{…}", task_row.rid), |
 | [apps/desktop/crates/rv-core/src/uploads.rs:374](../../apps/desktop/crates/rv-core/src/uploads.rs#L374) | endpoint | rooms.media/{…} |
-| [apps/desktop/crates/rv-gtk/src/chat_native.rs:508](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L508) | endpoint | rooms.new |
+| [apps/desktop/crates/rv-gtk/src/chat_native.rs:522](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L522) | endpoint | rooms.new |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:79](../../apps/desktop/crates/rv-gtk/src/chat.rs#L79) | endpoint | rooms.favorite_add |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:79](../../apps/desktop/crates/rv-gtk/src/chat.rs#L79) | endpoint | rooms.favorite_remove |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:217](../../apps/desktop/crates/rv-gtk/src/chat.rs#L217) | endpoint | rooms.offline |
@@ -209,15 +209,15 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:211](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L211) | endpoint | rooms.leave |
 | [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:219](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L219) | endpoint | rooms.leave |
 | [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:263](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L263) | endpoint | rooms.revision |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:284](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L284) | endpoint | rooms.edit |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:323](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L323) | endpoint | rooms.more |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:326](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L326) | endpoint | rooms.members |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:396](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L396) | endpoint | rooms.member |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:396](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L396) | endpoint | rooms.moderator |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:396](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L396) | endpoint | rooms.owner |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:403](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L403) | endpoint | rooms.disabled |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:403](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L403) | endpoint | rooms.role |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:411](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L411) | endpoint | rooms.apply_role |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:285](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L285) | endpoint | rooms.edit |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:324](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L324) | endpoint | rooms.more |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:327](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L327) | endpoint | rooms.members |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:397](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L397) | endpoint | rooms.member |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:397](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L397) | endpoint | rooms.moderator |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:397](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L397) | endpoint | rooms.owner |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:404](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L404) | endpoint | rooms.disabled |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:404](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L404) | endpoint | rooms.role |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:412](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L412) | endpoint | rooms.apply_role |
 | [apps/desktop/crates/rv-gtk/src/login.rs:113](../../apps/desktop/crates/rv-gtk/src/login.rs#L113) | endpoint | chat.example.com |
 | [apps/desktop/crates/rv-gtk/src/notifier.rs:259](../../apps/desktop/crates/rv-gtk/src/notifier.rs#L259) | endpoint | im.received |
 | [apps/desktop/crates/rv-gtk/src/rows.rs:300](../../apps/desktop/crates/rv-gtk/src/rows.rs#L300) | endpoint | rooms.encrypted |

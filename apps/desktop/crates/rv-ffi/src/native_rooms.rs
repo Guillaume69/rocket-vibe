@@ -71,6 +71,10 @@ fn fields(input: &UpdateRoom) -> NativeRoomFields {
 }
 #[uniffi::export]
 impl NativeChat {
+    pub async fn refresh_room_access(&self, room: String) -> Result<(), RvError> {
+        let session = self.session.clone();
+        on_tokio(async move { session.refresh_room_access(&room).await }).await.map_err(error)
+    }
     pub async fn room_management(&self, room: String) -> Result<NativeRoomManagement, RvError> {
         let session = self.session.clone();
         on_tokio(async move {

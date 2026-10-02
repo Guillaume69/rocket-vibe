@@ -181,6 +181,13 @@ impl NativeClient {
             {
                 Some("message_action")
             }
+            _ if path.starts_with("/api/v1/rooms/")
+                && (*method == Method::PATCH
+                    || *method == Method::PUT && path.ends_with("/role")
+                    || *method == Method::POST && path.ends_with("/leave")) =>
+            {
+                Some("room_command")
+            }
             _ => None,
         }
     }
@@ -537,6 +544,98 @@ impl NativeClient {
             return Err(Error::InvalidUrl);
         }
         self.get(&format!("/api/v1/rooms/{room}/permissions")).await
+    }
+    pub async fn room_details(
+        &self,
+        room: &str,
+    ) -> Result<rv_protocol::parity::RoomDetails, Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!("/api/v1/rooms/{room}")).await
+    }
+    pub async fn room_members(
+        &self,
+        room: &str,
+        after: Option<&str>,
+        revision: Option<&str>,
+    ) -> Result<rv_protocol::parity::RoomMemberPage, Error> {
+        if !path_segment(room)
+            || after.is_some_and(|s| !path_segment(s))
+            || revision.is_some_and(|s| !path_segment(s))
+            || after.is_some() && revision.is_none()
+        {
+            return Err(Error::InvalidUrl);
+        }
+        let mut url = Url::parse(&format!("{}/api/v1/rooms/{room}/members", self.base))
+            .map_err(|_| Error::InvalidUrl)?;
+        if let Some(after) = after {
+            url.query_pairs_mut().append_pair("after", after);
+        }
+        if let Some(revision) = revision {
+            url.query_pairs_mut().append_pair("revision", revision);
+        }
+        self.get(
+            url.as_str()
+                .strip_prefix(&self.base)
+                .ok_or(Error::InvalidUrl)?,
+        )
+        .await
+    }
+    pub async fn update_room(
+        &self,
+        room: &str,
+        input: &rv_protocol::parity::UpdateRoom,
+    ) -> Result<rv_protocol::parity::RoomCommandReceipt, Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        self.request(
+            Method::PATCH,
+            &format!("/api/v1/rooms/{room}"),
+            Some(input),
+            false,
+        )
+        .await
+    }
+    pub async fn change_room_role(
+        &self,
+        room: &str,
+        user: &str,
+        input: &rv_protocol::parity::ChangeRoomRole,
+    ) -> Result<rv_protocol::parity::RoomCommandReceipt, Error> {
+        if !path_segment(room) || !path_segment(user) {
+            return Err(Error::InvalidUrl);
+        }
+        self.request(
+            Method::PUT,
+            &format!("/api/v1/rooms/{room}/members/{user}/role"),
+            Some(input),
+            false,
+        )
+        .await
+    }
+    pub async fn leave_room(
+        &self,
+        room: &str,
+        input: &rv_protocol::parity::LeaveRoom,
+    ) -> Result<rv_protocol::parity::RoomCommandReceipt, Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        self.post(&format!("/api/v1/rooms/{room}/leave"), input)
+            .await
+    }
+    pub async fn room_command_receipt(
+        &self,
+        room: &str,
+        operation: &str,
+    ) -> Result<rv_protocol::parity::RoomCommandReceipt, Error> {
+        if !path_segment(room) || !path_segment(operation) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!("/api/v1/rooms/{room}/commands/{operation}"))
+            .await
     }
     pub async fn message_permissions(
         &self,

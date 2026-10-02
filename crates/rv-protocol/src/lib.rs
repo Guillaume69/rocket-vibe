@@ -40,6 +40,12 @@ pub struct Capabilities {
     #[serde(default)]
     pub room_info: bool,
     #[serde(default)]
+    pub room_settings: bool,
+    #[serde(default)]
+    pub room_roles: bool,
+    #[serde(default)]
+    pub room_leave: bool,
+    #[serde(default)]
     pub room_discovery: bool,
     #[serde(default)]
     pub typing: bool,
@@ -103,6 +109,9 @@ impl Default for Capabilities {
             search: false,
             profiles: false,
             room_info: false,
+            room_settings: false,
+            room_roles: false,
+            room_leave: false,
             room_discovery: false,
             typing: false,
             presence: false,
@@ -157,6 +166,9 @@ impl Capabilities {
             search,
             profiles,
             room_info,
+            room_settings,
+            room_roles,
+            room_leave,
             room_discovery,
             typing,
             presence,

@@ -54,6 +54,11 @@ présence ne déclare pas les endpoints correspondants disponibles.
 | POST | `/rooms/{room}/join` | Adhérer soi-même à un salon public ; rejouable |
 | POST | `/direct-messages` | `{ user_id }` → DM unique pour cette paire |
 | POST / DELETE | `/rooms/{room}/members/{user}` | Ajouter / retirer, propriétaire du salon uniquement |
+| GET / PATCH | `/rooms/{room}` | Détails et paramètres versionnés ; modification par le propriétaire hors DM |
+| GET | `/rooms/{room}/members?after=…&revision=…` | Membres / rôles, pages de 50, adhésion actuelle obligatoire |
+| PUT | `/rooms/{room}/members/{user}/role` | Rôle explicite, révision attendue et opération persistante |
+| POST | `/rooms/{room}/leave` | Départ versionné hors DM ; protection du dernier propriétaire |
+| GET | `/rooms/{room}/commands/{operation}` | Reçu privé de l'auteur, également après départ |
 | GET | `/rooms/{room}/messages?before=…&limit=…` | Historique décroissant, keyset, limite 1–100 |
 | POST | `/rooms/{room}/messages` | `{ operation_id, text }` → message committé |
 | GET | `/messages/{id}` | Message courant ou tombstone, pour un membre actuel |
@@ -265,8 +270,10 @@ littérale sans joker et utilise l'ID du dernier résultat comme `after`. Il ne
 donne accès ni aux messages ni aux adhésions des autres comptes. Chaque livraison
 retient les salons publics et revérifie leur nom / révision / visibilité ; une
 visibilité devenue privée invalide une réponse préparée. L'adhésion ne vise que
-l'acteur, conserve un rôle existant et ajoute un seul `room_upsert` personnel au
-journal. Les salons privés, DM et IDs absents renvoient le même `404`.
+l'acteur, conserve un rôle existant et publie un `room_upsert` avec une nouvelle
+révision pour les membres actuels. Les salons privés, DM et IDs absents renvoient
+le même `404`. Les [détails / rôles et réglages P04](ROOMS.md) décrivent les
+commandes versionnées, les reçus et la protection du dernier propriétaire.
 
 ## Garanties de l'incrément
 

@@ -20,7 +20,8 @@ use crate::{
     App, auth,
     delivery::{ReadProof, Scope},
     error::{Error, Result},
-    limits, marks, message_actions, permissions, reactions, sessions, snapshots, store, sync,
+    limits, marks, message_actions, permissions, reactions, room_details, sessions, snapshots,
+    store, sync,
 };
 
 pub fn router(app: App) -> Router {
@@ -89,6 +90,17 @@ pub fn router(app: App) -> Router {
         .route("/api/v1/rooms", get(rooms).post(create_room))
         .route("/api/v1/rooms/public", get(public_rooms))
         .route("/api/v1/rooms/discover", get(public_rooms))
+        .route("/api/v1/rooms/{room}", get(room_details).patch(update_room))
+        .route("/api/v1/rooms/{room}/members", get(room_members))
+        .route(
+            "/api/v1/rooms/{room}/members/{user}/role",
+            axum::routing::put(change_room_role),
+        )
+        .route("/api/v1/rooms/{room}/leave", post(leave_room))
+        .route(
+            "/api/v1/rooms/{room}/commands/{operation}",
+            get(room_command_receipt),
+        )
         .route("/api/v1/rooms/{room}/permissions", get(room_permissions))
         .route(
             "/api/v1/messages/{message}/permissions",
@@ -211,6 +223,10 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             snapshot_paging: true,
             idempotent_room_creation: true,
             room_discovery: true,
+            room_info: true,
+            room_settings: true,
+            room_roles: true,
+            room_leave: true,
             fine_permissions: true,
             editing: true,
             deletion: true,
@@ -872,6 +888,108 @@ async fn direct(
         .await
 }
 
+async fn room_details(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::Room(&room)).await?;
+    let details = room_details::read(&app, &actor, &room).await?;
+    proof
+        .versioned_room_json(&app, &hash, &room, &details.revision, &details)
+        .await
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MembersQuery {
+    after: Option<String>,
+    revision: Option<String>,
+}
+async fn room_members(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+    Query(input): Query<MembersQuery>,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::Room(&room)).await?;
+    let page = room_details::members(
+        &app,
+        &actor,
+        &room,
+        input.after.as_deref(),
+        input.revision.as_deref(),
+    )
+    .await?;
+    proof
+        .versioned_room_json(&app, &hash, &room, &page.revision, &page)
+        .await
+}
+async fn room_command(
+    State(app): State<App>,
+    headers: HeaderMap,
+    room: String,
+    command: room_details::Command,
+) -> Result<Response> {
+    let hash = auth::bearer(&headers)?;
+    let actor = auth::authenticate(&app, &hash).await?;
+    let receipt = room_details::apply(&app, &actor, &room, command).await?;
+    let proof = ReadProof::capture(&app, &actor, Scope::None).await?;
+    proof.json(&app, &hash, &receipt, &[], None).await
+}
+async fn update_room(
+    state: State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+    input: Input<rv_protocol::parity::UpdateRoom>,
+) -> Result<Response> {
+    room_command(
+        state,
+        headers,
+        room,
+        room_details::Command::Settings(body(input)?),
+    )
+    .await
+}
+async fn change_room_role(
+    state: State<App>,
+    headers: HeaderMap,
+    Path((room, target)): Path<(String, String)>,
+    input: Input<rv_protocol::parity::ChangeRoomRole>,
+) -> Result<Response> {
+    room_command(
+        state,
+        headers,
+        room,
+        room_details::Command::Role {
+            target,
+            input: body(input)?,
+        },
+    )
+    .await
+}
+async fn leave_room(
+    state: State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+    input: Input<rv_protocol::parity::LeaveRoom>,
+) -> Result<Response> {
+    room_command(
+        state,
+        headers,
+        room,
+        room_details::Command::Leave(body(input)?),
+    )
+    .await
+}
+async fn room_command_receipt(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path((room, operation)): Path<(String, String)>,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    let receipt = room_details::receipt(&app, &actor, &room, &operation).await?;
+    proof.json(&app, &hash, &receipt, &[], None).await
+}
 async fn add_member(
     State(app): State<App>,
     headers: HeaderMap,

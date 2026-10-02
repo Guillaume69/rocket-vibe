@@ -8,7 +8,7 @@ use crate::{
     error::{Error, Result},
 };
 
-#[derive(FromRow)]
+#[derive(FromRow, Clone)]
 pub(crate) struct RoomRow {
     pub id: String,
     pub name: String,
@@ -159,7 +159,7 @@ pub async fn create_room(app: &App, account: &Account, input: CreateRoom) -> Res
             return Ok(room);
         }
         let used: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM messages WHERE author_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM message_actions WHERE user_id=$1 AND operation_id=$2)",
+            "SELECT EXISTS(SELECT 1 FROM messages WHERE author_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM message_actions WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM room_commands WHERE user_id=$1 AND operation_id=$2)",
         )
         .bind(&account.id)
         .bind(operation)
@@ -259,7 +259,7 @@ pub async fn join_public(app: &App, account: &Account, room_id: &str) -> Result<
     }
     let mut tx = app.pool.begin().await?;
     lock_active(&mut tx, account).await?;
-    let room = sqlx::query_as::<_, RoomRow>(
+    let mut room = sqlx::query_as::<_, RoomRow>(
         "SELECT id,name,kind,revision FROM rooms WHERE id=$1 AND kind='public' FOR UPDATE",
     )
     .bind(room_id)
@@ -276,15 +276,9 @@ pub async fn join_public(app: &App, account: &Account, room_id: &str) -> Result<
     .await?
     .rows_affected();
     if inserted > 0 {
-        let position = next_position(&mut tx).await?;
-        event(
-            &mut tx,
-            position,
-            room_id,
-            Some(&account.id),
-            Change::RoomUpsert(room.clone()),
-        )
-        .await?;
+        sqlx::query("DELETE FROM snapshot_heads WHERE user_id IN (SELECT user_id FROM members WHERE room_id=$1) OR $1=ANY(room_ids)")
+            .bind(room_id).execute(&mut *tx).await?;
+        room = crate::room_details::publish(&mut tx, room_id).await?;
     }
     tx.commit().await?;
     Ok(room)
@@ -415,6 +409,8 @@ pub async fn membership(
             .bind(room_id).bind(target).execute(&mut *tx).await?.rows_affected()
     };
     if rows > 0 {
+        sqlx::query("DELETE FROM snapshot_heads WHERE user_id IN (SELECT user_id FROM members WHERE room_id=$1) OR user_id=$2 OR $1=ANY(room_ids)")
+            .bind(room_id).bind(target).execute(&mut *tx).await?;
         if remove {
             // Never deliver another immutable page containing a withdrawn room.
             // This also prevents remove/re-add from reviving an old snapshot.
@@ -423,20 +419,20 @@ pub async fn membership(
                 .execute(&mut *tx)
                 .await?;
         }
-        let position = next_position(&mut tx).await?;
-        let change = if remove {
-            Change::RoomRemoved {
-                room_id: room_id.into(),
-            }
-        } else {
-            let room =
-                sqlx::query_as::<_, RoomRow>("SELECT id,name,kind,revision FROM rooms WHERE id=$1")
-                    .bind(room_id)
-                    .fetch_one(&mut *tx)
-                    .await?;
-            Change::RoomUpsert(room.wire())
-        };
-        event(&mut tx, position, room_id, Some(target), change).await?;
+        if remove {
+            let position = next_position(&mut tx).await?;
+            event(
+                &mut tx,
+                position,
+                room_id,
+                Some(target),
+                Change::RoomRemoved {
+                    room_id: room_id.into(),
+                },
+            )
+            .await?;
+        }
+        crate::room_details::publish(&mut tx, room_id).await?;
     }
     tx.commit().await?;
     Ok(())
@@ -463,7 +459,7 @@ pub async fn send(
     lock_active(&mut tx, account).await?;
     require_member(&mut tx, room_id, &account.id).await?;
     let used: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM room_creation_requests WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM message_actions WHERE user_id=$1 AND operation_id=$2)",
+        "SELECT EXISTS(SELECT 1 FROM room_creation_requests WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM message_actions WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM room_commands WHERE user_id=$1 AND operation_id=$2)",
     )
     .bind(&account.id)
     .bind(&input.operation_id)

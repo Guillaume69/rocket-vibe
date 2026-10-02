@@ -42,7 +42,7 @@ export class NativeTransport {
     if (!anonymous && this.token === null) throw new NativeError(401, 'session_rejected');
     const sent = anonymous ? null : this.token;
     const verb=method??(input===undefined?'GET':'POST');
-    const budget = ['/api/v1/auth/login','/api/v1/auth/start','/api/v1/auth/factors/verify','/api/v1/auth/invitations/accept','/api/v1/auth/recovery','/api/v1/me/reauth/start','/api/v1/me/reauth/finish'].includes(path) ? 'login' : ['/api/v1/me/email/verification/start','/api/v1/auth/factors/email/start','/api/v1/me/reauth/email/start'].includes(path) ? 'email_delivery' : path === '/api/v1/auth/recovery/email/start' ? 'email_recovery' : path === '/api/v1/auth/renew' ? 'session_rotation' : path === '/api/v1/sync/ticket' ? 'ticket' : path === '/api/v1/sync/snapshots' ? 'snapshot' : path.startsWith('/api/v1/messages/') && ['PATCH','DELETE','PUT'].includes(verb)?'message_action':null;
+    const budget = ['/api/v1/auth/login','/api/v1/auth/start','/api/v1/auth/factors/verify','/api/v1/auth/invitations/accept','/api/v1/auth/recovery','/api/v1/me/reauth/start','/api/v1/me/reauth/finish'].includes(path) ? 'login' : ['/api/v1/me/email/verification/start','/api/v1/auth/factors/email/start','/api/v1/me/reauth/email/start'].includes(path) ? 'email_delivery' : path === '/api/v1/auth/recovery/email/start' ? 'email_recovery' : path === '/api/v1/auth/renew' ? 'session_rotation' : path === '/api/v1/sync/ticket' ? 'ticket' : path === '/api/v1/sync/snapshots' ? 'snapshot' : path.startsWith('/api/v1/messages/') && ['PATCH','DELETE','PUT'].includes(verb)?'message_action':path.startsWith('/api/v1/rooms/') && (verb==='PATCH' || verb==='PUT' && path.endsWith('/role') || verb==='POST' && path.endsWith('/leave'))?'room_command':null;
     const cooldown = budget === null ? undefined : this.cooldowns.get(budget);
     if (cooldown && cooldown.until > Date.now()) throw new NativeError(429,cooldown.code,Math.ceil((cooldown.until-Date.now())/1000),cooldown.requestId);
     const controller = new AbortController();
@@ -162,6 +162,14 @@ export class NativeTransport {
   me(): Promise<NativeTypes['User']> { return this.request('User', '/api/v1/me'); }
   accountPermissions(): Promise<NativeTypes['AccountPermissions']> { return this.request('AccountPermissions','/api/v1/me/permissions'); }
   roomPermissions(room: string): Promise<NativeTypes['RoomPermissions']> { return this.request('RoomPermissions',`/api/v1/rooms/${encodeURIComponent(room)}/permissions`); }
+  roomDetails(room:string):Promise<NativeTypes['RoomDetails']> { return this.request('RoomDetails',`/api/v1/rooms/${encodeURIComponent(room)}`); }
+  roomMembers(room:string,after?:string,revision?:string):Promise<NativeTypes['RoomMemberPage']> {
+    return this.request('RoomMemberPage',`/api/v1/rooms/${encodeURIComponent(room)}/members?${after?`after=${encodeURIComponent(after)}&`:''}${revision?`revision=${encodeURIComponent(revision)}`:''}`);
+  }
+  updateRoom(room:string,input:NativeTypes['UpdateRoom']):Promise<NativeTypes['RoomCommandReceipt']> { return this.request('RoomCommandReceipt',`/api/v1/rooms/${encodeURIComponent(room)}`,input,false,undefined,'PATCH'); }
+  changeRoomRole(room:string,user:string,input:NativeTypes['ChangeRoomRole']):Promise<NativeTypes['RoomCommandReceipt']> { return this.request('RoomCommandReceipt',`/api/v1/rooms/${encodeURIComponent(room)}/members/${encodeURIComponent(user)}/role`,input,false,undefined,'PUT'); }
+  leaveRoom(room:string,input:NativeTypes['LeaveRoom']):Promise<NativeTypes['RoomCommandReceipt']> { return this.request('RoomCommandReceipt',`/api/v1/rooms/${encodeURIComponent(room)}/leave`,input); }
+  roomCommandReceipt(room:string,operation:string):Promise<NativeTypes['RoomCommandReceipt']> { return this.request('RoomCommandReceipt',`/api/v1/rooms/${encodeURIComponent(room)}/commands/${encodeURIComponent(operation)}`); }
   messagePermissions(message: string): Promise<NativeTypes['MessagePermissions']> { return this.request('MessagePermissions',`/api/v1/messages/${encodeURIComponent(message)}/permissions`); }
   message(id: string): Promise<Message> { return this.request('Message',`/api/v1/messages/${encodeURIComponent(id)}`); }
   editMessage(id: string,input: NativeTypes['EditMessage']): Promise<Message> { return this.request('Message',`/api/v1/messages/${encodeURIComponent(id)}`,input,false,undefined,'PATCH'); }

@@ -30,12 +30,23 @@ pub async fn account(app: &App, actor: &Account) -> Result<AccountPermissions> {
 pub async fn room(app: &App, actor: &Account, id: &str) -> Result<RoomPermissions> {
     let (role, kind, read_only, version, grant): (String,String,bool,String,String) = sqlx::query_as("SELECT m.role,r.kind,r.read_only,r.authority_version,m.access_version FROM members m JOIN rooms r ON r.id=m.room_id WHERE m.user_id=$1 AND m.room_id=$2")
         .bind(&actor.id).bind(id).fetch_optional(&app.pool).await?.ok_or_else(Error::missing)?;
+    Ok(room_grant(id, &role, &kind, read_only, &version, &grant))
+}
+
+pub(crate) fn room_grant(
+    id: &str,
+    role: &str,
+    kind: &str,
+    read_only: bool,
+    version: &str,
+    grant: &str,
+) -> RoomPermissions {
     let owner = role == "owner";
     let elevated = owner || role == "moderator";
-    Ok(RoomPermissions {
+    RoomPermissions {
         room_id: id.into(),
         revision: format!("{version}:{grant}"),
-        role: self::role(&role),
+        role: self::role(role),
         read: true,
         send: !read_only || elevated,
         invite: owner && kind != "direct",
@@ -44,7 +55,7 @@ pub async fn room(app: &App, actor: &Account, id: &str) -> Result<RoomPermission
         pin: elevated,
         upload: !read_only || elevated,
         start_call: !read_only || elevated,
-    })
+    }
 }
 
 pub async fn message(app: &App, actor: &Account, id: &str) -> Result<(String, MessagePermissions)> {

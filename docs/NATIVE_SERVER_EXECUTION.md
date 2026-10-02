@@ -337,6 +337,25 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   Le développement fonctionnel e-mail est clos pour ce stade ; le prochain lot
   est P04, rôles et paramètres serveur / salon. Pas de nouveau lot SMTP prévu.
 
+- P04, détails / rôles / paramètres côté serveur et transports : migration 0022,
+  métadonnées bornées, liste des membres paginée et révision opaque indépendante
+  des messages. Les propriétaires règlent visibilité / lecture seule / textes
+  et rôles ; transfert explicite et départ protègent le dernier propriétaire.
+  L'administrateur n'a aucun accès privé implicite. Les commandes originales
+  disposent de reçus personnels, également après rétrogradation / départ, sans
+  rejouer un ancien réglage ou supprimer une réadhésion. Les invitations, retraits
+  et adhésions publient maintenant une révision fraîche pour tous les membres.
+  Les snapshots concernés sont invalidés et la livraison des détails / membres
+  retient sa version jusqu'à soumission réelle du corps HTTP. Vérifications :
+  170 tests du workspace natif, dont huit scénarios PostgreSQL / HTTP dédiés
+  et un test de livraison obsolète ; le vrai transport TypeScript exerce transfert,
+  rétrogradation et reçu après départ contre ce serveur. 1 116 tests mobiles,
+  typecheck / lint, 306 tests bureau et Clippy passent. Schéma / types / inventaire
+  sont vérifiés. [Contrat et limites P04](protocol/ROOMS.md). Le raccordement
+  durable aux trois écrans existants reste le prochain lot ; P04 reste ouvert.
+  Le lot e-mail précédent `2b46b48` a ses deux CI entièrement vertes : native
+  `36979565276` (quatre jobs) et macOS `36979565203`.
+
 - P02, coffres de demande de récupération e-mail : le coordinateur Rust commun
   GTK / Swift et le coffre mobile conservent l'opération originale avant HTTP,
   sans code reçu / mot de passe / adresse / bearer. Namespace privé par URL et

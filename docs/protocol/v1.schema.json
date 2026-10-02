@@ -324,6 +324,18 @@
           "default": false,
           "type": "boolean"
         },
+        "room_leave": {
+          "default": false,
+          "type": "boolean"
+        },
+        "room_roles": {
+          "default": false,
+          "type": "boolean"
+        },
+        "room_settings": {
+          "default": false,
+          "type": "boolean"
+        },
         "search": {
           "default": false,
           "type": "boolean"
@@ -456,6 +468,26 @@
         "operation_id",
         "email_version",
         "context"
+      ],
+      "type": "object"
+    },
+    "ChangeRoomRole": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_revision": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/RoomRole"
+        }
+      },
+      "required": [
+        "operation_id",
+        "expected_revision",
+        "role"
       ],
       "type": "object"
     },
@@ -1063,6 +1095,22 @@
       ],
       "type": "object"
     },
+    "LeaveRoom": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_revision": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "expected_revision"
+      ],
+      "type": "object"
+    },
     "Login": {
       "additionalProperties": false,
       "properties": {
@@ -1374,6 +1422,16 @@
             }
           ]
         },
+        "change_room_role": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ChangeRoomRole"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "complete_upload": {
           "$ref": "#/$defs/CompleteUpload"
         },
@@ -1538,6 +1596,16 @@
         },
         "key_backup": {
           "$ref": "#/$defs/EncryptedKeyBackup"
+        },
+        "leave_room": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LeaveRoom"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "mark": {
           "$ref": "#/$defs/SetMark"
@@ -1726,11 +1794,51 @@
             }
           ]
         },
+        "room_command_receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RoomCommandReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "room_details": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RoomDetails"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "room_key_envelope": {
           "$ref": "#/$defs/RoomKeyEnvelope"
         },
+        "room_members": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RoomMemberPage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "room_permissions": {
           "$ref": "#/$defs/RoomPermissions"
+        },
+        "update_room": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UpdateRoom"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "verify_factor": {
           "$ref": "#/$defs/VerifyFactor"
@@ -2341,6 +2449,67 @@
       ],
       "type": "object"
     },
+    "RoomCommandReceipt": {
+      "properties": {
+        "applied_revision": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "room_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "room_id",
+        "applied_revision"
+      ],
+      "type": "object"
+    },
+    "RoomDetails": {
+      "properties": {
+        "announcement": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "member_count": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "permissions": {
+          "$ref": "#/$defs/RoomPermissions"
+        },
+        "read_only": {
+          "type": "boolean"
+        },
+        "revision": {
+          "description": "Opaque settings / roster revision, independent from message activity.",
+          "type": "string"
+        },
+        "room": {
+          "$ref": "#/$defs/Room"
+        },
+        "topic": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "room",
+        "revision",
+        "topic",
+        "description",
+        "announcement",
+        "read_only",
+        "member_count",
+        "permissions"
+      ],
+      "type": "object"
+    },
     "RoomKeyEnvelope": {
       "properties": {
         "ciphertext": {
@@ -2383,6 +2552,53 @@
         "direct"
       ],
       "type": "string"
+    },
+    "RoomMember": {
+      "properties": {
+        "disabled": {
+          "type": "boolean"
+        },
+        "role": {
+          "$ref": "#/$defs/RoomRole"
+        },
+        "user": {
+          "$ref": "#/$defs/User"
+        }
+      },
+      "required": [
+        "user",
+        "role",
+        "disabled"
+      ],
+      "type": "object"
+    },
+    "RoomMemberPage": {
+      "properties": {
+        "members": {
+          "items": {
+            "$ref": "#/$defs/RoomMember"
+          },
+          "type": "array"
+        },
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revision": {
+          "type": "string"
+        },
+        "room_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "room_id",
+        "revision",
+        "members"
+      ],
+      "type": "object"
     },
     "RoomPermissions": {
       "properties": {
@@ -2645,6 +2861,46 @@
         "changes",
         "cursor",
         "has_more"
+      ],
+      "type": "object"
+    },
+    "UpdateRoom": {
+      "additionalProperties": false,
+      "properties": {
+        "announcement": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "expected_revision": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "private": {
+          "type": "boolean"
+        },
+        "read_only": {
+          "type": "boolean"
+        },
+        "topic": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "expected_revision",
+        "name",
+        "private",
+        "topic",
+        "description",
+        "announcement",
+        "read_only"
       ],
       "type": "object"
     },

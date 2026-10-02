@@ -218,6 +218,29 @@ impl ReadProof {
         }
         Ok(leased_json(bytes, lease))
     }
+
+    /// Roster and metadata changes use a separate version. Retain a SHARE
+    /// lease so none can change after this check until body submission.
+    pub async fn versioned_room_json(
+        &self,
+        app: &App,
+        session: &str,
+        room: &str,
+        revision: &str,
+        value: &impl Serialize,
+    ) -> Result<Response> {
+        let bytes = Bytes::from(serde_json::to_vec(value).map_err(|_| Error::internal())?);
+        let mut lease = self.lock(app, session, &[room.into()], None).await?;
+        let current: Option<String> =
+            sqlx::query_scalar("SELECT details_version FROM rooms WHERE id=$1 FOR SHARE")
+                .bind(room)
+                .fetch_optional(&mut *lease)
+                .await?;
+        if current.as_deref() != Some(revision) {
+            return Err(changed());
+        }
+        Ok(leased_json(bytes, lease))
+    }
 }
 
 fn leased_json(bytes: Bytes, lease: Transaction<'static, Postgres>) -> Response {
@@ -340,6 +363,91 @@ mod tests {
             .header("authorization", format!("Bearer {}", f.token))
             .body(Body::empty())
             .unwrap()
+    }
+
+    #[sqlx::test]
+    async fn room_metadata_and_roster_reject_stale_payloads_including_aba(pool: PgPool) {
+        let f = fixture(pool).await;
+        let proof = ReadProof::capture(&f.app, &f.reader, Scope::Room(&f.room.id))
+            .await
+            .unwrap();
+        let details = crate::room_details::read(&f.app, &f.reader, &f.room.id)
+            .await
+            .unwrap();
+        let roster = crate::room_details::members(&f.app, &f.reader, &f.room.id, None, None)
+            .await
+            .unwrap();
+        // Restore the same text without restoring the original nonce.
+        for name in ["Changed", "Secret"] {
+            sqlx::query("UPDATE rooms SET name=$2 WHERE id=$1")
+                .bind(&f.room.id)
+                .bind(name)
+                .execute(&f.app.pool)
+                .await
+                .unwrap();
+        }
+        assert_eq!(
+            proof
+                .versioned_room_json(&f.app, &f.hash, &f.room.id, &details.revision, &details)
+                .await
+                .unwrap_err()
+                .code,
+            "delivery_revalidate"
+        );
+        assert_eq!(
+            proof
+                .versioned_room_json(&f.app, &f.hash, &f.room.id, &roster.revision, &roster)
+                .await
+                .unwrap_err()
+                .code,
+            "delivery_revalidate"
+        );
+        let fresh = crate::room_details::read(&f.app, &f.reader, &f.room.id)
+            .await
+            .unwrap();
+        // Another member's role changes invalidate a roster, although the
+        // reader's own grant and the restored room metadata stay identical.
+        sqlx::query("UPDATE members SET role='moderator' WHERE room_id=$1 AND user_id=$2")
+            .bind(&f.room.id)
+            .bind(&f.owner.id)
+            .execute(&f.app.pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            proof
+                .versioned_room_json(&f.app, &f.hash, &f.room.id, &fresh.revision, &fresh)
+                .await
+                .unwrap_err()
+                .code,
+            "delivery_revalidate"
+        );
+        store::membership(&f.app, &f.owner, &f.room.id, &f.reader.id, true)
+            .await
+            .unwrap_err();
+        // Reestablish ownership for the remove/rejoin race.
+        sqlx::query("UPDATE members SET role='owner' WHERE room_id=$1 AND user_id=$2")
+            .bind(&f.room.id)
+            .bind(&f.owner.id)
+            .execute(&f.app.pool)
+            .await
+            .unwrap();
+        store::membership(&f.app, &f.owner, &f.room.id, &f.reader.id, true)
+            .await
+            .unwrap();
+        store::membership(&f.app, &f.owner, &f.room.id, &f.reader.id, false)
+            .await
+            .unwrap();
+        let fresh = crate::room_details::read(&f.app, &f.reader, &f.room.id)
+            .await
+            .unwrap();
+        assert_eq!(
+            proof
+                .versioned_room_json(&f.app, &f.hash, &f.room.id, &fresh.revision, &fresh)
+                .await
+                .unwrap_err()
+                .code,
+            "delivery_revalidate"
+        );
     }
     async fn wait_for_delete(pool: &PgPool) {
         tokio::time::timeout(Duration::from_secs(2),async {

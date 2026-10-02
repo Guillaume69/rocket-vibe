@@ -253,6 +253,63 @@ pub enum RoomRole {
     Member,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct RoomDetails {
+    pub room: crate::Room,
+    /// Opaque settings / roster revision, independent from message activity.
+    pub revision: String,
+    pub topic: String,
+    pub description: String,
+    pub announcement: String,
+    pub read_only: bool,
+    pub member_count: u32,
+    pub permissions: RoomPermissions,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct RoomMember {
+    pub user: crate::User,
+    pub role: RoomRole,
+    pub disabled: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct RoomMemberPage {
+    pub room_id: String,
+    pub revision: String,
+    pub members: Vec<RoomMember>,
+    pub next: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateRoom {
+    pub operation_id: String,
+    pub expected_revision: String,
+    pub name: String,
+    pub private: bool,
+    pub topic: String,
+    pub description: String,
+    pub announcement: String,
+    pub read_only: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ChangeRoomRole {
+    pub operation_id: String,
+    pub expected_revision: String,
+    pub role: RoomRole,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LeaveRoom {
+    pub operation_id: String,
+    pub expected_revision: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct RoomCommandReceipt {
+    pub operation_id: String,
+    pub room_id: String,
+    pub applied_revision: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct AccountPermissions {
     pub create_public_room: bool,
@@ -451,6 +508,18 @@ pub struct RoomKeyEnvelope {
 /// specification/review; these types make no algorithm or trust guarantee.
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct ParityContract {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub room_details: Option<RoomDetails>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub room_members: Option<RoomMemberPage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_room: Option<UpdateRoom>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change_room_role: Option<ChangeRoomRole>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub leave_room: Option<LeaveRoom>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub room_command_receipt: Option<RoomCommandReceipt>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub change_email_factor: Option<ChangeEmailFactor>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

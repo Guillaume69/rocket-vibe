@@ -11,6 +11,7 @@ struct SecuritySection: View {
     @State private var confirmation: Confirmation?
     private enum ConfirmationAction {
         case factor(NativeFactorAction)
+        case emailFactor(Bool, String)
         case removeEmail(String)
     }
     private struct Confirmation: Identifiable {
@@ -49,7 +50,7 @@ struct SecuritySection: View {
                         TextField(L(model.method == "email" ? "email.code" : model.method == "recovery_code" ? "login.code_recovery_code" : "login.code_totp"), text: input(model, \.code))
                         Button(L("security.verify")) { Task { await model.confirmFactor() } }
                     }
-                    if value.supportsFactors {
+                    if value.supportsFactors || value.supportsEmailFactors {
                         if value.factor == .setup {
                             Text(L("security.setup_body")).font(.caption).foregroundStyle(.secondary)
                             Text(value.setupSecret ?? "").font(.system(.body, design: .monospaced))
@@ -69,14 +70,16 @@ struct SecuritySection: View {
                             Button(L("security.discard")) { Task { await model.acknowledge(revision: value.viewRevision) } }
                         }
                         if value.factor == .idle {
-                            if value.totpEnabled {
+                            if value.enabled && value.supportsFactors {
                                 Button(L("security.regenerate"), role: .destructive) {
                                     confirmation = Confirmation(model: model, action: .factor(.regenerate), revision: value.viewRevision)
                                 }
+                            }
+                            if value.totpEnabled && value.supportsFactors {
                                 Button(L("security.disable"), role: .destructive) {
                                     confirmation = Confirmation(model: model, action: .factor(.disable), revision: value.viewRevision)
                                 }
-                            } else {
+                            } else if value.supportsFactors {
                                 Button(L("security.setup")) { Task { await model.factor(.setup, revision: value.viewRevision) } }
                             }
                         }
@@ -108,6 +111,7 @@ struct SecuritySection: View {
                     Task {
                         switch pending.action {
                         case let .factor(action): await pending.model.factor(action, revision: pending.revision)
+                        case let .emailFactor(enabled, _): await pending.model.emailFactor(enabled: enabled, revision: pending.revision)
                         case .removeEmail: await pending.model.removeEmail(revision: pending.revision)
                         }
                     }
@@ -121,7 +125,7 @@ struct SecuritySection: View {
     }
     private func status(_ value: NativeSecurityState) -> some View {
         VStack(alignment: .leading) {
-            if value.supportsFactors {
+            if value.supportsFactors || value.supportsEmailFactors {
                 Text(L(value.enabled ? "security.enabled" : "security.disabled"))
             }
             Text(value.enabled ? L("security.remaining", count: Int(value.backupCodesRemaining)) : L(value.proof == .ready ? "security.ready" : "security.required"))
@@ -144,12 +148,24 @@ struct SecuritySection: View {
                 Text(address)
             } else { Text(L("email.none")).foregroundStyle(.secondary) }
         }
-        if email.phase == .idle && email.canVerify {
+        if value.supportsEmailFactors {
+            Text(L(value.emailFactorEnabled ? "email.factor_enabled" : "email.factor_disabled")).font(.caption).foregroundStyle(.secondary)
+        }
+        if email.phase == .idle && value.emailFactorEnabled {
+            Text(L("email.factor_contact")).font(.caption).foregroundStyle(.secondary)
+        }
+        if email.phase == .idle && value.factor == .idle && value.supportsEmailFactors, let address = email.address {
+            Button(L(value.emailFactorEnabled ? "email.factor_disable" : "email.factor_enable")) {
+                confirmation = Confirmation(model: model, action: .emailFactor(!value.emailFactorEnabled, address), revision: value.viewRevision)
+            }
+            .disabled(value.proof != .ready || (!value.emailFactorEnabled && !value.canEnableEmailFactor))
+        }
+        if email.phase == .idle && email.canVerify && !value.emailFactorEnabled {
             TextField(L("email.address"), text: input(model, \.emailAddress))
             Button(L("email.start")) { Task { await model.startEmail(revision: value.viewRevision) } }
                 .disabled(value.proof != .ready)
         }
-        if email.phase == .idle && email.canRemove, let address = email.address {
+        if email.phase == .idle && email.canRemove && !value.emailFactorEnabled, let address = email.address {
             Button(L("email.remove"), role: .destructive) {
                 confirmation = Confirmation(model: model, action: .removeEmail(address), revision: value.viewRevision)
             }
@@ -197,6 +213,7 @@ struct SecuritySection: View {
     private func title(_ action: ConfirmationAction?) -> String {
         switch action {
         case .removeEmail: return L("email.remove")
+        case let .emailFactor(enabled, _): return L(enabled ? "email.factor_enable" : "email.factor_disable")
         case .factor(.disable): return L("security.disable")
         default: return L("security.regenerate")
         }
@@ -204,6 +221,7 @@ struct SecuritySection: View {
     private func confirmationBody(_ action: ConfirmationAction?) -> String {
         switch action {
         case let .removeEmail(address): return address + "\n\n" + L("email.remove_body")
+        case let .emailFactor(enabled, address): return address + "\n\n" + L(enabled ? "email.factor_enable_body" : "email.factor_disable_body")
         case .factor(.disable): return L("security.disable_body")
         default: return L("security.regenerate_body")
         }

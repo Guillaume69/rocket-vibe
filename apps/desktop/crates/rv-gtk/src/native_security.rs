@@ -10,7 +10,10 @@ use gtk::glib;
 use rv_core::native::{
     NativeSession,
     authentication::{SecondFactor, method_name},
-    security::{Access, FactorAction, FactorState, Guard, ProofAttempt, ProofState, Remote, Scope, Setup, email},
+    security::{
+        Access, EmailFactorExpectation, FactorAction, FactorState, Guard, ProofAttempt, ProofState, Remote, Scope,
+        Setup, email,
+    },
 };
 use std::{
     cell::{Cell, RefCell},
@@ -114,6 +117,8 @@ pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) 
     let email_start = button("email.start", "native-security-email-start");
     let email_remove = button("email.remove", "native-security-email-remove");
     email_remove.add_css_class("destructive-action");
+    let email_factor_status = adw::ActionRow::builder().css_classes(["native-security-email-factor-status"]).build();
+    let email_factor = button("email.factor_enable", "native-security-email-factor");
     let email_pending =
         adw::ActionRow::builder().title(t("email.pending")).css_classes(["native-security-email-pending"]).build();
     let email_code =
@@ -125,6 +130,8 @@ pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) 
     let email_stale = adw::ActionRow::builder().title(t("email.stale")).build();
     let email_retire = button("email.restart", "native-security-email-retire");
     email_group.add(&email_current);
+    email_group.add(&email_factor_status);
+    email_group.add(&email_factor);
     email_group.add(&email_address);
     email_group.add(&email_start);
     email_group.add(&email_remove);
@@ -172,6 +179,8 @@ pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) 
         email_address,
         email_start,
         email_remove,
+        email_factor_status,
+        email_factor,
         email_pending,
         email_code,
         email_confirm,
@@ -338,6 +347,56 @@ pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) 
         });
     }
     let weak = Rc::downgrade(&state);
+    state.email_factor.connect_activated(move |_| {
+        let Some(state) = weak.upgrade() else { return };
+        if !state.guard.alive()
+            || state.busy.get()
+            || !state.session.email_factors_supported()
+            || !matches!(*state.factor.borrow(), FactorState::Idle)
+        {
+            return;
+        }
+        let Some(contact) = state.email.borrow().as_ref().and_then(|view| {
+            (matches!(view.state, email::State::Idle) && view.status.address.is_some()).then(|| view.status.clone())
+        }) else {
+            return;
+        };
+        let Some(factors) = state.factor_status.borrow().clone() else { return };
+        let enabled = !factors.email;
+        if enabled && !state.session.email_factor_delivery_supported() {
+            return;
+        }
+        let expected = EmailFactorExpectation { contact, factors, enabled };
+        let revision = state.email_revision.get();
+        let Some(parent) = state.dialog.upgrade() else { return };
+        let key = if enabled { "email.factor_enable" } else { "email.factor_disable" };
+        let body = if enabled { "email.factor_enable_body" } else { "email.factor_disable_body" };
+        let alert = adw::AlertDialog::builder()
+            .heading(t(key))
+            .body(format!("{}\n\n{}", expected.contact.address.as_deref().unwrap_or(""), t(body)))
+            .css_classes(["native-security-email-factor-confirm"])
+            .default_response("cancel")
+            .close_response("cancel")
+            .build();
+        alert.add_responses(&[("cancel", t("actions.cancel")), ("confirm", t(key))]);
+        alert.set_response_appearance(
+            "confirm",
+            if enabled { adw::ResponseAppearance::Suggested } else { adw::ResponseAppearance::Destructive },
+        );
+        let weak = Rc::downgrade(&state);
+        alert.connect_response(Some("confirm"), move |_, _| {
+            if let Some(state) = weak.upgrade()
+                && state.email_revision.get() == revision
+            {
+                state.email_address.set_text("");
+                state.email_code.set_text("");
+                state.proof_code.set_text("");
+                state.run(Work::EmailFactor(expected.clone()));
+            }
+        });
+        alert.present(Some(&parent));
+    });
+    let weak = Rc::downgrade(&state);
     state.email_start.connect_activated(move |_| {
         if let Some(state) = weak.upgrade() {
             let expected = state
@@ -449,6 +508,7 @@ enum Work {
     Proof(ProofAttempt, SecondFactor, String),
     ProofMail(ProofAttempt, bool),
     Start(FactorAction),
+    EmailFactor(EmailFactorExpectation),
     Enable(Setup, String),
     Clear(String),
     Copy(CopyKind),
@@ -497,6 +557,8 @@ struct Controller {
     email_address: adw::EntryRow,
     email_start: adw::ButtonRow,
     email_remove: adw::ButtonRow,
+    email_factor_status: adw::ActionRow,
+    email_factor: adw::ButtonRow,
     email_pending: adw::ActionRow,
     email_code: adw::PasswordEntryRow,
     email_confirm: adw::ButtonRow,
@@ -580,14 +642,15 @@ impl Controller {
         self.render_proof_mail();
         let factor = self.factor.borrow();
         let supported = self.session.factors_supported();
+        let email_factors = self.session.email_factors_supported();
         let totp = self.factor_status.borrow().as_ref().is_some_and(|s| s.totp);
         let enabled = self.factor_status.borrow().as_ref().is_some_and(|s| s.totp || s.email);
         self.setup_group.set_visible(supported && matches!(*factor, FactorState::Setup(_)));
-        self.codes_group.set_visible(supported && matches!(*factor, FactorState::Codes { .. }));
-        self.stale_group.set_visible(supported && matches!(*factor, FactorState::Stale { .. }));
+        self.codes_group.set_visible((supported || email_factors) && matches!(*factor, FactorState::Codes { .. }));
+        self.stale_group.set_visible((supported || email_factors) && matches!(*factor, FactorState::Stale { .. }));
         self.actions.set_visible(loaded && supported && matches!(*factor, FactorState::Idle));
         self.setup.set_visible(!totp);
-        self.regenerate.set_visible(totp);
+        self.regenerate.set_visible(enabled);
         self.disable.set_visible(totp);
         self.secret.set_text(match &*factor {
             FactorState::Setup(setup) => &setup.secret,
@@ -599,7 +662,7 @@ impl Controller {
         });
         self.status.set_title(t(if !loaded {
             "security.loading"
-        } else if supported {
+        } else if supported || email_factors {
             if enabled { "security.enabled" } else { "security.disabled" }
         } else {
             "security.title"
@@ -618,12 +681,30 @@ impl Controller {
         self.email_group.set_visible(email_loaded);
         let ready = matches!(*proof, ProofState::Ready);
         let phase = email.as_ref().map(|view| &view.state);
-        let can_verify = self.session.email_verification_supported() && matches!(phase, Some(email::State::Idle));
+        let email_enabled = self.factor_status.borrow().as_ref().is_some_and(|s| s.email);
+        self.email_factor_status.set_visible(email_factors);
+        self.email_factor_status.set_title(t(if email_enabled {
+            "email.factor_enabled"
+        } else {
+            "email.factor_disabled"
+        }));
+        self.email_factor_status.set_subtitle(if email_enabled { t("email.factor_contact") } else { "" });
+        self.email_factor.set_visible(
+            email_factors
+                && matches!(*factor, FactorState::Idle)
+                && matches!(phase, Some(email::State::Idle))
+                && email.as_ref().is_some_and(|view| view.status.address.is_some()),
+        );
+        self.email_factor.set_title(t(if email_enabled { "email.factor_disable" } else { "email.factor_enable" }));
+        self.email_factor.set_sensitive(ready && (email_enabled || self.session.email_factor_delivery_supported()));
+        let can_verify =
+            !email_enabled && self.session.email_verification_supported() && matches!(phase, Some(email::State::Idle));
         self.email_address.set_visible(can_verify);
         self.email_start.set_visible(can_verify);
         self.email_start.set_sensitive(ready);
         self.email_remove.set_visible(
             self.session.email_removal_supported()
+                && !email_enabled
                 && matches!(phase, Some(email::State::Idle))
                 && email.as_ref().is_some_and(|view| view.status.address.is_some()),
         );
@@ -724,7 +805,7 @@ impl Controller {
                         match work {
                             Work::Refresh => {
                                 proof = Some(vault.prepare(&scope, &access, "", &guard).await?);
-                                if session.factors_supported() {
+                                if session.factors_supported() || session.email_factors_supported() {
                                     factor = Some(vault.factor_resume(&scope, &access, &guard).await?);
                                 }
                             }
@@ -739,6 +820,12 @@ impl Controller {
                             }
                             Work::Start(action) => {
                                 factor = Some(vault.factor_start(&scope, &access, action, &guard).await?)
+                            }
+                            Work::EmailFactor(expected) => {
+                                if !session.email_factors_supported() {
+                                    return Err(rv_core::native::Error::Protocol("unsupported_feature"));
+                                }
+                                factor = Some(vault.factor_email_start(&scope, &access, &expected, &guard).await?);
                             }
                             Work::Enable(setup, code) => {
                                 factor = Some(vault.factor_enable(&scope, &access, &setup, &code, &guard).await?)

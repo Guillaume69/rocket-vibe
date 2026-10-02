@@ -315,6 +315,32 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, inscription du facteur e-mail dans les trois clients : boutons explicites
+  dans les paramètres mobile / GTK / SwiftUI existants, confirmations liées au
+  contact et aux profils affichés, garde de vue et reprise du reçu privé. Les
+  secours partagent leur présentation / copie / acknowledgement avec TOTP.
+  Les contrôles d'adresse expliquent et empêchent son remplacement ou retrait
+  tant que le profil e-mail est actif. Désactiver TOTP ou e-mail décrit la
+  conservation de l'autre profil ; e-mail seul permet les secours communs.
+  Les bancs mobile, GTK et Swift passent chacun trois vrais processus, avec
+  PostgreSQL, contact vérifié par SMTP / TLS et réponses d'activation / retrait
+  perdues. Après activation, ils confirment à nouveau l'identité avec un secours,
+  perdent aussi les réponses de preuve et retrouvent son reçu avant le retrait.
+  SQL exige une seule famille / credential, deux opérations de profil d'origine,
+  un seul mail de contact, aucun OTP envoyé et le contact conservé après retrait
+  du dernier facteur. GTK / Swift utilisent Secret Service ; mobile recrée son
+  fournisseur, sa projection SQLite et un stockage privé portable sur disque.
+  Ces bancs rejoignent la CI dans trois projets distincts. Les 291 tests Rust
+  bureau, Clippy / compilation GTK, 1 099 tests mobile, typecheck / lint / export
+  Android, bindings et six tests locaux Swift passent. Les contrôles FFI refusent
+  une révision obsolète ou un handle fermé. La vue GTK sans secret est vérifiée
+  à 435 × 760. Inventaire : 295 fichiers / 344 occurrences. Les services et
+  volumes privés du banc sont supprimés après vérification. Compilation SwiftUI
+  macOS et qualifications installées restent des contrôles distincts.
+  La CI `36966528293` du coffre `9c35bbb` passe ses quatre jobs, y compris
+  les régressions connectées OTP / TOTP / contact des deux clients bureau.
+  La récupération du compte par e-mail est le prochain raccordement P02.
+
 - P02, coffres d'inscription du facteur e-mail : les coordinateurs Rust bureau
   et mobile conservent l'opération, le contact affiché et la version des profils
   avant HTTP, dans le même coffre privé que TOTP / secours. Une réponse perdue

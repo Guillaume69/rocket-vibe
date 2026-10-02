@@ -9,6 +9,12 @@ release, et ses notes sont la section de la version ici.
 
 ### Sécurité RocketVibe
 
+- Activation et retrait explicites des codes par e-mail dans les paramètres
+  existants, avec confirmation liée au contact et aux facteurs affichés, reprise
+  du reçu depuis SecureStore et présentation des secours communs. Un autre
+  facteur installé est conservé ; l’adresse doit être libérée de ce profil avant
+  remplacement ou retrait.
+
 - Un profil protégé uniquement par e-mail est affiché comme actif et peut
   régénérer ses codes de secours communs sans SMTP. Demander ou reprendre un
   code de confirmation d’identité efface la saisie précédente.

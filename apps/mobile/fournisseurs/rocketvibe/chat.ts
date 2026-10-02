@@ -199,7 +199,7 @@ export class NativeChat {
       return call(action);
     };
     const emailCall=async<T>(action:()=>Promise<T>,verificationOnly=false):Promise<T>=>{
-      if(verificationOnly?!this.capabilities?.email_verification:!(this.capabilities?.email_verification || this.capabilities?.email_removal))throw new NativeError(501,'unsupported_feature');
+      if(verificationOnly?!this.capabilities?.email_verification:!(this.capabilities?.email_verification || this.capabilities?.email_removal || this.capabilities?.email_factors))throw new NativeError(501,'unsupported_feature');
       return call(action);
     };
     const removalCall=async<T>(action:()=>Promise<T>):Promise<T>=>{

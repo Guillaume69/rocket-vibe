@@ -26,8 +26,9 @@ Ils épinglent le contact et les profils affichés, reprennent le même reçu ap
 réponse perdue et présentent les dix secours communs jusqu'à confirmation de
 leur sauvegarde. Le retrait sans SMTP conserve les autres profils ; la
 régénération des secours fonctionne également avec un profil e-mail seul.
-Six tests Rust et neuf tests TypeScript dédiés couvrent ce coordinateur ; le
-parcours positif connecté des boutons d'inscription reste à livrer. Les
+Six tests Rust et neuf tests TypeScript dédiés couvrent ce coordinateur. Les
+boutons d'inscription / retrait rejoignent les paramètres existants des trois
+clients, avec confirmations liées au contact et aux profils affichés. Les
 formulaires d'adresse vérifiée ne l'activent pas automatiquement. La récupération
 du compte par e-mail reste à implémenter.
 
@@ -437,6 +438,21 @@ un autre projet PostgreSQL / proxy. Il passe trois processus avec Secret Service
 les vrais modèles et handles FFI, les mêmes invariants SQL et le refus des
 handles fermés / révisions obsolètes. Cette preuve portable ne qualifie pas le
 trousseau macOS ni le rendu SwiftUI installé.
+
+Le banc `compose.native-email-settings-pilot.yml` utilise un contact vérifié
+sans activer son facteur dans le seeder. Les vrais widgets GTK, modèles / FFI
+Swift et fournisseur mobile activent le profil puis retrouvent les mêmes dix
+secours dans un nouveau processus après réponse perdue. Ils effectuent ensuite
+une preuve complète par secours, avec réponses de preuve perdues, acquittent
+la sauvegarde des codes, retirent le profil et reprennent ce retrait dans un
+troisième processus. Chaque client utilise un PostgreSQL / proxy distinct.
+SQL exige une seule famille et credential, deux opérations originales, l'adresse
+conservée et un seul mail de contact ; aucun OTP n'est demandé par ce scénario.
+GTK et Swift utilisent Secret Service réel ; le mobile utilise un adaptateur
+privé portable sur disque et sa projection SQLite réelle. Les révisions Swift
+obsolètes et handles fermés sont refusés avant HTTP. La capture GTK finale à
+435 × 760 contient seulement les paramètres et l'adresse synthétique.
+Ce banc ne remplace pas les confirmations ni trousseaux d'une app installée.
 
 Le composant commun d'admission SMTP est extrait : il conserve les clés des
 vérifications déjà admises et partage les budgets persistants global, compte,

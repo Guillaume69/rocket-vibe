@@ -55,7 +55,7 @@ impl Access {
 }
 impl NativeSession {
     pub fn email_supported(&self) -> bool {
-        self.email_feature(|c| c.email_verification || c.email_removal)
+        self.email_feature(|c| c.email_verification || c.email_removal || c.email_factors)
     }
     pub fn email_verification_supported(&self) -> bool {
         self.email_feature(|c| c.email_verification)

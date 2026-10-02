@@ -15,6 +15,12 @@ section here.
 
 ### Added
 
+- Explicit email-factor activation and removal in the existing GTK / SwiftUI
+  security settings, with approval pinned to the displayed contact and profiles,
+  durable receipt recovery and shared backup codes. Removing one factor keeps
+  another installed factor; contact changes explain why email codes must first
+  be disabled.
+
 - Email second-factor sign-in and identity confirmation in the existing GTK / SwiftUI
   forms, with explicit delivery, original-attempt recovery across restarts,
   delivery status and bounded resend. Input codes stay transient; confirming

@@ -185,3 +185,24 @@ Pour les modèles Swift, générer les bindings et tests avec
 avec `security-swift` et `security-swift-check`. La CI lance ces deux parcours.
 Ces essais Linux ne ferment pas la qualification des trousseaux Windows /
 macOS, de SecureStore Android installé ou du rendu SwiftUI sur macOS.
+
+## Inscription explicite du facteur e-mail
+
+Après construction des images / binaires, l'overlay d'inscription vérifie trois
+processus par client, avec pertes des réponses de profil et de preuve. Il reprend
+les dix secours d'origine et conserve le contact après retrait du dernier profil.
+Un projet frais par client est obligatoire : le proxy perd une réponse par route.
+
+```sh
+files='-f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-email-settings-pilot.yml'
+docker compose -p rocketvibe-email-settings-gtk $files up -d factor-proxy
+docker compose -p rocketvibe-email-settings-gtk $files run --rm --no-deps email-settings-desktop
+docker compose -p rocketvibe-email-settings-gtk $files run --rm --no-deps email-settings-check
+docker compose -p rocketvibe-email-settings-gtk $files down -v
+```
+
+Pour Swift, ajouter `-f docker/compose.native-swift-email-otp-pilot.yml` avant
+l'overlay d'inscription et utiliser le projet `rocketvibe-email-settings-swift`
+avec `email-settings-swift`. Le contrôle `email-settings-check` reçoit
+`-e 'PGOPTIONS=-c rocketvibe.pilot_email_settings_user=swift-email'`.
+La CI exécute ces parcours et leur nettoyage. Le relais du banc reste local.

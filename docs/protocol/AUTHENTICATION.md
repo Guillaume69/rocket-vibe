@@ -7,8 +7,9 @@ dans [EMAIL.md](EMAIL.md). Les défis e-mail de connexion / réauthentification
 sont raccordés aux trois clients ; les coffres du cœur Rust bureau reprennent
 leur livraison dans la tentative d'origine. Les coffres Rust / mobile reprennent
 aussi l'inscription et le retrait explicites du profil e-mail, avec versions du
-contact et des profils affichés. P02 reste ouvert pour les boutons d'inscription
-du facteur dans les trois clients, la récupération e-mail et la
+contact et des profils affichés. Les boutons d'inscription / retrait explicites
+sont raccordés aux paramètres des trois clients et aux secours communs.
+P02 reste ouvert pour la récupération e-mail et la
 qualification des appareils.
 Le fournisseur Rocket.Chat garde son parcours.
 
@@ -232,8 +233,9 @@ les logs ou le journal de synchronisation.
   après réponse perdue, sans régénération ni seconde révocation.
 - `POST /me/factors/totp/disable` : `DisableFactor` visant la version affichée.
   Un retry après désactivation est sans effet ; il ne peut enlever un facteur
-  réinscrit entre-temps. La désactivation supprime secours / pending, change
-  l'autorité et révoque les autres familles.
+  réinscrit entre-temps. La désactivation supprime le pending TOTP, conserve le
+  profil e-mail et les secours s'il est actif, change l'autorité et révoque les
+  autres familles. Les secours disparaissent au retrait du dernier profil.
 - `POST /me/factors/recovery/regenerate` : `RegenerateFactorBackups`, version
   affichée et ID d'opération sauvegardés avant HTTP. Une preuve complète récente
   remplace atomiquement les dix secours, avance la version / autorité et révoque

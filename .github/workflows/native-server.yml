@@ -137,6 +137,15 @@ jobs:
           docker compose -p rocketvibe-gtk-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml up -d factor-proxy
           docker compose -p rocketvibe-gtk-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml run --rm --no-deps otp-desktop
           docker compose -p rocketvibe-gtk-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml run --rm --no-deps otp-check
+      - name: GTK and mobile email profile receipts across three processes
+        run: |
+          files='-f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-email-settings-pilot.yml'
+          docker compose -p rocketvibe-email-settings-gtk $files up -d factor-proxy
+          docker compose -p rocketvibe-email-settings-gtk $files run --rm --no-deps email-settings-desktop
+          docker compose -p rocketvibe-email-settings-gtk $files run --rm --no-deps email-settings-check
+          docker compose -p rocketvibe-email-settings-mobile $files up -d factor-proxy
+          docker compose -p rocketvibe-email-settings-mobile $files run --rm --no-deps email-settings-mobile
+          docker compose -p rocketvibe-email-settings-mobile $files run --rm --no-deps email-settings-check
       - name: Integration logs and cleanup
         if: always()
         run: |
@@ -146,6 +155,11 @@ jobs:
           docker compose -p rocketvibe-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml down -v
           docker compose -p rocketvibe-gtk-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml logs --no-color > artifacts/native-email-otp-pilot.log
           docker compose -p rocketvibe-gtk-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml down -v
+          files='-f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-email-settings-pilot.yml'
+          for project in rocketvibe-email-settings-gtk rocketvibe-email-settings-mobile; do
+            docker compose -p "$project" $files logs --no-color > "artifacts/native-$project.log"
+            docker compose -p "$project" $files down -v
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -217,6 +231,12 @@ jobs:
           docker compose -p rocketvibe-swift-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-swift-email-otp-pilot.yml up -d factor-proxy
           docker compose -p rocketvibe-swift-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-swift-email-otp-pilot.yml run --rm --no-deps otp-swift
           docker compose -p rocketvibe-swift-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-swift-email-otp-pilot.yml run --rm --no-deps otp-swift-check
+      - name: Swift email profile receipts across three real keyring processes
+        run: |
+          files='-f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-swift-email-otp-pilot.yml -f docker/compose.native-email-settings-pilot.yml'
+          docker compose -p rocketvibe-email-settings-swift $files up -d factor-proxy
+          docker compose -p rocketvibe-email-settings-swift $files run --rm --no-deps email-settings-swift
+          docker compose -p rocketvibe-email-settings-swift $files run --rm --no-deps -e 'PGOPTIONS=-c rocketvibe.pilot_email_settings_user=swift-email' email-settings-check
       - name: Integration logs and cleanup
         if: always()
         run: |
@@ -226,6 +246,9 @@ jobs:
           docker compose -p rocketvibe-swift-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml down -v
           docker compose -p rocketvibe-swift-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-swift-email-otp-pilot.yml logs --no-color > artifacts/native-swift-email-otp-pilot.log
           docker compose -p rocketvibe-swift-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-swift-email-otp-pilot.yml down -v
+          files='-f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-swift-email-otp-pilot.yml -f docker/compose.native-email-settings-pilot.yml'
+          docker compose -p rocketvibe-email-settings-swift $files logs --no-color > artifacts/native-swift-email-settings.log
+          docker compose -p rocketvibe-email-settings-swift $files down -v
           # Swift's Docker compiler creates private ModuleCache/index directories.
           # Let the runner save its generated build cache after successful tests.
           for path in .cache/native-swift-cargo apps/desktop/target/swift-linux apps/desktop/macos/.build/linux; do

@@ -451,11 +451,11 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "Les anciens codes cesseront de fonctionner et les autres appareils seront déconnectés. Conservez les nouveaux codes.",
         "Old codes will stop working and other devices will be signed out. Keep the new codes.",
     ),
-    ("security.disable", "Désactiver la double authentification", "Disable two-factor authentication"),
+    ("security.disable", "Désactiver l’application d’authentification", "Disable authenticator app"),
     (
         "security.disable_body",
-        "La connexion utilisera uniquement votre mot de passe. Les autres appareils seront déconnectés.",
-        "Sign-in will use only your password. Other devices will be signed out.",
+        "Les codes de l’application cesseront de fonctionner. Les codes par e-mail et les secours sont conservés si ce profil reste actif ; sinon, la connexion utilisera uniquement votre mot de passe. Les autres appareils seront déconnectés.",
+        "Authenticator codes will stop working. Email codes and backups remain if that profile is active; otherwise sign-in will use only your password. Other devices will be signed out.",
     ),
     ("security.refresh", "Reprendre ou actualiser", "Resume or refresh"),
     (
@@ -475,6 +475,25 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ),
     ("security.discard", "Fermer le reçu périmé", "Close expired receipt"),
     ("email.title", "Adresse e-mail", "Email address"),
+    ("email.factor_enabled", "Codes par e-mail activés", "Email codes enabled"),
+    ("email.factor_disabled", "Codes par e-mail désactivés", "Email codes disabled"),
+    ("email.factor_enable", "Activer les codes par e-mail", "Enable email codes"),
+    ("email.factor_disable", "Désactiver les codes par e-mail", "Disable email codes"),
+    (
+        "email.factor_enable_body",
+        "Utiliser cette adresse pour les codes de connexion et de confirmation d’identité ? Les autres appareils seront déconnectés et les anciens secours remplacés. Conservez les dix nouveaux codes.",
+        "Use this address for sign-in and identity-confirmation codes? Other devices will be signed out and old backups replaced. Keep the ten new codes.",
+    ),
+    (
+        "email.factor_disable_body",
+        "Les codes par e-mail cesseront de fonctionner. L’adresse reste vérifiée. L’application d’authentification et ses secours sont conservés si elle est active ; sinon, la connexion utilisera uniquement votre mot de passe. Les autres appareils seront déconnectés.",
+        "Email codes will stop working. The address stays verified. An active authenticator app and its backups remain; otherwise sign-in will use only your password. Other devices will be signed out.",
+    ),
+    (
+        "email.factor_contact",
+        "Désactivez les codes par e-mail avant de remplacer ou retirer cette adresse.",
+        "Disable email codes before replacing or removing this address.",
+    ),
     (
         "email.private",
         "Votre adresse reste privée et ne figure pas dans l’annuaire.",

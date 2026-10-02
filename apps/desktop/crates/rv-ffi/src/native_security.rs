@@ -5,7 +5,9 @@ use email::EmailDeliveryState;
 use rv_core::native::{
     Error, NativeSession,
     authentication::{SecondFactor, method_name},
-    security::{Access, FactorAction, FactorState, Guard, ProofState, Remote, Scope, Status, email},
+    security::{
+        Access, EmailFactorExpectation, FactorAction, FactorState, Guard, ProofState, Remote, Scope, Status, email,
+    },
 };
 use std::sync::{Arc, Mutex};
 
@@ -146,6 +148,9 @@ pub struct NativeSecurityState {
     pub supports_factors: bool,
     pub enabled: bool,
     pub totp_enabled: bool,
+    pub email_factor_enabled: bool,
+    pub supports_email_factors: bool,
+    pub can_enable_email_factor: bool,
     pub backup_codes_remaining: u32,
     pub proof: NativeProofPhase,
     pub methods: Vec<String>,
@@ -176,8 +181,14 @@ impl State {
         self.status = None;
         self.email = None;
     }
-    fn snapshot(&self, supported: bool, email_features: (bool, bool), delivery: bool) -> NativeSecurityState {
-        let supports_email = email_features.0 || email_features.1;
+    fn snapshot(
+        &self,
+        supported: bool,
+        email_features: (bool, bool),
+        delivery: bool,
+        email_factors: bool,
+    ) -> NativeSecurityState {
+        let supports_email = email_features.0 || email_features.1 || email_factors;
         let (proof, methods) = match &self.proof {
             ProofState::Ready => (NativeProofPhase::Ready, vec![]),
             ProofState::Password => (NativeProofPhase::Password, vec![]),
@@ -203,6 +214,9 @@ impl State {
             supports_factors: supported,
             enabled: self.status.as_ref().is_some_and(|s| s.totp || s.email),
             totp_enabled: self.status.as_ref().is_some_and(|s| s.totp),
+            email_factor_enabled: self.status.as_ref().is_some_and(|s| s.email),
+            supports_email_factors: email_factors,
+            can_enable_email_factor: email_factors && delivery,
             backup_codes_remaining: self.status.as_ref().map(|s| s.backup_codes_remaining).unwrap_or_default(),
             proof,
             methods,
@@ -264,6 +278,7 @@ enum Action {
     Proof(String, String),
     ProofEmail(bool, u64),
     Factor(NativeFactorAction, u64),
+    EmailFactor(bool, u64),
     Enable(String, u64),
     Clear(u64),
     EmailStart(String, u64),
@@ -412,7 +427,7 @@ impl Inner {
         match action {
             Action::Refresh => {
                 proof = Some(vault.prepare(scope, &access, "", guard).await?);
-                if self.session.factors_supported() {
+                if self.session.factors_supported() || self.session.email_factors_supported() {
                     factor = Some(vault.factor_resume(scope, &access, guard).await?);
                 }
             }
@@ -449,6 +464,25 @@ impl Inner {
                     NativeFactorAction::Disable => FactorAction::Disable,
                 };
                 factor = Some(vault.factor_start(scope, &access, action, guard).await?);
+            }
+            Action::EmailFactor(enabled, revision) => {
+                if !self.session.email_factors_supported() {
+                    return Err(Error::Protocol("unsupported_feature"));
+                }
+                let expected = {
+                    let state = self.state.lock().unwrap();
+                    state.revision(revision)?;
+                    let view = state.email.as_ref().ok_or(Error::Protocol("credentials_changed"))?;
+                    if !matches!(view.state, email::State::Idle) || !matches!(state.factor, FactorState::Idle) {
+                        return Err(Error::Protocol("credentials_changed"));
+                    }
+                    EmailFactorExpectation {
+                        contact: view.status.clone(),
+                        factors: state.status.clone().ok_or(Error::Protocol("credentials_changed"))?,
+                        enabled,
+                    }
+                };
+                factor = Some(vault.factor_email_start(scope, &access, &expected, guard).await?);
             }
             Action::Enable(code, revision) => {
                 let setup = {
@@ -546,6 +580,7 @@ impl Inner {
             self.session.factors_supported(),
             (self.session.email_verification_supported(), self.session.email_removal_supported()),
             self.session.email_factor_delivery_supported(),
+            self.session.email_factors_supported(),
         ))
     }
     fn email_receipt(&self, revision: u64, phase: NativeEmailPhase) -> Result<String, Error> {
@@ -584,6 +619,7 @@ impl NativeSecurity {
             self.inner.session.factors_supported(),
             (self.inner.session.email_verification_supported(), self.inner.session.email_removal_supported()),
             self.inner.session.email_factor_delivery_supported(),
+            self.inner.session.email_factors_supported(),
         )
     }
     pub async fn refresh(&self) -> Result<NativeSecurityState, RvError> {
@@ -607,6 +643,9 @@ impl NativeSecurity {
     }
     pub async fn enable(&self, code: String, view_revision: u64) -> Result<NativeSecurityState, RvError> {
         self.perform(Action::Enable(code, view_revision)).await
+    }
+    pub async fn email_factor_action(&self, enabled: bool, view_revision: u64) -> Result<NativeSecurityState, RvError> {
+        self.perform(Action::EmailFactor(enabled, view_revision)).await
     }
     pub async fn acknowledge(&self, view_revision: u64) -> Result<NativeSecurityState, RvError> {
         self.perform(Action::Clear(view_revision)).await

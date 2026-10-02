@@ -38,14 +38,13 @@ function SecuriteNative({c,chat,reauthOnly=false,onConfirmed}:{c:Couleurs;chat:N
   const [proof,setProof]=useState<ReauthenticationView>({kind:'password'});
   const [password,setPassword]=useState(''),[code,setCode]=useState(''),[method,setMethod]=useState<SecondFactor>('totp');
   const [emailView,setEmailView]=useState<EmailView|null>(null),[emailAddress,setEmailAddress]=useState(''),[emailCode,setEmailCode]=useState('');
-  const emailRevision=useRef(0),emailAvailable=!reauthOnly && !!(chat.capabilities?.email_verification || chat.capabilities?.email_removal),factorAvailable=!reauthOnly && !!chat.capabilities?.second_factors;
+  const securityRevision=useRef(0),emailRevision=useRef(0),emailAvailable=!reauthOnly && !!(chat.capabilities?.email_verification || chat.capabilities?.email_removal || chat.capabilities?.email_factors),factorAvailable=!reauthOnly && !!(chat.capabilities?.second_factors || chat.capabilities?.email_factors);
   const publishEmail=useCallback((next:EmailView)=>{emailRevision.current++;setEmailView(next);},[]);
-  useEffect(()=>{if(proof.kind!=='ready')setEmailCode('');},[proof.kind]);
   const confirmed=useRef(onConfirmed);useEffect(()=>{confirmed.current=onConfirmed;},[onConfirmed]);
-  const clear=useCallback(()=>{setPassword('');setCode('');setView({kind:'idle'});setProof({kind:'password'});emailRevision.current++;setEmailView(null);setEmailAddress('');setEmailCode('');},[]);
+  const clear=useCallback(()=>{securityRevision.current++;setFactor(null);setPassword('');setCode('');setView({kind:'idle'});setProof({kind:'password'});emailRevision.current++;setEmailView(null);setEmailAddress('');setEmailCode('');},[]);
   const run=useCallback(async(action:(access:Access,guard:SecurityGuard)=>Promise<void>)=>{
     if(!focused.current || job.current!==null || AppState.currentState!=='active')return;
-    const n=epoch.current;job.current=n;setBusy(true);setError(null);
+    const n=epoch.current;securityRevision.current++;job.current=n;setBusy(true);setError(null);setEmailCode('');
     const visible=()=>focused.current && epoch.current===n && AppState.currentState==='active';
     try{
       const access=await chat.security(visible),guard=()=>visible() && access.alive();
@@ -111,6 +110,23 @@ function SecuriteNative({c,chat,reauthOnly=false,onConfirmed}:{c:Couleurs;chat:N
   const start=(kind:'setup'|'regenerate'|'disable')=>void run(async(access,guard)=>{
     const result=await nativeFactorVault.start(access.scope,access.remote,kind,guard);if(guard())setView(result);
   });
+  const changeEmailFactor=()=>{
+    const contact=emailView,profiles=factor,n=epoch.current,revision=securityRevision.current;
+    if(contact?.kind!=='idle' || !contact.status.address || !profiles || view.kind!=='idle')return;
+    const enabled=!profiles.email;
+    Alert.alert(t(enabled?'email.factorEnable':'email.factorDisable'),t(enabled?'email.factorEnableBody':'email.factorDisableBody',{address:contact.status.address}),[
+      {text:t('commun.annuler'),style:'cancel'},
+      {text:t('connexion.valider'),style:enabled?'default':'destructive',onPress:()=>{
+        if(!focused.current || epoch.current!==n || securityRevision.current!==revision)return;
+        setCode('');setEmailCode('');setEmailAddress('');
+        void run(async(access,guard)=>{
+          const result=await nativeFactorVault.startEmail(access.scope,access.remote,{contact:contact.status,factors:profiles,enabled},guard);
+          if(guard())setView(result);
+          if(guard())await updateEmail(access,guard);
+        });
+      }},
+    ]);
+  };
   const confirm=(kind:'regenerate'|'disable')=>{
     // Retained native alerts are bound to this focus and runner, too.
     const n=epoch.current;
@@ -205,19 +221,22 @@ function SecuriteNative({c,chat,reauthOnly=false,onConfirmed}:{c:Couleurs;chat:N
       </>}
       {factorAvailable && view.kind==='stale' && <><Text style={[styles.text,{color:c.texteSecondaire}]}>{t('security.stale')}</Text><Action c={c} label="security.discard" onPress={acknowledge} disabled={busy}/></>}
       {factorAvailable && view.kind==='idle' && factor && <>
-        {(factor.totp || factor.email) && <Action c={c} label="security.regenerate" onPress={()=>confirm('regenerate')} disabled={busy}/>}
-        {factor.totp? <Action c={c} label="security.disable" onPress={()=>confirm('disable')} disabled={busy}/> : <Action c={c} label="security.setup" onPress={()=>start('setup')} disabled={busy}/>}
+        {chat.capabilities?.second_factors && (factor.totp || factor.email) && <Action c={c} label="security.regenerate" onPress={()=>confirm('regenerate')} disabled={busy}/>}
+        {chat.capabilities?.second_factors && (factor.totp? <Action c={c} label="security.disable" onPress={()=>confirm('disable')} disabled={busy}/> : <Action c={c} label="security.setup" onPress={()=>start('setup')} disabled={busy}/>)}
       </>}
       {emailAvailable && emailView && <>
         <Text style={[styles.text,{color:c.texte}]}>{t('email.title')}</Text>
         <Text style={[styles.text,{color:c.texteSecondaire}]}>{t('email.private')}</Text>
         <Text selectable style={[styles.text,{color:c.texte}]}>{emailView.status.address?t('email.current',{address:emailView.status.address}):t('email.none')}</Text>
+        {chat.capabilities?.email_factors && factor && <Text style={[styles.text,{color:c.texteSecondaire}]}>{t(factor.email?'email.factorEnabled':'email.factorDisabled')}</Text>}
         {emailView.kind==='idle' && <>
-          {chat.capabilities?.email_verification && <>
+          {factor?.email && <Text style={[styles.text,{color:c.texteSecondaire}]}>{t('email.factorContact')}</Text>}
+          {chat.capabilities?.email_factors && emailView.status.address && factor && view.kind==='idle' && <Action c={c} label={factor.email?'email.factorDisable':'email.factorEnable'} onPress={changeEmailFactor} disabled={busy || proof.kind!=='ready' || (!factor.email && !chat.capabilities?.email_factor_delivery)}/>}
+          {chat.capabilities?.email_verification && !factor?.email && <>
             <ChampPilule c={c} etiquette={t('email.address')} valeur={emailAddress} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} maxLength={254} editable={!busy} onChangeText={setEmailAddress}/>
             <Action c={c} label="email.start" onPress={startEmail} disabled={busy || proof.kind!=='ready' || !emailAddress}/>
           </>}
-          {chat.capabilities?.email_removal && emailView.status.address && <Action c={c} label="email.remove" onPress={removeEmail} disabled={busy || proof.kind!=='ready'}/>}
+          {chat.capabilities?.email_removal && emailView.status.address && !factor?.email && <Action c={c} label="email.remove" onPress={removeEmail} disabled={busy || proof.kind!=='ready'}/>}
         </>}
         {emailView.kind==='pending' && <>
           <Text selectable style={[styles.text,{color:c.texteSecondaire}]}>{t('email.pending',{address:emailView.address})}</Text>

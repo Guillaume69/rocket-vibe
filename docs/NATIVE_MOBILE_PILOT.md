@@ -104,4 +104,12 @@ Les curseurs expirent et sont élagués ; le moteur demande alors un nouveau
 snapshot en conservant brouillons et outbox des salons toujours autorisés. Ce
 parcours est testé avec expiration réelle en PostgreSQL et le moteur SQLite mobile.
 Les refus `429` suspendent les requêtes login / ticket / snapshot jusqu'au délai de reprise.
+Le banc `compose.native-email-settings-pilot.yml`, superposé aux overlays natif,
+sécurité et OTP dans un projet frais `rocketvibe-email-settings-mobile`, exécute
+`email-settings-mobile` puis `email-settings-check`. Trois processus Node
+recréent le fournisseur, la projection SQLite et un coffre privé portable sur
+disque. Les reçus d'activation / retrait survivent aux réponses perdues ; la
+preuve complète par secours est reprise sans consommer un deuxième code. Le
+contact vérifié est conservé au retrait. Le volume privé doit être supprimé par
+`down -v` après le banc ; cette preuve ne qualifie pas SecureStore installé.
 La rétention du cache reste à définir. J1 reste ouvert dans le [suivi](NATIVE_SERVER_EXECUTION.md).

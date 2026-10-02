@@ -59,6 +59,10 @@ public final class SecurityModel {
     public func factor(_ action: NativeFactorAction, revision: UInt64) async {
         await run { try await $0.factorAction(action: action, viewRevision: revision) }
     }
+    public func emailFactor(enabled: Bool, revision: UInt64) async {
+        code = ""; setupCode = ""; emailCode = ""; emailAddress = ""
+        await run { try await $0.emailFactorAction(enabled: enabled, viewRevision: revision) }
+    }
     public func enable(revision: UInt64) async {
         let input = setupCode.trimmingCharacters(in: .whitespacesAndNewlines); setupCode = ""
         await run { try await $0.enable(code: input, viewRevision: revision) }

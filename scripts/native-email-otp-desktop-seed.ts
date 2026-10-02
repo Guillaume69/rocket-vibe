@@ -25,8 +25,8 @@ async function main(){
   if(!code)throw new Error('fixture');
   await client.confirmEmailVerification({verification_id:input.verification_id,operation_id:input.operation_id,code,context:contact.context});code=null;
   const verified=await client.emailStatus(), factors=await client.factorStatus();
-  await client.enableEmailFactor({operation_id:token(),email_version:verified.version,factor_version:factors.factor_version??null,context:verified.context});
+  if(process.env.RV_PILOT_EMAIL_SETTINGS!=='1')await client.enableEmailFactor({operation_id:token(),email_version:verified.version,factor_version:factors.factor_version??null,context:verified.context});
   await client.logout();
-  console.log('Disposable desktop email factor provisioned with verified contact and real TLS delivery');
+  console.log('Disposable desktop email fixture provisioned with verified contact and real TLS delivery');
 }
 main().catch(()=>{console.error('Disposable desktop email OTP seed failed');process.exitCode=1;});

@@ -11,6 +11,10 @@ if(process.env.RV_PILOT_EMAIL_OTP==='1'){
   securityPaths.add('/api/v1/auth/factors/email/start');
   securityPaths.add('/api/v1/me/reauth/email/start');
 }
+if(process.env.RV_PILOT_EMAIL_SETTINGS==='1'){
+  securityPaths.add('/api/v1/me/factors/email/enable');
+  securityPaths.add('/api/v1/me/factors/email/disable');
+}
 if(process.env.RV_PILOT_EMAIL==='1'){
   securityPaths.add('/api/v1/me/email/verification/start');
   securityPaths.add('/api/v1/me/email/verification/confirm');

@@ -19,6 +19,8 @@ section here.
 - A right click on a message's text copies the selection, or opens and copies a link, instead
   of GTK's editing menu where Copy stayed greyed out; elsewhere on the text it opens the
   message's actions.
+- A click on a search result goes to that message in the room, loading older history if it
+  has to; a reply in a thread opens the thread.
 
 ## [0.6.0] - 2026-10-01
 

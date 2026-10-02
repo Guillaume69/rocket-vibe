@@ -18,6 +18,25 @@ public final class RoomModel {
     public var supportsRoomInfo: Bool { active && provider.supportsRoomInfo }
     public var supportsRoomManagement: Bool { active && provider.native != nil && provider.supportsRoomInfo }
     public var supportsRoomFavorite: Bool { active && provider.native?.supportedFeatures().contains("favorites") == true }
+    public func readState() throws -> NativeRoomReadState? {
+        guard active, threadId == nil, let native=provider.native else { throw CancellationError() }
+        let state=try native.roomReadState(room:room.rid)
+        guard state?.membership == nativeMembership else { throw CancellationError() }
+        return state
+    }
+    /// The view supplies an actually displayed, confirmed ID before its delay.
+    public func markObservedRead(messageId:String) throws {
+        guard active, threadId == nil, !Task.isCancelled, let native=provider.native,
+              let membership=nativeMembership,
+              messages.contains(where:{$0.id == messageId && $0.delivery == .sent}) else { throw CancellationError() }
+        _ = try native.markObservedRead(room:room.rid,message:messageId,membership:membership)
+    }
+    public var supportsObservedReads:Bool { active && threadId == nil && nativeReadEnabled }
+    private var nativeReadEnabled = false
+    public func markLegacyRead() async {
+        guard active, threadId == nil, !Task.isCancelled, let chat else { return }
+        await chat.markRead(rid:room.rid)
+    }
     public func favoriteState() throws -> NativeFavoriteState? {
         guard active, let native=provider.native else { throw CancellationError() }
         let state=try native.favoriteState(room: room.rid)
@@ -98,6 +117,7 @@ public final class RoomModel {
     /// Set to scroll to a message (a notification, a pinned one): cleared by the view.
     public var reveal: String?
     let unreadAfter: Int64?
+    private let nativeReadBoundary: NativeRoomReadState?
     var limit = historyPage
     var draftSave: Task<Void, Never>?
     /// Each message's actions, asked of rv-ffi once per version of the list.
@@ -132,6 +152,8 @@ public final class RoomModel {
         self.room = room
         self.threadId = threadId
         nativeMembership = (try? provider.native?.membershipVersion(room: room.rid)) ?? nil
+        nativeReadBoundary = threadId == nil ? ((try? provider.native?.roomReadState(room:room.rid)) ?? nil) : nil
+        nativeReadEnabled = provider.native?.supportedFeatures().contains("read_markers") == true
         let unread = room.unread > 0 || room.alert
         unreadAfter = unread && threadId == nil ? provider.legacy?.lastSeen(rid: room.rid) : nil
         if let native = provider.native { draft = (try? native.draftFromMembership(room: room.rid, membership: nativeMembership)) ?? "" }
@@ -167,6 +189,7 @@ public final class RoomModel {
     }
 
     func update(room: Room) {
+        nativeReadEnabled = provider.native?.supportedFeatures().contains("read_markers") == true
         roomOperationRevision &+= 1
         if room != self.room { self.room = room }
         roomInformationRevision = (try? provider.native?.roomRevision(room: room.rid)) ?? "\(room.rid):\(room.name):\(room.kind)"
@@ -185,7 +208,7 @@ public final class RoomModel {
 
     /// Publishes only what changed: an equal list leaves every row alone.
     public func reload() {
-        guard active, let fresh = try? provider.messages(rid: room.rid, limit: limit, thread: threadId, unreadAfter: unreadAfter) else { return }
+        guard active, let fresh = try? provider.messages(rid: room.rid, limit: limit, thread: threadId, unreadAfter: unreadAfter, nativeBoundary:nativeReadBoundary) else { return }
         if fresh != messages {
             let changed = fresh.filter { item in messages.first { $0.id == item.id } != item }
             messages = fresh

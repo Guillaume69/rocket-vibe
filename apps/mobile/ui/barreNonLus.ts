@@ -19,6 +19,18 @@ export type LigneBarre = { barre: true; id: string };
 
 export const ID_BARRE_NON_LUS = 'barre-nouveaux';
 
+/** Same divider and inverted layout, using the opening native sequence. */
+export function insererBarreNonLusNative<M extends {id:string;auteurId:string}>(donneesDesc:M[],position:string|null|undefined,positions:ReadonlyMap<string,string>,moi:string):(M|LigneBarre)[] {
+  if(position==null)return donneesDesc;
+  const seen=BigInt(position);
+  let first=-1;
+  for(let i=0;i<donneesDesc.length;i++) {
+    const row=donneesDesc[i],value=positions.get(row.id);
+    if(value!==undefined && row.auteurId!==moi && BigInt(value)>seen)first=i;
+  }
+  return first===-1?donneesDesc:[...donneesDesc.slice(0,first+1),{barre:true,id:ID_BARRE_NON_LUS},...donneesDesc.slice(first+1)];
+}
+
 /**
  * `donneesDesc` : les messages du salon, du plus récent au plus ancien.
  * `luJusquA` : l'instantané de `ls` pris au montage — `undefined` (pas encore

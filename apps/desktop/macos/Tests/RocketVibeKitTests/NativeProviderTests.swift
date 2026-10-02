@@ -213,6 +213,10 @@ final class NativeProviderTests: XCTestCase {
         try await until { app.rooms.contains { $0.rid == rid } }; app.open(rid)
         let room = try XCTUnwrap(app.room); try await until { !room.loading }
         let originalMembership = try XCTUnwrap(native.membershipVersion(room: rid))
+        let openingRead = try XCTUnwrap(room.readState())
+        XCTAssertTrue(room.supportsObservedReads)
+        XCTAssertEqual(openingRead.membership, originalMembership)
+        XCTAssertEqual(openingRead.rootPosition, "0")
         room.draft = "Draft belonging to the original membership"
         let originalFavorite = try XCTUnwrap(room.favoriteState())
         XCTAssertFalse(originalFavorite.present)
@@ -246,6 +250,20 @@ final class NativeProviderTests: XCTestCase {
         try await until { !peerRoom.loading && peerRoom.room.readOnly }
         try await room.changeRoomRole(target: mobile.id, role: "owner", revision: members.revision)
         try await until { !peerRoom.room.readOnly }
+        peerRoom.draft = "Observed Swift read"
+        await peerRoom.send()
+        try await until { room.messages.contains { $0.text == "Observed Swift read" && $0.delivery == .sent } }
+        let observedRead = try XCTUnwrap(room.messages.first { $0.text == "Observed Swift read" })
+        peerRoom.draft = "Later Swift read stays unread"
+        await peerRoom.send()
+        try await until { room.messages.contains { $0.text == "Later Swift read stays unread" && $0.delivery == .sent } }
+        try await until { room.room.unread == 2 }
+        XCTAssertEqual(room.messages.filter{$0.newMarker}.map{$0.id},[observedRead.id])
+        XCTAssertThrowsError(try room.markObservedRead(messageId:"never-rendered"))
+        try room.markObservedRead(messageId:observedRead.id)
+        try await until { (try? room.readState())?.unreadRoots == "1" && (try? room.readState())?.rootPosition != "0" }
+        try await until { room.room.unread == 1 }
+        XCTAssertTrue(room.messages.first{$0.id == observedRead.id}?.newMarker == true,"The opening marker survives a read ACK")
         let transferred = try await room.roomManagement()
         try await room.changeRoomRole(target: account.userId, role: "member", revision: transferred.revision)
         let demoted = try await room.roomManagement()
@@ -270,6 +288,10 @@ final class NativeProviderTests: XCTestCase {
         app.open(rid)
         let freshRoom = try XCTUnwrap(app.room)
         XCTAssertNotEqual(try native.membershipVersion(room: rid), originalMembership)
+        XCTAssertThrowsError(try room.readState())
+        XCTAssertThrowsError(try room.markObservedRead(messageId:observedRead.id))
+        let staleRead = try native.markObservedRead(room:rid,message:observedRead.id,membership:originalMembership)
+        XCTAssertFalse(staleRead)
         XCTAssertThrowsError(try native.setFavoriteFromState(room:rid,present:true,membership:originalFavorite.membership,revision:originalFavorite.revision))
         XCTAssertEqual(freshRoom.draft, "")
         freshRoom.draft = "Fresh draft after rejoining"

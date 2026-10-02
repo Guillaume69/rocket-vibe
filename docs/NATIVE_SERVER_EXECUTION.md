@@ -315,6 +315,32 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P05, contrôles de lecture existants : badges confirmés racines + réponses et
+  mentions, séparateur lié à la position d'ouverture et minuteries d'ID visibles
+  raccordés dans GTK / SwiftUI / mobile. La durée d'adhésion de l'écran est
+  revérifiée dans la transaction SQLite ; les positions restent des chaînes
+  exactes et seuls les compteurs d'affichage sont bornés. Un acquittement ne
+  déplace pas la barre d'ouverture et une rafale ne repousse pas le timer.
+  GTK vérifie les bounds des widgets liés, la fenêtre active et le focus dans
+  le contenu ; SwiftUI suit visibilité, fenêtre au clavier et panneaux. Le
+  mobile utilise les indices visibles de FlashList et ses données affichées,
+  au premier plan sur la route active ; sortie / arrière-plan flush seulement
+  les IDs déjà vus. Aucun retry ne substitue le dernier message du cache.
+  Vérifications : 339 tests bureau, Clippy / compilation GTK Fedora ; 1 160
+  tests mobiles, typecheck / lint et export Android Hermes. Les dix parcours
+  PostgreSQL passent, dont le contrôleur mobile utilisé par la vue, le vrai
+  fournisseur, réponse perdue, callback fermé et ancien témoin après réadhésion.
+  Les bindings / modèles Swift et six tests locaux passent ; le parcours
+  connecté lit un premier message en gardant le suivant non lu, conserve la
+  barre et refuse les modèles antérieurs après réinvitation. Le vrai GTK vérifie
+  fenêtre masquée sans lecture, position visible sauvegardée hors ligne, badges
+  conservés puis effacés sur acquittement, et barre conservée. Capture à 435
+  pixels inspectée. Inventaire : 318 fichiers / 443 occurrences. Les deux
+  workflows des favoris corrigés `49a88dd` sont verts (`37025290486`,
+  `37025290897`). La CI des nouvelles vues SwiftUI reste à suivre ; qualification
+  des applications installées ouverte. Réponses P11 et `@here` P12 restent leurs
+  lots suivants.
+
 - P05, favoris dans les interfaces existantes : GTK et SwiftUI proposent l'action
   dans la fiche et le menu du salon ; le mobile conserve le bouton de sa fiche.
   Le fournisseur actif utilise le protocole natif ou la route Rocket.Chat
@@ -331,11 +357,11 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   Service vérifie attente hors ligne, confirmations et rejet d'un ancien clic.
   Le vrai binaire GTK vérifie menu, attente visible, ajout / retrait confirmés et
   refus du clic obsolète ; la fiche à 435 pixels est inspectée. Inventaire :
-  315 fichiers / 443 occurrences. Les deux workflows du lot de buffers `0d5968b`
-  sont verts (`37019083297`, `37019083088`). La compilation des nouvelles vues
-  SwiftUI sur macOS attend la CI de ce lot ; les essais sur appareils restent
-  ouverts. Badges, séparateurs et minuteries de lecture restent le prochain
-  incrément ; `read_markers` demeure masquée.
+  315 fichiers / 443 occurrences. Après correction de l'affectation de l'erreur
+  du favori dans la vue SwiftUI, les deux workflows `49a88dd` sont verts
+  (`37025290486`, `37025290897`), dont la compilation macOS des vues. Les essais
+  sur appareils restent ouverts. Le raccordement suivant des badges, séparateurs
+  et minuteries est consigné dans l'incrément ci-dessus.
 
 - P05, buffers des salons ouverts : les composeurs GTK / SwiftUI / mobile
   attachent lecture, sauvegarde, effacement et envoi de brouillon à la durée

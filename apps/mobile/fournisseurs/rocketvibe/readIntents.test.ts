@@ -47,6 +47,23 @@ test('real SQLite reopen retains original read, favorite nonce and CAS despite n
     assert.equal(resumed.db.prepare('SELECT count(*) AS n FROM native_favorite_intents').get()?.n,0);
   }finally{resumed?.db.close();if(!resumed){try{original.db.close();}catch{}}unlinkSync(filename);rmdirSync(directory);}
 });
+test('delayed observed read cannot cross withdrawal or rejoin and keeps the rendered ID',async()=>{
+  const {store,db}=await setup();try{
+    assert.equal(await store.stageRead('room','observed','obsolete'),false);
+    assert.deepEqual(await store.pendingReads(),[]);
+    assert.equal(await store.stageRead('room','observed','membership'),true);
+    assert.equal((await store.pendingReads())[0].root_position,'9007199254740993');
+    const rejoined=snapshot('rejoined');rejoined.rooms[0].read_state!.revision='20';
+    await store.applySnapshot(rejoined);
+    assert.equal(await store.stageRead('room','newest','membership'),false);
+    assert.deepEqual(await store.pendingReads(),[]);
+    assert.equal(await store.stageRead('room','observed','rejoined'),true);
+    assert.equal((await store.pendingReads())[0].root_position,'9007199254740993');
+    await store.applyBatch({protocol_version:1,cursor:'removed',has_more:false,changes:[{type:'room_removed',data:{room_id:'room'}}]});
+    assert.equal(await store.stageRead('room','observed','rejoined'),false);
+    assert.deepEqual(await store.pendingReads(),[]);
+  }finally{db.close();}
+});
 test('favorite receipt is a floor and never projects the historical boolean',async()=>{
   const {store,db}=await setup();try{
     const saved=(await store.stageFavorite('room',true,()=> 'favorite'))!;
@@ -112,5 +129,21 @@ test('queue writes and membership cleanup commit atomically when SQLite fails',a
     assert.equal((await store.pendingReads()).length,1);assert.equal((await store.favoriteIntent('room'))?.input.operation_id,'original');
     failWhen(sql=>sql.startsWith('UPDATE native_favorite_intents'));await assert.rejects(store.confirmFavoriteReceipt(receipt((await store.favoriteIntent('room'))!),token));failWhen(null);
     assert.equal((await store.favoriteIntent('room'))?.phase,'pending');
+  }finally{db.close();}
+});
+test('confirmed native badges project atomically and stay unchanged while a read waits',async()=>{
+  const {store,db,failWhen}=await setup();try{
+    const badges=()=>({...db.prepare('SELECT non_lus,mentions,mentions_groupe,alerte FROM abonnements WHERE rid=?').get('room')});
+    assert.deepEqual(badges(),{non_lus:2,mentions:0,mentions_groupe:0,alerte:1});
+    await store.stageRead('room','observed','membership');assert.equal(badges()?.non_lus,2);
+    const old=(await store.readState('room'))!,next={...old,revision:'20',unread_roots:'1',unread_replies:'3',mentions:'2',group_mentions:'1'};
+    failWhen(sql=>sql.startsWith('UPDATE abonnements'));await assert.rejects(store.cacheReadState(next,store.projectionToken()));failWhen(null);
+    assert.equal((await store.readState('room'))?.revision,'10');assert.equal(badges()?.non_lus,2);
+    await store.cacheReadState(next,store.projectionToken());assert.deepEqual(badges(),{non_lus:4,mentions:2,mentions_groupe:1,alerte:1});
+    assert.equal(await store.cacheReadState(old,store.projectionToken()),false);assert.equal(badges()?.non_lus,4);
+    const huge={...next,revision:'21',unread_roots:'18446744073709551615',unread_replies:'18446744073709551615',mentions:'18446744073709551615'};
+    await store.cacheReadState(huge,store.projectionToken());assert.equal(badges()?.non_lus,2147483647);assert.equal(badges()?.mentions,2147483647);
+    await store.applyBatch({protocol_version:1,cursor:'old-room-new-read',has_more:false,changes:[{type:'room_upsert',data:{...snapshot().rooms[0],revision:'0',read_state:{...next,revision:'22',unread_roots:'0',unread_replies:'0',mentions:'0',group_mentions:'0'}}}]});
+    assert.deepEqual(badges(),{non_lus:0,mentions:0,mentions_groupe:0,alerte:0});
   }finally{db.close();}
 });

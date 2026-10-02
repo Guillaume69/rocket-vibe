@@ -5,7 +5,7 @@ import type { DepotBrouillons } from '../../db/depot.ts';
 import { UPSERT_MESSAGE, UPSERT_SALON, UPSERT_ABONNEMENT, INSERER_SORTIE, SUPPRIMER_SORTIE, MARQUER_SORTIE_ECHEC, SUPPRIMER_BROUILLONS_SALON, paramsMessage, paramsSalon, paramsAbonnement } from '../../db/upserts.ts';
 import type { MessageLocal } from '../../lib/normaliser.ts';
 import type { Message, Room, RoomDetails, Snapshot, SyncBatch, ReadState } from './protocol.generated.ts';
-import {readState,readOrder,readDecimal} from './readStates.ts';
+import {readState,readOrder,readDecimal,readBadges} from './readStates.ts';
 import {FAVORITE_SELECT,savedFavorite,type PendingRead,type SavedFavorite,type FavoriteRow} from './readIntents.ts';
 import {roomIdentifier,roomOperation,sameRoomForm,savedRoomOperation,type RoomOperation,type RoomOperationRow,type SavedRoomOperation} from './roomOperations.ts';
 import {decodeNative} from './validation.ts';
@@ -124,12 +124,12 @@ export class NativeStore {
     const previous=await this.db.getFirstAsync<NativeRoomAccess>('SELECT * FROM native_room_access WHERE rid=?',[room.id]);
     const known=!!await this.db.getFirstAsync('SELECT rid FROM salons WHERE rid=?',[room.id]);
     const reset=await this.personalRoom(room,known);
-    const favori=(await this.readStateIn(room.id))?.favorite??false;
-    await this.db.runAsync('UPDATE abonnements SET favori=? WHERE rid=? AND favori<>?',[Number(favori),room.id,Number(favori)]);
+    const personal=await this.readStateIn(room.id),favori=personal?.favorite??false,badges=readBadges(personal);
+    await this.projectReadState(room.id,personal);
     if(previous && BigInt(previous.revision)>BigInt(room.revision)){
       if(reset){
         await this.db.runAsync('INSERT INTO native_room_access(rid,revision) VALUES(?,?)',[room.id,previous.revision]);
-        await this.db.runAsync(UPSERT_ABONNEMENT,paramsAbonnement({rid:room.id,subId:null,nonLus:0,mentions:0,mentionsGroupe:0,alerte:false,ouvert:true,favori,luJusquA:null,e2eKey:null,e2eKeyId:null,roles:null,misAJourLe:Date.now()}));
+        await this.db.runAsync(UPSERT_ABONNEMENT,paramsAbonnement({rid:room.id,subId:null,...badges,ouvert:true,favori,luJusquA:null,e2eKey:null,e2eKeyId:null,roles:null,misAJourLe:Date.now()}));
         await this.preview(room.id);
       }
       return reset;
@@ -143,7 +143,7 @@ export class NativeStore {
       horodatageDernierMessage: null, avatarEtag: null, misAJourLe: Date.now(),
     }));
     await this.db.runAsync(UPSERT_ABONNEMENT, paramsAbonnement({
-      rid: room.id, subId: null, nonLus: 0, mentions: 0, mentionsGroupe: 0, alerte: false,
+      rid: room.id, subId: null, ...badges,
       ouvert: true, favori, luJusquA: null, e2eKey: null, e2eKeyId: null,
       roles: null, misAJourLe: Date.now(),
     }));
@@ -251,10 +251,14 @@ export class NativeStore {
       if(!old || readOrder(state,old)!=='same')return false;
       if(state.revision===old.revision)return true;
       await this.db.runAsync('UPDATE native_read_states SET payload=? WHERE rid=?',[JSON.stringify(state),state.room_id]);
-      await this.db.runAsync('UPDATE abonnements SET favori=? WHERE rid=? AND favori<>?',[Number(state.favorite),state.room_id,Number(state.favorite)]);
+      await this.projectReadState(state.room_id,state);
       await this.satisfyReadIntents(state);
       return true;
     });
+  }
+  private async projectReadState(rid:string,state:ReadState|null):Promise<void> {
+    const {nonLus,mentions,mentionsGroupe,alerte}=readBadges(state),favorite=Number(state?.favorite??false);
+    await this.db.runAsync('UPDATE abonnements SET non_lus=?,mentions=?,mentions_groupe=?,alerte=?,favori=? WHERE rid=? AND (non_lus<>? OR mentions<>? OR mentions_groupe<>? OR alerte<>? OR favori<>?)',[nonLus,mentions,mentionsGroupe,Number(alerte),favorite,rid,nonLus,mentions,mentionsGroupe,Number(alerte),favorite]);
   }
   private async satisfyReadIntents(state:ReadState):Promise<void> {
     if(!state.membership_version)return;
@@ -266,11 +270,13 @@ export class NativeStore {
       if(state.favorite_revision!=null && readDecimal(state.favorite_revision)>=readDecimal(intention.receiptRevision!))await this.db.runAsync('DELETE FROM native_favorite_intents WHERE id=?',[saved.id]);
     }
   }
-  stageRead(rid:string,observed:string):Promise<boolean> {
+  stageRead(rid:string,observed:string,membership?:string):Promise<boolean> {
     if(![rid,observed].every(roomIdentifier))throw new Error('Invalid observed native message');
+    if(membership!==undefined && !roomIdentifier(membership))throw new Error('Invalid native membership');
     return this.atomic(async()=>{
       if(!await this.sameGeneration())throw new Error('Native generation unavailable');
       const state=await this.readStateIn(rid);
+      if(membership!==undefined && !await this.membershipMatches(rid,membership))return false;
       if(!state?.membership_version)throw new Error('Native membership unavailable');
       const row=await this.db.getFirstAsync<{position:string}>('SELECT p.position FROM native_positions p JOIN messages m ON m.id=p.id WHERE p.id=? AND p.rid=? AND m.rid=?',[observed,rid,rid]);
       if(!row || readDecimal(row.position)<=readDecimal(state.root_position))return false;

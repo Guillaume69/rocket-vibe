@@ -115,6 +115,9 @@ pub struct ChatPage {
     native_forward: RefCell<Option<tokio::task::JoinHandle<()>>>,
     native_edit: RefCell<Option<(String, String, String)>>,
     native_membership: RefCell<Option<(String, Option<String>)>>,
+    native_unread_after: RefCell<Option<String>>,
+    native_read_pending: Rc<Cell<bool>>,
+    native_read_last: Rc<RefCell<Option<String>>>,
     search_button: gtk::Button,
     marked_button: gtk::Button,
     split: adw::NavigationSplitView,
@@ -383,6 +386,9 @@ impl ChatPage {
             native_forward: RefCell::default(),
             native_edit: RefCell::default(),
             native_membership: RefCell::default(),
+            native_unread_after: RefCell::default(),
+            native_read_pending: Rc::default(),
+            native_read_last: Rc::default(),
             search_button: search_button.clone(),
             marked_button: marked_button.clone(),
             split,
@@ -698,6 +704,12 @@ impl ChatPage {
         self.list.connect_top_reached(move || {
             if let Some(this) = w.upgrade() {
                 this.load_older();
+            }
+        });
+        let w = weak.clone();
+        self.list.connect_visible(move || {
+            if let Some(this) = w.upgrade() {
+                this.schedule_native_read();
             }
         });
         let w = weak.clone();
@@ -1060,6 +1072,10 @@ impl ChatPage {
     }
 
     pub fn set_session(&self, session: Option<Arc<Session>>) {
+        self.read_generation.set(self.read_generation.get().wrapping_add(1));
+        self.native_read_pending.set(false);
+        self.native_read_last.replace(None);
+        self.native_unread_after.replace(None);
         self.native_edit.replace(None);
         self.native_membership.replace(None);
         if let Some(forward) = self.native_forward.take() {
@@ -1147,6 +1163,10 @@ impl ChatPage {
 
     /// Marks the open room read a moment after new messages, if I am looking at them.
     fn schedule_read(&self) {
+        if self.native_session().is_some() {
+            self.schedule_native_read();
+            return;
+        }
         let generation = self.read_generation.get() + 1;
         self.read_generation.set(generation);
         let (counter, list, split) = (self.read_generation.clone(), self.list.clone(), self.split.clone());
@@ -1593,24 +1613,15 @@ impl ChatPage {
         if let Some(session) = self.native_session() {
             match session.store.messages(&open.rid, self.limit.get() as usize) {
                 Ok(rows) => self.list.set_native_rows(
-                    rows.into_iter()
-                        .map(|r| rv_core::store::MessageRow {
-                            id: r.id,
-                            rid: open.rid.clone(),
-                            ts: r.ts,
-                            edited: r.edited,
-                            reactions: r.reactions,
-                            pinned: r.pinned,
-                            starred: r.starred.then(|| session.info.user_id.clone()),
-                            text: Some(r.text),
-                            author: Some(r.author),
-                            author_id: if r.status.is_some() { session.info.user_id.clone() } else { r.author_id },
-                            outbox_status: r
-                                .status
-                                .map(|s| if s == "failed" { "failed".to_owned() } else { "pending".to_owned() }),
-                            ..Default::default()
-                        })
-                        .collect(),
+                    rv_core::native::read_presentation::group(
+                        rows,
+                        &open.rid,
+                        &session.info.user_id,
+                        self.native_unread_after
+                            .borrow()
+                            .as_deref()
+                            .filter(|_| session.supported_features().iter().any(|f| f == "read_markers")),
+                    ),
                     &session.info.user_id,
                 ),
                 Err(error) => self.toast(error.to_string()),

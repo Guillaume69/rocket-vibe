@@ -14,7 +14,7 @@ struct RoomView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            MessageList(model: model)
+            MessageList(model: model,readAllowed:panel == nil)
             if !model.typing.isEmpty {
                 Text(typingLine)
                     .font(.vibe(11.5, .semibold))
@@ -192,13 +192,19 @@ struct UnlockSheet: View {
 
 struct MessageList: View {
     @Environment(AppModel.self) var app
+    @Environment(\.controlActiveState) private var controlActive
     let model: RoomModel
+    var readAllowed = true
     @State var pinned = true
     @State var farFromBottom = false
     @State var editing: String?
     @State var deleting: MessageItem?
     /// Once the room has loaded, new messages arrive with a spring.
     @State var settled = false
+    @State private var visibleNative:Set<String> = []
+    @State private var lastObserved:String?
+    @State private var readTask:Task<Void,Never>?
+    @State private var windowActive = NSApp.isActive
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -219,6 +225,11 @@ struct MessageList: View {
                         )
                         .equatable()
                         .id(message.id)
+                        .onScrollVisibilityChange(threshold:0.01) { visible in
+                            guard model.provider.native != nil, message.delivery == .sent else { return }
+                            if visible {visibleNative.insert(message.id)} else {visibleNative.remove(message.id)}
+                            scheduleObservedRead()
+                        }
                     }
                     Color.clear.frame(height: 6).id("bottom")
                 }
@@ -242,6 +253,25 @@ struct MessageList: View {
             .onChange(of: model.messages.last?.id) { _, _ in
                 if pinned { proxy.scrollTo("bottom", anchor: .bottom) }
             }
+            .onChange(of:pinned) { _,value in
+                if value {scheduleObservedRead()} else {cancelObservedRead()}
+            }
+            .onChange(of:model.supportsObservedReads) { _,value in
+                if value {scheduleObservedRead()} else {cancelObservedRead()}
+            }
+            .onChange(of:readAllowed) { _,value in
+                if value {scheduleObservedRead()} else {cancelObservedRead()}
+            }
+            .onChange(of:controlActive) { _,value in
+                if value == .key {scheduleObservedRead()} else {cancelObservedRead()}
+            }
+            .onReceive(NotificationCenter.default.publisher(for:NSApplication.didBecomeActiveNotification)) { _ in
+                windowActive=true;scheduleObservedRead()
+            }
+            .onReceive(NotificationCenter.default.publisher(for:NSApplication.didResignActiveNotification)) { _ in
+                windowActive=false;cancelObservedRead()
+            }
+            .onDisappear { cancelObservedRead();visibleNative.removeAll() }
             .onChange(of: model.reveal) { _, id in
                 guard let id else { return }
                 withAnimation { proxy.scrollTo(id, anchor: .center) }
@@ -251,9 +281,10 @@ struct MessageList: View {
                 }
             }
             .task(id: model.messages.last?.id) {
+                guard model.provider.legacy != nil else {return}
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
-                if pinned && NSApp.isActive && model.threadId == nil && (model.room.unread > 0 || model.room.alert) {
-                    await app.markRead()
+                if !Task.isCancelled && pinned && NSApp.isActive && model.threadId == nil && (model.room.unread > 0 || model.room.alert) {
+                    await model.markLegacyRead()
                     Notifier.shared.withdraw(rid: model.rid)
                 }
             }
@@ -289,6 +320,30 @@ struct MessageList: View {
                 Text(L("actions.delete_body"))
             }
         }
+    }
+
+    var visibleObservedId:String? {
+        model.messages.last(where:{$0.delivery == .sent && visibleNative.contains($0.id)})?.id
+    }
+    /// The pending task retains its original displayed ID while newer visible
+    /// messages wait for the next task, rather than rearming this delay.
+    func scheduleObservedRead() {
+        guard model.supportsObservedReads, readAllowed, controlActive == .key, pinned, windowActive, readTask == nil,
+              let id=visibleObservedId, id != lastObserved else {return}
+        let account=app.account?.key
+        readTask=Task {
+            try? await Task.sleep(nanoseconds:1_500_000_000)
+            guard !Task.isCancelled else {return}
+            if readAllowed && controlActive == .key && pinned && windowActive && account == app.account?.key {
+                do {try model.markObservedRead(messageId:id);lastObserved=id}
+                catch {}
+            }
+            readTask=nil
+            if visibleObservedId != id {scheduleObservedRead()}
+        }
+    }
+    func cancelObservedRead() {
+        readTask?.cancel();readTask=nil
     }
 
     func older(_ proxy: ScrollViewProxy) {

@@ -1,8 +1,9 @@
 # Lectures, non-lus et favoris de salons — P05
 
-Serveur et transports Rust / TypeScript. Les contrôleurs durables et leur
-raccordement aux interfaces existantes restent à livrer.
-Les capacités clientes `read_markers` et `favorites` restent donc masquées.
+Serveur, transports Rust / TypeScript et contrôleurs durables raccordés aux
+interfaces GTK / SwiftUI / mobile existantes. Les capacités clientes
+`read_markers` et `favorites` suivent les fonctionnalités annoncées par le serveur.
+La qualification des applications installées reste ouverte.
 
 ## État personnel
 
@@ -142,6 +143,11 @@ message réellement observé ; seul un message confirmé du même salon peut êt
 enregistré. Les positions observées se regroupent par maximum exact, sans prendre
 le dernier message du cache au moment du retry. Une réponse antérieure n'efface
 pas une observation plus récente, et l'enregistrement seul ne réarme aucun timer.
+Le chemin destiné aux minuteries reçoit aussi la durée d'adhésion capturée par
+l'écran : sa vérification et l'enregistrement se font dans la même transaction.
+Un callback ancien après retrait / réadhésion ne peut donc lire l'historique de
+la nouvelle adhésion. Le fournisseur mobile exige un ID observé explicite ; les
+bindings et le modèle Swift gardent les positions sous forme de chaînes.
 
 Le favori enregistre une fois son ID, sa durée d'adhésion, sa révision attendue et
 sa valeur explicite. Une autre valeur ne remplace pas une tentative non résolue.
@@ -165,5 +171,25 @@ Seul l'état personnel confirmé modifie le classement dans les favoris ; une
 demande en attente affiche Reprendre, un refus permet l'effacement de son ID exact.
 Les handlers Rocket.Chat conservent leur route officielle via le fournisseur actif.
 
-La capacité cliente `read_markers` reste masquée jusqu'au raccordement et à la
-qualification des badges, séparateurs et minuteries de lecture existants.
+Les badges, séparateurs et minuteries de lecture existants sont raccordés dans
+GTK, SwiftUI et mobile ; `read_markers` est activée côté bureau et intersectée
+avec `lecturesSalon` côté mobile. Les badges utilisent uniquement les compteurs
+confirmés et les bornent pour l'affichage, sans convertir les positions en
+nombres flottants. La borne du séparateur reste celle capturée à l'ouverture,
+même après l'acquittement de la lecture.
+
+GTK retient l'ID confirmé d'une ligne liée dont les bounds intersectent le
+viewport ; fenêtre inactive / masquée, fiche modale ou liste remontée ne
+programment pas de lecture. SwiftUI utilise la visibilité des lignes, la fenêtre
+au clavier et la fermeture des panneaux. Le mobile lit les indices visibles
+de FlashList avec la projection affichée et ses positions confirmées, après
+résolution de la borne d'ouverture, uniquement au premier plan sur la route
+active. Les timers conservent leur ID initial pendant une rafale ; un ID vu
+ensuite attend le timer suivant. Le mobile flush les observations déjà vues
+au changement de route / passage en arrière-plan, sans lire un nouvel ID du
+cache. Les callbacks annulés / fermés ne créent pas de seconde demande.
+
+Les parcours GTK et modèles Swift connectés, contrôleur mobile / PostgreSQL,
+tests des positions exactes et export Hermes sont qualifiés localement. La
+compilation des nouvelles vues SwiftUI attend leur CI ; les parcours sur
+applications Android, Windows et macOS installées restent à qualifier.

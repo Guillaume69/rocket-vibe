@@ -1,11 +1,12 @@
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { and, count, eq, gt, isNull, min, or } from 'drizzle-orm';
 import { useRequeteVive } from '../../ui/requeteVive.ts';
-import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Redirect, Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -25,7 +26,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { BaseLocale } from '../../db/client.ts';
 import type { DepotBrouillons } from '../../db/depot.ts';
-import { abonnements, messages, salons, sortie, televersements, nativeRoomAccess } from '../../db/schema.ts';
+import { abonnements, messages, salons, sortie, televersements, nativeRoomAccess,nativePositions } from '../../db/schema.ts';
 import type { MoteurActivite } from '../../lib/activite.ts';
 import type {
   ActionsFournisseur,
@@ -45,7 +46,8 @@ import { useCandidatsMention } from '../../ui/completionMention.tsx';
 import { Composer } from '../../ui/composer.tsx';
 import { EnTeteSalon } from '../../ui/enTeteSalon.tsx';
 import { jetonSession } from '../../ui/jetonSession.ts';
-import { insererBarreNonLus, type LigneBarre } from '../../ui/barreNonLus.ts';
+import { insererBarreNonLus,insererBarreNonLusNative, type LigneBarre } from '../../ui/barreNonLus.ts';
+import {LectureObservee} from '../../ui/lectureObservee.ts';
 import { useDonneesLissees } from '../../ui/donneesLissees.ts';
 import { idsHeuresRepetees, idsSuites } from '../../ui/groupeMessages.ts';
 import { insererSeparateursJour, type LigneJour } from '../../ui/separateurJour.ts';
@@ -281,6 +283,43 @@ function Salon({
 }) {
   const t = useT();
   const [limite, setLimite] = useState(PAGE);
+  const native=fournisseur.identite.genre==='rocketvibe';
+  type LigneListe = LigneDeMessage | LigneBarre | LigneJour;
+  const liste = useRef<FlashListRef<LigneListe>>(null);
+  const lireVisibles=useRef(()=>{});
+  const focused=useRef(false);
+  const [positionOuverture,setPositionOuverture]=useState<string|null|undefined>(undefined);
+  const {data:positionsNatives}=useRequeteVive(base.select().from(nativePositions).where(eq(nativePositions.rid,native?rid:'__unused__')),[rid,native]);
+  const positions=useMemo(()=>new Map(positionsNatives.map(row=>[row.id,row.position])),[positionsNatives]);
+  useEffect(()=>{
+    if(!native)return;
+    let active=true;
+    void actions.etatLectureSalon?.(rid).then(state=>{
+      if(active)setPositionOuverture(state && state.adhesion===membership?state.positionRacines:null);
+    }).catch(()=>{if(active)setPositionOuverture(null);});
+    return()=>{active=false;};
+  },[actions,rid,native,membership]);
+  const lecture=useMemo(()=>new LectureObservee(async messageId=>{
+    if(membership!=null)await actions.marquerLu(rid,{messageId,adhesion:membership});
+  }),[actions,rid,membership]);
+  const lecturesNatives=native && fournisseur.capacites.lecturesSalon===true && typeof positionOuverture==='string' && membership!=null;
+  useEffect(()=>()=>lecture.fermer(),[lecture]);
+  useFocusEffect(useCallback(()=>{
+    focused.current=true;lecture.activer(lecturesNatives && AppState.currentState==='active');
+    const frame=requestAnimationFrame(()=>lireVisibles.current());
+    return()=>{cancelAnimationFrame(frame);focused.current=false;lecture.activer(false);};
+  },[lecture,lecturesNatives]));
+  useEffect(()=>{
+    const subscription=AppState.addEventListener('change',state=>{
+      lecture.activer(lecturesNatives && focused.current && state==='active');
+      if(state==='active')requestAnimationFrame(()=>lireVisibles.current());
+    });
+    return()=>subscription.remove();
+  },[lecture,lecturesNatives]);
+  const nativeViewability=useMemo(()=>({itemVisiblePercentThreshold:1,minimumViewTime:250}),[]);
+  const onNativeViewables=useCallback(({viewableItems}:{viewableItems:readonly {isViewable:boolean}[]})=>{
+    if(viewableItems.some(item=>item.isViewable))lireVisibles.current();
+  },[]);
   // Tant que le premier passage d'historique n'est pas retombé, une base
   // vide signifie « chargement », pas « salon vide ».
   // Un salon déjà chargé sous cette génération n'a pas de premier passage à
@@ -400,6 +439,7 @@ function Salon({
   const luProgramme = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dernierLu = useRef(0);
   useEffect(() => {
+    if(native)return;
     if (dernierIdRecu === undefined) return;
     if (luProgramme.current !== null) return;
     const restant = dernierLu.current + PLANCHER_LU_MS - Date.now();
@@ -408,7 +448,7 @@ function Salon({
       dernierLu.current = Date.now();
       actions.marquerLu(rid).catch(() => {});
     }, Math.max(DEBOUNCE_LU_MS, restant));
-  }, [actions, rid, dernierIdRecu]);
+  }, [actions, rid, dernierIdRecu,native]);
 
   // L'appel EN ATTENTE part tout de suite quand l'écran se ferme ou que l'app
   // passe en arrière-plan : différé par le plancher, il serait sinon perdu (le
@@ -416,12 +456,13 @@ function Salon({
   // resterait « non lu » sur les autres appareils. Rien en attente → rien à
   // envoyer : la sortie d'un salon déjà marqué ne coûte aucune requête.
   const flusherLu = useCallback(() => {
+    if(native)return;
     if (luProgramme.current === null) return;
     clearTimeout(luProgramme.current);
     luProgramme.current = null;
     dernierLu.current = Date.now();
     actions.marquerLu(rid).catch(() => {});
-  }, [actions, rid]);
+  }, [actions, rid,native]);
   useEffect(() => {
     const abonnement = AppState.addEventListener('change', (suivant) => {
       if (suivant !== 'active') flusherLu();
@@ -435,15 +476,30 @@ function Salon({
   // Les données de la liste : la barre « nouveaux messages » puis les
   // séparateurs de jour, insérés par les projections de `ui/` (testées sous
   // Node). L'ordre compte : les séparateurs se posent au-dessus de la barre.
-  type LigneListe = LigneDeMessage | LigneBarre | LigneJour;
   const donneesAvecBarre = useMemo(
-    () => insererBarreNonLus(donnees, luJusquA, client.identifiants?.userId),
-    [donnees, luJusquA, client],
+    () => native?insererBarreNonLusNative(donnees,positionOuverture,positions,fournisseur.identite.compteId):insererBarreNonLus(donnees, luJusquA, client.identifiants?.userId),
+    [donnees, luJusquA, client,native,positionOuverture,positions,fournisseur.identite.compteId],
   );
   const donneesListe = useMemo<LigneListe[]>(
     () => insererSeparateursJour(donneesAvecBarre, 'recent-en-tete'),
     [donneesAvecBarre],
   );
+  useLayoutEffect(()=>{
+    lireVisibles.current=()=>{
+    if(!lecturesNatives || !focused.current || AppState.currentState!=='active')return;
+    let range:{startIndex:number;endIndex:number}|undefined;
+    try{range=liste.current?.computeVisibleIndices();}catch{return;}
+    if(!range || range.startIndex<0)return;
+    // DESC data: the first confirmed visible row has the greatest sequence.
+    for(let index=range.startIndex;index<=range.endIndex;index++) {
+      const row=donneesListe[index];
+      if(row && !('barre' in row) && !('jour' in row) && positions.has(row.id)) {
+        lecture.observer(row.id);break;
+      }
+    }
+    };
+    return()=>{lireVisibles.current=()=>{};};
+  },[lecture,lecturesNatives,donneesListe,positions]);
 
   // Regroupement des rafales d'un même auteur (`ui/groupeMessages`) : calculé
   // APRÈS les insertions — barre et séparateur rompent les groupes. Données DESC.
@@ -457,7 +513,6 @@ function Salon({
   // s'affiche tout seul — natif. Légèrement remonté, on snappe au bas si le
   // message est de moi ou qu'on était près du bas ; en pleine lecture
   // d'historique, on ne bouge pas. Refs : le défilement ne re-rend rien.
-  const liste = useRef<FlashListRef<LigneListe>>(null);
   const presDuBas = useRef(true);
   const dernierSuivi = useRef<{ id: string; horodatage: number } | null>(null);
   const hauteurListe = useRef(0);
@@ -906,6 +961,8 @@ function Salon({
               etatRetour.current = surGlisseRetour(etatRetour.current);
             }}
             data={donneesListe}
+            onViewableItemsChanged={native?onNativeViewables:undefined}
+            viewabilityConfig={native?nativeViewability:undefined}
             // Coupé : à l'offset 0, un prepend s'affiche de lui-même, et le
             // recalage natif partait avant le snap JS et l'écrasait.
             maintainVisibleContentPosition={{ disabled: true }}

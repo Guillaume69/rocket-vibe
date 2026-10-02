@@ -5,6 +5,7 @@ pub mod credentials;
 pub mod email_recovery;
 pub mod factor_email;
 mod read_intents;
+pub mod read_presentation;
 mod room_operations;
 pub use room_operations::{
     ChangeRoomRole, LeaveRoom, RoomDetails, RoomMemberPage, RoomRole, UpdateRoom, room_operation_id,
@@ -417,6 +418,7 @@ impl NativeSession {
                     room_roles: true,
                     room_leave: true,
                     favorites: true,
+                    read_markers: true,
                     editing: true,
                     deletion: true,
                     reactions: true,

@@ -70,6 +70,7 @@ fn command_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PendingCommand> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MessageRow {
     pub id: String,
+    pub position: Option<String>,
     pub text: String,
     pub author: String,
     pub author_id: String,
@@ -543,7 +544,7 @@ impl NativeStore {
         if !self.same(&conn)? {
             return Ok(vec![]);
         }
-        let mut rows=conn.prepare("SELECT m.id,m.text,m.author,o.status,m.author_id,m.ts,m.edited,m.reactions,m.pinned,m.starred FROM native_messages m LEFT JOIN native_outbox o ON o.id=m.id WHERE m.rid=?1 AND NOT m.deleted ORDER BY m.position IS NULL DESC,o.created DESC,length(m.position) DESC,m.position DESC,m.id DESC LIMIT ?2")?.query_map(params![rid,limit as i64],|r|Ok(MessageRow {id:r.get(0)?,text:r.get(1)?,author:r.get(2)?,status:r.get(3)?,author_id:r.get(4)?,ts:r.get(5)?,edited:r.get(6)?,reactions:r.get(7)?,pinned:r.get(8)?,starred:r.get(9)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut rows=conn.prepare("SELECT m.id,m.text,m.author,o.status,m.author_id,m.ts,m.edited,m.reactions,m.pinned,m.starred,m.position FROM native_messages m LEFT JOIN native_outbox o ON o.id=m.id WHERE m.rid=?1 AND NOT m.deleted ORDER BY m.position IS NULL DESC,o.created DESC,length(m.position) DESC,m.position DESC,m.id DESC LIMIT ?2")?.query_map(params![rid,limit as i64],|r|Ok(MessageRow {id:r.get(0)?,text:r.get(1)?,author:r.get(2)?,status:r.get(3)?,author_id:r.get(4)?,ts:r.get(5)?,edited:r.get(6)?,reactions:r.get(7)?,pinned:r.get(8)?,starred:r.get(9)?,position:r.get(10)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
         rows.reverse();
         Ok(rows)
     }
@@ -555,13 +556,14 @@ impl NativeStore {
         if !self.same(&conn)? {
             return Ok(vec![]);
         }
-        let mut query = conn.prepare("SELECT id,text,author,author_id,ts,edited,reactions,pinned,starred FROM native_messages WHERE id=?1 AND NOT deleted")?;
+        let mut query = conn.prepare("SELECT id,text,author,author_id,ts,edited,reactions,pinned,starred,position FROM native_messages WHERE id=?1 AND NOT deleted")?;
         let mut rows = Vec::new();
         for id in ids {
             if let Some(row) = query
                 .query_row([id], |r| {
                     Ok(MessageRow {
                         id: r.get(0)?,
+                        position: r.get(9)?,
                         text: r.get(1)?,
                         author: r.get(2)?,
                         author_id: r.get(3)?,

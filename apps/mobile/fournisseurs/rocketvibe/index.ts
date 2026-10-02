@@ -14,7 +14,7 @@ export const CAPACITES_ROCKETVIBE: Capacites = {
   typing:false, presence:false, push:false, e2ee:false, emojisCustom:false,
   appelVideo:false, recherche:false, modeleFil:'tmid',
   fichiers:false, fils:false, reactions:true, marques:true, profil:false, infosSalon:true, favorisSalon:true, citations:false,
-  reglagesSalon:true,rolesSalon:true,quitterSalon:true,
+  reglagesSalon:true,rolesSalon:true,quitterSalon:true,lecturesSalon:true,
 };
 const unsupported = async (): Promise<never> => { throw new NativeError(501,'unsupported_feature'); };
 const noSubscription = () => () => {};
@@ -33,6 +33,7 @@ export function capacitesEffectives(annonce: Capabilities | null, client: Capaci
     marques:both(annonce?.pins && annonce?.stars,client.marques), profil:both(annonce?.profiles,client.profil),
     infosSalon:both(annonce?.room_info,client.infosSalon), favorisSalon:both(annonce?.favorites,client.favorisSalon), citations:both(annonce?.quotes,client.citations),
     reglagesSalon:both(annonce?.room_settings,client.reglagesSalon),rolesSalon:both(annonce?.room_roles,client.rolesSalon),quitterSalon:both(annonce?.room_leave,client.quitterSalon),
+    lecturesSalon:both(annonce?.read_markers,client.lecturesSalon),
   };
 }
 
@@ -58,6 +59,11 @@ export function creerFournisseurRV(session: Session, client: ClientRest, generer
       versSalon:() => null, versAbonnement:() => null,
     },
     actions:{
+      etatLectureSalon:async rid=>{
+        const state=await store.readState(rid);
+        if(!state?.membership_version)return null;
+        return {adhesion:state.membership_version,positionRacines:state.root_position,positionReponses:state.reply_position,racinesNonLues:state.unread_roots,reponsesNonLues:state.unread_replies,mentions:state.mentions,mentionsGroupe:state.group_mentions};
+      },
       favoriSalon:{
         lire:async rid=>{
           const state=await store.readState(rid);
@@ -101,7 +107,10 @@ export function creerFournisseurRV(session: Session, client: ClientRest, generer
       etoiler:(rid,id,present) => chat.setMark(rid,id,present,true),
       listerEpingles:async rid => (await chat.marked(rid,false)).map(m=>localMessage(m,session.userId)),
       listerEtoiles:async rid => (await chat.marked(rid,true)).map(m=>localMessage(m,session.userId)),
-      marquerLu:async () => {},
+      marquerLu:async (rid,observation) => {
+        if(!observation)throw new NativeError(409,'read_observation_required');
+        await chat.markObservedRead(rid,observation.messageId,observation.adhesion);
+      },
       ouvrirOuCreerDm:async username => ({rid:await chat.direct(username), salonBrut:{}}),
     },
     souscriptionsInitiales:() => [], souscriptionsSalon:() => [],

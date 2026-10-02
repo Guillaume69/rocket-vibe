@@ -212,6 +212,7 @@ pub struct MessageList {
     settling: Rc<Cell<u32>>,
     on_event: Handler<RowEvent>,
     on_top: Handler<()>,
+    on_visible: Handler<()>,
     /// (last seen, my uid): the first later message from someone else gets the marker.
     unread_after: RefCell<Option<(i64, String)>>,
     session: Shared<Arc<Session>>,
@@ -226,8 +227,7 @@ pub struct MessageList {
 
 impl MessageList {
     /// The existing renderer, preserving native server sequence order.
-    pub fn set_native_rows(self: &Rc<Self>, fresh: Vec<MessageRow>, me: &str) {
-        let fresh = rows::group(fresh);
+    pub fn set_native_rows(self: &Rc<Self>, fresh: Vec<Display>, me: &str) {
         if *self.rows.borrow() == fresh {
             return;
         }
@@ -244,12 +244,16 @@ impl MessageList {
         }
         let (view, store, pinned, settling) =
             (self.view.clone(), self.store.clone(), self.pinned.clone(), self.settling.clone());
+        let weak = Rc::downgrade(self);
         glib::timeout_add_local_once(std::time::Duration::from_millis(120), move || {
             let n = store.n_items();
             if pinned.get() && n > 0 {
                 view.scroll_to(n - 1, gtk::ListScrollFlags::NONE, None);
             }
             settling.set(settling.get() - 1);
+            if let Some(this) = weak.upgrade() {
+                this.notify_visible();
+            }
         });
     }
     pub fn new(session: Shared<Arc<Session>>) -> Rc<Self> {
@@ -289,6 +293,7 @@ impl MessageList {
             settling: Rc::new(Cell::new(0)),
             on_event: RefCell::default(),
             on_top: RefCell::default(),
+            on_visible: RefCell::default(),
             unread_after: RefCell::default(),
             session: session.clone(),
             editing: RefCell::default(),
@@ -362,6 +367,7 @@ impl MessageList {
                 this.pinned.set(adj.value() + adj.page_size() >= adj.upper() - 48.0);
             }
             this.jump.set_visible(adj.upper() - adj.value() - adj.page_size() > adj.page_size());
+            this.notify_visible();
         });
         let w = weak.clone();
         adjustment.connect_changed(move |adj| {
@@ -654,6 +660,38 @@ impl MessageList {
 
     pub fn connect_top_reached(&self, f: impl Fn() + 'static) {
         self.on_top.replace(Some(Rc::new(move |()| f())));
+    }
+    pub fn connect_visible(&self, f: impl Fn() + 'static) {
+        self.on_visible.replace(Some(Rc::new(move |()| f())));
+    }
+    pub fn notify_visible(&self) {
+        if self.settling.get() == 0
+            && let Some(f) = self.on_visible.borrow().clone()
+        {
+            f(());
+        }
+    }
+    /// ListView binds prefetched rows too; only viewport intersections count.
+    pub fn visible_confirmed_id(&self) -> Option<String> {
+        let height = self.scroll.height() as f32;
+        if !self.scroll.is_mapped() || height <= 0.0 {
+            return None;
+        }
+        let bound = self.bound.borrow();
+        self.rows
+            .borrow()
+            .iter()
+            .rev()
+            .find(|row| {
+                row.row.outbox_status.is_none()
+                    && bound.get(&row.row.id).is_some_and(|widget| {
+                        widget.is_mapped()
+                            && widget.compute_bounds(&self.scroll).is_some_and(|rect| {
+                                rect.height() > 0.0 && rect.y() < height && rect.y() + rect.height() > 0.0
+                            })
+                    })
+            })
+            .map(|row| row.row.id.clone())
     }
 
     /// Empties the list and pins it to the bottom again.

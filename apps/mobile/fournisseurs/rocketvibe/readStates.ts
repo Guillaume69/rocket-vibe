@@ -10,6 +10,15 @@ export function readDecimal(value:string):bigint {
   return position;
 }
 
+/** Only display counts are bounded; protocol positions always stay exact. */
+export function readBadges(state:ReadState|null):{nonLus:number;mentions:number;mentionsGroupe:number;alerte:boolean} {
+  if(!state)return {nonLus:0,mentions:0,mentionsGroupe:0,alerte:false};
+  const bounded=(value:bigint)=>Number(value>2147483647n?2147483647n:value);
+  const nonLus=bounded(readDecimal(state.unread_roots)+readDecimal(state.unread_replies));
+  const mentions=bounded(readDecimal(state.mentions)),mentionsGroupe=bounded(readDecimal(state.group_mentions));
+  return {nonLus,mentions,mentionsGroupe,alerte:nonLus>0 || mentions>0 || mentionsGroupe>0};
+}
+
 export function readState(value:unknown,rid:string):ReadState {
   const state={...decodeNative('ReadState',value)};
   if(state.favorite_revision==null)delete state.favorite_revision;

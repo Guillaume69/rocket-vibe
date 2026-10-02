@@ -63,6 +63,7 @@ use crate::window::AppWindow;
 
 mod email_factor;
 mod email_settings;
+mod native_reads;
 mod room_management;
 mod security;
 
@@ -106,6 +107,7 @@ pub fn install(window: &Rc<AppWindow>) {
     SMOKE_WINDOW.with_borrow_mut(|w| *w = Rc::downgrade(window));
     security::install(window);
     room_management::install(window);
+    native_reads::install(window);
     email_factor::install(window);
     email_settings::install(window);
     let login = std::env::var("RV_SMOKE_LOGIN").unwrap_or_default();

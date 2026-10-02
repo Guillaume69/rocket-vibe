@@ -38,11 +38,14 @@ public enum ChatProvider {
         switch self { case let .rocketChat(chat): return chat.rooms()
         case let .rocketVibe(chat): return try chat.roomGroups() }
     }
-    func messages(rid: String, limit: Int64, thread: String?, unreadAfter: Int64?) throws -> [MessageItem] {
+    func messages(rid: String, limit: Int64, thread: String?, unreadAfter: Int64?, nativeBoundary:NativeRoomReadState? = nil) throws -> [MessageItem] {
         switch self {
         case let .rocketChat(chat):
             return thread.map { chat.threadMessages(rootId: $0) } ?? chat.messages(rid: rid, limit: limit, unreadAfter: unreadAfter)
         case let .rocketVibe(chat):
+            if let boundary=nativeBoundary {
+                return try chat.messageItemsFromBoundary(room:rid,limit:UInt32(clamping:limit),membership:boundary.membership,rootPosition:boundary.rootPosition)
+            }
             return try chat.messageItems(room: rid, limit: UInt32(clamping: limit))
         }
     }

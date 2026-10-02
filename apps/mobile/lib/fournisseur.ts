@@ -95,6 +95,7 @@ export type Capacites = {
   rolesSalon?: boolean;
   quitterSalon?: boolean;
   favorisSalon?: boolean;
+  lecturesSalon?: boolean;
   citations?: boolean;
   typing: boolean;
   presence: boolean;
@@ -170,6 +171,8 @@ export interface Traducteur {
  * ne définit pas à l'avance.
  */
 export interface ActionsFournisseur {
+  /** Decimal positions stay strings; a timer captures this opening membership. */
+  etatLectureSalon?(rid:string):Promise<EtatLectureSalon|null>;
   favoriSalon?: FavoriSalon;
   infosSalon(rid: string): Promise<InformationsSalon>;
   gestionSalon?: GestionSalon;
@@ -184,7 +187,7 @@ export interface ActionsFournisseur {
   listerEpingles(rid: string): Promise<MessageLocal[]>;
   /** Mes messages favoris dans un salon, les plus récents d'abord. */
   listerEtoiles(rid: string): Promise<MessageLocal[]>;
-  marquerLu(rid: string): Promise<void>;
+  marquerLu(rid: string, observation?:ObservationLecture): Promise<void>;
   /**
    * Ouvre (ou crée — idempotent côté serveur) le DM avec `username`. Rend le
    * `rid` et le document salon brut, à ingérer pour naviguer sans attendre le
@@ -194,6 +197,8 @@ export interface ActionsFournisseur {
   ouvrirOuCreerDm(username: string): Promise<{ rid: string; salonBrut: Record<string, unknown> }>;
 }
 
+export type ObservationLecture={messageId:string;adhesion:string};
+export type EtatLectureSalon={adhesion:string;positionRacines:string;positionReponses:string;racinesNonLues:string;reponsesNonLues:string;mentions:string;mentionsGroupe:string};
 export type EtatFavoriSalon={adhesion:string;revision:string;present:boolean;intention:{cle:string;present:boolean;echouee:boolean;erreur:string|null}|null};
 export interface FavoriSalon {
   lire?: (rid:string)=>Promise<EtatFavoriSalon|null>;

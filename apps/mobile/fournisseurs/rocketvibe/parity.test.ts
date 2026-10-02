@@ -23,4 +23,7 @@ test('a server flag alone cannot expose a feature absent from the installed app'
   assert.equal(capacitesEffectives(announced,CAPACITES_ROCKETCHAT).typing,true);
   assert.equal(capacitesEffectives(null,CAPACITES_ROCKETCHAT).typing,false);
   assert.equal(capacitesEffectives(fixture.discovery.capabilities,{...CAPACITES_ROCKETVIBE,typing:true}).typing,false);
+  assert.equal(capacitesEffectives({...announced,read_markers:true}).lecturesSalon,true);
+  assert.equal(capacitesEffectives({...announced,read_markers:false}).lecturesSalon,false);
+  assert.equal(capacitesEffectives({...announced,read_markers:true},{...CAPACITES_ROCKETVIBE,lecturesSalon:false}).lecturesSalon,false);
 });

@@ -29,6 +29,12 @@ section here.
 
 ### Added
 
+- Native unread / mention badges and the existing new-messages divider in GTK
+  and SwiftUI. Read timers retain a displayed confirmed message and its opening
+  membership; later arrivals cannot postpone the timer or replace that message.
+  Hidden windows and open panels do not observe new messages. Confirmed badges
+  remain while offline; the opening divider stays after a read acknowledgement.
+
 - Native favorites in the existing GTK and SwiftUI room information panels and
   sidebar menus. Only confirmed preferences move rooms into favorites; pending
   requests can resume and rejected requests can be explicitly cleared. A stale
@@ -37,8 +43,8 @@ section here.
 
 - Native read and favorite intentions survive process restart in SQLite.
   Read retries retain the observed message position; favorite retries recover
-  the original receipt without restoring an older preference. Read badges,
-  separators and timers will enable the read handler with the next P05 integration.
+  the original receipt without restoring an older preference. Delayed read
+  callbacks cannot cross withdrawal and rejoining.
 
 - Existing GTK and SwiftUI room information panels offer native room settings,
   paginated members, roles and departure according to current permissions.

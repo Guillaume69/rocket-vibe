@@ -84,6 +84,16 @@ pub struct NativeStatus {
     pub retry_after: Option<u64>,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+pub struct NativeRoomReadState {
+    pub membership: String,
+    pub root_position: String,
+    pub reply_position: String,
+    pub unread_roots: String,
+    pub unread_replies: String,
+    pub mentions: String,
+    pub group_mentions: String,
+}
+#[derive(Clone, Debug, uniffi::Record)]
 pub struct NativeFavoriteIntention {
     pub key: String,
     pub present: bool,
@@ -293,6 +303,12 @@ impl NativeChat {
             .map_err(RvError::local)?
             .into_iter()
             .map(|room| {
+                let (unread, mentions, alert) = if self.session.supported_features().iter().any(|f| f == "read_markers")
+                {
+                    rv_core::native::read_presentation::badges(room.read_state.as_deref())
+                } else {
+                    (0, 0, false)
+                };
                 let read_only = !self.session.can_send_to_room(&room.id);
                 let last = self.session.store.messages(&room.id, 1).ok().and_then(|mut rows| rows.pop());
                 rv_core::store::RoomRow {
@@ -307,9 +323,9 @@ impl NativeChat {
                     last_message: last.as_ref().map(|m| m.text.clone()),
                     last_ts: last.as_ref().map_or(0, |m| m.ts),
                     last_author: last.map(|m| m.author),
-                    unread: 0,
-                    mentions: 0,
-                    alert: false,
+                    unread,
+                    mentions,
+                    alert,
                     favorite: room.read_state.as_ref().is_some_and(|s| s.favorite),
                     encrypted: false,
                     read_only,
@@ -339,7 +355,35 @@ impl NativeChat {
     /// Preserve journal sequence order, then apply the existing grouping and Markdown renderer.
     pub fn message_items(&self, room: String, limit: u32) -> Result<Vec<MessageItem>, RvError> {
         let rows = self.session.store.messages(&room, limit.clamp(1, 10_000) as usize).map_err(RvError::local)?;
-        Ok(native_message_items(rows, &room, &self.session.info.user_id, &self.session.info.username))
+        Ok(native_message_items(rows, &room, &self.session.info.user_id, &self.session.info.username, None))
+    }
+    pub fn message_items_from_boundary(
+        &self,
+        room: String,
+        limit: u32,
+        membership: String,
+        root_position: String,
+    ) -> Result<Vec<MessageItem>, RvError> {
+        self.room_revision(room.clone())?;
+        if self
+            .session
+            .store
+            .read_state(&room)
+            .map_err(RvError::local)?
+            .as_ref()
+            .and_then(|s| s.membership_version.as_deref())
+            != Some(membership.as_str())
+        {
+            return Ok(vec![]);
+        }
+        let rows = self.session.store.messages(&room, limit.clamp(1, 10_000) as usize).map_err(RvError::local)?;
+        Ok(native_message_items(
+            rows,
+            &room,
+            &self.session.info.user_id,
+            &self.session.info.username,
+            self.session.supported_features().iter().any(|f| f == "read_markers").then_some(root_position.as_str()),
+        ))
     }
     pub async fn spotlight(&self, query: String) -> Result<Vec<Found>, RvError> {
         let s = self.session.clone();
@@ -366,6 +410,23 @@ impl NativeChat {
     }
     pub fn supported_features(&self) -> Vec<String> {
         self.session.supported_features()
+    }
+    pub fn room_read_state(&self, room: String) -> Result<Option<NativeRoomReadState>, RvError> {
+        self.room_revision(room.clone())?;
+        let Some(state) = self.session.store.read_state(&room).map_err(RvError::local)? else { return Ok(None) };
+        let Some(membership) = state.membership_version else { return Ok(None) };
+        Ok(Some(NativeRoomReadState {
+            membership,
+            root_position: state.root_position,
+            reply_position: state.reply_position,
+            unread_roots: state.unread_roots,
+            unread_replies: state.unread_replies,
+            mentions: state.mentions,
+            group_mentions: state.group_mentions,
+        }))
+    }
+    pub fn mark_observed_read(&self, room: String, message: String, membership: String) -> Result<bool, RvError> {
+        self.session.mark_observed_read_from_membership(&room, &message, &membership).map_err(native_error)
     }
     pub fn favorite_state(&self, room: String) -> Result<Option<NativeFavoriteState>, RvError> {
         self.room_revision(room.clone())?;
@@ -562,7 +623,7 @@ impl NativeChat {
         let messages = on_tokio(async move { s.marked(&rid, starred).await }).await.map_err(native_error)?;
         let ids: Vec<_> = messages.into_iter().map(|m| m.id).collect();
         let rows = self.session.store.selected_messages(&ids).map_err(RvError::local)?;
-        Ok(native_message_items(rows, &room, &self.session.info.user_id, &self.session.info.username))
+        Ok(native_message_items(rows, &room, &self.session.info.user_id, &self.session.info.username, None))
     }
     pub async fn direct(&self, username: String) -> Result<String, RvError> {
         let s = self.session.clone();
@@ -600,25 +661,9 @@ fn native_message_items(
     rid: &str,
     uid: &str,
     username: &str,
+    after: Option<&str>,
 ) -> Vec<MessageItem> {
-    let rows = rows
-        .into_iter()
-        .map(|row| rv_core::store::MessageRow {
-            id: row.id,
-            rid: rid.into(),
-            ts: row.ts,
-            edited: row.edited,
-            reactions: row.reactions,
-            pinned: row.pinned,
-            starred: row.starred.then(|| uid.into()),
-            text: Some(row.text),
-            author: Some(row.author),
-            author_id: if row.status.is_some() { uid.into() } else { row.author_id },
-            outbox_status: row.status.map(|s| if s == "failed" { "failed".into() } else { "pending".into() }),
-            ..Default::default()
-        })
-        .collect();
-    rv_core::timeline::group(rows)
+    rv_core::native::read_presentation::group(rows, rid, uid, after)
         .into_iter()
         .map(|row| {
             let mut item = model::message(row, uid, username);
@@ -635,6 +680,7 @@ mod tests {
     fn native_rows_use_the_shared_renderer_without_reordering_or_rc_avatars() {
         let row = |id: &str, ts, status| rv_core::native::store::MessageRow {
             id: id.into(),
+            position: None,
             text: "**hello** :smile:".into(),
             author: "alice".into(),
             author_id: "alice-id".into(),
@@ -654,6 +700,7 @@ mod tests {
             "room",
             "me",
             "me",
+            None,
         );
         assert_eq!(
             items.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),

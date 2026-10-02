@@ -9,6 +9,13 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Badges de non-lus et mentions confirmés, et barre existante des nouveaux
+  messages avec la position capturée à l'ouverture. Les minuteries retiennent
+  un message confirmé réellement visible dans FlashList et l'adhésion ouverte,
+  sans prendre le dernier message du cache. Une rafale ne repousse pas le timer ;
+  retour à l'arrière-plan et fermeture sauvent les observations déjà vues. Les
+  badges restent confirmés hors ligne et la barre reste après acquittement.
+
 - Favoris dans la fiche existante : seule la préférence confirmée change le
   classement du salon. Une demande en attente affiche Reprendre ; un refus
   permet un effacement explicite. Un ancien clic ne remplace pas une préférence
@@ -22,8 +29,8 @@ release, et ses notes sont la section de la version ici.
 
 - Lectures et favoris natifs possèdent maintenant une reprise SQLite après
   interruption : message observé conservé, reçu de favori original récupéré,
-  sans rétablir une ancienne préférence. Le raccordement des badges, séparateurs
-  et minuteries de lecture reste à venir avec P05.
+  sans rétablir une ancienne préférence. Un callback de lecture tardif ne peut
+  traverser un retrait suivi d'une réadhésion.
 
 - Le cache détecte un retrait suivi d'une réadhésion même après un événement
   manqué et un nouveau snapshot : historique privé, brouillons et intentions

@@ -1,12 +1,19 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { ID_BARRE_NON_LUS, insererBarreNonLus } from './barreNonLus.ts';
+import { ID_BARRE_NON_LUS, insererBarreNonLus,insererBarreNonLusNative } from './barreNonLus.ts';
 
 /** Un message minimal — DESC : construire du plus récent au plus ancien. */
 const m = (id: string, horodatage: number, auteurId: string) => ({ id, horodatage, auteurId });
 
 const ids = (lignes: { id: string }[]): string[] => lignes.map((l) => l.id);
+
+test('native opening divider uses exact sequence rather than clocks and ignores own and pending messages',()=>{
+  const rows=[m('pending',100,'other'),m('newest',200,'other'),m('first',300,'other'),m('own',400,'me'),m('read',500,'other')];
+  const positions=new Map([['read','9007199254740992'],['own','9007199254740993'],['first','9007199254740994'],['newest','9007199254740995']]);
+  assert.deepEqual(ids(insererBarreNonLusNative(rows,'9007199254740992',positions,'me')),['pending','newest','first',ID_BARRE_NON_LUS,'own','read']);
+  assert.equal(insererBarreNonLusNative(rows,null,positions,'me'),rows);
+});
 
 describe('insererBarreNonLus', () => {
   test('la barre se pose sur le plus ANCIEN non-lu d’autrui — la dernière occurrence, pas la première', () => {

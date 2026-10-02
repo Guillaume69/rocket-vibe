@@ -7,6 +7,7 @@ import {creerFournisseurRV} from '../apps/mobile/fournisseurs/rocketvibe/index.t
 import {ClientRest} from '../apps/mobile/lib/rest.ts';
 import {nativeTestDatabase} from '../apps/mobile/fournisseurs/rocketvibe/testDatabase.ts';
 import {creerFileEcritures} from '../apps/mobile/db/fileEcritures.ts';
+import {LectureObservee} from '../apps/mobile/ui/lectureObservee.ts';
 const base=process.env.RV_ROOM_PEER_URL!,room=process.env.RV_ROOM_PEER_ROOM!;
 const owner=new NativeTransport(base),reader=new NativeTransport(base);
 await owner.login('read-owner','read-test-password-2026');
@@ -67,11 +68,21 @@ try {
   // This HTTP/SQLite test does not consume the WebSocket; replay and response
   // scopes are exercised against the real PostgreSQL server.
   const socket=()=>{const ws={onopen:null,close:()=>{}} as unknown as WebSocket;queueMicrotask(()=>ws.onopen?.(new Event('open')));return ws;};
-  const guardedRest=new ClientRest(base,{fetch:async()=>{throw new Error('Rocket.Chat route in a native favorite');}});
+  const guardedRest=new ClientRest(base,{fetch:async()=>{throw new Error('Rocket.Chat route in a native room state');}});
   const provider=creerFournisseurRV(session,guardedRest,()=> 'ts-queue-favorite',cache,{transport:queueTransport,socket});
   chat=provider.native!.chat;await chat.connect();
   assert.equal(provider.capacites.favorisSalon,true);
-  await chat.markObservedRead(room,observed.id);
+  assert.equal(provider.capacites.lecturesSalon,true);
+  const readBoundary=(await provider.actions.etatLectureSalon!(room))!;
+  assert.equal(readBoundary.adhesion,originalState.membership_version);
+  await assert.rejects(provider.actions.marquerLu(room));
+  const writes:Promise<void>[]=[],callbacks:(()=>void)[]=[];
+  const visibleRead=new LectureObservee(id=>{
+    const saved=provider.actions.marquerLu(room,{messageId:id,adhesion:readBoundary.adhesion});writes.push(saved);return saved;
+  },{maintenant:()=>0,programmer:f=>{callbacks.push(f);return()=>{};}});
+  visibleRead.activer(true);visibleRead.observer(observed.id);visibleRead.activer(false);
+  visibleRead.observer(newer.id);visibleRead.fermer();callbacks[0]();await Promise.all(writes);
+  assert.equal(writes.length,1,'Closed view callbacks cannot create a second read');
   const displayed=(await provider.actions.favoriSalon!.lire!(room))!;
   assert.equal(displayed.present,false);
   await provider.actions.favoriSalon!.modifier(room,true,displayed);
@@ -98,6 +109,8 @@ try {
   assert.notEqual((await cache.readState(room))?.membership_version,originalState.membership_version);
   assert.deepEqual(await cache.pending(),[]);assert.equal(await cache.drafts().lire(room),null);
   assert.deepEqual(await cache.pendingReads(),[]);assert.deepEqual(await cache.pendingFavorites(),[]);
+  assert.equal(await cache.stageRead(room,newer.id,readBoundary.adhesion),false);
+  assert.deepEqual(await cache.pendingReads(),[]);
   assert.equal(await cache.cacheReadState(originalState,projection),false);
   assert.equal((await cache.readState(room))?.favorite,false);
   const currentState=(await cache.readState(room))!;
@@ -111,4 +124,4 @@ try {
   assert.deepEqual(await cache.pending(),[]);
   await newComposer.supprimer(room);
 } finally {chat?.stop();db.close();}
-console.log(JSON.stringify({unreads:true,monotone:true,privateFavorite:true,lostAckRecovered:true,noSecondFavorite:true,oldReplayHarmless:true,mentions:true,sqliteCache:true,missedRejoin:true,durableRunner:true,openComposerFenced:true,providerFavorite:true}));
+console.log(JSON.stringify({unreads:true,monotone:true,privateFavorite:true,lostAckRecovered:true,noSecondFavorite:true,oldReplayHarmless:true,mentions:true,sqliteCache:true,missedRejoin:true,durableRunner:true,openComposerFenced:true,providerFavorite:true,scopedObservedRead:true,visibleReadController:true}));

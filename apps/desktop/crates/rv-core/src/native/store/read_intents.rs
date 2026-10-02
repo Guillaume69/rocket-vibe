@@ -54,11 +54,26 @@ impl NativeStore {
     /// The ID is supplied by the renderer, never replaced with the newest
     /// cached message or a journal watermark while a read waits for retry.
     pub fn stage_read(&self, rid: &str, observed: &str) -> rusqlite::Result<bool> {
+        self.stage_read_checked(rid, observed, None)
+    }
+    /// A delayed renderer callback belongs to the membership that opened it.
+    pub fn stage_read_from_membership(&self, rid: &str, observed: &str, membership: &str) -> rusqlite::Result<bool> {
+        if !identifier(membership) {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        self.stage_read_checked(rid, observed, Some(membership))
+    }
+    fn stage_read_checked(&self, rid: &str, observed: &str, expected: Option<&str>) -> rusqlite::Result<bool> {
         if !identifier(rid) || !identifier(observed) {
             return Err(rusqlite::Error::InvalidQuery);
         }
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
+        if let Some(membership) = expected
+            && !self.membership_matches_in(&tx, rid, Some(membership))?
+        {
+            return Ok(false);
+        }
         if !self.same(&tx)? {
             return Err(rusqlite::Error::InvalidQuery);
         }
@@ -339,6 +354,33 @@ mod tests {
         state(&store, &rid, "13", "9007199254740994", "9", false);
         assert!(store.pending_reads().unwrap().is_empty());
         assert!(!store.stage_read(&rid, "observed").unwrap());
+    }
+    #[test]
+    fn delayed_read_keeps_open_membership_and_does_not_mark_the_newest_message() {
+        let (store, rid) = store();
+        let mut changes = store.changes();
+        assert!(!store.stage_read_from_membership(&rid, "observed", "obsolete").unwrap());
+        assert!(store.pending_reads().unwrap().is_empty());
+        assert!(store.stage_read_from_membership(&rid, "observed", "membership").unwrap());
+        assert_eq!(store.pending_reads().unwrap()[0].root_position, "9007199254740993");
+        assert!(changes.try_recv().is_err());
+        let mut rejoined = snapshot("rejoined");
+        rejoined.rooms[0].read_state.as_mut().unwrap().revision = "20".into();
+        store.snapshot(&rejoined).unwrap();
+        assert!(!store.stage_read_from_membership(&rid, "newest", "membership").unwrap());
+        assert!(store.pending_reads().unwrap().is_empty());
+        assert!(store.stage_read_from_membership(&rid, "observed", "rejoined").unwrap());
+        assert_eq!(store.pending_reads().unwrap()[0].root_position, "9007199254740993");
+        store
+            .batch(&SyncBatch {
+                protocol_version: 1,
+                changes: vec![Change::RoomRemoved { room_id: rid.clone() }],
+                cursor: "removed".into(),
+                has_more: false,
+            })
+            .unwrap();
+        assert!(!store.stage_read_from_membership(&rid, "observed", "rejoined").unwrap());
+        assert!(store.pending_reads().unwrap().is_empty());
     }
     #[test]
     fn reopening_preserves_original_positions_nonce_and_favorite_cas() {

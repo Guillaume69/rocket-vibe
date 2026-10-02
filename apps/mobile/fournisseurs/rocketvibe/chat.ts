@@ -505,9 +505,9 @@ export class NativeChat {
     if (this.verified) await this.flush();
     return id;
   }
-  async markObservedRead(room:string,message:string):Promise<void> {
+  async markObservedRead(room:string,message:string,membership?:string):Promise<void> {
     this.stateStagingSupported(false);
-    if(await this.store.stageRead(room,message))await this.flushStateIntents();
+    if(await this.store.stageRead(room,message,membership))await this.flushStateIntents();
   }
   async setFavorite(room:string,present:boolean,observed?:{membership:string;revision:string}):Promise<void> {
     this.stateStagingSupported(true);

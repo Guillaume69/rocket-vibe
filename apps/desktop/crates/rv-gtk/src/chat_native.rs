@@ -76,6 +76,7 @@ impl ChatPage {
                     this.invalidate_native_room();
                 } else {
                     this.reload_messages();
+                    this.schedule_native_read();
                     if changed && status.connection == Connection::Online && this.current_rid().is_some() {
                         let page = this.clone();
                         glib::spawn_future_local(async move {
@@ -91,6 +92,9 @@ impl ChatPage {
     }
 
     pub(super) fn invalidate_native_room(&self) {
+        self.native_unread_after.replace(None);
+        self.native_read_pending.set(false);
+        self.native_read_last.replace(None);
         self.native_membership.replace(None);
         self.native_edit.replace(None);
         self.read_generation.set(self.read_generation.get().wrapping_add(1));
@@ -125,6 +129,11 @@ impl ChatPage {
             .unwrap_or_default()
             .into_iter()
             .map(|room| {
+                let (unread, mentions, alert) = if session.supported_features().iter().any(|f| f == "read_markers") {
+                    rv_core::native::read_presentation::badges(room.read_state.as_deref())
+                } else {
+                    (0, 0, false)
+                };
                 let read_only = !session.can_send_to_room(&room.id);
                 let last = session.store.messages(&room.id, 1).ok().and_then(|mut r| r.pop());
                 RoomRow {
@@ -138,9 +147,9 @@ impl ChatPage {
                     name: room.name,
                     last_message: last.as_ref().map(|r| r.text.clone()),
                     last_ts: last.as_ref().map_or(0, |r| r.ts),
-                    unread: 0,
-                    mentions: 0,
-                    alert: false,
+                    unread,
+                    mentions,
+                    alert,
                     favorite: room.read_state.as_ref().is_some_and(|s| s.favorite),
                     encrypted: false,
                     read_only,
@@ -167,6 +176,10 @@ impl ChatPage {
             return;
         }
         self.remember(rid);
+        self.read_generation.set(self.read_generation.get().wrapping_add(1));
+        self.native_read_pending.set(false);
+        self.native_read_last.replace(None);
+        self.native_unread_after.replace(session.store.read_state(rid).ok().flatten().map(|s| s.root_position));
         self.native_edit.replace(None);
         self.native_membership.replace(Some((
             rid.to_owned(),
@@ -213,6 +226,56 @@ impl ChatPage {
         let this = self.clone();
         glib::spawn_future_local(async move {
             this.native_history(false).await;
+        });
+    }
+
+    /// Capture a displayed ID once; arrivals cannot postpone the pending timer
+    /// or replace its target with a newer message from the cache.
+    pub(super) fn schedule_native_read(&self) {
+        let Some(session) = self.native_session() else {
+            return;
+        };
+        if !session.supported_features().iter().any(|f| f == "read_markers") || self.native_read_pending.get() {
+            return;
+        }
+        let active = self.split.root().and_downcast::<gtk::Window>().is_some_and(|w| {
+            w.is_active() && gtk::prelude::RootExt::focus(&w).is_some_and(|f| f.is_ancestor(&self.split))
+        });
+        if !active || !(self.split.shows_content() || !self.split.is_collapsed()) || !self.list.is_pinned() {
+            return;
+        }
+        let Some((rid, Some(membership))) = self.native_membership.borrow().clone() else {
+            return;
+        };
+        let Some(message) = self.list.visible_confirmed_id() else {
+            return;
+        };
+        if self.native_read_last.borrow().as_ref() == Some(&message) {
+            return;
+        }
+        let generation = self.read_generation.get();
+        let (counter, pending, last, list, split) = (
+            self.read_generation.clone(),
+            self.native_read_pending.clone(),
+            self.native_read_last.clone(),
+            self.list.clone(),
+            self.split.clone(),
+        );
+        self.native_read_pending.set(true);
+        glib::timeout_add_local_once(std::time::Duration::from_millis(1500), move || {
+            if counter.get() != generation {
+                return;
+            }
+            pending.set(false);
+            let active = split.root().and_downcast::<gtk::Window>().is_some_and(|w| {
+                w.is_active() && gtk::prelude::RootExt::focus(&w).is_some_and(|f| f.is_ancestor(&split))
+            });
+            if active && (split.shows_content() || !split.is_collapsed()) && list.is_pinned() && !session.is_closed() {
+                if session.mark_observed_read_from_membership(&rid, &message, &membership).is_ok() {
+                    last.replace(Some(message));
+                }
+                list.notify_visible();
+            }
         });
     }
 

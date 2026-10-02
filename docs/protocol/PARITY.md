@@ -93,8 +93,11 @@ lectures monotones et favoris avec reçus côté serveur / transports. Les menti
 nominatives et `@all` sont résolues à l'envoi ; les queues SQLite et reprises
 réseau des deux clients sont livrées. Les favoris sont raccordés aux fiches / menus
 existants GTK, SwiftUI et mobile, avec état confirmé et reprise de la demande
-originale. Badges, séparateurs et minuteries de lecture restent à raccorder ;
-`read_markers` reste masquée. Les réponses sont réservées à P11.
+originale. Badges confirmés, séparateurs de position capturée et minuteries
+recevant l'ID visible / l'adhésion d'ouverture sont raccordés dans les trois
+interfaces. `read_markers` est activée, sans lecture d'un dernier message du
+cache lors d'un retry. Les essais sur applications installées restent ouverts ;
+les réponses sont réservées à P11 et `@here` aux baux P12.
 
 Par défaut, une adhésion donne accès à l'historique entier du salon. Ce choix est
 annoncé au propriétaire lors d'une invitation ; un réglage "depuis l'adhésion"
@@ -194,7 +197,7 @@ ouverte tant que serveur, clients concernés et scénario de parité manquent.
 | P02 2FA | J2 | TOTP / secours, réauthentification, adresse vérifiée / retrait, défis OTP, facteur email et récupération email dans les 3 clients livrés ; qualification sur appareils et SMTP externe à poursuivre |
 | P03 Multi-serveurs | J1 | Isolation livrée ; validation appareils / liens et générations après restauration |
 | P04 Salons / DM | J1–J2 | DM / membres, création idempotente, découverte / join, détails et commandes durables de réglages / rôles / départ dans les 3 fiches existantes, droits effectifs de rédaction dans les composeurs livrés ; qualification des applications installées ouverte |
-| P05 Favoris / non-lus / mentions | J2 | États personnels, lectures monotones, mentions nominatives / @all et favoris avec reçus serveur / transports livrés ; queues SQLite, reprises réseau et buffers ouverts liés à l'adhésion livrés ; favoris confirmés dans les 3 interfaces existantes livrés ; badges / séparateurs / timers de lecture à raccorder ; @here dépend des baux P12 |
+| P05 Favoris / non-lus / mentions | J2 | États personnels, lectures monotones, mentions nominatives / @all et favoris avec reçus livrés ; queues SQLite, reprises et buffers ouverts liés à l'adhésion livrés ; favoris, badges confirmés, séparateurs et timers d'ID visibles raccordés dans les 3 interfaces ; qualification des applications installées ouverte ; réponses P11 et @here P12 |
 | P06 Historique / temps réel | J1–J2 | Socle, snapshots matérialisés et barrière de révocation livrés ; tombstones / actions J2 |
 | P07 Markdown / emojis / citations | J2–J3 | Corpus testé ; références / messages système / catalogue natif et raccordement |
 | P08 Envoi / brouillons | J1 | Socle livré ; crash réel après commit / réponse perdue, Android ↔ Windows |

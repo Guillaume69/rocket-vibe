@@ -19,7 +19,7 @@ struct ChatView: View {
             ZStack {
                 if let room = app.room {
                     RoomView(model: room)
-                        .id(room.rid)
+                        .id(ObjectIdentifier(room))
                         .transition(.opacity.combined(with: .offset(y: 8)))
                         .inspector(isPresented: Binding(get: { app.thread != nil }, set: { if !$0 { app.closeThread() } })) {
                             if let thread = app.thread {

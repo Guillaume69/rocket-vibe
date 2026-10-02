@@ -16,6 +16,19 @@ impl NativeSession {
         }
         Ok(changed)
     }
+    pub fn mark_observed_read_from_membership(
+        &self,
+        room: &str,
+        message: &str,
+        membership: &str,
+    ) -> Result<bool, Error> {
+        self.state_staging_supported(false)?;
+        let changed = self.store.stage_read_from_membership(room, message, membership)?;
+        if changed {
+            self.wake.notify_one();
+        }
+        Ok(changed)
+    }
     pub fn set_favorite(&self, room: &str, present: bool) -> Result<(), Error> {
         self.state_staging_supported(true)?;
         self.store.stage_favorite(room, present)?.ok_or(Error::Protocol("favorite_action_pending"))?;

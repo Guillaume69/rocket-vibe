@@ -2,7 +2,7 @@
 
 Commande : `node scripts/inventory-rocketchat.mjs`. Contrôle : ajouter `--check`.
 
-315 fichiers de production parcourus ; 443 occurrences.
+318 fichiers de production parcourus ; 443 occurrences.
 Les appels à premier argument dynamique restent visibles : leur résolution est
 consignée dans [le contrat de parité](PARITY.md). Les lignes sont des repères de
 source au moment de la génération. Le JSON conserve le périmètre et tous les fichiers.
@@ -173,23 +173,23 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/crates/rv-core/src/uploads.rs:352](../../apps/desktop/crates/rv-core/src/uploads.rs#L352) | endpoint | rooms.mediaConfirm/{…}/{…} |
 | [apps/desktop/crates/rv-core/src/uploads.rs:372](../../apps/desktop/crates/rv-core/src/uploads.rs#L372) | call:UPLOAD | &format!("rooms.media/{…}", task_row.rid), |
 | [apps/desktop/crates/rv-core/src/uploads.rs:374](../../apps/desktop/crates/rv-core/src/uploads.rs#L374) | endpoint | rooms.media/{…} |
-| [apps/desktop/crates/rv-gtk/src/chat_native.rs:547](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L547) | endpoint | rooms.new |
+| [apps/desktop/crates/rv-gtk/src/chat_native.rs:610](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L610) | endpoint | rooms.new |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:79](../../apps/desktop/crates/rv-gtk/src/chat.rs#L79) | endpoint | rooms.favorite_add |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:79](../../apps/desktop/crates/rv-gtk/src/chat.rs#L79) | endpoint | rooms.favorite_remove |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:222](../../apps/desktop/crates/rv-gtk/src/chat.rs#L222) | endpoint | rooms.offline |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:226](../../apps/desktop/crates/rv-gtk/src/chat.rs#L226) | endpoint | rooms.sign_out |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:236](../../apps/desktop/crates/rv-gtk/src/chat.rs#L236) | endpoint | rooms.back_to_room |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:245](../../apps/desktop/crates/rv-gtk/src/chat.rs#L245) | endpoint | rooms.new |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:333](../../apps/desktop/crates/rv-gtk/src/chat.rs#L333) | endpoint | e2e.banner |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:335](../../apps/desktop/crates/rv-gtk/src/chat.rs#L335) | endpoint | e2e.unlock |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1102](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1102) | endpoint | rooms.online |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1103](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1103) | endpoint | rooms.connecting |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1104](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1104) | endpoint | rooms.offline |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1487](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1487) | endpoint | rooms.section_unread |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1488](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1488) | endpoint | rooms.section_favorites |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1489](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1489) | endpoint | rooms.section_channels |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1490](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1490) | endpoint | rooms.section_direct |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1587](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1587) | endpoint | e2e.read_only |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:225](../../apps/desktop/crates/rv-gtk/src/chat.rs#L225) | endpoint | rooms.offline |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:229](../../apps/desktop/crates/rv-gtk/src/chat.rs#L229) | endpoint | rooms.sign_out |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:239](../../apps/desktop/crates/rv-gtk/src/chat.rs#L239) | endpoint | rooms.back_to_room |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:248](../../apps/desktop/crates/rv-gtk/src/chat.rs#L248) | endpoint | rooms.new |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:336](../../apps/desktop/crates/rv-gtk/src/chat.rs#L336) | endpoint | e2e.banner |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:338](../../apps/desktop/crates/rv-gtk/src/chat.rs#L338) | endpoint | e2e.unlock |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1118](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1118) | endpoint | rooms.online |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1119](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1119) | endpoint | rooms.connecting |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1120](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1120) | endpoint | rooms.offline |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1507](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1507) | endpoint | rooms.section_unread |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1508](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1508) | endpoint | rooms.section_favorites |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1509](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1509) | endpoint | rooms.section_channels |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1510](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1510) | endpoint | rooms.section_direct |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1607](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1607) | endpoint | e2e.read_only |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:19](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L19) | endpoint | rooms.favorite_add |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:19](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L19) | endpoint | rooms.favorite_remove |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:31](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L31) | endpoint | rooms.conflict |

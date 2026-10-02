@@ -503,6 +503,19 @@ impl NativeClient {
             .await
     }
 
+    pub async fn request_email_recovery(
+        &self,
+        input: &rv_protocol::parity::RequestEmailRecovery,
+    ) -> Result<rv_protocol::parity::EmailRecoveryRequested, Error> {
+        self.request(
+            Method::POST,
+            "/api/v1/auth/recovery/email/start",
+            Some(input),
+            true,
+        )
+        .await
+    }
+
     pub async fn me(&self) -> Result<User, Error> {
         self.get("/api/v1/me").await
     }

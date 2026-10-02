@@ -40,7 +40,7 @@ pub async fn issue(app: &App, username: &str, hours: u32) -> Result<IssuedRecove
             .await?;
     let (id,version):(String,String)=sqlx::query_as("SELECT id,activation_version FROM users WHERE username=$1 AND NOT disabled FOR NO KEY UPDATE")
         .bind(username).fetch_optional(&mut *tx).await?.ok_or_else(Error::missing)?;
-    let (total,account):(i64,i64)=sqlx::query_as("SELECT count(*),count(*) FILTER(WHERE user_id=$1) FROM account_recovery_codes WHERE consumed_at IS NULL AND revoked_at IS NULL AND expires_at>clock_timestamp() AND data_epoch=$2 AND activation_version=(SELECT activation_version FROM users WHERE id=account_recovery_codes.user_id AND NOT disabled)")
+    let (total,account):(i64,i64)=sqlx::query_as("SELECT count(*),count(*) FILTER(WHERE user_id=$1) FROM account_recovery_codes WHERE consumed_at IS NULL AND revoked_at IS NULL AND expires_at>clock_timestamp() AND data_epoch=$2 AND activation_version=(SELECT activation_version FROM users WHERE id=account_recovery_codes.user_id AND NOT disabled) AND (email_version IS NULL OR (email_instance_id=(SELECT instance_id FROM instance WHERE singleton) AND email_version=(SELECT email_version FROM users WHERE id=account_recovery_codes.user_id) AND EXISTS(SELECT 1 FROM account_emails WHERE user_id=account_recovery_codes.user_id)))")
         .bind(&id).bind(&epoch).fetch_one(&mut *tx).await?;
     if total >= 1000 || account >= 3 {
         return Err(Error::throttled("recovery_limit", 60));
@@ -77,6 +77,8 @@ struct Claim {
     data_epoch: String,
     activation_version: String,
     consumed_version: Option<String>,
+    email_version: Option<String>,
+    email_instance_id: Option<String>,
     usable: bool,
 }
 #[derive(FromRow)]
@@ -86,6 +88,8 @@ struct Account {
     display_name: String,
     password_hash: String,
     activation_version: String,
+    email_version: String,
+    email_verified: bool,
 }
 fn rejected() -> Error {
     Error::new(StatusCode::BAD_REQUEST, "recovery_rejected")
@@ -112,16 +116,19 @@ pub async fn accept(app: &App, input: RecoverAccount, peer: Option<IpAddr>) -> R
     crate::limits::recovery_attempt(app, &input.username, peer, &input.token).await?;
     let digest = auth::hash_token(&input.token);
     for _ in 0..2 {
-        let claim:Option<Claim>=sqlx::query_as("SELECT user_id,data_epoch,activation_version,consumed_version,(revoked_at IS NULL AND expires_at>clock_timestamp() AND (consumed_at IS NULL OR consumed_at>clock_timestamp()-interval '5 minutes')) AS usable FROM account_recovery_codes WHERE token_hash=$1")
+        let claim:Option<Claim>=sqlx::query_as("SELECT user_id,data_epoch,activation_version,consumed_version,email_version,email_instance_id,(revoked_at IS NULL AND expires_at>clock_timestamp() AND (consumed_at IS NULL OR consumed_at>clock_timestamp()-interval '5 minutes')) AS usable FROM account_recovery_codes WHERE token_hash=$1")
             .bind(&digest).fetch_optional(&app.pool).await?;
         let record: Option<Account> = if let Some(claim) = &claim {
-            sqlx::query_as("SELECT id,username,display_name,password_hash,activation_version FROM users WHERE id=$1 AND username=$2 AND NOT disabled")
+            sqlx::query_as("SELECT id,username,display_name,password_hash,activation_version,email_version,EXISTS(SELECT 1 FROM account_emails WHERE user_id=users.id) AS email_verified FROM users WHERE id=$1 AND username=$2 AND NOT disabled")
                 .bind(&claim.user_id).bind(&input.username).fetch_optional(&app.pool).await?
         } else {
             None
         };
         let eligible = claim.as_ref().zip(record.as_ref()).is_some_and(|(c, r)| {
             c.usable
+                && c.email_version
+                    .as_ref()
+                    .is_none_or(|v| r.email_verified && v == &r.email_version)
                 && c.consumed_version
                     .as_deref()
                     .unwrap_or(&c.activation_version)
@@ -169,14 +176,19 @@ pub async fn accept(app: &App, input: RecoverAccount, peer: Option<IpAddr>) -> R
         let record = record.expect("eligible account");
         let mut tx = app.pool.begin().await?;
         auth::mutation_deadlines(&mut tx).await?;
-        let epoch: String =
-            sqlx::query_scalar("SELECT data_epoch FROM instance WHERE singleton FOR SHARE")
+        let (instance, epoch): (String, String) =
+            sqlx::query_as("SELECT instance_id,data_epoch FROM instance WHERE singleton FOR SHARE")
                 .fetch_one(&mut *tx)
                 .await?;
-        if epoch != claim.data_epoch {
+        if epoch != claim.data_epoch
+            || claim
+                .email_instance_id
+                .as_ref()
+                .is_some_and(|v| v != &instance)
+        {
             return Err(rejected());
         }
-        let current:Account=sqlx::query_as("SELECT id,username,display_name,password_hash,activation_version FROM users WHERE id=$1 AND NOT disabled FOR NO KEY UPDATE")
+        let current:Account=sqlx::query_as("SELECT id,username,display_name,password_hash,activation_version,email_version,EXISTS(SELECT 1 FROM account_emails WHERE user_id=users.id) AS email_verified FROM users WHERE id=$1 AND NOT disabled FOR NO KEY UPDATE")
             .bind(&record.id).fetch_optional(&mut *tx).await?.ok_or_else(rejected)?;
         if current.activation_version != record.activation_version
             || current.password_hash != record.password_hash
@@ -185,11 +197,22 @@ pub async fn accept(app: &App, input: RecoverAccount, peer: Option<IpAddr>) -> R
             drop(tx);
             continue;
         }
-        let code:Claim=sqlx::query_as("SELECT user_id,data_epoch,activation_version,consumed_version,(revoked_at IS NULL AND expires_at>clock_timestamp() AND (consumed_at IS NULL OR consumed_at>clock_timestamp()-interval '5 minutes')) AS usable FROM account_recovery_codes WHERE token_hash=$1 FOR UPDATE")
+        let code:Claim=sqlx::query_as("SELECT user_id,data_epoch,activation_version,consumed_version,email_version,email_instance_id,(revoked_at IS NULL AND expires_at>clock_timestamp() AND (consumed_at IS NULL OR consumed_at>clock_timestamp()-interval '5 minutes')) AS usable FROM account_recovery_codes WHERE token_hash=$1 FOR UPDATE")
             .bind(&digest).fetch_optional(&mut *tx).await?.ok_or_else(rejected)?;
         let usable:bool=sqlx::query_scalar("SELECT revoked_at IS NULL AND expires_at>clock_timestamp() AND (consumed_at IS NULL OR consumed_at>clock_timestamp()-interval '5 minutes') FROM account_recovery_codes WHERE token_hash=$1")
             .bind(&digest).fetch_one(&mut *tx).await?;
-        if !usable || code.data_epoch != epoch || code.user_id != current.id {
+        if !usable
+            || code.data_epoch != epoch
+            || code.user_id != current.id
+            || code
+                .email_instance_id
+                .as_ref()
+                .is_some_and(|v| v != &instance)
+            || code
+                .email_version
+                .as_ref()
+                .is_some_and(|v| !current.email_verified || v != &current.email_version)
+        {
             return Err(rejected());
         }
         let user = User {
@@ -231,6 +254,9 @@ pub async fn accept(app: &App, input: RecoverAccount, peer: Option<IpAddr>) -> R
             .bind(&user.id).bind(&digest).execute(&mut *tx).await?;
         sqlx::query("UPDATE account_recovery_codes SET consumed_at=now(),consumed_version=$2 WHERE token_hash=$1")
             .bind(&digest).bind(version).execute(&mut *tx).await?;
+        // Every password recovery also retires outstanding mail payloads.
+        sqlx::query("UPDATE email_recovery_outbox SET payload_cipher=NULL,lease_id=NULL,lease_expires_at=NULL WHERE request_hash IN (SELECT operation_hash FROM email_recovery_requests WHERE user_id=$1)")
+            .bind(&user.id).execute(&mut *tx).await?;
         tx.commit().await?;
         return Ok(user);
     }

@@ -72,6 +72,10 @@ pub fn router(app: App) -> Router {
         )
         .route("/api/v1/auth/invitations/accept", post(accept_invitation))
         .route("/api/v1/auth/recovery", post(recover_account))
+        .route(
+            "/api/v1/auth/recovery/email/start",
+            post(request_email_recovery),
+        )
         .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/auth/renew", post(renew_session))
         .route("/api/v1/me/sessions", get(device_sessions))
@@ -224,6 +228,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             email_removal: true,
             email_factors: app.auth_key.is_some(),
             email_factor_delivery: app.mail.is_some() && app.auth_key.is_some(),
+            email_recovery: app.mail.is_some() && app.auth_key.is_some(),
             ..Default::default()
         },
     }))
@@ -563,6 +568,18 @@ async fn recover_account(
 ) -> Result<Response> {
     let user = crate::recovery::accept(&app, body(input)?, peer.map(|p| p.0.0.ip())).await?;
     Ok(secret_session(user))
+}
+
+async fn request_email_recovery(
+    State(app): State<App>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    input: Input<rv_protocol::parity::RequestEmailRecovery>,
+) -> Result<Response> {
+    let requested =
+        crate::email_recovery::request(&app, body(input)?, peer.map(|p| p.0.0.ip())).await?;
+    let mut response = secret_session(requested);
+    *response.status_mut() = StatusCode::ACCEPTED;
+    Ok(response)
 }
 
 fn secret_session(session: impl serde::Serialize) -> Response {

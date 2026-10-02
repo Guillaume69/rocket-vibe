@@ -315,6 +315,32 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, récupération du mot de passe par e-mail côté serveur / SDK : migration
+  0021, demande anonyme avec acquittement générique, intention aléatoire liée à
+  l'instance / génération et mail vers le contact déjà vérifié uniquement.
+  Code de 256 bits valable une heure, hash dans la récupération existante et
+  outbox chiffrée partageant les budgets SMTP des autres producteurs. Reprise
+  du même code après réponse SMTP ambiguë, demandes supprimées / limitées
+  persistées comme reçus opaques et coordonnées effacées après suppression du
+  compte, sans réactivation lors d'une réutilisation du pseudo. La confirmation
+  revérifie contact / autorité / génération sous verrou, change le mot de passe
+  sans session, conserve conversations / facteurs / secours et révoque les
+  anciennes familles. Un rejeu du reçu ne révoque pas une nouvelle connexion.
+  Les coffres et boutons de demande dans les trois clients restent à raccorder ;
+  le formulaire existant de récupération accepte le code reçu par la même API.
+  Douze tests PostgreSQL dédiés passent : vraies demandes HTTP / SDK sans
+  bearer, worker partagé / relais SMTP loopback, perte d'ACK, concurrence,
+  redémarrage, contact modifié pendant le verrou d'acceptation, génération,
+  échéance, suppression / réutilisation du pseudo, budgets et clé incorrecte.
+  Une conversation réelle et le profil TOTP sont conservés ; le secours permet
+  une nouvelle connexion que le rejeu du reçu ne révoque pas. Les cinq tests de
+  récupération opérateur historique restent verts. Vérifications complètes :
+  154 tests serveur et sept protocoles / client, 151 tests TypeScript natifs,
+  1 101 régressions mobile, 291 tests bureau, formatage / Clippy, typecheck / lint,
+  schéma / génération / inventaire sans divergence. Ces tests utilisent un
+  PostgreSQL jetable et des adresses synthétiques ; ils ne qualifient pas la
+  délivrabilité extérieure ni un trousseau installé. La CI du lot reste à suivre.
+
 - P02, inscription du facteur e-mail dans les trois clients : boutons explicites
   dans les paramètres mobile / GTK / SwiftUI existants, confirmations liées au
   contact et aux profils affichés, garde de vue et reprise du reçu privé. Les
@@ -339,7 +365,9 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   macOS et qualifications installées restent des contrôles distincts.
   La CI `36966528293` du coffre `9c35bbb` passe ses quatre jobs, y compris
   les régressions connectées OTP / TOTP / contact des deux clients bureau.
-  La récupération du compte par e-mail est le prochain raccordement P02.
+  La CI native `36968362558` du lot `6a6a48c` passe ses quatre jobs ; macOS
+  `36968362546` compile, package et démarre l'application avec SwiftUI.
+  La récupération du compte par e-mail est le raccordement P02 en cours.
 
 - P02, coffres d'inscription du facteur e-mail : les coordinateurs Rust bureau
   et mobile conservent l'opération, le contact affiché et la version des profils

@@ -134,6 +134,14 @@ validation visuelle sur appareil.
 
 ## Contrat et génération
 
+La demande anonyme de récupération par e-mail est exposée par le serveur et les
+SDK natifs lorsque SMTP et `RV_AUTH_KEY_FILE` sont configurés. Elle utilise
+uniquement le contact vérifié, garde une réponse publique générique et conserve
+le même code après retry. La confirmation reprend la récupération existante,
+sans créer de session ni retirer les facteurs installés. Voir le
+[contrat e-mail](../../docs/protocol/EMAIL.md#récupération-du-mot-de-passe--serveur-et-sdk)
+pour les bornes, versions et parcours clients restant à raccorder.
+
 ```sh
 # Dans l'image check, depuis /src :
 cargo run --locked -p rv-protocol --bin export-schema > docs/protocol/v1.schema.json

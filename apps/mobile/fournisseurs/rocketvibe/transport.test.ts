@@ -24,6 +24,42 @@ const emailPending: NativeTypes['EmailVerificationStep'] = {
 };
 
 describe('native protocol contract', () => {
+  test('mail recovery retries the original public intent without revoking an installed session', async () => {
+    const requests: {url:string; options?:RequestInit}[]=[];
+    let lost=true;
+    const client=new NativeTransport('https://example.org',async (url,options) => {
+      requests.push({url:String(url),options});
+      if(String(url).endsWith('/me')) return Response.json(fixture.session.user);
+      if(lost){lost=false;throw new TypeError('Synthetic lost acknowledgement');}
+      return Response.json({accepted:true},{status:202});
+    });
+    client.restore('saved-token');let revoked=false;client.surJetonRefuse=()=>{revoked=true;};
+    const input:NativeTypes['RequestEmailRecovery']={operation_id:'a'.repeat(64),username:'alice',instance_id:'instance',data_epoch:'epoch'};
+    await assert.rejects(client.requestEmailRecovery(input),(e:unknown)=>e instanceof NativeError && e.code==='network_or_protocol_error');
+    assert.equal((await client.requestEmailRecovery(input)).accepted,true);
+    for(const sent of requests){
+      assert.equal(sent.url,'https://example.org/api/v1/auth/recovery/email/start');
+      assert.equal(sent.options?.redirect,'error');
+      assert.equal(new Headers(sent.options?.headers).has('authorization'),false);
+      assert.equal(sent.options?.body,JSON.stringify(input));
+    }
+    assert.equal(revoked,false);await client.me();
+    assert.equal(new Headers(requests[2].options?.headers).get('authorization'),'Bearer saved-token');
+  });
+  test('a mail recovery capacity cooldown expires without affecting login or the saved bearer', async t => {
+    t.mock.timers.enable({apis:['Date']});let calls=0;
+    const client=new NativeTransport('https://example.org',async url=>{
+      calls++;
+      return String(url).endsWith('/me')?Response.json(fixture.session.user):Response.json({code:'email_recovery_limit',request_id:'capacity'},{status:429,headers:{'retry-after':'60'}});
+    });
+    client.restore('saved-token');
+    const input={operation_id:'b'.repeat(64),username:'alice',instance_id:'instance',data_epoch:'epoch'};
+    const limited=(e:unknown)=>e instanceof NativeError && e.code==='email_recovery_limit' && e.retryAfter===60;
+    await assert.rejects(client.requestEmailRecovery(input),limited);
+    await assert.rejects(client.requestEmailRecovery(input),limited);assert.equal(calls,1);
+    await client.me();assert.equal(calls,2);
+    t.mock.timers.tick(60_000);await assert.rejects(client.requestEmailRecovery(input),limited);assert.equal(calls,3);
+  });
   test('the Rust fixture is understood without rounding sequence numbers', () => {
     assert.equal(decodeNative('Message',fixture.message).position,'9007199254740993');
     assert.equal(decodeNative('Room',fixture.room).revision,'9007199254740993');

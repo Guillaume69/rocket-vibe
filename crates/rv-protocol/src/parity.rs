@@ -514,6 +514,10 @@ pub struct ParityContract {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recover_account: Option<RecoverAccount>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_email_recovery: Option<RequestEmailRecovery>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email_recovery_requested: Option<EmailRecoveryRequested>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accept_invitation: Option<AcceptInvitation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub renew_session: Option<RenewSession>,
@@ -560,6 +564,22 @@ pub struct RecoverAccount {
     pub token: String,
     pub username: String,
     pub new_password: String,
+}
+
+/// Anonymous delivery request. Save the random operation before HTTP. No
+/// address, UID, delivery status or recovery credential is returned publicly.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RequestEmailRecovery {
+    pub operation_id: String,
+    pub username: String,
+    pub instance_id: String,
+    pub data_epoch: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EmailRecoveryRequested {
+    pub accepted: bool,
 }
 
 // Email and operation candidates are private, never part of User/room profiles.

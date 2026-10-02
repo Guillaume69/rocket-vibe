@@ -283,21 +283,22 @@ six tests locaux, trois processus connectés et invariants PostgreSQL passent
 avec le serveur reconstruit. Le correctif et le budget SMTP du commit `fab08e0`
 passent les quatre jobs natifs `36947405591` ainsi que macOS `36947405670`.
 
-## Décisions pour le facteur e-mail restant
+## Facteur e-mail explicite
 
-Ce parcours n'est pas encore disponible. Une adresse vérifiée ne l'activera pas
-implicitement : une inscription distincte permettra e-mail seul ou coexistence
-avec TOTP, avec codes de secours communs. Le statut distinguera l'inscription
-effective de la capacité d'envoi du runtime. Une panne de SMTP ne permettra pas
-une session avec le seul mot de passe. Une clé opérateur absente ou incorrecte
-fermera le parcours protégé, y compris son repli vers les secours.
+Ce parcours est disponible sur le serveur et dans les paramètres existants des
+trois clients. Une adresse vérifiée ne l'active pas implicitement : une inscription
+distincte permet e-mail seul ou coexistence avec TOTP, avec codes de secours
+communs. Le statut distingue l'inscription effective de la capacité d'envoi du
+runtime. Une panne de SMTP ne permet pas une session avec le seul mot de passe.
+Une clé opérateur absente ou incorrecte ferme le parcours protégé, y compris
+son repli vers les secours.
 
-Le facteur sera lié à la version du contact vérifié. Un contact utilisé comme
-facteur devra d'abord être désactivé explicitement avant remplacement ou retrait.
-L'inscription / désactivation exigera la preuve récente du compte et sa version
+Le facteur est lié à la version du contact vérifié. Un contact utilisé comme
+facteur doit d'abord être désactivé explicitement avant remplacement ou retrait.
+L'inscription / désactivation exige la preuve récente du compte et sa version
 actuelle ; ses reçus, changements d'autorité et révocations des autres appareils
-suivront les garanties déjà appliquées à TOTP. Toute émission de nouveaux secours
-sera présentée et conservée comme un reçu privé, jamais remplacée silencieusement.
+suivent les garanties déjà appliquées à TOTP. Toute émission de nouveaux secours
+est présentée et conservée comme un reçu privé, jamais remplacée silencieusement.
 
 Le socle 0019 implémente déjà les profils indépendants et les secours communs.
 Un profil inscrit exige une clé opérateur validée par un marqueur authentifié
@@ -459,10 +460,60 @@ vérifications déjà admises et partage les budgets persistants global, compte,
 adresse et IP entre producteurs. Cinq tests PostgreSQL couvrent concurrence,
 reprise pendant le cooldown, expiration, annulation sous verrou et absence de
 clés privées en clair. Le producteur OTP partage ces budgets et la limite de
-mille charges actives avec les vérifications ; la récupération devra ajouter sa
-propre liaison sans les contourner. Le quota de
+mille charges actives avec les vérifications et la récupération du mot de passe,
+qui ajoute sa propre liaison sans les contourner. Le quota de
 transport et le verrou du compte restent distincts, et aucun de ces verrous
 ne couvre une transmission SMTP.
+
+## Récupération du mot de passe : serveur et SDK
+
+La migration 0021 ajoute `POST /api/v1/auth/recovery/email/start`, annoncé par
+`email_recovery` lorsque SMTP et la clé opérateur sont configurés. La demande
+anonyme contient un `operation_id` aléatoire de 256 bits, le pseudo, `instance_id`
+et `data_epoch`. Le client doit conserver cette intention avant HTTP et la
+répéter après une réponse perdue. Les transports Rust et TypeScript exposent
+l'appel public ; les coffres et boutons de demande dans les trois clients restent
+à raccorder. Aucun envoi automatique n'est déclenché par la connexion.
+
+Une demande valide rend `202`, `Cache-Control: no-store` et `{"accepted":true}`.
+Cette réponse reste identique pour un compte connu, inconnu, désactivé, sans
+contact vérifié ou limité par les budgets SMTP / compte / outbox. Elle ne confirme
+ni existence, ni adresse, ni envoi. La borne globale de mille demandes actives
+rend `429 email_recovery_limit` pour tous les pseudos, avec `Retry-After` ; une
+génération différente rend `409`, et SMTP / clé absents `email_unavailable`.
+L'admission publique partage aussi le budget d'authentification persistant :
+120 appels / minute au total, 10 par pseudo et par opération, 30 par IP TCP.
+Son refus rend `429 auth_rate_limited` avant de créer un reçu, pour borner aussi
+les demandes qui n'enverront aucun mail. Une réservation refusée est annulée
+sans prolonger sa fenêtre. Ces limites publiques s'appliquent aux retries.
+Ces garanties portent sur le statut et le corps, sans garantie de temps constant.
+
+Le serveur génère un code aléatoire de 256 bits, valable une heure, adressé
+uniquement au contact déjà vérifié. Son hash est conservé dans la récupération
+existante et sa charge d'envoi est chiffrée sous la clé opérateur. La liaison
+authentifiée inclut demande, compte, autorité, contact, instance, génération et
+échéance. Une reprise répète le même mail et n'étend pas l'échéance. Une demande
+supprimée ou refusée reste un reçu opaque sans nouveau mail ; après suppression
+du compte, les coordonnées et charges sont effacées tout en gardant ce reçu
+jusqu'à son nettoyage. Réutiliser le pseudo ne réactive pas une ancienne demande.
+
+Les trois producteurs partagent les admissions persistantes SMTP et le verrou
+de capacité de mille charges actives. La récupération respecte aussi les bornes
+existantes de trois codes valides par compte / mille pour l'instance. Le worker
+relit les versions avant SMTP, réclame quatre jobs par lot, avec bail de deux
+minutes et au plus huit tentatives. Aucun verrou métier ne couvre SMTP. Un mail
+déjà en cours lors d'un retrait peut arriver, mais son code devenu obsolète est
+refusé à la confirmation. Les charges obsolètes sont nettoyées sans les envoyer.
+
+La confirmation utilise `/api/v1/auth/recovery` et ses limites Argon2 / compte /
+IP. Elle change seulement le mot de passe, révoque les anciennes familles et
+codes concurrents, et conserve UID, conversations, TOTP, profil e-mail, secours
+et données E2EE. Elle ne crée pas de session et ne récupère pas les clés E2EE ;
+la connexion suivante demande les facteurs toujours installés. Le même code et
+mot de passe peuvent retrouver le reçu pendant cinq minutes sans révoquer une
+nouvelle connexion. Contact, autorité, instance, génération et échéance sont
+revérifiés sous verrou du compte. Un code déjà reçu reste utilisable sans SMTP
+ni clé opérateur, comme la récupération opérateur historique.
 
 Il reste à qualifier les parcours installés et le relais réel avec accès
 opérateur. Un test SMTP / TLS loopback ne valide pas la délivrabilité d'un

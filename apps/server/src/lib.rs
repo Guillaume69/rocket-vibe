@@ -2,6 +2,7 @@ pub mod auth;
 mod delivery;
 mod email;
 pub mod email_delivery;
+pub mod email_recovery;
 mod error;
 pub mod factor_crypto;
 mod factors;
@@ -95,6 +96,8 @@ impl App {
     /// Startup and periodic maintenance only touches expired ephemeral records.
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
         for query in [
+            "UPDATE email_recovery_outbox SET payload_cipher=NULL,lease_id=NULL,lease_expires_at=NULL WHERE request_hash IN (SELECT o.request_hash FROM email_recovery_outbox o WHERE o.payload_cipher IS NOT NULL AND (o.expires_at<=clock_timestamp() OR NOT EXISTS(SELECT 1 FROM current_email_recovery_requests r WHERE r.operation_hash=o.request_hash)) LIMIT 1000 FOR UPDATE OF o SKIP LOCKED)",
+            "DELETE FROM email_recovery_requests WHERE operation_hash IN (SELECT operation_hash FROM email_recovery_requests WHERE expires_at<=clock_timestamp()-interval '1 day' LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM factor_email_deliveries WHERE token_hash IN (SELECT token_hash FROM factor_email_deliveries WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "UPDATE email_factor_changes SET receipt_cipher=NULL WHERE ctid IN (SELECT ctid FROM email_factor_changes WHERE expires_at<=clock_timestamp() AND receipt_cipher IS NOT NULL LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM email_factor_changes WHERE created_at<=clock_timestamp()-interval '1 day' AND ctid IN (SELECT ctid FROM email_factor_changes WHERE created_at<=clock_timestamp()-interval '1 day' LIMIT 1000 FOR UPDATE SKIP LOCKED)",

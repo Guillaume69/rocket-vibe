@@ -255,6 +255,10 @@
           "default": false,
           "type": "boolean"
         },
+        "email_recovery": {
+          "default": false,
+          "type": "boolean"
+        },
         "email_removal": {
           "default": false,
           "type": "boolean"
@@ -693,6 +697,18 @@
         "factor_version",
         "email_version",
         "context"
+      ],
+      "type": "object"
+    },
+    "EmailRecoveryRequested": {
+      "additionalProperties": false,
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "accepted"
       ],
       "type": "object"
     },
@@ -1407,6 +1423,16 @@
             }
           ]
         },
+        "email_recovery_requested": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EmailRecoveryRequested"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "email_removal_receipt": {
           "anyOf": [
             {
@@ -1614,6 +1640,16 @@
           "anyOf": [
             {
               "$ref": "#/$defs/RenewSession"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "request_email_recovery": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RequestEmailRecovery"
             },
             {
               "type": "null"
@@ -2125,6 +2161,31 @@
       "required": [
         "operation_id",
         "next_token"
+      ],
+      "type": "object"
+    },
+    "RequestEmailRecovery": {
+      "additionalProperties": false,
+      "description": "Anonymous delivery request. Save the random operation before HTTP. No\naddress, UID, delivery status or recovery credential is returned publicly.",
+      "properties": {
+        "data_epoch": {
+          "type": "string"
+        },
+        "instance_id": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "username": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "username",
+        "instance_id",
+        "data_epoch"
       ],
       "type": "object"
     },

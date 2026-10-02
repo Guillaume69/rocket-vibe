@@ -77,6 +77,8 @@ pub struct Capabilities {
     pub email_factors: bool,
     #[serde(default)]
     pub email_factor_delivery: bool,
+    #[serde(default)]
+    pub email_recovery: bool,
 }
 
 impl Default for Capabilities {
@@ -120,6 +122,7 @@ impl Default for Capabilities {
             email_removal: false,
             email_factors: false,
             email_factor_delivery: false,
+            email_recovery: false,
         }
     }
 }
@@ -169,7 +172,8 @@ impl Capabilities {
             email_verification,
             email_removal,
             email_factors,
-            email_factor_delivery
+            email_factor_delivery,
+            email_recovery
         );
         features
     }

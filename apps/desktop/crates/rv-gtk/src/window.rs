@@ -46,6 +46,7 @@ pub struct AppWindow {
     pending: RefCell<Option<PendingLogin>>,
     pending_native: RefCell<Option<rv_core::native::authentication::LoginChallenge>>,
     login_generation: Cell<u64>,
+    login_guard: RefCell<rv_core::native::security::Guard>,
     login_shown: RefCell<Vec<Box<dyn Fn()>>>,
     notifier: RefCell<Option<Rc<crate::notifier::Notifier>>>,
     /// The account to go back to while another one is being added.
@@ -144,6 +145,7 @@ impl AppWindow {
             pending: RefCell::default(),
             pending_native: RefCell::default(),
             login_generation: Cell::default(),
+            login_guard: RefCell::default(),
             login_shown: RefCell::default(),
             notifier: RefCell::default(),
             previous: RefCell::default(),
@@ -157,12 +159,18 @@ impl AppWindow {
             }
         });
         let weak = Rc::downgrade(&this);
+        this.login.connect_mail(move |resend| {
+            if let Some(this) = weak.upgrade() {
+                this.send_native_mail(resend);
+            }
+        });
+        let weak = Rc::downgrade(&this);
         this.login.connect_back(move || {
             if let Some(this) = weak.upgrade() {
                 if this.login.is_busy() {
                     return;
                 }
-                this.login_generation.set(this.login_generation.get().wrapping_add(1));
+                this.invalidate_login();
                 this.pending.replace(None);
                 this.pending_native.replace(None);
                 this.login.clear_secrets();
@@ -217,7 +225,7 @@ impl AppWindow {
             {
                 // A hidden sign-in form cannot install a late response. Keep
                 // durable candidates in the vault for the next password start.
-                this.login_generation.set(this.login_generation.get().wrapping_add(1));
+                this.invalidate_login();
                 this.pending.replace(None);
                 this.pending_native.replace(None);
                 this.login.clear_secrets();
@@ -296,6 +304,7 @@ impl AppWindow {
                 window.set_visible(false);
                 return glib::Propagation::Stop;
             }
+            keep.invalidate_login();
             keep.stop_session(false);
             glib::Propagation::Proceed
         });
@@ -318,7 +327,7 @@ impl AppWindow {
     }
 
     fn show_login(&self, error: Option<&str>) {
-        self.login_generation.set(self.login_generation.get().wrapping_add(1));
+        self.invalidate_login();
         self.pending.replace(None);
         self.pending_native.replace(None);
         let last = std::fs::read_to_string(last_server_file()).unwrap_or_else(|_| DEFAULT_SERVER.to_owned());
@@ -461,6 +470,56 @@ impl AppWindow {
             && self.stack.visible_child_name().as_deref() == Some("login")
             && self.window.is_visible()
     }
+    fn invalidate_login(&self) {
+        self.login_guard.borrow().cancel();
+        self.login_guard.replace(rv_core::native::security::Guard::new());
+        self.login_generation.set(self.login_generation.get().wrapping_add(1));
+    }
+    fn send_native_mail(self: &Rc<Self>, resend: bool) {
+        if self.login.is_busy() || self.login.native_method().as_deref() != Some("email") {
+            return;
+        }
+        let Some(saved) = self.pending_native.borrow().clone() else { return };
+        let generation = self.login_generation.get();
+        let guard = self.login_guard.borrow().clone();
+        self.login.clear_factor_code();
+        self.login.set_busy(true);
+        self.login.set_error(None);
+        let this = self.clone();
+        glib::spawn_future_local(async move {
+            let expected = saved.clone();
+            let (result, latest) = on_tokio(async move {
+                let vault = secrets::authentication_vault();
+                let result = vault.send_email(&expected, resend, &guard).await;
+                let latest = if result.is_err() && guard.alive() {
+                    vault.load(&expected.base_url, &expected.user.username).await.ok().flatten()
+                } else {
+                    None
+                };
+                (result, latest)
+            })
+            .await;
+            if !this.login_is_current(generation) {
+                return;
+            }
+            let next = match result {
+                Ok(next) => Some(next),
+                Err(error) => {
+                    this.login.set_error(Some(&describe(&rv_core::native::rest_error(error), true, false)));
+                    latest
+                }
+            };
+            if let Some(next) = next
+                && next.challenge.challenge_id == saved.challenge.challenge_id
+                && next.identity == saved.identity
+                && next.user.id == saved.user.id
+            {
+                this.login.ask_native_code(&next);
+                this.pending_native.replace(Some(next));
+            }
+            this.login.set_busy(false);
+        });
+    }
     fn submit_native_factor(self: &Rc<Self>, saved: rv_core::native::authentication::LoginChallenge) {
         use rv_core::native::authentication::method_name;
         let Some(method) = self
@@ -543,7 +602,7 @@ impl AppWindow {
     }
 
     fn start_session(self: &Rc<Self>, info: SessionInfo) {
-        self.login_generation.set(self.login_generation.get().wrapping_add(1));
+        self.invalidate_login();
         self.stop_session(false);
         let path = database_path(&info);
         if info.native.is_some() {
@@ -795,7 +854,7 @@ impl AppWindow {
     }
 
     fn cancel_add(self: &Rc<Self>) {
-        self.login_generation.set(self.login_generation.get().wrapping_add(1));
+        self.invalidate_login();
         self.pending.replace(None);
         self.pending_native.replace(None);
         self.login.clear_secrets();

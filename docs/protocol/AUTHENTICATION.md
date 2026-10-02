@@ -4,8 +4,8 @@ Ce lot livre le serveur, les SDK et les connexions mobile / GTK / SwiftUI, ainsi
 que la réauthentification et la gestion des facteurs dans les paramètres des
 trois clients. Le serveur et les SDK proposent aussi le facteur e-mail décrit
 dans [EMAIL.md](EMAIL.md). Les défis e-mail de connexion / réauthentification
-sont raccordés au mobile ; les coffres du cœur Rust bureau savent aussi reprendre
-leur livraison dans la tentative d'origine. P02 reste ouvert pour les formulaires bureau,
+sont raccordés au mobile et à GTK ; les coffres du cœur Rust bureau reprennent
+leur livraison dans la tentative d'origine. P02 reste ouvert pour les formulaires SwiftUI,
 l'inscription du facteur dans les trois clients, la récupération e-mail et la
 qualification des appareils.
 Le fournisseur Rocket.Chat garde son parcours.
@@ -79,11 +79,18 @@ régressions cœur / bindings et compilation GTK passent dans Fedora.
 
 ### Formulaire et trousseau GTK
 
-La page existante propose les méthodes TOTP / secours annoncées par le serveur.
+La page existante propose les méthodes TOTP / e-mail / secours annoncées par le serveur.
 Le défi et son candidat utilisent une entrée privée distincte des sessions :
 `kind: authentication` dans Secret Service ; une clé non indexée dans les
 trousseaux Windows / macOS. Les énumérations des comptes actifs ignorent cette
-entrée. Aucun mot de passe, code TOTP ou secours saisi n'est persisté.
+entrée. Aucun mot de passe, code de facteur ou secours saisi n'est persisté.
+
+Le choix e-mail présente envoi explicite, statut de livraison, reprise du candidat
+privé après une réponse perdue et renvoi borné après relecture du cooldown. Un
+nouveau processus conserve la livraison ambiguë malgré son nouveau passage par
+le mot de passe ; les délais du défi et de sa livraison ne sont pas prolongés.
+Les paramètres GTK raccordent les mêmes commandes à la preuve de la famille
+active. La reprise après code accepté retrouve la session ou la preuve d'origine.
 
 Les tâches de plateforme gardent le verrou jusqu'à la fin réelle de leurs
 opérations, même après annulation ou délai de cinq secondes. Le compte conserve

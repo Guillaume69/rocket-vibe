@@ -18,9 +18,9 @@ du contact, même sans SMTP ; les coffres et boutons mobile / GTK / SwiftUI sont
 raccordés à ces trois routes.
 Le second facteur e-mail est livré côté serveur et SDK, avec inscription
 explicite, retrait et livraison sur un défi déjà établi. Les défis de connexion et
-de confirmation d'identité sont raccordés au mobile. Les coffres partagés du
-cœur Rust bureau conservent aussi leurs livraisons. Le raccordement des
-formulaires GTK / SwiftUI et les coffres / formulaires d'inscription du facteur restent à livrer ; les
+de confirmation d'identité sont raccordés au mobile et aux formulaires GTK
+existants. Les coffres partagés du cœur Rust bureau conservent leurs livraisons.
+Le raccordement SwiftUI et les coffres / formulaires d'inscription du facteur restent à livrer ; les
 formulaires d'adresse vérifiée ne l'activent pas automatiquement. La récupération
 du compte par e-mail reste à implémenter.
 
@@ -404,8 +404,20 @@ nouveau défi ne l'annonce pas. Dix tests Rust dédiés couvrent ACK perdu,
 concurrence de coffres recréés, reprise du candidat non envoyé, stockage refusé,
 renvoi explicite, vue obsolète, fermeture, statut privé malformé et échéance.
 Les contrôles du fournisseur vérifient aussi le bearer de la famille et les
-barrières de génération / capacité. Ces coffres ne raccordent pas encore les
-boutons OTP des formulaires GTK / SwiftUI.
+barrières de génération / capacité. GTK raccorde ces coffres au formulaire de
+connexion et à la confirmation d'identité des paramètres existants. Les boutons
+proposent l'envoi, la reprise d'une livraison ambiguë et un renvoi explicite
+borné. Leur sélection et leurs statuts ne déclenchent jamais un envoi automatique.
+Fermeture et retour annulent la garde ; les champs de code restent transitoires.
+Le raccordement des mêmes opérations à SwiftUI reste à livrer.
+
+Le banc `compose.native-email-otp-pilot.yml` ajoute un compte avec facteur e-mail
+explicite, un relais TLS local et un proxy qui perd les réponses de start / finish.
+Il utilise les vrais widgets GTK et Secret Service sur trois processus. Le contrôle
+PostgreSQL exige deux livraisons OTP consommées, une seule famille / credential,
+une preuve complète d'âge inchangé, trois admissions SMTP avec la vérification
+initiale du contact, aucune charge OTP résiduelle et les dix secours d'origine.
+Le clic de renvoi pendant le cooldown ne crée pas une nouvelle admission.
 
 Le composant commun d'admission SMTP est extrait : il conserve les clés des
 vérifications déjà admises et partage les budgets persistants global, compte,

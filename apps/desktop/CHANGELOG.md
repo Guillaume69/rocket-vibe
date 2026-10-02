@@ -15,6 +15,11 @@ section here.
 
 ### Added
 
+- Email second-factor sign-in and identity confirmation in the existing GTK
+  forms, with explicit delivery, original-attempt recovery across restarts,
+  delivery status and bounded resend. Input codes stay transient; confirming
+  identity keeps the current session family and the proof's original age.
+
 - Private email removal in the existing GTK and SwiftUI security settings,
   with confirmation bound to the displayed contact, one durable operation
   across lost replies and restarts, cancellation and explicit acknowledgement.

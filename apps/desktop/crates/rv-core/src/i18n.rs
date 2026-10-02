@@ -89,6 +89,16 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ),
     ("login.factor_totp", "Application d'authentification", "Authenticator app"),
     ("login.factor_backup", "Code de secours", "Backup code"),
+    ("login.factor_email", "Code reçu par e-mail", "Email code"),
+    ("email.send_code", "Envoyer le code", "Send code"),
+    ("email.resend_code", "Renvoyer le code", "Resend code"),
+    ("email.resume_delivery", "Reprendre la livraison", "Resume delivery"),
+    ("email.request_code", "Demandez un code pour ce défi de connexion.", "Request a code for this challenge."),
+    (
+        "email.delivery_unknown",
+        "Livraison non confirmée. Reprenez cette demande avant de renvoyer un code.",
+        "Delivery is unconfirmed. Resume this request before resending.",
+    ),
     (
         "login.factor_resume",
         "Tu peux valider sans code pour reprendre une connexion déjà acceptée.",

@@ -1,0 +1,37 @@
+# Fresh disposable GTK OTP bench only; overlay the native security SMTP bench.
+services:
+  otp-user:
+    image: rocketvibe-native-server
+    environment:
+      DATABASE_URL: postgres://pilot:native-pilot-disposable-db-password@postgres/pilot
+      RV_USER_PASSWORD: native-pilot-test-password
+    entrypoint: [rv-server, create-user, gtk-email]
+    depends_on:
+      bootstrap: {condition: service_completed_successfully}
+  otp-policy:
+    image: postgres:18-alpine
+    environment: {PGPASSWORD: native-pilot-disposable-db-password}
+    volumes: ['../scripts/native-email-otp-pilot-policy.sql:/otp-policy.sql:ro']
+    command: [psql, -h, postgres, -U, pilot, -d, pilot, -v, ON_ERROR_STOP=1, -f, /otp-policy.sql]
+    depends_on:
+      otp-user: {condition: service_completed_successfully}
+  factor-seed:
+    command: [node, scripts/native-email-otp-desktop-seed.ts]
+    depends_on:
+      otp-policy: {condition: service_completed_successfully}
+      security-mail-relay: {condition: service_started}
+  factor-proxy:
+    environment: {RV_PILOT_EMAIL_OTP: '1'}
+  otp-desktop:
+    extends:
+      file: compose.native-security-pilot.yml
+      service: security-desktop
+    environment:
+      HOME: /tmp/rv-native-email-otp-home
+      RV_NATIVE_EMAIL_OTP_FILE: /pilot-invitations/gtk-email-mail.json
+    command: [bash, scripts/native-email-otp-smoke.sh]
+  otp-check:
+    image: postgres:18-alpine
+    environment: {PGPASSWORD: native-pilot-disposable-db-password}
+    volumes: ['../scripts/native-email-otp-pilot-check.sql:/otp-check.sql:ro']
+    command: [psql, -h, postgres, -U, pilot, -d, pilot, -v, ON_ERROR_STOP=1, -f, /otp-check.sql]

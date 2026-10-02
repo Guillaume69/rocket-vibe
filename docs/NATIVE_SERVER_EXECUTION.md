@@ -315,6 +315,25 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, défis OTP GTK : les formulaires existants de connexion et de confirmation
+  d'identité proposent e-mail, statut, envoi / reprise et renvoi explicites.
+  Le trousseau reprend une livraison ambiguë après redémarrage sans recréer le
+  défi ; masquer la vue annule sa garde. Le code est effacé à chaque commande
+  et reste transitoire. Le banc GTK réel utilise un contact préalablement vérifié,
+  son facteur explicitement activé, PostgreSQL et un relais SMTP / TLS local.
+  Trois processus avec Secret Service perdent les réponses de livraison et de
+  confirmation puis retrouvent la livraison, la session et la preuve d'origine.
+  SQL constate deux livraisons consommées, une seule famille / credential, une
+  preuve complète avec son âge initial, trois admissions SMTP (contact inclus),
+  aucune charge OTP conservée et les dix secours inchangés. Le renvoi pendant
+  le cooldown n'ajoute pas de mail. Le vrai formulaire vide est contrôlé à
+  435 × 760 ; aucun code n'est capturé. Ce banc rejoint la CI GTK dans un projet
+  jetable distinct. Les 285 tests Rust bureau, Clippy, compilation GTK et
+  inventaire régénéré (293 fichiers / 344 occurrences) passent. La CI native
+  `36959580252` du socle `d08c4f3` passe ses quatre jobs. SwiftUI, l'inscription
+  du facteur dans les trois clients, la récupération e-mail et les qualifications
+  sur appareils restent à poursuivre.
+
 - P02, coffres OTP bureau : le coordinateur Rust conserve la livraison dans
   le défi de connexion ou de réauthentification initial, sous le même verrou
   OS et dans le trousseau privé. L'envoi sauvegarde son candidat avant HTTP,

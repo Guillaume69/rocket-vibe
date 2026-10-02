@@ -38,6 +38,11 @@ pub struct LoginPage {
     factor_selector: gtk::DropDown,
     native_methods: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
     factor_resume: gtk::Label,
+    factor_mail: gtk::Box,
+    factor_mail_send: gtk::Button,
+    factor_mail_resend: gtk::Button,
+    factor_mail_status: gtk::Label,
+    mail_known: std::rc::Rc<std::cell::Cell<bool>>,
     error: gtk::Label,
     submit: gtk::Button,
     back: gtk::Button,
@@ -98,7 +103,7 @@ fn code_fields(code: &gtk::Entry, caption: &gtk::Label, intro: &gtk::Label, meth
         code.set_placeholder_text(None);
     } else {
         code.add_css_class("code");
-        code.set_placeholder_text(Some("123456"));
+        code.set_placeholder_text(Some(if method == Some("email") { "12345678" } else { "123456" }));
     }
 }
 
@@ -158,6 +163,14 @@ impl LoginPage {
         let factor_selector = gtk::DropDown::builder().visible(false).build();
         let native_methods = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
         let methods = native_methods.clone();
+        let factor_mail = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(6).visible(false).build();
+        let factor_mail_send = gtk::Button::builder().label(t("email.send_code")).build();
+        let factor_mail_resend = gtk::Button::builder().label(t("email.resend_code")).visible(false).build();
+        let factor_mail_status = gtk::Label::builder().wrap(true).xalign(0.0).build();
+        let mail_known = std::rc::Rc::new(std::cell::Cell::new(false));
+        factor_mail.append(&factor_mail_send);
+        factor_mail.append(&factor_mail_resend);
+        factor_mail.append(&factor_mail_status);
         factor_selector.connect_selected_notify(glib::clone!(
             #[weak]
             code,
@@ -165,13 +178,17 @@ impl LoginPage {
             code_caption,
             #[weak]
             code_intro,
+            #[weak]
+            factor_mail,
             move |selector| {
                 if let Some(method) = methods.borrow().get(selector.selected() as usize) {
                     code_fields(&code, &code_caption, &code_intro, Some(method));
+                    factor_mail.set_visible(method == "email");
                 }
             }
         ));
         code_step.append(&factor_selector);
+        code_step.append(&factor_mail);
         code_group.set_margin_top(14);
         code_step.append(&code_group);
         let factor_resume = gtk::Label::builder().label(t("login.factor_resume")).wrap(true).visible(false).build();
@@ -348,6 +365,11 @@ impl LoginPage {
             factor_selector,
             native_methods,
             factor_resume,
+            factor_mail,
+            factor_mail_send,
+            factor_mail_resend,
+            factor_mail_status,
+            mail_known,
             error,
             submit,
             back,
@@ -396,6 +418,25 @@ impl LoginPage {
 
     pub fn connect_back(&self, f: impl Fn() + 'static) {
         self.back.connect_clicked(move |_| f());
+    }
+    pub fn connect_mail(&self, f: impl Fn(bool) + Clone + 'static) {
+        let resend = f.clone();
+        self.factor_mail_send.connect_clicked(move |_| f(false));
+        self.factor_mail_resend.connect_clicked(move |_| resend(true));
+    }
+    pub fn request_native_mail(&self, resend: bool) -> bool {
+        if self.is_busy() || !self.factor_mail.is_visible() || (resend && !self.mail_known.get()) {
+            return false;
+        }
+        if resend {
+            self.factor_mail_resend.emit_clicked();
+        } else {
+            self.factor_mail_send.emit_clicked();
+        }
+        true
+    }
+    pub fn native_mail_known(&self) -> bool {
+        self.mail_known.get()
     }
 
     pub fn server(&self) -> String {
@@ -449,6 +490,9 @@ impl LoginPage {
     pub fn code(&self) -> String {
         self.code.text().into()
     }
+    pub fn clear_factor_code(&self) {
+        self.code.set_text("");
+    }
     pub fn has_error(&self) -> bool {
         self.error.is_visible()
     }
@@ -491,6 +535,9 @@ impl LoginPage {
         self.native_methods.borrow_mut().clear();
         self.factor_selector.set_visible(false);
         self.factor_resume.set_visible(false);
+        self.factor_mail.set_visible(false);
+        self.factor_mail_status.set_label("");
+        self.mail_known.set(false);
         code_fields(&self.code, &self.code_caption, &self.code_intro, method);
         self.set_busy(false);
         if asking {
@@ -503,25 +550,39 @@ impl LoginPage {
     }
     pub fn ask_native_code(&self, saved: &rv_core::native::authentication::LoginChallenge) -> bool {
         use rv_core::native::authentication::method_name;
-        let methods = saved
-            .challenge
-            .methods
-            .iter()
-            .map(|m| method_name(*m).to_owned())
-            .filter(|m| m != "email")
-            .collect::<Vec<_>>();
-        let Some(first) = methods.first() else { return false };
+        let selected = self.native_method();
+        let methods = saved.challenge.methods.iter().map(|m| method_name(*m).to_owned()).collect::<Vec<_>>();
+        let Some(first) = methods.iter().find(|m| Some(*m) == selected.as_ref()).or_else(|| methods.first()) else {
+            return false;
+        };
         self.ask_code(Some(first));
         let labels = methods
             .iter()
-            .map(|method| t(if method == "recovery_code" { "login.factor_backup" } else { "login.factor_totp" }))
+            .map(|method| {
+                t(match method.as_str() {
+                    "recovery_code" => "login.factor_backup",
+                    "email" => "login.factor_email",
+                    _ => "login.factor_totp",
+                })
+            })
             .collect::<Vec<_>>();
         let model = gtk::StringList::new(&labels);
+        let index = methods.iter().position(|m| m == first).unwrap();
+        let is_email = first == "email";
         self.native_methods.replace(methods);
         self.factor_selector.set_model(Some(&model));
-        self.factor_selector.set_selected(0);
+        self.factor_selector.set_selected(index as u32);
         self.factor_selector.set_visible(labels.len() > 1);
         self.factor_resume.set_visible(saved.pending.is_some());
+        self.factor_mail.set_visible(is_email);
+        self.mail_known.set(saved.email.as_ref().is_some_and(|i| i.status.is_some()));
+        self.factor_mail_send.set_label(t(if saved.email.is_some() {
+            "email.resume_delivery"
+        } else {
+            "email.send_code"
+        }));
+        self.factor_mail_resend.set_visible(self.mail_known.get());
+        self.factor_mail_status.set_label(email_delivery_text(saved.email.as_ref()));
         true
     }
     pub fn native_method(&self) -> Option<String> {
@@ -534,4 +595,19 @@ impl LoginPage {
         self.code.set_text(code);
         true
     }
+}
+
+pub(crate) fn email_delivery_text(intent: Option<&rv_core::native::factor_email::Intent>) -> &'static str {
+    use rv_core::native::security::email::EmailDeliveryState;
+    t(match intent {
+        None => "email.request_code",
+        Some(intent) => match intent.status.as_ref().map(|s| &s.delivery) {
+            None => "email.delivery_unknown",
+            Some(EmailDeliveryState::Queued) => "email.queued",
+            Some(EmailDeliveryState::Sending) => "email.sending",
+            Some(EmailDeliveryState::Deferred) => "email.deferred",
+            Some(EmailDeliveryState::Accepted) => "email.accepted",
+            Some(EmailDeliveryState::Exhausted) => "email.exhausted",
+        },
+    })
 }

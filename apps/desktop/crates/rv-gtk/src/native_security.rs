@@ -54,7 +54,13 @@ pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) 
     let methods = adw::ComboRow::builder().title(t("security.method")).css_classes(["native-security-method"]).build();
     let proof_code = adw::EntryRow::builder().title(t("login.code_totp")).css_classes(["native-security-code"]).build();
     let proof_submit = button("security.verify", "native-security-proof-submit");
+    let proof_mail_send = button("email.send_code", "native-security-proof-mail-send");
+    let proof_mail_resend = button("email.resend_code", "native-security-proof-mail-resend");
+    let proof_mail_status = adw::ActionRow::builder().css_classes(["native-security-proof-mail-status"]).build();
     proof_group.add(&methods);
+    proof_group.add(&proof_mail_send);
+    proof_group.add(&proof_mail_resend);
+    proof_group.add(&proof_mail_status);
     proof_group.add(&proof_code);
     proof_group.add(&proof_submit);
     page.add(&proof_group);
@@ -148,6 +154,9 @@ pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) 
         proof_group,
         methods,
         proof_code,
+        proof_mail_send,
+        proof_mail_resend,
+        proof_mail_status,
         setup_group,
         secret,
         setup_code,
@@ -225,6 +234,20 @@ pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) 
             }
         }
     });
+    for (row, resend) in [(&state.proof_mail_send, false), (&state.proof_mail_resend, true)] {
+        let weak = Rc::downgrade(&state);
+        row.connect_activated(move |_| {
+            let Some(state) = weak.upgrade() else { return };
+            let saved = match &*state.proof.borrow() {
+                ProofState::Challenge(saved) => Some((**saved).clone()),
+                _ => None,
+            };
+            state.proof_code.set_text("");
+            if let Some(saved) = saved {
+                state.run(Work::ProofMail(saved, resend));
+            }
+        });
+    }
     let weak = Rc::downgrade(&state);
     state.methods.connect_selected_notify(move |row| {
         if let Some(state) = weak.upgrade() {
@@ -232,12 +255,13 @@ pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) 
             if let ProofState::Challenge(saved) = &*state.proof.borrow()
                 && let Some(method) = saved.challenge().and_then(|c| c.methods.get(row.selected() as usize))
             {
-                state.proof_code.set_title(t(if method_name(*method) == "recovery_code" {
-                    "login.code_recovery_code"
-                } else {
-                    "login.code_totp"
+                state.proof_code.set_title(t(match method_name(*method) {
+                    "recovery_code" => "login.code_recovery_code",
+                    "email" => "email.code",
+                    _ => "login.code_totp",
                 }));
             }
+            state.render_proof_mail();
         }
     });
     let weak = Rc::downgrade(&state);
@@ -423,6 +447,7 @@ enum Work {
     Refresh,
     Password(String),
     Proof(ProofAttempt, SecondFactor, String),
+    ProofMail(ProofAttempt, bool),
     Start(FactorAction),
     Enable(Setup, String),
     Clear(String),
@@ -454,6 +479,9 @@ struct Controller {
     proof_group: adw::PreferencesGroup,
     methods: adw::ComboRow,
     proof_code: adw::EntryRow,
+    proof_mail_send: adw::ButtonRow,
+    proof_mail_resend: adw::ButtonRow,
+    proof_mail_status: adw::ActionRow,
     setup_group: adw::PreferencesGroup,
     secret: gtk::Label,
     setup_code: adw::EntryRow,
@@ -485,6 +513,24 @@ struct Controller {
     scope: RefCell<Option<Scope>>,
 }
 impl Controller {
+    fn render_proof_mail(&self) {
+        let proof = self.proof.borrow();
+        let saved = match &*proof {
+            ProofState::Challenge(saved) => Some(saved),
+            _ => None,
+        };
+        let selected = saved.and_then(|s| s.challenge()).and_then(|c| c.methods.get(self.methods.selected() as usize));
+        let email = selected.is_some_and(|m| matches!(m, SecondFactor::Email));
+        let intent = saved.and_then(|s| s.email());
+        self.proof_mail_send.set_visible(email);
+        self.proof_mail_send.set_sensitive(intent.is_some() || self.session.email_factor_delivery_supported());
+        self.proof_mail_send.set_title(t(if intent.is_some() { "email.resume_delivery" } else { "email.send_code" }));
+        self.proof_mail_resend.set_visible(email && intent.is_some_and(|i| i.status.is_some()));
+        self.proof_mail_resend.set_sensitive(self.session.email_factor_delivery_supported());
+        self.proof_mail_status.set_visible(email);
+        self.proof_mail_status.set_title(t("email.code"));
+        self.proof_mail_status.set_subtitle(crate::login::email_delivery_text(intent));
+    }
     fn cancel(&self) {
         self.guard.cancel();
         self.clear();
@@ -492,6 +538,7 @@ impl Controller {
     fn clear(&self) {
         self.password.set_text("");
         self.proof_code.set_text("");
+        self.proof_mail_status.set_subtitle("");
         self.setup_code.set_text("");
         self.secret.set_text("");
         self.codes.set_text("");
@@ -517,7 +564,11 @@ impl Controller {
                 .methods
                 .iter()
                 .map(|method| {
-                    t(if method_name(*method) == "recovery_code" { "login.factor_backup" } else { "login.factor_totp" })
+                    t(match method_name(*method) {
+                        "recovery_code" => "login.factor_backup",
+                        "email" => "login.factor_email",
+                        _ => "login.factor_totp",
+                    })
                 })
                 .collect();
             let model = gtk::StringList::new(&labels);
@@ -526,16 +577,18 @@ impl Controller {
             self.methods.set_selected(if (selected as usize) < labels.len() { selected } else { 0 });
             self.methods.set_visible(labels.len() > 1);
         }
+        self.render_proof_mail();
         let factor = self.factor.borrow();
         let supported = self.session.factors_supported();
-        let enabled = self.factor_status.borrow().as_ref().is_some_and(|s| s.totp);
+        let totp = self.factor_status.borrow().as_ref().is_some_and(|s| s.totp);
+        let enabled = self.factor_status.borrow().as_ref().is_some_and(|s| s.totp || s.email);
         self.setup_group.set_visible(supported && matches!(*factor, FactorState::Setup(_)));
         self.codes_group.set_visible(supported && matches!(*factor, FactorState::Codes { .. }));
         self.stale_group.set_visible(supported && matches!(*factor, FactorState::Stale { .. }));
         self.actions.set_visible(loaded && supported && matches!(*factor, FactorState::Idle));
-        self.setup.set_visible(!enabled);
-        self.regenerate.set_visible(enabled);
-        self.disable.set_visible(enabled);
+        self.setup.set_visible(!totp);
+        self.regenerate.set_visible(totp);
+        self.disable.set_visible(totp);
         self.secret.set_text(match &*factor {
             FactorState::Setup(setup) => &setup.secret,
             _ => "",
@@ -649,6 +702,7 @@ impl Controller {
             _ => None,
         };
         let weak = Rc::downgrade(self);
+        let refresh_mail = matches!(work, Work::ProofMail(..));
         glib::spawn_future_local(async move {
             let result = on_tokio(async move {
                 let refresh = matches!(work, Work::Refresh);
@@ -679,6 +733,9 @@ impl Controller {
                             }
                             Work::Proof(saved, method, code) => {
                                 proof = Some(vault.finish(&saved, &access, method, &code, &guard).await?)
+                            }
+                            Work::ProofMail(saved, resend) => {
+                                proof = Some(vault.send_email(&saved, &access, resend, &guard).await?)
                             }
                             Work::Start(action) => {
                                 factor = Some(vault.factor_start(&scope, &access, action, &guard).await?)
@@ -851,7 +908,10 @@ impl Controller {
                             "email.rejected"
                         } else if error.code() == "email_removal_rejected" {
                             "email.removal_stale"
-                        } else if matches!(error.code(), "email_queue_limit" | "email_delivery_limit") {
+                        } else if matches!(
+                            error.code(),
+                            "email_queue_limit" | "email_delivery_limit" | "email_resend_cooldown"
+                        ) {
                             "email.limited"
                         } else if matches!(error.code(), "reauthentication_rejected" | "factor_rejected") {
                             "security.rejected"
@@ -860,6 +920,9 @@ impl Controller {
                         } else {
                             "security.failed"
                         })));
+                    }
+                    if refresh_mail && state.guard.alive() {
+                        state.run(Work::Refresh);
                     }
                 }
             }

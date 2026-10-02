@@ -37,6 +37,34 @@ async function unavailable(h:ReturnType<typeof setup>) {
 }
 function batch(changes:SyncBatch['changes']):SyncBatch {return {protocol_version:1,changes,cursor:'next',has_more:false};}
 
+test('mobile durable edits preserve ordered references after source withdrawal, reset and SQLite restart',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'rv-quote-edit-')),filename=join(dir,'cache.sqlite');
+  let harness=nativeTestDatabase(filename);
+  try {
+    let store=new NativeStore(harness.adapter,creerFileEcritures(),session);
+    const snapshot=initial(),second=structuredClone(snapshot.messages[1].quotes![0]);
+    second.reference.message_id='source-two';second.reference.revision='9007199254740993';second.excerpt=null;
+    snapshot.messages[1].quotes!.push(second);
+    const refs=snapshot.messages[1].quotes!.map(q=>q.reference);
+    await store.applySnapshot(snapshot);
+    await store.applyBatch(batch([{type:'room_removed',data:{room_id:'origin'}}]));
+    await assert.rejects(store.command('destination','reply','19','edit','Stale',()=> 'stale'));
+    const pending=(await store.command('destination','reply','20','edit','Saved edit',()=> 'edit-intent'))!;
+    assert.deepEqual(pending.quotes,refs);
+    const raw=harness.db.prepare('SELECT quotes FROM native_commands').get()!.quotes as string;
+    assert.ok(!raw.includes('Privé') && !raw.includes('membership') && !raw.includes('author'));
+    const updated={...message('reply','destination','50','Another version'),position:'20'};
+    await store.applySnapshot({protocol_version:1,rooms:[room('destination','1','destination-grant')],messages:[updated],cursor:'reset'});
+    harness.db.close();harness=nativeTestDatabase(filename,false);
+    store=new NativeStore(harness.adapter,creerFileEcritures(),session);
+    const replay=(await store.command('destination','reply','50','edit','Saved edit',()=> {throw new Error('Must retain original intent');}))!;
+    assert.equal(replay.id,pending.id);assert.equal(replay.expected_revision,'20');assert.deepEqual(replay.quotes,refs);
+    assert.deepEqual((await store.pendingCommands())[0].quotes,refs);
+    await store.failCommand(replay.id,'revision_conflict');assert.equal(await store.commandDraft('reply'),'Saved edit');
+    assert.deepEqual((await store.command('destination','reply','50','edit','New edit',()=> 'fresh-intent'))!.quotes,[]);
+  }finally {harness.db.close();unlinkSync(filename);rmdirSync(dir);}
+});
+
 test('quote resolutions preserve exact stamps and keep legacy views distinguishable',()=>{
   const legacy={reference:{room_id:'origin',message_id:'source',revision:'1'},excerpt:null};
   const old=decodeNative('MessageQuote',legacy);

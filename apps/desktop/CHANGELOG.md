@@ -9,6 +9,10 @@ section here.
 
 ### Fixed
 
+- Native edits preserve ordered quote references after source deletion or access
+  withdrawal, including retries and cache restarts. Older edit intents without a
+  captured body retain their draft and require a fresh submission.
+
 - Native quote cards retain source text that resembles a legacy quote prefix;
   official Rocket.Chat quote-prefix handling remains available.
 

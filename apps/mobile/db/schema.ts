@@ -326,6 +326,7 @@ export const nativeMessageCommands = sqliteTable('native_commands', {
   kind: text('kind').notNull(),
   expectedRevision: text('expected_revision').notNull(),
   text: text('text').notNull(),
+  quotes: text('quotes'),
   state: text('state').notNull().default('pending'),
   error: text('error'),
 }, (t) => [uniqueIndex('idx_native_command_message').on(t.messageId)]);

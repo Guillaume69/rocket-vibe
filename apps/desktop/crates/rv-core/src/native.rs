@@ -813,7 +813,10 @@ impl NativeSession {
                             content: MessageContent::Plain {
                                 markdown: command.text.clone(),
                                 mentions: vec![],
-                                quotes: vec![],
+                                quotes: command
+                                    .quotes
+                                    .clone()
+                                    .ok_or(Error::Protocol("edit_intent_upgrade_required"))?,
                                 files: vec![],
                             },
                         },
@@ -1010,5 +1013,10 @@ impl NativeSession {
 
 fn permanent_command_error(error: &Error) -> bool {
     matches!(error,Error::Network(rv_client::Error::Server{status,code,..}) if (400..500).contains(status) && *status!=401 && *status!=429 && code!="delivery_revalidate")
-        || matches!(error, Error::Protocol("unsupported_feature" | "invalid_message_action" | "unknown_emoji"))
+        || matches!(
+            error,
+            Error::Protocol(
+                "unsupported_feature" | "invalid_message_action" | "unknown_emoji" | "edit_intent_upgrade_required"
+            )
+        )
 }

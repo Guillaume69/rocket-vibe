@@ -315,6 +315,23 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P07, conservation des citations lors d'une édition : les commandes existantes
+  GTK / SwiftUI / mobile capturent les références ordonnées dans SQLite avec
+  leur texte, révision attendue et nonce. Retrait de la source, reset et reprise
+  conservent le corps initial ; l'adaptateur l'envoie dans `content.quotes`.
+  Une ancienne édition sans corps capturé s'arrête en gardant son brouillon pour
+  une nouvelle soumission. Les migrations sont additives et aucune vue d'édition
+  ni transport Rocket.Chat n'est remplacé. Tests ciblés : 53 mobile et 43 cache
+  bureau réussis, avec source inaccessible, valeurs exactes, perte de réponse,
+  réouverture SQLite et migration ; typecheck, lint et Clippy du cœur passent.
+  Régression complète : 1 179 tests mobiles et 353 tests du workspace bureau
+  réussis, sans échec ni test ignoré ; export Android, Clippy de tous les targets
+  et reconstruction du binaire GTK réussis. Inventaire, génération du protocole
+  et changelogs valides. Ces résultats locaux ne valident pas une installation
+  physique des apps.
+  L'envoi de citations depuis les contrôles actuels et les essais installés
+  restent ouverts ; capacité `quotes` toujours désactivée.
+
 - P07, cache mobile des citations : migration SQLite additive pour références
   ordonnées et vues sources, avec adhésion et position exacte indépendantes de
   la réponse citante. Éditions / suppressions / pertes d'accès actualisent la

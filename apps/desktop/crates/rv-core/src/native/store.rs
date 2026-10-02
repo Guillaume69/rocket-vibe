@@ -49,9 +49,12 @@ pub struct PendingCommand {
     pub kind: MessageCommandKind,
     pub expected_revision: String,
     pub text: String,
+    /// Immutable edit references; None marks an older intent without a captured body.
+    pub quotes: Option<Vec<rv_protocol::parity::QuoteReference>>,
 }
 fn command_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PendingCommand> {
     let kind: String = row.get(3)?;
+    let quotes: Option<String> = row.get(6)?;
     Ok(PendingCommand {
         id: row.get(0)?,
         room_id: row.get(1)?,
@@ -66,6 +69,7 @@ fn command_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PendingCommand> {
         },
         expected_revision: row.get(4)?,
         text: row.get(5)?,
+        quotes: quotes.map(|s| serde_json::from_str(&s).map_err(|_| rusqlite::Error::InvalidQuery)).transpose()?,
     })
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -145,6 +149,13 @@ impl NativeStore {
                 INSERT INTO native_commands SELECT * FROM native_commands_previous;
                 DROP TABLE native_commands_previous;
                 COMMIT;")?;
+        }
+        let command_columns = conn
+            .prepare("PRAGMA table_info(native_commands)")?
+            .query_map([], |r| r.get::<_, String>(1))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if !command_columns.iter().any(|name| name == "quotes") {
+            conn.execute_batch("ALTER TABLE native_commands ADD COLUMN quotes TEXT;")?;
         }
         let (changes, _) = broadcast::channel(64);
         let columns = conn
@@ -288,14 +299,19 @@ impl NativeStore {
         decimal(revision)?;
         self.atomic(|tx| {
             if !self.same(tx)? { return Err(rusqlite::Error::InvalidQuery); }
-            if let Some(previous)=tx.query_row("SELECT id,rid,message_id,kind,expected_revision,text FROM native_commands WHERE message_id=?1 AND state='pending'",[message],command_row).optional()? {
+            if let Some(previous)=tx.query_row("SELECT id,rid,message_id,kind,expected_revision,text,quotes FROM native_commands WHERE message_id=?1 AND state='pending'",[message],command_row).optional()? {
                 return Ok((previous.room_id==rid && previous.kind==kind && previous.text==text).then_some(previous));
             }
             let visible=tx.query_row("SELECT 1 FROM native_messages WHERE id=?1 AND rid=?2 AND NOT deleted AND position IS NOT NULL",params![message,rid],|_|Ok(())).optional()?.is_some();
             if !visible {return Err(rusqlite::Error::InvalidQuery);}
+            let references = if kind == MessageCommandKind::Edit {
+                let current: String = tx.query_row("SELECT revision FROM native_messages WHERE id=?1", [message], |r| r.get(0))?;
+                if current != revision { return Err(rusqlite::Error::InvalidQuery); }
+                quotes::references(tx, message)?
+            } else { vec![] };
             tx.execute("DELETE FROM native_commands WHERE message_id=?1 AND state='failed'",[message])?;
-            let command=PendingCommand{id:format!("{:032x}",fastrand::u128(..)),room_id:rid.into(),message_id:message.into(),kind,expected_revision:revision.into(),text:text.into()};
-            tx.execute("INSERT INTO native_commands(id,rid,message_id,kind,expected_revision,text) VALUES(?1,?2,?3,?4,?5,?6)",params![command.id,rid,message,kind.value(),revision,text])?;
+            let command=PendingCommand{id:format!("{:032x}",fastrand::u128(..)),room_id:rid.into(),message_id:message.into(),kind,expected_revision:revision.into(),text:text.into(),quotes:Some(references)};
+            tx.execute("INSERT INTO native_commands(id,rid,message_id,kind,expected_revision,text,quotes) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![command.id,rid,message,kind.value(),revision,text,json(&command.quotes)?])?;
             Ok(Some(command))
         })
     }
@@ -304,7 +320,7 @@ impl NativeStore {
         if !self.same(&conn)? {
             return Ok(vec![]);
         }
-        conn.prepare("SELECT id,rid,message_id,kind,expected_revision,text FROM native_commands WHERE state='pending' ORDER BY rowid")?.query_map([],command_row)?.collect()
+        conn.prepare("SELECT id,rid,message_id,kind,expected_revision,text,quotes FROM native_commands WHERE state='pending' ORDER BY rowid")?.query_map([],command_row)?.collect()
     }
     pub fn fail_command(&self, id: &str, code: &str) -> rusqlite::Result<()> {
         self.atomic(|tx| {
@@ -330,7 +346,7 @@ impl NativeStore {
             }
             let command = tx
                 .query_row(
-                    "SELECT id,rid,message_id,kind,expected_revision,text FROM native_commands WHERE id=?1",
+                    "SELECT id,rid,message_id,kind,expected_revision,text,quotes FROM native_commands WHERE id=?1",
                     [id],
                     command_row,
                 )
@@ -955,15 +971,13 @@ mod tests {
         // Recreate the preceding application's schema before upgrading it.
         first.conn.lock().unwrap().execute_batch("DROP TABLE native_commands;
             CREATE TABLE native_commands(id TEXT PRIMARY KEY,rid TEXT NOT NULL,message_id TEXT NOT NULL UNIQUE,kind TEXT NOT NULL CHECK(kind IN ('edit','delete')),expected_revision TEXT NOT NULL,text TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',error TEXT);").unwrap();
-        let old = first
-            .command(&message.room_id, &message.id, &message.revision, MessageCommandKind::Edit, "Keep draft")
-            .unwrap()
-            .unwrap();
+        first.conn.lock().unwrap().execute("INSERT INTO native_commands(id,rid,message_id,kind,expected_revision,text) VALUES('old-edit',?1,?2,'edit',?3,'Keep draft')",params![message.room_id,message.id,message.revision]).unwrap();
         drop(first);
         let store = NativeStore::open(&path, identity()).unwrap();
-        assert_eq!(store.pending_commands().unwrap()[0].id, old.id);
+        assert_eq!(store.pending_commands().unwrap()[0].id, "old-edit");
+        assert!(store.pending_commands().unwrap()[0].quotes.is_none());
         assert_eq!(store.command_draft(&message.id).unwrap().as_deref(), Some("Keep draft"));
-        store.fail_command(&old.id, "revision_conflict").unwrap();
+        store.fail_command("old-edit", "revision_conflict").unwrap();
         let command = store
             .command(
                 &message.room_id,

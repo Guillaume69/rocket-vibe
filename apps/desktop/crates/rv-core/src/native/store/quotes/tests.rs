@@ -84,6 +84,52 @@ fn batch(changes: Vec<Change>) -> SyncBatch {
 }
 
 #[test]
+fn durable_edits_keep_ordered_references_without_source_authority_across_restart_and_reset() {
+    let path = std::env::temp_dir().join(format!("rv-quote-edit-{:032x}.sqlite", fastrand::u128(..)));
+    let first = NativeStore::open(&path, identity("epoch")).unwrap();
+    let mut snapshot = initial();
+    let mut second = snapshot.messages[1].quotes[0].clone();
+    second.reference.message_id = "source-two".into();
+    second.reference.revision = "9007199254740993".into();
+    second.excerpt = None;
+    snapshot.messages[1].quotes.push(second);
+    let expected: Vec<_> = snapshot.messages[1].quotes.iter().map(|q| q.reference.clone()).collect();
+    first.snapshot(&snapshot).unwrap();
+    first.batch(&batch(vec![Change::RoomRemoved { room_id: "origin".into() }])).unwrap();
+    assert!(first.command("destination", "reply", "19", MessageCommandKind::Edit, "Stale").is_err());
+    let command = first.command("destination", "reply", "20", MessageCommandKind::Edit, "Saved edit").unwrap().unwrap();
+    assert_eq!(command.quotes.as_ref().unwrap(), &expected);
+    let persisted: String =
+        first.conn.lock().unwrap().query_row("SELECT quotes FROM native_commands", [], |r| r.get(0)).unwrap();
+    assert!(!persisted.contains("Privé") && !persisted.contains("membership") && !persisted.contains("author"));
+    // Projection and snapshot can change after the first request lost its response.
+    let mut updated = message("reply", "destination", "50", "Another version");
+    updated.position = "20".into();
+    first.ingest(&[updated.clone()]).unwrap();
+    let reset = Snapshot {
+        protocol_version: 1,
+        rooms: vec![room("destination", "1", "destination-grant")],
+        messages: vec![updated],
+        cursor: "reset".into(),
+    };
+    first.snapshot(&reset).unwrap();
+    drop(first);
+    let reopened = NativeStore::open(&path, identity("epoch")).unwrap();
+    let replay =
+        reopened.command("destination", "reply", "50", MessageCommandKind::Edit, "Saved edit").unwrap().unwrap();
+    assert_eq!(replay.id, command.id);
+    assert_eq!(replay.expected_revision, "20");
+    assert_eq!(replay.quotes.unwrap(), expected);
+    reopened.fail_command(&command.id, "revision_conflict").unwrap();
+    assert_eq!(reopened.command_draft("reply").unwrap().as_deref(), Some("Saved edit"));
+    let fresh = reopened.command("destination", "reply", "50", MessageCommandKind::Edit, "New edit").unwrap().unwrap();
+    assert_ne!(fresh.id, command.id);
+    assert!(fresh.quotes.unwrap().is_empty());
+    drop(reopened);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn current_source_views_flow_through_the_existing_card_independently_of_reply_revisions() {
     let store = store();
     let before = cards(&store);

@@ -9,6 +9,11 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- L'édition d'une réponse native conserve ses références de citation, même après
+  suppression de la source ou perte de son accès. L'intention sauvegardée garde
+  le même contenu après coupure et redémarrage. Une ancienne édition sans contenu
+  capturé conserve son brouillon et demande une nouvelle soumission.
+
 - Les citations natives alimentent les cartes actuelles depuis un cache séparant
   références et extraits autorisés. Éditions, suppressions et retraits d'accès à
   la source actualisent les citations dans les autres salons ; les anciennes

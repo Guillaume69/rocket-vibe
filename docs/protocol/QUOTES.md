@@ -89,6 +89,23 @@ texte. Les notifications de cache existantes actualisent les salons ouverts.
 Le texte natif est conservé même s'il ressemble à un ancien préfixe de citation
 Rocket.Chat ; les citations officielles gardent leur traitement historique.
 
+## Intentions d'édition existantes
+
+Les commandes d'édition bureau et mobile capturent les références ordonnées dans
+la même transaction que le texte et l'identifiant d'opération. La révision attendue
+doit correspondre à la réponse actuellement projetée. Les références restent
+lisibles après perte d'accès ou suppression de la source, sans copier son extrait
+ni sa durée d'adhésion dans la commande. Une projection plus récente, un reset ou
+une réouverture SQLite ne reconstruisent pas le corps d'une opération en attente.
+Les adaptateurs le transmettent au champ `content.quotes` du protocole natif.
+
+La migration additive marque les anciennes commandes par une colonne nullable.
+Une ancienne édition sans corps capturé s'arrête avant l'appel réseau ; son texte
+reste disponible dans le formulaire actuel et une nouvelle soumission crée une
+nouvelle opération. Cette limite évite de changer silencieusement le corps d'une
+clé qui a pu être acceptée avant la coupure. Les autres anciennes actions restent
+rejouables. Le fournisseur Rocket.Chat et les interfaces d'édition restent inchangés.
+
 ## Raccordement suivant et conditions de sortie
 
 Les adaptateurs doivent traduire les références vers les cartes de citation
@@ -107,8 +124,8 @@ suppression reçue de la source actualise les citations déjà affichées ailleu
 La file d'envoi durable conserve les références, sans capturer un droit ni un
 extrait comme autorité. Les scénarios de perte de réponse et de reprise doivent
 traverser les vrais caches mobile / desktop et les modèles Swift.
-Les éditions d'une réponse citante doivent conserver ses références dans la
-commande durable, y compris après suppression ou perte d'accès à la source.
+Les commandes durables d'édition conservent maintenant les références ; le
+raccordement de l'envoi depuis les contrôles de réponse existants reste ouvert.
 
 Les citations imbriquées, fichiers cités et aperçus protégés restent à raccorder
 avec leur contrôle d'accès ; les fichiers sont liés à J3. Les essais installés

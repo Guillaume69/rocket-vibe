@@ -465,6 +465,7 @@ export class NativeChat {
       this.ready();
       const supported=command.kind==='edit'?this.capabilities?.editing:command.kind==='delete'?this.capabilities?.deletion:command.kind==='pin'?this.capabilities?.pins:command.kind==='star'?this.capabilities?.stars:this.capabilities?.reactions;
       if (!supported) throw new NativeError(501,'unsupported_feature');
+      if(command.kind==='edit' && command.quotes===null)throw new NativeError(422,'edit_intent_upgrade_required');
       const generation=this.generation;
       const projection=this.store.projectionToken();
       const input={operation_id:command.id,expected_revision:command.expected_revision};
@@ -475,7 +476,7 @@ export class NativeChat {
         : reaction
         ? await this.transport.setReaction(command.message_id,{operation_id:command.id,...reaction})
         : command.kind==='edit'
-        ? await this.transport.editMessage(command.message_id,{...input,content:{kind:'plain',markdown:command.text,mentions:[],quotes:[],files:[]}})
+        ? await this.transport.editMessage(command.message_id,{...input,content:{kind:'plain',markdown:command.text,mentions:[],quotes:command.quotes??[],files:[]}})
         : await this.transport.deleteMessage(command.message_id,input);
       if (this.stopped || generation!==this.generation) throw new NativeError(0,'session_closed');
       if (!await this.store.confirmCommand(command.id,message,projection)) throw new NativeError(409,'delivery_revalidate');

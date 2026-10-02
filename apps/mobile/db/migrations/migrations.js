@@ -26,6 +26,7 @@ import m0021 from './0021_redundant_dagger.sql';
 import m0022 from './0022_tense_stone_men.sql';
 import m0023 from './0023_previous_lifeguard.sql';
 import m0024 from './0024_fluffy_thor.sql';
+import m0025 from './0025_jazzy_whiplash.sql';
 
   export default {
     journal,
@@ -54,7 +55,8 @@ m0020,
 m0021,
 m0022,
 m0023,
-m0024
+m0024,
+m0025
     }
   }
   

@@ -18,6 +18,12 @@ fn position(value: &str) -> rusqlite::Result<u64> {
     decimal(value).and_then(|n| if n <= i64::MAX as u64 { Ok(n) } else { Err(rusqlite::Error::InvalidQuery) })
 }
 
+/// Capture only stable references, even when their source is no longer readable.
+pub(super) fn references(conn: &Connection, id: &str) -> rusqlite::Result<Vec<QuoteReference>> {
+    conn.prepare("SELECT source_room,source_id,observed_revision FROM native_quote_references WHERE message_id=?1 ORDER BY ordinal")?
+        .query_map([id], |r| Ok(QuoteReference {room_id:r.get(0)?,message_id:r.get(1)?,revision:r.get(2)?}))?.collect()
+}
+
 /// Null wins a tie. An old HTTP view cannot resurrect an unavailable source.
 fn save_source(
     tx: &Transaction,

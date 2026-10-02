@@ -85,6 +85,11 @@ export class NativeQuoteCache {
     return cards.length?JSON.stringify(cards):null;
   }
   async refreshOrigin(rid:string):Promise<void> { await this.refresh(new Set([rid])); }
+  /** Immutable references for an edit intent; never capture excerpt or access authority. */
+  async references(id:string):Promise<QuoteReference[]> {
+    const rows=await this.db.getAllAsync<{source_id:string;source_room:string;observed_revision:string}>('SELECT source_id,source_room,observed_revision FROM native_quote_references WHERE message_id=? ORDER BY ordinal',[id]);
+    return rows.map(r=>({message_id:r.source_id,room_id:r.source_room,revision:r.observed_revision}));
+  }
   /** Update the same pieces_jointes column watched by the existing mobile UI. */
   private async refresh(rooms:Set<string>,own?:string):Promise<void> {
     const ids=new Set(own?[own]:[]),roomIds=[...rooms];

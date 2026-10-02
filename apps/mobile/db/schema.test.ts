@@ -29,6 +29,16 @@ function baseMigree(): DatabaseSync {
   return db;
 }
 
+test('edit reference migration retains older operation IDs and drafts without inventing a new body',()=>{
+  const db=baseMigreeAvant(25);
+  try {
+    db.exec("INSERT INTO native_commands(id,rid,message_id,kind,expected_revision,text) VALUES('old-operation','room','message','edit','9007199254740993','Saved draft')");
+    appliquerMigration(db,25);
+    const row=db.prepare('SELECT id,expected_revision,text,state,quotes FROM native_commands').get()!;
+    assert.equal(row.id,'old-operation');assert.equal(row.expected_revision,'9007199254740993');assert.equal(row.text,'Saved draft');assert.equal(row.state,'pending');assert.equal(row.quotes,null);
+  }finally {db.close();}
+});
+
 function tables(db: DatabaseSync): string[] {
   return db
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")

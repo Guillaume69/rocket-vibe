@@ -320,16 +320,17 @@ test('durable edits retry the original revision after journal delivery and stop 
   const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',genre:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   const {db,adapter}=nativeTestDatabase();
   const store=new NativeStore(adapter,creerFileEcritures(),session);
-  const original={...fixture.message,position:'1',revision:'1'};
+  const references=[{room_id:'origin',message_id:'source',revision:'9007199254740993'}];
+  const original={...fixture.message,position:'1',revision:'1',quotes:[{reference:references[0],view_position:'0',excerpt:null}]};
   await store.applySnapshot({protocol_version:1,rooms:[fixture.room],messages:[original],cursor:'initial'});
-  const attempts:{operation_id:string;expected_revision:string}[]=[];
+  const attempts:{operation_id:string;expected_revision:string;quotes:unknown[]}[]=[];
   let deleteError:NativeError|null=new NativeError(409,'revision_conflict');
   const transport={
     discover:async()=>({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,editing:true,deletion:true,fine_permissions:true}}),me:async()=>fixture.session.user,
     changes:async()=>({protocol_version:1,changes:[],cursor:'initial',has_more:false}),socketUrl:async()=>'ws://localhost/fake',
-    editMessage:async(_:string,input:{operation_id:string;expected_revision:string;content:{markdown:string}})=>{
-      attempts.push({operation_id:input.operation_id,expected_revision:input.expected_revision});
-      const edited={...original,text:input.content.markdown,revision:'2',edited_at:'2026-10-01T00:00:00Z'};
+    editMessage:async(_:string,input:{operation_id:string;expected_revision:string;content:{markdown:string;quotes:unknown[]}})=>{
+      attempts.push({operation_id:input.operation_id,expected_revision:input.expected_revision,quotes:structuredClone(input.content.quotes)});
+      const edited={...original,text:input.content.markdown,revision:'2',edited_at:'2026-10-01T00:00:00Z',quotes:[]};
       if (attempts.length===1) {
         await store.applyBatch({protocol_version:1,changes:[{type:'message_upsert',data:edited}],cursor:'edited',has_more:false});
         throw new NativeError(503,'response_lost');
@@ -347,7 +348,7 @@ test('durable edits retry the original revision after journal delivery and stop 
     assert.equal((await store.pendingCommands())[0].expected_revision,'1');
     const deadline=Date.now()+5000;
     while ((await store.pendingCommands()).length) {assert(Date.now()<deadline,'command retry stalled');await new Promise(resolve=>setTimeout(resolve,10));}
-    assert.deepEqual(attempts,[{operation_id:'command-1',expected_revision:'1'},{operation_id:'command-1',expected_revision:'1'}]);
+    assert.deepEqual(attempts,[{operation_id:'command-1',expected_revision:'1',quotes:references},{operation_id:'command-1',expected_revision:'1',quotes:references}]);
     await assert.rejects(chat.delete(fixture.room.id,original.id,'2'),e=>e instanceof NativeError && e.code==='revision_conflict');
     assert.equal((await store.pendingCommands()).length,0,'conflicting commands must not retry forever');
     assert.equal(db.prepare('SELECT state FROM native_commands').get()?.state,'failed');
@@ -357,6 +358,31 @@ test('durable edits retry the original revision after journal delivery and stop 
     await assert.rejects(chat.edit(fixture.room.id,original.id,'2','Old screen'),e=>e instanceof NativeError && e.code==='session_closed');
     assert.equal((await store.pendingCommands()).length,1,'rejection preserves the unacknowledged intent for later review');
   } finally {chat.stop();await store.state();db.close();}
+});
+
+test('legacy edit intents retain their draft and stop before sending a changed operation body',async()=>{
+  const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',genre:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const {db,adapter}=nativeTestDatabase(),store=new NativeStore(adapter,creerFileEcritures(),session);
+  await store.applySnapshot({protocol_version:1,rooms:[fixture.room],messages:[fixture.message],cursor:'initial'});
+  db.prepare("INSERT INTO native_commands(id,rid,message_id,kind,expected_revision,text) VALUES('legacy-edit',?,?,'edit',?,'Saved draft')").run(fixture.room.id,fixture.message.id,fixture.message.revision);
+  let calls=0;
+  const transport={
+    discover:async()=>({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,editing:true}}),me:async()=>fixture.session.user,
+    changes:async()=>({protocol_version:1,changes:[],cursor:'initial',has_more:false}),socketUrl:async()=>'ws://localhost/fake',
+    editMessage:async()=>{calls++;return fixture.message;},
+  } as unknown as NativeTransport;
+  const socket={readyState:0,onopen:null,onclose:null,onerror:null,onmessage:null,close:()=>{}} as unknown as WebSocket;
+  const chat=new NativeChat(session,store,()=> 'new-edit',{transport,socket:()=>{queueMicrotask(()=>socket.onopen?.(new Event('open')));return socket;}});
+  try {
+    await chat.connect();
+    const deadline=Date.now()+5000;
+    while((await store.pendingCommands()).length){assert(Date.now()<deadline,'legacy edit must not retry forever');await new Promise(resolve=>setTimeout(resolve,10));}
+    assert.equal(calls,0);assert.equal(await store.commandDraft(fixture.message.id),'Saved draft');
+    assert.equal(db.prepare("SELECT error FROM native_commands WHERE id='legacy-edit'").get()!.error,'edit_intent_upgrade_required');
+    await chat.edit(fixture.room.id,fixture.message.id,fixture.message.revision,'Fresh edit');
+    assert.equal(calls,1);assert.equal((await store.pendingCommands()).length,0);
+  }finally {chat.stop();await store.state();db.close();}
 });
 
 test('stopping during the WebSocket handshake cancels its timer and detaches every callback',async () => {

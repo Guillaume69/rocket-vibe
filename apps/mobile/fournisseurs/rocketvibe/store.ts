@@ -29,7 +29,13 @@ export type NativeRoomRow = { rid: string; nom: string; type: string; dernier_me
 export type NativeMessageRow = { id: string; texte: string; auteur_nom: string; auteur_id: string; horodatage: number; statut: string | null };
 export type NativePending = { id: string; rid: string; texte: string };
 export type NativeRoomAccess = {rid:string;revision:string;read_only:number|null;can_send:number|null;role:string|null};
-export type NativeCommand = {id:string;rid:string;message_id:string;kind:'edit'|'delete'|'react'|'pin'|'star';expected_revision:string;text:string};
+export type NativeCommand = {id:string;rid:string;message_id:string;kind:'edit'|'delete'|'react'|'pin'|'star';expected_revision:string;text:string;quotes:import('./protocol.generated.ts').QuoteReference[]|null};
+type NativeCommandRow=Omit<NativeCommand,'quotes'>&{quotes:string|null};
+function commandRow(row:NativeCommandRow):NativeCommand {
+  const raw:unknown=row.quotes===null?null:JSON.parse(row.quotes);
+  if(raw!==null && (!Array.isArray(raw) || raw.length>8))throw new Error('Invalid native edit references');
+  return {...row,quotes:raw===null?null:(raw as unknown[]).map(r=>decodeNative('QuoteReference',r))};
+}
 
 /** Projection consumed by the existing message renderer and action sheet. */
 export function nativeReactions(reactions: Message['reactions']): string|null {
@@ -427,19 +433,26 @@ export class NativeStore {
   command(rid: string, message: string, revision: string, kind: NativeCommand['kind'], text: string, id: ()=>string): Promise<NativeCommand|null> {
     return this.atomic(async () => {
       if (!/^(0|[1-9]\d*)$/.test(revision) || !await this.sameGeneration()) throw new Error('Native command unavailable');
-      const previous=await this.db.getFirstAsync<NativeCommand>("SELECT id,rid,message_id,kind,expected_revision,text FROM native_commands WHERE message_id=? AND state='pending'",[message]);
+      const saved=await this.db.getFirstAsync<NativeCommandRow>("SELECT id,rid,message_id,kind,expected_revision,text,quotes FROM native_commands WHERE message_id=? AND state='pending'",[message]);
+      const previous=saved?commandRow(saved):null;
       if (previous) return previous.rid===rid && previous.kind===kind && previous.text===text?previous:null;
       if (!await this.db.getFirstAsync('SELECT m.id FROM messages m JOIN native_positions p ON p.id=m.id WHERE m.id=? AND m.rid=?',[message,rid])) throw new Error('Message unavailable');
+      if(kind==='edit'){
+        const current=await this.db.getFirstAsync<{revision:string}>('SELECT revision FROM native_positions WHERE id=?',[message]);
+        if(current?.revision!==revision)throw new Error('Message revision changed');
+      }
+      const quotes=kind==='edit'?await this.quotes.references(message):[];
       await this.db.runAsync("DELETE FROM native_commands WHERE message_id=? AND state='failed'",[message]);
-      const command: NativeCommand={id:id(),rid,message_id:message,kind,expected_revision:revision,text};
-      await this.db.runAsync('INSERT INTO native_commands(id,rid,message_id,kind,expected_revision,text) VALUES(?,?,?,?,?,?)',[command.id,rid,message,kind,revision,text]);
+      const command: NativeCommand={id:id(),rid,message_id:message,kind,expected_revision:revision,text,quotes};
+      await this.db.runAsync('INSERT INTO native_commands(id,rid,message_id,kind,expected_revision,text,quotes) VALUES(?,?,?,?,?,?,?)',[command.id,rid,message,kind,revision,text,JSON.stringify(quotes)]);
       return command;
     });
   }
   pendingCommands(): Promise<NativeCommand[]> {
     return this.queue(async () => {
       if (!await this.sameGeneration()) return [];
-      const commands=await this.db.getAllAsync<NativeCommand>("SELECT id,rid,message_id,kind,expected_revision,text FROM native_commands WHERE state='pending' ORDER BY rowid",[]);
+      const rows=await this.db.getAllAsync<NativeCommandRow>("SELECT id,rid,message_id,kind,expected_revision,text,quotes FROM native_commands WHERE state='pending' ORDER BY rowid",[]);
+      const commands=rows.map(commandRow);
       if (commands.some(c => !['edit','delete','react','pin','star'].includes(c.kind))) throw new Error('Invalid native command');
       return commands;
     });

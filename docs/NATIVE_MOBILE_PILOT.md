@@ -11,6 +11,15 @@ Keychain. Les sessions anciennes sans genre restent Rocket.Chat.
 
 ## Essayer
 
+Les comptes ayant un facteur e-mail explicitement installé peuvent demander leur
+code depuis le formulaire de connexion existant et confirmer leur identité dans
+les paramètres. « Reprendre l’envoi » lit la livraison initiale ou répète la même
+commande interrompue ; « Renvoyer le code » est une nouvelle demande explicite,
+bornée par le serveur, avec le même code et la même échéance. Le code saisi reste
+transitoire. Les candidats sont conservés dans les entrées SecureStore privées
+des défis, avec leurs autres métadonnées de reprise. L'inscription du facteur
+depuis les paramètres reste à raccorder ; vérifier une adresse ne l'active pas.
+
 1. Démarrer le [serveur natif](../apps/server/README.md) et créer ses comptes avec
    `create-user` et `RV_USER_PASSWORD`.
 2. Installer le mobile en suivant son [README](../apps/mobile/README.md).

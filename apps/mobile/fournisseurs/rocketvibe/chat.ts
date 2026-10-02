@@ -218,7 +218,12 @@ export class NativeChat {
     },remote:{
       proof:{status:()=>call(async()=>{const next=await this.transport.reauthenticationStatus();checkSecurityScope(scope,next);return next;}),
         begin:input=>call(()=>this.transport.beginReauthentication(input)),resume:input=>call(()=>this.transport.resumeReauthentication(input)),
-        finish:input=>call(()=>this.transport.finishReauthentication(input)),retire:input=>call(()=>this.transport.retireReauthentication(input))},
+        finish:input=>call(()=>this.transport.finishReauthentication(input)),retire:input=>call(()=>this.transport.retireReauthentication(input)),
+        ...(this.capabilities?.email_factors?{email:{
+          begin:input=>call(()=>{if(!this.capabilities?.email_factor_delivery)throw new NativeError(501,'unsupported_feature');return this.transport.beginReauthenticationEmail(input);}),
+          resume:input=>call(()=>this.transport.resumeReauthenticationEmail(input)),
+        }}:{}),
+      },
       status:()=>call(()=>this.transport.factorStatus()),setup:input=>factorCall(()=>this.transport.beginFactorSetup(input)),
       enable:input=>factorCall(()=>this.transport.enableFactor(input)),regenerate:input=>factorCall(()=>this.transport.regenerateFactorBackups(input)),
       disable:input=>factorCall(()=>this.transport.disableFactor(input)),

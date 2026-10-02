@@ -179,7 +179,7 @@ ouverte tant que serveur, clients concernés et scénario de parité manquent.
 | ID / RFC §4 | Lot | État et prochaine condition de sortie |
 |---|---|---|
 | P01 Découverte / comptes / sessions | J1–J2 | Rotation / reprise sécurisée, appareils, inscription sur invitation et récupération opérateur dans les trois clients existants ; qualification sur appareils et récupération email à compléter avec P02 |
-| P02 2FA | J2 | TOTP / secours, réauthentification et adresse vérifiée / retrait dans les 3 clients livrés ; inscription du facteur email et défis OTP livrés côté serveur / SDK ; coffres et formulaires OTP des 3 clients, récupération email et qualification sur appareils à poursuivre |
+| P02 2FA | J2 | TOTP / secours, réauthentification et adresse vérifiée / retrait dans les 3 clients livrés ; facteur email côté serveur / SDK et défis OTP mobile livrés ; défis OTP bureau, inscription du facteur dans les 3 clients, récupération email et qualification sur appareils à poursuivre |
 | P03 Multi-serveurs | J1 | Isolation livrée ; validation appareils / liens et générations après restauration |
 | P04 Salons / DM | J1–J2 | DM / membres, création idempotente et découverte / join livrés ; détails / rôles à compléter |
 | P05 Favoris / non-lus / mentions | J2 | Modèle figé ; états personnels et compteurs atomiques à livrer |

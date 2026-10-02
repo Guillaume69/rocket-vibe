@@ -3,8 +3,9 @@
 import type { Credentials, Session as AccountSession } from '../../lib/auth.ts';
 import type { AuthChallenge, Discovery, SecondFactor, Session, User } from './protocol.generated.ts';
 import { NativeError, NativeTransport } from './transport.ts';
+import {emailDeliveryIntent,type EmailDeliveryIntent} from './factorEmailDelivery.ts';
 
-export type LoginChallenge={baseUrl:string;instanceId:string;dataEpoch:string;user:User;challenge:AuthChallenge;pending:{operation_id:string;next_token:string}|null};
+export type LoginChallenge={baseUrl:string;instanceId:string;dataEpoch:string;user:User;challenge:AuthChallenge;pending:{operation_id:string;next_token:string}|null;email?:EmailDeliveryIntent};
 export type LoginStep={kind:'session';session:AccountSession}|{kind:'challenge';challenge:LoginChallenge};
 export type FactorDependencies={
   /** CSPRNG: 32 bytes encoded as lowercase hex, never Math.random. */
@@ -22,7 +23,7 @@ function identity(record:LoginChallenge,discovery:Discovery):void {
 export function validLoginChallenge(value:unknown):value is LoginChallenge {
   if(typeof value!=='object' || value===null)return false;
   const record=value as Partial<LoginChallenge>;
-  if(Object.keys(record).some(k=>!['baseUrl','instanceId','dataEpoch','user','challenge','pending'].includes(k)))return false;
+  if(Object.keys(record).some(k=>!['baseUrl','instanceId','dataEpoch','user','challenge','pending','email'].includes(k)))return false;
   if(typeof record.baseUrl!=='string' || typeof record.instanceId!=='string' || !record.instanceId || record.instanceId.length>128
     || typeof record.dataEpoch!=='string' || !record.dataEpoch || record.dataEpoch.length>128
     || typeof record.user?.id!=='string' || !record.user.id || record.user.id.length>128
@@ -34,7 +35,10 @@ export function validLoginChallenge(value:unknown):value is LoginChallenge {
     || !Array.isArray(record.challenge.methods) || record.challenge.methods.length<1 || record.challenge.methods.length>3
     || new Set(record.challenge.methods).size!==record.challenge.methods.length
     || record.challenge.methods.some(m=>!['totp','email','recovery_code'].includes(m)))return false;
-  try {new NativeTransport(record.baseUrl);}catch{return false;}
+  try {
+    new NativeTransport(record.baseUrl);
+    if(record.email!==undefined)emailDeliveryIntent(record.email,record.challenge);
+  }catch{return false;}
   if(record.pending===null)return true;
   const p=record.pending;
   return typeof p==='object' && p!==null && Object.keys(p).length===2

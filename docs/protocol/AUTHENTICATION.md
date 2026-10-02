@@ -3,8 +3,10 @@
 Ce lot livre le serveur, les SDK et les connexions mobile / GTK / SwiftUI, ainsi
 que la réauthentification et la gestion des facteurs dans les paramètres des
 trois clients. Le serveur et les SDK proposent aussi le facteur e-mail décrit
-dans [EMAIL.md](EMAIL.md). P02 reste ouvert pour ses coffres et formulaires
-dans les trois clients, la récupération e-mail et la qualification des appareils.
+dans [EMAIL.md](EMAIL.md). Les défis e-mail de connexion / réauthentification
+sont raccordés au mobile. P02 reste ouvert pour leurs parcours bureau,
+l'inscription du facteur dans les trois clients, la récupération e-mail et la
+qualification des appareils.
 Le fournisseur Rocket.Chat garde son parcours.
 
 Les coordinateurs `rv-core::native::authentication` et
@@ -22,7 +24,7 @@ l'UID rendu par le code opérateur avec celui du challenge / de la session.
 
 ### Coffre et formulaire mobile
 
-L'écran de connexion existant propose TOTP et les secours annoncés par le serveur.
+L'écran de connexion existant propose TOTP, e-mail et les secours annoncés par le serveur.
 Mot de passe et code opérateur quittent son état dès le défi ; les codes TOTP /
 secours restent seulement en mémoire. Retour ou perte du focus empêche une
 réponse tardive de commencer l'installation du compte. Le fournisseur Rocket.Chat

@@ -17,8 +17,9 @@ initiale. La migration 0018 et les SDK permettent aussi le retrait conditionnel
 du contact, même sans SMTP ; les coffres et boutons mobile / GTK / SwiftUI sont
 raccordés à ces trois routes.
 Le second facteur e-mail est livré côté serveur et SDK, avec inscription
-explicite, retrait et livraison sur un défi déjà établi. Les coffres et
-formulaires de ce facteur dans les trois clients restent à raccorder ; les
+explicite, retrait et livraison sur un défi déjà établi. Les défis de connexion et
+de confirmation d'identité sont raccordés au mobile. Leur raccordement GTK /
+SwiftUI et les coffres / formulaires d'inscription du facteur restent à livrer ; les
 formulaires d'adresse vérifiée ne l'activent pas automatiquement. La récupération
 du compte par e-mail reste à implémenter.
 
@@ -356,6 +357,34 @@ couvrent HTTP typé, inscription concurrente et reprise, coexistence TOTP, perte
 d'ACK SMTP, renvois bornés, absence de SMTP, reçus périmés, erreurs de clé / charge /
 génération et expiration sous verrou réel. Trois tests de transport TypeScript
 couvrent l'isolement du bearer et les reprises pendant le cooldown commun.
+
+### Défis dans les écrans mobiles existants
+
+Les coffres de connexion et de confirmation d'identité conservent le candidat
+de livraison, l'opération initiale et l'état reçu dans leur entrée SecureStore
+privée déjà existante. Ils lisent les anciens formats sans métadonnée de mail.
+Les codes restent hors du coffre, de SQLite et des sessions. La file locale
+commune retient HTTP et les écritures ; une réponse perdue conserve la commande
+initiale. Recréer le coffre puis reprendre lit son reçu, sans mail supplémentaire.
+Un appel interrompu avant insertion peut reprendre cette même commande sur un
+geste explicite. Le chargement d'un écran n'envoie pas de mail.
+
+Un renvoi explicite exige un état précédent confirmé, relit le délai du serveur
+et sauvegarde le nouveau candidat avant start. Une ancienne vue ne peut le
+remplacer. Le défi et sa date initiale restent identiques. Une nouvelle preuve
+de mot de passe conserve une livraison en attente jusqu'à la barrière d'expiration
+du défi précédent. SMTP absent après livraison conserve la lecture du reçu et
+la vérification du code déjà reçu. Les gardes de focus, de compte, de famille et
+de génération refusent les callbacks retardés ; quitter le formulaire efface
+la saisie du code.
+
+Onze tests des coffres couvrent stockage indisponible, ACK perdu, concurrence,
+renvoi, portée et expiration. Le pilote `scripts/native-factor-email-mobile-pilot.ts`
+traverse HTTP, PostgreSQL, SMTP loopback, le fournisseur mobile et SQLite : les
+réponses de livraison et de validation disparaissent volontairement, deux codes
+sont transmis, deux preuves sont consommées, aucune répétition ne produit un
+envoi ou une session supplémentaire. Il recrée les coffres avec un adaptateur
+portable ; il ne qualifie pas le Keystore installé, ni le rendu sur appareil.
 
 Le composant commun d'admission SMTP est extrait : il conserve les clés des
 vérifications déjà admises et partage les budgets persistants global, compte,

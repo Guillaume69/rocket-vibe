@@ -5,6 +5,7 @@ import {cleAuthentificationNative} from '../../lib/clesStockage.ts';
 import {finishNativeFactor,recoverNativeFactor,validLoginChallenge,type LoginChallenge,type LoginStep} from './authentication.ts';
 import type {SecondFactor} from './protocol.generated.ts';
 import {NativeError,NativeTransport} from './transport.ts';
+import {emailDeliveryIntent,sendFactorEmail} from './factorEmailDelivery.ts';
 
 export type AuthenticationStorage={read:(key:string)=>Promise<string|null>;write:(key:string,value:string)=>Promise<void>;remove:(key:string)=>Promise<void>};
 export type AuthenticationVaultDependencies={storage:AuthenticationStorage;hash:Hacheur;token:()=>Promise<string>;fetcher?:typeof fetch};
@@ -20,7 +21,8 @@ function sameIdentity(a:LoginChallenge,b:LoginChallenge):boolean {
 }
 function snapshot(value:LoginChallenge):LoginChallenge {
   if(!validLoginChallenge(value))throw new NativeError(0,'invalid_native_authentication');
-  return {...value,user:{...value.user},challenge:{...value.challenge,methods:[...value.challenge.methods]},pending:value.pending && {...value.pending}};
+  return {...value,user:{...value.user},challenge:{...value.challenge,methods:[...value.challenge.methods]},pending:value.pending && {...value.pending},
+    ...(value.email?{email:emailDeliveryIntent(value.email,value.challenge)}:{})};
 }
 
 export class AuthenticationVault {
@@ -41,13 +43,13 @@ export class AuthenticationVault {
    * candidate probe after that account-lock barrier makes replacement safe. */
   async stage(fresh:LoginChallenge):Promise<LoginStep> {
     fresh=snapshot(fresh);
-    if(!validLoginChallenge(fresh) || fresh.pending!==null)throw new NativeError(0,'invalid_native_authentication');
+    if(!validLoginChallenge(fresh) || fresh.pending!==null || fresh.email!==undefined)throw new NativeError(0,'invalid_native_authentication');
     const key=await this.key(fresh.baseUrl,fresh.user.username);
     return serialized(key,async()=>{
       const previous=await this.read(key,fresh.baseUrl,fresh.user.username);
-      if(previous?.pending){
+      if(previous && (previous.pending || previous.email)){
         if(!sameIdentity(previous,fresh))throw new NativeError(409,'server_identity_changed');
-        const completed=await recoverNativeFactor(previous,this.deps.fetcher);
+        const completed=previous.pending?await recoverNativeFactor(previous,this.deps.fetcher):null;
         if(completed)return {kind:'session',session:completed};
         // The server fixes challenge TTL at five minutes. start_login holds the
         // same account lock as verify, so a new proof issued after old expiry
@@ -69,6 +71,41 @@ export class AuthenticationVault {
       const current=await this.read(key,expected.baseUrl,expected.user.username);
       if(!current || !sameIdentity(current,expected) || current.challenge.challenge_id!==expected.challenge.challenge_id)throw new NativeError(409,'credentials_changed');
       return recoverNativeFactor(current,this.deps.fetcher);
+    });
+  }
+  async sendEmail(expected:LoginChallenge,resend=false,guard:()=>boolean=()=>true):Promise<LoginChallenge> {
+    expected=snapshot(expected);
+    const key=await this.key(expected.baseUrl,expected.user.username);
+    return serialized(key,async()=>{
+      let current=await this.read(key,expected.baseUrl,expected.user.username);
+      if(!current || !sameIdentity(current,expected) || current.challenge.challenge_id!==expected.challenge.challenge_id
+        || resend && current.email?.input.delivery_id!==expected.email?.input.delivery_id)throw new NativeError(409,'credentials_changed');
+      const transport=new NativeTransport(current.baseUrl,this.deps.fetcher);
+      const live=async()=>{
+        if(!guard())throw new NativeError(0,'session_closed');
+        const discovery=await transport.discover();
+        if(!guard())throw new NativeError(0,'session_closed');
+        if(discovery.instance_id!==current!.instanceId || discovery.data_epoch!==current!.dataEpoch)throw new NativeError(409,'server_identity_changed');
+        return discovery;
+      };
+      const discovery=await live();
+      if(!current.email && !discovery.capabilities.email_factor_delivery)throw new NativeError(501,'unsupported_feature');
+      await sendFactorEmail(current.challenge,current.email??null,resend,{
+        alive:guard,token:this.deps.token,
+        save:async email=>{
+          if(!guard())throw new NativeError(0,'session_closed');
+          const actual=await this.read(key,expected.baseUrl,expected.user.username);
+          if(!actual || JSON.stringify(actual)!==JSON.stringify(current))throw new NativeError(409,'credentials_changed');
+          if(email.input.delivery_id===current!.pending?.next_token)throw new NativeError(0,'invalid_native_authentication');
+          const next=snapshot({...current!,email});
+          await this.deps.storage.write(key,JSON.stringify(next));current=next;
+        },
+        remote:{
+          begin:async input=>{if(!(await live()).capabilities.email_factor_delivery)throw new NativeError(501,'unsupported_feature');const result=await transport.beginFactorEmail(input);await live();return result;},
+          resume:async input=>{await live();const result=await transport.resumeFactorEmail(input);await live();return result;},
+        },
+      });
+      return snapshot(current);
     });
   }
   async finish(expected:LoginChallenge,method:SecondFactor,code:string):Promise<Session> {

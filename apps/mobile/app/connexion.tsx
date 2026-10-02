@@ -1,6 +1,6 @@
 import { Redirect, Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppState, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { SERVEUR_PAR_DEFAUT } from '../db/migrer.ts';
@@ -72,11 +72,17 @@ export default function EcranConnexion() {
   const generation = useRef(0);
   useFocusEffect(useCallback(() => {
     generation.current++;
-    return () => { generation.current++; };
+    return () => { generation.current++; setCode(''); };
   }, []));
   useEffect(() => {
     monte.current = true;
     return () => { monte.current = false; requete.current?.abort(); };
+  }, []);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', state => {
+      if (state !== 'active') { generation.current++; setCode(''); }
+    });
+    return () => subscription.remove();
   }, []);
 
   // Pré-remplir avec le dernier serveur utilisé, sans écraser une saisie déjà
@@ -179,7 +185,7 @@ export default function EcranConnexion() {
             etape = await nativeAuthenticationVault.stage(nouveau);
             if (!courant()) return;
             if (etape.kind === 'challenge') {
-              const methode = etape.challenge.challenge.methods.find(m => m === 'totp' || m === 'recovery_code');
+              const methode = etape.challenge.challenge.methods.find(m => m === 'totp' || m === 'email' || m === 'recovery_code');
               if (!methode) throw new NativeError(503, 'factor_unavailable');
               setMotDePasse(''); setInvitation(''); setInscription(false); setRecuperation(false); setCode('');
               setPhase({ nom: 'facteurNatif', profil: phase.profil, client: phase.client, challenge: etape.challenge, methode });
@@ -281,6 +287,27 @@ export default function EcranConnexion() {
       if (monte.current) setOccupe(false);
     }
   }, [phase, code, connecter, routeur, t]);
+
+  const envoyerEmailNatif = useCallback(async (resend = false) => {
+    if (enVol.current || phase.nom !== 'facteurNatif') return;
+    const depart = generation.current;
+    const courant = () => monte.current && depart === generation.current;
+    enVol.current = true; setOccupe(true); setMessage(null);
+    try {
+      const challenge = await nativeAuthenticationVault.sendEmail(phase.challenge, resend, courant);
+      if (courant()) setPhase({ ...phase, challenge });
+    } catch (e) {
+      if (!courant()) return;
+      setMessage(t(e instanceof NativeError && e.status === 429 ? 'email.limited' : 'connexion.facteurReessayer'));
+      const stockee = await nativeAuthenticationVault.load(phase.challenge.baseUrl, phase.challenge.user.username).catch(() => null);
+      if (courant() && stockee?.challenge.challenge_id === phase.challenge.challenge.challenge_id) {
+        setPhase({ ...phase, challenge: stockee });
+      }
+    } finally {
+      enVol.current = false;
+      if (monte.current) setOccupe(false);
+    }
+  }, [phase, t]);
 
   const validerCode = useCallback(async () => {
     if (phase.nom !== 'deuxFacteurs' || code.trim() === '') return;
@@ -449,6 +476,7 @@ export default function EcranConnexion() {
         {phase.nom === 'facteurNatif' && (
           <SectionFacteurNatif c={c} challenge={phase.challenge} methode={phase.methode} code={code} occupe={occupe}
             onChangeCode={setCode} onValider={() => void validerFacteurNatif()}
+            onEnvoyerEmail={resend => void envoyerEmailNatif(resend)}
             onMethode={methode => { if (enVol.current) return; setCode(''); setMessage(null); setPhase({ ...phase, methode }); }} />
         )}
 
@@ -507,23 +535,37 @@ function RetourConnexion({
   );
 }
 
-function SectionFacteurNatif({ c, challenge, methode, code, occupe, onChangeCode, onValider, onMethode }: {
+function SectionFacteurNatif({ c, challenge, methode, code, occupe, onChangeCode, onValider, onMethode, onEnvoyerEmail }: {
   c: Couleurs; challenge: LoginChallenge; methode: SecondFactor; code: string; occupe: boolean;
   onChangeCode: (value: string) => void; onValider: () => void; onMethode: (method: SecondFactor) => void;
+  onEnvoyerEmail: (resend: boolean) => void;
 }) {
   const t = useT();
   const secours = methode === 'recovery_code';
+  const email = methode === 'email';
+  const deliveryLabels = {queued:'email.queued',sending:'email.sending',deferred:'email.deferred',accepted:'email.accepted',exhausted:'email.exhausted'} as const;
   return <>
-    <BlasonDeuxFacteurs c={c} sousTitre={t(secours ? 'connexion.introSecours' : 'connexion.introTotp')} />
-    <ChampPilule c={c} etiquette={t(secours ? 'connexion.codeSecours' : 'connexion.etiquetteTotp')}
+    <BlasonDeuxFacteurs c={c} sousTitre={t(secours ? 'connexion.introSecours' : email ? 'connexion.introEmail' : 'connexion.introTotp')} />
+    {email && <>
+      <Pressable disabled={occupe} onPress={() => onEnvoyerEmail(false)}>
+        <Text style={[styles.lien, {color:c.cyan}]}>{t(challenge.email ? 'email.resumeDelivery' : 'connexion.envoyerLeCode')}</Text>
+      </Pressable>
+      {challenge.email?.status && <>
+        <Text style={{color:c.attenue}}>{t(deliveryLabels[challenge.email.status.delivery])}</Text>
+        <Pressable disabled={occupe} onPress={() => onEnvoyerEmail(true)}>
+          <Text style={[styles.lien, {color:c.cyan}]}>{t('connexion.renvoyerCode')}</Text>
+        </Pressable>
+      </>}
+    </>}
+    <ChampPilule c={c} etiquette={t(secours ? 'connexion.codeSecours' : email ? 'email.code' : 'connexion.etiquetteTotp')}
       valeur={code} onChangeText={onChangeCode} onSubmitEditing={onValider} editable={!occupe}
       keyboardType={secours ? 'default' : 'number-pad'} autoComplete={secours ? 'off' : 'one-time-code'}
-      secureTextEntry={secours} grand={!secours} autoFocus />
+      secureTextEntry={secours} grand={!secours} maxLength={email ? 8 : 128} autoFocus />
     <BoutonPrincipal c={c} occupe={occupe} onPress={onValider} titre={t('connexion.valider')} />
     {challenge.pending && <Text style={{ color: c.attenue }}>{t('connexion.facteurReprise')}</Text>}
-    {challenge.challenge.methods.filter(m => m !== methode && m !== 'email').map(m =>
+    {challenge.challenge.methods.filter(m => m !== methode).map(m =>
       <Pressable key={m} disabled={occupe} onPress={() => onMethode(m)}>
-        <Text style={[styles.lien, { color: c.cyan }]}>{t(m === 'recovery_code' ? 'connexion.utiliserSecours' : 'connexion.utiliserTotp')}</Text>
+        <Text style={[styles.lien, { color: c.cyan }]}>{t(m === 'recovery_code' ? 'connexion.utiliserSecours' : m === 'email' ? 'connexion.utiliserEmail' : 'connexion.utiliserTotp')}</Text>
       </Pressable>)}
   </>;
 }

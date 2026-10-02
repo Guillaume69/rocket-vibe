@@ -32,8 +32,9 @@ privées, SDK et file SMTP chiffrée durable. Les formulaires mobile, GTK et Swi
 sont raccordés. Le retrait conditionnel du contact est disponible côté serveur
 et SDK, même sans SMTP ; les trois clients sont raccordés. Le second facteur
 e-mail dispose de routes serveur et SDK pour inscription, retrait, livraison et
-reprise des défis de connexion / réauthentification. Ses coffres et formulaires
-dans les trois clients et la récupération e-mail restent à livrer. Fichiers, push, appels,
+reprise des défis de connexion / réauthentification. Le mobile propose ces défis
+dans ses écrans existants. Leurs parcours bureau, l'inscription du facteur dans
+les trois clients et la récupération e-mail restent à livrer. Fichiers, push, appels,
 chiffrement et parité complète restent au backlog. Les limites sont explicites dans
 le [contrat du pilote](../../docs/protocol/README.md).
 

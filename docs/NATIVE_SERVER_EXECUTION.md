@@ -315,6 +315,19 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, défis OTP mobile : connexion et confirmation d'identité proposent e-mail
+  dans les formulaires existants, avec reprise du candidat de livraison dans les
+  coffres privés, garde de vue pour les renvois et conservation de l'échéance.
+  Onze tests de coffres passent. Le pilote du vrai fournisseur, HTTP, PostgreSQL,
+  SMTP loopback et SQLite perd volontairement les quatre réponses de start /
+  finish et constate deux livraisons, deux preuves et aucune duplication.
+  Les 1090 tests mobile, typecheck, lint et export Android / Hermes passent.
+  Le contrôle natif complet passe : 142 tests serveur, 7 protocole / client,
+  140 TypeScript natifs, Clippy et contrats générés.
+  Le pilote portable ne ferme pas la validation du Keystore ou du rendu installé.
+  Les défis bureau et l'inscription explicite du facteur dans les trois clients
+  restent les raccordements P02 suivants.
+
 - P02, facteur e-mail explicite côté serveur / SDK : migration 0020, inscription
   et retrait conditionnels avec reçu privé, OTP sur défi de connexion ou de
   réauthentification existant, reprise sans renvoi et renvois bornés du même code.
@@ -325,6 +338,8 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   Le contrôle complet passe : 141 tests serveur, 7 protocole / client, 129
   TypeScript natifs, Clippy et contrats générés ; les 1079 tests mobile, le
   typecheck et le lint passent également.
+  La CI `36953451597` du commit `b887462` passe ses quatre jobs : serveur /
+  mobile, cœur Windows, GTK connecté et Swift connecté.
   Les formulaires et coffres OTP des trois clients sont le prochain raccordement ;
   récupération du compte par e-mail et qualifications externes restent ouvertes.
 

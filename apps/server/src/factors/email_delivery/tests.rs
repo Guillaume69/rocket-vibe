@@ -773,3 +773,93 @@ async fn enrollment_receipt_expiry_and_missing_full_proof_cannot_rotate_a_live_p
         1
     );
 }
+
+#[sqlx::test]
+async fn real_mobile_provider_and_private_vaults_recover_login_and_proof_mail_ack_losses(
+    pool: PgPool,
+) {
+    let relay = std::sync::Arc::new(Relay::start(false).await);
+    let (app, old) = fixture(&pool, &relay).await;
+    enroll(&app, &old).await;
+    let delivery_app = app.clone();
+    let owner = old.user.id.clone();
+    let router = app.router().route(
+        "/__factor_email_fixture/deliver",
+        axum::routing::get(move |headers: axum::http::HeaderMap| {
+            let app = delivery_app.clone();
+            let relay = relay.clone();
+            let owner = owner.clone();
+            async move {
+                let account = auth::authenticate(&app, &auth::bearer(&headers)?).await?;
+                if account.id != owner {
+                    return Err(Error::unauthorized());
+                }
+                let delivered = drain(&app).await?;
+                let code = relay
+                    .codes(ADDRESS)
+                    .await
+                    .into_iter()
+                    .last()
+                    .ok_or_else(Error::internal)?;
+                Ok::<_, Error>(axum::Json(
+                    serde_json::json!({"delivered":delivered,"code":code}),
+                ))
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let _http = HttpTask(tokio::spawn(async move {
+        axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    }));
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = tokio::time::timeout(
+        Duration::from_secs(60),
+        tokio::process::Command::new("node")
+            .arg(root.join("scripts/native-factor-email-mobile-pilot.ts"))
+            .arg(base)
+            .env("RV_FACTOR_EMAIL_PILOT_TOKEN", old.token)
+            .env("RV_FACTOR_EMAIL_PILOT_PASSWORD", PASSWORD)
+            .current_dir(root)
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .expect("mobile factor email pilot timed out")
+    .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout)
+            .contains("native factor email mobile pilot: verified")
+    );
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM session_devices").await,
+        2
+    );
+    assert_eq!(count(&pool,"SELECT count(*) FROM factor_email_deliveries WHERE consumed_at IS NOT NULL AND payload_cipher IS NULL").await,2);
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM factor_email_outbox").await,
+        0
+    );
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM email_delivery_admissions").await,
+        2
+    );
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT count(*) FROM factor_backup_codes WHERE consumed_at IS NULL"
+        )
+        .await,
+        10
+    );
+}

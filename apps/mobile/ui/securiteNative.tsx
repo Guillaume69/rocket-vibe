@@ -62,7 +62,7 @@ function SecuriteNative({c,chat,reauthOnly=false,onConfirmed}:{c:Couleurs;chat:N
         else if(e instanceof NativeError && e.code==='invalid_email_address')setError('email.invalid');
         else if(e instanceof NativeError && e.code==='email_verification_rejected')setError('email.rejected');
         else if(e instanceof NativeError && e.code==='email_removal_rejected')setError('email.removalRejected');
-        else if(e instanceof NativeError && ['email_delivery_limit','email_queue_limit'].includes(e.code))setError('email.limited');
+        else if(e instanceof NativeError && ['email_delivery_limit','email_queue_limit','email_resend_cooldown','email_challenge_delivery_limit'].includes(e.code))setError('email.limited');
         else if(e instanceof NativeError && ['factor_rejected','reauthentication_rejected'].includes(e.code))setError('security.rejected');
         else setError('security.failed');
         if(e instanceof NativeError && ['session_closed','server_identity_changed','session_rejected'].includes(e.code))clear();
@@ -73,7 +73,7 @@ function SecuriteNative({c,chat,reauthOnly=false,onConfirmed}:{c:Couleurs;chat:N
     const result=await nativeReauthenticationVault.prepare(access.scope,access.remote.proof,'',guard);if(!guard())return;
     setProof(result);
     if(result.kind==='ready' && reauthOnly)confirmed.current?.();
-    if(result.kind==='challenge')setMethod(result.attempt.challenge?.methods.includes('totp')?'totp':'recovery_code');
+    if(result.kind==='challenge')setMethod(result.attempt.challenge?.methods.includes('totp')?'totp':result.attempt.challenge?.methods.includes('email')?'email':'recovery_code');
     if(factorAvailable){const restored=await nativeFactorVault.resume(access.scope,access.remote,guard);if(guard())setView(restored);}
     if(emailAvailable){const restored=await nativeEmailVault.resume(access.scope,access.email,guard);if(guard())publishEmail(restored);}
   }),[emailAvailable,factorAvailable,publishEmail,reauthOnly,run]);
@@ -88,7 +88,7 @@ function SecuriteNative({c,chat,reauthOnly=false,onConfirmed}:{c:Couleurs;chat:N
   },[clear]);
   const acceptProof=(result:ReauthenticationView,guard:SecurityGuard)=>{
     if(!guard())return;setProof(result);
-    if(result.kind==='challenge')setMethod(result.attempt.challenge?.methods.includes('totp')?'totp':'recovery_code');
+    if(result.kind==='challenge')setMethod(result.attempt.challenge?.methods.includes('totp')?'totp':result.attempt.challenge?.methods.includes('email')?'email':'recovery_code');
     if(result.kind==='ready' && reauthOnly)confirmed.current?.();
   };
   const updateEmail=async(access:Access,guard:SecurityGuard)=>{if(emailAvailable){const result=await nativeEmailVault.resume(access.scope,access.email,guard);if(guard())publishEmail(result);}};
@@ -100,6 +100,12 @@ function SecuriteNative({c,chat,reauthOnly=false,onConfirmed}:{c:Couleurs;chat:N
     if(expected.kind==='challenge')void run(async(access,guard)=>{
       const result=await nativeReauthenticationVault.finish(expected.attempt,access.remote.proof,method,entered,guard);acceptProof(result,guard);
       if(result.kind==='ready' && guard())await updateEmail(access,guard);
+    });
+  };
+  const sendProofEmail=(resend=false)=>{const expected=proof;
+    if(expected.kind==='challenge')void run(async(access,guard)=>{
+      const result=await nativeReauthenticationVault.sendEmail(expected.attempt,access.remote.proof,resend,guard);
+      acceptProof(result,guard);
     });
   };
   const start=(kind:'setup'|'regenerate'|'disable')=>void run(async(access,guard)=>{
@@ -171,7 +177,15 @@ function SecuriteNative({c,chat,reauthOnly=false,onConfirmed}:{c:Couleurs;chat:N
         {proof.kind==='challenge' && <>
           {proof.attempt.challenge?.methods.includes('totp') && <Action c={c} label="connexion.utiliserTotp" onPress={()=>{setCode('');setMethod('totp');}} disabled={busy}/>}
           {proof.attempt.challenge?.methods.includes('recovery_code') && <Action c={c} label="connexion.utiliserSecours" onPress={()=>{setCode('');setMethod('recovery_code');}} disabled={busy}/>}
-          <ChampPilule c={c} etiquette={t(method==='totp'?'connexion.etiquetteTotp':'connexion.codeSecours')} valeur={code} autoCapitalize="none" autoCorrect={false} keyboardType={method==='totp'?'number-pad':'default'} maxLength={128} editable={!busy} onChangeText={setCode}/>
+          {proof.attempt.challenge?.methods.includes('email') && <Action c={c} label="connexion.utiliserEmail" onPress={()=>{setCode('');setMethod('email');}} disabled={busy}/>}
+          {method==='email' && <>
+            <Action c={c} label={proof.attempt.email?'email.resumeDelivery':'connexion.envoyerLeCode'} onPress={()=>sendProofEmail()} disabled={busy}/>
+            {proof.attempt.email?.status && <>
+              <Text style={[styles.text,{color:c.texteSecondaire}]}>{t(deliveryLabels[proof.attempt.email.status.delivery])}</Text>
+              <Action c={c} label="connexion.renvoyerCode" onPress={()=>sendProofEmail(true)} disabled={busy}/>
+            </>}
+          </>}
+          <ChampPilule c={c} etiquette={t(method==='totp'?'connexion.etiquetteTotp':method==='email'?'email.code':'connexion.codeSecours')} valeur={code} autoCapitalize="none" autoCorrect={false} keyboardType={method==='recovery_code'?'default':'number-pad'} autoComplete={method==='recovery_code'?'off':'one-time-code'} maxLength={method==='email'?8:128} editable={!busy} onChangeText={setCode}/>
           <Action c={c} label="security.verify" onPress={finishProof} disabled={busy}/>
         </>}
       </>}

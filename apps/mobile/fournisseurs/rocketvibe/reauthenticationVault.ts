@@ -6,6 +6,7 @@ import type {AuthenticationStorage} from './authenticationVault.ts';
 import type {AuthChallenge,BeginReauthentication,FinishReauthentication,ReauthenticationContext,ReauthenticationGrant,ReauthenticationStatus,ReauthenticationStep,ResumeReauthentication,RetireReauthentication,SecondFactor} from './protocol.generated.ts';
 import {NativeError,NativeTransport} from './transport.ts';
 import {decodeNative} from './validation.ts';
+import {emailDeliveryIntent,sendFactorEmail,type EmailDeliveryIntent,type EmailDeliveryRemote} from './factorEmailDelivery.ts';
 
 export type SecurityScope=ReauthenticationContext & {baseUrl:string};
 export type SecurityGuard=()=>boolean;
@@ -15,8 +16,9 @@ export type ReauthenticationRemote={
   resume:(input:ResumeReauthentication)=>Promise<ReauthenticationStep>;
   finish:(input:FinishReauthentication)=>Promise<ReauthenticationGrant>;
   retire:(input:RetireReauthentication)=>Promise<ReauthenticationStatus>;
+  email?:EmailDeliveryRemote;
 };
-export type ReauthenticationAttempt={scope:SecurityScope;challenge_id:string;operation_id:string;proof_version:string;challenge:AuthChallenge|null};
+export type ReauthenticationAttempt={scope:SecurityScope;challenge_id:string;operation_id:string;proof_version:string;challenge:AuthChallenge|null;email?:EmailDeliveryIntent};
 export type ReauthenticationView={kind:'ready'}|{kind:'password'}|{kind:'challenge';attempt:ReauthenticationAttempt};
 export type SecurityDependencies={storage:AuthenticationStorage;hash:Hacheur;token:()=>Promise<string>};
 const queues=new Map<string,Promise<void>>();
@@ -47,11 +49,14 @@ function attempt(value:unknown,scope:SecurityScope):ReauthenticationAttempt {
   try {
     if(!value || typeof value!=='object')throw new Error();
     const v=value as ReauthenticationAttempt,s=securityScope(v.scope);checkSecurityScope(scope,s);
+    if(Object.keys(v).some(key=>!['scope','challenge_id','operation_id','proof_version','challenge','email'].includes(key)))throw new Error();
     if(s.baseUrl!==scope.baseUrl || !/^[a-f0-9]{64}$/.test(v.challenge_id) || !/^[a-f0-9]{64}$/.test(v.operation_id)
       || typeof v.proof_version!=='string' || !v.proof_version || v.proof_version.length>128)throw new Error();
     const challenge=v.challenge===null?null:decodeNative('AuthChallenge',v.challenge);
     if(challenge && (challenge.challenge_id!==v.challenge_id || !Number.isFinite(Date.parse(challenge.expires_at))))throw new Error();
-    return {scope:s,challenge_id:v.challenge_id,operation_id:v.operation_id,proof_version:v.proof_version,challenge:challenge && {...challenge,methods:[...challenge.methods]}};
+    if(v.email!==undefined && !challenge)throw new Error();
+    return {scope:s,challenge_id:v.challenge_id,operation_id:v.operation_id,proof_version:v.proof_version,challenge:challenge && {...challenge,methods:[...challenge.methods]},
+      ...(v.email!==undefined?{email:emailDeliveryIntent(v.email,challenge!)}:{})};
   } catch {throw new NativeError(0,'invalid_native_security');}
 }
 
@@ -78,6 +83,13 @@ export class ReauthenticationVault {
     securityAlive(guard);await this.deps.storage.remove(`${key}-reauth`);securityAlive(guard);return {kind:'ready'};
   }
   private async challenge(key:string,saved:ReauthenticationAttempt,value:AuthChallenge,guard:SecurityGuard):Promise<ReauthenticationView> {
+    // SMTP can disappear after a code was delivered. Keep that previously
+    // advertised method on this exact saved challenge; the server decides
+    // whether its original code is still valid. A new challenge gets no merge.
+    if(saved.email && saved.challenge?.methods.includes('email') && value.challenge_id===saved.challenge_id
+      && value.expires_at===saved.challenge.expires_at && !value.methods.includes('email')) {
+      value={...value,methods:[...value.methods,'email']};
+    }
     const next=attempt({...saved,challenge:value},saved.scope);securityAlive(guard);
     await this.deps.storage.write(`${key}-reauth`,JSON.stringify(next));securityAlive(guard);
     return {kind:'challenge',attempt:next};
@@ -121,9 +133,34 @@ export class ReauthenticationVault {
       const result=await this.probe(saved,remote,guard);
       if(result?.kind==='granted')return this.accepted(key,saved,result.grant,remote,guard);
       if(!result || result.kind!=='challenge')throw new NativeError(400,'reauthentication_rejected');
-      if(!code || code.length>128 || !result.challenge.methods.includes(method))throw new NativeError(400,'reauthentication_rejected');
+      if(!code || code.length>128 || !result.challenge.methods.includes(method) && !(method==='email' && saved.email))throw new NativeError(400,'reauthentication_rejected');
       securityAlive(guard);const grant=await remote.finish({challenge_id:saved.challenge_id,operation_id:saved.operation_id,method,code});securityAlive(guard);
       return this.accepted(key,saved,grant,remote,guard);
+    });
+  }
+  async sendEmail(expected:ReauthenticationAttempt,remote:ReauthenticationRemote,resend=false,guard:SecurityGuard=()=>true):Promise<ReauthenticationView> {
+    expected=attempt(expected,securityScope(expected.scope));const key=await securityKey(expected.scope,this.deps.hash);
+    return securityQueue(key,async()=>{
+      await this.live(expected.scope,remote,guard);
+      let saved=await this.read(key,expected.scope);securityAlive(guard);
+      if(!saved?.challenge || saved.challenge_id!==expected.challenge_id || saved.operation_id!==expected.operation_id
+        || resend && saved.email?.input.delivery_id!==expected.email?.input.delivery_id)throw new NativeError(409,'credentials_changed');
+      if(!remote.email)throw new NativeError(501,'unsupported_feature');
+      const resumed=await this.probe(saved,remote,guard);
+      if(resumed?.kind==='granted')return this.accepted(key,saved,resumed.grant,remote,guard);
+      if(!resumed || resumed.kind!=='challenge' || resumed.challenge.challenge_id!==saved.challenge_id
+        || resumed.challenge.expires_at!==saved.challenge.expires_at)throw new NativeError(400,'reauthentication_rejected');
+      await sendFactorEmail(saved.challenge,saved.email??null,resend,{
+        alive:guard,token:this.deps.token,remote:remote.email,
+        save:async email=>{
+          securityAlive(guard);
+          const actual=await this.read(key,expected.scope);
+          if(!actual || JSON.stringify(actual)!==JSON.stringify(saved))throw new NativeError(409,'credentials_changed');
+          const next=attempt({...saved,email},expected.scope);
+          await this.deps.storage.write(`${key}-reauth`,JSON.stringify(next));saved=next;
+        },
+      });
+      return {kind:'challenge',attempt:attempt(saved,expected.scope)};
     });
   }
 }

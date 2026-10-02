@@ -9,6 +9,10 @@ release, et ses notes sont la section de la version ici.
 
 ### Sécurité RocketVibe
 
+- Codes de connexion et de confirmation d’identité par e-mail dans les écrans
+  existants, avec livraison explicite et reprise du même candidat depuis
+  SecureStore après une réponse perdue. Les renvois gardent le même code et
+  son échéance ; le code saisi reste uniquement en mémoire.
 - Retrait du contact e-mail après confirmation, avec reprise de l’intention
   originale depuis SecureStore et reçu privé jusqu’à Terminer. Une annulation
   retardée préserve le contact suivant ; le parcours reste disponible sans SMTP.

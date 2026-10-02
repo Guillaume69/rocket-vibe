@@ -10,6 +10,7 @@ import {FAVORITE_SELECT,savedFavorite,type PendingRead,type SavedFavorite,type F
 import {roomIdentifier,roomOperation,sameRoomForm,savedRoomOperation,type RoomOperation,type RoomOperationRow,type SavedRoomOperation} from './roomOperations.ts';
 import {decodeNative} from './validation.ts';
 import {nativeMarkdown} from './markdown.ts';
+import {NativeQuoteCache} from './quotes.ts';
 
 // Native revisions, checked below as exact decimal strings, order projection.
 // The shared RC statement's wall-clock condition would discard a valid edit
@@ -56,9 +57,10 @@ export class NativeStore {
   private readonly db: NativeDatabase;
   private readonly queue: FileEcritures;
   private readonly session: AppSession;
+  private readonly quotes:NativeQuoteCache;
   private projection=0;
   constructor(db: NativeDatabase, queue: FileEcritures, session: AppSession) {
-    this.db = db; this.queue = queue; this.session = session;
+    this.db = db; this.queue = queue; this.session = session;this.quotes=new NativeQuoteCache(db);
   }
   private atomic<T>(fn: () => Promise<T>, rotate:boolean|(()=>boolean)=false): Promise<T> {
     return this.queue(async () => {
@@ -80,7 +82,7 @@ export class NativeStore {
   prepare(): Promise<void> {
     return this.atomic(async () => {
       if (await this.sameGeneration()) return;
-      for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs','native_room_creations','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+      for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs','native_room_creations','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources']) await this.db.runAsync(`DELETE FROM ${table}`, []);
     });
   }
   private async membershipMatches(rid:string,membership:string|null):Promise<boolean> {
@@ -158,7 +160,8 @@ export class NativeStore {
   private async message(message: Message): Promise<void> {
     // An HTTP echo/history response may arrive after a committed room_removed.
     if (!await this.db.getFirstAsync('SELECT rid FROM salons WHERE rid=?', [message.room_id])) return;
-    const existing = await this.db.getFirstAsync<{revision: string}>('SELECT revision FROM native_positions WHERE id=?', [message.id]);
+    const existing = await this.db.getFirstAsync<{revision: string;rid:string}>('SELECT revision,rid FROM native_positions WHERE id=?', [message.id]);
+    if(existing && existing.rid!==message.room_id)throw new Error('Mismatched native message room');
     const publicFresh=!existing || BigInt(existing.revision)<=BigInt(message.revision);
     if (!publicFresh && !await this.db.getFirstAsync('SELECT id FROM messages WHERE id=?',[message.id])) return;
     let personal=await this.db.getFirstAsync<{revision:string;present:number}>('SELECT revision,present FROM native_star_states WHERE id=?',[message.id]);
@@ -172,6 +175,7 @@ export class NativeStore {
     }
     const stars=personal?.present?JSON.stringify([this.session.userId]):null;
     if (!publicFresh) {
+      await this.quotes.project(message,false);
       await this.db.runAsync('UPDATE messages SET etoiles=? WHERE id=?',[stars,message.id]);
       return;
     }
@@ -182,28 +186,32 @@ export class NativeStore {
       await this.db.runAsync('DELETE FROM native_star_states WHERE id=?',[message.id]);
     } else await this.db.runAsync(NATIVE_UPSERT_MESSAGE, paramsMessage(local));
     await this.db.runAsync('INSERT INTO native_positions(id,rid,position,revision) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET position=excluded.position,revision=excluded.revision', [message.id, message.room_id, message.position, message.revision]);
+    await this.quotes.project(message,true);
     await this.db.runAsync(SUPPRIMER_SORTIE, [message.id]);
     await this.preview(message.room_id);
   }
   private async remove(rid: string,keepMetadata=false): Promise<void> {
-    for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'native_positions','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents']) {
+    for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'native_positions','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources']) {
       if(keepMetadata && table==='salons')continue;
       await this.db.runAsync(`DELETE FROM ${table} WHERE rid=?`, [rid]);
     }
     if(keepMetadata)await this.db.runAsync('UPDATE salons SET lecture_seule=0 WHERE rid=?',[rid]);
     await this.db.runAsync(SUPPRIMER_BROUILLONS_SALON, [rid]);
     await this.db.runAsync("DELETE FROM etat_synchro WHERE portee=?", [rid]);
+    await this.quotes.refreshOrigin(rid);
   }
   applySnapshot(snapshot: Snapshot): Promise<void> {
     return this.atomic(async () => {
       const old = await this.db.getFirstAsync<NativeState>('SELECT instance_id,data_epoch,cursor FROM native_sync_state WHERE singleton=1', []);
       if (!old || old.instance_id !== this.session.nativeInstanceId || old.data_epoch !== this.session.nativeDataEpoch) {
         // A fresh login to a different generation must never replay its predecessor's outbox.
-        for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'brouillons', 'native_positions', 'etat_synchro', 'utilisateurs', 'native_room_creations','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+        for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'brouillons', 'native_positions', 'etat_synchro', 'utilisateurs', 'native_room_creations','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources']) await this.db.runAsync(`DELETE FROM ${table}`, []);
       } else {
         const live = new Set(snapshot.rooms.map(room => room.id));
         const known = await this.db.getAllAsync<{rid:string}>('SELECT rid FROM salons', []);
         for (const {rid} of known) if (!live.has(rid)) await this.remove(rid);
+        await this.db.runAsync('DELETE FROM native_quote_references WHERE message_id IN (SELECT id FROM native_positions)',[]);
+        await this.db.runAsync('DELETE FROM native_quote_sources',[]);
         await this.db.runAsync('DELETE FROM messages WHERE id IN (SELECT id FROM native_positions)',[]);
         await this.db.runAsync('DELETE FROM native_positions',[]);
         await this.db.runAsync('DELETE FROM native_star_states',[]);

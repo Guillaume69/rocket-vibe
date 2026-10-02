@@ -24,7 +24,7 @@ import type { messages } from '../db/schema.ts';
 import {
   estJointeCitation,
   PROFONDEUR_MAX_CITATION,
-  sansPrefixeCitation,
+  texteCitation,
 } from '../lib/citation.ts';
 import { chiffrementDeJointe, type ChiffrementFichier } from '../lib/e2e/crypto.ts';
 import { unicodeDeCodeCourt } from '../lib/emojis.ts';
@@ -439,7 +439,7 @@ function Citation({
   const t = useT();
   // Le cité peut être lui-même une réponse : on ne montre que ses mots, pas
   // son permalien de citation — sa citation s'affiche en bloc imbriqué.
-  const texte = sansPrefixeCitation(jointe.text ?? '').trim();
+  const texte = texteCitation(jointe).trim();
   const auteur = typeof jointe.author_name === 'string' ? jointe.author_name : null;
   const imbriquees = Array.isArray(jointe.attachments) ? jointe.attachments : [];
   const sousCitations =

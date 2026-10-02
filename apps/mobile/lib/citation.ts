@@ -68,6 +68,12 @@ export function sansPrefixeCitation(texte: string): string {
   }
 }
 
+/** Native references are typed metadata: their source text has no RC quote prefix. */
+export function texteCitation(jointe:{text?:string;native_reference?:unknown}):string {
+  const native=jointe.native_reference!==null && typeof jointe.native_reference==='object' && !Array.isArray(jointe.native_reference);
+  return native?jointe.text??'':sansPrefixeCitation(jointe.text??'');
+}
+
 /**
  * Le critère serveur (`isQuoteAttachment`) : une pièce jointe qui porte
  * `message_link` est une citation. Tout le reste (image, audio, fichier) n'en

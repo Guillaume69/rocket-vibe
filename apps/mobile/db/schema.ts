@@ -371,3 +371,22 @@ export const nativeFavoriteIntents = sqliteTable('native_favorite_intents', {
   receiptRevision: text('receipt_revision'),
   error: text('error'),
 }, (t) => [uniqueIndex('idx_native_favorite_operation').on(t.id)]);
+
+/** Typed reply references are independent from the reader's current source view. */
+export const nativeQuoteReferences = sqliteTable('native_quote_references', {
+  messageId: text('message_id').notNull(),
+  rid: text('rid').notNull(),
+  ordinal: integer('ordinal').notNull(),
+  sourceId: text('source_id').notNull(),
+  sourceRoom: text('source_room').notNull(),
+  observedRevision: text('observed_revision').notNull(),
+}, (t) => [primaryKey({columns:[t.messageId,t.ordinal]}),index('idx_native_quote_origins').on(t.sourceRoom,t.sourceId)]);
+
+/** Unavailable views keep their exact read watermark, with no author or source text. */
+export const nativeQuoteSources = sqliteTable('native_quote_sources', {
+  id: text('id').primaryKey(),
+  rid: text('rid').notNull(),
+  membership: text('membership'),
+  viewPosition: text('view_position').notNull(),
+  payload: text('payload'),
+}, (t) => [index('idx_native_quote_source_rooms').on(t.rid)]);

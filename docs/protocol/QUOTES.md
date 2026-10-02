@@ -1,7 +1,7 @@
 # Citations natives — P07
 
 Les premiers lots livrent les références, leur résolution côté serveur et le
-cache bureau commun GTK / SwiftUI. La capacité
+caches bureau commun GTK / SwiftUI et mobile. La capacité
 `quotes` reste désactivée tant que les adaptateurs et caches des trois interfaces
 existantes ne satisfont pas les règles ci-dessous. Les cartes, menus et bandeaux
 de réponse actuels seront réutilisés.
@@ -62,7 +62,7 @@ corps HTTP ou au flush WebSocket. Retrait / réadhésion ou modification de la
 source pendant la construction de la réponse empêchent la remise des anciens
 octets ; la vérification porte sur la source même si la destination reste lisible.
 
-## Cache bureau commun
+## Caches existants bureau et mobile
 
 SQLite garde les références ordonnées séparément des vues de leurs sources.
 Une vue mémorise salon, durée d'adhésion, position de résolution et extrait
@@ -77,16 +77,22 @@ jeton de projection existant écarte les anciens appels HTTP. Une absence d'adh�
 datée avant la nouvelle adhésion ne purge pas ses données. Un reset de snapshot
 reconstruit les extraits pour ne pas conserver une suppression manquée.
 
-Le fournisseur projette les références et vues autorisées vers les pièces locales
-déjà consommées par `content::quotes` et les modèles Swift. Le protocole ne porte
+Les fournisseurs projettent les références et vues autorisées vers les pièces locales
+déjà consommées par `content::quotes`, les modèles Swift et le composant mobile
+`Citation`. SQLite mobile actualise `messages.pieces_jointes` dans la transaction
+de projection / curseur ; ses listeners existants actualisent les listes ouvertes.
+La migration additive conserve l'historique et les positions exactes déjà présents.
+Le protocole ne porte
 aucun arbre Rocket.Chat ni permalien Rocket.Chat. Les cartes existantes gardent
 le Markdown de l'extrait, et une référence indisponible ne garde ni auteur ni
 texte. Les notifications de cache existantes actualisent les salons ouverts.
+Le texte natif est conservé même s'il ressemble à un ancien préfixe de citation
+Rocket.Chat ; les citations officielles gardent leur traitement historique.
 
 ## Raccordement suivant et conditions de sortie
 
 Les adaptateurs doivent traduire les références vers les cartes de citation
-existantes, avec le même cache d'autorité côté mobile et un libellé explicite pour
+existantes, avec un libellé explicite pour
 les références indisponibles. Le cache des extraits doit rester distinct de la révision publique
 de la réponse, suivre les révisions de la source et être lié à son adhésion.
 Les positions de résolution ordonnent aussi les résultats sans extrait : une
@@ -101,6 +107,8 @@ suppression reçue de la source actualise les citations déjà affichées ailleu
 La file d'envoi durable conserve les références, sans capturer un droit ni un
 extrait comme autorité. Les scénarios de perte de réponse et de reprise doivent
 traverser les vrais caches mobile / desktop et les modèles Swift.
+Les éditions d'une réponse citante doivent conserver ses références dans la
+commande durable, y compris après suppression ou perte d'accès à la source.
 
 Les citations imbriquées, fichiers cités et aperçus protégés restent à raccorder
 avec leur contrôle d'accès ; les fichiers sont liés à J3. Les essais installés

@@ -104,6 +104,8 @@ describe('migrations', () => {
       'native_commands',
       'native_favorite_intents',
       'native_positions',
+      'native_quote_references',
+      'native_quote_sources',
       'native_read_intents',
       'native_read_states',
       'native_room_access',
@@ -132,6 +134,8 @@ describe('migrations', () => {
       'idx_native_command_message',
       'idx_native_favorite_operation',
       'idx_native_positions_room',
+      'idx_native_quote_origins',
+      'idx_native_quote_source_rooms',
       'idx_native_room_creation_form',
       'idx_native_room_operation_room',
       'idx_native_star_room',
@@ -232,6 +236,18 @@ describe('migrations', () => {
     assert.equal(envoi.tentatives, 0);
     db.close();
   });
+});
+
+test('quote migration adds reader views without rewriting existing messages or exact positions',()=>{
+  const db=baseMigreeAvant(24);
+  try {
+    db.prepare('INSERT INTO messages(id,rid,horodatage,auteur_id,auteur_nom,texte,mis_a_jour_le) VALUES(?,?,?,?,?,?,?)').run('old-message','origin',1,'alice-id','alice','Historique conservé',1);
+    db.prepare('INSERT INTO native_positions(id,rid,position,revision) VALUES(?,?,?,?)').run('old-message','origin','9007199254740993','9007199254740993');
+    appliquerMigration(db,24);
+    assert.equal((db.prepare('SELECT texte FROM messages WHERE id=?').get('old-message') as {texte:string}).texte,'Historique conservé');
+    assert.equal((db.prepare('SELECT position FROM native_positions WHERE id=?').get('old-message') as {position:string}).position,'9007199254740993');
+    assert.equal((db.prepare('SELECT count(*) AS n FROM native_quote_sources').get() as {n:number}).n,0);
+  }finally {db.close();}
 });
 
 /**

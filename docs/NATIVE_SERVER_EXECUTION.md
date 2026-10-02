@@ -315,6 +315,23 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P07, cache mobile des citations : migration SQLite additive pour références
+  ordonnées et vues sources, avec adhésion et position exacte indépendantes de
+  la réponse citante. Éditions / suppressions / pertes d'accès actualisent la
+  colonne `pieces_jointes` observée par le composant `Citation` existant.
+  Réouverture, reset, changement de génération, rollback du curseur et réponses
+  tardives sont couverts dans la vraie base. Les textes natifs ressemblant à un
+  préfixe de citation Rocket.Chat sont conservés sur mobile et bureau ; le
+  traitement des citations officielles reste disponible.
+  Vérifications : 38 tests ciblés puis 1 176 tests mobiles complets réussis,
+  sans échec ni test ignoré ; typecheck, lint et export Android / Hermes passent.
+  Cœur bureau : six tests des pièces / citations et neuf tests du cache passent,
+  avec Clippy sur le workspace. L'historique et les positions supérieures à la
+  précision JavaScript restent intacts à la migration. Le cache ne ferme pas
+  les essais physiques Android / macOS / Windows. Les libellés indisponibles,
+  commandes durables de réponse / édition, citations imbriquées et fichiers cités
+  restent ouverts ; la capacité `quotes` demeure désactivée.
+
 - P07, cache bureau des citations : références ordonnées et vues sources sont
   persistées séparément dans SQLite. Les éditions / tombstones reçus d'une source
   actualisent ses citations dans les autres salons. Retrait, nouvelle adhésion et

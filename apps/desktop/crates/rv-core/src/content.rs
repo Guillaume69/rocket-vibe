@@ -107,10 +107,15 @@ fn is_quote(a: &Value) -> bool {
 
 fn quote_of(a: &Value, depth: usize) -> Quote {
     let inner = a.get("attachments").map(|v| v.to_string());
+    let source = a.get("text").and_then(Value::as_str).unwrap_or_default();
     Quote {
         link: text(a, "message_link").unwrap_or_default(),
         author: text(a, "author_name"),
-        text: crate::actions::strip_quote_prefix(a.get("text").and_then(Value::as_str).unwrap_or_default()).to_owned(),
+        text: if a.get("native_reference").is_some_and(Value::is_object) {
+            source.to_owned()
+        } else {
+            crate::actions::strip_quote_prefix(source).to_owned()
+        },
         md: a.get("md").filter(|v| v.is_array()).map(Value::to_string),
         images: image_attachments(inner.as_deref()),
         quotes: if depth < QUOTE_DEPTH { quotes_at(inner.as_deref(), depth + 1) } else { Vec::new() },
@@ -345,6 +350,16 @@ pub fn video_links(text: &str, urls: Option<&str>, max: usize) -> Vec<VideoLink>
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn native_quotes_preserve_literal_legacy_like_prefixes_without_changing_official_quotes() {
+        let source = "[ ](https://example.test/channel/general?msg=source) mots";
+        let local = json!([{"message_link":"","text":source,"native_reference":{"message_id":"source","room_id":"origin","revision":"1"}}]).to_string();
+        assert_eq!(quotes(Some(&local))[0].text, source);
+        let official =
+            json!([{"message_link":"https://example.test/channel/general?msg=source","text":source}]).to_string();
+        assert_eq!(quotes(Some(&official))[0].text, "mots");
+    }
 
     #[test]
     fn quotes_nest_up_to_the_limit() {

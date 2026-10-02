@@ -9,6 +9,9 @@ section here.
 
 ### Fixed
 
+- Native quote cards retain source text that resembles a legacy quote prefix;
+  official Rocket.Chat quote-prefix handling remains available.
+
 - Native room composers bind draft saves and sends to the membership that
   opened them. Withdrawal or a new membership clears open room buffers and
   closes private forms; delayed callbacks cannot overwrite a fresh draft.

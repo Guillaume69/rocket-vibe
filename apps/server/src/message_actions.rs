@@ -144,6 +144,7 @@ pub async fn apply(app: &App, account: &Account, id: &str, command: Command) -> 
         return Err(Error::new(StatusCode::CONFLICT, "revision_conflict"));
     }
     crate::limits::message_action(&mut tx, &account.id).await?;
+    let mentions_removed = crate::mentions::retain(&mut tx, id, text).await?;
     if text.is_none() {
         sqlx::query("DELETE FROM message_stars WHERE message_id=$1")
             .bind(id)
@@ -196,7 +197,7 @@ pub async fn apply(app: &App, account: &Account, id: &str, command: Command) -> 
         Change::MessageUpsert(current),
     )
     .await?;
-    if text.is_none() {
+    if text.is_none() || mentions_removed {
         crate::room_reads::message_changed(&mut tx, &room).await?;
     }
     tx.commit().await?;

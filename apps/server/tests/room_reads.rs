@@ -128,7 +128,7 @@ async fn actual_mobile_transport_recovers_lost_favorite_ack_without_a_second_wri
     let result: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         result,
-        json!({"unreads":true,"monotone":true,"privateFavorite":true,"lostAckRecovered":true,"noSecondFavorite":true,"oldReplayHarmless":true})
+        json!({"unreads":true,"monotone":true,"privateFavorite":true,"lostAckRecovered":true,"noSecondFavorite":true,"oldReplayHarmless":true,"mentions":true})
     );
 }
 
@@ -348,6 +348,374 @@ async fn withdrawal_rejoin_purges_preferences_and_old_receipts_do_not_restore_th
     );
     assert!(!reader.room_read_state(&room).await.unwrap().favorite);
 }
+async fn edit(
+    client: &NativeClient,
+    message: &rv_protocol::Message,
+    operation: &str,
+    text: &str,
+) -> rv_protocol::Message {
+    client
+        .edit_message(
+            &message.id,
+            &rv_protocol::parity::EditMessage {
+                operation_id: operation.into(),
+                expected_revision: message.revision.clone(),
+                content: rv_protocol::parity::MessageContent::Plain {
+                    markdown: text.into(),
+                    mentions: vec![],
+                    quotes: vec![],
+                    files: vec![],
+                },
+            },
+        )
+        .await
+        .unwrap()
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn mentions_resolve_current_members_once_and_direct_mentions_take_priority(pool: PgPool) {
+    let b = Bench::start(pool).await;
+    let (owner, owner_id, token) = b.user("alice", false).await;
+    let (reader, uid, _) = b.user("bob", false).await;
+    let (peer, peer_id, _) = b.user("carol", false).await;
+    let (outsider, outsider_id, _) = b.user("eve", false).await;
+    let room = b.room(&owner, &token, &uid).await;
+    assert_eq!(
+        b.request(
+            Method::POST,
+            &token,
+            &format!("/api/v1/rooms/{room}/members/{peer_id}"),
+            json!({})
+        )
+        .await
+        .status(),
+        StatusCode::NO_CONTENT
+    );
+    let input = SendMessage {
+        operation_id: "mention-once".into(),
+        text: "@bob @bob @all @all @alice @eve `@carol`".into(),
+    };
+    let message = owner.send(&room, &input).await.unwrap();
+    assert_eq!(owner.send(&room, &input).await.unwrap().id, message.id);
+    let own = owner.room_read_state(&room).await.unwrap();
+    let direct = reader.room_read_state(&room).await.unwrap();
+    let group = peer.room_read_state(&room).await.unwrap();
+    assert_eq!(
+        (
+            own.unread_roots.as_str(),
+            own.mentions.as_str(),
+            own.group_mentions.as_str()
+        ),
+        ("0", "0", "0")
+    );
+    assert_eq!(
+        (
+            direct.unread_roots.as_str(),
+            direct.mentions.as_str(),
+            direct.group_mentions.as_str()
+        ),
+        ("1", "1", "0")
+    );
+    assert_eq!(
+        (
+            group.unread_roots.as_str(),
+            group.mentions.as_str(),
+            group.group_mentions.as_str()
+        ),
+        ("1", "0", "1")
+    );
+    assert_eq!(
+        self_code(outsider.room_read_state(&room).await.unwrap_err()),
+        "not_found"
+    );
+    let excluded: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM message_mentions WHERE message_id=$1 AND user_id=ANY($2)",
+    )
+    .bind(&message.id)
+    .bind(vec![owner_id, outsider_id])
+    .fetch_one(&b.app.pool)
+    .await
+    .unwrap();
+    assert_eq!(excluded, 0);
+    let payload = json!({"operation_id":"forged-mentions","text":"Ordinary text","mentions":[uid]});
+    assert_eq!(
+        b.request(
+            Method::POST,
+            &token,
+            &format!("/api/v1/rooms/{room}/messages"),
+            payload
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let snapshot = peer.snapshot().await.unwrap();
+    assert_eq!(
+        snapshot
+            .rooms
+            .iter()
+            .find(|r| r.id == room)
+            .unwrap()
+            .read_state
+            .as_ref()
+            .unwrap()
+            .group_mentions,
+        "1"
+    );
+    let read = reader
+        .mark_room_read(&room, &mark(&message.position))
+        .await
+        .unwrap();
+    assert_eq!(
+        (
+            read.unread_roots.as_str(),
+            read.mentions.as_str(),
+            read.group_mentions.as_str()
+        ),
+        ("0", "0", "0")
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn edits_can_withdraw_mentions_but_cannot_ping_a_new_or_previous_recipient(pool: PgPool) {
+    let b = Bench::start(pool).await;
+    let (owner, _, token) = b.user("alice", false).await;
+    let (reader, uid, _) = b.user("bob", false).await;
+    let (peer, peer_id, _) = b.user("carol", false).await;
+    let room = b.room(&owner, &token, &uid).await;
+    assert_eq!(
+        b.request(
+            Method::POST,
+            &token,
+            &format!("/api/v1/rooms/{room}/members/{peer_id}"),
+            json!({})
+        )
+        .await
+        .status(),
+        StatusCode::NO_CONTENT
+    );
+    let sent = owner
+        .send(
+            &room,
+            &SendMessage {
+                operation_id: "mention-edit-source".into(),
+                text: "Hello @bob".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(reader.room_read_state(&room).await.unwrap().mentions, "1");
+    let changed = edit(&owner, &sent, "mention-edit-one", "Hello @carol").await;
+    let state = reader.room_read_state(&room).await.unwrap();
+    assert_eq!(
+        (state.unread_roots.as_str(), state.mentions.as_str()),
+        ("1", "0")
+    );
+    assert_eq!(peer.room_read_state(&room).await.unwrap().mentions, "0");
+    let changed = edit(&owner, &changed, "mention-edit-two", "Again @bob @all").await;
+    assert_eq!(reader.room_read_state(&room).await.unwrap().mentions, "0");
+    assert_eq!(
+        peer.room_read_state(&room).await.unwrap().group_mentions,
+        "0"
+    );
+    owner
+        .delete_message(
+            &changed.id,
+            &DeleteMessage {
+                operation_id: "mention-edit-delete".into(),
+                expected_revision: changed.revision,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        reader.room_read_state(&room).await.unwrap().unread_roots,
+        "0"
+    );
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM message_mentions WHERE message_id=$1")
+            .bind(&sent.id)
+            .fetch_one(&b.app.pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn joining_after_a_group_mention_and_rejoining_do_not_receive_historical_pings(pool: PgPool) {
+    let b = Bench::start(pool).await;
+    let (owner, _, token) = b.user("alice", false).await;
+    let (reader, uid, _) = b.user("bob", false).await;
+    let (peer, peer_id, _) = b.user("carol", false).await;
+    let room = b.room(&owner, &token, &uid).await;
+    owner
+        .send(
+            &room,
+            &SendMessage {
+                operation_id: "mention-before-join".into(),
+                text: "@all @carol".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        reader.room_read_state(&room).await.unwrap().group_mentions,
+        "1"
+    );
+    assert_eq!(
+        b.request(
+            Method::POST,
+            &token,
+            &format!("/api/v1/rooms/{room}/members/{peer_id}"),
+            json!({})
+        )
+        .await
+        .status(),
+        StatusCode::NO_CONTENT
+    );
+    let joined = peer.room_read_state(&room).await.unwrap();
+    assert_eq!(
+        (
+            joined.unread_roots.as_str(),
+            joined.mentions.as_str(),
+            joined.group_mentions.as_str()
+        ),
+        ("0", "0", "0")
+    );
+    let details = reader.room_details(&room).await.unwrap();
+    reader
+        .leave_room(
+            &room,
+            &LeaveRoom {
+                operation_id: "mention-leave".into(),
+                expected_revision: details.revision,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        b.request(
+            Method::POST,
+            &token,
+            &format!("/api/v1/rooms/{room}/members/{uid}"),
+            json!({})
+        )
+        .await
+        .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        reader.room_read_state(&room).await.unwrap().group_mentions,
+        "0"
+    );
+    owner
+        .send(
+            &room,
+            &SendMessage {
+                operation_id: "mention-after-join".into(),
+                text: "@bob @all @here".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let fresh = reader.room_read_state(&room).await.unwrap();
+    assert_eq!(
+        (
+            fresh.unread_roots.as_str(),
+            fresh.mentions.as_str(),
+            fresh.group_mentions.as_str()
+        ),
+        ("1", "1", "0")
+    );
+    assert_eq!(
+        peer.room_read_state(&room).await.unwrap().group_mentions,
+        "1"
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn read_quota_keeps_retries_state_reads_and_favorite_commands_available(pool: PgPool) {
+    let b = Bench::start(pool).await;
+    let (owner, _, token) = b.user("alice", false).await;
+    let (reader, uid, reader_token) = b.user("bob", false).await;
+    let room = b.room(&owner, &token, &uid).await;
+    let mut positions = Vec::new();
+    for n in 0..61 {
+        positions.push(
+            owner
+                .send(
+                    &room,
+                    &SendMessage {
+                        operation_id: format!("quota-root-{n}"),
+                        text: "Quota message".into(),
+                    },
+                )
+                .await
+                .unwrap()
+                .position,
+        );
+    }
+    for p in &positions[..60] {
+        reader.mark_room_read(&room, &mark(p)).await.unwrap();
+    }
+    assert_eq!(
+        self_code(
+            reader
+                .mark_room_read(&room, &mark(&positions[60]))
+                .await
+                .unwrap_err()
+        ),
+        "room_read_limit"
+    );
+    // The SDK respects Retry-After for POST; the server accepts an old marker
+    // without charging another advancement.
+    let repeated: rv_protocol::parity::ReadState = b
+        .request(
+            Method::POST,
+            &reader_token,
+            &format!("/api/v1/rooms/{room}/read"),
+            serde_json::to_value(mark(&positions[0])).unwrap(),
+        )
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(repeated.root_position, positions[59]);
+    let state = reader.room_read_state(&room).await.unwrap();
+    assert_eq!(state.unread_roots, "1");
+    let input = favorite(
+        state.favorite_revision.as_deref().unwrap(),
+        "favorite-during-read-limit",
+        true,
+    );
+    let receipt = reader.set_room_favorite(&room, &input).await.unwrap();
+    assert_eq!(
+        reader
+            .room_command_receipt(&room, &input.operation_id)
+            .await
+            .unwrap(),
+        receipt
+    );
+    sqlx::query("UPDATE room_read_windows SET expires_at=clock_timestamp()-interval '1 second' WHERE user_id=$1")
+        .bind(&uid).execute(&b.app.pool).await.unwrap();
+    let after: rv_protocol::parity::ReadState = b
+        .request(
+            Method::POST,
+            &reader_token,
+            &format!("/api/v1/rooms/{room}/read"),
+            serde_json::to_value(mark(&positions[60])).unwrap(),
+        )
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(after.unread_roots, "0");
+}
+
 fn self_code(error: rv_client::Error) -> String {
     match error {
         rv_client::Error::Server { code, .. } => code,

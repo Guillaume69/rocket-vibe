@@ -34,7 +34,7 @@ pub(crate) async fn state(
     room: &str,
     user: &str,
 ) -> Result<ReadState> {
-    let (root,reply,favorite,revision,unread,membership,favorite_revision):(i64,i64,bool,i64,i64,String,i64)=sqlx::query_as("SELECT s.root_position,s.reply_position,s.favorite,s.revision,(SELECT count(*) FROM messages m WHERE m.room_id=s.room_id AND m.position>s.root_position AND m.author_id<>s.user_id AND NOT m.deleted),s.membership_version,s.favorite_revision FROM room_read_states s WHERE s.room_id=$1 AND s.user_id=$2")
+    let (root,reply,favorite,revision,unread,membership,favorite_revision,mentions,groups):(i64,i64,bool,i64,i64,String,i64,i64,i64)=sqlx::query_as("SELECT s.root_position,s.reply_position,s.favorite,s.revision,c.unread,s.membership_version,s.favorite_revision,c.mentions,c.groups FROM room_read_states s CROSS JOIN LATERAL (SELECT count(*) AS unread,count(*) FILTER (WHERE EXISTS(SELECT 1 FROM message_mentions p WHERE p.message_id=m.id AND p.user_id=s.user_id AND p.kind='direct')) AS mentions,count(*) FILTER (WHERE NOT EXISTS(SELECT 1 FROM message_mentions p WHERE p.message_id=m.id AND p.user_id=s.user_id AND p.kind='direct') AND EXISTS(SELECT 1 FROM message_mentions p WHERE p.message_id=m.id AND p.user_id=s.user_id AND p.kind IN ('all','here'))) AS groups FROM messages m WHERE m.room_id=s.room_id AND m.position>s.root_position AND m.author_id<>s.user_id AND NOT m.deleted) c WHERE s.room_id=$1 AND s.user_id=$2")
         .bind(room).bind(user).fetch_optional(conn).await?.ok_or_else(Error::missing)?;
     Ok(ReadState {
         room_id: room.into(),
@@ -45,8 +45,8 @@ pub(crate) async fn state(
         reply_position: reply.to_string(),
         unread_roots: unread.to_string(),
         unread_replies: "0".into(),
-        mentions: "0".into(),
-        group_mentions: "0".into(),
+        mentions: mentions.to_string(),
+        group_mentions: groups.to_string(),
         favorite,
     })
 }

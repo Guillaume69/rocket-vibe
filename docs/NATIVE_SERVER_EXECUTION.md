@@ -315,6 +315,18 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P05, mentions côté serveur : pseudos exacts des adhérents actifs résolus lors
+  du premier envoi, `@all`, répétitions dédupliquées et priorité de la mention
+  nominative sur le groupe. Code, citations, liens, échappements et noms encodés
+  ne déclenchent aucun faux destinataire. Une édition retire les mentions
+  supprimées sans notifier un nouveau destinataire ; lecture / suppression et
+  réadhésion retirent les anciens badges. `@here` dépend des baux de présence
+  P12 et reste du texte jusqu'à ce lot. Vérifications : 186 tests du workspace
+  natif passent, dont six cas Markdown et dix parcours de lectures PostgreSQL /
+  HTTP. Le vrai transport mobile exerce également mentions, édition et lecture.
+  Le quota de 60 avancements réels conserve lectures / favoris disponibles.
+  Contrôleurs durables et raccordement aux interfaces existantes P05 restent ouverts.
+
 - P05, premier lot serveur / transports : états personnels attachés aux salons
   après contrôle des destinataires / adhésions, sans données privées dans le
   journal partagé. Lectures par maximum sur deux appareils, compteurs de racines

@@ -12,6 +12,7 @@ mod limits;
 pub mod mail;
 mod mail_admission;
 mod marks;
+mod mentions;
 mod message_actions;
 mod permissions;
 mod reactions;

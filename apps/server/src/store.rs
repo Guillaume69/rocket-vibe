@@ -523,6 +523,7 @@ pub async fn send(
         Err(e) => return Err(e.into()),
         Ok(_) => (),
     }
+    crate::mentions::capture(&mut tx, &id, room_id, &account.id, &input.text).await?;
     let position = next_position(&mut tx).await?;
     sqlx::query("UPDATE messages SET position=$2,revision=$2 WHERE id=$1")
         .bind(&id)

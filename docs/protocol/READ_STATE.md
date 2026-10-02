@@ -1,7 +1,7 @@
 # Lectures, non-lus et favoris de salons — P05
 
-Premier lot : serveur et transports Rust / TypeScript. Les contrôleurs durables,
-les mentions et leur raccordement aux interfaces existantes restent à livrer.
+Serveur et transports Rust / TypeScript. Les contrôleurs durables et leur
+raccordement aux interfaces existantes restent à livrer.
 Les capacités clientes `read_markers` et `favorites` restent donc masquées.
 
 ## État personnel
@@ -47,10 +47,35 @@ Une nouvelle adhésion initialise sa lecture au dernier message existant ;
 l'historique antérieur reste accessible, sans ajouter un arriéré de badges.
 La migration adopte la même règle pour les adhésions existantes.
 
-Dans ce premier lot, `reply_position`, `unread_replies`, `mentions` et
-`group_mentions` valent `"0"`. Une position de réponse non nulle produit
-`422 unsupported_feature` jusqu'au lot P11. Les mentions sont le prochain
-incrément P05 ; les réponses restent un incrément distinct.
+`reply_position` et `unread_replies` valent actuellement `"0"`. Une position de réponse non nulle produit
+`422 unsupported_feature` jusqu'au lot P11. Les réponses restent un incrément distinct.
+
+## Mentions
+
+À l'envoi original, le serveur dérive les destinataires depuis le Markdown.
+Les pseudos natifs sont exacts et sensibles à la casse. Ils doivent correspondre
+à un membre actif du salon ; l'auteur et les personnes extérieures sont exclus.
+Les répétitions ne comptent qu'une fois par message. `@all` vise les autres
+adhérents actifs au moment de l'envoi. Un message qui
+mentionne directement un destinataire et contient aussi `@all` compte dans
+`mentions`, avec priorité sur `group_mentions` : aucun double badge.
+
+Le parseur [pulldown-cmark](https://docs.rs/pulldown-cmark/0.13.4/pulldown_cmark/)
+identifie la structure Markdown ; ses offsets source conservent les échappements.
+Code en ligne / blocs, citations, liens et labels d'images ne déclenchent pas de
+mention. Les adresses email et URL brutes sont également exclues. Les noms
+formatés en gras / italique restent reconnus. Aucun ID de destinataire fourni
+par le client n'est accepté. La limite de texte reste 32 768 octets.
+
+Les compteurs ne concernent que les messages non lus et non supprimés. Une
+édition peut retirer une mention originale en supprimant son token ; elle ne
+peut ajouter de destinataire ni rétablir une mention retirée auparavant. Lire
+ou supprimer le message retire le badge. Une nouvelle adhésion ne récupère pas
+de notification historique, tout en gardant accès à l'historique.
+
+`@here` attend les baux de présence P12 : il reste du texte sans notification
+dans ce lot. Il ne signifie jamais `@all`. Le catalogue / rendu complet des
+mentions dans les trois clients sera qualifié avec P07 / P12.
 
 ## Favori explicite et reçu
 
@@ -76,9 +101,11 @@ aucun secret ou ancienne préférence n'est rendu à un autre compte.
 
 ## Vérification
 
-Six scénarios PostgreSQL / HTTP couvrent deux appareils concurrents, envois
+Six cas Markdown et dix scénarios PostgreSQL / HTTP couvrent deux appareils concurrents, envois
 propres et suppressions, confidentialité du journal, retrait / réadhésion,
 versions indépendantes des rôles, conflits et champs forgés. Le transport
 mobile réel simule une réponse de favori perdue et retrouve le reçu sans
-seconde écriture ; son ancien rejeu ne rétablit pas le favori supprimé.
-
+seconde écriture ; son ancien rejeu ne rétablit pas le favori supprimé. Il
+vérifie aussi mentions dédupliquées, retrait par édition et lecture du message.
+Le quota réel de lecture garde disponibles l'état, les reçus et les favoris ;
+un retry ancien reçu par le serveur ne consomme aucun avancement.

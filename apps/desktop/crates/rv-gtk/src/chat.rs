@@ -1277,7 +1277,12 @@ impl ChatPage {
             match session.uploads.progress(&upload.id) {
                 Some(fraction) => column.append(&gtk::ProgressBar::builder().fraction(fraction).build()),
                 None => {
-                    column.append(&label(t(if failed { "upload.failed" } else { "upload.waiting" }), &["file-detail"]))
+                    let state = match (failed, session.uploads.reconnecting()) {
+                        (true, _) => "upload.failed",
+                        (false, true) => "upload.retrying",
+                        (false, false) => "upload.waiting",
+                    };
+                    column.append(&label(t(state), &["file-detail"]))
                 }
             }
             row.append(&column);

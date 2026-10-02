@@ -240,6 +240,8 @@ pub struct Upload {
     pub mime: String,
     pub failed: bool,
     pub progress: Option<f64>,
+    /// Waiting for the connection, retried by itself.
+    pub retrying: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
@@ -637,6 +639,7 @@ impl Chat {
             .into_iter()
             .map(|u| Upload {
                 progress: self.session.uploads.progress(&u.id),
+                retrying: self.session.uploads.reconnecting(),
                 failed: u.status == "failed",
                 id: u.id,
                 name: u.name,

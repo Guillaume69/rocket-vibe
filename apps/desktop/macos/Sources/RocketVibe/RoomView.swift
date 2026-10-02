@@ -799,7 +799,7 @@ struct UploadsView: View {
                 } else if let progress = upload.progress {
                     ProgressView(value: progress).frame(width: 120)
                 } else {
-                    Text(L("upload.waiting")).font(.caption).foregroundStyle(.secondary)
+                    Text(L(upload.retrying ? "upload.retrying" : "upload.waiting")).font(.caption).foregroundStyle(.secondary)
                 }
             }
             .padding(.horizontal, 16)

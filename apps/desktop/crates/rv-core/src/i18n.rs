@@ -119,6 +119,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "The server refuses {type} files ({name})",
     ),
     ("upload.waiting", "En attente", "Waiting"),
+    ("upload.retrying", "Connexion perdue, nouvel essai…", "Connection lost, retrying…"),
     ("upload.failed", "Échec de l'envoi", "Upload failed"),
     ("upload.retry", "Réessayer", "Retry"),
     ("upload.discard", "Abandonner", "Discard"),

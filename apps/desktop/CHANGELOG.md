@@ -21,6 +21,7 @@ section here.
   message's actions.
 - A click on a search result goes to that message in the room, loading older history if it
   has to; a reply in a thread opens the thread.
+- On Linux, the call window shows the app's icon instead of a generic one.
 
 ## [0.6.0] - 2026-10-01
 

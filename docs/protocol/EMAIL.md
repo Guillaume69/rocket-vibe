@@ -30,7 +30,8 @@ Six tests Rust et neuf tests TypeScript dédiés couvrent ce coordinateur. Les
 boutons d'inscription / retrait rejoignent les paramètres existants des trois
 clients, avec confirmations liées au contact et aux profils affichés. Les
 formulaires d'adresse vérifiée ne l'activent pas automatiquement. La récupération
-du compte par e-mail reste à implémenter.
+du mot de passe par e-mail utilise la route anonyme de la migration 0021 et les
+formulaires de connexion existants GTK / SwiftUI / mobile décrits ci-dessous.
 
 Le fournisseur mobile vérifie identité, génération du runner et visibilité
 avant et après chaque appel. Le coffre partage la file locale des opérations
@@ -555,8 +556,24 @@ corruption, cooldown persistant, fermeture et suppression locale tardive. Un tes
 un verrou de fichier pendant une écriture `spawn_blocking` après annulation,
 puis prouve que le coffre recréé attend et reprend le même candidat. Le mobile
 annule une garde pendant une vraie promesse de stockage / réponse en cours.
-Ces tests des coordinateurs ne qualifient pas encore les boutons des applications
-ni une reprise installée Android / Windows / macOS.
+Le coordinateur Rust `Form` conserve l'intention derrière une vue publique sans
+nonce. GTK et UniFFI / SwiftUI utilisent cette même vue et ses révisions ; les
+actions tardives et la fermeture pendant une écriture réelle sont testées sur
+HTTP TCP. Les trois formulaires existants proposent la demande par e-mail
+uniquement sur RocketVibe annonçant `email_recovery`. Leur ouverture lit le
+coffre local sans découverte ni envoi. Un bouton distinct reprend une réponse
+non confirmée ; l'acquittement affiché reste générique. L'expiration, le changement
+de génération ou un reçu accepté exigent un effacement local explicite avant une
+nouvelle demande. Le countdown lit uniquement l'état conservé et bloque un retry
+avant son échéance. Code reçu et nouveau mot de passe restent dans le formulaire
+de récupération existant ; la connexion suivante demande toujours les facteurs
+installés.
+
+Le vrai formulaire GTK / Secret Service est exécuté deux fois sous Xvfb à 435
+pixels contre une fixture HTTP : aucune émission à l'ouverture, une demande
+anonyme conforme après le bouton et aucun compte actif. Cette fixture ne qualifie
+pas SMTP ou PostgreSQL. Les tests serveur dédiés les exercent séparément ; les
+parcours installés Android / Windows / macOS restent ouverts.
 
 Il reste à qualifier les parcours installés et le relais réel avec accès
 opérateur. Un test SMTP / TLS loopback ne valide pas la délivrabilité d'un

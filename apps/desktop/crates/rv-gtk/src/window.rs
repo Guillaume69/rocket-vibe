@@ -471,6 +471,7 @@ impl AppWindow {
             && self.window.is_visible()
     }
     fn invalidate_login(&self) {
+        self.login.close_recovery_email();
         self.login_guard.borrow().cancel();
         self.login_guard.replace(rv_core::native::security::Guard::new());
         self.login_generation.set(self.login_generation.get().wrapping_add(1));

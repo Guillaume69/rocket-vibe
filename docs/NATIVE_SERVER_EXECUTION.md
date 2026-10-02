@@ -315,6 +315,28 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, dernier raccordement de récupération e-mail : les formulaires existants
+  mobile / GTK / SwiftUI proposent une demande anonyme et une reprise explicites.
+  Ouverture et countdown n'effectuent aucun appel réseau ; le reçu générique ne
+  prétend pas confirmer l'existence du compte ou la livraison. Une demande expirée,
+  acquittée ou liée à une ancienne génération reste conservée jusqu'à son
+  effacement local explicite. Le code reçu / nouveau mot de passe utilisent le
+  parcours de récupération déjà livré, suivi de la double authentification normale.
+  GTK et Swift partagent le nouveau coordinateur `Form`, avec candidat privé,
+  révisions de vue et annulation des actions tardives ; aucun nonce traverse FFI.
+  Vérifications : 306 tests bureau, formatage / Clippy / binaire GTK, six tests
+  locaux Swift, 1 113 tests mobile, typage / lint sans avertissement et export
+  Android Hermes. Dix tests Swift connectés restent conditionnés à leurs bancs.
+  Le formulaire GTK et le vrai Secret Service sont exécutés deux fois contre une
+  fixture HTTP jetable : ouverture sans POST, demande explicite unique et anonyme,
+  aucun compte activé ; les captures à 435 pixels sont inspectées. Cette fixture
+  ne constitue pas un essai SMTP / PostgreSQL, déjà couvert côté serveur.
+  Les trousseaux installés Android / Windows / macOS et SMTP externe restent à
+  qualifier avec les appareils / accès nécessaires. La CI du lot de coffres
+  `cd69389` (`36975796250`) est entièrement verte (quatre jobs).
+  Le développement fonctionnel e-mail est clos pour ce stade ; le prochain lot
+  est P04, rôles et paramètres serveur / salon. Pas de nouveau lot SMTP prévu.
+
 - P02, coffres de demande de récupération e-mail : le coordinateur Rust commun
   GTK / Swift et le coffre mobile conservent l'opération originale avant HTTP,
   sans code reçu / mot de passe / adresse / bearer. Namespace privé par URL et

@@ -129,6 +129,40 @@ pub fn install(window: &Rc<AppWindow>) {
             let Some(w) = weak.upgrade() else { return };
             if !tried.replace(true) {
                 w.login.fill(&parts[0], &parts[1], &parts[2]);
+                if let Ok(action) = std::env::var("RV_SMOKE_EMAIL_RECOVERY_FORM") {
+                    let requested = Rc::new(Cell::new(false));
+                    let mut polls = 0;
+                    glib::timeout_add_local(Duration::from_millis(250), move || {
+                        polls += 1;
+                        if w.login.recovery_code().is_none() {
+                            w.login.fill_recovery("");
+                        }
+                        if let Some(view) = w.login.recovery_email_view() {
+                            if action == "request" && !requested.get() {
+                                requested.set(w.login.request_recovery_email());
+                            } else if action != "request" || view.accepted {
+                                w.login.focus_recovery_email();
+                                check(
+                                    "recovery form keeps received code empty",
+                                    w.login.code().is_empty() && w.login.recovery_code().as_deref() == Some(""),
+                                    polls,
+                                );
+                                check(
+                                    "recovery mail does not activate an account",
+                                    crate::secrets::active().is_none(),
+                                    polls,
+                                );
+                                return glib::ControlFlow::Break;
+                            }
+                        }
+                        if polls >= 80 {
+                            check("anonymous recovery form is available", false, polls);
+                            return glib::ControlFlow::Break;
+                        }
+                        glib::ControlFlow::Continue
+                    });
+                    return;
+                }
                 let recovering = std::env::var_os("RV_SMOKE_RECOVERY_FILE").is_some();
                 if let Ok(path) =
                     std::env::var("RV_SMOKE_RECOVERY_FILE").or_else(|_| std::env::var("RV_SMOKE_INVITATION_FILE"))

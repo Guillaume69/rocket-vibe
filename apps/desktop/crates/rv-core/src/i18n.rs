@@ -22,6 +22,56 @@ pub fn set(lang: Lang) {
 /// (key, French, English). A `{name}` is filled by `tf`; `a | b` is the
 /// singular and plural of `tn`.
 const CATALOG: &[(&str, &str, &str)] = &[
+    ("recovery_email.loading", "Lecture de la demande conservée…", "Reading the saved request…"),
+    (
+        "recovery_email.help",
+        "Demandez un code pour ce pseudonyme. Si un compte possède une adresse vérifiée, un code peut y être envoyé.",
+        "Request a code for this username. If an account has a verified address, a code may be sent there.",
+    ),
+    ("recovery_email.send", "Demander un code par email", "Request a code by email"),
+    ("recovery_email.retry", "Reprendre cette demande", "Resume this request"),
+    (
+        "recovery_email.accepted",
+        "Demande prise en compte. Si un compte correspond et possède une adresse vérifiée, un code peut y être envoyé.",
+        "Request accepted. If a matching account has a verified address, a code may be sent there.",
+    ),
+    (
+        "recovery_email.pending",
+        "La réponse n’est pas confirmée. Reprenez cette demande.",
+        "The response is unconfirmed. Resume this request.",
+    ),
+    (
+        "recovery_email.expired",
+        "Le délai de reprise est expiré. Effacez cette demande du formulaire avant d’en créer une autre.",
+        "The resume deadline has expired. Clear this request from the form before creating another.",
+    ),
+    (
+        "recovery_email.changed",
+        "Cette demande appartient à une autre version du serveur. Effacez-la du formulaire pour recommencer.",
+        "This request belongs to another server generation. Clear it from the form to start again.",
+    ),
+    ("recovery_email.forget", "Effacer cette demande du formulaire", "Clear this request from the form"),
+    (
+        "recovery_email.forget_help",
+        "L’effacement est local et n’annule pas un email déjà en attente d’envoi.",
+        "Clearing is local and does not cancel an email already queued.",
+    ),
+    ("recovery_email.wait", "Réessayez dans {seconds} s.", "Try again in {seconds} s."),
+    (
+        "recovery_email.limited",
+        "La limite est atteinte. Attendez avant de reprendre cette demande.",
+        "The limit was reached. Wait before resuming this request.",
+    ),
+    (
+        "recovery_email.storage",
+        "Le coffre privé est indisponible. Déverrouillez-le puis rouvrez ce formulaire.",
+        "Private storage is unavailable. Unlock it and reopen this form.",
+    ),
+    (
+        "recovery_email.failed",
+        "La demande n’a pas pu être confirmée. Reprenez-la lorsqu’elle est affichée.",
+        "The request could not be confirmed. Resume it when it is displayed.",
+    ),
     ("native.title", "RocketVibe · pilote natif", "RocketVibe · native pilot"),
     ("native.online", "En ligne", "Online"),
     ("native.offline", "Hors ligne · les envois restent en attente", "Offline · sends remain queued"),
@@ -144,8 +194,8 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("login.recovery_code", "Code de récupération", "Recovery code"),
     (
         "login.recovery_help",
-        "Demande un code à l'administrateur et choisis un mot de passe d'au moins 12 caractères. Tes autres appareils seront déconnectés. Ce parcours ne récupère pas tes clés de chiffrement.",
-        "Ask the administrator for a code and choose a password of at least 12 characters. Other devices will be signed out. This does not recover encryption keys.",
+        "Saisis un code de récupération et choisis un mot de passe d'au moins 12 caractères. Tes autres appareils seront déconnectés. Ce parcours ne récupère pas tes clés de chiffrement.",
+        "Enter a recovery code and choose a password of at least 12 characters. Other devices will be signed out. This does not recover encryption keys.",
     ),
     (
         "login.recovery_rejected",

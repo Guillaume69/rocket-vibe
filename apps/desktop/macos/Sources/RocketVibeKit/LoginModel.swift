@@ -10,22 +10,27 @@ public final class LoginModel {
     public var server = "" {
         didSet {
             if server != oldValue {
+                probeRevision = UUID()
                 leave()
                 canRegister = false
                 canRecover = false
+                canEmailRecover = false
+                recoveryIdentity = nil
                 probeLine = nil
                 probeBad = false
             }
         }
     }
-    public var user = "" { didSet { if user != oldValue { leave() } } }
+    public var user = "" { didSet { if user != oldValue { cancelCode(); password = ""; invitation = "" } } }
     public var password = ""
     public var code = ""
     public var registering = false
-    public var recovering = false
+    public var recovering = false { didSet { if recovering != oldValue { closeRecoveryEmail() } } }
     public var invitation = ""
     public private(set) var canRegister = false
     public private(set) var canRecover = false
+    public private(set) var canEmailRecover = false
+    public private(set) var recoveryEmail: NativeRecoveryEmailState?
     /// The 2FA method the server asked a code for: the form shows the code field.
     public private(set) var method: String?
     public private(set) var nativeMethods: [String] = []
@@ -38,7 +43,10 @@ public final class LoginModel {
     public private(set) var probeLine: String?
     public private(set) var probeBad = false
     @ObservationIgnored private var nativeAttempt: NativeLoginAttempt?
+    @ObservationIgnored private var recoveryAttempt: NativeRecoveryEmail?
+    @ObservationIgnored private var recoveryIdentity: (String, String)?
     @ObservationIgnored private var generation = UUID()
+    @ObservationIgnored private var probeRevision = UUID()
     var revision: UUID { generation }
 
     public init() {}
@@ -55,20 +63,26 @@ public final class LoginModel {
         invitation = ""
         canRegister = false
         canRecover = false
+        canEmailRecover = false
+        recoveryIdentity = nil
         self.error = error
     }
 
     /// Asks the typed server about itself; nothing shown for an address that is not one.
     public func probe(client: Client) async {
         let asked = server
-        let expected = generation
+        let expected = probeRevision
         canRegister = false
         canRecover = false
+        canEmailRecover = false
         do {
             let p = try await client.probe(server: asked)
-            guard asked == server, expected == generation else { return }
+            guard asked == server, expected == probeRevision else { return }
             canRegister = p.genre == "rocketvibe" && p.accountInvitations
             canRecover = p.genre == "rocketvibe" && p.accountRecovery
+            canEmailRecover = canRecover && p.emailRecovery
+            if let instance = p.instanceId, let epoch = p.dataEpoch { recoveryIdentity = (instance, epoch) }
+            else { recoveryIdentity = nil }
             if !p.passwordLogin {
                 probeLine = L("login.probe_no_password")
                 probeBad = true
@@ -80,9 +94,9 @@ public final class LoginModel {
             probeLine = facts.joined(separator: " · ")
             probeBad = false
         } catch RvError.Local {
-            if asked == server, expected == generation { probeLine = nil }
+            if asked == server, expected == probeRevision { probeLine = nil }
         } catch {
-            guard asked == server, expected == generation else { return }
+            guard asked == server, expected == probeRevision else { return }
             probeLine = L("login.probe_failed")
             probeBad = true
         }
@@ -90,6 +104,7 @@ public final class LoginModel {
 
     public func cancelCode() {
         generation = UUID()
+        closeRecoveryEmail()
         if nativeAttempt != nil { password = "" }
         nativeAttempt?.close()
         nativeAttempt = nil
@@ -100,6 +115,53 @@ public final class LoginModel {
         code = ""
         error = nil
         busy = false
+    }
+
+    private func closeRecoveryEmail() {
+        recoveryAttempt?.close()
+        recoveryAttempt = nil
+        recoveryEmail = nil
+    }
+
+    /// Reading the request vault never sends an email or performs discovery.
+    public func loadRecoveryEmail(client: Client) async {
+        guard !busy, recovering, canEmailRecover, let (instance, epoch) = recoveryIdentity else { return }
+        let expected = generation
+        let (address, username) = (server, user.trimmingCharacters(in: .whitespaces))
+        guard username.range(of: "^[A-Za-z0-9_-]{1,128}$", options: .regularExpression) != nil else { return }
+        closeRecoveryEmail()
+        do {
+            let attempt = try await client.nativeEmailRecovery(server: address, user: username, instanceId: instance, dataEpoch: epoch)
+            guard current(expected, address: address, username: username), recovering, canEmailRecover else { attempt.close(); return }
+            recoveryAttempt = attempt
+            recoveryEmail = attempt.snapshot()
+        } catch {
+            guard current(expected, address: address, username: username) else { return }
+            self.error = L("recovery_email.storage")
+        }
+    }
+
+    public func refreshRecoveryEmail() { recoveryEmail = recoveryAttempt?.snapshot() }
+
+    public func sendRecoveryEmail(forget: Bool, revision: UInt64) async {
+        guard !busy, recovering, let attempt = recoveryAttempt else { return }
+        let expected = generation
+        let (address, username) = (server, user.trimmingCharacters(in: .whitespaces))
+        guard current(expected, address: address, username: username) else { return }
+        busy = true; error = nil
+        defer { if expected == generation { busy = false } }
+        do {
+            if forget { try await attempt.forget(viewRevision: revision) }
+            else { try await attempt.submit(viewRevision: revision) }
+        } catch {
+            guard current(expected, address: address, username: username), recoveryAttempt === attempt else { return }
+            if case let RvError.Server(status, _, code, _, _, _) = error {
+                self.error = L(status == 429 ? "recovery_email.limited" : code == "server_identity_changed" ? "recovery_email.changed"
+                    : code == "secure_storage_unavailable" ? "recovery_email.storage" : "recovery_email.failed")
+            } else { self.error = L("recovery_email.failed") }
+        }
+        guard current(expected, address: address, username: username), recoveryAttempt === attempt else { return }
+        refreshRecoveryEmail()
     }
 
     public func leave() {

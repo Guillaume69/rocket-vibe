@@ -15,6 +15,11 @@ section here.
 
 ### Added
 
+- Request a password recovery code by email from the existing GTK / SwiftUI
+  sign-in forms. Opening the form reads private storage only; interrupted requests
+  resume the original operation, with persisted retry limits and explicit local
+  dismissal. Password reset still asks for installed second factors at sign-in.
+
 - Explicit email-factor activation and removal in the existing GTK / SwiftUI
   security settings, with approval pinned to the displayed contact and profiles,
   durable receipt recovery and shared backup codes. Removing one factor keeps

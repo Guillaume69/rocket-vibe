@@ -36,11 +36,14 @@ pub struct Scope {
 }
 impl Scope {
     pub fn new(base: &str, username: &str, discovery: &Discovery) -> Result<Self, Error> {
-        let scope = Self {
-            base_url: canonical(base)?,
-            username: username.into(),
-            identity: Identity { instance_id: discovery.instance_id.clone(), data_epoch: discovery.data_epoch.clone() },
-        };
+        Self::from_identity(
+            base,
+            username,
+            &Identity { instance_id: discovery.instance_id.clone(), data_epoch: discovery.data_epoch.clone() },
+        )
+    }
+    pub fn from_identity(base: &str, username: &str, identity: &Identity) -> Result<Self, Error> {
+        let scope = Self { base_url: canonical(base)?, username: username.into(), identity: identity.clone() };
         scope.validate()?;
         Ok(scope)
     }
@@ -62,6 +65,111 @@ impl Scope {
     }
     pub fn identity(&self) -> &Identity {
         &self.identity
+    }
+}
+
+/// A form owns its private intent. Native widgets and foreign callers receive
+/// only this snapshot and must name its revision for every explicit action.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FormView {
+    pub revision: u64,
+    pub username: String,
+    pub requested: bool,
+    pub accepted: bool,
+    pub expired: bool,
+    pub retry_after_seconds: u32,
+    pub identity_changed: bool,
+}
+struct FormState {
+    intent: Option<Intent>,
+    revision: u64,
+}
+pub struct Form {
+    vault: Vault,
+    scope: Scope,
+    state: std::sync::Mutex<FormState>,
+    operation: tokio::sync::Mutex<()>,
+    guard: Guard,
+}
+impl Drop for Form {
+    fn drop(&mut self) {
+        self.guard.cancel();
+    }
+}
+impl Form {
+    /// Opening and refreshing a view never performs discovery or sends mail.
+    pub async fn open(vault: Vault, scope: Scope) -> Result<Self, Error> {
+        let intent = vault.load(scope.base_url(), scope.username()).await?;
+        Ok(Self {
+            vault,
+            scope,
+            state: std::sync::Mutex::new(FormState { intent, revision: 0 }),
+            operation: tokio::sync::Mutex::new(()),
+            guard: Guard::new(),
+        })
+    }
+    pub fn close(&self) {
+        self.guard.cancel();
+    }
+    pub fn view(&self) -> Option<FormView> {
+        if !self.guard.alive() {
+            return None;
+        }
+        let state = self.state.lock().unwrap();
+        let view = state.intent.as_ref().map(Intent::view);
+        Some(FormView {
+            revision: state.revision,
+            username: self.scope.username().into(),
+            requested: view.is_some(),
+            accepted: view.as_ref().is_some_and(|v| v.accepted),
+            expired: view.as_ref().is_some_and(|v| v.expired),
+            retry_after_seconds: view.as_ref().map_or(0, |v| v.retry_after_seconds),
+            identity_changed: state.intent.as_ref().is_some_and(|i| i.scope() != &self.scope),
+        })
+    }
+    pub async fn submit(&self, revision: u64) -> Result<(), Error> {
+        self.act(revision, false).await
+    }
+    pub async fn forget(&self, revision: u64) -> Result<(), Error> {
+        self.act(revision, true).await
+    }
+    async fn act(&self, revision: u64, forget: bool) -> Result<(), Error> {
+        // The actual platform job, rather than the UI future, owns this lease.
+        let _operation = self.operation.lock().await;
+        self.guard.check()?;
+        let saved = {
+            let state = self.state.lock().unwrap();
+            if state.revision != revision {
+                return Err(Error::Protocol("credentials_changed"));
+            }
+            state.intent.clone()
+        };
+        let result = if forget {
+            match saved.as_ref() {
+                Some(saved) => match self.vault.forget(saved, &self.guard).await {
+                    Ok(true) => Ok(()),
+                    Ok(false) => Err(Error::Protocol("credentials_changed")),
+                    Err(e) => Err(e),
+                },
+                None => Err(Error::Protocol("credentials_changed")),
+            }
+        } else if saved.as_ref().is_some_and(|i| i.scope() != &self.scope) {
+            Err(Error::Protocol("server_identity_changed"))
+        } else {
+            match saved.as_ref() {
+                Some(saved) => self.vault.retry(saved, &self.guard).await.map(|_| ()),
+                None => self.vault.begin(&self.scope, &self.guard).await.map(|_| ()),
+            }
+        };
+        self.guard.check()?;
+        // Recover the durable candidate after a lost HTTP or keyring ACK. A
+        // failed local read remains an error, never an apparently empty form.
+        let latest = self.vault.load(self.scope.base_url(), self.scope.username()).await?;
+        self.guard.check()?;
+        let mut state = self.state.lock().unwrap();
+        state.revision = state.revision.checked_add(1).ok_or_else(invalid)?;
+        state.intent = latest;
+        result
     }
 }
 // No Debug and no public operation/credential fields for UI view models.

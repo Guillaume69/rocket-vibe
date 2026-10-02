@@ -17,6 +17,7 @@ mod gst_stream;
 mod i18n;
 mod icon;
 mod login;
+mod login_recovery;
 mod logs;
 #[cfg(target_os = "macos")]
 mod macos;

@@ -30,6 +30,7 @@ pub struct LoginPage {
     password: gtk::Entry,
     signup: gtk::CheckButton,
     recovery: gtk::CheckButton,
+    recovery_email: std::rc::Rc<crate::login_recovery::RecoveryEmail>,
     invitation: gtk::Entry,
     code_step: gtk::Box,
     code_intro: gtk::Label,
@@ -196,6 +197,9 @@ impl LoginPage {
 
         let error = gtk::Label::builder().css_classes(["login-error"]).wrap(true).xalign(0.0).visible(false).build();
         let submit = widgets::cta(t("login.sign_in"));
+        let recovery_email =
+            crate::login_recovery::RecoveryEmail::new(&server, &user, &recovery, &credentials, &submit);
+        credentials.append(&recovery_email.widget);
         signup.connect_toggled(glib::clone!(
             #[weak]
             recovery,
@@ -292,6 +296,8 @@ impl LoginPage {
         let generation = std::rc::Rc::new(std::cell::Cell::new(0u64));
         server.connect_changed(glib::clone!(
             #[weak]
+            recovery_email,
+            #[weak]
             probe,
             #[weak]
             signup,
@@ -306,6 +312,7 @@ impl LoginPage {
                 generation.set(current);
                 let text = entry.text().to_string();
                 let generation = generation.clone();
+                let recovery_email = recovery_email.clone();
                 glib::timeout_add_local_once(std::time::Duration::from_millis(600), move || {
                     if generation.get() != current {
                         return;
@@ -327,6 +334,7 @@ impl LoginPage {
                                 probe.set_label(t("login.probe_no_password"));
                             }
                             Ok(p) => {
+                                recovery_email.profile(&p);
                                 signup.set_visible(p.genre == "rocketvibe" && p.account_invitations);
                                 recovery.set_visible(p.genre == "rocketvibe" && p.account_recovery);
                                 let product = if p.genre == "rocketvibe" { "RocketVibe" } else { "Rocket.Chat" };
@@ -357,6 +365,7 @@ impl LoginPage {
             password,
             signup,
             recovery,
+            recovery_email,
             invitation,
             code_step,
             code_intro,
@@ -477,11 +486,24 @@ impl LoginPage {
         true
     }
     pub fn clear_secrets(&self) {
+        self.recovery_email.close();
         self.password.set_text("");
         self.invitation.set_text("");
         self.signup.set_active(false);
         self.recovery.set_active(false);
         self.code.set_text("");
+    }
+    pub fn close_recovery_email(&self) {
+        self.recovery_email.close();
+    }
+    pub fn recovery_email_view(&self) -> Option<rv_core::native::email_recovery::FormView> {
+        self.recovery_email.view()
+    }
+    pub fn request_recovery_email(&self) -> bool {
+        self.recovery_email.request()
+    }
+    pub fn focus_recovery_email(&self) {
+        self.recovery_email.focus();
     }
     pub fn is_busy(&self) -> bool {
         !self.submit.is_sensitive()

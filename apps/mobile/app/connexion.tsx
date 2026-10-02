@@ -15,6 +15,7 @@ import { NativeError } from '../fournisseurs/rocketvibe/transport.ts';
 import { hacher, lireDernierServeur, listerServeursConnus } from '../lib/sessionStore.ts';
 import { VueEvitantLeClavier } from '../ui/clavier.tsx';
 import { useT } from '../ui/i18n.ts';
+import { RecuperationEmailNative } from '../ui/recuperationEmailNative.tsx';
 import { BoutonPrincipal, ChampPilule, Marque, TuileAvatar } from '../ui/kit.tsx';
 import { useSession } from '../ui/session.tsx';
 import { type Couleurs, POLICES, useCouleurs } from '../ui/theme.ts';
@@ -338,11 +339,20 @@ export default function EcranConnexion() {
 
   const revenirAuServeur = useCallback(() => {
     if (enVol.current) return;
+    generation.current++;
     setInvitation(''); setInscription(false); setRecuperation(false);
     setMotDePasse('');
     setCode('');
     setMessage(null);
     setPhase({ nom: 'serveur' });
+  }, []);
+
+  const agirRecuperationEmail = useCallback(async (action: (guard: () => boolean) => Promise<void>) => {
+    if (enVol.current) return;
+    const depart = generation.current;
+    enVol.current = true; setOccupe(true);
+    try { await action(() => monte.current && generation.current === depart); }
+    finally { enVol.current = false; if (monte.current) setOccupe(false); }
   }, []);
 
   // Déjà connecté (reprise au démarrage, ou login qui vient d'aboutir) : cet
@@ -435,11 +445,16 @@ export default function EcranConnexion() {
               etiquette={t('connexion.identifiantOuEmail')}
               valeur={utilisateur}
               editable={!occupe}
-              onChangeText={setUtilisateur}
+              onChangeText={value => { generation.current++; setUtilisateur(value); }}
               placeholder={t('connexion.exempleIdentifiant')}
               autoComplete="username"
               autoFocus
             />
+            {recuperation && phase.profil.native?.capabilities.email_recovery === true && /^[A-Za-z0-9_-]{1,128}$/.test(utilisateur.trim()) && (
+              <RecuperationEmailNative key={JSON.stringify([phase.profil.baseUrl, utilisateur.trim(), phase.profil.native.instance_id, phase.profil.native.data_epoch])}
+                baseUrl={phase.profil.baseUrl} username={utilisateur.trim()} discovery={phase.profil.native}
+                disabled={occupe} run={agirRecuperationEmail} />
+            )}
             <ChampPilule
               c={c}
               etiquette={t(recuperation ? 'connexion.nouveauMotDePasse' : 'connexion.motDePasse')}

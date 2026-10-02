@@ -9,6 +9,11 @@ release, et ses notes sont la section de la version ici.
 
 ### Sécurité RocketVibe
 
+- Demande d’un code de récupération du mot de passe par e-mail dans le
+  formulaire existant, avec lecture locale de SecureStore, reprise de la demande
+  originale et délai de retry conservé. L’effacement du formulaire est explicite ;
+  la connexion après réinitialisation conserve les facteurs installés.
+
 - Activation et retrait explicites des codes par e-mail dans les paramètres
   existants, avec confirmation liée au contact et aux facteurs affichés, reprise
   du reçu depuis SecureStore et présentation des secours communs. Un autre

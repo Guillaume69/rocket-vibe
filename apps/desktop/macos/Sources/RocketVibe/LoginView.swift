@@ -84,6 +84,25 @@ struct LoginView: View {
                             .onChange(of: login.recovering) { _, active in if active { login.registering = false }; login.invitation = "" }
                         if login.recovering {
                             Text(L("login.recovery_help")).font(.caption)
+                            if login.canEmailRecover, let email = login.recoveryEmail {
+                                Text(L(email.identityChanged ? "recovery_email.changed" : email.expired ? "recovery_email.expired"
+                                    : email.accepted ? "recovery_email.accepted" : email.requested ? "recovery_email.pending" : "recovery_email.help"))
+                                    .font(.caption).fixedSize(horizontal: false, vertical: true)
+                                if email.retryAfterSeconds > 0 {
+                                    Text(L("recovery_email.wait", ["seconds": String(email.retryAfterSeconds)])).font(.caption)
+                                }
+                                if !email.accepted && !email.expired && !email.identityChanged {
+                                    Button(L(email.requested ? "recovery_email.retry" : "recovery_email.send")) {
+                                        Task { await login.sendRecoveryEmail(forget: false, revision: email.viewRevision) }
+                                    }.disabled(email.retryAfterSeconds > 0)
+                                }
+                                if email.requested {
+                                    Button(L("recovery_email.forget")) {
+                                        Task { await login.sendRecoveryEmail(forget: true, revision: email.viewRevision) }
+                                    }
+                                    Text(L("recovery_email.forget_help")).font(.caption)
+                                }
+                            }
                             SecureField(L("login.recovery_code"), text: $login.invitation)
                                 .focused($focus, equals: .invitation)
                                 .onSubmit(submit)
@@ -128,6 +147,14 @@ struct LoginView: View {
         .task(id: login.server) {
             try? await Task.sleep(nanoseconds: 600_000_000)
             if !Task.isCancelled { await login.probe(client: app.client) }
+        }
+        .task(id: "\(login.server)|\(login.user)|\(login.recovering)|\(login.canEmailRecover)") {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            if !Task.isCancelled { await login.loadRecoveryEmail(client: app.client) }
+            while !Task.isCancelled && login.recovering && login.canEmailRecover {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                if !Task.isCancelled { login.refreshRecoveryEmail() }
+            }
         }
     }
 

@@ -18,6 +18,8 @@ pub struct ServerProfile {
     pub oauth: Vec<String>,
     pub account_invitations: bool,
     pub account_recovery: bool,
+    pub email_recovery: bool,
+    pub native_identity: Option<crate::native::Identity>,
 }
 
 pub fn profile_from(base_url: &str, info: &Value, settings: &Value) -> Option<ServerProfile> {
@@ -43,6 +45,8 @@ pub fn profile_from(base_url: &str, info: &Value, settings: &Value) -> Option<Se
         oauth,
         account_invitations: false,
         account_recovery: false,
+        email_recovery: false,
+        native_identity: None,
     })
 }
 
@@ -60,6 +64,11 @@ pub async fn probe(base: &Url) -> Result<ServerProfile, RestError> {
             oauth: vec![],
             account_invitations: native.capabilities.account_invitations,
             account_recovery: native.capabilities.account_recovery,
+            email_recovery: native.capabilities.email_recovery,
+            native_identity: Some(crate::native::Identity {
+                instance_id: native.instance_id,
+                data_epoch: native.data_epoch,
+            }),
         });
     }
     let rest = RestClient::new(base.clone());

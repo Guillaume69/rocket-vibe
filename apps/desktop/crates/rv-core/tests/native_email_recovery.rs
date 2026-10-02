@@ -3,7 +3,7 @@ use common::{FakeHttp, dropped, respond};
 use rv_core::native::{
     self,
     authentication_vault::{Storage, StorageFuture},
-    email_recovery::{self, Intent, Scope, Vault},
+    email_recovery::{self, Form, Intent, Scope, Vault},
     security::Guard,
 };
 use serde_json::{Value, json};
@@ -429,4 +429,78 @@ async fn cancelled_caller_does_not_release_a_lease_held_by_the_actual_secure_wri
     *h.memory.block.lock().unwrap() = None;
     assert!(h.vault().retry(&saved, &Guard::new()).await.unwrap().view().accepted);
     assert_eq!(h.posts(), 1);
+}
+
+#[tokio::test]
+async fn form_open_is_local_and_restarted_form_resumes_original_lost_ack_with_revision_fences() {
+    let h = Harness::new().await;
+    let first = Form::open(h.vault(), h.scope.clone()).await.unwrap();
+    assert_eq!(h.reads.load(Ordering::SeqCst), 0);
+    assert!(!first.view().unwrap().requested);
+    h.lose.store(true, Ordering::SeqCst);
+    assert!(first.submit(0).await.is_err());
+    let pending = first.view().unwrap();
+    assert!(pending.requested && !pending.accepted);
+    assert_eq!(first.submit(0).await.err().unwrap().code(), "credentials_changed");
+    assert_eq!(h.posts(), 1);
+    first.close();
+    assert!(first.view().is_none());
+    let reads = h.reads.load(Ordering::SeqCst);
+    let resumed = Form::open(h.vault(), h.scope.clone()).await.unwrap();
+    assert_eq!(h.reads.load(Ordering::SeqCst), reads);
+    assert!(resumed.view().unwrap().requested);
+    resumed.submit(0).await.unwrap();
+    let accepted = resumed.view().unwrap();
+    assert!(accepted.accepted);
+    assert!(!format!("{accepted:?}").contains("operation_id"));
+    assert_eq!(h.posts(), 2);
+    resumed.submit(accepted.revision).await.unwrap();
+    assert_eq!(h.posts(), 2, "An acknowledged form cannot create another mail");
+    let revision = resumed.view().unwrap().revision;
+    resumed.forget(revision).await.unwrap();
+    assert!(!resumed.view().unwrap().requested);
+    assert_eq!(h.posts(), 2, "Dismissal is local");
+    assert_eq!(resumed.forget(revision).await.err().unwrap().code(), "credentials_changed");
+}
+
+#[tokio::test]
+async fn form_for_another_server_generation_cannot_retry_and_stale_dismissal_cannot_erase_a_new_intent() {
+    let h = Harness::new().await;
+    h.vault().begin(&h.scope, &Guard::new()).await.unwrap();
+    let old = Form::open(h.vault(), h.scope.clone()).await.unwrap();
+    let changed = Scope::from_identity(
+        h.scope.base_url(),
+        h.scope.username(),
+        &native::Identity { instance_id: h.scope.identity().instance_id.clone(), data_epoch: "replaced".into() },
+    )
+    .unwrap();
+    let changed = Form::open(h.vault(), changed).await.unwrap();
+    assert!(changed.view().unwrap().identity_changed);
+    let before = h.reads.load(Ordering::SeqCst);
+    assert_eq!(changed.submit(0).await.err().unwrap().code(), "server_identity_changed");
+    assert_eq!(h.posts(), 1);
+    assert_eq!(h.reads.load(Ordering::SeqCst), before);
+    changed.forget(changed.view().unwrap().revision).await.unwrap();
+    h.vault().begin(&h.scope, &Guard::new()).await.unwrap();
+    assert_eq!(old.forget(0).await.err().unwrap().code(), "credentials_changed");
+    assert!(h.pending().await.view().accepted, "The newer request stays durable");
+    assert_eq!(h.posts(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn closing_form_during_actual_keyring_write_keeps_candidate_but_prevents_late_mail() {
+    let h = Harness::new().await;
+    let form = Arc::new(Form::open(h.vault(), h.scope.clone()).await.unwrap());
+    let blocked = Arc::new(Block::default());
+    *h.memory.block.lock().unwrap() = Some(blocked.clone());
+    let actual = form.clone();
+    let job = tokio::spawn(async move { actual.submit(0).await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), blocked.started.notified()).await.unwrap();
+    form.close();
+    *blocked.ready.lock().unwrap() = true;
+    blocked.wake.notify_all();
+    assert_eq!(job.await.unwrap().err().unwrap().code(), "session_closed");
+    assert!(form.view().is_none());
+    assert!(h.vault().load(h.scope.base_url(), h.scope.username()).await.unwrap().is_some());
+    assert_eq!(h.posts(), 0);
 }

@@ -76,6 +76,9 @@ pub struct ServerProfile {
     pub oauth: Vec<String>,
     pub account_invitations: bool,
     pub account_recovery: bool,
+    pub email_recovery: bool,
+    pub instance_id: Option<String>,
+    pub data_epoch: Option<String>,
 }
 
 impl From<rv_core::server::ServerProfile> for ServerProfile {
@@ -90,6 +93,9 @@ impl From<rv_core::server::ServerProfile> for ServerProfile {
             oauth: p.oauth,
             account_invitations: p.account_invitations,
             account_recovery: p.account_recovery,
+            email_recovery: p.email_recovery,
+            instance_id: p.native_identity.as_ref().map(|i| i.instance_id.clone()),
+            data_epoch: p.native_identity.map(|i| i.data_epoch),
         }
     }
 }

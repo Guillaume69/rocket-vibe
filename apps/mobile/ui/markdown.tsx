@@ -18,7 +18,7 @@
  */
 
 import type { BigEmoji, Blocks, Inlines, Paragraph } from '@rocket.chat/message-parser';
-import { Component, type ReactElement, type ReactNode } from 'react';
+import { Component, createContext, useContext, type ReactElement, type ReactNode } from 'react';
 import { Image, Platform, StyleSheet, Text, View } from 'react-native';
 
 import { urlEmojiCustom } from '../lib/emojisCustom.ts';
@@ -72,6 +72,35 @@ export class GardeRendu extends Component<
   render() {
     return this.state.casse ? this.props.repli : this.props.children;
   }
+}
+
+/**
+ * L'appui long de la ligne qui porte ce texte. Un lien ou une mention est un
+ * `Text` tactile : il garde le toucher pour lui, et l'appui long de la ligne
+ * ne se déclenchait jamais dessus.
+ */
+export const AppuiLongMessage = createContext<(() => void) | undefined>(undefined);
+
+function Lien({ url, etiquette, c }: { url: string; etiquette: string; c: Couleurs }) {
+  const appuiLong = useContext(AppuiLongMessage);
+  return (
+    <Text style={[styles.lien, { color: c.accent }]} onPress={() => ouvrirLien(url)} onLongPress={appuiLong}>
+      {etiquette !== '' ? etiquette : url}
+    </Text>
+  );
+}
+
+function Mention({ username, c }: { username: string; c: Couleurs }) {
+  const appuiLong = useContext(AppuiLongMessage);
+  return (
+    <TexteTappable
+      style={[styles.mention, { color: c.accent }]}
+      onPress={() => ouvrirProfil(username)}
+      onLongPress={appuiLong}
+    >
+      @{username}
+    </TexteTappable>
+  );
 }
 
 export function CorpsMessage({ arbre, c }: { arbre: Root; c: Couleurs }) {
@@ -227,32 +256,13 @@ function rendreInline(noeud: Inlines, cle: number, c: Couleurs): React.ReactNode
         </Text>
       );
 
-    case 'LINK': {
-      const url = texteDe(noeud.value.src);
-      const etiquette = texteDe(noeud.value.label);
+    case 'LINK':
       return (
-        <Text
-          key={cle}
-          style={[styles.lien, { color: c.accent }]}
-          onPress={() => ouvrirLien(url)}
-        >
-          {etiquette !== '' ? etiquette : url}
-        </Text>
+        <Lien key={cle} url={texteDe(noeud.value.src)} etiquette={texteDe(noeud.value.label)} c={c} />
       );
-    }
 
-    case 'MENTION_USER': {
-      const username = texteDe(noeud.value);
-      return (
-        <TexteTappable
-          key={cle}
-          style={[styles.mention, { color: c.accent }]}
-          onPress={() => ouvrirProfil(username)}
-        >
-          @{username}
-        </TexteTappable>
-      );
-    }
+    case 'MENTION_USER':
+      return <Mention key={cle} username={texteDe(noeud.value)} c={c} />;
 
     case 'MENTION_CHANNEL':
       return (

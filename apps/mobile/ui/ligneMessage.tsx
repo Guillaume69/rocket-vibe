@@ -45,7 +45,7 @@ import { useHeure, useT } from './i18n.ts';
 import { TuileAvatar } from './kit.tsx';
 import { LecteurAudio } from './lecteurAudio.tsx';
 import { LecteurVideo } from './lecteurVideo.tsx';
-import { CorpsMessage, GardeRendu } from './markdown.tsx';
+import { AppuiLongMessage, CorpsMessage, GardeRendu } from './markdown.tsx';
 import { TexteTappable } from './texteTappable.tsx';
 import {
   type Couleurs,
@@ -244,7 +244,9 @@ export const LigneMessage = memo(function LigneMessage({
         {citations.map((jointe, i) => (
           <Citation key={i} c={c} jointe={jointe} client={client} surAppuiLong={appuiLong} />
         ))}
-        <ContenuMessage c={c} message={message} />
+        <AppuiLongMessage.Provider value={appuiLong}>
+          <ContenuMessage c={c} message={message} />
+        </AppuiLongMessage.Provider>
         {message.typeSysteme === null && (
           <LiensEmbed c={c} texte={message.texte} urls={message.urls} surAppuiLong={appuiLong} />
         )}

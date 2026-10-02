@@ -1,5 +1,6 @@
 //! Fallible transactions: a failed projection never acknowledges its cursor or outbox echo.
 mod membership;
+mod quotes;
 mod read_intents;
 mod read_states;
 mod room_access;
@@ -74,6 +75,7 @@ pub struct MessageRow {
     pub text: String,
     pub author: String,
     pub body: Option<String>,
+    pub attachments: Option<String>,
     pub author_id: String,
     pub ts: i64,
     pub status: Option<String>,
@@ -91,6 +93,7 @@ impl MessageRow {
             ts: self.ts,
             edited: self.edited,
             reactions: self.reactions,
+            attachments: self.attachments,
             pinned: self.pinned,
             starred: self.starred.then(|| uid.into()),
             text: Some(self.text),
@@ -131,6 +134,7 @@ impl NativeStore {
             INSERT INTO native_read_states SELECT id,json_extract(payload,'$.read_state') FROM native_rooms WHERE json_type(payload,'$.read_state')='object' ON CONFLICT(rid) DO NOTHING;")?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_read_intents(rid TEXT PRIMARY KEY,membership TEXT NOT NULL,root_position TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS native_favorite_intents(id TEXT NOT NULL UNIQUE,rid TEXT PRIMARY KEY,membership TEXT NOT NULL,payload TEXT NOT NULL,phase TEXT NOT NULL DEFAULT 'pending' CHECK(phase IN ('pending','confirmed','failed')),receipt_revision TEXT,error TEXT);")?;
+        quotes::initialize(&conn)?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_commands(id TEXT PRIMARY KEY,rid TEXT NOT NULL,message_id TEXT NOT NULL UNIQUE,kind TEXT NOT NULL CHECK(kind IN ('edit','delete')),expected_revision TEXT NOT NULL,text TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',error TEXT);")?;
         let command_schema: String =
             conn.query_row("SELECT sql FROM sqlite_master WHERE name='native_commands'", [], |r| r.get(0))?;
@@ -182,6 +186,8 @@ impl NativeStore {
                 "native_read_states",
                 "native_read_intents",
                 "native_favorite_intents",
+                "native_quote_references",
+                "native_quote_sources",
             ] {
                 tx.execute(&format!("DELETE FROM {table}"), [])?;
             }
@@ -379,12 +385,16 @@ impl NativeStore {
         }
         chrono::DateTime::parse_from_rfc3339(&message.created_at).map_err(|_| rusqlite::Error::InvalidQuery)?;
         let old = tx
-            .query_row("SELECT revision,deleted FROM native_messages WHERE id=?1", [&message.id], |r| {
-                Ok((r.get::<_, Option<String>>(0)?, r.get::<_, bool>(1)?))
+            .query_row("SELECT revision,deleted,rid FROM native_messages WHERE id=?1", [&message.id], |r| {
+                Ok((r.get::<_, Option<String>>(0)?, r.get::<_, bool>(1)?, r.get::<_, String>(2)?))
             })
             .optional()?;
+        if old.as_ref().is_some_and(|r| r.2 != message.room_id) {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
         if old.as_ref().and_then(|r| r.0.as_deref()).map(decimal).transpose()?.is_some_and(|old| old > revision) {
             if !message.deleted && !old.is_some_and(|r| r.1) {
+                quotes::project(tx, message, false)?;
                 Self::personal(tx, message)?;
             }
             return Ok(());
@@ -401,6 +411,7 @@ impl NativeStore {
         tx.execute("INSERT INTO native_messages(id,rid,position,revision,text,author,author_id,ts,deleted,edited,reactions,body) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12) ON CONFLICT(id) DO UPDATE SET position=excluded.position,revision=excluded.revision,text=excluded.text,author=excluded.author,author_id=excluded.author_id,ts=excluded.ts,deleted=excluded.deleted,edited=excluded.edited,reactions=excluded.reactions,body=excluded.body",params![message.id,message.room_id,message.position,message.revision,message.text,message.author.username,message.author.id,ts,message.deleted,message.edited_at.is_some(),reactions,body])?;
         tx.execute("DELETE FROM native_outbox WHERE id=?1", [&message.id])?;
         tx.execute("UPDATE native_messages SET pinned=?2 WHERE id=?1", params![message.id, message.pinned])?;
+        quotes::project(tx, message, true)?;
         Self::personal(tx, message)?;
         Ok(())
     }
@@ -438,6 +449,8 @@ impl NativeStore {
             "native_read_states",
             "native_read_intents",
             "native_favorite_intents",
+            "native_quote_references",
+            "native_quote_sources",
         ] {
             tx.execute(&format!("DELETE FROM {table} WHERE rid=?1"), [rid])?;
         }
@@ -461,6 +474,8 @@ impl NativeStore {
                     "native_read_states",
                     "native_read_intents",
                     "native_favorite_intents",
+                    "native_quote_references",
+                    "native_quote_sources",
                 ] {
                     tx.execute(&format!("DELETE FROM {table}"), [])?;
                 }
@@ -477,6 +492,8 @@ impl NativeStore {
                 // A reset snapshot only includes a bounded recent window. Old
                 // confirmed history may contain deletions missed by this cursor.
                 // Keep the unsent projection, drafts and outbox for live rooms.
+                tx.execute("DELETE FROM native_quote_references WHERE message_id IN (SELECT id FROM native_messages WHERE position IS NOT NULL)", [])?;
+                tx.execute("DELETE FROM native_quote_sources", [])?;
                 tx.execute("DELETE FROM native_messages WHERE position IS NOT NULL", [])?;
             }
             for room in &snapshot.rooms {
@@ -549,7 +566,10 @@ impl NativeStore {
         if !self.same(&conn)? {
             return Ok(vec![]);
         }
-        let mut rows=conn.prepare("SELECT m.id,m.text,m.author,o.status,m.author_id,m.ts,m.edited,m.reactions,m.pinned,m.starred,m.position,m.body FROM native_messages m LEFT JOIN native_outbox o ON o.id=m.id WHERE m.rid=?1 AND NOT m.deleted ORDER BY m.position IS NULL DESC,o.created DESC,length(m.position) DESC,m.position DESC,m.id DESC LIMIT ?2")?.query_map(params![rid,limit as i64],|r|Ok(MessageRow {id:r.get(0)?,text:r.get(1)?,author:r.get(2)?,body:r.get(11)?,status:r.get(3)?,author_id:r.get(4)?,ts:r.get(5)?,edited:r.get(6)?,reactions:r.get(7)?,pinned:r.get(8)?,starred:r.get(9)?,position:r.get(10)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut rows=conn.prepare("SELECT m.id,m.text,m.author,o.status,m.author_id,m.ts,m.edited,m.reactions,m.pinned,m.starred,m.position,m.body FROM native_messages m LEFT JOIN native_outbox o ON o.id=m.id WHERE m.rid=?1 AND NOT m.deleted ORDER BY m.position IS NULL DESC,o.created DESC,length(m.position) DESC,m.position DESC,m.id DESC LIMIT ?2")?.query_map(params![rid,limit as i64],|r|Ok(MessageRow {id:r.get(0)?,text:r.get(1)?,author:r.get(2)?,body:r.get(11)?,attachments:None,status:r.get(3)?,author_id:r.get(4)?,ts:r.get(5)?,edited:r.get(6)?,reactions:r.get(7)?,pinned:r.get(8)?,starred:r.get(9)?,position:r.get(10)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        for row in &mut rows {
+            row.attachments = quotes::attachments(&conn, &row.id)?;
+        }
         rows.reverse();
         Ok(rows)
     }
@@ -570,6 +590,7 @@ impl NativeStore {
                         id: r.get(0)?,
                         position: r.get(9)?,
                         body: r.get(10)?,
+                        attachments: quotes::attachments(&conn, id)?,
                         text: r.get(1)?,
                         author: r.get(2)?,
                         author_id: r.get(3)?,

@@ -315,6 +315,24 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P07, cache bureau des citations : références ordonnées et vues sources sont
+  persistées séparément dans SQLite. Les éditions / tombstones reçus d'une source
+  actualisent ses citations dans les autres salons. Retrait, nouvelle adhésion et
+  reset purgent ses extraits ; anciennes révisions, anciennes adhésions et résultats
+  indisponibles sont arbitrés sans restaurer un texte supprimé. Une réponse HTTP
+  peut actualiser la vue source sans remplacer une réponse citante plus récente.
+  Les lectures de liste et sélection projettent ces données dans les cartes GTK /
+  SwiftUI existantes, avec leur Markdown, sans toucher aux écrans.
+  Vérifications ciblées : neuf tests du cache SQLite réussis, dont réouverture,
+  rollback du curseur, retrait / réadhésion, absence datée, suppression, ordre de
+  références et valeurs au-delà de la précision JavaScript ; deux tests des modèles
+  UniFFI réussis, dont une source citée hors de la fenêtre d'historique et son
+  tombstone dans les vrais modèles partagés. Régression complète : 351 tests du
+  workspace bureau réussis, Clippy sans avertissement, binaire GTK reconstruit ;
+  inventaire et changelog valides.
+  Cache mobile, libellé indisponible, menus de réponse et intentions durables restent
+  à raccorder ; capacité `quotes` toujours désactivée et P07 toujours ouvert.
+
 - P07, positions de résolution des citations : extrait, adhésion source et
   position d'instance sont lus dans une seule vue SQL. Les résultats sans extrait
   portent aussi cette position ; un message source supprimé conserve la durée
@@ -326,6 +344,8 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   Vérifications ciblées : cinq tests PostgreSQL de citations, deux protections
   de remise et huit tests du contrat Rust réussis ; Clippy du workspace serveur,
   génération des types, typecheck mobile et un test du contrat mobile passent.
+  La CI native du commit `fc1d6ac` est verte (`37047824309`) : vérification serveur /
+  mobile, GTK, cœur Windows et modèles Swift.
   Raccordement et purge dans les caches clients restent le point suivant ;
   la capacité `quotes` demeure désactivée.
 

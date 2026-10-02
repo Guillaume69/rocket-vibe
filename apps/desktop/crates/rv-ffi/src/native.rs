@@ -677,12 +677,51 @@ fn native_message_items(
 mod tests {
     use super::*;
     #[test]
+    fn reader_scoped_quotes_cross_sqlite_and_the_existing_swift_message_models() {
+        use serde_json::json;
+        let store = rv_core::native::store::NativeStore::open(
+            std::path::Path::new(":memory:"),
+            rv_core::native::Identity { instance_id: "instance".into(), data_epoch: "epoch".into() },
+        )
+        .unwrap();
+        let author = json!({"id":"alice-id","username":"alice","display_name":"Alice"});
+        let source = json!({"id":"source","room_id":"origin","author":author,"text":"","created_at":"2026-10-02T08:00:00Z","position":"10","revision":"30","deleted":true});
+        store.snapshot(&serde_json::from_value(json!({
+            "protocol_version":1,"cursor":"initial",
+            "rooms":[{"id":"destination","name":"Destination","kind":"private","revision":"1"},{"id":"origin","name":"Origin","kind":"private","revision":"1","read_state":{
+                "room_id":"origin","revision":"1","membership_version":"source-grant","favorite_revision":"1","root_position":"0","reply_position":"0","unread_roots":"0","unread_replies":"0","mentions":"0","group_mentions":"0","favorite":false
+            }}],
+            "messages":[{"id":"reply","room_id":"destination","author":author,"text":"Réponse","created_at":"2026-10-02T08:00:00Z","position":"20","revision":"20","quotes":[{
+                "reference":{"room_id":"origin","message_id":"source","revision":"10"},"view_position":"20","source_membership_version":"source-grant","excerpt":{
+                    "author":author,"text":"`<secret>` *gras*","created_at":"2026-10-02T08:00:00Z","revision":"10","membership_version":"source-grant"
+                }
+            }]}]
+        })).unwrap()).unwrap();
+        let items =
+            || native_message_items(store.messages("destination", 50).unwrap(), "destination", "me", "me", None);
+        let before = items();
+        assert_eq!(before[0].quotes.len(), 1);
+        assert_eq!(before[0].quotes[0].author.as_deref(), Some("alice"));
+        let crate::markup::BodyBlock::Paragraph { runs } = &before[0].quotes[0].body[0] else {
+            panic!("missing quoted body")
+        };
+        assert!(runs.iter().any(|r| r.code && r.text == "<secret>"));
+        assert!(runs.iter().any(|r| r.bold && r.text == "gras"));
+        store.ingest(&[serde_json::from_value(source).unwrap()]).unwrap();
+        let after = items();
+        assert_eq!(after[0].quotes.len(), 1);
+        assert!(after[0].quotes[0].author.is_none());
+        assert!(after[0].quotes[0].body.is_empty());
+        assert_eq!(after[0].text.as_deref(), Some("Réponse"));
+    }
+    #[test]
     fn native_rows_use_the_shared_renderer_without_reordering_or_rc_avatars() {
         let row = |id: &str, ts, status| rv_core::native::store::MessageRow {
             id: id.into(),
             position: None,
             text: "**hello** :smile:".into(),
             body: None,
+            attachments: None,
             author: "alice".into(),
             author_id: "alice-id".into(),
             ts,

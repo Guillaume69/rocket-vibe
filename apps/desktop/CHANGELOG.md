@@ -29,6 +29,11 @@ section here.
 
 ### Added
 
+- Native quoted messages reuse the existing GTK / SwiftUI quote cards. Source
+  edits and deletions refresh cached excerpts across rooms; withdrawal or a new
+  membership removes private excerpts and rejects delayed responses. Quote
+  sending remains disabled until the existing reply controls and outbox are wired.
+
 - Native message bodies adapt to the existing GTK and SwiftUI renderers from a
   shared typed document. Composer bold / italic / strike markers keep their
   current behavior; escaped mentions, code, quotes and link labels do not gain

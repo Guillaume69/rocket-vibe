@@ -47,6 +47,8 @@
     "apps/desktop/crates/rv-core/src/native/security/factor_email.rs",
     "apps/desktop/crates/rv-core/src/native/store.rs",
     "apps/desktop/crates/rv-core/src/native/store/membership.rs",
+    "apps/desktop/crates/rv-core/src/native/store/quotes.rs",
+    "apps/desktop/crates/rv-core/src/native/store/quotes/tests.rs",
     "apps/desktop/crates/rv-core/src/native/store/read_intents.rs",
     "apps/desktop/crates/rv-core/src/native/store/read_states.rs",
     "apps/desktop/crates/rv-core/src/native/store/room_access.rs",

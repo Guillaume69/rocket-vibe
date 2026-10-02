@@ -1,6 +1,7 @@
 // Disposable integration peer: the actual mobile runner + the application's SQLite migrations.
 import assert from 'node:assert/strict';
 import {invitationSmoke,recoverySmoke} from './native-invitations-smoke.ts';
+import {quoteSmoke} from './native-quotes-smoke.ts';
 import {randomBytes} from 'node:crypto';
 import {NativeTransport} from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
 import {creerFournisseurRV} from '../apps/mobile/fournisseurs/rocketvibe/index.ts';
@@ -64,5 +65,6 @@ try {
   await until(()=>has('desktop-core-complete'));
   await until(()=>has('Message du bureau GTK'));
   await outbox.envoyer(publicRoom.id,'Réponse du mobile au bureau GTK');
+  await quoteSmoke();
   console.log('Mobile peer: desktop exchange, public discovery/join, offline replay and private withdrawal passed');
 } finally {chat.stop();database.db.close();}

@@ -522,7 +522,11 @@ impl NativeSession {
                 .client
                 .send(
                     &pending.room_id,
-                    &rv_protocol::SendMessage { quotes: vec![], operation_id: pending.id.clone(), text: pending.text },
+                    &rv_protocol::SendMessage {
+                        quotes: pending.quotes,
+                        operation_id: pending.id.clone(),
+                        text: pending.text,
+                    },
                 )
                 .await
             {
@@ -560,12 +564,27 @@ impl NativeSession {
         Ok(())
     }
     pub fn send(&self, rid: &str, text: &str) -> Result<String, Error> {
-        self.send_intention(rid, text, None)
+        self.send_intention(rid, text, None, &[])
     }
     pub fn send_from_membership(&self, rid: &str, text: &str, membership: Option<&str>) -> Result<String, Error> {
-        self.send_intention(rid, text, Some(membership))
+        self.send_intention(rid, text, Some(membership), &[])
     }
-    fn send_intention(&self, rid: &str, text: &str, membership: Option<Option<&str>>) -> Result<String, Error> {
+    pub fn send_quotes_from_membership(
+        &self,
+        rid: &str,
+        text: &str,
+        membership: Option<&str>,
+        selections: &[store::QuoteSelection],
+    ) -> Result<String, Error> {
+        self.send_intention(rid, text, Some(membership), selections)
+    }
+    fn send_intention(
+        &self,
+        rid: &str,
+        text: &str,
+        membership: Option<Option<&str>>,
+        selections: &[store::QuoteSelection],
+    ) -> Result<String, Error> {
         if self.closed.load(Ordering::SeqCst) {
             return Err(Error::Protocol("session_closed"));
         }
@@ -573,16 +592,18 @@ impl NativeSession {
             return Err(Error::Protocol("server_identity_changed"));
         }
         let text = text.trim();
-        if text.is_empty() || text.len() > 32_768 {
+        if text.is_empty() && selections.is_empty() || text.len() > 32_768 {
             return Err(Error::Protocol("invalid_message"));
         }
         let id = format!("{:032x}", fastrand::u128(..));
-        if let Some(expected) = membership {
-            if !self.store.enqueue_from_membership(&id, rid, text, &self.info.username, expected)? {
-                return Err(Error::Protocol("delivery_revalidate"));
-            }
-        } else {
-            self.store.enqueue(&id, rid, text, &self.info.username)?;
+        let pending = store::Pending {
+            id: id.clone(),
+            room_id: rid.into(),
+            text: text.into(),
+            quotes: selections.iter().map(|s| s.reference.clone()).collect(),
+        };
+        if !self.store.enqueue_quoted(&pending, &self.info.username, membership, selections)? {
+            return Err(Error::Protocol("delivery_revalidate"));
         }
         self.wake.notify_one();
         Ok(id)
@@ -704,8 +725,13 @@ impl NativeSession {
         text: &str,
     ) -> Result<(), Error> {
         self.ready()?;
-        let command =
-            self.store.command(rid, id, revision, kind, text)?.ok_or(Error::Protocol("message_action_pending"))?;
+        let Some(command) = self.store.command(rid, id, revision, kind, text)? else {
+            return Err(Error::Protocol(if self.store.has_command_revision_conflict(id)? {
+                "revision_conflict"
+            } else {
+                "message_action_pending"
+            }));
+        };
         let result = self.apply_command(&command).await;
         if let Err(error) = &result {
             if permanent_command_error(error) {

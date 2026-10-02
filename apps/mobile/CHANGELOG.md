@@ -9,6 +9,9 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Une édition devenue obsolète conserve les mots saisis et signale un conflit,
+  même si le cache a déjà reçu la nouvelle version du message.
+
 - L'édition d'une réponse native conserve ses références de citation, même après
   suppression de la source ou perte de son accès. L'intention sauvegardée garde
   le même contenu après coupure et redémarrage. Une ancienne édition sans contenu

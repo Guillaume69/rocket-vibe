@@ -193,9 +193,14 @@ jobs:
           path: |
             .cache/native-swift-cargo
             apps/desktop/target/swift-linux
-            apps/desktop/macos/.build/linux
-          key: native-swift-linux-${{ hashFiles('apps/desktop/Cargo.lock', 'apps/desktop/macos/Package.swift') }}
-          restore-keys: native-swift-linux-
+          key: native-swift-rust-v2-${{ hashFiles('apps/desktop/Cargo.lock', 'apps/desktop/macos/Package.swift') }}
+          restore-keys: native-swift-rust-v2-
+      - uses: actions/cache@v4
+        with:
+          path: apps/desktop/macos/.build/linux
+          # Generated UniFFI records can change Swift layouts. Reuse compiled
+          # objects only for the exact sources, without an older fallback.
+          key: native-swift-objects-${{ hashFiles('Cargo.lock', 'apps/desktop/Cargo.lock', 'apps/desktop/macos/Package.swift', 'apps/desktop/macos/docker/Dockerfile', 'apps/desktop/macos/scripts/generate.sh', 'apps/desktop/crates/**/*.rs', 'crates/**/*.rs', 'apps/desktop/macos/Sources/**/*.swift', 'apps/desktop/macos/Tests/**/*.swift') }}
       - name: Build Swift toolchain and disposable native server
         run: |
           docker build -t rocket-vibe-swift apps/desktop/macos/docker

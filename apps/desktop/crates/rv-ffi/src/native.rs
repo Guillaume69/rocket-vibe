@@ -63,6 +63,40 @@ pub struct NativeMessage {
     pub author: String,
     pub status: Option<String>,
 }
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct NativeQuoteSelection {
+    pub message_id: String,
+    pub room_id: String,
+    pub revision: String,
+    pub instance_id: String,
+    pub data_epoch: String,
+    pub membership_version: String,
+}
+impl From<rv_core::native::store::QuoteSelection> for NativeQuoteSelection {
+    fn from(value: rv_core::native::store::QuoteSelection) -> Self {
+        Self {
+            message_id: value.reference.message_id,
+            room_id: value.reference.room_id,
+            revision: value.reference.revision,
+            instance_id: value.identity.instance_id,
+            data_epoch: value.identity.data_epoch,
+            membership_version: value.membership_version,
+        }
+    }
+}
+impl NativeQuoteSelection {
+    fn into_core(self) -> rv_core::native::store::QuoteSelection {
+        rv_core::native::store::QuoteSelection {
+            reference: rv_core::native::store::QuoteReference {
+                message_id: self.message_id,
+                room_id: self.room_id,
+                revision: self.revision,
+            },
+            identity: rv_core::native::Identity { instance_id: self.instance_id, data_epoch: self.data_epoch },
+            membership_version: self.membership_version,
+        }
+    }
+}
 #[derive(Clone, uniffi::Record)]
 pub struct NativeMessageActions {
     pub message_id: String,
@@ -525,6 +559,20 @@ impl NativeChat {
         membership: Option<String>,
     ) -> Result<String, RvError> {
         self.session.send_from_membership(&room, &text, membership.as_deref()).map_err(native_error)
+    }
+    pub fn quote_selection(&self, room: String, message_id: String) -> Result<NativeQuoteSelection, RvError> {
+        self.room_revision(room.clone())?;
+        self.session.store.quote_selection(&room, &message_id).map(Into::into).map_err(RvError::local)
+    }
+    pub fn send_quotes_from_membership(
+        &self,
+        room: String,
+        text: String,
+        membership: Option<String>,
+        quotes: Vec<NativeQuoteSelection>,
+    ) -> Result<String, RvError> {
+        let quotes: Vec<_> = quotes.into_iter().map(NativeQuoteSelection::into_core).collect();
+        self.session.send_quotes_from_membership(&room, &text, membership.as_deref(), &quotes).map_err(native_error)
     }
     pub fn draft_from_membership(&self, room: String, membership: Option<String>) -> Result<String, RvError> {
         self.session.store.draft_from_membership(&room, membership.as_deref()).map_err(RvError::local)

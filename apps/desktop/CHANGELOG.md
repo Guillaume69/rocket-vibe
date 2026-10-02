@@ -9,6 +9,10 @@ section here.
 
 ### Fixed
 
+- A stale native editor keeps its unsent words and reports `revision_conflict`
+  when the cache already contains a newer message. Quote references are captured
+  only for the matching revision.
+
 - Native edits preserve ordered quote references after source deletion or access
   withdrawal, including retries and cache restarts. Older edit intents without a
   captured body retain their draft and require a fresh submission.

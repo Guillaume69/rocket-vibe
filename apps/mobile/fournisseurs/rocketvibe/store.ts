@@ -10,7 +10,7 @@ import {FAVORITE_SELECT,savedFavorite,type PendingRead,type SavedFavorite,type F
 import {roomIdentifier,roomOperation,sameRoomForm,savedRoomOperation,type RoomOperation,type RoomOperationRow,type SavedRoomOperation} from './roomOperations.ts';
 import {decodeNative} from './validation.ts';
 import {nativeMarkdown} from './markdown.ts';
-import {NativeQuoteCache} from './quotes.ts';
+import {NativeQuoteCache,type NativeQuoteSelection} from './quotes.ts';
 
 // Native revisions, checked below as exact decimal strings, order projection.
 // The shared RC statement's wall-clock condition would discard a valid edit
@@ -27,7 +27,7 @@ export interface NativeDatabase {
 export type NativeState = { instance_id: string; data_epoch: string; cursor: string };
 export type NativeRoomRow = { rid: string; nom: string; type: string; dernier_message: string | null };
 export type NativeMessageRow = { id: string; texte: string; auteur_nom: string; auteur_id: string; horodatage: number; statut: string | null };
-export type NativePending = { id: string; rid: string; texte: string };
+export type NativePending = { id: string; rid: string; texte: string;quotes:import('./protocol.generated.ts').QuoteReference[] };
 export type NativeRoomAccess = {rid:string;revision:string;read_only:number|null;can_send:number|null;role:string|null};
 export type NativeCommand = {id:string;rid:string;message_id:string;kind:'edit'|'delete'|'react'|'pin'|'star';expected_revision:string;text:string;quotes:import('./protocol.generated.ts').QuoteReference[]|null};
 type NativeCommandRow=Omit<NativeCommand,'quotes'>&{quotes:string|null};
@@ -66,7 +66,7 @@ export class NativeStore {
   private readonly quotes:NativeQuoteCache;
   private projection=0;
   constructor(db: NativeDatabase, queue: FileEcritures, session: AppSession) {
-    this.db = db; this.queue = queue; this.session = session;this.quotes=new NativeQuoteCache(db);
+    this.db = db; this.queue = queue; this.session = session;this.quotes=new NativeQuoteCache(db,{instance_id:session.nativeInstanceId??'',data_epoch:session.nativeDataEpoch??''});
   }
   private atomic<T>(fn: () => Promise<T>, rotate:boolean|(()=>boolean)=false): Promise<T> {
     return this.queue(async () => {
@@ -88,7 +88,7 @@ export class NativeStore {
   prepare(): Promise<void> {
     return this.atomic(async () => {
       if (await this.sameGeneration()) return;
-      for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs','native_room_creations','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+      for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs','native_room_creations','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes']) await this.db.runAsync(`DELETE FROM ${table}`, []);
     });
   }
   private async membershipMatches(rid:string,membership:string|null):Promise<boolean> {
@@ -194,10 +194,11 @@ export class NativeStore {
     await this.db.runAsync('INSERT INTO native_positions(id,rid,position,revision) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET position=excluded.position,revision=excluded.revision', [message.id, message.room_id, message.position, message.revision]);
     await this.quotes.project(message,true);
     await this.db.runAsync(SUPPRIMER_SORTIE, [message.id]);
+    await this.db.runAsync('DELETE FROM native_outbox_quotes WHERE id=?',[message.id]);
     await this.preview(message.room_id);
   }
   private async remove(rid: string,keepMetadata=false): Promise<void> {
-    for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'native_positions','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources']) {
+    for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'native_positions','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes']) {
       if(keepMetadata && table==='salons')continue;
       await this.db.runAsync(`DELETE FROM ${table} WHERE rid=?`, [rid]);
     }
@@ -211,7 +212,7 @@ export class NativeStore {
       const old = await this.db.getFirstAsync<NativeState>('SELECT instance_id,data_epoch,cursor FROM native_sync_state WHERE singleton=1', []);
       if (!old || old.instance_id !== this.session.nativeInstanceId || old.data_epoch !== this.session.nativeDataEpoch) {
         // A fresh login to a different generation must never replay its predecessor's outbox.
-        for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'brouillons', 'native_positions', 'etat_synchro', 'utilisateurs', 'native_room_creations','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+        for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'brouillons', 'native_positions', 'etat_synchro', 'utilisateurs', 'native_room_creations','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes']) await this.db.runAsync(`DELETE FROM ${table}`, []);
       } else {
         const live = new Set(snapshot.rooms.map(room => room.id));
         const known = await this.db.getAllAsync<{rid:string}>('SELECT rid FROM salons', []);
@@ -437,16 +438,20 @@ export class NativeStore {
       const previous=saved?commandRow(saved):null;
       if (previous) return previous.rid===rid && previous.kind===kind && previous.text===text?previous:null;
       if (!await this.db.getFirstAsync('SELECT m.id FROM messages m JOIN native_positions p ON p.id=m.id WHERE m.id=? AND m.rid=?',[message,rid])) throw new Error('Message unavailable');
+      let stale=false;
       if(kind==='edit'){
         const current=await this.db.getFirstAsync<{revision:string}>('SELECT revision FROM native_positions WHERE id=?',[message]);
-        if(current?.revision!==revision)throw new Error('Message revision changed');
+        stale=current?.revision!==revision;
       }
-      const quotes=kind==='edit'?await this.quotes.references(message):[];
+      const quotes=stale?null:kind==='edit'?await this.quotes.references(message):[];
       await this.db.runAsync("DELETE FROM native_commands WHERE message_id=? AND state='failed'",[message]);
       const command: NativeCommand={id:id(),rid,message_id:message,kind,expected_revision:revision,text,quotes};
-      await this.db.runAsync('INSERT INTO native_commands(id,rid,message_id,kind,expected_revision,text,quotes) VALUES(?,?,?,?,?,?,?)',[command.id,rid,message,kind,revision,text,JSON.stringify(quotes)]);
-      return command;
+      await this.db.runAsync('INSERT INTO native_commands(id,rid,message_id,kind,expected_revision,text,quotes,state,error) VALUES(?,?,?,?,?,?,?,?,?)',[command.id,rid,message,kind,revision,text,quotes===null?null:JSON.stringify(quotes),stale?'failed':'pending',stale?'revision_conflict':null]);
+      return stale?null:command;
     });
+  }
+  hasCommandRevisionConflict(id:string):Promise<boolean> {
+    return this.queue(async()=>await this.sameGeneration() && await this.db.getFirstAsync("SELECT id FROM native_commands WHERE message_id=? AND state='failed' AND error='revision_conflict'",[id])!==null);
   }
   pendingCommands(): Promise<NativeCommand[]> {
     return this.queue(async () => {
@@ -485,7 +490,10 @@ export class NativeStore {
   oldestPosition(rid: string): Promise<string | undefined> {
     return this.queue(async () => (await this.db.getFirstAsync<{position:string}>('SELECT position FROM native_positions WHERE rid=? ORDER BY length(position),position LIMIT 1', [rid]))?.position);
   }
-  enqueue(id: string, rid: string, text: string,scope?:{membership:string|null}): Promise<void> {
+  quoteSelection(rid:string,id:string):Promise<NativeQuoteSelection> {
+    return this.queue(async()=>{if(!await this.sameGeneration())throw new Error('Native quote generation unavailable');return this.quotes.selection(rid,id);});
+  }
+  enqueue(id: string, rid: string, text: string,scope?:{membership:string|null},selected:readonly NativeQuoteSelection[]=[]): Promise<void> {
     return this.atomic(async () => {
       if (!await this.sameGeneration() || !await this.db.getFirstAsync('SELECT rid FROM salons WHERE rid=?', [rid])) throw new Error('Room unavailable in this generation');
       if(scope && !await this.membershipMatches(rid,scope.membership))throw new Error('Native membership changed');
@@ -493,16 +501,24 @@ export class NativeStore {
       const local = localMessage({id,room_id:rid,text,author:{id:this.session.userId,username:this.session.username,display_name:this.session.username},created_at:now,position:'0',revision:'0'});
       local.misAJourLe = 0;
       await this.db.runAsync(UPSERT_MESSAGE, paramsMessage(local));
+      const refs=await this.quotes.enqueue(id,rid,selected);
       await this.db.runAsync(INSERER_SORTIE, [id,rid,text,null,Date.now()]);
+      await this.db.runAsync('INSERT INTO native_outbox_quotes(id,rid,payload) VALUES(?,?,?)',[id,rid,JSON.stringify(refs)]);
     });
   }
   pending(): Promise<NativePending[]> {
-    return this.queue(async () => await this.sameGeneration() ? this.db.getAllAsync<NativePending>("SELECT id,rid,texte FROM sortie WHERE statut='en-attente' ORDER BY cree_le,id", []) : []);
+    return this.queue(async () => {
+      if(!await this.sameGeneration())return [];
+      const rows=await this.db.getAllAsync<{id:string;rid:string;texte:string;payload:string}>("SELECT s.id,s.rid,s.texte,coalesce(q.payload,'[]') AS payload FROM sortie s LEFT JOIN native_outbox_quotes q ON q.id=s.id WHERE s.statut='en-attente' ORDER BY s.cree_le,s.id",[]);
+      return rows.map(({payload,...row})=>{const raw:unknown=JSON.parse(payload);if(!Array.isArray(raw) || raw.length>8)throw new Error('Invalid native outbox references');return {...row,quotes:raw.map(r=>decodeNative('QuoteReference',r))};});
+    });
   }
   fail(id: string, code: string): Promise<void> { return this.queue(async () => { await this.db.runAsync(MARQUER_SORTIE_ECHEC, [code,id]); }); }
   retry(id: string): Promise<void> { return this.queue(async () => { await this.db.runAsync("UPDATE sortie SET statut='en-attente',derniere_erreur=NULL WHERE id=?", [id]); }); }
   abandon(id: string): Promise<void> {
     return this.atomic(async () => {
+      await this.db.runAsync('DELETE FROM native_quote_references WHERE message_id=? AND EXISTS(SELECT 1 FROM sortie WHERE id=?)',[id,id]);
+      await this.db.runAsync('DELETE FROM native_outbox_quotes WHERE id=?',[id]);
       await this.db.runAsync('DELETE FROM messages WHERE id=? AND mis_a_jour_le=0', [id]);
       await this.db.runAsync(SUPPRIMER_SORTIE, [id]);
     });

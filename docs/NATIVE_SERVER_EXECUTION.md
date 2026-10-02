@@ -315,6 +315,30 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P07, corps durables d'envoi de citations : le cœur bureau, le moteur mobile et
+  le pont UniFFI sélectionnent les sources confirmées depuis le cache existant.
+  La mise en file revérifie révision, génération et adhésion source / destination
+  dans la transaction locale ; seules les références ordonnées voyagent vers
+  le serveur. Réouverture SQLite, reset, retrait de source et retry conservent le
+  corps initial. Les cartes optimistes existantes perdent l'extrait privé après
+  retrait, et les anciennes intentions texte conservent leur rejeu.
+  Le moteur mobile réel, HTTP / PostgreSQL et SQLite sur disque vérifient réponse
+  perdue après commit, retrait, reprise sans doublon, conflit sur source éditée
+  et nouvelle sélection. Aucun écran ni composant desktop / mobile n'est créé
+  ou remplacé ; le raccordement aux contrôles actuels reste la prochaine étape.
+  La CI `37056782968` du lot précédent a révélé une édition périmée qui perdait
+  son brouillon avant mise en file. Bureau et mobile conservent maintenant cette
+  intention en échec avec `revision_conflict` sans l'envoyer ; le scénario Swift
+  qui échouait passe contre le serveur réel et le stockage sécurisé.
+  Vérifications locales : 1 181 tests mobiles et 355 tests du workspace bureau
+  réussis, sans échec ni test ignoré ; typecheck, lint, Clippy tous targets et
+  compilation GTK réussis. Le test Swift réel passe après compilation neuve.
+  Les objets Swift CI ont un cache distinct, sans reprise de sources différentes,
+  pour éviter de réutiliser des objets après modification des bindings UniFFI.
+  La capacité `quotes`, le libellé indisponible, les contrôles de réponse et les
+  essais installés Android / macOS / Windows restent ouverts : ce lot ne ferme
+  pas P07. [Contrat](protocol/QUOTES.md).
+
 - P07, conservation des citations lors d'une édition : les commandes existantes
   GTK / SwiftUI / mobile capturent les références ordonnées dans SQLite avec
   leur texte, révision attendue et nonce. Retrait de la source, reset et reprise

@@ -96,7 +96,9 @@ fn durable_edits_keep_ordered_references_without_source_authority_across_restart
     let expected: Vec<_> = snapshot.messages[1].quotes.iter().map(|q| q.reference.clone()).collect();
     first.snapshot(&snapshot).unwrap();
     first.batch(&batch(vec![Change::RoomRemoved { room_id: "origin".into() }])).unwrap();
-    assert!(first.command("destination", "reply", "19", MessageCommandKind::Edit, "Stale").is_err());
+    assert!(first.command("destination", "reply", "19", MessageCommandKind::Edit, "Stale").unwrap().is_none());
+    assert!(first.has_command_revision_conflict("reply").unwrap());
+    assert_eq!(first.command_draft("reply").unwrap().as_deref(), Some("Stale"));
     let command = first.command("destination", "reply", "20", MessageCommandKind::Edit, "Saved edit").unwrap().unwrap();
     assert_eq!(command.quotes.as_ref().unwrap(), &expected);
     let persisted: String =
@@ -125,6 +127,101 @@ fn durable_edits_keep_ordered_references_without_source_authority_across_restart
     let fresh = reopened.command("destination", "reply", "50", MessageCommandKind::Edit, "New edit").unwrap().unwrap();
     assert_ne!(fresh.id, command.id);
     assert!(fresh.quotes.unwrap().is_empty());
+    drop(reopened);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn quoted_outbox_keeps_original_body_and_existing_cards_after_source_loss_restart_and_reset() {
+    let path = std::env::temp_dir().join(format!("rv-quoted-outbox-{:032x}.sqlite", fastrand::u128(..)));
+    let first = NativeStore::open(&path, identity("epoch")).unwrap();
+    first.snapshot(&initial()).unwrap();
+    let selected = first.quote_selection("origin", "source").unwrap();
+    let pending = Pending {
+        id: "pending-reply".into(),
+        room_id: "destination".into(),
+        text: String::new(),
+        quotes: vec![selected.reference.clone()],
+    };
+    assert!(
+        first
+            .enqueue_quoted(&pending, "alice", Some(Some("destination-grant")), std::slice::from_ref(&selected))
+            .unwrap()
+    );
+    let row = first.selected_messages(std::slice::from_ref(&pending.id)).unwrap().pop().unwrap();
+    assert_eq!(crate::content::quotes(row.attachments.as_deref())[0].text, "*Privé* _texte_ :rocket:");
+    first.batch(&batch(vec![Change::RoomRemoved { room_id: "origin".into() }])).unwrap();
+    let reset = Snapshot {
+        protocol_version: 1,
+        rooms: vec![room("destination", "1", "destination-grant")],
+        messages: vec![],
+        cursor: "reset".into(),
+    };
+    first.snapshot(&reset).unwrap();
+    drop(first);
+    let reopened = NativeStore::open(&path, identity("epoch")).unwrap();
+    assert_eq!(reopened.pending().unwrap(), vec![pending.clone()]);
+    let row = reopened.selected_messages(std::slice::from_ref(&pending.id)).unwrap().pop().unwrap();
+    let cards = crate::content::quotes(row.attachments.as_deref());
+    assert_eq!(cards.len(), 1);
+    assert!(cards[0].author.is_none() && cards[0].text.is_empty());
+    let raw: String =
+        reopened.conn.lock().unwrap().query_row("SELECT quotes FROM native_outbox", [], |r| r.get(0)).unwrap();
+    assert!(!raw.contains("Privé") && !raw.contains("membership") && !raw.contains("epoch"));
+    reopened.fail(&pending.id, "quote_revision_conflict").unwrap();
+    reopened.retry(&pending.id).unwrap();
+    assert_eq!(reopened.pending().unwrap(), vec![pending.clone()]);
+    reopened.abandon(&pending.id).unwrap();
+    assert!(reopened.pending().unwrap().is_empty());
+    assert!(quotes::references(&reopened.conn.lock().unwrap(), &pending.id).unwrap().is_empty());
+    drop(reopened);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn source_selections_are_fenced_before_atomic_enqueue_and_old_outboxes_migrate_as_plain_text() {
+    let store = store();
+    let selected = store.quote_selection("origin", "source").unwrap();
+    let pending = Pending {
+        id: "pending".into(),
+        room_id: "destination".into(),
+        text: "Saved words".into(),
+        quotes: vec![selected.reference.clone()],
+    };
+    for mutation in 0..5 {
+        let mut invalid = selected.clone();
+        match mutation {
+            0 => invalid.identity.data_epoch = "another".into(),
+            1 => invalid.identity.instance_id = "another".into(),
+            2 => invalid.membership_version = "another".into(),
+            3 => invalid.reference.revision = "9".into(),
+            _ => invalid.reference.room_id = "destination".into(),
+        }
+        assert!(store.enqueue_quoted(&pending, "alice", None, &[invalid]).is_err());
+        assert!(store.pending().unwrap().is_empty());
+        assert!(store.selected_messages(std::slice::from_ref(&pending.id)).unwrap().is_empty());
+    }
+    assert!(
+        store
+            .enqueue_quoted(&pending, "alice", Some(Some("old-destination-grant")), std::slice::from_ref(&selected))
+            .is_ok_and(|applied| !applied)
+    );
+    store.ingest(&[message("source", "origin", "30", "Updated")]).unwrap();
+    assert!(store.enqueue_quoted(&pending, "alice", None, &[selected]).is_err());
+    let selected = store.quote_selection("origin", "source").unwrap();
+    let mut duplicate = pending.clone();
+    duplicate.quotes = vec![selected.reference.clone(); 2];
+    assert!(store.enqueue_quoted(&duplicate, "alice", None, &[selected.clone(), selected]).is_err());
+    let path = std::env::temp_dir().join(format!("rv-old-outbox-{:032x}.sqlite", fastrand::u128(..)));
+    let first = NativeStore::open(&path, identity("epoch")).unwrap();
+    first.snapshot(&initial()).unwrap();
+    first.conn.lock().unwrap().execute_batch("ALTER TABLE native_outbox DROP COLUMN quotes; INSERT INTO native_outbox(id,rid,text,created) VALUES('old','destination','Old words',1);").unwrap();
+    drop(first);
+    let reopened = NativeStore::open(&path, identity("epoch")).unwrap();
+    assert_eq!(
+        reopened.pending().unwrap(),
+        vec![Pending { id: "old".into(), room_id: "destination".into(), text: "Old words".into(), quotes: vec![] }]
+    );
     drop(reopened);
     std::fs::remove_file(path).unwrap();
 }

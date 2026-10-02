@@ -7,6 +7,7 @@ import {decodeNative} from './validation.ts';
 
 type SourceRow={rid:string;membership:string|null;view_position:string;payload:string|null};
 export type NativeQuoteAttachment={message_link:string;native_reference:QuoteReference;native_unavailable:boolean;text:string;author_name?:string};
+export type NativeQuoteSelection={reference:QuoteReference;instance_id:string;data_epoch:string;membership_version:string};
 function position(value:string):bigint {
   const n=readDecimal(value);
   if(n>9223372036854775807n)throw new Error('Invalid native quote position');
@@ -15,7 +16,27 @@ function position(value:string):bigint {
 
 export class NativeQuoteCache {
   private readonly db:NativeDatabase;
-  constructor(db:NativeDatabase) {this.db=db;}
+  private readonly identity:{instance_id:string;data_epoch:string};
+  constructor(db:NativeDatabase,identity:{instance_id:string;data_epoch:string}) {this.db=db;this.identity=identity;}
+  async selection(rid:string,id:string):Promise<NativeQuoteSelection> {
+    const row=await this.db.getFirstAsync<{revision:string}>('SELECT p.revision FROM native_positions p JOIN messages m ON m.id=p.id WHERE p.id=? AND p.rid=?',[id,rid]);
+    const grant=await this.membership(rid);
+    if(!row || grant===null || !roomIdentifier(id) || !roomIdentifier(rid) || position(row.revision)===0n)throw new Error('Native quote source unavailable');
+    return {reference:{message_id:id,room_id:rid,revision:row.revision},...this.identity,membership_version:grant};
+  }
+  async enqueue(id:string,rid:string,selected:readonly NativeQuoteSelection[]):Promise<QuoteReference[]> {
+    if(selected.length>8)throw new Error('Too many native quote references');
+    const ids=new Set<string>(),refs:QuoteReference[]=[];
+    for(const value of selected){
+      const r=value.reference;
+      const current=await this.selection(r.room_id,r.message_id);
+      if(r.message_id===id || ids.has(r.message_id) || value.instance_id!==current.instance_id || value.data_epoch!==current.data_epoch || value.membership_version!==current.membership_version || r.revision!==current.reference.revision)throw new Error('Native quote selection changed');
+      ids.add(r.message_id);refs.push({...current.reference});
+    }
+    for(const [ordinal,r] of refs.entries())await this.db.runAsync('INSERT INTO native_quote_references(message_id,rid,ordinal,source_id,source_room,observed_revision) VALUES(?,?,?,?,?,?)',[id,rid,ordinal,r.message_id,r.room_id,r.revision]);
+    await this.refresh(new Set(),id);
+    return refs;
+  }
   private async membership(rid:string):Promise<string|null> {
     const saved=await this.db.getFirstAsync<{payload:string}>('SELECT payload FROM native_read_states WHERE rid=?',[rid]);
     return saved?readState(JSON.parse(saved.payload),rid).membership_version??null:null;

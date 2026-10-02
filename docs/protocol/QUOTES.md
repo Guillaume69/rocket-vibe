@@ -1,7 +1,7 @@
 # Citations natives — P07
 
-Les premiers lots livrent les références, leur résolution côté serveur et le
-caches bureau commun GTK / SwiftUI et mobile. La capacité
+Les premiers lots livrent les références, leur résolution côté serveur, les
+caches bureau commun GTK / SwiftUI et mobile, et les corps d'intention durables. La capacité
 `quotes` reste désactivée tant que les adaptateurs et caches des trois interfaces
 existantes ne satisfont pas les règles ci-dessous. Les cartes, menus et bandeaux
 de réponse actuels seront réutilisés.
@@ -98,6 +98,9 @@ lisibles après perte d'accès ou suppression de la source, sans copier son extr
 ni sa durée d'adhésion dans la commande. Une projection plus récente, un reset ou
 une réouverture SQLite ne reconstruisent pas le corps d'une opération en attente.
 Les adaptateurs le transmettent au champ `content.quotes` du protocole natif.
+Si le cache contient déjà une autre révision, l'intention est conservée en échec
+avec `revision_conflict` et ses mots restent disponibles dans le formulaire ;
+aucune référence d'une version différente n'est capturée ni envoyée.
 
 La migration additive marque les anciennes commandes par une colonne nullable.
 Une ancienne édition sans corps capturé s'arrête avant l'appel réseau ; son texte
@@ -105,6 +108,30 @@ reste disponible dans le formulaire actuel et une nouvelle soumission crée une
 nouvelle opération. Cette limite évite de changer silencieusement le corps d'une
 clé qui a pu être acceptée avant la coupure. Les autres anciennes actions restent
 rejouables. Le fournisseur Rocket.Chat et les interfaces d'édition restent inchangés.
+
+## Files d'envoi natives existantes
+
+Le cœur bureau et le moteur mobile capturent une sélection depuis un message
+confirmé du cache, avec sa révision exacte, l'instance / génération et l'adhésion
+de la source. La transaction de mise en file revérifie cette sélection et, si
+fourni, le contexte d'adhésion du composeur de destination. Sources optimistes,
+supprimées, anciennes adhésions, autres générations et références dupliquées sont
+refusées avant de publier l'intention locale.
+
+Seules les références ordonnées sont persistées dans le corps envoyé. Une citation
+seule peut être mise en file ; le même identifiant et le même corps sont transmis
+à `SendMessage` après réouverture ou reset, même si l'accès à la source a depuis
+disparu. Les cartes optimistes utilisent le cache de vues existant et perdent leur
+extrait lors du retrait. Confirmation, suppression de l'intention et curseur restent
+transactionnels ; abandon et changement de génération purgent les lignes associées.
+Les anciennes intentions texte migrent avec une liste vide sans modifier leur rejeu.
+
+Le pont UniFFI expose cette sélection et l'envoi lié à l'adhésion pour les modèles
+Swift existants. Le parcours HTTP / PostgreSQL et SQLite mobile vérifie réponse
+perdue après commit, retrait de source, reprise du corps original, message unique,
+conflit après édition et nouvelle sélection. Les menus et composeurs des trois
+interfaces restent à raccorder avant d'activer la capacité ; ces APIs ne clôturent
+pas la qualification des applications installées.
 
 ## Raccordement suivant et conditions de sortie
 

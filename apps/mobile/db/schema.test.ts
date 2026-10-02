@@ -113,6 +113,7 @@ describe('migrations', () => {
       'messages',
       'native_commands',
       'native_favorite_intents',
+      'native_outbox_quotes',
       'native_positions',
       'native_quote_references',
       'native_quote_sources',

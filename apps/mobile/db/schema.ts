@@ -391,3 +391,10 @@ export const nativeQuoteSources = sqliteTable('native_quote_sources', {
   viewPosition: text('view_position').notNull(),
   payload: text('payload'),
 }, (t) => [index('idx_native_quote_source_rooms').on(t.rid)]);
+
+/** Durable native send body; separate from Rocket.Chat's existing outbox. */
+export const nativeOutboxQuotes = sqliteTable('native_outbox_quotes', {
+  id: text('id').primaryKey(),
+  rid: text('rid').notNull(),
+  payload: text('payload').notNull(),
+});

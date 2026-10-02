@@ -4,6 +4,64 @@ use rv_protocol::{MessageQuote, QuoteExcerpt, parity::QuoteReference};
 use serde_json::{Value, json as value};
 use std::collections::BTreeSet;
 
+/// A UI selection is bound to the source's current cache and membership.
+/// Only reference is retained in the durable send body.
+#[derive(Debug, Clone, PartialEq)]
+pub struct QuoteSelection {
+    pub reference: QuoteReference,
+    pub identity: Identity,
+    pub membership_version: String,
+}
+
+pub(super) fn selection(
+    conn: &Connection,
+    identity: &Identity,
+    rid: &str,
+    id: &str,
+) -> rusqlite::Result<QuoteSelection> {
+    let revision: String = conn.query_row(
+        "SELECT revision FROM native_messages WHERE id=?1 AND rid=?2 AND NOT deleted AND position IS NOT NULL",
+        params![id, rid],
+        |r| r.get(0),
+    )?;
+    let membership =
+        read_states::state_in(conn, rid)?.and_then(|s| s.membership_version).ok_or(rusqlite::Error::InvalidQuery)?;
+    if !identifier(id) || !identifier(rid) || position(&revision)? == 0 {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    Ok(QuoteSelection {
+        reference: QuoteReference { message_id: id.into(), room_id: rid.into(), revision },
+        identity: identity.clone(),
+        membership_version: membership,
+    })
+}
+
+pub(super) fn enqueue(
+    tx: &Transaction,
+    identity: &Identity,
+    pending: &Pending,
+    selected: &[QuoteSelection],
+) -> rusqlite::Result<()> {
+    let mut ids = BTreeSet::new();
+    if selected.len() > 8 || pending.quotes.len() != selected.len() {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    // Validate all sources before writing any reference. Server ACL checks remain final.
+    for (selected, reference) in selected.iter().zip(&pending.quotes) {
+        if reference.message_id == pending.id
+            || !ids.insert(&reference.message_id)
+            || &selection(tx, identity, &reference.room_id, &reference.message_id)? != selected
+            || &selected.reference != reference
+        {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+    }
+    for (ordinal, reference) in pending.quotes.iter().enumerate() {
+        tx.execute("INSERT INTO native_quote_references(message_id,rid,ordinal,source_id,source_room,observed_revision) VALUES(?1,?2,?3,?4,?5,?6)",params![pending.id,pending.room_id,ordinal as i64,reference.message_id,reference.room_id,reference.revision])?;
+    }
+    Ok(())
+}
+
 pub(super) fn initialize(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch("CREATE TABLE IF NOT EXISTS native_quote_references(message_id TEXT NOT NULL,rid TEXT NOT NULL,ordinal INTEGER NOT NULL,source_id TEXT NOT NULL,source_room TEXT NOT NULL,observed_revision TEXT NOT NULL,PRIMARY KEY(message_id,ordinal));
         CREATE INDEX IF NOT EXISTS native_quote_origins ON native_quote_references(source_room,source_id);

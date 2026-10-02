@@ -456,7 +456,7 @@ export class NativeChat {
   private async submitCommand(rid: string,id: string,revision: string,kind: NativeCommand['kind'],text: string): Promise<void> {
     this.ready();
     const command=await this.store.command(rid,id,revision,kind,text,this.id);
-    if (!command) throw new NativeError(409,'message_action_pending');
+    if (!command) throw new NativeError(409,await this.store.hasCommandRevisionConflict(id)?'revision_conflict':'message_action_pending');
     try { await this.applyCommand(command); }
     catch (error) { await this.commandFailed(command,error); throw error; }
   }
@@ -495,14 +495,14 @@ export class NativeChat {
       if (error instanceof NativeError && error.code==='delivery_revalidate') this.lost();
     }
   }
-  async send(rid: string, text: string,scope?:{membership:string|null}): Promise<string> {
+  async send(rid: string, text: string,scope?:{membership:string|null},quotes:readonly import('./quotes.ts').NativeQuoteSelection[]=[]): Promise<string> {
     if (this.stopped) throw new NativeError(0,'session_closed');
     const value = text.trim();
     let bytes = 0;
     for (const char of value) { const code = char.codePointAt(0)!; bytes += code < 128 ? 1 : code < 2048 ? 2 : code < 65536 ? 3 : 4; }
-    if (!value || bytes > 32_768) throw new NativeError(400,'invalid_message');
+    if (!value && quotes.length===0 || bytes > 32_768) throw new NativeError(400,'invalid_message');
     const id = this.id();
-    await this.store.enqueue(id,rid,value,scope); this.notify();
+    await this.store.enqueue(id,rid,value,scope,quotes); this.notify();
     if (this.verified) await this.flush();
     return id;
   }
@@ -658,7 +658,7 @@ export class NativeChat {
       try {
         const generation = this.generation;
         const projection=this.store.projectionToken();
-        const message = await this.transport.send(pending.rid,{operation_id:pending.id,text:pending.texte});
+        const message = await this.transport.send(pending.rid,{operation_id:pending.id,text:pending.texte,quotes:pending.quotes});
         if (this.stopped || generation !== this.generation) return;
         // The echo and outbox deletion commit together; a failed commit remains retryable.
         if (!await this.store.ingest([message],projection)) throw new NativeError(409,'delivery_revalidate');

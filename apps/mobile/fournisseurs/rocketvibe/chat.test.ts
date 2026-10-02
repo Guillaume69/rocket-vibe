@@ -349,6 +349,9 @@ test('durable edits retry the original revision after journal delivery and stop 
     const deadline=Date.now()+5000;
     while ((await store.pendingCommands()).length) {assert(Date.now()<deadline,'command retry stalled');await new Promise(resolve=>setTimeout(resolve,10));}
     assert.deepEqual(attempts,[{operation_id:'command-1',expected_revision:'1',quotes:references},{operation_id:'command-1',expected_revision:'1',quotes:references}]);
+    await assert.rejects(chat.edit(fixture.room.id,original.id,'1','Stale words'),e=>e instanceof NativeError && e.status===409 && e.code==='revision_conflict');
+    assert.equal(await store.commandDraft(original.id),'Stale words');
+    assert.equal(attempts.length,2,'a stale cache precondition must preserve words without sending another body');
     await assert.rejects(chat.delete(fixture.room.id,original.id,'2'),e=>e instanceof NativeError && e.code==='revision_conflict');
     assert.equal((await store.pendingCommands()).length,0,'conflicting commands must not retry forever');
     assert.equal(db.prepare('SELECT state FROM native_commands').get()?.state,'failed');

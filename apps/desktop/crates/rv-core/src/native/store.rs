@@ -6,21 +6,24 @@ mod read_states;
 mod room_access;
 mod room_operations;
 use super::Identity;
+pub use quotes::QuoteSelection;
 pub use read_intents::{PendingRead, SavedFavorite};
 pub use room_access::RoomAccess;
 pub use room_operations::{RoomOperation, SavedRoomOperation};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
+pub use rv_protocol::parity::QuoteReference;
 use rv_protocol::{Change, Message, Room, Snapshot, SyncBatch, VERSION};
 use std::path::Path;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::broadcast;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Pending {
     pub id: String,
     pub room_id: String,
     pub text: String,
+    pub quotes: Vec<rv_protocol::parity::QuoteReference>,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum MessageCommandKind {
@@ -139,6 +142,13 @@ impl NativeStore {
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_read_intents(rid TEXT PRIMARY KEY,membership TEXT NOT NULL,root_position TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS native_favorite_intents(id TEXT NOT NULL UNIQUE,rid TEXT PRIMARY KEY,membership TEXT NOT NULL,payload TEXT NOT NULL,phase TEXT NOT NULL DEFAULT 'pending' CHECK(phase IN ('pending','confirmed','failed')),receipt_revision TEXT,error TEXT);")?;
         quotes::initialize(&conn)?;
+        let outbox_columns = conn
+            .prepare("PRAGMA table_info(native_outbox)")?
+            .query_map([], |r| r.get::<_, String>(1))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if !outbox_columns.iter().any(|name| name == "quotes") {
+            conn.execute_batch("ALTER TABLE native_outbox ADD COLUMN quotes TEXT NOT NULL DEFAULT '[]';")?;
+        }
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_commands(id TEXT PRIMARY KEY,rid TEXT NOT NULL,message_id TEXT NOT NULL UNIQUE,kind TEXT NOT NULL CHECK(kind IN ('edit','delete')),expected_revision TEXT NOT NULL,text TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',error TEXT);")?;
         let command_schema: String =
             conn.query_row("SELECT sql FROM sqlite_master WHERE name='native_commands'", [], |r| r.get(0))?;
@@ -304,16 +314,20 @@ impl NativeStore {
             }
             let visible=tx.query_row("SELECT 1 FROM native_messages WHERE id=?1 AND rid=?2 AND NOT deleted AND position IS NOT NULL",params![message,rid],|_|Ok(())).optional()?.is_some();
             if !visible {return Err(rusqlite::Error::InvalidQuery);}
-            let references = if kind == MessageCommandKind::Edit {
+            let stale = if kind == MessageCommandKind::Edit {
                 let current: String = tx.query_row("SELECT revision FROM native_messages WHERE id=?1", [message], |r| r.get(0))?;
-                if current != revision { return Err(rusqlite::Error::InvalidQuery); }
-                quotes::references(tx, message)?
-            } else { vec![] };
+                current != revision
+            } else { false };
+            let references = if stale {None} else {Some(if kind==MessageCommandKind::Edit {quotes::references(tx,message)?} else {vec![]})};
             tx.execute("DELETE FROM native_commands WHERE message_id=?1 AND state='failed'",[message])?;
-            let command=PendingCommand{id:format!("{:032x}",fastrand::u128(..)),room_id:rid.into(),message_id:message.into(),kind,expected_revision:revision.into(),text:text.into(),quotes:Some(references)};
-            tx.execute("INSERT INTO native_commands(id,rid,message_id,kind,expected_revision,text,quotes) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![command.id,rid,message,kind.value(),revision,text,json(&command.quotes)?])?;
-            Ok(Some(command))
+            let command=PendingCommand{id:format!("{:032x}",fastrand::u128(..)),room_id:rid.into(),message_id:message.into(),kind,expected_revision:revision.into(),text:text.into(),quotes:references};
+            tx.execute("INSERT INTO native_commands(id,rid,message_id,kind,expected_revision,text,quotes,state,error) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![command.id,rid,message,kind.value(),revision,text,command.quotes.as_ref().map(json).transpose()?,if stale {"failed"} else {"pending"},stale.then_some("revision_conflict")])?;
+            Ok((!stale).then_some(command))
         })
+    }
+    pub fn has_command_revision_conflict(&self, id: &str) -> rusqlite::Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        Ok(self.same(&conn)? && conn.query_row("SELECT 1 FROM native_commands WHERE message_id=?1 AND state='failed' AND error='revision_conflict'",[id],|_|Ok(())).optional()?.is_some())
     }
     pub fn pending_commands(&self) -> rusqlite::Result<Vec<PendingCommand>> {
         let conn = self.conn.lock().unwrap();
@@ -626,7 +640,13 @@ impl NativeStore {
         Ok(rows)
     }
     pub fn enqueue(&self, id: &str, rid: &str, text: &str, username: &str) -> rusqlite::Result<()> {
-        self.enqueue_checked(id, rid, text, username, None).map(|_| ())
+        self.enqueue_quoted(
+            &Pending { id: id.into(), room_id: rid.into(), text: text.into(), quotes: vec![] },
+            username,
+            None,
+            &[],
+        )
+        .map(|_| ())
     }
     pub fn enqueue_from_membership(
         &self,
@@ -636,16 +656,28 @@ impl NativeStore {
         username: &str,
         membership: Option<&str>,
     ) -> rusqlite::Result<bool> {
-        self.enqueue_checked(id, rid, text, username, Some(membership))
+        self.enqueue_quoted(
+            &Pending { id: id.into(), room_id: rid.into(), text: text.into(), quotes: vec![] },
+            username,
+            Some(membership),
+            &[],
+        )
     }
-    fn enqueue_checked(
+    pub fn quote_selection(&self, rid: &str, id: &str) -> rusqlite::Result<QuoteSelection> {
+        let conn = self.conn.lock().unwrap();
+        if !self.same(&conn)? {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        quotes::selection(&conn, &self.identity, rid, id)
+    }
+    pub fn enqueue_quoted(
         &self,
-        id: &str,
-        rid: &str,
-        text: &str,
+        pending: &Pending,
         username: &str,
         membership: Option<Option<&str>>,
+        selections: &[QuoteSelection],
     ) -> rusqlite::Result<bool> {
+        let (id, rid, text) = (&pending.id, &pending.room_id, &pending.text);
         self.atomic(|tx| {
             if let Some(expected) = membership
                 && !self.membership_matches_in(tx, rid, expected)?
@@ -657,13 +689,14 @@ impl NativeStore {
             {
                 return Err(rusqlite::Error::InvalidQuery);
             }
+            quotes::enqueue(tx, &self.identity, pending, selections)?;
             tx.execute(
                 "INSERT INTO native_messages(id,rid,text,author,ts) VALUES(?1,?2,?3,?4,?5)",
                 params![id, rid, text, username, chrono::Utc::now().timestamp_millis()],
             )?;
             tx.execute(
-                "INSERT INTO native_outbox(id,rid,text,created) VALUES(?1,?2,?3,?4)",
-                params![id, rid, text, chrono::Utc::now().timestamp_millis()],
+                "INSERT INTO native_outbox(id,rid,text,created,quotes) VALUES(?1,?2,?3,?4,?5)",
+                params![id, rid, text, chrono::Utc::now().timestamp_millis(), json(&pending.quotes)?],
             )?;
             Ok(true)
         })
@@ -673,8 +706,16 @@ impl NativeStore {
         if !self.same(&conn)? {
             return Ok(vec![]);
         }
-        conn.prepare("SELECT id,rid,text FROM native_outbox WHERE status='pending' ORDER BY created,id")?
-            .query_map([], |r| Ok(Pending { id: r.get(0)?, room_id: r.get(1)?, text: r.get(2)? }))?
+        conn.prepare("SELECT id,rid,text,quotes FROM native_outbox WHERE status='pending' ORDER BY created,id")?
+            .query_map([], |r| {
+                let raw: String = r.get(3)?;
+                Ok(Pending {
+                    id: r.get(0)?,
+                    room_id: r.get(1)?,
+                    text: r.get(2)?,
+                    quotes: serde_json::from_str(&raw).map_err(|_| rusqlite::Error::InvalidQuery)?,
+                })
+            })?
             .collect()
     }
     pub fn fail(&self, id: &str, error: &str) -> rusqlite::Result<()> {
@@ -691,6 +732,7 @@ impl NativeStore {
     }
     pub fn abandon(&self, id: &str) -> rusqlite::Result<()> {
         self.atomic(|tx| {
+            tx.execute("DELETE FROM native_quote_references WHERE message_id=?1 AND EXISTS(SELECT 1 FROM native_outbox WHERE id=?1)",[id])?;
             tx.execute("DELETE FROM native_messages WHERE id=?1 AND position IS NULL", [id])?;
             tx.execute("DELETE FROM native_outbox WHERE id=?1", [id])?;
             Ok(())

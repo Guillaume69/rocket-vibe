@@ -29,7 +29,7 @@ test('closing and reopening an on-disk SQLite database preserves the outbox and 
     reopened = nativeTestDatabase(filename,false);
     const resumed = new NativeStore(reopened.adapter,creerFileEcritures(),session);
     assert.equal((await resumed.state())?.cursor,'initial');
-    assert.deepEqual((await resumed.pending()).map(row => ({...row})),[{id:'durable-intent',rid:room.id,texte:'Queued offline'}]);
+    assert.deepEqual((await resumed.pending()).map(row => ({...row})),[{id:'durable-intent',rid:room.id,texte:'Queued offline',quotes:[]}]);
     assert.equal((await resumed.messages(room.id))[0].statut,'en-attente');
     assert.equal(await resumed.roomCreation('Durable room',true,() => {throw new Error('must reuse persisted intent');}),'durable-room-intent');
     await resumed.completeRoomCreation('durable-room-intent');

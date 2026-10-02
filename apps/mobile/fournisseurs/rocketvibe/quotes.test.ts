@@ -37,6 +37,46 @@ async function unavailable(h:ReturnType<typeof setup>) {
 }
 function batch(changes:SyncBatch['changes']):SyncBatch {return {protocol_version:1,changes,cursor:'next',has_more:false};}
 
+test('mobile quoted outbox keeps the body and existing cards after source loss, restart and reset',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'rv-quoted-outbox-')),filename=join(dir,'cache.sqlite');
+  let h=nativeTestDatabase(filename);
+  try {
+    let store=new NativeStore(h.adapter,creerFileEcritures(),session);await store.applySnapshot(initial());
+    const selected=await store.quoteSelection('origin','source');
+    await store.enqueue('pending-reply','destination','',{membership:'destination-grant'},[selected]);
+    const refs=[selected.reference],pending={id:'pending-reply',rid:'destination',texte:'',quotes:refs};
+    assert.deepEqual(await store.pending(),[pending]);
+    const pieces=()=>JSON.parse((h.db.prepare("SELECT pieces_jointes FROM messages WHERE id='pending-reply'").get()!.pieces_jointes??'[]') as string) as NativeQuoteAttachment[];
+    assert.equal(pieces()[0].text,'*Privé* _texte_ :rocket:');
+    await store.applyBatch(batch([{type:'room_removed',data:{room_id:'origin'}}]));
+    await store.applySnapshot({protocol_version:1,rooms:[room('destination','1','destination-grant')],messages:[],cursor:'reset'});
+    h.db.close();h=nativeTestDatabase(filename,false);store=new NativeStore(h.adapter,creerFileEcritures(),session);
+    assert.deepEqual(await store.pending(),[pending]);assert.equal(pieces()[0].native_unavailable,true);assert.equal(pieces()[0].text,'');
+    const raw=h.db.prepare('SELECT payload FROM native_outbox_quotes').get()!.payload as string;
+    assert.ok(!raw.includes('Privé') && !raw.includes('membership') && !raw.includes('epoch'));
+    await store.fail('pending-reply','quote_revision_conflict');await store.retry('pending-reply');assert.deepEqual(await store.pending(),[pending]);
+    await store.abandon('pending-reply');assert.deepEqual(await store.pending(),[]);
+    assert.equal(h.db.prepare("SELECT count(*) AS n FROM native_quote_references WHERE message_id='pending-reply'").get()!.n,0);
+    assert.equal(h.db.prepare('SELECT count(*) AS n FROM native_outbox_quotes').get()!.n,0);
+  }finally {h.db.close();unlinkSync(filename);rmdirSync(dir);}
+});
+
+test('mobile source selections are checked atomically and cannot capture an old grant, revision or generation',async()=>{
+  const h=setup();try {
+    await h.store.applySnapshot(initial());const selected=await h.store.quoteSelection('origin','source');
+    for(const invalid of [{...selected,data_epoch:'other'},{...selected,instance_id:'other'},{...selected,membership_version:'other'},{...selected,reference:{...selected.reference,revision:'9'}},{...selected,reference:{...selected.reference,room_id:'destination'}}]){
+      await assert.rejects(h.store.enqueue('pending','destination','Saved words',undefined,[invalid]));
+      assert.deepEqual(await h.store.pending(),[]);assert.equal(h.db.prepare("SELECT id FROM messages WHERE id='pending'").get(),undefined);
+    }
+    await assert.rejects(h.store.enqueue('pending','destination','Saved words',{membership:'old-destination'},[selected]));
+    h.failWhen(sql=>sql.startsWith('INSERT INTO native_outbox_quotes'));
+    await assert.rejects(h.store.enqueue('pending','destination','Saved words',undefined,[selected]));h.failWhen(null);
+    assert.deepEqual(await h.store.pending(),[]);assert.equal(h.db.prepare("SELECT count(*) AS n FROM native_quote_references WHERE message_id='pending'").get()!.n,0);
+    await h.store.ingest([message('source','origin','30','Updated')]);await assert.rejects(h.store.enqueue('pending','destination','Saved words',undefined,[selected]));
+    const current=await h.store.quoteSelection('origin','source');await assert.rejects(h.store.enqueue('pending','destination','Saved words',undefined,[current,current]));
+  }finally {h.db.close();}
+});
+
 test('mobile durable edits preserve ordered references after source withdrawal, reset and SQLite restart',async()=>{
   const dir=mkdtempSync(join(tmpdir(),'rv-quote-edit-')),filename=join(dir,'cache.sqlite');
   let harness=nativeTestDatabase(filename);
@@ -48,7 +88,8 @@ test('mobile durable edits preserve ordered references after source withdrawal, 
     const refs=snapshot.messages[1].quotes!.map(q=>q.reference);
     await store.applySnapshot(snapshot);
     await store.applyBatch(batch([{type:'room_removed',data:{room_id:'origin'}}]));
-    await assert.rejects(store.command('destination','reply','19','edit','Stale',()=> 'stale'));
+    assert.equal(await store.command('destination','reply','19','edit','Stale',()=> 'stale'),null);
+    assert.equal(await store.hasCommandRevisionConflict('reply'),true);assert.equal(await store.commandDraft('reply'),'Stale');
     const pending=(await store.command('destination','reply','20','edit','Saved edit',()=> 'edit-intent'))!;
     assert.deepEqual(pending.quotes,refs);
     const raw=harness.db.prepare('SELECT quotes FROM native_commands').get()!.quotes as string;

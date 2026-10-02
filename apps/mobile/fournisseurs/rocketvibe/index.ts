@@ -14,6 +14,7 @@ export const CAPACITES_ROCKETVIBE: Capacites = {
   typing:false, presence:false, push:false, e2ee:false, emojisCustom:false,
   appelVideo:false, recherche:false, modeleFil:'tmid',
   fichiers:false, fils:false, reactions:true, marques:true, profil:false, infosSalon:true, favorisSalon:false, citations:false,
+  reglagesSalon:true,rolesSalon:true,quitterSalon:true,
 };
 const unsupported = async (): Promise<never> => { throw new NativeError(501,'unsupported_feature'); };
 const noSubscription = () => () => {};
@@ -31,6 +32,7 @@ export function capacitesEffectives(annonce: Capabilities | null, client: Capaci
     fils:both(annonce?.threads,client.fils), reactions:both(annonce?.reactions,client.reactions),
     marques:both(annonce?.pins && annonce?.stars,client.marques), profil:both(annonce?.profiles,client.profil),
     infosSalon:both(annonce?.room_info,client.infosSalon), favorisSalon:false, citations:both(annonce?.quotes,client.citations),
+    reglagesSalon:both(annonce?.room_settings,client.reglagesSalon),rolesSalon:both(annonce?.room_roles,client.rolesSalon),quitterSalon:both(annonce?.room_leave,client.quitterSalon),
   };
 }
 
@@ -58,7 +60,18 @@ export function creerFournisseurRV(session: Session, client: ClientRest, generer
     actions:{
       infosSalon:async rid => {
         const details=await chat.roomDetails(rid);
-        return {id:details.room.id,nom:details.room.name,type:details.room.kind==='private'?'p':details.room.kind==='direct'?'d':'c',description:details.description||null,sujet:details.topic||null,annonce:details.announcement||null,membres:details.member_count,lectureSeule:details.read_only};
+        const capabilities=capacitesEffectives(chat.capabilities);
+        return {id:details.room.id,nom:details.room.name,type:details.room.kind==='private'?'p':details.room.kind==='direct'?'d':'c',description:details.description||null,sujet:details.topic||null,annonce:details.announcement||null,membres:details.member_count,lectureSeule:details.read_only,
+          gestion:{nom:details.room.name,prive:details.room.kind==='private',sujet:details.topic,description:details.description,annonce:details.announcement,lectureSeule:details.read_only,revision:details.revision,role:details.permissions.role,
+            peutModifier:details.permissions.change_settings && !!capabilities.reglagesSalon,peutChangerRoles:details.permissions.role==='owner' && !!capabilities.rolesSalon && details.room.kind!=='direct',peutQuitter:!!capabilities.quitterSalon && details.room.kind!=='direct'}};
+      },
+      gestionSalon:{
+        membres:async(rid,suite,revision)=>{const page=await chat.roomMembers(rid,suite??undefined,revision);return {revision:page.revision,suite:page.next??null,membres:page.members.map(member=>({id:member.user.id,pseudo:member.user.username,nom:member.user.display_name??null,role:member.role,desactive:member.disabled}))};},
+        modifier:(rid,revision,champs)=>chat.updateRoom(rid,{expected_revision:revision,name:champs.nom,private:champs.prive,topic:champs.sujet,description:champs.description,announcement:champs.annonce,read_only:champs.lectureSeule}),
+        changerRole:(rid,revision,cible,role)=>chat.changeRoomRole(rid,cible,{expected_revision:revision,role}),
+        quitter:(rid,revision)=>chat.leaveRoom(rid,revision),reprendre:rid=>chat.resumeRoomOperation(rid),effacer:(rid,cle)=>chat.dismissRoomOperation(rid,cle),
+        intention:async rid=>{const saved=await store.roomOperation(rid);if(!saved)return null;const command=saved.command;
+          return {cle:command.input.operation_id,type:command.kind==='settings'?'reglages':command.kind==='role'?'role':'depart',reglages:command.kind==='settings'?{nom:command.input.name,prive:command.input.private,sujet:command.input.topic,description:command.input.description,annonce:command.input.announcement,lectureSeule:command.input.read_only}:null,cible:command.kind==='role'?command.target:null,role:command.kind==='role'?command.input.role:null,echouee:saved.failed,erreur:saved.error};},
       },
       reagir:(rid,id,emoji,present) => chat.react(rid,id,emoji,present),
       modifier:async (rid,id,text,chiffreur,revision) => {

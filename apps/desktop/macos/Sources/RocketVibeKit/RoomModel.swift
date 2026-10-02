@@ -16,10 +16,54 @@ public final class RoomModel {
     public var supportsFiles: Bool { provider.supportsFiles }
     public var supportsEditing: Bool { provider.supportsEditing }
     public var supportsRoomInfo: Bool { active && provider.supportsRoomInfo }
+    public var supportsRoomManagement: Bool { active && provider.native != nil && provider.supportsRoomInfo }
     public private(set) var roomInformationRevision = ""
+    public private(set) var roomOperationRevision = 0
     public func roomDetails() async throws -> RoomDetails {
         guard active else { throw CancellationError() }
         let result = try await provider.roomDetails(rid: room.rid)
+        guard active, !Task.isCancelled else { throw CancellationError() }
+        return result
+    }
+    public func roomManagement() async throws -> NativeRoomManagement {
+        guard active, !Task.isCancelled, let native = provider.native else { throw CancellationError() }
+        let result = try await native.roomManagement(room: room.rid)
+        guard active, !Task.isCancelled else { throw CancellationError() }
+        return result
+    }
+    public func roomMembers(after: String?, revision: String) async throws -> NativeRoomMemberPage {
+        guard active, !Task.isCancelled, let native = provider.native else { throw CancellationError() }
+        let result = try await native.roomMembers(room: room.rid, after: after, revision: revision)
+        guard active, !Task.isCancelled else { throw CancellationError() }
+        return result
+    }
+    public func roomIntention() throws -> NativeRoomIntention? {
+        guard active, !Task.isCancelled, let native = provider.native else { throw CancellationError() }
+        return try native.roomIntention(room: room.rid)
+    }
+    public func updateRoom(fields: NativeRoomFields, revision: String) async throws {
+        guard active, !Task.isCancelled, let native = provider.native else { throw CancellationError() }
+        try await native.updateRoom(room: room.rid, revision: revision, fields: fields)
+        guard active, !Task.isCancelled else { throw CancellationError() }
+    }
+    public func changeRoomRole(target: String, role: String, revision: String) async throws {
+        guard active, !Task.isCancelled, let native = provider.native else { throw CancellationError() }
+        try await native.changeRoomRole(room: room.rid, revision: revision, target: target, role: role)
+        guard active, !Task.isCancelled else { throw CancellationError() }
+    }
+    public func leaveRoom(revision: String) async throws {
+        guard active, !Task.isCancelled, let native = provider.native else { throw CancellationError() }
+        try await native.leaveRoom(room: room.rid, revision: revision)
+        guard active, !Task.isCancelled else { throw CancellationError() }
+    }
+    public func resumeRoomIntention() async throws {
+        guard active, !Task.isCancelled, let native = provider.native else { throw CancellationError() }
+        try await native.resumeRoomIntention(room: room.rid)
+        guard active, !Task.isCancelled else { throw CancellationError() }
+    }
+    public func dismissRoomIntention(key: String) async throws -> Bool {
+        guard active, !Task.isCancelled, let native = provider.native else { throw CancellationError() }
+        let result = try await native.dismissRoomIntention(room: room.rid, key: key)
         guard active, !Task.isCancelled else { throw CancellationError() }
         return result
     }
@@ -85,6 +129,7 @@ public final class RoomModel {
     public var rid: String { room.rid }
 
     func update(room: Room) {
+        roomOperationRevision &+= 1
         if room != self.room { self.room = room }
         roomInformationRevision = (try? provider.native?.roomRevision(room: room.rid)) ?? "\(room.rid):\(room.name):\(room.kind)"
     }
@@ -181,7 +226,7 @@ public final class RoomModel {
     }
 
     public func abandon(_ id: String) {
-        guard active, let native = provider.native else { return }
+        guard active, !Task.isCancelled, let native = provider.native else { return }
         do { try native.abandon(id: id); reload() }
         catch { self.error = error.localizedDescription }
     }

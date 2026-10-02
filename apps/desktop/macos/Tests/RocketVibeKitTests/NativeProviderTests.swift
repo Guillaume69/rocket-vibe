@@ -194,6 +194,57 @@ final class NativeProviderTests: XCTestCase {
     }
 
     @MainActor
+    func testExistingRoomManagementUsesDurableCommands() async throws {
+        guard let server = ProcessInfo.processInfo.environment["RV_NATIVE_TEST_SERVER"],
+              let password = ProcessInfo.processInfo.environment["RV_NATIVE_TEST_PASSWORD"] else {
+            throw XCTSkip("Native integration server unset")
+        }
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("rv-room-controls-\(UUID())").path
+        let peerHome = FileManager.default.temporaryDirectory.appendingPathComponent("rv-room-controls-peer-\(UUID())").path
+        defer { try? FileManager.default.removeItem(atPath: home); try? FileManager.default.removeItem(atPath: peerHome) }
+        let app = AppModel(home: home), peer = AppModel(home: peerHome)
+        defer { app.end(); peer.end() }
+        for (model, username) in [(app, "desktop"), (peer, "mobile")] {
+            model.login.server = server; model.login.user = username; model.login.password = password
+            await model.submitLogin(); XCTAssertEqual(model.screen, .chat, model.login.error ?? "login failed")
+        }
+        let native = try XCTUnwrap(app.native), account = try XCTUnwrap(app.account)
+        let rid = try await native.createRoom(name: "swift-room-controls-\(UUID())", private: true)
+        try await until { app.rooms.contains { $0.rid == rid } }; app.open(rid)
+        let room = try XCTUnwrap(app.room); try await until { !room.loading }
+        let original = try await room.roomManagement()
+        XCTAssertTrue(original.canEdit); XCTAssertTrue(original.canChangeRoles); XCTAssertTrue(original.canLeave)
+        var fields = original.fields
+        fields.topic = "Topic from existing Swift model"; fields.description = "Description"; fields.announcement = "Announcement"; fields.readOnly = true; fields.privateRoom = false
+        try await room.updateRoom(fields: fields, revision: original.revision)
+        let current = try await room.roomManagement()
+        XCTAssertEqual(current.fields, fields); XCTAssertEqual(current.info.kind, "c"); XCTAssertTrue(current.info.readOnly)
+        XCTAssertNil(try room.roomIntention())
+        try await native.invite(room: rid, username: "mobile")
+        let invited = try await room.roomManagement()
+        let members = try await room.roomMembers(after: nil, revision: invited.revision)
+        let mobile = try XCTUnwrap(members.members.first { $0.username == "mobile" })
+        try await room.changeRoomRole(target: mobile.id, role: "owner", revision: members.revision)
+        let transferred = try await room.roomManagement()
+        try await room.changeRoomRole(target: account.userId, role: "member", revision: transferred.revision)
+        let demoted = try await room.roomManagement()
+        XCTAssertFalse(demoted.canEdit); XCTAssertFalse(demoted.canChangeRoles); XCTAssertTrue(demoted.canLeave)
+        try await room.leaveRoom(revision: demoted.revision)
+        try await until { !app.rooms.contains { $0.rid == rid } }
+        XCTAssertFalse(room.supportsRoomInfo)
+        try await until { peer.rooms.contains { $0.rid == rid } }; peer.open(rid)
+        let peerRoom = try XCTUnwrap(peer.room); try await until { !peerRoom.loading }
+        let lastOwner = try await peerRoom.roomManagement()
+        do { try await peerRoom.leaveRoom(revision: lastOwner.revision); XCTFail("The last owner must remain") }
+        catch { guard case let RvError.Server(_, _, code, _, _, _) = error else { throw error }; XCTAssertEqual(code, "last_room_owner") }
+        let rejected = try XCTUnwrap(peerRoom.roomIntention())
+        XCTAssertTrue(rejected.failed); XCTAssertEqual(rejected.kind, "leave")
+        let cleared = try await peerRoom.dismissRoomIntention(key: rejected.key)
+        XCTAssertTrue(cleared); XCTAssertNil(try peerRoom.roomIntention())
+        await app.signOut(); await peer.signOut()
+    }
+
+    @MainActor
     func testFactorsPreserveActiveAccountRecoverLostAckAndRecreateModels() async throws {
         guard let server = ProcessInfo.processInfo.environment["RV_NATIVE_TEST_SERVER"],
               let password = ProcessInfo.processInfo.environment["RV_NATIVE_TEST_PASSWORD"],

@@ -315,6 +315,25 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P04, contrôles dans les fiches existantes : mobile / GTK / SwiftUI exposent
+  les réglages, la liste paginée des membres, les rôles et le départ selon les
+  droits actuels et capacités du fournisseur. Les formulaires conservent leur
+  révision ; reprise d'une commande originale, effacement explicite d'un refus
+  et relecture des droits avant révision du formulaire sont accessibles.
+  Aucun identifiant d'opération n'est affiché. Les parcours Rocket.Chat restent
+  sélectionnés par leur fournisseur. P04 reste ouvert pour les droits effectifs
+  de rédaction dans les composeurs, déjà imposés côté serveur.
+  Vérifications locales : 312 tests bureau, formatage / Clippy / binaire GTK,
+  1 126 tests mobiles, typecheck / lint sans avertissement et export Android
+  Hermes. Les bindings / modèles Swift compilent ; six tests locaux passent,
+  onze restent conditionnés à leurs bancs. Le nouveau parcours Swift connecté
+  passe avec PostgreSQL et Secret Service réels : réglages, promotion d'un
+  deuxième propriétaire, rétrogradation et départ, refus du dernier propriétaire
+  et effacement explicite. Le fournisseur mobile réel reprend un reçu après
+  perte de réponse sans second PATCH contre PostgreSQL. GTK exécute les réglages,
+  rôles, transfert / départ et refus du dernier propriétaire à 435 pixels ; les
+  captures sont inspectées. Les applications installées restent à qualifier.
+
 - P04, intentions de réglages / rôles / départ : SQLite sauvegarde la commande
   originale avant HTTP sur bureau et mobile, puis consulte le reçu personnel
   avant chaque reprise. Une réponse perdue et un redémarrage ne réappliquent pas

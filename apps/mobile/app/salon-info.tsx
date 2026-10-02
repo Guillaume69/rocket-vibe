@@ -30,6 +30,7 @@ import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { POLICES, useCouleurs } from '../ui/theme.ts';
 import { useMargeBasFeuille } from '../ui/margeFeuille.ts';
+import {CommandesSalon} from '../ui/gestionSalon.tsx';
 
 const PHRASE_TYPE: Record<string, CleTraduction> = {
   c: 'salonInfo.typeCanalPublic',
@@ -105,6 +106,7 @@ function ContenuSalonInfo({
   const version = `${rid}:${salon?.misAJourLe ?? 0}`;
   const [details, setDetails] = useState<{version:string;value:InformationsSalon} | null>(null);
   const [incident, setIncident] = useState<{version:string;message:string} | null>(null);
+  const [actualisation,setActualisation]=useState(0);
   const complement = details?.version === version ? details.value : null;
   const erreur = incident?.version === version ? incident.message : null;
 
@@ -125,7 +127,7 @@ function ContenuSalonInfo({
     return () => {
       vivant = false;
     };
-  }, [actions, rid, native, salonPresent, version]);
+  }, [actions, rid, native, salonPresent, version,actualisation]);
 
   const nom = complement?.nom || salon?.nomAffiche || salon?.nom || '?';
   const cleType = PHRASE_TYPE[complement?.type ?? salon?.type ?? ''];
@@ -184,6 +186,8 @@ function ContenuSalonInfo({
       {erreurFavori && (
         <Text style={[styles.vide, { color: c.texteErreur }]}>{t('salonInfo.favoriEchec')}</Text>
       )}
+
+      {complement?.gestion && actions.gestionSalon && <CommandesSalon rid={rid} base={base} details={complement.gestion} actions={actions.gestionSalon} c={c} rafraichir={()=>setActualisation(value=>value+1)} />}
 
       {complement?.annonce !== null && complement !== null && (
         <Section c={c} titre={t('salonInfo.annonce')} texte={complement.annonce} />

@@ -3,9 +3,10 @@
 Le serveur et les transports Rust / TypeScript exposent ces routes v1. Les fiches
 de salon mobile, GTK et SwiftUI existantes lisent leurs informations depuis le
 fournisseur choisi. Les contrôleurs Rust et mobile sauvegardent les commandes
-avant HTTP et reprennent leur reçu personnel après coupure. Les contrôles de
-paramètres, de rôles et de départ restent à raccorder dans les trois fiches ;
-l'annonce serveur ne les active pas seule dans l'UI.
+avant HTTP et reprennent leur reçu personnel après coupure. Les trois fiches
+proposent les réglages, la liste des membres, les rôles et le départ selon les
+capacités du fournisseur et les droits actuels. Les parcours Rocket.Chat
+existants restent sélectionnés par leur fournisseur.
 
 ## Lectures
 
@@ -97,6 +98,15 @@ restent accessibles ; un reçu déjà enregistré ne consomme pas ce quota.
 Les deux transports appliquent le même budget `room_command` aux nouvelles
 mutations et laissent passer les lectures / reçus durant le délai.
 
-Une UI doit sauvegarder son intention, son ID et sa révision avant HTTP, puis
-consulter le reçu après une réponse perdue. Ce raccordement durable dans les
-trois clients fait partie du lot P04 suivant ; ce document ne déclare pas P04 fini.
+Les formulaires conservent la révision affichée et sauvegardent leur intention
+avant HTTP. Une réponse perdue permet de reprendre la commande originale ; un
+refus définitif propose son effacement explicite. La relecture d'un formulaire
+refusé vérifie les droits actuels avant de préparer une nouvelle commande. Le
+dernier propriétaire reçoit une explication invitant à promouvoir un autre membre.
+Les dialogues GTK et les vues Swift / mobile écartent les résultats après fermeture,
+retrait du salon ou changement de génération. Aucun identifiant de commande n'est
+affiché.
+
+P04 reste ouvert : le raccordement des droits effectifs de rédaction au composeur
+des trois clients est encore à compléter. Le serveur applique déjà ces droits,
+y compris la lecture seule avec exception pour propriétaires / modérateurs.

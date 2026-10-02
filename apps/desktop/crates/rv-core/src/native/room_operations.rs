@@ -4,8 +4,12 @@ use super::{
     Error, NativeSession, permanent_command_error,
     store::{RoomOperation, SavedRoomOperation},
 };
-use rv_protocol::parity::{ChangeRoomRole, LeaveRoom, RoomMemberPage, UpdateRoom};
+pub use rv_protocol::parity::{ChangeRoomRole, LeaveRoom, RoomDetails, RoomMemberPage, RoomRole, UpdateRoom};
 use std::sync::atomic::Ordering;
+
+pub fn room_operation_id() -> String {
+    format!("{:032x}", fastrand::u128(..))
+}
 
 impl NativeSession {
     pub async fn room_members(

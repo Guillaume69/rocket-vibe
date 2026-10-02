@@ -9,6 +9,11 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Réglages, liste paginée des membres, rôles et départ dans la fiche existante,
+  selon les droits actuels. Les commandes interrompues reprennent leur reçu
+  original ; un formulaire refusé reste conservé jusqu'à relecture ou effacement
+  explicite. Le dernier propriétaire doit transmettre le rôle avant de partir.
+
 - La fiche existante affiche le sujet, la description, l'annonce, le nombre de
   membres et la lecture seule depuis le fournisseur actif. Elle se rafraîchit
   après modification et masque ses données après retrait du salon. Les textes

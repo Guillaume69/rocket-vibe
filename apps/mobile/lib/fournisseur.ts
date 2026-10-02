@@ -91,6 +91,9 @@ export type Capacites = {
   marques?: boolean;
   profil?: boolean;
   infosSalon?: boolean;
+  reglagesSalon?: boolean;
+  rolesSalon?: boolean;
+  quitterSalon?: boolean;
   favorisSalon?: boolean;
   citations?: boolean;
   typing: boolean;
@@ -168,6 +171,7 @@ export interface Traducteur {
  */
 export interface ActionsFournisseur {
   infosSalon(rid: string): Promise<InformationsSalon>;
+  gestionSalon?: GestionSalon;
   reagir(rid: string, mid: string, emoji: string, mettre: boolean): Promise<void>;
   /** `chiffreur` : le message est chiffré, sa nouvelle version aussi. */
   modifier(rid: string, mid: string, texte: string, chiffreur?: ChiffreurEnvoi, revision?: string): Promise<void>;
@@ -199,6 +203,23 @@ export type InformationsSalon = {
   annonce: string | null;
   membres: number | null;
   lectureSeule: boolean;
+  gestion?: ReglagesSalon;
+};
+
+export type RoleSalon = 'owner'|'moderator'|'member';
+export type ChampsSalon = {nom:string;prive:boolean;sujet:string;description:string;annonce:string;lectureSeule:boolean};
+export type ReglagesSalon = ChampsSalon & {revision:string;peutModifier:boolean;peutChangerRoles:boolean;peutQuitter:boolean;role:RoleSalon};
+export type MembreSalon = {id:string;pseudo:string;nom:string|null;role:RoleSalon;desactive:boolean};
+export type PageMembresSalon = {revision:string;membres:MembreSalon[];suite:string|null};
+export type IntentionSalon = {cle:string;type:'reglages'|'role'|'depart';reglages:ChampsSalon|null;cible:string|null;role:RoleSalon|null;echouee:boolean;erreur:string|null};
+export type GestionSalon = {
+  membres(rid:string,suite:string|null,revision:string):Promise<PageMembresSalon>;
+  modifier(rid:string,revision:string,champs:ChampsSalon):Promise<void>;
+  changerRole(rid:string,revision:string,cible:string,role:RoleSalon):Promise<void>;
+  quitter(rid:string,revision:string):Promise<void>;
+  intention(rid:string):Promise<IntentionSalon|null>;
+  reprendre(rid:string):Promise<void>;
+  effacer(rid:string,cle:string):Promise<boolean>;
 };
 
 /** Capacités de Rocket.Chat. E2EE dégradé (lecture seule), push par gateway hors périmètre. */

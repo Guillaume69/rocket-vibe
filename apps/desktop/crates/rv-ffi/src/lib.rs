@@ -7,6 +7,7 @@ pub mod model;
 mod native;
 mod native_auth;
 mod native_recovery;
+mod native_rooms;
 mod native_security;
 pub mod people;
 pub mod writing;

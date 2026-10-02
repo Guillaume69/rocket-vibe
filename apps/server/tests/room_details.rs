@@ -139,7 +139,7 @@ async fn actual_mobile_transport_handles_handover_and_receipts_after_self_demoti
     let result: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         result,
-        json!({"metadata":true,"handover":true,"selfDemotion":true,"receiptAfterLeave":true,"lastOwnerProtected":true})
+        json!({"metadata":true,"handover":true,"selfDemotion":true,"receiptAfterLeave":true,"lastOwnerProtected":true,"existingMobileProvider":true,"savedFormRecovered":true,"noSecondPatch":true})
     );
     let roster = bench.app.pool.clone();
     let role: String =

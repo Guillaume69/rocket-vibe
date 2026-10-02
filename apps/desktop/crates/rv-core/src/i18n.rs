@@ -22,6 +22,64 @@ pub fn set(lang: Lang) {
 /// (key, French, English). A `{name}` is filled by `tf`; `a | b` is the
 /// singular and plural of `tn`.
 const CATALOG: &[(&str, &str, &str)] = &[
+    ("rooms.edit", "Modifier le salon", "Edit room"),
+    ("rooms.members", "Afficher les membres", "Show members"),
+    ("rooms.more", "Membres suivants", "More members"),
+    ("rooms.member", "Membre", "Member"),
+    ("rooms.moderator", "Modérateur", "Moderator"),
+    ("rooms.owner", "Propriétaire", "Owner"),
+    ("rooms.role", "Rôle", "Role"),
+    ("rooms.disabled", "Compte désactivé", "Disabled account"),
+    ("rooms.apply_role", "Appliquer le rôle", "Apply role"),
+    ("rooms.leave", "Quitter le salon", "Leave room"),
+    (
+        "rooms.leave_body",
+        "Vous perdrez l’accès à ce salon et à son historique local.",
+        "You will lose access to this room and its local history.",
+    ),
+    ("rooms.resume", "Reprendre la demande conservée", "Resume saved request"),
+    ("rooms.review", "Revoir et modifier les champs conservés", "Review and edit saved fields"),
+    ("rooms.clear", "Effacer la demande refusée", "Clear rejected request"),
+    (
+        "rooms.revision",
+        "Les changements intervenus pendant la modification devront être relus avant de réessayer.",
+        "Changes made while editing must be reviewed before retrying.",
+    ),
+    (
+        "rooms.pending",
+        "Une demande est conservée en attente de confirmation.",
+        "A request is saved while awaiting confirmation.",
+    ),
+    (
+        "rooms.rejected",
+        "La demande a été refusée. Ses champs restent conservés.",
+        "The request was rejected. Its fields remain saved.",
+    ),
+    (
+        "rooms.conflict",
+        "Le salon a changé. Relisez ses informations avant de modifier à nouveau.",
+        "The room has changed. Review its information before editing again.",
+    ),
+    (
+        "rooms.last_owner",
+        "Promouvez un autre propriétaire avant de quitter le salon ou de retirer votre rôle.",
+        "Promote another owner before leaving or removing your own role.",
+    ),
+    (
+        "rooms.failed",
+        "L’action n’a pas pu être confirmée. Vérifiez la demande conservée avant de réessayer.",
+        "The action could not be confirmed. Check the saved request before retrying.",
+    ),
+    (
+        "rooms.unavailable",
+        "Cette action est indisponible sur ce serveur.",
+        "This action is unavailable on this server.",
+    ),
+    (
+        "rooms.command_offline",
+        "La connexion est indisponible. La demande conservée reste en attente.",
+        "The connection is unavailable. The saved request remains pending.",
+    ),
     ("recovery_email.loading", "Lecture de la demande conservée…", "Reading the saved request…"),
     (
         "recovery_email.help",

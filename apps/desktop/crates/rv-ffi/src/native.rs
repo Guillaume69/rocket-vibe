@@ -94,7 +94,7 @@ pub struct NativeDeviceSession {
 }
 #[derive(uniffi::Object)]
 pub struct NativeChat {
-    session: Arc<NativeSession>,
+    pub(crate) session: Arc<NativeSession>,
     dirs: Arc<accounts::Dirs>,
     forward: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }

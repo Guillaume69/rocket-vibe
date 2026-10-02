@@ -5,6 +5,9 @@ pub mod credentials;
 pub mod email_recovery;
 pub mod factor_email;
 mod room_operations;
+pub use room_operations::{
+    ChangeRoomRole, LeaveRoom, RoomDetails, RoomMemberPage, RoomRole, UpdateRoom, room_operation_id,
+};
 pub mod security;
 pub mod store;
 
@@ -401,6 +404,9 @@ impl NativeSession {
                 server.supported_features(&rv_protocol::Capabilities {
                     room_discovery: true,
                     room_info: true,
+                    room_settings: true,
+                    room_roles: true,
+                    room_leave: true,
                     editing: true,
                     deletion: true,
                     reactions: true,

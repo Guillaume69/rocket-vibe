@@ -15,6 +15,12 @@ section here.
 
 ### Added
 
+- Existing GTK and SwiftUI room information panels offer native room settings,
+  paginated members, roles and departure according to current permissions.
+  Interrupted commands resume their original receipt; rejected forms require
+  explicit dismissal or review. Leaving the last owner explains how to transfer
+  ownership first.
+
 - Existing GTK and SwiftUI room information panels display native topics,
   descriptions, announcements, member counts and read-only status. Room changes
   refresh the panel; withdrawal or account closure discards it. GTK keeps its

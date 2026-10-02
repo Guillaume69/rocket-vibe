@@ -16,6 +16,7 @@ use crate::i18n::{t, tf, tn};
 use crate::rows::{label, local, presence_dot, room_tile, with_photo};
 use crate::widgets::{self, TileSize};
 use crate::{markdown_view, on_tokio};
+mod native_rooms;
 
 fn dialog(title: &str, content: &gtk::Widget, height: i32) -> adw::Dialog {
     let view = adw::ToolbarView::new();
@@ -133,7 +134,7 @@ pub fn native_room_info(
     use tokio::sync::broadcast::error::RecvError;
     let content = column();
     loading(&content);
-    let dialog = dialog(t("info.room"), content.upcast_ref(), 460);
+    let dialog = dialog(t("info.room"), content.upcast_ref(), 600);
     let active = Rc::new(Cell::new(true));
     let (tx, rx) = async_channel::bounded(1);
     let (mut changes, mut events) = (session.store.changes(), session.events());
@@ -166,7 +167,14 @@ pub fn native_room_info(
                 break;
             }
             let revision = room.unwrap().revision;
-            if displayed.as_ref() == Some(&revision) {
+            let intention = session
+                .store
+                .room_operation(&rid)
+                .ok()
+                .flatten()
+                .map(|saved| (saved.command.id().to_owned(), saved.failed, saved.error));
+            let display_key = (revision, intention);
+            if displayed.as_ref() == Some(&display_key) {
                 continue;
             }
             let (s, r) = (session.clone(), rid.clone());
@@ -184,7 +192,7 @@ pub fn native_room_info(
             match result {
                 Ok(details) => {
                     let can_invite = details.permissions.invite;
-                    let info = rv_core::info::native_room_info(details);
+                    let info = rv_core::info::native_room_info(details.clone());
                     let tile = room_tile(&info.name, &info.kind, false, TileSize::Profile);
                     tile.set_halign(gtk::Align::Center);
                     content.append(&tile);
@@ -200,7 +208,8 @@ pub fn native_room_info(
                         });
                         content.append(&button);
                     }
-                    displayed = Some(revision);
+                    native_rooms::controls(&content, &dialog, session.clone(), details, active.clone());
+                    displayed = Some(display_key);
                 }
                 Err(_) => {
                     displayed = None;

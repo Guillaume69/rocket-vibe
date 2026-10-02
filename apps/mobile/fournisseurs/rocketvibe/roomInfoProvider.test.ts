@@ -36,7 +36,9 @@ test('existing room information provider keeps scopes through removal, closing a
       await provider.native!.chat.connect();
       const request=provider.actions.infosSalon(fixture.room.id);
       if(scenario==='normal') {
-        assert.deepEqual(await request,{id:'room-id',nom:'A room',type:'p',description:'Description',sujet:'Sujet 🚀',annonce:'Annonce',membres:1,lectureSeule:true});
+        const {gestion,...information}=await request;
+        assert.deepEqual(information,{id:'room-id',nom:'A room',type:'p',description:'Description',sujet:'Sujet 🚀',annonce:'Annonce',membres:1,lectureSeule:true});
+        assert.equal(gestion?.revision,fixture.parity.room_details.revision);
         assert.equal(provider.capacites.infosSalon,true);assert.equal(provider.capacites.favorisSalon,false);
       } else {
         const expected=scenario==='unsupported'?'unsupported_feature':scenario==='foreign'?'invalid_room_details':scenario==='removed'?'delivery_revalidate':scenario==='closed'?'session_closed':'server_identity_changed';

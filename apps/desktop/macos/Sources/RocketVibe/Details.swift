@@ -61,6 +61,7 @@ struct RoomInfoView: View {
     @Environment(AppModel.self) var app
     let model: RoomModel
     @State var details: RoomDetails?
+    @State var management: NativeRoomManagement?
     @State var failed = false
 
     var body: some View {
@@ -86,15 +87,21 @@ struct RoomInfoView: View {
                 } else {
                     ProgressView()
                 }
+                if model.supportsRoomManagement { NativeRoomControls(model: model, details: management, refreshed: { fresh in management = fresh; details = fresh.info }) }
             }
             .formStyle(.grouped)
         }
         .task(id: "\(model.roomInformationRevision):\(app.connection)") {
             guard model.supportsRoomInfo else { dismiss(); return }
-            details = nil; failed = false
+            details = nil; management = nil; failed = false
             do {
-                let fresh = try await model.roomDetails()
-                if !Task.isCancelled { details = fresh }
+                if model.supportsRoomManagement {
+                    let fresh = try await model.roomManagement()
+                    if !Task.isCancelled { management = fresh; details = fresh.info }
+                } else {
+                    let fresh = try await model.roomDetails()
+                    if !Task.isCancelled { details = fresh }
+                }
             } catch { if !Task.isCancelled { failed = true } }
         }
     }

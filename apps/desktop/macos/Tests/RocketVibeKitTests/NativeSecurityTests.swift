@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import RocketVibeCore
 import XCTest
 @testable import RocketVibeKit
@@ -88,11 +91,10 @@ final class NativeSecurityTests: XCTestCase {
             }
             XCTAssertTrue(copied, "Copy must read the original private receipt through the FFI")
             XCTAssertEqual(model.value?.supportsEmail, true)
-            model.emailAddress = "swift-security@example.test"
-            await model.startEmail(revision: try XCTUnwrap(model.value?.viewRevision))
+            await startEmailAfterReconnect(model, address: "swift-security@example.test")
+            try await assertDroppedResponse(server, path: "/api/v1/me/email/verification/start")
             XCTAssertTrue(model.emailAddress.isEmpty)
-            XCTAssertNotNil(model.error, "The proxy discards the committed email-start response")
-            await recover(model) { $0.email?.phase == .pending }
+            XCTAssertEqual(model.value?.email?.phase, .pending)
             XCTAssertEqual(model.value?.email?.pendingAddress, "swift-security@example.test")
             XCTAssertNil(model.value?.email?.address)
             model.password = "transient-password"; model.code = "transient-code"; model.setupCode = "transient-setup"
@@ -141,6 +143,7 @@ final class NativeSecurityTests: XCTestCase {
             XCTAssertNotNil(model.error, "The proxy discards the committed email-confirmation response")
             XCTAssertTrue(model.emailCode.isEmpty)
             await recover(model) { $0.email?.phase == .verified }
+            try await assertDroppedResponse(server, path: "/api/v1/me/email/verification/confirm")
             XCTAssertEqual(model.value?.email?.address, "swift-security@example.test")
             await model.acknowledgeEmail(revision: try XCTUnwrap(model.value?.viewRevision))
             XCTAssertEqual(model.value?.email?.phase, .idle)
@@ -199,6 +202,7 @@ final class NativeSecurityTests: XCTestCase {
             await current.removeEmail(revision: try XCTUnwrap(current.value?.viewRevision))
             XCTAssertNil(current.error)
             XCTAssertEqual(current.value?.email?.phase, .removalPending, "The proxy discards the committed removal reply")
+            try await assertDroppedResponse(server, path: "/api/v1/me/email/removal/start")
             XCTAssertTrue(current.emailAddress.isEmpty && current.emailCode.isEmpty)
             XCTAssertEqual(current.value?.enabled, true, "Removing a contact does not disable the second factor")
             let accounts = await app.client.accounts()
@@ -238,6 +242,35 @@ final class NativeSecurityTests: XCTestCase {
         }
     }
 
+    private func assertDroppedResponse(_ server: String, path: String,
+                                       file: StaticString = #filePath, line: UInt = #line) async throws {
+        let url = try XCTUnwrap(URL(string: server + "/__pilot/security-response-losses"), file: file, line: line)
+        let (data, response) = try await URLSession.shared.data(from: url)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200, file: file, line: line)
+        let discarded = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String], file: file, line: line)
+        XCTAssertTrue(discarded.contains(path), "The proxy must actually discard this committed response", file: file, line: line)
+    }
+
+    @MainActor
+    private func startEmailAfterReconnect(_ model: SecurityModel, address: String,
+                                         file: StaticString = #filePath, line: UInt = #line) async {
+        // Regeneration fences the socket asynchronously. Its code bag can be
+        // displayed before that reconnect boundary reaches the next action.
+        // Refresh an actual display before each explicit user submission. The
+        // vault recovers any saved original intent; only an idle view may start.
+        for _ in 0..<30 {
+            await model.refresh()
+            if model.value?.email?.phase == .pending { return }
+            if let value = model.value, value.loaded, value.proof == .ready,
+               value.factor == .codes, value.email?.phase == .idle {
+                model.emailAddress = address
+                await model.startEmail(revision: value.viewRevision)
+                XCTAssertTrue(model.emailAddress.isEmpty, file: file, line: line)
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTFail("Explicit email request did not survive the account reconnect boundary", file: file, line: line)
+    }
     @MainActor
     private func recover(_ model: SecurityModel, _ condition: (NativeSecurityState) -> Bool,
                          file: StaticString = #filePath, line: UInt = #line) async {

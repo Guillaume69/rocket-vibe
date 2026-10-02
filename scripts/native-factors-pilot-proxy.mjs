@@ -14,6 +14,11 @@ if(process.env.RV_PILOT_EMAIL==='1'){
 }
 const server=http.createServer((request,response)=>{
   if(!request.url?.startsWith('/')){response.writeHead(400).end();return;}
+  // Test-only observation: static endpoint names, never codes or request bodies.
+  // It proves ACK loss separately from a legitimate pre-dispatch view refusal.
+  if(process.env.RV_PILOT_SECURITY==='1' && request.method==='GET' && request.url==='/__pilot/security-response-losses'){
+    response.writeHead(200,{'content-type':'application/json','cache-control':'no-store'}).end(JSON.stringify([...discarded]));return;
+  }
   const upstream=http.request({hostname:'server',port:3400,path:request.url,method:request.method,headers:{...request.headers,host:'server:3400'}},answer=>{
     if(process.env.RV_PILOT_SECURITY==='1')console.log(`Pilot HTTP ${request.method} ${request.url.split('?')[0]} ${answer.statusCode}`);
     const securityLoss=process.env.RV_PILOT_SECURITY==='1' &&

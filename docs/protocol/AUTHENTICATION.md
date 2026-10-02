@@ -1,9 +1,11 @@
-# Authentification native — P02, socle TOTP et secours
+# Authentification native — P02, facteurs et secours
 
 Ce lot livre le serveur, les SDK et les connexions mobile / GTK / SwiftUI, ainsi
 que la réauthentification et la gestion des facteurs dans les paramètres des
-trois clients. P02 reste ouvert pour l'email vérifié / SMTP et la qualification
-des appareils. Le fournisseur Rocket.Chat garde son parcours.
+trois clients. Le serveur et les SDK proposent aussi le facteur e-mail décrit
+dans [EMAIL.md](EMAIL.md). P02 reste ouvert pour ses coffres et formulaires
+dans les trois clients, la récupération e-mail et la qualification des appareils.
+Le fournisseur Rocket.Chat garde son parcours.
 
 Les coordinateurs `rv-core::native::authentication` et
 `fournisseurs/rocketvibe/authentication.ts` préparent ce raccordement. Ils séparent
@@ -140,8 +142,10 @@ session avec le seul mot de passe. Le login historique donne `400 factor_require
 Le chiffrement repose sur AES-256-GCM-SIV de RustCrypto, enveloppe version 1,
 nonce aléatoire de 96 bits. L'AAD sérialise version, usage, identité stable
 d'instance, UID et ID du facteur. Les secrets TOTP et les reçus temporaires de
-secours utilisent des usages distincts. La génération `data_epoch` reste hors
-AAD pour permettre le déchiffrement après restauration ; elle invalide les défis.
+secours utilisent des usages distincts. Pour les secrets de profils, la génération
+`data_epoch` reste hors AAD pour permettre le déchiffrement après restauration ;
+elle invalide les défis. Les charges de livraison OTP et leurs reçus épinglent
+aussi cette génération et ne sont pas réutilisables après restauration.
 La bibliothèque est documentée [ici](https://docs.rs/aes-gcm-siv/0.11.1/aes_gcm_siv/).
 Ses tests et ceux du projet ne constituent pas une revue cryptographique externe.
 
@@ -154,7 +158,9 @@ Un compte protégé ne crée aucune session à cette étape. Le défi opaque de
 256 bits n'est conservé que sous SHA-256, lié à l'UID, l'autorité, la version des
 facteurs et la génération. Il expire après cinq minutes ; au plus cinq défis
 non consommés par compte. Les méthodes annoncées sont `totp` et, s'il reste
-des codes, `recovery_code`. `email` n'est pas annoncé dans ce lot.
+des codes, `recovery_code`. Un profil e-mail explicitement installé annonce
+aussi `email` lorsque SMTP est configuré. Son absence retire cette méthode des
+nouveaux défis ; un code déjà livré reste vérifiable jusqu'à son échéance initiale.
 
 `POST /auth/factors/verify` reçoit `FinishFactor` : défi, méthode, code,
 `operation_id` et `next_token`. Le client génère un candidat CSPRNG de 32 octets

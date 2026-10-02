@@ -247,6 +247,14 @@
           "default": false,
           "type": "boolean"
         },
+        "email_factor_delivery": {
+          "default": false,
+          "type": "boolean"
+        },
+        "email_factors": {
+          "default": false,
+          "type": "boolean"
+        },
         "email_removal": {
           "default": false,
           "type": "boolean"
@@ -419,6 +427,33 @@
           "type": "object"
         }
       ]
+    },
+    "ChangeEmailFactor": {
+      "additionalProperties": false,
+      "description": "Pin the displayed contact and installed-factor version before HTTP. The\noriginal operation is retained privately for receipt recovery.",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/ReauthenticationContext"
+        },
+        "email_version": {
+          "type": "string"
+        },
+        "factor_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "email_version",
+        "context"
+      ],
+      "type": "object"
     },
     "CompleteUpload": {
       "additionalProperties": false,
@@ -630,6 +665,37 @@
       ],
       "type": "string"
     },
+    "EmailFactorChange": {
+      "description": "Codes are private presentation data; never log this receipt with Debug.",
+      "properties": {
+        "codes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "context": {
+          "$ref": "#/$defs/ReauthenticationContext"
+        },
+        "email_version": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "factor_version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "enabled",
+        "codes",
+        "factor_version",
+        "email_version",
+        "context"
+      ],
+      "type": "object"
+    },
     "EmailRemovalReceipt": {
       "description": "A removal receipt never returns the former private address or a credential.",
       "properties": {
@@ -815,6 +881,27 @@
       },
       "required": [
         "codes"
+      ],
+      "type": "object"
+    },
+    "FactorEmailDelivery": {
+      "properties": {
+        "delivery": {
+          "$ref": "#/$defs/EmailDeliveryState"
+        },
+        "expires_at": {
+          "type": "string"
+        },
+        "resend_after_seconds": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "expires_at",
+        "delivery",
+        "resend_after_seconds"
       ],
       "type": "object"
     },
@@ -1261,6 +1348,16 @@
             }
           ]
         },
+        "change_email_factor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ChangeEmailFactor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "complete_upload": {
           "$ref": "#/$defs/CompleteUpload"
         },
@@ -1299,6 +1396,16 @@
         },
         "edit_message": {
           "$ref": "#/$defs/EditMessage"
+        },
+        "email_factor_change": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EmailFactorChange"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "email_removal_receipt": {
           "anyOf": [
@@ -1344,6 +1451,16 @@
           "anyOf": [
             {
               "$ref": "#/$defs/FactorBackupCodes"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "factor_email_delivery": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FactorEmailDelivery"
             },
             {
               "type": "null"
@@ -1497,6 +1614,16 @@
           "anyOf": [
             {
               "$ref": "#/$defs/RenewSession"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "request_factor_email": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RequestFactorEmail"
             },
             {
               "type": "null"
@@ -1998,6 +2125,27 @@
       "required": [
         "operation_id",
         "next_token"
+      ],
+      "type": "object"
+    },
+    "RequestFactorEmail": {
+      "additionalProperties": false,
+      "description": "A new delivery candidate means an explicit resend. Recovery repeats the\nsame candidate/operation and does not send, mint a code or extend the OTP.",
+      "properties": {
+        "challenge_id": {
+          "type": "string"
+        },
+        "delivery_id": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "challenge_id",
+        "delivery_id",
+        "operation_id"
       ],
       "type": "object"
     },

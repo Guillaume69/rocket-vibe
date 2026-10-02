@@ -131,6 +131,44 @@ pub struct RegenerateFactorBackups {
     pub operation_id: String,
 }
 
+/// Pin the displayed contact and installed-factor version before HTTP. The
+/// original operation is retained privately for receipt recovery.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ChangeEmailFactor {
+    pub operation_id: String,
+    pub email_version: String,
+    pub factor_version: Option<String>,
+    pub context: ReauthenticationContext,
+}
+
+/// Codes are private presentation data; never log this receipt with Debug.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+pub struct EmailFactorChange {
+    pub enabled: bool,
+    pub codes: Vec<String>,
+    pub factor_version: String,
+    pub email_version: String,
+    pub context: ReauthenticationContext,
+}
+
+/// A new delivery candidate means an explicit resend. Recovery repeats the
+/// same candidate/operation and does not send, mint a code or extend the OTP.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RequestFactorEmail {
+    pub challenge_id: String,
+    pub delivery_id: String,
+    pub operation_id: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+pub struct FactorEmailDelivery {
+    pub expires_at: String,
+    pub delivery: EmailDeliveryState,
+    pub resend_after_seconds: u32,
+}
+
 /// Persist challenge_id (32 CSPRNG bytes as lowercase hex) and operation_id in
 /// private storage before HTTP. Password/OTP are transient, never persisted.
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
@@ -413,6 +451,14 @@ pub struct RoomKeyEnvelope {
 /// specification/review; these types make no algorithm or trust guarantee.
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct ParityContract {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change_email_factor: Option<ChangeEmailFactor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email_factor_change: Option<EmailFactorChange>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_factor_email: Option<RequestFactorEmail>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub factor_email_delivery: Option<FactorEmailDelivery>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remove_verified_email: Option<RemoveVerifiedEmail>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

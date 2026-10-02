@@ -315,6 +315,19 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, facteur e-mail explicite côté serveur / SDK : migration 0020, inscription
+  et retrait conditionnels avec reçu privé, OTP sur défi de connexion ou de
+  réauthentification existant, reprise sans renvoi et renvois bornés du même code.
+  Les délais initiaux ne sont pas prolongés. La file partage les budgets SMTP et
+  ne conserve aucun verrou métier pendant la transmission. Neuf tests PostgreSQL
+  et trois tests de transport passent : concurrence, réponse perdue, ACK SMTP
+  ambigu, coexistence TOTP, absence de relais et expiration sous verrou réel.
+  Le contrôle complet passe : 141 tests serveur, 7 protocole / client, 129
+  TypeScript natifs, Clippy et contrats générés ; les 1079 tests mobile, le
+  typecheck et le lint passent également.
+  Les formulaires et coffres OTP des trois clients sont le prochain raccordement ;
+  récupération du compte par e-mail et qualifications externes restent ouvertes.
+
 - P02, profils de facteurs indépendants : migration 0019, vue d'autorité commune
   et validation authentifiée de la clé du profil e-mail sur son contact exact.
   Connexion et réauthentification considèrent e-mail seul ou coexistence ; les
@@ -330,7 +343,8 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   7 tests protocole / client, 126 tests TypeScript, Clippy et contrats générés.
   Le banc Swift du serveur reconstruit passe trois processus et le contrôle SQL
   avec vrai Secret Service, SMTP TLS local et réponses perdues. Aucune inscription
-  e-mail ni émission OTP n'est encore exposée ; sa capacité reste la suite de P02.
+  e-mail ni émission OTP n'était exposée dans ce premier socle ; le lot 0020
+  ci-dessus les raccorde côté serveur et SDK.
 
 - P02, budget SMTP commun : extraction de l'admission persistante de la
   vérification vers un composant partagé, en conservant les clés des commandes

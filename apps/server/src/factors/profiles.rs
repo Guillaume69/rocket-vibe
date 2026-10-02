@@ -2,7 +2,20 @@
 //! the account authority lock before taking these profile locks.
 use super::*;
 
-const EMAIL_KEY_CHECK: &[u8] = b"rv-email-factor-v1";
+pub(super) const EMAIL_KEY_CHECK: &[u8] = b"rv-email-factor-v1";
+
+pub(super) fn seal_email(
+    app: &App,
+    instance: &str,
+    user: &str,
+    profile: &str,
+    contact: &str,
+) -> Result<Vec<u8>> {
+    key(app)?.seal(
+        EMAIL_KEY_CHECK,
+        &email_aad(instance, user, profile, contact),
+    )
+}
 
 pub(super) fn email_aad(instance: &str, user: &str, profile: &str, contact: &str) -> Vec<u8> {
     serde_json::to_vec(&(

@@ -31,6 +31,11 @@ pub fn router(app: App) -> Router {
         .route("/api/v1/auth/login", post(login))
         .route("/api/v1/auth/start", post(start_login))
         .route("/api/v1/auth/factors/verify", post(finish_factor))
+        .route("/api/v1/auth/factors/email/start", post(begin_login_email))
+        .route(
+            "/api/v1/auth/factors/email/resume",
+            post(resume_login_email),
+        )
         .route("/api/v1/me/factors", get(factor_status))
         .route("/api/v1/me/email", get(email_status))
         .route("/api/v1/me/email/verification/start", post(begin_email))
@@ -49,11 +54,18 @@ pub fn router(app: App) -> Router {
         )
         .route("/api/v1/me/reauth", get(reauthentication_status))
         .route("/api/v1/me/reauth/finish", post(finish_reauthentication))
+        .route("/api/v1/me/reauth/email/start", post(begin_proof_email))
+        .route("/api/v1/me/reauth/email/resume", post(resume_proof_email))
         .route("/api/v1/me/reauth/resume", post(resume_reauthentication))
         .route("/api/v1/me/reauth/retire", post(retire_reauthentication))
         .route("/api/v1/me/factors/totp/setup", post(begin_factor))
         .route("/api/v1/me/factors/totp/enable", post(enable_factor))
         .route("/api/v1/me/factors/totp/disable", post(disable_factor))
+        .route("/api/v1/me/factors/email/enable", post(enable_email_factor))
+        .route(
+            "/api/v1/me/factors/email/disable",
+            post(disable_email_factor),
+        )
         .route(
             "/api/v1/me/factors/recovery/regenerate",
             post(regenerate_backups),
@@ -110,8 +122,34 @@ pub fn router(app: App) -> Router {
         .route("/api/v1/sync/ticket", post(ticket))
         .route("/api/v1/sync/socket", get(socket))
         .fallback(|| async { Error::missing() })
+        .layer(axum::middleware::from_fn(factor_email_no_store))
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(app)
+}
+
+async fn factor_email_no_store(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let private = matches!(
+        request.uri().path(),
+        "/api/v1/auth/factors/email/start"
+            | "/api/v1/auth/factors/email/resume"
+            | "/api/v1/me/reauth/email/start"
+            | "/api/v1/me/reauth/email/resume"
+            | "/api/v1/me/factors/email/enable"
+            | "/api/v1/me/factors/email/disable"
+    );
+    let mut response = next.run(request).await;
+    // Rejections, including malformed input, have the same cache policy as
+    // successful private receipts and delivery status.
+    if private {
+        response.headers_mut().insert(
+            axum::http::header::CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("no-store"),
+        );
+    }
+    response
 }
 
 type Input<T> = std::result::Result<Json<T>, axum::extract::rejection::JsonRejection>;
@@ -184,6 +222,8 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             reauthentication_retirement: true,
             email_verification: app.mail.is_some() && app.auth_key.is_some(),
             email_removal: true,
+            email_factors: app.auth_key.is_some(),
+            email_factor_delivery: app.mail.is_some() && app.auth_key.is_some(),
             ..Default::default()
         },
     }))
@@ -236,6 +276,91 @@ async fn finish_factor(
 async fn factor_status(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
     let user = account(&app, &headers).await?;
     Ok(secret_session(crate::factors::status(&app, &user).await?))
+}
+
+async fn enable_email_factor(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::parity::ChangeEmailFactor>,
+) -> Result<Response> {
+    let user = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::factors::email_settings::change(&app, &user, body(input)?, true).await?,
+    ))
+}
+async fn disable_email_factor(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::parity::ChangeEmailFactor>,
+) -> Result<Response> {
+    let user = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::factors::email_settings::change(&app, &user, body(input)?, false).await?,
+    ))
+}
+async fn begin_login_email(
+    State(app): State<App>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    input: Input<rv_protocol::parity::RequestFactorEmail>,
+) -> Result<Response> {
+    Ok(secret_session(
+        crate::factors::email_delivery::begin(
+            &app,
+            body(input)?,
+            None,
+            crate::factors::email_delivery::Kind::Login,
+            peer.map(|p| p.0.0.ip()),
+        )
+        .await?,
+    ))
+}
+async fn resume_login_email(
+    State(app): State<App>,
+    input: Input<rv_protocol::parity::RequestFactorEmail>,
+) -> Result<Response> {
+    Ok(secret_session(
+        crate::factors::email_delivery::resume(
+            &app,
+            body(input)?,
+            None,
+            crate::factors::email_delivery::Kind::Login,
+        )
+        .await?,
+    ))
+}
+async fn begin_proof_email(
+    State(app): State<App>,
+    headers: HeaderMap,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    input: Input<rv_protocol::parity::RequestFactorEmail>,
+) -> Result<Response> {
+    let user = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::factors::email_delivery::begin(
+            &app,
+            body(input)?,
+            Some(&user),
+            crate::factors::email_delivery::Kind::Reauthentication,
+            peer.map(|p| p.0.0.ip()),
+        )
+        .await?,
+    ))
+}
+async fn resume_proof_email(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::parity::RequestFactorEmail>,
+) -> Result<Response> {
+    let user = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::factors::email_delivery::resume(
+            &app,
+            body(input)?,
+            Some(&user),
+            crate::factors::email_delivery::Kind::Reauthentication,
+        )
+        .await?,
+    ))
 }
 async fn email_status(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
     let (user, hash, proof) = read_access(&app, &headers, Scope::None).await?;

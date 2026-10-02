@@ -427,7 +427,11 @@ pub(crate) async fn finish(
         &account.id,
         &input.method,
         &input.code,
-        saved.expires_at,
+        factors::ProofScope {
+            deadline: saved.expires_at,
+            kind: factors::email_delivery::Kind::Reauthentication,
+            challenge: &input.challenge_id,
+        },
     )
     .await?;
     if !valid {
@@ -440,6 +444,19 @@ pub(crate) async fn finish(
         tx.commit().await?;
         return Err(rejected());
     }
+    // E-mail verification also locks delivery/outbox rows. Their wait must not
+    // allow the account session or original proof challenge to expire unseen.
+    let (instance, epoch, _, revision) = source(&mut tx, account).await?;
+    current(
+        &mut tx,
+        account,
+        &saved,
+        &input.operation_id,
+        &instance,
+        &epoch,
+        &revision,
+    )
+    .await?;
     let grant = accept(&mut tx, account, &hash, &mut saved, true).await?;
     tx.commit().await?;
     Ok(grant)

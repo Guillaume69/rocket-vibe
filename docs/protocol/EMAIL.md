@@ -16,9 +16,11 @@ existants, avec SecureStore ou trousseau système privé et reprise de l'intenti
 initiale. La migration 0018 et les SDK permettent aussi le retrait conditionnel
 du contact, même sans SMTP ; les coffres et boutons mobile / GTK / SwiftUI sont
 raccordés à ces trois routes.
-Le second facteur e-mail et la récupération par e-mail restent à implémenter. La présence
-de `SecondFactor::Email` dans les types et de `FactorStatus.email=false` ne
-signifie pas que ces deux dernières opérations soient disponibles.
+Le second facteur e-mail est livré côté serveur et SDK, avec inscription
+explicite, retrait et livraison sur un défi déjà établi. Les coffres et
+formulaires de ce facteur dans les trois clients restent à raccorder ; les
+formulaires d'adresse vérifiée ne l'activent pas automatiquement. La récupération
+du compte par e-mail reste à implémenter.
 
 Le fournisseur mobile vérifie identité, génération du runner et visibilité
 avant et après chaque appel. Le coffre partage la file locale des opérations
@@ -295,24 +297,73 @@ installé ; les contraintes SQL refusent son retrait ou le changement de sa
 version. Huit tests PostgreSQL couvrent e-mail seul,
 coexistence, changement de provenance de preuve, régénération, erreurs de clé,
 dernier facteur retiré et vraie migration depuis 0018 avec données TOTP intactes.
-L'inscription e-mail des tests reste privée à leurs bases jetables ; aucune route
-d'inscription ni méthode OTP n'est encore exposée.
+Ce socle de profils est utilisé par les routes explicites de la migration 0020
+décrites ci-dessous ; une adresse vérifiée seule ne protège pas le compte.
 
-L'envoi sera demandé explicitement sur le défi de connexion ou de confirmation
-d'identité déjà établi. Le client conservera son candidat de livraison avant
-HTTP et reprendra la même opération après réponse perdue. Le code n'entrera
-jamais dans le coffre. Le serveur liera la livraison au compte, défi, finalité,
-contact, autorité et génération ; le contexte de l'appareil s'ajoutera pour la
-confirmation d'identité. Renvoi, retries SMTP et reprise du reçu ne prolongeront
-pas l'échéance initiale du défi. Ils ne pourront pas consommer les codes d'un
-autre défi ou d'une autre finalité.
+L'envoi est demandé explicitement sur le défi de connexion ou de confirmation
+d'identité déjà établi. Le client doit conserver son candidat de livraison avant
+HTTP et reprendre la même opération après réponse perdue ; le code reste seulement
+en mémoire. Le serveur lie la livraison au compte, défi, finalité, contact,
+autorité et génération ; le contexte de l'appareil s'ajoute pour la confirmation
+d'identité. Renvoi, retries SMTP et reprise du reçu ne prolongent pas l'échéance
+initiale. Un code ne valide pas un autre défi ou une autre finalité.
+
+### Routes du facteur e-mail
+
+Chemins relatifs à `/api/v1`, corps stricts et réponses `no-store`, refus inclus :
+
+| POST | Corps | Portée / résultat |
+|---|---|---|
+| `/me/factors/email/enable` | `ChangeEmailFactor` | Compte actif avec preuve complète récente ; `EmailFactorChange` avec dix nouveaux secours communs |
+| `/me/factors/email/disable` | `ChangeEmailFactor` | Même preuve ; reçu sans codes, disponible sans SMTP |
+| `/auth/factors/email/start` | `RequestFactorEmail` | Défi de connexion anonyme ; `FactorEmailDelivery` |
+| `/auth/factors/email/resume` | `RequestFactorEmail` | Lecture du même candidat de livraison, sans renvoi |
+| `/me/reauth/email/start` | `RequestFactorEmail` | Défi de confirmation d'identité de la famille active |
+| `/me/reauth/email/resume` | `RequestFactorEmail` | Lecture du même candidat et de la même famille |
+
+`ChangeEmailFactor` épingle le contexte utilisateur / appareil / instance /
+génération, la version du contact affiché, la version des facteurs (ou `null`
+s'ils sont absents) et une opération initiale. Le reçu privé chiffré dure cinq
+minutes. Sa reprise restitue les mêmes codes et versions, sans nouvelle preuve
+ni rotation, uniquement tant que l'état committé est toujours actuel. Une autre
+inscription, un contact remplacé ou une ancienne génération ferment cette reprise.
+Six changements réussis par compte et quinze minutes sont admis. L'inscription
+remplace la liste commune, révoque les autres familles et conserve la famille
+initiatrice. Le retrait conserve TOTP et les secours s'il reste installé ; le
+dernier facteur retiré efface les secours. La clé opérateur reste nécessaire.
+
+`RequestFactorEmail` contient seulement défi, candidat de livraison aléatoire de
+256 bits et opération. L'adresse et la finalité viennent du serveur. Les retries
+du même candidat lisent leur reçu, même sans SMTP et sans nouveau débit de quota.
+Un nouveau candidat représente un renvoi explicite : au plus trois livraisons par
+défi, espacées de soixante secondes. Elles reprennent le même code décimal de huit
+chiffres et la même échéance. Le hash du code est lié au défi brut privé et à la
+finalité ; les charges chiffrées authentifient toutes leurs versions et leur portée.
+
+La file durable et les leases du worker clôturent leurs résultats sur l'identité
+de la réclamation. Les transmissions SMTP se déroulent sans verrou de compte,
+d'appareil ou de défi. Une confirmation SMTP perdue peut entraîner une seconde
+transmission du même code ; elle ne crée pas une nouvelle preuve. La consommation
+efface les charges et la file du défi dans la transaction qui accepte la preuve.
+Les expirations sont relues après les derniers verrous SQL, y compris ceux de la
+file. Sans SMTP, les secours restent utilisables ; aucune session par mot de passe
+seul n'est créée pour un compte protégé.
+
+La découverte distingue `email_factors` (clé configurée, gestion du profil) et
+`email_factor_delivery` (clé et SMTP, nouvelle livraison). Les clients doivent
+les intersecter avec les parcours effectivement implémentés. Neuf tests PostgreSQL
+couvrent HTTP typé, inscription concurrente et reprise, coexistence TOTP, perte
+d'ACK SMTP, renvois bornés, absence de SMTP, reçus périmés, erreurs de clé / charge /
+génération et expiration sous verrou réel. Trois tests de transport TypeScript
+couvrent l'isolement du bearer et les reprises pendant le cooldown commun.
 
 Le composant commun d'admission SMTP est extrait : il conserve les clés des
 vérifications déjà admises et partage les budgets persistants global, compte,
 adresse et IP entre producteurs. Cinq tests PostgreSQL couvrent concurrence,
 reprise pendant le cooldown, expiration, annulation sous verrou et absence de
-clés privées en clair. Les futurs producteurs OTP / récupération ajouteront leur
-liaison au défi et sa propre limite sans contourner ces budgets. Le quota de
+clés privées en clair. Le producteur OTP partage ces budgets et la limite de
+mille charges actives avec les vérifications ; la récupération devra ajouter sa
+propre liaison sans les contourner. Le quota de
 transport et le verrou du compte restent distincts, et aucun de ces verrous
 ne couvre une transmission SMTP.
 

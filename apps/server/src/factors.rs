@@ -1,5 +1,7 @@
 //! Native second factors: account-first SQL locks, encrypted TOTP secrets,
 //! single-use challenges/codes and replay receipts proving the same successor.
+pub(crate) mod email_delivery;
+pub(crate) mod email_settings;
 pub(crate) mod profiles;
 
 use chrono::{DateTime, Utc};
@@ -82,8 +84,9 @@ pub(crate) async fn methods(
     if profiles.totp.is_some() {
         methods.push(SecondFactor::Totp);
     }
-    // E-mail delivery is deliberately not advertised until its challenge
-    // producer and SMTP worker exist. A configured profile still protects login.
+    if profiles.email && app.mail.is_some() {
+        methods.push(SecondFactor::Email);
+    }
     if backups {
         methods.push(SecondFactor::RecoveryCode);
     }
@@ -185,7 +188,11 @@ pub(crate) async fn finish(
         &user.id,
         &input.method,
         &input.code,
-        challenge.expires_at,
+        ProofScope {
+            deadline: challenge.expires_at,
+            kind: email_delivery::Kind::Login,
+            challenge: &input.challenge_id,
+        },
     )
     .await?;
     if !valid {
@@ -205,6 +212,11 @@ pub(crate) async fn finish(
 
 /// Login and reauthentication share the same persisted one-use counter/codes.
 /// Caller retains account authority and challenge locks until its commit.
+pub(crate) struct ProofScope<'a> {
+    pub deadline: DateTime<Utc>,
+    pub kind: email_delivery::Kind,
+    pub challenge: &'a str,
+}
 pub(crate) async fn verify_code(
     app: &App,
     tx: &mut Transaction<'_, Postgres>,
@@ -212,7 +224,7 @@ pub(crate) async fn verify_code(
     user_id: &str,
     method: &SecondFactor,
     code: &str,
-    deadline: DateTime<Utc>,
+    proof: ProofScope<'_>,
 ) -> Result<bool> {
     let profiles = profiles::validated(app, tx, instance, user_id).await?;
     if !profiles.enabled() {
@@ -221,7 +233,7 @@ pub(crate) async fn verify_code(
     let now: DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
         .fetch_one(&mut **tx)
         .await?;
-    if deadline <= now {
+    if proof.deadline <= now {
         return Ok(false);
     }
     let valid = match method {
@@ -250,7 +262,18 @@ pub(crate) async fn verify_code(
                     .bind(user_id).bind(auth::hash_token(&normalized)).execute(&mut **tx).await?.rows_affected() == 1
             }
         }
-        SecondFactor::Email => false, // Not advertised until SMTP/verification is implemented.
+        SecondFactor::Email => {
+            profiles.email
+                && email_delivery::verify(
+                    tx,
+                    user_id,
+                    proof.kind,
+                    proof.challenge,
+                    code,
+                    proof.deadline,
+                )
+                .await?
+        }
     };
     Ok(valid)
 }

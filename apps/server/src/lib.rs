@@ -95,6 +95,9 @@ impl App {
     /// Startup and periodic maintenance only touches expired ephemeral records.
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
         for query in [
+            "DELETE FROM factor_email_deliveries WHERE token_hash IN (SELECT token_hash FROM factor_email_deliveries WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
+            "UPDATE email_factor_changes SET receipt_cipher=NULL WHERE ctid IN (SELECT ctid FROM email_factor_changes WHERE expires_at<=clock_timestamp() AND receipt_cipher IS NOT NULL LIMIT 1000 FOR UPDATE SKIP LOCKED)",
+            "DELETE FROM email_factor_changes WHERE created_at<=clock_timestamp()-interval '1 day' AND ctid IN (SELECT ctid FROM email_factor_changes WHERE created_at<=clock_timestamp()-interval '1 day' LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM email_removals WHERE (device_id,operation_hash) IN (SELECT device_id,operation_hash FROM email_removals WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM email_verifications WHERE token_hash IN (SELECT token_hash FROM email_verifications WHERE expires_at<=clock_timestamp() AND (receipt_expires_at IS NULL OR receipt_expires_at<=clock_timestamp()) LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM email_delivery_windows WHERE key IN (SELECT key FROM email_delivery_windows WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",

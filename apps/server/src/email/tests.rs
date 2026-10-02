@@ -91,7 +91,7 @@ async fn actual_typescript_provider_and_private_vault_resume_lost_mail_replies(p
     assert_eq!(result, (1, 1, 0, 1, true, 0, 0, 1));
 }
 
-pub(super) struct Relay {
+pub(crate) struct Relay {
     port: u16,
     messages: Arc<Mutex<Vec<String>>>,
     task: tokio::task::JoinHandle<()>,
@@ -218,7 +218,7 @@ impl Drop for Relay {
     }
 }
 impl Relay {
-    pub(super) async fn start(lose_first: bool) -> Self {
+    pub(crate) async fn start(lose_first: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let messages = Arc::new(Mutex::new(Vec::new()));
@@ -279,7 +279,20 @@ impl Relay {
             task,
         }
     }
-    pub(super) async fn code(&self, address: &str) -> String {
+    pub(crate) fn sender(&self) -> Sender {
+        Sender::loopback_fixture(self.port)
+    }
+    pub(crate) async fn codes(&self, address: &str) -> Vec<String> {
+        self.messages
+            .lock()
+            .await
+            .iter()
+            .filter(|v| v.contains(&format!("To: {address}")))
+            .filter_map(|v| v.lines().find_map(|line| line.strip_prefix("Code: ")))
+            .map(str::to_owned)
+            .collect()
+    }
+    pub(crate) async fn code(&self, address: &str) -> String {
         let messages = self.messages.lock().await;
         let message = messages
             .iter()

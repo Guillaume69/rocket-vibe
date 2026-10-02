@@ -173,5 +173,5 @@ pub async fn drain(app: &App) -> Result<usize> {
             sent += 1;
         }
     }
-    Ok(sent)
+    Ok(sent + crate::factors::email_delivery::drain(app).await?)
 }

@@ -292,7 +292,7 @@ pub(crate) async fn begin(
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('rv-email-outbox-budget',0))")
         .execute(&mut *tx)
         .await?;
-    let queued:i64=sqlx::query_scalar("SELECT count(*) FROM email_outbox WHERE payload_cipher IS NOT NULL AND sent_at IS NULL AND expires_at>clock_timestamp()").fetch_one(&mut *tx).await?;
+    let queued:i64=sqlx::query_scalar("SELECT (SELECT count(*) FROM email_outbox WHERE payload_cipher IS NOT NULL AND sent_at IS NULL AND expires_at>clock_timestamp())+(SELECT count(*) FROM factor_email_outbox WHERE payload_cipher IS NOT NULL AND sent_at IS NULL AND expires_at>clock_timestamp())").fetch_one(&mut *tx).await?;
     if queued >= 1000 {
         return Err(Error::throttled("email_queue_limit", 60));
     }
@@ -445,4 +445,4 @@ pub(crate) async fn retire(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

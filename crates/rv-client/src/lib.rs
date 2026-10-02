@@ -169,7 +169,9 @@ impl NativeClient {
             | "/api/v1/auth/recovery"
             | "/api/v1/me/reauth/start"
             | "/api/v1/me/reauth/finish" => Some("login"),
-            "/api/v1/me/email/verification/start" => Some("email_delivery"),
+            "/api/v1/me/email/verification/start"
+            | "/api/v1/auth/factors/email/start"
+            | "/api/v1/me/reauth/email/start" => Some("email_delivery"),
             "/api/v1/auth/renew" => Some("session_rotation"),
             "/api/v1/sync/ticket" => Some("ticket"),
             "/api/v1/sync/snapshots" => Some("snapshot"),
@@ -286,6 +288,54 @@ impl NativeClient {
     }
     pub async fn factor_status(&self) -> Result<rv_protocol::parity::FactorStatus, Error> {
         self.get("/api/v1/me/factors").await
+    }
+    pub async fn enable_email_factor(
+        &self,
+        input: &rv_protocol::parity::ChangeEmailFactor,
+    ) -> Result<rv_protocol::parity::EmailFactorChange, Error> {
+        self.post("/api/v1/me/factors/email/enable", input).await
+    }
+    pub async fn disable_email_factor(
+        &self,
+        input: &rv_protocol::parity::ChangeEmailFactor,
+    ) -> Result<rv_protocol::parity::EmailFactorChange, Error> {
+        self.post("/api/v1/me/factors/email/disable", input).await
+    }
+    pub async fn begin_factor_email(
+        &self,
+        input: &rv_protocol::parity::RequestFactorEmail,
+    ) -> Result<rv_protocol::parity::FactorEmailDelivery, Error> {
+        self.request(
+            Method::POST,
+            "/api/v1/auth/factors/email/start",
+            Some(input),
+            true,
+        )
+        .await
+    }
+    pub async fn resume_factor_email(
+        &self,
+        input: &rv_protocol::parity::RequestFactorEmail,
+    ) -> Result<rv_protocol::parity::FactorEmailDelivery, Error> {
+        self.request(
+            Method::POST,
+            "/api/v1/auth/factors/email/resume",
+            Some(input),
+            true,
+        )
+        .await
+    }
+    pub async fn begin_reauthentication_email(
+        &self,
+        input: &rv_protocol::parity::RequestFactorEmail,
+    ) -> Result<rv_protocol::parity::FactorEmailDelivery, Error> {
+        self.post("/api/v1/me/reauth/email/start", input).await
+    }
+    pub async fn resume_reauthentication_email(
+        &self,
+        input: &rv_protocol::parity::RequestFactorEmail,
+    ) -> Result<rv_protocol::parity::FactorEmailDelivery, Error> {
+        self.post("/api/v1/me/reauth/email/resume", input).await
     }
     pub async fn email_status(&self) -> Result<rv_protocol::parity::EmailStatus, Error> {
         self.get("/api/v1/me/email").await

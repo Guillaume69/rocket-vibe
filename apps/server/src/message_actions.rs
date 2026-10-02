@@ -34,12 +34,13 @@ pub async fn read(app: &App, account: &Account, id: &str) -> Result<Message> {
         .ok_or_else(Error::missing)?
         .wire();
     crate::marks::personalize(&mut tx, &account.id, std::slice::from_mut(&mut message)).await?;
+    crate::quotes::personalize(&mut tx, &account.id, std::slice::from_mut(&mut message)).await?;
     tx.commit().await?;
     Ok(message)
 }
 
 pub async fn apply(app: &App, account: &Account, id: &str, command: Command) -> Result<()> {
-    let (operation, expected, text, hash) = match &command {
+    let (operation, expected, text, quotes, hash) = match &command {
         Command::Edit(input) => {
             let MessageContent::Plain {
                 markdown,
@@ -53,19 +54,23 @@ pub async fn apply(app: &App, account: &Account, id: &str, command: Command) -> 
                     "unsupported_feature",
                 ));
             };
-            if !mentions.is_empty() || !quotes.is_empty() || !files.is_empty() {
+            if !mentions.is_empty() || !files.is_empty() {
                 return Err(Error::new(
                     StatusCode::UNPROCESSABLE_ENTITY,
                     "unsupported_feature",
                 ));
             }
-            if markdown.trim().is_empty() || markdown.len() > 32_768 {
+            if (markdown.trim().is_empty() && quotes.is_empty())
+                || markdown.len() > 32_768
+                || !crate::quotes::valid_references(quotes, id)
+            {
                 return Err(Error::invalid());
             }
             (
                 &input.operation_id,
                 &input.expected_revision,
                 Some(markdown.as_str()),
+                quotes.as_slice(),
                 crate::auth::hash_token(
                     &serde_json::json!(["edit", id, input.expected_revision, input.content])
                         .to_string(),
@@ -76,6 +81,7 @@ pub async fn apply(app: &App, account: &Account, id: &str, command: Command) -> 
             &input.operation_id,
             &input.expected_revision,
             None,
+            &[][..],
             crate::auth::hash_token(
                 &serde_json::json!(["delete", id, input.expected_revision]).to_string(),
             ),
@@ -97,7 +103,8 @@ pub async fn apply(app: &App, account: &Account, id: &str, command: Command) -> 
         .fetch_optional(&mut *tx)
         .await?;
     let room = room.ok_or_else(Error::missing)?;
-    let read_only: bool = sqlx::query_scalar("SELECT read_only FROM rooms WHERE id=$1 FOR UPDATE")
+    crate::quotes::lock_rooms(&mut tx, &room, quotes).await?;
+    let read_only: bool = sqlx::query_scalar("SELECT read_only FROM rooms WHERE id=$1")
         .bind(&room)
         .fetch_one(&mut *tx)
         .await?;
@@ -143,6 +150,7 @@ pub async fn apply(app: &App, account: &Account, id: &str, command: Command) -> 
     if message.revision.to_string() != *expected {
         return Err(Error::new(StatusCode::CONFLICT, "revision_conflict"));
     }
+    crate::quotes::validate(&mut tx, &account.id, quotes, &message.quote_references.0).await?;
     crate::limits::message_action(&mut tx, &account.id).await?;
     let mentions_removed = crate::mentions::retain(&mut tx, id, text).await?;
     if text.is_none() {
@@ -174,8 +182,8 @@ pub async fn apply(app: &App, account: &Account, id: &str, command: Command) -> 
         .execute(&mut *tx)
         .await?;
     let position = store::next_position(&mut tx).await?;
-    sqlx::query("UPDATE messages SET text=$2,deleted=$3,revision=$4,edited_at=CASE WHEN $3 THEN edited_at ELSE clock_timestamp() END,send_fingerprint=COALESCE(send_fingerprint,$5) WHERE id=$1")
-        .bind(id).bind(text.unwrap_or("")).bind(text.is_none()).bind(position).bind(store::send_fingerprint(&room,&message.text)).execute(&mut *tx).await?;
+    sqlx::query("UPDATE messages SET text=$2,deleted=$3,revision=$4,edited_at=CASE WHEN $3 THEN edited_at ELSE clock_timestamp() END,send_fingerprint=COALESCE(send_fingerprint,$5),quote_references=$6 WHERE id=$1")
+        .bind(id).bind(text.unwrap_or("")).bind(text.is_none()).bind(position).bind(store::quoted_send_fingerprint(&room,&message.text,&message.quote_references.0)).bind(Json(quotes)).execute(&mut *tx).await?;
     let current = sqlx::query_as::<_, MessageRow>(&format!("{MESSAGE_SELECT} WHERE m.id=$1"))
         .bind(id)
         .fetch_one(&mut *tx)

@@ -1215,6 +1215,13 @@
         "position": {
           "type": "string"
         },
+        "quotes": {
+          "description": "Typed references. Excerpts are resolved for this reader, never supplied\nby an author or persisted in a shared journal event.",
+          "items": {
+            "$ref": "#/$defs/MessageQuote"
+          },
+          "type": "array"
+        },
         "reactions": {
           "items": {
             "$ref": "#/$defs/MessageReaction"
@@ -1367,6 +1374,27 @@
         "react",
         "pin",
         "star"
+      ],
+      "type": "object"
+    },
+    "MessageQuote": {
+      "properties": {
+        "excerpt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QuoteExcerpt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reference": {
+          "$ref": "#/$defs/QuoteReference"
+        }
+      },
+      "required": [
+        "reference"
       ],
       "type": "object"
     },
@@ -2356,7 +2384,37 @@
       ],
       "type": "object"
     },
+    "QuoteExcerpt": {
+      "properties": {
+        "author": {
+          "$ref": "#/$defs/User"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "membership_version": {
+          "description": "Reader's current membership lifetime in the source room.",
+          "type": "string"
+        },
+        "revision": {
+          "description": "Current source revision, distinct from the author's observed revision.",
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "author",
+        "text",
+        "created_at",
+        "revision",
+        "membership_version"
+      ],
+      "type": "object"
+    },
     "QuoteReference": {
+      "additionalProperties": false,
       "properties": {
         "message_id": {
           "type": "string"
@@ -3066,6 +3124,12 @@
       "properties": {
         "operation_id": {
           "type": "string"
+        },
+        "quotes": {
+          "items": {
+            "$ref": "#/$defs/QuoteReference"
+          },
+          "type": "array"
         },
         "text": {
           "type": "string"

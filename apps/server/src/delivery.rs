@@ -365,6 +365,195 @@ mod tests {
             .unwrap()
     }
 
+    async fn quoted_fixture(pool: PgPool) -> (Fixture, rv_protocol::Message) {
+        let f = fixture(pool).await;
+        let destination = store::create_room(
+            &f.app,
+            &f.owner,
+            CreateRoom {
+                name: "Quoted destination".into(),
+                private: true,
+                operation_id: Some("quoted-destination".into()),
+            },
+        )
+        .await
+        .unwrap();
+        store::membership(&f.app, &f.owner, &destination.id, &f.reader.id, false)
+            .await
+            .unwrap();
+        let source = store::send(
+            &f.app,
+            &f.owner,
+            &f.room.id,
+            SendMessage {
+                operation_id: "quote-lease-source".into(),
+                text: "Private quote bytes".into(),
+                quotes: vec![],
+            },
+        )
+        .await
+        .unwrap();
+        let reply = store::send(
+            &f.app,
+            &f.reader,
+            &destination.id,
+            SendMessage {
+                operation_id: "quote-lease-reply".into(),
+                text: "Reply".into(),
+                quotes: vec![rv_protocol::parity::QuoteReference {
+                    room_id: source.room_id,
+                    message_id: source.id,
+                    revision: source.revision,
+                }],
+            },
+        )
+        .await
+        .unwrap();
+        let hydrated = crate::message_actions::read(&f.app, &f.reader, &reply.id)
+            .await
+            .unwrap();
+        assert_eq!(
+            hydrated.quotes[0].excerpt.as_ref().unwrap().text,
+            "Private quote bytes"
+        );
+        (f, hydrated)
+    }
+
+    #[sqlx::test]
+    async fn quoted_source_versions_and_membership_aba_are_revalidated_before_delivery(
+        pool: PgPool,
+    ) {
+        let (f, mut payload) = quoted_fixture(pool).await;
+        let first_membership = payload.quotes[0]
+            .excerpt
+            .as_ref()
+            .unwrap()
+            .membership_version
+            .clone();
+        for action in 0..3 {
+            let proof = ReadProof::capture(&f.app, &f.reader, Scope::All)
+                .await
+                .unwrap();
+            let source = payload.quotes[0].reference.clone();
+            let revision = payload.quotes[0].excerpt.as_ref().unwrap().revision.clone();
+            match action {
+                0 => {
+                    store::membership(&f.app, &f.owner, &f.room.id, &f.reader.id, true)
+                        .await
+                        .unwrap();
+                    store::membership(&f.app, &f.owner, &f.room.id, &f.reader.id, false)
+                        .await
+                        .unwrap();
+                }
+                1 => crate::message_actions::apply(
+                    &f.app,
+                    &f.owner,
+                    &source.message_id,
+                    crate::message_actions::Command::Edit(rv_protocol::parity::EditMessage {
+                        operation_id: "quote-lease-source-edit".into(),
+                        expected_revision: revision,
+                        content: rv_protocol::parity::MessageContent::Plain {
+                            markdown: "Updated source".into(),
+                            mentions: vec![],
+                            quotes: vec![],
+                            files: vec![],
+                        },
+                    }),
+                )
+                .await
+                .unwrap(),
+                _ => crate::message_actions::apply(
+                    &f.app,
+                    &f.owner,
+                    &source.message_id,
+                    crate::message_actions::Command::Delete(rv_protocol::parity::DeleteMessage {
+                        operation_id: "quote-lease-source-delete".into(),
+                        expected_revision: revision,
+                    }),
+                )
+                .await
+                .unwrap(),
+            }
+            let error = proof
+                .json(
+                    &f.app,
+                    &f.hash,
+                    &payload,
+                    &crate::quotes::delivery_rooms(std::slice::from_ref(&payload)),
+                    None,
+                )
+                .await
+                .expect_err("stale quote was delivered");
+            assert_eq!(error.code, "delivery_revalidate");
+            payload = crate::message_actions::read(&f.app, &f.reader, &payload.id)
+                .await
+                .unwrap();
+            if action == 0 {
+                assert_ne!(
+                    payload.quotes[0]
+                        .excerpt
+                        .as_ref()
+                        .unwrap()
+                        .membership_version,
+                    first_membership
+                );
+            }
+            if action == 1 {
+                assert_eq!(
+                    payload.quotes[0].excerpt.as_ref().unwrap().text,
+                    "Updated source"
+                );
+            }
+        }
+        assert!(payload.quotes[0].excerpt.is_none());
+    }
+
+    #[sqlx::test]
+    async fn quoted_source_revocation_waits_for_the_existing_http_delivery_lease(pool: PgPool) {
+        let (f, payload) = quoted_fixture(pool).await;
+        let proof = ReadProof::capture(&f.app, &f.reader, Scope::All)
+            .await
+            .unwrap();
+        let response = proof
+            .json(
+                &f.app,
+                &f.hash,
+                &payload,
+                &crate::quotes::delivery_rooms(std::slice::from_ref(&payload)),
+                None,
+            )
+            .await
+            .unwrap();
+        let app = f.app.clone();
+        let owner = f.owner.clone();
+        let source = f.room.id.clone();
+        let reader = f.reader.id.clone();
+        let mut revoke =
+            tokio::spawn(
+                async move { store::membership(&app, &owner, &source, &reader, true).await },
+            );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), &mut revoke)
+                .await
+                .is_err(),
+            "source revocation crossed a leased quote body"
+        );
+        drop(response);
+        tokio::time::timeout(Duration::from_secs(3), revoke)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(
+            crate::message_actions::read(&f.app, &f.reader, &payload.id)
+                .await
+                .unwrap()
+                .quotes[0]
+                .excerpt
+                .is_none()
+        );
+    }
+
     #[sqlx::test]
     async fn room_metadata_and_roster_reject_stale_payloads_including_aba(pool: PgPool) {
         let f = fixture(pool).await;
@@ -475,6 +664,7 @@ mod tests {
                 &f.owner,
                 &f.room.id,
                 SendMessage {
+                    quotes: vec![],
                     operation_id: format!("secret-{index}"),
                     text: "private payload".into(),
                 },
@@ -816,6 +1006,7 @@ mod tests {
             &f.owner,
             &f.room.id,
             SendMessage {
+                quotes: vec![],
                 operation_id: "protected-message".into(),
                 text: "Before".into(),
             },
@@ -866,7 +1057,7 @@ mod tests {
             });
             tokio::time::timeout(Duration::from_secs(2),async {
                 loop {
-                    let blocked:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT read_only FROM rooms%')").fetch_one(&pool).await.unwrap();
+                    let blocked:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT id FROM rooms WHERE id=ANY%')").fetch_one(&pool).await.unwrap();
                     if blocked {break;}
                     tokio::time::sleep(Duration::from_millis(10)).await;
                 }
@@ -912,6 +1103,7 @@ mod tests {
             &f.owner,
             &f.room.id,
             SendMessage {
+                quotes: vec![],
                 operation_id: "reserved-view-message".into(),
                 text: "Secret building page".into(),
             },
@@ -1083,6 +1275,7 @@ mod tests {
                     &f.reader,
                     &f.room.id,
                     SendMessage {
+                        quotes: vec![],
                         operation_id: "revoked-intention".into(),
                         text: "must not commit".into()
                     }
@@ -1133,6 +1326,7 @@ mod tests {
                         &f.reader,
                         &f.room.id,
                         SendMessage {
+                            quotes: vec![],
                             operation_id: "stale-activation".into(),
                             text: "must revalidate".into()
                         }

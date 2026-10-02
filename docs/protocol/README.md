@@ -12,6 +12,10 @@ Les [documents Markdown natifs](MARKDOWN.md) sont traduits vers les renderers
 existants aux frontières des fournisseurs. Le texte source reste présent ;
 ce contrat ne transporte pas le format `md` Rocket.Chat.
 
+Le [contrat de citations natives](QUOTES.md) décrit les références, la résolution
+par lecteur et les protections de remise ; son raccordement aux cartes existantes
+reste un lot distinct avant l'annonce de la capacité.
+
 ## Transport et identité
 
 - Découverte : `GET /.well-known/rocketvibe`, produit `rocketvibe`, protocole `1`,

@@ -90,6 +90,7 @@ pub async fn snapshot(app: &App, account: &Account) -> Result<Snapshot> {
             .map(MessageRow::wire)
             .collect();
         crate::marks::personalize(&mut tx, &account.id, &mut window).await?;
+        crate::quotes::personalize(&mut tx, &account.id, &mut window).await?;
         for message in window {
             bytes += wire_len(&message)? + 1;
             if bytes > limits::SNAPSHOT_BYTES {
@@ -183,6 +184,10 @@ pub async fn changes(app: &App, account: &Account, token: &str, limit: i64) -> R
         .fetch_one(&mut *tx)
         .await?;
         if allowed {
+            if let Change::MessageUpsert(message) = &mut change.0 {
+                crate::quotes::personalize(&mut tx, &account.id, std::slice::from_mut(message))
+                    .await?;
+            }
             if let Change::RoomUpsert(room) = &mut change.0 {
                 let state = if let Some(cached) = read_states.get(&room.id) {
                     cached.clone()

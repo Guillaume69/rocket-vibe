@@ -289,12 +289,16 @@ pub struct PersonalStar {
 pub struct Message {
     pub id: String,
     pub room_id: String,
-    pub author: User,
+    pub author: Box<User>,
     pub text: String,
     /// Optional canonical native presentation. Source remains authoritative;
     /// no Rocket.Chat tree, HTML markup, or authenticated resource URL.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<Box<markdown::Document>>,
+    /// Typed references. Excerpts are resolved for this reader, never supplied
+    /// by an author or persisted in a shared journal event.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub quotes: Vec<MessageQuote>,
     pub created_at: String,
     pub position: String,
     pub revision: String,
@@ -320,6 +324,25 @@ fn is_false(value: &bool) -> bool {
 pub struct SendMessage {
     pub operation_id: String,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub quotes: Vec<parity::QuoteReference>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct MessageQuote {
+    pub reference: parity::QuoteReference,
+    pub excerpt: Option<Box<QuoteExcerpt>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct QuoteExcerpt {
+    pub author: User,
+    pub text: String,
+    pub created_at: String,
+    /// Current source revision, distinct from the author's observed revision.
+    pub revision: String,
+    /// Reader's current membership lifetime in the source room.
+    pub membership_version: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

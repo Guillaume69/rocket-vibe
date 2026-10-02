@@ -40,10 +40,11 @@ export type Format = "native1";
 export type LeaveRoom = { "expected_revision": string; "operation_id": string; };
 export type Login = { "password": string; "username": string; };
 export type MarkRead = { "reply_position": string; "root_position": string; };
-export type Message = { "author": User; "body"?: Document | null; "created_at": string; "deleted"?: boolean; "edited_at"?: string | null; "id": string; "personal_star"?: PersonalStar | null; "pinned"?: boolean; "position": string; "reactions"?: (MessageReaction)[]; "revision": string; "room_id": string; "text": string; };
+export type Message = { "author": User; "body"?: Document | null; "created_at": string; "deleted"?: boolean; "edited_at"?: string | null; "id": string; "personal_star"?: PersonalStar | null; "pinned"?: boolean; "position": string; "quotes"?: (MessageQuote)[]; "reactions"?: (MessageReaction)[]; "revision": string; "room_id": string; "text": string; };
 export type MessageContent = { "files": (string)[]; "kind": "plain"; "markdown": string; "mentions": (string)[]; "quotes": (QuoteReference)[]; } | { "format": string; "key_version": string; "kind": "encrypted"; "payload": string; };
 export type MessagePage = { "has_more": boolean; "messages": (Message)[]; };
 export type MessagePermissions = { "delete": boolean; "edit": boolean; "edit_until"?: string | null; "message_id": string; "pin": boolean; "react": boolean; "revision": string; "star": boolean; };
+export type MessageQuote = { "excerpt"?: QuoteExcerpt | null; "reference": QuoteReference; };
 export type MessageReaction = { "emoji": string; "users": (User)[]; };
 export type Node = { "kind": "text"; "text": string; } | { "children": (Node)[]; "kind": "paragraph"; } | { "children": (Node)[]; "kind": "bold"; } | { "children": (Node)[]; "kind": "italic"; } | { "children": (Node)[]; "kind": "strike"; } | { "kind": "inline_code"; "text": string; } | { "kind": "code_block"; "language": string; "text": string; } | { "children": (Node)[]; "kind": "heading"; "level": number; } | { "children": (Node)[]; "kind": "quote"; } | { "children": (Node)[]; "kind": "list"; "start"?: number | null; } | { "checked"?: boolean | null; "children": (Node)[]; "kind": "list_item"; } | { "children": (Node)[]; "href": string; "kind": "link"; } | { "kind": "mention"; "name": string; } | { "kind": "room_mention"; "name": string; } | { "kind": "emoji"; "shortcode": string; } | { "kind": "break"; } | { "kind": "rule"; };
 export type ParityContract = { "accept_invitation"?: AcceptInvitation | null; "account_permissions": AccountPermissions; "auth_challenge": AuthChallenge; "authentication_step"?: AuthenticationStep | null; "begin_email_verification"?: BeginEmailVerification | null; "begin_factor_setup"?: BeginFactorSetup | null; "begin_reauthentication"?: BeginReauthentication | null; "change_email_factor"?: ChangeEmailFactor | null; "change_room_role"?: ChangeRoomRole | null; "complete_upload": CompleteUpload; "confirm_email_verification"?: ConfirmEmailVerification | null; "delete_message": DeleteMessage; "device_session"?: DeviceSession | null; "disable_factor"?: DisableFactor | null; "edit_message": EditMessage; "email_factor_change"?: EmailFactorChange | null; "email_recovery_requested"?: EmailRecoveryRequested | null; "email_removal_receipt"?: EmailRemovalReceipt | null; "email_status"?: EmailStatus | null; "email_verification_step"?: EmailVerificationStep | null; "enable_factor"?: EnableFactor | null; "factor_backup_codes"?: FactorBackupCodes | null; "factor_email_delivery"?: FactorEmailDelivery | null; "factor_setup"?: FactorSetup | null; "factor_status"?: FactorStatus | null; "file": FileDescriptor; "finish_factor"?: FinishFactor | null; "finish_reauthentication"?: FinishReauthentication | null; "key_backup": EncryptedKeyBackup; "leave_room"?: LeaveRoom | null; "mark": SetMark; "mark_read": MarkRead; "message_permissions": MessagePermissions; "preferences": UserPreferences; "prepare_upload": PrepareUpload; "profile": UserProfile; "public_device_key": PublicDeviceKey; "reaction": SetReaction; "read_state": ReadState; "reauthentication_grant"?: ReauthenticationGrant | null; "reauthentication_status"?: ReauthenticationStatus | null; "reauthentication_step"?: ReauthenticationStep | null; "recover_account"?: RecoverAccount | null; "regenerate_factor_backups"?: RegenerateFactorBackups | null; "remove_verified_email"?: RemoveVerifiedEmail | null; "rename_device"?: RenameDevice | null; "renew_session"?: RenewSession | null; "request_email_recovery"?: RequestEmailRecovery | null; "request_factor_email"?: RequestFactorEmail | null; "resume_email_removal"?: ResumeEmailRemoval | null; "resume_email_verification"?: ResumeEmailVerification | null; "resume_reauthentication"?: ResumeReauthentication | null; "retire_email_removal"?: RetireEmailRemoval | null; "retire_email_verification"?: RetireEmailVerification | null; "retire_reauthentication"?: RetireReauthentication | null; "room_command_receipt"?: RoomCommandReceipt | null; "room_details"?: RoomDetails | null; "room_favorite"?: SetRoomFavorite | null; "room_key_envelope": RoomKeyEnvelope; "room_members"?: RoomMemberPage | null; "room_permissions": RoomPermissions; "update_room"?: UpdateRoom | null; "verify_factor": VerifyFactor; };
@@ -52,6 +53,7 @@ export type PrepareUpload = { "bytes": string; "encrypted": boolean; "filename"?
 export type PublicDeviceKey = { "device_id": string; "fingerprint": string; "format": string; "public_key": string; "revision": string; "user_id": string; };
 export type PublicRoom = { "joined": boolean; "room": Room; };
 export type PublicRoomPage = { "next"?: string | null; "rooms": (PublicRoom)[]; };
+export type QuoteExcerpt = { "author": User; "created_at": string; "membership_version": string; "revision": string; "text": string; };
 export type QuoteReference = { "message_id": string; "revision": string; "room_id": string; };
 export type ReadState = { "favorite": boolean; "favorite_revision"?: string | null; "group_mentions": string; "membership_version"?: string | null; "mentions": string; "reply_position": string; "revision": string; "room_id": string; "root_position": string; "unread_replies": string; "unread_roots": string; };
 export type ReauthenticationContext = { "data_epoch": string; "device_id": string; "instance_id": string; "user_id": string; };
@@ -81,7 +83,7 @@ export type RoomMemberPage = { "members": (RoomMember)[]; "next"?: string | null
 export type RoomPermissions = { "change_settings": boolean; "invite": boolean; "pin": boolean; "read": boolean; "remove_member": boolean; "revision": string; "role": RoomRole; "room_id": string; "send": boolean; "start_call": boolean; "upload": boolean; };
 export type RoomRole = "owner" | "moderator" | "member";
 export type SecondFactor = "totp" | "email" | "recovery_code";
-export type SendMessage = { "operation_id": string; "text": string; };
+export type SendMessage = { "operation_id": string; "quotes"?: (QuoteReference)[]; "text": string; };
 export type Session = { "expires_at": string; "token": string; "user": User; };
 export type SetMark = { "operation_id": string; "present": boolean; };
 export type SetReaction = { "emoji": string; "operation_id": string; "present": boolean; };
@@ -96,7 +98,7 @@ export type UserPreferences = { "clock_24h": boolean; "language": string; "push_
 export type UserProfile = { "avatar_file_id"?: string | null; "bio": string; "revision": string; "status_text": string; "user": User; };
 export type VerifyFactor = { "challenge_id": string; "code": string; "method": SecondFactor; };
 
-export type NativeTypes = { AcceptInvitation: AcceptInvitation; AccountPermissions: AccountPermissions; ApiError: ApiError; AuthChallenge: AuthChallenge; AuthenticationStep: AuthenticationStep; BeginEmailVerification: BeginEmailVerification; BeginFactorSetup: BeginFactorSetup; BeginReauthentication: BeginReauthentication; Capabilities: Capabilities; Change: Change; ChangeEmailFactor: ChangeEmailFactor; ChangeRoomRole: ChangeRoomRole; CompleteUpload: CompleteUpload; ConfirmEmailVerification: ConfirmEmailVerification; CreateRoom: CreateRoom; DeleteMessage: DeleteMessage; DeviceSession: DeviceSession; DirectMessage: DirectMessage; DisableFactor: DisableFactor; Discovery: Discovery; Document: Document; EditMessage: EditMessage; EmailDeliveryState: EmailDeliveryState; EmailFactorChange: EmailFactorChange; EmailRecoveryRequested: EmailRecoveryRequested; EmailRemovalReceipt: EmailRemovalReceipt; EmailStatus: EmailStatus; EmailVerificationStep: EmailVerificationStep; EnableFactor: EnableFactor; EncryptedKeyBackup: EncryptedKeyBackup; FactorBackupCodes: FactorBackupCodes; FactorEmailDelivery: FactorEmailDelivery; FactorSetup: FactorSetup; FactorStatus: FactorStatus; FileDescriptor: FileDescriptor; FinishFactor: FinishFactor; FinishReauthentication: FinishReauthentication; Format: Format; LeaveRoom: LeaveRoom; Login: Login; MarkRead: MarkRead; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; MessageReaction: MessageReaction; Node: Node; ParityContract: ParityContract; PersonalStar: PersonalStar; PrepareUpload: PrepareUpload; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; QuoteReference: QuoteReference; ReadState: ReadState; ReauthenticationContext: ReauthenticationContext; ReauthenticationGrant: ReauthenticationGrant; ReauthenticationStatus: ReauthenticationStatus; ReauthenticationStep: ReauthenticationStep; RecoverAccount: RecoverAccount; RegenerateFactorBackups: RegenerateFactorBackups; RemoveVerifiedEmail: RemoveVerifiedEmail; RenameDevice: RenameDevice; RenewSession: RenewSession; RequestEmailRecovery: RequestEmailRecovery; RequestFactorEmail: RequestFactorEmail; ResumeEmailRemoval: ResumeEmailRemoval; ResumeEmailVerification: ResumeEmailVerification; ResumeReauthentication: ResumeReauthentication; RetireEmailRemoval: RetireEmailRemoval; RetireEmailVerification: RetireEmailVerification; RetireReauthentication: RetireReauthentication; Room: Room; RoomCommandReceipt: RoomCommandReceipt; RoomDetails: RoomDetails; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomMember: RoomMember; RoomMemberPage: RoomMemberPage; RoomPermissions: RoomPermissions; RoomRole: RoomRole; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetReaction: SetReaction; SetRoomFavorite: SetRoomFavorite; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; SyncBatch: SyncBatch; UpdateRoom: UpdateRoom; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; };
+export type NativeTypes = { AcceptInvitation: AcceptInvitation; AccountPermissions: AccountPermissions; ApiError: ApiError; AuthChallenge: AuthChallenge; AuthenticationStep: AuthenticationStep; BeginEmailVerification: BeginEmailVerification; BeginFactorSetup: BeginFactorSetup; BeginReauthentication: BeginReauthentication; Capabilities: Capabilities; Change: Change; ChangeEmailFactor: ChangeEmailFactor; ChangeRoomRole: ChangeRoomRole; CompleteUpload: CompleteUpload; ConfirmEmailVerification: ConfirmEmailVerification; CreateRoom: CreateRoom; DeleteMessage: DeleteMessage; DeviceSession: DeviceSession; DirectMessage: DirectMessage; DisableFactor: DisableFactor; Discovery: Discovery; Document: Document; EditMessage: EditMessage; EmailDeliveryState: EmailDeliveryState; EmailFactorChange: EmailFactorChange; EmailRecoveryRequested: EmailRecoveryRequested; EmailRemovalReceipt: EmailRemovalReceipt; EmailStatus: EmailStatus; EmailVerificationStep: EmailVerificationStep; EnableFactor: EnableFactor; EncryptedKeyBackup: EncryptedKeyBackup; FactorBackupCodes: FactorBackupCodes; FactorEmailDelivery: FactorEmailDelivery; FactorSetup: FactorSetup; FactorStatus: FactorStatus; FileDescriptor: FileDescriptor; FinishFactor: FinishFactor; FinishReauthentication: FinishReauthentication; Format: Format; LeaveRoom: LeaveRoom; Login: Login; MarkRead: MarkRead; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; MessageQuote: MessageQuote; MessageReaction: MessageReaction; Node: Node; ParityContract: ParityContract; PersonalStar: PersonalStar; PrepareUpload: PrepareUpload; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; QuoteExcerpt: QuoteExcerpt; QuoteReference: QuoteReference; ReadState: ReadState; ReauthenticationContext: ReauthenticationContext; ReauthenticationGrant: ReauthenticationGrant; ReauthenticationStatus: ReauthenticationStatus; ReauthenticationStep: ReauthenticationStep; RecoverAccount: RecoverAccount; RegenerateFactorBackups: RegenerateFactorBackups; RemoveVerifiedEmail: RemoveVerifiedEmail; RenameDevice: RenameDevice; RenewSession: RenewSession; RequestEmailRecovery: RequestEmailRecovery; RequestFactorEmail: RequestFactorEmail; ResumeEmailRemoval: ResumeEmailRemoval; ResumeEmailVerification: ResumeEmailVerification; ResumeReauthentication: ResumeReauthentication; RetireEmailRemoval: RetireEmailRemoval; RetireEmailVerification: RetireEmailVerification; RetireReauthentication: RetireReauthentication; Room: Room; RoomCommandReceipt: RoomCommandReceipt; RoomDetails: RoomDetails; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomMember: RoomMember; RoomMemberPage: RoomMemberPage; RoomPermissions: RoomPermissions; RoomRole: RoomRole; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetReaction: SetReaction; SetRoomFavorite: SetRoomFavorite; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; SyncBatch: SyncBatch; UpdateRoom: UpdateRoom; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; };
 
 export const nativeSchema = {
   "$defs": {
@@ -1315,6 +1317,13 @@ export const nativeSchema = {
         "position": {
           "type": "string"
         },
+        "quotes": {
+          "description": "Typed references. Excerpts are resolved for this reader, never supplied\nby an author or persisted in a shared journal event.",
+          "items": {
+            "$ref": "#/$defs/MessageQuote"
+          },
+          "type": "array"
+        },
         "reactions": {
           "items": {
             "$ref": "#/$defs/MessageReaction"
@@ -1467,6 +1476,27 @@ export const nativeSchema = {
         "react",
         "pin",
         "star"
+      ],
+      "type": "object"
+    },
+    "MessageQuote": {
+      "properties": {
+        "excerpt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QuoteExcerpt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reference": {
+          "$ref": "#/$defs/QuoteReference"
+        }
+      },
+      "required": [
+        "reference"
       ],
       "type": "object"
     },
@@ -2456,7 +2486,37 @@ export const nativeSchema = {
       ],
       "type": "object"
     },
+    "QuoteExcerpt": {
+      "properties": {
+        "author": {
+          "$ref": "#/$defs/User"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "membership_version": {
+          "description": "Reader's current membership lifetime in the source room.",
+          "type": "string"
+        },
+        "revision": {
+          "description": "Current source revision, distinct from the author's observed revision.",
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "author",
+        "text",
+        "created_at",
+        "revision",
+        "membership_version"
+      ],
+      "type": "object"
+    },
     "QuoteReference": {
+      "additionalProperties": false,
       "properties": {
         "message_id": {
           "type": "string"
@@ -3166,6 +3226,12 @@ export const nativeSchema = {
       "properties": {
         "operation_id": {
           "type": "string"
+        },
+        "quotes": {
+          "items": {
+            "$ref": "#/$defs/QuoteReference"
+          },
+          "type": "array"
         },
         "text": {
           "type": "string"

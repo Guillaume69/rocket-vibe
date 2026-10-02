@@ -411,6 +411,7 @@ pub struct SetMark {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct QuoteReference {
     pub room_id: String,
     pub message_id: String,

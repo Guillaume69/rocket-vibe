@@ -200,10 +200,12 @@ fn batch_rooms(batch: &rv_protocol::SyncBatch) -> Vec<String> {
     batch
         .changes
         .iter()
-        .filter_map(|change| match change {
-            rv_protocol::Change::RoomUpsert(room) => Some(room.id.clone()),
-            rv_protocol::Change::MessageUpsert(message) => Some(message.room_id.clone()),
-            rv_protocol::Change::RoomRemoved { .. } => None,
+        .flat_map(|change| match change {
+            rv_protocol::Change::RoomUpsert(room) => vec![room.id.clone()],
+            rv_protocol::Change::MessageUpsert(message) => {
+                crate::quotes::delivery_rooms(std::slice::from_ref(message))
+            }
+            rv_protocol::Change::RoomRemoved { .. } => Vec::new(),
         })
         .collect()
 }
@@ -722,7 +724,7 @@ async fn message(
             &app,
             &hash,
             &message,
-            std::slice::from_ref(&message.room_id),
+            &crate::quotes::delivery_rooms(std::slice::from_ref(&message)),
             None,
         )
         .await
@@ -831,9 +833,13 @@ async fn marked(
     if !(1..=100).contains(&limit) {
         return Err(Error::invalid());
     }
-    let (actor, hash, proof) = read_access(&app, &headers, Scope::Room(&room)).await?;
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::All).await?;
     let messages = marks::list(&app, &actor, &room, before, limit, starred).await?;
-    proof.json(&app, &hash, &messages, &[room], None).await
+    let mut delivery_rooms = crate::quotes::delivery_rooms(&messages.messages);
+    delivery_rooms.push(room);
+    proof
+        .json(&app, &hash, &messages, &delivery_rooms, None)
+        .await
 }
 async fn create_room(
     State(app): State<App>,
@@ -1054,7 +1060,7 @@ async fn send(
     Path(room): Path<String>,
     input: Input<SendMessage>,
 ) -> Result<Response> {
-    let (account, hash, proof) = read_access(&app, &headers, Scope::Room(&room)).await?;
+    let (account, hash, proof) = read_access(&app, &headers, Scope::All).await?;
     let mut message = store::send(&app, &account, &room, body(input)?).await?;
     let mut connection = app.pool.acquire().await?;
     marks::personalize(
@@ -1063,8 +1069,22 @@ async fn send(
         std::slice::from_mut(&mut message),
     )
     .await?;
+    crate::quotes::personalize(
+        &mut connection,
+        &account.id,
+        std::slice::from_mut(&mut message),
+    )
+    .await?;
     drop(connection);
-    proof.json(&app, &hash, &message, &[room], None).await
+    proof
+        .json(
+            &app,
+            &hash,
+            &message,
+            &crate::quotes::delivery_rooms(std::slice::from_ref(&message)),
+            None,
+        )
+        .await
 }
 
 #[derive(Deserialize)]
@@ -1086,9 +1106,13 @@ async fn history(
     if !(1..=100).contains(&limit) {
         return Err(Error::invalid());
     }
-    let (account, hash, proof) = read_access(&app, &headers, Scope::Room(&room)).await?;
+    let (account, hash, proof) = read_access(&app, &headers, Scope::All).await?;
     let messages = store::history(&app, &account, &room, before, limit).await?;
-    proof.json(&app, &hash, &messages, &[room], None).await
+    let mut delivery_rooms = crate::quotes::delivery_rooms(&messages.messages);
+    delivery_rooms.push(room);
+    proof
+        .json(&app, &hash, &messages, &delivery_rooms, None)
+        .await
 }
 
 async fn snapshot(State(app): State<App>, headers: HeaderMap) -> Result<Response> {

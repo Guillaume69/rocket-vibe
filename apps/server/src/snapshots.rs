@@ -121,6 +121,7 @@ async fn materialize(app: &App, user: &Account, id: &str) -> Result<String> {
             .map(MessageRow::wire)
             .collect();
         crate::marks::personalize(&mut tx, &user.id, &mut window).await?;
+        crate::quotes::personalize(&mut tx, &user.id, &mut window).await?;
         for message in window {
             let size = serde_json::to_vec(&message)
                 .map_err(|_| Error::internal())?

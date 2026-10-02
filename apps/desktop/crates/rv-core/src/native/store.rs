@@ -955,7 +955,7 @@ mod tests {
             .unwrap();
         let mut reacted = message.clone();
         reacted.reactions =
-            vec![rv_protocol::MessageReaction { emoji: "heart".into(), users: vec![message.author.clone()] }];
+            vec![rv_protocol::MessageReaction { emoji: "heart".into(), users: vec![message.author.as_ref().clone()] }];
         reacted.revision = "9007199254740994".into();
         store.confirm_command(&command.id, &reacted, store.projection_token()).unwrap();
         store.ingest(std::slice::from_ref(message)).unwrap();

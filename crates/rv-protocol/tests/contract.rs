@@ -22,6 +22,18 @@ fn send_intention_rejects_unknown_server_controlled_fields() {
 }
 
 #[test]
+fn quotes_accept_only_typed_references_and_preserve_exact_source_revisions() {
+    let old: SendMessage = serde_json::from_str(r#"{"operation_id":"id","text":"hello"}"#).unwrap();
+    assert!(old.quotes.is_empty());
+    let input = r#"{"operation_id":"reply","text":"hello","quotes":[{"room_id":"origin","message_id":"source","revision":"9007199254740993"}]}"#;
+    let typed: SendMessage = serde_json::from_str(input).unwrap();
+    assert_eq!(typed.quotes[0].revision, "9007199254740993");
+    let mut forged: serde_json::Value = serde_json::from_str(input).unwrap();
+    forged["quotes"][0]["excerpt"] = "private source text".into();
+    assert!(serde_json::from_value::<SendMessage>(forged).is_err());
+}
+
+#[test]
 fn parity_fixture_keeps_permissions_personal_counts_and_opaque_crypto_separate() {
     let contract: Contract =
         serde_json::from_str(include_str!("../../../docs/protocol/v1.fixture.json")).unwrap();

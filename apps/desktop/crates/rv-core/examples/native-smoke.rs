@@ -24,7 +24,10 @@ async fn remote_has(client: &NativeClient, rid: &str, text: &str) {
 }
 async fn marker(client: &NativeClient, rid: &str, text: &str) {
     client
-        .send(rid, &SendMessage { operation_id: format!("{:032x}", fastrand::u128(..)), text: text.into() })
+        .send(
+            rid,
+            &SendMessage { quotes: vec![], operation_id: format!("{:032x}", fastrand::u128(..)), text: text.into() },
+        )
         .await
         .unwrap();
 }

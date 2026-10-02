@@ -47,6 +47,7 @@ pub(crate) struct MessageRow {
     pub edited_at: Option<DateTime<Utc>>,
     pub reactions: Json<Vec<rv_protocol::MessageReaction>>,
     pub pinned: bool,
+    pub quote_references: Json<Vec<rv_protocol::parity::QuoteReference>>,
 }
 
 impl MessageRow {
@@ -55,13 +56,25 @@ impl MessageRow {
         Message {
             id: self.id,
             room_id: self.room_id,
-            author: User {
+            author: Box::new(User {
                 id: self.author_id,
                 username: self.username,
                 display_name: self.display_name,
-            },
+            }),
             text: self.text,
             body,
+            quotes: if self.deleted {
+                Vec::new()
+            } else {
+                self.quote_references
+                    .0
+                    .into_iter()
+                    .map(|reference| rv_protocol::MessageQuote {
+                        reference,
+                        excerpt: None,
+                    })
+                    .collect()
+            },
             created_at: self.created_at.to_rfc3339(),
             position: self.position.to_string(),
             revision: self.revision.to_string(),
@@ -74,10 +87,22 @@ impl MessageRow {
     }
 }
 
-pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,m.text,m.created_at,m.position,m.revision,m.deleted,m.edited_at,m.pinned,COALESCE((SELECT jsonb_agg(jsonb_build_object('emoji',g.emoji,'users',g.users) ORDER BY g.emoji) FROM (SELECT e.emoji,jsonb_agg(jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name) ORDER BY a.id) AS users FROM message_reactions e JOIN users a ON a.id=e.user_id WHERE e.message_id=m.id GROUP BY e.emoji) g),'[]'::jsonb) AS reactions FROM messages m JOIN users u ON u.id=m.author_id";
+pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,m.text,m.created_at,m.position,m.revision,m.deleted,m.edited_at,m.pinned,m.quote_references,COALESCE((SELECT jsonb_agg(jsonb_build_object('emoji',g.emoji,'users',g.users) ORDER BY g.emoji) FROM (SELECT e.emoji,jsonb_agg(jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name) ORDER BY a.id) AS users FROM message_reactions e JOIN users a ON a.id=e.user_id WHERE e.message_id=m.id GROUP BY e.emoji) g),'[]'::jsonb) AS reactions FROM messages m JOIN users u ON u.id=m.author_id";
 
 pub(crate) fn send_fingerprint(room: &str, text: &str) -> String {
     crate::auth::hash_token(&serde_json::json!([room, text]).to_string())
+}
+
+pub(crate) fn quoted_send_fingerprint(
+    room: &str,
+    text: &str,
+    quotes: &[rv_protocol::parity::QuoteReference],
+) -> String {
+    if quotes.is_empty() {
+        send_fingerprint(room, text)
+    } else {
+        crate::auth::hash_token(&serde_json::json!([room, text, quotes]).to_string())
+    }
 }
 
 /// Must be called after acquiring domain locks. The counter lock lasts until commit.
@@ -464,7 +489,10 @@ pub async fn send(
     room_id: &str,
     input: SendMessage,
 ) -> Result<Message> {
-    if !identifier(&input.operation_id) || input.text.trim().is_empty() || input.text.len() > 32_768
+    if !identifier(&input.operation_id)
+        || (input.text.trim().is_empty() && input.quotes.is_empty())
+        || input.text.len() > 32_768
+        || !crate::quotes::valid_references(&input.quotes, &input.operation_id)
     {
         return Err(Error::invalid());
     }
@@ -472,7 +500,7 @@ pub async fn send(
     // All sends by a user serialize before room / journal locks. This also protects
     // operation IDs across rooms, including malicious cross-room replays.
     lock_active(&mut tx, account).await?;
-    crate::room_reads::lock_room(&mut tx, room_id).await?;
+    crate::quotes::lock_rooms(&mut tx, room_id, &input.quotes).await?;
     require_member(&mut tx, room_id, &account.id).await?;
     let used: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM room_creation_requests WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM message_actions WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM room_commands WHERE user_id=$1 AND operation_id=$2)",
@@ -497,8 +525,8 @@ pub async fn send(
                 .fetch_one(&mut *tx)
                 .await?;
         let matches = fingerprint.map_or_else(
-            || existing.text == input.text,
-            |value| value == send_fingerprint(room_id, &input.text),
+            || existing.text == input.text && existing.quote_references.0 == input.quotes,
+            |value| value == quoted_send_fingerprint(room_id, &input.text, &input.quotes),
         );
         if existing.room_id != room_id || !matches {
             return Err(Error::conflict());
@@ -507,17 +535,19 @@ pub async fn send(
         return Ok(existing.wire());
     }
     crate::permissions::require_send(&mut tx, room_id, &account.id).await?;
+    crate::quotes::validate(&mut tx, &account.id, &input.quotes, &[]).await?;
     let id = input.operation_id;
     // Client message IDs are globally unique. A collision belonging to another user
     // is a conflict, never a response exposing that user's message.
     let result = sqlx::query(
-        "INSERT INTO messages(id,room_id,author_id,operation_id,text,send_fingerprint) VALUES($1,$2,$3,$1,$4,$5)",
+        "INSERT INTO messages(id,room_id,author_id,operation_id,text,send_fingerprint,quote_references) VALUES($1,$2,$3,$1,$4,$5,$6)",
     )
     .bind(&id)
     .bind(room_id)
     .bind(&account.id)
     .bind(&input.text)
-    .bind(send_fingerprint(room_id,&input.text))
+    .bind(quoted_send_fingerprint(room_id,&input.text,&input.quotes))
+    .bind(Json(&input.quotes))
     .execute(&mut *tx)
     .await;
     match result {
@@ -575,6 +605,7 @@ pub async fn history(
     let has_more = messages.len() > limit as usize;
     messages.truncate(limit as usize);
     crate::marks::personalize(&mut tx, &account.id, &mut messages).await?;
+    crate::quotes::personalize(&mut tx, &account.id, &mut messages).await?;
     tx.commit().await?;
     Ok(MessagePage { messages, has_more })
 }

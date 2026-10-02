@@ -102,6 +102,436 @@ fn favorite(revision: &str, id: &str, present: bool) -> SetRoomFavorite {
     }
 }
 
+struct QuoteBench {
+    b: Bench,
+    owner: NativeClient,
+    reader: NativeClient,
+    outsider: NativeClient,
+    outsider_token: String,
+    token: String,
+    reader_id: String,
+    source: rv_protocol::Message,
+    destination: String,
+}
+impl QuoteBench {
+    async fn start(pool: PgPool) -> Self {
+        let b = Bench::start(pool).await;
+        let (owner, _, token) = b.user("quote-owner", false).await;
+        let (reader, reader_id, _) = b.user("quote-reader", false).await;
+        let (outsider, outsider_id, outsider_token) = b.user("quote-outsider", true).await;
+        let destination = b.room(&owner, &token, &reader_id).await;
+        let origin = owner
+            .create_room(&CreateRoom {
+                name: "Private source".into(),
+                private: true,
+                operation_id: Some("quote-origin".into()),
+            })
+            .await
+            .unwrap();
+        for (room, member) in [(&destination, &outsider_id), (&origin.id, &reader_id)] {
+            assert_eq!(
+                b.request(
+                    Method::POST,
+                    &token,
+                    &format!("/api/v1/rooms/{room}/members/{member}"),
+                    json!({})
+                )
+                .await
+                .status(),
+                StatusCode::NO_CONTENT
+            );
+        }
+        let source = owner
+            .send(
+                &origin.id,
+                &SendMessage {
+                    operation_id: "quote-source".into(),
+                    text: "Privé @quote-outsider 🚀".into(),
+                    quotes: vec![],
+                },
+            )
+            .await
+            .unwrap();
+        Self {
+            b,
+            owner,
+            reader,
+            outsider,
+            outsider_token,
+            token,
+            reader_id,
+            source,
+            destination,
+        }
+    }
+    fn reference(&self) -> rv_protocol::parity::QuoteReference {
+        rv_protocol::parity::QuoteReference {
+            room_id: self.source.room_id.clone(),
+            message_id: self.source.id.clone(),
+            revision: self.source.revision.clone(),
+        }
+    }
+    fn input(&self, operation: &str, text: &str) -> SendMessage {
+        SendMessage {
+            operation_id: operation.into(),
+            text: text.into(),
+            quotes: vec![self.reference()],
+        }
+    }
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn quotes_resolve_per_reader_in_every_read_without_private_journal_excerpts(pool: PgPool) {
+    let q = QuoteBench::start(pool).await;
+    let initial_reader = q.reader.snapshot().await.unwrap();
+    let initial_outsider = q.outsider.snapshot().await.unwrap();
+    let reply = q
+        .reader
+        .send(&q.destination, &q.input("quoted-reply", "Ma réponse"))
+        .await
+        .unwrap();
+    assert_eq!(
+        reply.quotes[0].excerpt.as_ref().unwrap().text,
+        q.source.text
+    );
+    assert_eq!(reply.quotes[0].reference, q.reference());
+    let private = q.outsider.message(&reply.id).await.unwrap();
+    assert_eq!(private.text, "Ma réponse");
+    assert!(
+        private.quotes[0].excerpt.is_none(),
+        "instance admin has no private-source bypass"
+    );
+    for client in [&q.reader, &q.outsider] {
+        let allowed = std::ptr::eq(client, &q.reader);
+        let history = client.history(&q.destination, None).await.unwrap();
+        let snapshot = client.snapshot().await.unwrap();
+        for message in [
+            history.messages.iter().find(|m| m.id == reply.id).unwrap(),
+            snapshot.messages.iter().find(|m| m.id == reply.id).unwrap(),
+        ] {
+            assert_eq!(message.quotes[0].excerpt.is_some(), allowed);
+        }
+        let cursor = if allowed {
+            &initial_reader.cursor
+        } else {
+            &initial_outsider.cursor
+        };
+        let changes = client.changes(cursor).await.unwrap();
+        let message = changes
+            .changes
+            .iter()
+            .find_map(|change| match change {
+                Change::MessageUpsert(m) if m.id == reply.id => Some(m),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(message.quotes[0].excerpt.is_some(), allowed);
+    }
+    q.owner
+        .set_mark(
+            &reply.id,
+            &rv_protocol::parity::SetMark {
+                operation_id: "quote-pin".into(),
+                present: true,
+            },
+            false,
+        )
+        .await
+        .unwrap();
+    q.reader
+        .set_mark(
+            &reply.id,
+            &rv_protocol::parity::SetMark {
+                operation_id: "quote-star".into(),
+                present: true,
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    assert!(
+        q.outsider
+            .marked(&q.destination, false, None)
+            .await
+            .unwrap()
+            .messages[0]
+            .quotes[0]
+            .excerpt
+            .is_none()
+    );
+    assert!(
+        q.reader
+            .marked(&q.destination, true, None)
+            .await
+            .unwrap()
+            .messages[0]
+            .quotes[0]
+            .excerpt
+            .is_some()
+    );
+    let journal: Vec<Value> = sqlx::query_scalar("SELECT change FROM journal WHERE room_id=$1")
+        .bind(&q.destination)
+        .fetch_all(&q.b.app.pool)
+        .await
+        .unwrap();
+    assert!(
+        !serde_json::to_string(&journal)
+            .unwrap()
+            .contains(&q.source.text)
+    );
+    for change in journal {
+        if change["type"] == "message_upsert" {
+            assert!(change["data"]["quotes"][0]["excerpt"].is_null());
+        }
+    }
+    let room = q
+        .outsider
+        .rooms()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|r| r.id == q.destination)
+        .unwrap();
+    let reads = room.read_state.unwrap();
+    assert_eq!(
+        reads.mentions, "0",
+        "quoted source cannot ping a destination member"
+    );
+    assert_eq!(reads.group_mentions, "0");
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn quotes_follow_current_source_acl_edits_deletion_and_original_send_receipts(pool: PgPool) {
+    let q = QuoteBench::start(pool).await;
+    let input = q.input("quote-lifecycle", "");
+    let reply = q.reader.send(&q.destination, &input).await.unwrap();
+    let first_membership = reply.quotes[0]
+        .excerpt
+        .as_ref()
+        .unwrap()
+        .membership_version
+        .clone();
+    let source = edit(&q.owner, &q.source, "quote-source-edit", "Extrait actuel").await;
+    let current = q.reader.message(&reply.id).await.unwrap();
+    assert_eq!(
+        current.quotes[0].excerpt.as_ref().unwrap().text,
+        "Extrait actuel"
+    );
+    assert_eq!(
+        current.quotes[0].excerpt.as_ref().unwrap().revision,
+        source.revision
+    );
+    let replay = q.reader.send(&q.destination, &input).await.unwrap();
+    assert_eq!(replay.id, reply.id);
+    let mut divergent = input.clone();
+    divergent.quotes[0].revision = source.revision.clone();
+    assert_eq!(
+        native_error_code(q.reader.send(&q.destination, &divergent).await.unwrap_err()),
+        "operation_conflict"
+    );
+    assert_eq!(
+        native_error_code(
+            q.reader
+                .send(&q.destination, &q.input("quote-stale-source", "autre"))
+                .await
+                .unwrap_err()
+        ),
+        "quote_revision_conflict"
+    );
+    let page =
+        q.b.request(Method::POST, &q.token, "/api/v1/sync/snapshots", json!({}))
+            .await
+            .json::<rv_protocol::SnapshotPage>()
+            .await
+            .unwrap();
+    let page_token: String =
+        sqlx::query_scalar("SELECT token FROM snapshot_pages WHERE snapshot_id=$1 LIMIT 1")
+            .bind(&page.snapshot_id)
+            .fetch_one(&q.b.app.pool)
+            .await
+            .unwrap();
+    let path = format!("/api/v1/rooms/{}/members/{}", source.room_id, q.reader_id);
+    assert_eq!(
+        q.b.request(Method::DELETE, &q.token, &path, json!({}))
+            .await
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert!(
+        q.reader.message(&reply.id).await.unwrap().quotes[0]
+            .excerpt
+            .is_none()
+    );
+    // A reply can keep the reference when its author loses source access.
+    let retained = q
+        .reader
+        .edit_message(
+            &reply.id,
+            &rv_protocol::parity::EditMessage {
+                operation_id: "quote-edit-retained".into(),
+                expected_revision: reply.revision.clone(),
+                content: rv_protocol::parity::MessageContent::Plain {
+                    markdown: "Réponse ajustée".into(),
+                    mentions: vec![],
+                    quotes: input.quotes.clone(),
+                    files: vec![],
+                },
+            },
+        )
+        .await
+        .unwrap();
+    assert!(retained.quotes[0].excerpt.is_none());
+    assert_eq!(
+        q.b.request(
+            Method::GET,
+            &q.token,
+            &format!("/api/v1/sync/snapshots/{page_token}"),
+            json!({})
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        q.b.request(Method::POST, &q.token, &path, json!({}))
+            .await
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    let rejoined = q.reader.message(&reply.id).await.unwrap();
+    assert_ne!(
+        rejoined.quotes[0]
+            .excerpt
+            .as_ref()
+            .unwrap()
+            .membership_version,
+        first_membership
+    );
+    q.owner
+        .delete_message(
+            &source.id,
+            &DeleteMessage {
+                operation_id: "quote-source-delete".into(),
+                expected_revision: source.revision,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(
+        q.reader.message(&reply.id).await.unwrap().quotes[0]
+            .excerpt
+            .is_none()
+    );
+    assert_eq!(
+        q.reader.send(&q.destination, &input).await.unwrap().id,
+        reply.id
+    );
+    let history = q.reader.history(&q.destination, None).await.unwrap();
+    assert!(history.messages[0].quotes[0].excerpt.is_none());
+    // Destination deletion erases its references from every prior upsert too.
+    q.reader
+        .delete_message(
+            &retained.id,
+            &DeleteMessage {
+                operation_id: "quote-reply-delete".into(),
+                expected_revision: retained.revision,
+            },
+        )
+        .await
+        .unwrap();
+    let tombstone = q.reader.message(&reply.id).await.unwrap();
+    assert!(tombstone.quotes.is_empty() && tombstone.text.is_empty());
+    let journal: Vec<Change> = sqlx::query_scalar::<_, sqlx::types::Json<Change>>(
+        "SELECT change FROM journal WHERE change #>> '{data,id}'=$1",
+    )
+    .bind(&reply.id)
+    .fetch_all(&q.b.app.pool)
+    .await
+    .unwrap()
+    .into_iter()
+    .map(|v| v.0)
+    .collect();
+    for change in journal {
+        if let Change::MessageUpsert(message) = change {
+            assert!(message.deleted && message.quotes.is_empty());
+        }
+    }
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn quotes_reject_forged_excerpts_and_missing_source_authorization_atomically(pool: PgPool) {
+    let q = QuoteBench::start(pool).await;
+    let quote = q.reference();
+    let missing =
+        q.b.request(
+            Method::POST,
+            &q.outsider_token,
+            &format!("/api/v1/rooms/{}/messages", q.destination),
+            json!({"operation_id":"quote-forbidden","text":"Réponse","quotes":[quote]}),
+        )
+        .await;
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+    let forged = q.b.request(Method::POST, &q.token, &format!("/api/v1/rooms/{}/messages", q.destination), json!({"operation_id":"quote-forged","text":"Réponse","quotes":[{"room_id":q.source.room_id,"message_id":q.source.id,"revision":q.source.revision,"excerpt":"copie privée"}]})).await;
+    assert_eq!(forged.status(), StatusCode::BAD_REQUEST);
+    let duplicate = q.input("quote-duplicate", "Réponse");
+    let mut duplicate = duplicate;
+    duplicate.quotes.push(duplicate.quotes[0].clone());
+    assert_eq!(
+        native_error_code(q.reader.send(&q.destination, &duplicate).await.unwrap_err()),
+        "invalid_request"
+    );
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM messages WHERE room_id=$1")
+        .bind(&q.destination)
+        .fetch_one(&q.b.app.pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+fn native_error_code(error: rv_client::Error) -> String {
+    match error {
+        rv_client::Error::Server { code, .. } => code,
+        other => panic!("unexpected native error: {other}"),
+    }
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn opposing_cross_room_quotes_use_one_domain_lock_order(pool: PgPool) {
+    let q = QuoteBench::start(pool).await;
+    let other = q
+        .reader
+        .send(
+            &q.destination,
+            &SendMessage {
+                operation_id: "quote-other-source".into(),
+                text: "Autre source".into(),
+                quotes: vec![],
+            },
+        )
+        .await
+        .unwrap();
+    let forward = q.input("quote-forward", "Réponse dans la destination");
+    let reverse = SendMessage {
+        operation_id: "quote-reverse".into(),
+        text: "Réponse dans la source".into(),
+        quotes: vec![rv_protocol::parity::QuoteReference {
+            room_id: q.destination.clone(),
+            message_id: other.id,
+            revision: other.revision,
+        }],
+    };
+    let (a, b) = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        tokio::join!(
+            q.owner.send(&q.destination, &forward),
+            q.reader.send(&q.source.room_id, &reverse)
+        )
+    })
+    .await
+    .expect("cross-room quote lock order stalled");
+    assert!(a.unwrap().quotes[0].excerpt.is_some());
+    assert!(b.unwrap().quotes[0].excerpt.is_some());
+}
+
 #[sqlx::test(migrations = "./migrations")]
 async fn native_rendering_crosses_mobile_http_cache_and_preserves_acl_tombstones(pool: PgPool) {
     let b = Bench::start(pool).await;
@@ -216,6 +646,7 @@ async fn reads_are_monotone_across_devices_and_only_other_new_roots_count(pool: 
         .send(
             &room,
             &SendMessage {
+                quotes: vec![],
                 operation_id: "first-root".into(),
                 text: "First".into(),
             },
@@ -226,6 +657,7 @@ async fn reads_are_monotone_across_devices_and_only_other_new_roots_count(pool: 
         .send(
             &room,
             &SendMessage {
+                quotes: vec![],
                 operation_id: "second-root".into(),
                 text: "Second".into(),
             },
@@ -257,6 +689,7 @@ async fn reads_are_monotone_across_devices_and_only_other_new_roots_count(pool: 
         .send(
             &room,
             &SendMessage {
+                quotes: vec![],
                 operation_id: "own-root".into(),
                 text: "Own message".into(),
             },
@@ -393,6 +826,7 @@ async fn withdrawal_rejoin_purges_preferences_and_old_receipts_do_not_restore_th
         .send(
             &room,
             &SendMessage {
+                quotes: vec![],
                 operation_id: "while-absent".into(),
                 text: "Historical".into(),
             },
@@ -466,6 +900,7 @@ async fn mentions_resolve_current_members_once_and_direct_mentions_take_priority
         StatusCode::NO_CONTENT
     );
     let input = SendMessage {
+        quotes: vec![],
         operation_id: "mention-once".into(),
         text: "@bob @bob @all @all @alice @eve `@carol`".into(),
     };
@@ -572,6 +1007,7 @@ async fn edits_can_withdraw_mentions_but_cannot_ping_a_new_or_previous_recipient
         .send(
             &room,
             &SendMessage {
+                quotes: vec![],
                 operation_id: "mention-edit-source".into(),
                 text: "Hello @bob".into(),
             },
@@ -626,6 +1062,7 @@ async fn joining_after_a_group_mention_and_rejoining_do_not_receive_historical_p
         .send(
             &room,
             &SendMessage {
+                quotes: vec![],
                 operation_id: "mention-before-join".into(),
                 text: "@all @carol".into(),
             },
@@ -686,6 +1123,7 @@ async fn joining_after_a_group_mention_and_rejoining_do_not_receive_historical_p
         .send(
             &room,
             &SendMessage {
+                quotes: vec![],
                 operation_id: "mention-after-join".into(),
                 text: "@bob @all @here".into(),
             },
@@ -720,6 +1158,7 @@ async fn read_quota_keeps_retries_state_reads_and_favorite_commands_available(po
                 .send(
                     &room,
                     &SendMessage {
+                        quotes: vec![],
                         operation_id: format!("quota-root-{n}"),
                         text: "Quota message".into(),
                     },
@@ -815,6 +1254,7 @@ async fn favorite_versions_and_membership_lifetimes_ignore_reads_messages_and_ro
         .send(
             &room,
             &SendMessage {
+                quotes: vec![],
                 operation_id: "read-version-root".into(),
                 text: "A message during the favorite form".into(),
             },
@@ -912,6 +1352,7 @@ async fn reads_and_preferences_reject_forged_fields_future_positions_and_private
             .send(
                 &room,
                 &SendMessage {
+                    quotes: vec![],
                     operation_id: input.operation_id,
                     text: "Collision".into()
                 }

@@ -315,6 +315,27 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P07, références de citations côté serveur : commandes bornées et reçus
+  incluant les références, résolution des extraits selon l'adhésion du lecteur,
+  révision actuelle et durée d'adhésion de la source, effacement au tombstone.
+  Le journal partagé garde les références sans extrait. Les lectures de message,
+  historique, épingles / étoiles, snapshots et replay personnalisent le rendu.
+  La preuve de livraison garde aussi les salons sources des extraits ; les
+  transactions de citations croisées prennent les salons dans un ordre unique.
+  La capacité reste désactivée jusqu'au raccordement des cartes et des caches
+  existants des trois clients. [Contrat et conditions de sortie](protocol/QUOTES.md).
+  Vérification locale : 199 tests du workspace serveur réussis contre PostgreSQL,
+  dont citations personnalisées / journal, reçus et tombstones, citations croisées
+  concurrentes et deux protections de remise des sources ; Clippy serveur et
+  workspace desktop sans avertissement. Le test de cache desktop concerné par
+  le DTO passe ; typecheck mobile et quatre tests du rendu natif passent. Schéma,
+  types générés, emojis et inventaire ne divergent pas.
+  Le contrôle CI du lot de documents `d278c3e` a exposé l'ancienne hypothèse de
+  taille du scénario de snapshot ; le jeu de données inclut maintenant le coût
+  du document dans le JSON, avec les mêmes budgets et refus d'un résultat partiel.
+  Ses jobs desktop Fedora, cœur Windows, modèles Swift et SwiftUI macOS sont
+  verts ; le job serveur / mobile doit être requalifié avec cette correction.
+
 - P07, documents natifs vers les renderers existants : `Message.text` reste la
   source et `body` fournit un document typé `native1`, sans arbre `md` Rocket.Chat
   ni HTML rendu dans le protocole. Les adaptateurs du fournisseur traduisent ce

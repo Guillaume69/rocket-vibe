@@ -71,6 +71,7 @@ bindings / modèles Swift se construisent sous Linux et leur test connecté de
 gestion des salons passe avec ce contrat. Le bundle Android Hermes est exporté.
 
 La qualification des applications installées Android / macOS / Windows reste
-ouverte. Les citations de messages avec autorisation et extrait calculé à la
-lecture, les messages système structurés et le catalogue natif d'emojis restent
-P07 ; ils ne sont pas remplacés par les citations de texte Markdown de ce lot.
+ouverte. Les [références de citations et extraits par lecteur](QUOTES.md) sont
+livrés côté serveur ; leur raccordement aux cartes existantes, les messages
+système structurés et le catalogue natif d'emojis restent P07. Les citations
+de messages ne sont pas remplacées par les citations de texte Markdown.

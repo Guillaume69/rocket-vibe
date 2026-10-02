@@ -15,6 +15,7 @@ mod marks;
 mod mentions;
 mod message_actions;
 mod permissions;
+mod quotes;
 mod reactions;
 mod reauthentication;
 pub mod recovery;

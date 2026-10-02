@@ -522,7 +522,7 @@ impl NativeSession {
                 .client
                 .send(
                     &pending.room_id,
-                    &rv_protocol::SendMessage { operation_id: pending.id.clone(), text: pending.text },
+                    &rv_protocol::SendMessage { quotes: vec![], operation_id: pending.id.clone(), text: pending.text },
                 )
                 .await
             {

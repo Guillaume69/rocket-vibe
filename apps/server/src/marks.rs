@@ -165,6 +165,7 @@ pub async fn list(
     let has_more = messages.len() > limit as usize;
     messages.truncate(limit as usize);
     personalize(&mut tx, &account.id, &mut messages).await?;
+    crate::quotes::personalize(&mut tx, &account.id, &mut messages).await?;
     tx.commit().await?;
     Ok(MessagePage { messages, has_more })
 }

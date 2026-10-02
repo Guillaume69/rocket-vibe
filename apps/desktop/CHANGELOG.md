@@ -16,6 +16,9 @@ section here.
   (seen on Omarchy).
 - A file whose upload the network cut is sent again by itself within seconds, instead of
   staying "Waiting" until the app reconnects; meanwhile it reads "Connection lost, retrying…".
+- A right click on a message's text copies the selection, or opens and copies a link, instead
+  of GTK's editing menu where Copy stayed greyed out; elsewhere on the text it opens the
+  message's actions.
 
 ## [0.6.0] - 2026-10-01
 

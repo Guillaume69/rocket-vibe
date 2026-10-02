@@ -315,6 +315,31 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, défis OTP SwiftUI : les écrans existants proposent e-mail à la connexion
+  et à la confirmation d'identité. `NativeLoginAttempt` / `NativeSecurity`
+  exposent statut, échéance, capacité et révision affichée ; les candidats et
+  IDs de défi / livraison restent dans le coffre Rust. Envoi, reprise et renvoi
+  sont explicites. Le vrai job d'envoi conserve son verrou après annulation
+  foreign ; fermeture et révision obsolète bloquent les callbacks tardifs. Le
+  statut distingue aussi e-mail seul et TOTP pour conserver les bonnes actions
+  de configuration de l'authenticator. Bindings réels, compilation des modèles,
+  six tests locaux Swift et 285 tests Rust bureau / Clippy / compilation GTK
+  passent. Le nouveau banc Swift passe trois processus et Secret Service avec
+  HTTP, PostgreSQL et SMTP / TLS réels. Il perd les réponses de livraison /
+  confirmation, teste reprise après redémarrage, délai de renvoi, handles fermés
+  et révisions obsolètes, sans journaliser les codes. SQL confirme deux OTP
+  consommés, une seule famille / credential, une preuve d'âge inchangé, trois
+  admissions SMTP avec le contact initial et les dix secours conservés. Ce
+  banc rejoint la CI Swift avec sa propre base / proxy, indépendante de GTK.
+  Le banc Swift existant TOTP / secours / contact passe aussi ses trois processus
+  et son contrôle SQL avec les nouveaux bindings. Les deux bancs et leurs volumes
+  privés sont supprimés après validation. La CI native `36961965082` du lot GTK
+  `1f11eba` passe ses quatre jobs, y compris le nouveau parcours OTP GTK.
+  La compilation de la vue SwiftUI est contrôlée par la CI macOS ; les appareils
+  installés / trousseaux natifs restent à qualifier. L'inscription explicite
+  du facteur dans les trois clients et la récupération e-mail restent les
+  raccordements P02 suivants.
+
 - P02, défis OTP GTK : les formulaires existants de connexion et de confirmation
   d'identité proposent e-mail, statut, envoi / reprise et renvoi explicites.
   Le trousseau reprend une livraison ambiguë après redémarrage sans recréer le

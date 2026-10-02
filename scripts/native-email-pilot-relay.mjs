@@ -14,8 +14,8 @@ if(process.argv[2]==='configure'){
   const cert=readFileSync('/src/apps/server/tests/fixtures/mail-cert.pem');
   const key=createPrivateKey({key:readFileSync('/src/apps/server/tests/fixtures/mail-key.der'),format:'der',type:'pkcs8'})
     .export({type:'pkcs8',format:'pem'});
-  const recipients=new Set(['gtk-security@example.test','swift-security@example.test','gtk-email@example.test']);
-  let otpSequence=0;
+  const recipients=new Set(['gtk-security@example.test','swift-security@example.test','gtk-email@example.test','swift-email@example.test']);
+  const otpSequences=new Map();
   const relay=tls.createServer({cert,key},socket=>{
     socket.setEncoding('utf8');socket.setTimeout(10000,()=>socket.destroy());
     socket.on('error',()=>{});
@@ -33,7 +33,10 @@ if(process.argv[2]==='configure'){
           else{
             try{
               const username=recipient.split('@')[0];
-              const metadata=recipient==='gtk-email@example.test'?{sequence:++otpSequence}:{};
+              const otp=['gtk-email','swift-email'].includes(username);
+              const sequence=(otpSequences.get(recipient)??0)+1;
+              if(otp)otpSequences.set(recipient,sequence);
+              const metadata=otp?{sequence}:{};
               writeFileSync(`${directory}/${username}-mail.json`,JSON.stringify({address:recipient,code,...metadata}),{mode:0o600});
               socket.write('250 message accepted\r\n');
             }catch{socket.write('451 disposable storage unavailable\r\n');}

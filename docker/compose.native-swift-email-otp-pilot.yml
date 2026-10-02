@@ -1,0 +1,21 @@
+# A separate fresh project; never share its ACK-loss proxy with the GTK bench.
+services:
+  otp-user:
+    entrypoint: [rv-server, create-user, swift-email]
+  factor-seed:
+    environment: {RV_PILOT_OTP_USER: swift-email}
+  otp-swift:
+    extends:
+      file: compose.native-security-pilot.yml
+      service: security-swift
+    environment:
+      RV_NATIVE_EMAIL_OTP_SERVER: http://factor-proxy:3401
+      RV_NATIVE_EMAIL_OTP_PASSWORD: native-pilot-test-password
+      RV_NATIVE_EMAIL_OTP_FILE: /pilot-invitations/swift-email-mail.json
+    command: [bash, macos/scripts/native-email-otp-smoke.sh]
+  otp-swift-check:
+    extends:
+      file: compose.native-email-otp-pilot.yml
+      service: otp-check
+    environment:
+      PGOPTIONS: -c rocketvibe.pilot_otp_user=swift-email

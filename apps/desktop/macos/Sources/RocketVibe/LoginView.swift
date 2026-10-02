@@ -26,12 +26,23 @@ struct LoginView: View {
                     if login.nativeMethods.count > 1 {
                         Picker("", selection: Binding(get: { login.method ?? "totp" }, set: { login.selectNativeMethod($0) })) {
                             ForEach(login.nativeMethods, id: \.self) { offered in
-                                Text(L(offered == "recovery_code" ? "login.factor_backup" : "login.factor_totp")).tag(offered)
+                                Text(nativeFactorTitle(offered)).tag(offered)
                             }
                         }.labelsHidden()
                     }
                     Text(L("login.intro_\(method)"))
                         .fixedSize(horizontal: false, vertical: true)
+                    if method == "email", let email = login.nativeEmail {
+                        Text(factorEmailStatus(email)).font(.caption).foregroundStyle(.secondary)
+                        Button(L(email.requested ? "email.resume_delivery" : "email.send_code")) {
+                            Task { await login.sendNativeEmail(resend: false, revision: email.viewRevision) }
+                        }.disabled(!email.requested && !email.canDeliver)
+                        if email.delivery != nil {
+                            Button(L("email.resend_code")) {
+                                Task { await login.sendNativeEmail(resend: true, revision: email.viewRevision) }
+                            }.disabled(!email.canDeliver)
+                        }
+                    }
                     SecureField(L("login.code_\(method)"), text: $login.code)
                         .focused($focus, equals: .code)
                         .onSubmit(submit)

@@ -51,6 +51,11 @@ public final class SecurityModel {
         code = ""
         await run { try await $0.confirmFactor(method: selected, code: input) }
     }
+    public func sendProofEmail(resend: Bool, revision: UInt64) async {
+        guard method == "email" else { return }
+        code = ""
+        await run { try await $0.sendProofEmail(resend: resend, viewRevision: revision) }
+    }
     public func factor(_ action: NativeFactorAction, revision: UInt64) async {
         await run { try await $0.factorAction(action: action, viewRevision: revision) }
     }
@@ -131,7 +136,7 @@ public final class SecurityModel {
             else if code == "invalid_email_address" { key = "email.invalid" }
             else if code == "email_verification_rejected" { key = "email.rejected" }
             else if code == "email_removal_rejected" { key = "email.removal_stale" }
-            else if code == "email_queue_limit" || code == "email_delivery_limit" { key = "email.limited" }
+            else if code == "email_queue_limit" || code == "email_delivery_limit" || code == "email_resend_cooldown" { key = "email.limited" }
         }
         if handle.isClosed() {
             handle.close(); self.handle = nil; value = nil
@@ -140,5 +145,19 @@ public final class SecurityModel {
         }
         else { install(handle.state()) }
         self.error = L(key)
+    }
+}
+
+public func nativeFactorTitle(_ method: String) -> String {
+    L(method == "email" ? "login.factor_email" : method == "recovery_code" ? "login.factor_backup" : "login.factor_totp")
+}
+public func factorEmailStatus(_ value: NativeFactorEmailState) -> String {
+    guard let delivery = value.delivery else { return L(value.requested ? "email.delivery_unknown" : "email.request_code") }
+    switch delivery {
+    case .queued: return L("email.queued")
+    case .sending: return L("email.sending")
+    case .deferred: return L("email.deferred")
+    case .accepted: return L("email.accepted")
+    case .exhausted: return L("email.exhausted")
     }
 }

@@ -35,7 +35,18 @@ struct SecuritySection: View {
                                 Text(methodTitle(method)).tag(method)
                             }
                         }
-                        TextField(L(model.method == "recovery_code" ? "login.code_recovery_code" : "login.code_totp"), text: input(model, \.code))
+                        if model.method == "email", let email = value.proofEmail {
+                            Text(factorEmailStatus(email)).font(.caption).foregroundStyle(.secondary)
+                            Button(L(email.requested ? "email.resume_delivery" : "email.send_code")) {
+                                Task { await model.sendProofEmail(resend: false, revision: value.viewRevision) }
+                            }.disabled(!email.requested && !email.canDeliver)
+                            if email.delivery != nil {
+                                Button(L("email.resend_code")) {
+                                    Task { await model.sendProofEmail(resend: true, revision: value.viewRevision) }
+                                }.disabled(!email.canDeliver)
+                            }
+                        }
+                        TextField(L(model.method == "email" ? "email.code" : model.method == "recovery_code" ? "login.code_recovery_code" : "login.code_totp"), text: input(model, \.code))
                         Button(L("security.verify")) { Task { await model.confirmFactor() } }
                     }
                     if value.supportsFactors {
@@ -58,7 +69,7 @@ struct SecuritySection: View {
                             Button(L("security.discard")) { Task { await model.acknowledge(revision: value.viewRevision) } }
                         }
                         if value.factor == .idle {
-                            if value.enabled {
+                            if value.totpEnabled {
                                 Button(L("security.regenerate"), role: .destructive) {
                                     confirmation = Confirmation(model: model, action: .factor(.regenerate), revision: value.viewRevision)
                                 }
@@ -121,7 +132,7 @@ struct SecuritySection: View {
         }
     }
     private func methodTitle(_ method: String) -> String {
-        L(method == "recovery_code" ? "login.factor_backup" : "login.factor_totp")
+        nativeFactorTitle(method)
     }
     @ViewBuilder
     private func emailSettings(_ model: SecurityModel, _ value: NativeSecurityState, _ email: NativeEmailState) -> some View {

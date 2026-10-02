@@ -18,9 +18,9 @@ du contact, même sans SMTP ; les coffres et boutons mobile / GTK / SwiftUI sont
 raccordés à ces trois routes.
 Le second facteur e-mail est livré côté serveur et SDK, avec inscription
 explicite, retrait et livraison sur un défi déjà établi. Les défis de connexion et
-de confirmation d'identité sont raccordés au mobile et aux formulaires GTK
+de confirmation d'identité sont raccordés au mobile et aux formulaires GTK / SwiftUI
 existants. Les coffres partagés du cœur Rust bureau conservent leurs livraisons.
-Le raccordement SwiftUI et les coffres / formulaires d'inscription du facteur restent à livrer ; les
+Les coffres / formulaires d'inscription du facteur restent à livrer ; les
 formulaires d'adresse vérifiée ne l'activent pas automatiquement. La récupération
 du compte par e-mail reste à implémenter.
 
@@ -409,7 +409,14 @@ connexion et à la confirmation d'identité des paramètres existants. Les bouto
 proposent l'envoi, la reprise d'une livraison ambiguë et un renvoi explicite
 borné. Leur sélection et leurs statuts ne déclenchent jamais un envoi automatique.
 Fermeture et retour annulent la garde ; les champs de code restent transitoires.
-Le raccordement des mêmes opérations à SwiftUI reste à livrer.
+SwiftUI utilise les mêmes coffres par `NativeLoginAttempt` et `NativeSecurity`.
+Les seuls champs exposés sont statut / échéance de livraison, délai de renvoi,
+capacité et révision affichée. Les candidats, nonces, IDs de défi et bearers
+restent privés. Le vrai job Tokio conserve le verrou d'envoi après annulation
+de l'appel foreign ; fermer le formulaire annule sa garde. Une révision obsolète
+ne peut lancer ni reprendre / renvoyer une livraison. Après réponse ambiguë,
+le modèle recharge ce candidat ; cette lecture n'envoie pas de mail. Les boutons
+et les codes restent dans les écrans SwiftUI existants.
 
 Le banc `compose.native-email-otp-pilot.yml` ajoute un compte avec facteur e-mail
 explicite, un relais TLS local et un proxy qui perd les réponses de start / finish.
@@ -418,6 +425,11 @@ PostgreSQL exige deux livraisons OTP consommées, une seule famille / credential
 une preuve complète d'âge inchangé, trois admissions SMTP avec la vérification
 initiale du contact, aucune charge OTP résiduelle et les dix secours d'origine.
 Le clic de renvoi pendant le cooldown ne crée pas une nouvelle admission.
+Le banc Swift ajoute l'overlay `compose.native-swift-email-otp-pilot.yml`, dans
+un autre projet PostgreSQL / proxy. Il passe trois processus avec Secret Service,
+les vrais modèles et handles FFI, les mêmes invariants SQL et le refus des
+handles fermés / révisions obsolètes. Cette preuve portable ne qualifie pas le
+trousseau macOS ni le rendu SwiftUI installé.
 
 Le composant commun d'admission SMTP est extrait : il conserve les clés des
 vérifications déjà admises et partage les budgets persistants global, compte,

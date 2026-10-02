@@ -30,6 +30,7 @@ public final class LoginModel {
     public private(set) var method: String?
     public private(set) var nativeMethods: [String] = []
     public private(set) var pendingConfirmation = false
+    public private(set) var nativeEmail: NativeFactorEmailState?
     public private(set) var error: String?
     public private(set) var busy = false
     public private(set) var knownServers: [String] = []
@@ -90,8 +91,10 @@ public final class LoginModel {
     public func cancelCode() {
         generation = UUID()
         if nativeAttempt != nil { password = "" }
+        nativeAttempt?.close()
         nativeAttempt = nil
         nativeMethods = []
+        nativeEmail = nil
         pendingConfirmation = false
         method = nil
         code = ""
@@ -119,10 +122,36 @@ public final class LoginModel {
     }
 
     private func refreshNativeForm(_ attempt: NativeLoginAttempt) {
-        nativeMethods = attempt.methods().filter { $0 == "totp" || $0 == "recovery_code" }
+        nativeMethods = attempt.methods().filter { $0 == "totp" || $0 == "email" || $0 == "recovery_code" }
         if method == nil || !nativeMethods.contains(method!) { method = nativeMethods.first }
         pendingConfirmation = attempt.pendingConfirmation()
+        nativeEmail = attempt.emailDelivery()
         code = ""
+    }
+
+    public func sendNativeEmail(resend: Bool, revision: UInt64) async {
+        guard !busy, method == "email", let attempt = nativeAttempt else { return }
+        let expected = generation
+        let (address, username) = (server, user.trimmingCharacters(in: .whitespaces))
+        guard current(expected, address: address, username: username) else { return }
+        code = ""; busy = true; error = nil
+        defer { if expected == generation { busy = false } }
+        do {
+            _ = try await attempt.sendEmail(resend: resend, viewRevision: revision)
+            guard current(expected, address: address, username: username), nativeAttempt === attempt else { return }
+            refreshNativeForm(attempt)
+        } catch {
+            guard current(expected, address: address, username: username), nativeAttempt === attempt else { return }
+            refreshNativeForm(attempt)
+            if case let RvError.Server(status, message, code, _, _, _) = error {
+                if code == "email_resend_cooldown" || code == "email_delivery_limit" || code == "email_queue_limit" {
+                    self.error = L("email.limited")
+                } else if code == "factor_expired" { self.error = L("login.factor_expired") }
+                else if code == "unsupported_feature" || code == "factor_unavailable" { self.error = L("login.factor_unavailable") }
+                else if code == "secure_storage_unavailable" { self.error = L("login.secure_storage") }
+                else { self.error = Self.describe(status: status, message: message, askingCode: true) }
+            } else { self.error = L("security.failed") }
+        }
     }
 
     /// Signs in, or asks for the code the server wants.
@@ -174,6 +203,7 @@ public final class LoginModel {
             }
             nativeAttempt = nil
             nativeMethods = []
+            nativeEmail = nil
             pendingConfirmation = false
             method = nil
             code = ""

@@ -4,8 +4,8 @@ Ce lot livre le serveur, les SDK et les connexions mobile / GTK / SwiftUI, ainsi
 que la réauthentification et la gestion des facteurs dans les paramètres des
 trois clients. Le serveur et les SDK proposent aussi le facteur e-mail décrit
 dans [EMAIL.md](EMAIL.md). Les défis e-mail de connexion / réauthentification
-sont raccordés au mobile et à GTK ; les coffres du cœur Rust bureau reprennent
-leur livraison dans la tentative d'origine. P02 reste ouvert pour les formulaires SwiftUI,
+sont raccordés aux trois clients ; les coffres du cœur Rust bureau reprennent
+leur livraison dans la tentative d'origine. P02 reste ouvert pour
 l'inscription du facteur dans les trois clients, la récupération e-mail et la
 qualification des appareils.
 Le fournisseur Rocket.Chat garde son parcours.
@@ -113,7 +113,7 @@ le candidat ou le bearer. Vérification et commit sont sérialisés. Le candidat
 reste dans une entrée de trousseau non indexée ; les tâches bloquantes de la
 plateforme gardent le verrou après annulation et délai de cinq secondes.
 
-Le formulaire SwiftUI existant propose TOTP / secours. Il efface mot de passe
+Le formulaire SwiftUI existant propose TOTP / e-mail / secours. Il efface mot de passe
 et code opérateur dès le défi. Changement de serveur / identifiant, retour,
 annulation et disparition de la vue invalident sa génération. Le commit écrit
 le credential avec expiration et préserve la clé E2EE du même compte, puis

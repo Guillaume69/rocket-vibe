@@ -1,7 +1,7 @@
 \set ON_ERROR_STOP on
 CREATE FUNCTION pilot_email_otp_age() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF NEW.user_id IN (SELECT id FROM users WHERE username='gtk-email')
+  IF NEW.user_id IN (SELECT id FROM users WHERE username IN ('gtk-email','swift-email'))
      AND EXISTS(SELECT 1 FROM user_email_factors WHERE user_id=NEW.user_id) THEN
     NEW.created_at:=clock_timestamp()-interval '20 minutes';
   END IF;

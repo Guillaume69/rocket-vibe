@@ -52,6 +52,44 @@ pub enum NativeEmailDelivery {
     Accepted,
     Exhausted,
 }
+impl From<&EmailDeliveryState> for NativeEmailDelivery {
+    fn from(value: &EmailDeliveryState) -> Self {
+        match value {
+            EmailDeliveryState::Queued => Self::Queued,
+            EmailDeliveryState::Sending => Self::Sending,
+            EmailDeliveryState::Deferred => Self::Deferred,
+            EmailDeliveryState::Accepted => Self::Accepted,
+            EmailDeliveryState::Exhausted => Self::Exhausted,
+        }
+    }
+}
+/// Display metadata only. No delivery/challenge IDs or code cross the ABI.
+#[derive(Clone, uniffi::Record)]
+pub struct NativeFactorEmailState {
+    pub view_revision: u64,
+    pub requested: bool,
+    pub can_deliver: bool,
+    pub expires_at: Option<String>,
+    pub delivery: Option<NativeEmailDelivery>,
+    pub resend_after_seconds: Option<u32>,
+}
+impl NativeFactorEmailState {
+    pub(crate) fn snapshot(
+        revision: u64,
+        intent: Option<&rv_core::native::factor_email::Intent>,
+        capable: bool,
+    ) -> Self {
+        let status = intent.and_then(|i| i.status.as_ref());
+        Self {
+            view_revision: revision,
+            requested: intent.is_some(),
+            can_deliver: capable,
+            expires_at: status.map(|s| s.expires_at.clone()),
+            delivery: status.map(|s| (&s.delivery).into()),
+            resend_after_seconds: status.map(|s| s.resend_after_seconds),
+        }
+    }
+}
 /// Only display values cross the ABI; original candidates, receipt IDs, scope
 /// and authority versions remain in the opaque handle and private trousseau.
 #[derive(Clone, uniffi::Record)]
@@ -107,9 +145,11 @@ pub struct NativeSecurityState {
     pub loaded: bool,
     pub supports_factors: bool,
     pub enabled: bool,
+    pub totp_enabled: bool,
     pub backup_codes_remaining: u32,
     pub proof: NativeProofPhase,
     pub methods: Vec<String>,
+    pub proof_email: Option<NativeFactorEmailState>,
     pub factor: NativeFactorPhase,
     pub setup_secret: Option<String>,
     pub setup_uri: Option<String>,
@@ -136,7 +176,7 @@ impl State {
         self.status = None;
         self.email = None;
     }
-    fn snapshot(&self, supported: bool, email_features: (bool, bool)) -> NativeSecurityState {
+    fn snapshot(&self, supported: bool, email_features: (bool, bool), delivery: bool) -> NativeSecurityState {
         let supports_email = email_features.0 || email_features.1;
         let (proof, methods) = match &self.proof {
             ProofState::Ready => (NativeProofPhase::Ready, vec![]),
@@ -161,10 +201,21 @@ impl State {
             view_revision: self.revision,
             loaded: self.status.is_some(),
             supports_factors: supported,
-            enabled: self.status.as_ref().is_some_and(|s| s.totp),
+            enabled: self.status.as_ref().is_some_and(|s| s.totp || s.email),
+            totp_enabled: self.status.as_ref().is_some_and(|s| s.totp),
             backup_codes_remaining: self.status.as_ref().map(|s| s.backup_codes_remaining).unwrap_or_default(),
             proof,
             methods,
+            proof_email: match &self.proof {
+                ProofState::Challenge(saved)
+                    if saved
+                        .challenge()
+                        .is_some_and(|c| c.methods.iter().any(|m| matches!(m, SecondFactor::Email))) =>
+                {
+                    Some(NativeFactorEmailState::snapshot(self.revision, saved.email(), delivery))
+                }
+                _ => None,
+            },
             factor,
             setup_secret: secret,
             setup_uri: uri,
@@ -211,6 +262,7 @@ enum Action {
     Refresh,
     Password(String),
     Proof(String, String),
+    ProofEmail(bool, u64),
     Factor(NativeFactorAction, u64),
     Enable(String, u64),
     Clear(u64),
@@ -243,10 +295,16 @@ impl NativeSecurity {
         on_tokio(async move {
             let _operation = inner.operation.lock().await;
             let refresh = matches!(action, Action::Refresh);
+            let proof_email = matches!(action, Action::ProofEmail(..));
             let mut action = Some(action);
             for attempt in 0..3 {
                 inner.guard.check()?;
                 let result = inner.apply(action.take().unwrap()).await;
+                if proof_email && result.is_err() && inner.guard.alive() {
+                    // Read the original private candidate after an ambiguous
+                    // delivery. Refresh cannot request or resend an OTP.
+                    let _ = inner.apply(Action::Refresh).await;
+                }
                 let retry = result.as_ref().is_err_and(|e| matches!(e.code(), "offline" | "session_closed"));
                 if !refresh || !retry || inner.session.is_closed() || attempt == 2 {
                     if result.as_ref().is_err_and(|e| e.code() == "reauthentication_required") {
@@ -372,6 +430,17 @@ impl Inner {
                 };
                 proof = Some(vault.finish(&saved, &access, method, &code, guard).await?);
             }
+            Action::ProofEmail(resend, revision) => {
+                let saved = {
+                    let state = self.state.lock().unwrap();
+                    state.revision(revision)?;
+                    match &state.proof {
+                        ProofState::Challenge(saved) => (**saved).clone(),
+                        _ => return Err(Error::Protocol("reauthentication_rejected")),
+                    }
+                };
+                proof = Some(vault.send_email(&saved, &access, resend, guard).await?);
+            }
             Action::Factor(action, revision) => {
                 self.state.lock().unwrap().revision(revision)?;
                 let action = match action {
@@ -476,6 +545,7 @@ impl Inner {
         Ok(state.snapshot(
             self.session.factors_supported(),
             (self.session.email_verification_supported(), self.session.email_removal_supported()),
+            self.session.email_factor_delivery_supported(),
         ))
     }
     fn email_receipt(&self, revision: u64, phase: NativeEmailPhase) -> Result<String, Error> {
@@ -513,6 +583,7 @@ impl NativeSecurity {
         state.snapshot(
             self.inner.session.factors_supported(),
             (self.inner.session.email_verification_supported(), self.inner.session.email_removal_supported()),
+            self.inner.session.email_factor_delivery_supported(),
         )
     }
     pub async fn refresh(&self) -> Result<NativeSecurityState, RvError> {
@@ -523,6 +594,9 @@ impl NativeSecurity {
     }
     pub async fn confirm_factor(&self, method: String, code: String) -> Result<NativeSecurityState, RvError> {
         self.perform(Action::Proof(method, code)).await
+    }
+    pub async fn send_proof_email(&self, resend: bool, view_revision: u64) -> Result<NativeSecurityState, RvError> {
+        self.perform(Action::ProofEmail(resend, view_revision)).await
     }
     pub async fn factor_action(
         &self,

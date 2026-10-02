@@ -290,4 +290,40 @@ mod tests {
         assert!(store.cache_read_state(&invalid, store.projection_token()).is_err());
         assert_eq!(store.read_state("room").unwrap().unwrap().favorite_revision.as_deref(), Some("3"));
     }
+    #[test]
+    fn retained_composer_cannot_resave_or_send_after_rejoin_but_roles_keep_current_draft() {
+        let store = NativeStore::open(Path::new(":memory:"), identity("epoch")).unwrap();
+        store.snapshot(&snapshot(room("1", "2", "original"))).unwrap();
+        assert!(store.set_draft_from_membership("room", "Private original", Some("original")).unwrap());
+        assert!(
+            !store.enqueue_from_membership("missing-send", "absent", "Old buffer", "alice", Some("original")).unwrap()
+        );
+        store.batch(&batch(room("3", "4", "rejoined"))).unwrap();
+        assert_eq!(store.draft_from_membership("room", Some("original")).unwrap(), "");
+        assert!(!store.set_draft_from_membership("room", "Late cleanup of old widget", Some("original")).unwrap());
+        assert!(!store.enqueue_from_membership("old-send", "room", "Old buffer", "alice", Some("original")).unwrap());
+        assert!(store.pending().unwrap().is_empty());
+        assert!(store.set_draft_from_membership("room", "New draft", Some("rejoined")).unwrap());
+        assert!(!store.set_draft_from_membership("room", "", Some("original")).unwrap());
+        store.batch(&batch(room("5", "4", "rejoined"))).unwrap();
+        assert_eq!(store.draft_from_membership("room", Some("rejoined")).unwrap(), "New draft");
+        assert!(
+            store.enqueue_from_membership("current-send", "room", "Current buffer", "alice", Some("rejoined")).unwrap()
+        );
+        assert_eq!(store.pending().unwrap()[0].id, "current-send");
+    }
+    #[test]
+    fn unstamped_widgets_stay_usable_on_old_servers_but_cannot_write_after_learning_a_lifetime() {
+        let store = NativeStore::open(Path::new(":memory:"), identity("epoch")).unwrap();
+        let mut old = room("1", "2", "original");
+        old.read_state = None;
+        store.snapshot(&snapshot(old)).unwrap();
+        assert!(store.set_draft_from_membership("room", "Legacy draft", None).unwrap());
+        assert!(store.enqueue_from_membership("legacy-send", "room", "Legacy buffer", "alice", None).unwrap());
+        store.snapshot(&snapshot(room("3", "4", "known"))).unwrap();
+        assert!(!store.set_draft_from_membership("room", "Late legacy cleanup", None).unwrap());
+        assert!(!store.enqueue_from_membership("late-send", "room", "Old buffer", "alice", None).unwrap());
+        assert!(store.pending().unwrap().is_empty());
+        assert_eq!(store.draft("room").unwrap(), "");
+    }
 }

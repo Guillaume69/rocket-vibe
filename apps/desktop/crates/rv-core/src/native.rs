@@ -556,6 +556,12 @@ impl NativeSession {
         Ok(())
     }
     pub fn send(&self, rid: &str, text: &str) -> Result<String, Error> {
+        self.send_intention(rid, text, None)
+    }
+    pub fn send_from_membership(&self, rid: &str, text: &str, membership: Option<&str>) -> Result<String, Error> {
+        self.send_intention(rid, text, Some(membership))
+    }
+    fn send_intention(&self, rid: &str, text: &str, membership: Option<Option<&str>>) -> Result<String, Error> {
         if self.closed.load(Ordering::SeqCst) {
             return Err(Error::Protocol("session_closed"));
         }
@@ -567,7 +573,13 @@ impl NativeSession {
             return Err(Error::Protocol("invalid_message"));
         }
         let id = format!("{:032x}", fastrand::u128(..));
-        self.store.enqueue(&id, rid, text, &self.info.username)?;
+        if let Some(expected) = membership {
+            if !self.store.enqueue_from_membership(&id, rid, text, &self.info.username, expected)? {
+                return Err(Error::Protocol("delivery_revalidate"));
+            }
+        } else {
+            self.store.enqueue(&id, rid, text, &self.info.username)?;
+        }
         self.wake.notify_one();
         Ok(id)
     }

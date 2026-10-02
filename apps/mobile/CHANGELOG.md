@@ -9,6 +9,11 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Les composeurs et formulaires ouverts repartent à vide lors d'une nouvelle
+  adhésion. Les sauvegardes et envois tardifs de l'ancien composeur ne peuvent
+  écraser un nouveau brouillon ni remettre l'ancien texte en attente. Un
+  changement de rôle conserve le brouillon courant.
+
 - Lectures et favoris natifs possèdent maintenant une reprise SQLite après
   interruption : message observé conservé, reçu de favori original récupéré,
   sans rétablir une ancienne préférence. Leur activation dans les boutons et

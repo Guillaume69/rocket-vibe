@@ -216,7 +216,7 @@ public final class AppModel {
         guard let provider, let fresh = try? provider.rooms() else { return }
         if fresh != groups { groups = fresh }
         if let room {
-            if let fresh = rooms.first(where: { $0.rid == room.rid }) { room.update(room: fresh) }
+            if room.membershipIsCurrent, let fresh = rooms.first(where: { $0.rid == room.rid }) { room.update(room: fresh) }
             else {
                 room.deactivate()
                 self.room = nil

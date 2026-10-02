@@ -114,6 +114,7 @@ pub struct ChatPage {
     native: RefCell<Option<Arc<rv_core::native::NativeSession>>>,
     native_forward: RefCell<Option<tokio::task::JoinHandle<()>>>,
     native_edit: RefCell<Option<(String, String, String)>>,
+    native_membership: RefCell<Option<(String, Option<String>)>>,
     search_button: gtk::Button,
     marked_button: gtk::Button,
     split: adw::NavigationSplitView,
@@ -377,6 +378,7 @@ impl ChatPage {
             native: RefCell::default(),
             native_forward: RefCell::default(),
             native_edit: RefCell::default(),
+            native_membership: RefCell::default(),
             search_button: search_button.clone(),
             marked_button: marked_button.clone(),
             split,
@@ -1055,6 +1057,7 @@ impl ChatPage {
 
     pub fn set_session(&self, session: Option<Arc<Session>>) {
         self.native_edit.replace(None);
+        self.native_membership.replace(None);
         if let Some(forward) = self.native_forward.take() {
             forward.abort();
         }
@@ -1779,8 +1782,16 @@ impl ChatPage {
     pub fn send_text(&self, text: &str) {
         let Some(open) = self.current.borrow().clone() else { return };
         if let Some(session) = self.native_session() {
-            if let Err(error) = session.send(&open.rid, text) {
-                self.composer.set_text(text);
+            let scope = self.native_membership.borrow().clone();
+            let Some((rid, membership)) = scope.filter(|(rid, _)| rid == &open.rid) else {
+                return;
+            };
+            if let Err(error) = session.send_from_membership(&rid, text, membership.as_deref()) {
+                if error.code() == "delivery_revalidate" {
+                    self.invalidate_native_room();
+                } else {
+                    self.composer.set_text(text);
+                }
                 self.toast(error.to_string());
             }
             return;

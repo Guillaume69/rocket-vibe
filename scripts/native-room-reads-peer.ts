@@ -79,7 +79,8 @@ try {
   chat.stop();
   await cache.stageRead(room,newer.id);await cache.stageFavorite(room,true,()=> 'ts-queue-before-withdrawal');
   await cache.enqueue('ts-absent-send',room,'Never replay after a missed withdrawal');
-  await cache.drafts().ecrire(room,'Private before withdrawal');
+  const oldComposer=cache.drafts({room,membership:originalState.membership_version!});
+  await oldComposer.ecrire(room,'Private before withdrawal');
   const details=await reader.roomDetails(room);
   await reader.leaveRoom(room,{operation_id:'ts-cache-leave',expected_revision:details.revision});
   await owner.addMember(room,account.user.id);
@@ -90,5 +91,15 @@ try {
   assert.deepEqual(await cache.pendingReads(),[]);assert.deepEqual(await cache.pendingFavorites(),[]);
   assert.equal(await cache.cacheReadState(originalState,projection),false);
   assert.equal((await cache.readState(room))?.favorite,false);
+  const currentState=(await cache.readState(room))!;
+  const newComposer=cache.drafts({room,membership:currentState.membership_version!});
+  await newComposer.ecrire(room,'Fresh after rejoining');
+  await oldComposer.ecrire(room,'Delayed flush from the old open composer');
+  await oldComposer.supprimer(room);
+  assert.equal(await oldComposer.lire(room),null);
+  assert.equal(await newComposer.lire(room),'Fresh after rejoining');
+  await assert.rejects(cache.enqueue('ts-stale-composer',room,'Delayed send',{membership:originalState.membership_version!}));
+  assert.deepEqual(await cache.pending(),[]);
+  await newComposer.supprimer(room);
 } finally {chat?.stop();db.close();}
-console.log(JSON.stringify({unreads:true,monotone:true,privateFavorite:true,lostAckRecovered:true,noSecondFavorite:true,oldReplayHarmless:true,mentions:true,sqliteCache:true,missedRejoin:true,durableRunner:true}));
+console.log(JSON.stringify({unreads:true,monotone:true,privateFavorite:true,lostAckRecovered:true,noSecondFavorite:true,oldReplayHarmless:true,mentions:true,sqliteCache:true,missedRejoin:true,durableRunner:true,openComposerFenced:true}));

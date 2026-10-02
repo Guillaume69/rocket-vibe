@@ -43,6 +43,7 @@
     "apps/desktop/crates/rv-core/src/native/security/email_settings.rs",
     "apps/desktop/crates/rv-core/src/native/security/factor_email.rs",
     "apps/desktop/crates/rv-core/src/native/store.rs",
+    "apps/desktop/crates/rv-core/src/native/store/membership.rs",
     "apps/desktop/crates/rv-core/src/native/store/read_intents.rs",
     "apps/desktop/crates/rv-core/src/native/store/read_states.rs",
     "apps/desktop/crates/rv-core/src/native/store/room_access.rs",
@@ -245,6 +246,7 @@
     "apps/mobile/plugins/with-signature-release.js",
     "apps/mobile/ui/actionsJointe.ts",
     "apps/mobile/ui/activite.ts",
+    "apps/mobile/ui/adhesionSalon.tsx",
     "apps/mobile/ui/amenerMessage.ts",
     "apps/mobile/ui/apercuPieceJointe.tsx",
     "apps/mobile/ui/appareils.tsx",
@@ -1308,7 +1310,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat_native.rs",
-      "line": 522,
+      "line": 547,
       "kind": "endpoint",
       "surface": "rooms.new"
     },
@@ -1326,85 +1328,85 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 217,
+      "line": 218,
       "kind": "endpoint",
       "surface": "rooms.offline"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 221,
+      "line": 222,
       "kind": "endpoint",
       "surface": "rooms.sign_out"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 231,
+      "line": 232,
       "kind": "endpoint",
       "surface": "rooms.back_to_room"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 240,
+      "line": 241,
       "kind": "endpoint",
       "surface": "rooms.new"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 328,
+      "line": 329,
       "kind": "endpoint",
       "surface": "e2e.banner"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 330,
+      "line": 331,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1095,
+      "line": 1098,
       "kind": "endpoint",
       "surface": "rooms.online"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1096,
+      "line": 1099,
       "kind": "endpoint",
       "surface": "rooms.connecting"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1097,
+      "line": 1100,
       "kind": "endpoint",
       "surface": "rooms.offline"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1480,
+      "line": 1483,
       "kind": "endpoint",
       "surface": "rooms.section_unread"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1481,
+      "line": 1484,
       "kind": "endpoint",
       "surface": "rooms.section_favorites"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1482,
+      "line": 1485,
       "kind": "endpoint",
       "surface": "rooms.section_channels"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1483,
+      "line": 1486,
       "kind": "endpoint",
       "surface": "rooms.section_direct"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1580,
+      "line": 1583,
       "kind": "endpoint",
       "surface": "e2e.read_only"
     },
@@ -1836,37 +1838,37 @@
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift",
-      "line": 90,
+      "line": 93,
       "kind": "endpoint",
       "surface": "rooms.command_offline"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift",
-      "line": 90,
+      "line": 93,
       "kind": "endpoint",
       "surface": "rooms.conflict"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift",
-      "line": 90,
+      "line": 93,
       "kind": "endpoint",
       "surface": "rooms.failed"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift",
-      "line": 90,
+      "line": 93,
       "kind": "endpoint",
       "surface": "rooms.last_owner"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift",
-      "line": 90,
+      "line": 93,
       "kind": "endpoint",
       "surface": "rooms.pending"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift",
-      "line": 100,
+      "line": 103,
       "kind": "endpoint",
       "surface": "rooms.failed"
     },
@@ -2094,13 +2096,13 @@
     },
     {
       "file": "apps/mobile/app/salon-info.tsx",
-      "line": 99,
+      "line": 101,
       "kind": "call:POST",
       "surface": "'rooms.favorite'"
     },
     {
       "file": "apps/mobile/app/salon-info.tsx",
-      "line": 100,
+      "line": 102,
       "kind": "endpoint",
       "surface": "rooms.favorite"
     },

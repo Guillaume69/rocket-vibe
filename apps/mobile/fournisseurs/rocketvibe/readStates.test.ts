@@ -89,3 +89,24 @@ test('repeated HTTP reads do not write SQLite or invalidate effective rights',as
     const access=await store.roomAccess('room');assert.equal(access?.can_send,1);assert.equal(access?.role,'owner');
   } finally {db.close();}
 });
+
+test('retained composer writes and cleanup cannot restore old text or enqueue after missed rejoin',async()=>{
+  const {db,store}=setup();try{
+    await store.applySnapshot(snapshot(room('1','2','original')));
+    const old=store.drafts({room:'room',membership:'original'});await old.ecrire('room','Private original');
+    await store.applyBatch(batch(room('3','4','rejoined')));
+    await old.ecrire('room','Late old widget cleanup');assert.equal(await old.lire('room'),null);
+    await assert.rejects(store.enqueue('late-send','room','Old buffer',{membership:'original'}));assert.deepEqual(await store.pending(),[]);
+    const fresh=store.drafts({room:'room',membership:'rejoined'});await fresh.ecrire('room','Fresh draft');await old.supprimer('room');
+    await store.applyBatch(batch(room('5','4','rejoined')));assert.equal(await fresh.lire('room'),'Fresh draft');
+    await store.enqueue('current-send','room','Current buffer',{membership:'rejoined'});assert.equal((await store.pending())[0].id,'current-send');
+  }finally{db.close();}
+});
+test('legacy composer becomes fenced when a modern snapshot first stamps its membership',async()=>{
+  const {db,store}=setup();try{
+    const initial=room('1','2');delete initial.read_state;await store.applySnapshot(snapshot(initial));
+    const old=store.drafts({room:'room',membership:null});await old.ecrire('room','Legacy draft');await store.enqueue('legacy-send','room','Legacy buffer',{membership:null});
+    await store.applySnapshot(snapshot(room('3','4','known')));await old.ecrire('room','Late legacy cleanup');
+    await assert.rejects(store.enqueue('late-send','room','Old buffer',{membership:null}));assert.deepEqual(await store.pending(),[]);assert.equal(await store.drafts().lire('room'),null);
+  }finally{db.close();}
+});

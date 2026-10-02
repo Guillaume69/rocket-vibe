@@ -86,6 +86,9 @@ async fn run(window: Rc<AppWindow>, phase: String) {
     let name = std::env::var("RV_SMOKE_ROOM").unwrap();
     let rid = session.store.rooms().unwrap().into_iter().find(|room| room.name == name).unwrap().id;
     let root = window.window.upcast_ref::<gtk::Widget>();
+    if phase == "flow" {
+        window.chat.composer().set_text("Draft belonging to the original membership");
+    }
     if phase == "settings" || phase == "flow" {
         wait(root, "native-room-edit").await.downcast::<gtk::Button>().unwrap().emit_clicked();
         wait(root, "native-room-name").await.downcast::<adw::EntryRow>().unwrap().set_text("Salon réglé depuis GTK");
@@ -156,12 +159,18 @@ async fn run(window: Rc<AppWindow>, phase: String) {
                 glib::timeout_future(Duration::from_millis(25)).await;
             }
             check("GTK demoted read-only member cannot compose", !window.chat.composer().root.is_visible(), true);
+            check(
+                "GTK role changes preserve the open draft",
+                window.chat.composer().text() == "Draft belonging to the original membership"
+                    && session.store.draft(&rid).unwrap() == "Draft belonging to the original membership",
+                true,
+            );
             wait(root, "native-room-leave").await.downcast::<gtk::Button>().unwrap().emit_clicked();
             let alert = wait(root, "native-room-leave-confirm").await;
             find_by_class(&alert, "destructive-action").and_downcast::<gtk::Button>().unwrap().emit_clicked();
             closed(root, "native-room-leave-confirm").await;
             for _ in 0..240 {
-                if !session.store.rooms().unwrap().iter().any(|room| room.id == rid) {
+                if !session.store.rooms().unwrap().iter().any(|room| room.id == rid) && !window.chat.shows_room() {
                     break;
                 }
                 glib::timeout_future(Duration::from_millis(25)).await;
@@ -172,6 +181,14 @@ async fn run(window: Rc<AppWindow>, phase: String) {
                     && session.store.room_operation(&rid).unwrap().is_none(),
                 true,
             );
+            check(
+                "GTK departure clears the open composer and private views",
+                !window.chat.shows_room()
+                    && window.chat.composer().text().is_empty()
+                    && window.chat.message_count() == 0,
+                true,
+            );
+            closed(root, "native-room-edit").await;
         }
     }
     eprintln!("smoke: native room controls completed");

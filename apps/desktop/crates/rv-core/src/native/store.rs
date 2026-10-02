@@ -1,4 +1,5 @@
 //! Fallible transactions: a failed projection never acknowledges its cursor or outbox echo.
+mod membership;
 mod read_intents;
 mod read_states;
 mod room_access;
@@ -580,7 +581,32 @@ impl NativeStore {
         Ok(rows)
     }
     pub fn enqueue(&self, id: &str, rid: &str, text: &str, username: &str) -> rusqlite::Result<()> {
+        self.enqueue_checked(id, rid, text, username, None).map(|_| ())
+    }
+    pub fn enqueue_from_membership(
+        &self,
+        id: &str,
+        rid: &str,
+        text: &str,
+        username: &str,
+        membership: Option<&str>,
+    ) -> rusqlite::Result<bool> {
+        self.enqueue_checked(id, rid, text, username, Some(membership))
+    }
+    fn enqueue_checked(
+        &self,
+        id: &str,
+        rid: &str,
+        text: &str,
+        username: &str,
+        membership: Option<Option<&str>>,
+    ) -> rusqlite::Result<bool> {
         self.atomic(|tx| {
+            if let Some(expected) = membership
+                && !self.membership_matches_in(tx, rid, expected)?
+            {
+                return Ok(false);
+            }
             if !self.same(tx)?
                 || tx.query_row("SELECT 1 FROM native_rooms WHERE id=?1", [rid], |_| Ok(())).optional()?.is_none()
             {
@@ -594,7 +620,7 @@ impl NativeStore {
                 "INSERT INTO native_outbox(id,rid,text,created) VALUES(?1,?2,?3,?4)",
                 params![id, rid, text, chrono::Utc::now().timestamp_millis()],
             )?;
-            Ok(())
+            Ok(true)
         })
     }
     pub fn pending(&self) -> rusqlite::Result<Vec<Pending>> {

@@ -9,6 +9,11 @@ section here.
 
 ### Fixed
 
+- Native room composers bind draft saves and sends to the membership that
+  opened them. Withdrawal or a new membership clears open room buffers and
+  closes private forms; delayed callbacks cannot overwrite a fresh draft.
+  Role changes preserve the current draft.
+
 - Native caches detect room withdrawal followed by rejoining even after a missed
   event and a snapshot reset. Older private history, drafts and pending commands
   are purged, while role changes keep the current membership's intentions.

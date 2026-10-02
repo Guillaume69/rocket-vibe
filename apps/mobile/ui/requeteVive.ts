@@ -77,15 +77,16 @@ function fichierDeLaRequete(requete: unknown): string | null {
 export function useRequeteVive<L>(
   requete: PromiseLike<L[]>,
   deps: DependencyList = [],
-): { data: L[] } {
+): { data: L[]; loaded:boolean } {
   const [data, setData] = useState<L[]>([]);
+  const [loaded,setLoaded]=useState(false);
 
   useEffect(() => {
     let annule = false;
     const relire = () => {
       requete.then(
         (lignes) => {
-          if (!annule) setData(lignes);
+          if (!annule) {setData(lignes);setLoaded(true);}
         },
         () => {
           // Un échec de lecture (base fermée en plein démontage) ne doit pas
@@ -140,5 +141,5 @@ export function useRequeteVive<L>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 
-  return { data };
+  return { data,loaded };
 }

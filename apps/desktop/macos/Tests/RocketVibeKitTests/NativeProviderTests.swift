@@ -212,6 +212,8 @@ final class NativeProviderTests: XCTestCase {
         let rid = try await native.createRoom(name: "swift-room-controls-\(UUID())", private: true)
         try await until { app.rooms.contains { $0.rid == rid } }; app.open(rid)
         let room = try XCTUnwrap(app.room); try await until { !room.loading }
+        let originalMembership = try XCTUnwrap(native.membershipVersion(room: rid))
+        room.draft = "Draft belonging to the original membership"
         let original = try await room.roomManagement()
         XCTAssertTrue(original.canEdit); XCTAssertTrue(original.canChangeRoles); XCTAssertTrue(original.canLeave)
         var fields = original.fields
@@ -235,9 +237,13 @@ final class NativeProviderTests: XCTestCase {
         let demoted = try await room.roomManagement()
         XCTAssertFalse(demoted.canEdit); XCTAssertFalse(demoted.canChangeRoles); XCTAssertTrue(demoted.canLeave)
         try await until { room.room.readOnly }
+        XCTAssertTrue(app.room === room)
+        XCTAssertEqual(room.draft, "Draft belonging to the original membership", "Role changes preserve the open composer")
+        XCTAssertEqual(try native.membershipVersion(room: rid), originalMembership)
         try await room.leaveRoom(revision: demoted.revision)
-        try await until { !app.rooms.contains { $0.rid == rid } }
+        try await until { !app.rooms.contains { $0.rid == rid } && app.room == nil }
         XCTAssertFalse(room.supportsRoomInfo)
+        XCTAssertEqual(room.draft, "", "Withdrawal clears the retained model's private buffer")
         let lastOwner = try await peerRoom.roomManagement()
         do { try await peerRoom.leaveRoom(revision: lastOwner.revision); XCTFail("The last owner must remain") }
         catch { guard case let RvError.Server(_, _, code, _, _, _) = error else { throw error }; XCTAssertEqual(code, "last_room_owner") }
@@ -245,6 +251,20 @@ final class NativeProviderTests: XCTestCase {
         XCTAssertTrue(rejected.failed); XCTAssertEqual(rejected.kind, "leave")
         let cleared = try await peerRoom.dismissRoomIntention(key: rejected.key)
         XCTAssertTrue(cleared); XCTAssertNil(try peerRoom.roomIntention())
+        try await peer.native!.invite(room: rid, username: "desktop")
+        try await until { app.rooms.contains { $0.rid == rid } }
+        app.open(rid)
+        let freshRoom = try XCTUnwrap(app.room)
+        XCTAssertNotEqual(try native.membershipVersion(room: rid), originalMembership)
+        XCTAssertEqual(freshRoom.draft, "")
+        freshRoom.draft = "Fresh draft after rejoining"
+        try native.setDraftFromMembership(room: rid, text: freshRoom.draft, membership: native.membershipVersion(room: rid))
+        XCTAssertThrowsError(try native.setDraftFromMembership(room: rid, text: "Delayed original flush", membership: originalMembership))
+        XCTAssertThrowsError(try native.sendFromMembership(room: rid, text: "Delayed original send", membership: originalMembership))
+        room.draft = "Retained inactive view"
+        await room.send()
+        XCTAssertEqual(try native.draftFromMembership(room: rid, membership: native.membershipVersion(room: rid)), freshRoom.draft)
+        XCTAssertFalse(try native.messages(room: rid, limit: 100).contains { $0.text == "Delayed original send" || $0.text == "Retained inactive view" })
         await app.signOut(); await peer.signOut()
     }
 

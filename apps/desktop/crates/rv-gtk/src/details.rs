@@ -132,6 +132,7 @@ pub fn native_room_info(
     invite: Rc<dyn Fn()>,
 ) {
     use tokio::sync::broadcast::error::RecvError;
+    let membership = session.store.read_state(rid).ok().flatten().and_then(|s| s.membership_version);
     let content = column();
     loading(&content);
     let dialog = dialog(t("info.room"), content.upcast_ref(), 600);
@@ -162,7 +163,10 @@ pub fn native_room_info(
         let mut displayed = None;
         while rx.recv().await.is_ok() && active.get() {
             let room = session.store.rooms().ok().and_then(|rooms| rooms.into_iter().find(|r| r.id == rid));
-            if session.is_closed() || room.is_none() {
+            if session.is_closed()
+                || room.is_none()
+                || session.store.read_state(&rid).ok().flatten().and_then(|s| s.membership_version) != membership
+            {
                 dialog.close();
                 break;
             }
@@ -182,7 +186,10 @@ pub fn native_room_info(
             if !active.get() {
                 break;
             }
-            if session.is_closed() || session.store.rooms().is_ok_and(|rooms| !rooms.iter().any(|r| r.id == rid)) {
+            if session.is_closed()
+                || session.store.rooms().is_ok_and(|rooms| !rooms.iter().any(|r| r.id == rid))
+                || session.store.read_state(&rid).ok().flatten().and_then(|s| s.membership_version) != membership
+            {
                 dialog.close();
                 break;
             }

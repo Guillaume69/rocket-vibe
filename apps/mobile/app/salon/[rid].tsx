@@ -38,6 +38,7 @@ import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSaisie, resumerSaisie } from '../../lib/saisie.ts';
 import { amenerMessage } from '../../ui/amenerMessage.ts';
 import { useBrouillon } from '../../ui/brouillons.ts';
+import {BorneAdhesionSalon} from '../../ui/adhesionSalon.tsx';
 import { useProgressionFichiers } from '../../ui/progressionFichiers.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
 import { useCandidatsMention } from '../../ui/completionMention.tsx';
@@ -161,7 +162,7 @@ export default function EcranSalon() {
     return <AutreServeur c={c} hote={origineHote} rid={rid} />;
   }
 
-  return (
+  const contenu = (membership?:string|null)=>(
     <Salon
       c={c}
       rid={rid}
@@ -178,8 +179,10 @@ export default function EcranSalon() {
       declarerSalonOuvert={synchro.declarerSalonOuvert}
       activite={synchro.activite}
       generation={synchro.generation}
+      membership={membership}
     />
   );
+  return synchro.fournisseur.native?<BorneAdhesionSalon key={JSON.stringify(synchro.fournisseur.identite)+rid} base={synchro.base} rid={rid}>{contenu}</BorneAdhesionSalon>:contenu();
 }
 
 /**
@@ -256,6 +259,7 @@ function Salon({
   declarerSalonOuvert,
   activite,
   generation,
+  membership,
 }: {
   c: Couleurs;
   rid: string;
@@ -273,6 +277,7 @@ function Salon({
   declarerSalonOuvert: (rid: string) => () => void;
   activite: MoteurActivite;
   generation: number;
+  membership?:string|null;
 }) {
   const t = useT();
   const [limite, setLimite] = useState(PAGE);
@@ -557,7 +562,16 @@ function Salon({
 
   // Brouillon persistant (8.7) — le hook vit ICI : le composer ne monte
   // qu'une fois la valeur initiale lue.
-  const persistance = useBrouillon(brouillons, rid);
+  const depotObserve=useMemo(()=>fournisseur.native && membership!==undefined?fournisseur.native.chat.store.drafts({room:rid,membership}):brouillons,[fournisseur,brouillons,rid,membership]);
+  const envoiObserve=useMemo<Outbox>(()=>{
+    const chat=fournisseur.native?.chat;
+    if(!chat || membership===undefined)return envoi;
+    return {reessayer:envoi.reessayer?.bind(envoi),traiter:()=>envoi.traiter(),abandonner:id=>envoi.abandonner(id),envoyer:(target,text,thread)=>{
+      if(target!==rid || thread)throw new Error('Room unavailable in this composer');
+      return chat.send(target,text,{membership});
+    }};
+  },[envoi,fournisseur,rid,membership]);
+  const persistance = useBrouillon(depotObserve, rid);
 
   // Candidats à la mention (@) : le hook vit ICI, où `base` est en scope — le
   // composer reçoit la liste toute prête, comme le brouillon.
@@ -1011,7 +1025,7 @@ function Salon({
             key={rid}
             c={c}
             rid={rid}
-            envoi={envoi}
+            envoi={envoiObserve}
             fichiers={fournisseur.capacites.fichiers === false ? null : fichiers}
             client={client}
             candidatsMention={candidatsMention}

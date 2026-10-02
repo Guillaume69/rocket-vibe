@@ -85,17 +85,21 @@ public final class RoomModel {
     @ObservationIgnored var actionsOf: [String: [MessageAction]] = [:]
     private var nativeActions: [String: NativeMessageActions] = [:]
     private var roomAccessTask: Task<Void, Never>?
+    private let nativeMembership: String?
     @ObservationIgnored private var actionLoads: Set<String> = []
     @ObservationIgnored private var mutations: [String: NativeMessageActions] = [:]
 
     public var draft: String {
         didSet {
             guard active else { return }
-            let (provider, rid, thread, text) = (provider, room.rid, threadId, draft)
+            let (provider, rid, thread, text, membership) = (provider, room.rid, threadId, draft, nativeMembership)
             draftSave?.cancel()
             draftSave = Task {
                 try? await Task.sleep(nanoseconds: 400_000_000)
-                if !Task.isCancelled { try? provider.setDraft(rid: rid, thread: thread, text: text) }
+                if !Task.isCancelled {
+                    if let native = provider.native { try? native.setDraftFromMembership(room: rid, text: text, membership: membership) }
+                    else { try? provider.setDraft(rid: rid, thread: thread, text: text) }
+                }
             }
         }
     }
@@ -108,9 +112,11 @@ public final class RoomModel {
         self.provider = provider
         self.room = room
         self.threadId = threadId
+        nativeMembership = (try? provider.native?.membershipVersion(room: room.rid)) ?? nil
         let unread = room.unread > 0 || room.alert
         unreadAfter = unread && threadId == nil ? provider.legacy?.lastSeen(rid: room.rid) : nil
-        draft = (try? provider.draft(rid: room.rid, thread: threadId)) ?? ""
+        if let native = provider.native { draft = (try? native.draftFromMembership(room: room.rid, membership: nativeMembership)) ?? "" }
+        else { draft = (try? provider.draft(rid: room.rid, thread: threadId)) ?? "" }
         roomInformationRevision = (try? provider.native?.roomRevision(room: room.rid)) ?? "\(room.rid):\(room.name):\(room.kind)"
     }
 
@@ -119,8 +125,10 @@ public final class RoomModel {
         guard active else { return }
         draftSave?.cancel()
         roomAccessTask?.cancel()
-        try? provider.setDraft(rid: room.rid, thread: threadId, text: draft)
+        try? saveDraft(draft)
         active = false
+        draft = ""
+        roomOperationRevision &+= 1
         roomInformationRevision = "closed"
         messages = []
         actionsOf.removeAll()
@@ -129,6 +137,15 @@ public final class RoomModel {
     }
 
     public var rid: String { room.rid }
+    var membershipIsCurrent: Bool {
+        guard let native = provider.native else { return true }
+        do { return try native.membershipVersion(room: room.rid) == nativeMembership }
+        catch { return false }
+    }
+    private func saveDraft(_ text: String) throws {
+        if let native = provider.native { try native.setDraftFromMembership(room: room.rid, text: text, membership: nativeMembership) }
+        else { try provider.setDraft(rid: room.rid, thread: threadId, text: text) }
+    }
 
     func update(room: Room) {
         roomOperationRevision &+= 1
@@ -222,8 +239,9 @@ public final class RoomModel {
         draftSave?.cancel()
         do {
             // Clear before awaiting the transport: words typed during an RC send must survive.
-            try provider.setDraft(rid: room.rid, thread: threadId, text: "")
-            try await provider.send(rid: room.rid, text: text, thread: threadId)
+            try saveDraft("")
+            if let native = provider.native { _ = try native.sendFromMembership(room: room.rid, text: text, membership: nativeMembership) }
+            else { try await provider.send(rid: room.rid, text: text, thread: threadId) }
             reload()
         } catch {
             if active {

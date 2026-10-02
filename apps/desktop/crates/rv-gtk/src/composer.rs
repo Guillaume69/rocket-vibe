@@ -566,15 +566,20 @@ impl Composer {
         self.mic.set_sensitive(files);
         self.staged.switch(rid);
         self.on_changed.replace(None);
-        self.set_text(&session.store.draft(rid).unwrap_or_default());
+        let membership = session.store.read_state(rid).ok().flatten().and_then(|s| s.membership_version);
+        self.set_text(&session.store.draft_from_membership(rid, membership.as_deref()).unwrap_or_default());
         self.completion.popdown();
         self.mentions.replace(None);
         self.custom_emoji.replace(None);
         self.custom_names.replace(None);
         let (store, rid) = (session.store.clone(), rid.to_owned());
         self.connect_changed(move |text| {
-            let _ = store.set_draft(&rid, &text);
+            let _ = store.set_draft_from_membership(&rid, &text, membership.as_deref());
         });
+    }
+    pub fn unbind_native(&self) {
+        self.on_changed.replace(None);
+        self.completion.popdown();
     }
 
     /// Usernames offered after `@`, given the prefix typed.

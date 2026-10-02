@@ -82,6 +82,9 @@ struct NativeRoomControls: View {
             Button(L("actions.cancel"), role: .cancel) {}
         } message: { Text(L("rooms.leave_body")) }
         .task(id: model.roomOperationRevision) { intention = try? model.roomIntention() }
+        .onChange(of: model.supportsRoomManagement) { _, active in
+            if !active { task?.cancel(); task = nil; edit = nil; intention = nil; members = nil; editingRevision = ""; leaving = false; busy = false; error = nil }
+        }
         .onDisappear { task?.cancel(); task = nil; edit = nil; intention = nil; members = nil }
     }
     func field(_ key: WritableKeyPath<NativeRoomFields, String>) -> Binding<String> { Binding(get: { edit?[keyPath: key] ?? "" }, set: { edit?[keyPath: key] = $0 }) }

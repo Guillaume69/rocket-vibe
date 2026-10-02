@@ -82,18 +82,22 @@ export class NativeStore {
       for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs','native_room_creations','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
     });
   }
-  drafts(): DepotBrouillons {
+  private async membershipMatches(rid:string,membership:string|null):Promise<boolean> {
+    return await this.sameGeneration() && !!await this.db.getFirstAsync('SELECT rid FROM salons WHERE rid=?',[rid]) && ((await this.readStateIn(rid))?.membership_version??null)===membership;
+  }
+  drafts(scope?:{room:string;membership:string|null}): DepotBrouillons {
+    const bound=async(rid:string)=>!scope || scope.room===rid && await this.membershipMatches(rid,scope.membership);
     return {
       lire:rid => this.queue(async () => {
-        if (!await this.sameGeneration()) return null;
+        if (!await this.sameGeneration() || !await bound(rid)) return null;
         return (await this.db.getFirstAsync<{texte:string}>('SELECT texte FROM brouillons WHERE cle=?',[rid]))?.texte ?? null;
       }),
-      ecrire:(rid,text) => this.queue(async () => {
-        if (!await this.sameGeneration() || !await this.db.getFirstAsync('SELECT rid FROM salons WHERE rid=?',[rid])) return;
+      ecrire:(rid,text) => this.atomic(async () => {
+        if (!await this.sameGeneration() || !await this.db.getFirstAsync('SELECT rid FROM salons WHERE rid=?',[rid]) || !await bound(rid)) return;
         await this.db.runAsync('INSERT INTO brouillons(cle,texte,mis_a_jour_le) VALUES(?,?,?) ON CONFLICT(cle) DO UPDATE SET texte=excluded.texte,mis_a_jour_le=excluded.mis_a_jour_le',[rid,text,Date.now()]);
       }),
-      supprimer:rid => this.queue(async () => {
-        if (await this.sameGeneration()) await this.db.runAsync('DELETE FROM brouillons WHERE cle=?',[rid]);
+      supprimer:rid => this.atomic(async () => {
+        if (await this.sameGeneration() && await bound(rid)) await this.db.runAsync('DELETE FROM brouillons WHERE cle=?',[rid]);
       }),
     };
   }
@@ -449,9 +453,10 @@ export class NativeStore {
   oldestPosition(rid: string): Promise<string | undefined> {
     return this.queue(async () => (await this.db.getFirstAsync<{position:string}>('SELECT position FROM native_positions WHERE rid=? ORDER BY length(position),position LIMIT 1', [rid]))?.position);
   }
-  enqueue(id: string, rid: string, text: string): Promise<void> {
+  enqueue(id: string, rid: string, text: string,scope?:{membership:string|null}): Promise<void> {
     return this.atomic(async () => {
       if (!await this.sameGeneration() || !await this.db.getFirstAsync('SELECT rid FROM salons WHERE rid=?', [rid])) throw new Error('Room unavailable in this generation');
+      if(scope && !await this.membershipMatches(rid,scope.membership))throw new Error('Native membership changed');
       const now = new Date().toISOString();
       const local = localMessage({id,room_id:rid,text,author:{id:this.session.userId,username:this.session.username,display_name:this.session.username},created_at:now,position:'0',revision:'0'});
       local.misAJourLe = 0;

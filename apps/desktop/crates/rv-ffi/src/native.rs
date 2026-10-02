@@ -394,6 +394,38 @@ impl NativeChat {
     pub fn send(&self, room: String, text: String) -> Result<String, RvError> {
         self.session.send(&room, &text).map_err(RvError::local)
     }
+    pub fn membership_version(&self, room: String) -> Result<Option<String>, RvError> {
+        self.room_revision(room.clone())?;
+        Ok(self.session.store.read_state(&room).map_err(RvError::local)?.and_then(|s| s.membership_version))
+    }
+    pub fn send_from_membership(
+        &self,
+        room: String,
+        text: String,
+        membership: Option<String>,
+    ) -> Result<String, RvError> {
+        self.session.send_from_membership(&room, &text, membership.as_deref()).map_err(native_error)
+    }
+    pub fn draft_from_membership(&self, room: String, membership: Option<String>) -> Result<String, RvError> {
+        self.session.store.draft_from_membership(&room, membership.as_deref()).map_err(RvError::local)
+    }
+    pub fn set_draft_from_membership(
+        &self,
+        room: String,
+        text: String,
+        membership: Option<String>,
+    ) -> Result<(), RvError> {
+        if self.session.is_closed()
+            || !self
+                .session
+                .store
+                .set_draft_from_membership(&room, &text, membership.as_deref())
+                .map_err(RvError::local)?
+        {
+            return Err(native_error(rv_core::native::Error::Protocol("delivery_revalidate")));
+        }
+        Ok(())
+    }
     pub fn retry(&self, id: String) -> Result<(), RvError> {
         self.session.retry(&id).map_err(RvError::local)
     }

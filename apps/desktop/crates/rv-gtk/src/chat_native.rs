@@ -56,6 +56,13 @@ impl ChatPage {
                 this.set_connection(status.connection);
                 this.native_features(&session);
                 this.reload_rooms();
+                let changed_membership = this.native_membership.borrow().as_ref().is_some_and(|(rid, previous)| {
+                    !this.has_room(rid)
+                        || session.store.read_state(rid).ok().flatten().and_then(|s| s.membership_version) != *previous
+                });
+                if changed_membership {
+                    this.invalidate_native_room();
+                }
                 if let Some(rid) = this.current_rid()
                     && session.store.room_access(&rid).ok().flatten().is_none()
                     && session.supported_features().iter().any(|f| f == "room_info")
@@ -66,11 +73,7 @@ impl ChatPage {
                     });
                 }
                 if this.current_rid().is_some_and(|rid| !this.has_room(&rid)) {
-                    this.current.replace(None);
-                    this.list.clear();
-                    this.composer.set_text("");
-                    this.content_stack.set_visible_child_name("empty");
-                    this.split.set_show_content(false);
+                    this.invalidate_native_room();
                 } else {
                     this.reload_messages();
                     if changed && status.connection == Connection::Online && this.current_rid().is_some() {
@@ -85,6 +88,24 @@ impl ChatPage {
                 }
             }
         });
+    }
+
+    pub(super) fn invalidate_native_room(&self) {
+        self.native_membership.replace(None);
+        self.native_edit.replace(None);
+        self.read_generation.set(self.read_generation.get().wrapping_add(1));
+        self.current.replace(None);
+        self.thread.replace(None);
+        self.composer.unbind_native();
+        self.composer.clear_reply();
+        self.composer.set_text("");
+        self.list.clear();
+        self.room_nav.pop_to_tag("room");
+        self.content_stack.set_visible_child_name("empty");
+        self.split.set_show_content(false);
+        for f in self.on_room_changed.borrow().iter() {
+            f(None);
+        }
     }
 
     fn native_features(&self, session: &NativeSession) {
@@ -147,6 +168,10 @@ impl ChatPage {
         }
         self.remember(rid);
         self.native_edit.replace(None);
+        self.native_membership.replace(Some((
+            rid.to_owned(),
+            session.store.read_state(rid).ok().flatten().and_then(|s| s.membership_version),
+        )));
         self.current.replace(Some(OpenRoom {
             rid: room.rid.clone(),
             kind: room.kind,

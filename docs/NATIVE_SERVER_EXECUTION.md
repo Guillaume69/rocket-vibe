@@ -315,6 +315,24 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P05, buffers des salons ouverts : les composeurs GTK / SwiftUI / mobile
+  attachent lecture, sauvegarde, effacement et envoi de brouillon à la durée
+  d'adhésion qui les a ouverts. Le contrôle et l'écriture SQLite sont atomiques.
+  Retrait ou nouvelle adhésion effacent les buffers / formulaires privés ; un
+  ancien cleanup ne peut écraser le nouveau brouillon. Les changements de rôle
+  conservent le texte. Le mobile attend sa première lecture du témoin avant de
+  monter le composeur ; GTK et Swift ferment les vues dont le témoin a changé.
+  Vérifications : 335 tests bureau complets, Clippy / compilation Fedora et dix
+  tests unitaires ciblés du dernier garde ; 1 152 tests mobiles, typecheck / lint
+  et export Android Hermes. Les dix parcours PostgreSQL passent, dont le vrai
+  dépôt mobile conservé après retrait / réadhésion manqués. Le parcours GTK
+  existant vérifie rôle / brouillon puis départ / composeur vide. Les bindings
+  et modèles Swift compilent, six tests locaux passent ; le parcours connecté
+  avec Secret Service vérifie réinvitation et rejet des anciens saves / sends.
+  Inventaire : 312 fichiers / 414 occurrences. Les quatre jobs du lot durable
+  `2eb3ecb` sont verts (`37014714087`). Badges, favoris et minuteries des interfaces
+  existantes restent à raccorder ; les essais sur appareils restent ouverts.
+
 - P05, intentions durables mobile / bureau : SQLite conserve la position du
   message confirmé réellement observé, puis regroupe les observations par
   maximum exact. Le favori garde son ID, sa révision attendue et sa valeur

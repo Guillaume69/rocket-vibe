@@ -494,14 +494,14 @@ export class NativeChat {
       if (error instanceof NativeError && error.code==='delivery_revalidate') this.lost();
     }
   }
-  async send(rid: string, text: string): Promise<string> {
+  async send(rid: string, text: string,scope?:{membership:string|null}): Promise<string> {
     if (this.stopped) throw new NativeError(0,'session_closed');
     const value = text.trim();
     let bytes = 0;
     for (const char of value) { const code = char.codePointAt(0)!; bytes += code < 128 ? 1 : code < 2048 ? 2 : code < 65536 ? 3 : 4; }
     if (!value || bytes > 32_768) throw new NativeError(400,'invalid_message');
     const id = this.id();
-    await this.store.enqueue(id,rid,value); this.notify();
+    await this.store.enqueue(id,rid,value,scope); this.notify();
     if (this.verified) await this.flush();
     return id;
   }

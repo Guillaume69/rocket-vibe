@@ -128,6 +128,14 @@ d'adhésion ne peuvent prouver que leurs anciennes intentions ont survécu à un
 retrait manqué : leur premier snapshot portant ce témoin les purge également.
 Le bureau récupère les témoins déjà présents dans ses anciens payloads de salon.
 
+Le composeur capture aussi cette durée d'adhésion à son ouverture. Lecture,
+sauvegarde et effacement de brouillon, ainsi qu'ajout à l'outbox, vérifient
+ce témoin dans la même transaction SQLite que l'écriture. Un flush de démontage
+ou une sauvegarde différée de l'ancien écran ne peut donc réintroduire son texte
+après la purge, ni effacer le nouveau brouillon. Les buffers et formulaires ouverts
+sont remis à zéro quand le témoin change ; une mise à jour de rôle les conserve.
+Le mobile attend la première lecture du témoin avant de monter le composeur.
+
 Les deux clients conservent maintenant leurs intentions dans des tables privées
 `native_read_intents` / `native_favorite_intents`. Le renderer fournit l'ID du
 message réellement observé ; seul un message confirmé du même salon peut être

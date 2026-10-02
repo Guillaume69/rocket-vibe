@@ -31,6 +31,7 @@ import { useSynchro } from '../ui/synchro.tsx';
 import { POLICES, useCouleurs } from '../ui/theme.ts';
 import { useMargeBasFeuille } from '../ui/margeFeuille.ts';
 import {CommandesSalon} from '../ui/gestionSalon.tsx';
+import {BorneAdhesionSalon} from '../ui/adhesionSalon.tsx';
 
 const PHRASE_TYPE: Record<string, CleTraduction> = {
   c: 'salonInfo.typeCanalPublic',
@@ -50,9 +51,10 @@ export default function EcranSalonInfo() {
   if (etat.phase !== 'connecte' || synchro.phase !== 'pret' || typeof rid !== 'string') {
     return null;
   }
-  return (
+  const contenu=(
     <ContenuSalonInfo key={JSON.stringify(synchro.fournisseur.identite)+rid} rid={rid} base={synchro.base} client={etat.client} actions={synchro.actions} native={synchro.fournisseur.identite.genre==='rocketvibe'} favoris={synchro.capacites.favorisSalon!==false} e2e={synchro.e2e} c={c} />
   );
+  return synchro.fournisseur.native?<BorneAdhesionSalon key={JSON.stringify(synchro.fournisseur.identite)+rid} base={synchro.base} rid={rid}>{()=>contenu}</BorneAdhesionSalon>:contenu;
 }
 
 function ContenuSalonInfo({

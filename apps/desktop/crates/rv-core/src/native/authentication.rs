@@ -29,6 +29,12 @@ pub struct LoginChallenge {
     pub user: User,
     pub challenge: AuthChallenge,
     pub pending: Option<PendingFactor>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::factor_email::private_intent"
+    )]
+    pub email: Option<super::factor_email::Intent>,
 }
 
 pub enum Step {
@@ -71,6 +77,12 @@ impl LoginChallenge {
             })
         {
             return Err(Error::Protocol("invalid_native_authentication"));
+        }
+        if let Some(email) = &self.email {
+            email.validate(&self.challenge)?;
+            if self.pending.as_ref().is_some_and(|p| p.next_token == email.input.delivery_id) {
+                return Err(Error::Protocol("invalid_native_authentication"));
+            }
         }
         Ok(())
     }
@@ -122,6 +134,7 @@ pub async fn start(base: &url::Url, discovered: &Discovery, username: &str, pass
                 user,
                 challenge,
                 pending: None,
+                email: None,
             };
             saved.validate()?;
             Ok(Step::Challenge(saved))

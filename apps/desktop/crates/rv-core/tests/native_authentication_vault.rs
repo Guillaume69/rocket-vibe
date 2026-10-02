@@ -1,5 +1,6 @@
 mod common;
 use common::{FakeHttp, dropped, respond};
+use rv_core::native::security::Guard;
 use rv_core::{
     native::{
         self,
@@ -98,6 +99,7 @@ fn challenge(base: &str) -> LoginChallenge {
         },
         user: serde_json::from_value(f["session"]["user"].clone()).unwrap(),
         pending: None,
+        email: None,
         challenge: AuthChallenge {
             challenge_id: "a".repeat(64),
             methods: vec![SecondFactor::Totp, SecondFactor::RecoveryCode],
@@ -129,6 +131,138 @@ fn discovery() -> Value {
     f["capabilities"]["second_factors"] = json!(true);
     f["capabilities"]["device_sessions"] = json!(true);
     f
+}
+
+struct EmailServer {
+    http: FakeHttp,
+    expiry: String,
+    starts: Arc<AtomicUsize>,
+    cooldown: Arc<AtomicUsize>,
+}
+async fn email_server(memory: Arc<Memory>, lose: bool, cancel: Option<Guard>) -> EmailServer {
+    let expires = (chrono::Utc::now() + chrono::Duration::minutes(5)).to_rfc3339();
+    let (starts, cooldown) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+    let (counter, wait, expiry) = (starts.clone(), cooldown.clone(), expires.clone());
+    let accepted = Mutex::new(None::<Value>);
+    let first = AtomicBool::new(lose);
+    let cancel = Mutex::new(cancel);
+    let http = FakeHttp::start(move |request| {
+        assert!(!request.headers.contains_key("authorization"), "Delivery cannot install a login bearer");
+        match request.path() {
+            "/.well-known/rocketvibe" => {
+                let mut value = discovery(); value["capabilities"]["email_factor_delivery"] = json!(true);
+                respond(200, &value.to_string())
+            }
+            "/api/v1/auth/factors/email/start" | "/api/v1/auth/factors/email/resume" => {
+                let input: Value = serde_json::from_str(&request.body).unwrap();
+                assert!(memory.values.lock().unwrap().values().any(|raw|
+                    serde_json::from_str::<Value>(raw).unwrap()["email"]["input"] == input));
+                assert!(!memory.values.lock().unwrap().values().any(|raw| raw.contains("\"code\":") || raw.contains("\"password\":")));
+                if request.path().ends_with("/start") {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    *accepted.lock().unwrap() = Some(input.clone());
+                    if let Some(guard) = cancel.lock().unwrap().take() { guard.cancel(); }
+                    if first.swap(false, Ordering::SeqCst) { return dropped(); }
+                } else if accepted.lock().unwrap().as_ref() != Some(&input) {
+                    return respond(400, &json!({"code":"factor_rejected","request_id":"fixture"}).to_string());
+                }
+                respond(200, &json!({"expires_at":expiry,"delivery":"accepted","resend_after_seconds":wait.load(Ordering::SeqCst)}).to_string())
+            }
+            _ => panic!("Unexpected email route"),
+        }
+    }).await;
+    EmailServer { http, expiry: expires, starts, cooldown }
+}
+fn email_challenge(server: &EmailServer) -> LoginChallenge {
+    let mut saved = challenge(server.http.url.as_str());
+    saved.challenge.methods = vec![SecondFactor::Email, SecondFactor::RecoveryCode];
+    saved.challenge.expires_at = server.expiry.clone();
+    saved
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn email_lost_ack_parallel_vaults_resume_one_private_delivery_without_installing_credentials() {
+    let temp = TempDir::new();
+    let memory = Arc::new(Memory::default());
+    let server = email_server(memory.clone(), true, None).await;
+    let vault = Vault::new(temp.0.clone(), memory.clone());
+    let saved = email_challenge(&server);
+    vault.stage(saved.clone()).await.unwrap();
+    assert!(vault.send_email(&saved, false, &Guard::new()).await.is_err());
+    let original = vault.load(&saved.base_url, &saved.user.username).await.unwrap().unwrap();
+    assert!(original.email.as_ref().unwrap().status.is_none());
+    let a = Vault::new(temp.0.clone(), memory.clone());
+    let b = Vault::new(temp.0.clone(), memory.clone());
+    let (ga, gb) = (Guard::new(), Guard::new());
+    let (first, second) = tokio::join!(a.send_email(&saved, false, &ga), b.send_email(&original, false, &gb));
+    for recovered in [first.unwrap(), second.unwrap()] {
+        assert!(recovered.email.as_ref().unwrap().same_candidate(original.email.as_ref().unwrap()));
+        assert_eq!(recovered.email.unwrap().status.unwrap().expires_at, server.expiry);
+        assert!(recovered.pending.is_none());
+    }
+    assert_eq!(server.starts.load(Ordering::SeqCst), 1);
+    assert_eq!(memory.values.lock().unwrap().len(), 1);
+    for file in std::fs::read_dir(&temp.0).unwrap() {
+        assert_eq!(file.unwrap().metadata().unwrap().len(), 0);
+    }
+}
+#[tokio::test]
+async fn email_resend_is_explicit_and_a_stale_display_cannot_resend_a_newer_delivery() {
+    let temp = TempDir::new();
+    let memory = Arc::new(Memory::default());
+    let server = email_server(memory.clone(), false, None).await;
+    let vault = Vault::new(temp.0.clone(), memory);
+    let initial = email_challenge(&server);
+    vault.stage(initial.clone()).await.unwrap();
+    let sent = vault.send_email(&initial, false, &Guard::new()).await.unwrap();
+    server.cooldown.store(60, Ordering::SeqCst);
+    assert_eq!(vault.send_email(&sent, true, &Guard::new()).await.err().unwrap().code(), "email_resend_cooldown");
+    assert_eq!(server.starts.load(Ordering::SeqCst), 1);
+    server.cooldown.store(0, Ordering::SeqCst);
+    let resent = vault.send_email(&sent, true, &Guard::new()).await.unwrap();
+    assert!(!sent.email.as_ref().unwrap().same_candidate(resent.email.as_ref().unwrap()));
+    assert_eq!(vault.send_email(&sent, true, &Guard::new()).await.err().unwrap().code(), "credentials_changed");
+    assert_eq!(server.starts.load(Ordering::SeqCst), 2);
+    assert_eq!(resent.challenge.expires_at, server.expiry);
+}
+#[tokio::test]
+async fn email_storage_and_view_guards_keep_the_original_challenge_recoverable() {
+    let temp = TempDir::new();
+    let memory = Arc::new(Memory::default());
+    let guard = Guard::new();
+    let server = email_server(memory.clone(), false, Some(guard.clone())).await;
+    let vault = Vault::new(temp.0.clone(), memory.clone());
+    let saved = email_challenge(&server);
+    vault.stage(saved.clone()).await.unwrap();
+    memory.fail.store(true, Ordering::SeqCst);
+    assert_eq!(
+        vault.send_email(&saved, false, &Guard::new()).await.err().unwrap().code(),
+        "secure_storage_unavailable"
+    );
+    assert_eq!(server.starts.load(Ordering::SeqCst), 0);
+    memory.fail.store(false, Ordering::SeqCst);
+    assert_eq!(vault.send_email(&saved, false, &guard).await.err().unwrap().code(), "session_closed");
+    let original = vault.load(&saved.base_url, &saved.user.username).await.unwrap().unwrap();
+    assert!(original.email.as_ref().unwrap().status.is_none());
+    let mut fresh = saved.clone();
+    fresh.challenge.challenge_id = "d".repeat(64);
+    assert!(
+        matches!(vault.stage(fresh).await.unwrap(), Step::Challenge(c) if c.challenge.challenge_id == saved.challenge.challenge_id)
+    );
+    let recovered = vault.send_email(&saved, false, &Guard::new()).await.unwrap();
+    assert!(recovered.email.unwrap().status.is_some());
+    assert_eq!(server.starts.load(Ordering::SeqCst), 1);
+    let mut malformed = serde_json::to_value(&original).unwrap();
+    malformed["email"] = Value::Null;
+    memory
+        .values
+        .lock()
+        .unwrap()
+        .insert(authentication_vault::key(&saved.base_url, &saved.user.username).unwrap(), malformed.to_string());
+    assert_eq!(
+        vault.load(&saved.base_url, &saved.user.username).await.err().unwrap().code(),
+        "invalid_native_authentication"
+    );
 }
 
 #[test]

@@ -8,7 +8,7 @@ use rv_core::{
     },
     session::{Connection, SessionInfo},
 };
-use rv_protocol::parity::{BeginEmailVerification, BeginFactorSetup, RemoveVerifiedEmail};
+use rv_protocol::parity::{BeginEmailVerification, BeginFactorSetup, RemoveVerifiedEmail, RequestFactorEmail};
 use serde_json::json;
 use std::{
     sync::{
@@ -59,6 +59,10 @@ async fn access_fences_late_results_reconnections_capabilities_and_context() {
     let mutations = Arc::new(AtomicUsize::new(0));
     let removals = Arc::new(AtomicBool::new(true));
     let email_writes = Arc::new(AtomicUsize::new(0));
+    let delivery = Arc::new(AtomicBool::new(true));
+    let otp_starts = Arc::new(AtomicUsize::new(0));
+    let otp_reads = Arc::new(AtomicUsize::new(0));
+    let (delivery_enabled, delivery_starts, delivery_reads) = (delivery.clone(), otp_starts.clone(), otp_reads.clone());
     let (contact_enabled, contact_writes) = (removals.clone(), email_writes.clone());
     let epoch_changed = Arc::new(AtomicBool::new(false));
     let epoch = epoch_changed.clone();
@@ -79,6 +83,7 @@ async fn access_fences_late_results_reconnections_capabilities_and_context() {
             discovery["capabilities"]["second_factors"] = json!(enabled.load(Ordering::SeqCst));
             discovery["capabilities"]["email_verification"] = json!(false);
             discovery["capabilities"]["email_removal"] = json!(contact_enabled.load(Ordering::SeqCst));
+            discovery["capabilities"]["email_factor_delivery"] = json!(delivery_enabled.load(Ordering::SeqCst));
             if epoch.load(Ordering::SeqCst) { discovery["data_epoch"] = json!("changed-epoch"); }
             respond(200, &discovery.to_string())
         }
@@ -107,6 +112,12 @@ async fn access_fences_late_results_reconnections_capabilities_and_context() {
         "/api/v1/me/email/removal/start" | "/api/v1/me/email/verification/start" => {
             contact_writes.fetch_add(1, Ordering::SeqCst);
             respond(400, r#"{"code":"email_removal_rejected","request_id":"fixture"}"#)
+        }
+        "/api/v1/me/reauth/email/start" | "/api/v1/me/reauth/email/resume" => {
+            assert!(request.headers.contains_key("authorization"), "OTP proof keeps the existing family");
+            if request.path().ends_with("/start") { delivery_starts.fetch_add(1, Ordering::SeqCst); }
+            else { delivery_reads.fetch_add(1, Ordering::SeqCst); }
+            respond(200, &json!({"expires_at":"2026-10-01T12:00:00Z","delivery":"accepted","resend_after_seconds":0}).to_string())
         }
         _ => respond(404, r#"{"code":"not_found","request_id":"fixture"}"#),
     }).await;
@@ -166,6 +177,14 @@ async fn access_fences_late_results_reconnections_capabilities_and_context() {
         "unsupported_feature"
     );
     assert_eq!(mutations.load(Ordering::SeqCst), 0);
+    let mail =
+        RequestFactorEmail { challenge_id: "a".repeat(64), delivery_id: "b".repeat(64), operation_id: "c".repeat(64) };
+    live.email_begin(mail.clone()).await.unwrap();
+    delivery.store(false, Ordering::SeqCst);
+    assert_eq!(live.email_begin(mail.clone()).await.err().unwrap().code(), "unsupported_feature");
+    live.email_resume(mail.clone()).await.unwrap();
+    assert_eq!(otp_starts.load(Ordering::SeqCst), 1);
+    assert_eq!(otp_reads.load(Ordering::SeqCst), 1);
     assert!(session.security_supported() && !session.factors_supported());
     assert!(session.email_supported() && session.email_removal_supported() && !session.email_verification_supported());
     let contact = EmailRemote::status(&live).await.unwrap();
@@ -210,12 +229,16 @@ async fn access_fences_late_results_reconnections_capabilities_and_context() {
     // Discovery, rather than an unrelated proof response, is the source's
     // generation barrier before any contact mutation.
     epoch_changed.store(true, Ordering::SeqCst);
+    assert_eq!(live.email_resume(mail.clone()).await.err().unwrap().code(), "server_identity_changed");
+    assert_eq!(otp_reads.load(Ordering::SeqCst), 1);
     assert_eq!(live.remove(removal.clone()).await.err().unwrap().code(), "server_identity_changed");
     assert_eq!(email_writes.load(Ordering::SeqCst), 1);
     session.shutdown();
     assert!(session.is_closed());
     assert_eq!(live.factor_status().await.unwrap_err().code(), "session_closed");
     assert_eq!(live.remove(removal).await.err().unwrap().code(), "session_closed");
+    assert_eq!(live.email_resume(mail).await.err().unwrap().code(), "session_closed");
+    assert_eq!(otp_reads.load(Ordering::SeqCst), 1);
     assert_eq!(email_writes.load(Ordering::SeqCst), 1);
     drop(access);
     drop(stale);

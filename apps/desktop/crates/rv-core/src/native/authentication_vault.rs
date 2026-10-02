@@ -4,6 +4,8 @@ use super::{
     Error,
     authentication::{self, LoginChallenge, Step},
     credentials::Record,
+    factor_email,
+    security::Guard,
 };
 use crate::session::SessionInfo;
 use rv_client::NativeClient;
@@ -74,6 +76,10 @@ impl Vault {
         Self { config, storage }
     }
     async fn lease(&self, scope: &Scope) -> Result<Arc<File>, Error> {
+        self.lease_guard(scope, &Guard::new()).await
+    }
+    async fn lease_guard(&self, scope: &Scope, guard: &Guard) -> Result<Arc<File>, Error> {
+        guard.check()?;
         std::fs::create_dir_all(&self.config).map_err(|_| Error::Protocol("secure_storage_unavailable"))?;
         let file = File::options()
             .read(true)
@@ -83,6 +89,7 @@ impl Vault {
             .open(self.config.join(format!("{}.lock", scope.key)))
             .map_err(|_| Error::Protocol("secure_storage_unavailable"))?;
         loop {
+            guard.check()?;
             match file.try_lock() {
                 Ok(()) => return Ok(Arc::new(file)),
                 Err(std::fs::TryLockError::WouldBlock) => {
@@ -128,13 +135,13 @@ impl Vault {
     }
     async fn stage_tracked(&self, fresh: LoginChallenge) -> Result<Prepared, Error> {
         fresh.validate()?;
-        if fresh.pending.is_some() {
+        if fresh.pending.is_some() || fresh.email.is_some() {
             return Err(Error::Protocol("invalid_native_authentication"));
         }
         let scope = make_scope(&fresh.base_url, &fresh.user.username)?;
         let lease = self.lease(&scope).await?;
         if let Some(previous) = self.read(&scope, lease.clone()).await?
-            && previous.pending.is_some()
+            && (previous.pending.is_some() || previous.email.is_some())
         {
             if !same_identity(&previous, &fresh) {
                 return Err(Error::Protocol("server_identity_changed"));
@@ -166,6 +173,61 @@ impl Vault {
             return Err(Error::Protocol("credentials_changed"));
         }
         authentication::recover(&current).await
+    }
+    pub async fn send_email(
+        &self,
+        expected: &LoginChallenge,
+        resend: bool,
+        guard: &Guard,
+    ) -> Result<LoginChallenge, Error> {
+        expected.validate()?;
+        let scope = make_scope(&expected.base_url, &expected.user.username)?;
+        let lease = self.lease_guard(&scope, guard).await?;
+        let current = self.read(&scope, lease.clone()).await?.ok_or(Error::Protocol("credentials_changed"))?;
+        guard.check()?;
+        if !same_attempt(&current, expected)
+            || (resend
+                && !matches!((&current.email, &expected.email),
+            (Some(a), Some(b)) if a.same_candidate(b)))
+        {
+            return Err(Error::Protocol("credentials_changed"));
+        }
+        let client = NativeClient::new(&current.base_url)?;
+        let discovery = client.discover().await?;
+        guard.check()?;
+        super::check(&current.identity, &discovery)?;
+        if current.email.is_none() && !discovery.capabilities.email_factor_delivery {
+            return Err(Error::Protocol("unsupported_feature"));
+        }
+        let remote = factor_email::LoginRemote { client, identity: current.identity.clone(), guard: guard.clone() };
+        let (challenge, previous) = (current.challenge.clone(), current.email.clone());
+        let tracked = Arc::new(std::sync::Mutex::new(current));
+        let (vault, saved) = (self.clone(), tracked.clone());
+        factor_email::send(&challenge, previous, resend, &remote, guard, move |email| {
+            let (vault, saved, lease, guard) = (vault.clone(), saved.clone(), lease.clone(), guard.clone());
+            let prior = saved.lock().unwrap().clone();
+            async move {
+                guard.check()?;
+                let scope = make_scope(&prior.base_url, &prior.user.username)?;
+                let actual = vault.read(&scope, lease.clone()).await?.ok_or(Error::Protocol("credentials_changed"))?;
+                guard.check()?;
+                if serde_json::to_string(&actual).map_err(|_| Error::Protocol("invalid_native_authentication"))?
+                    != serde_json::to_string(&prior).map_err(|_| Error::Protocol("invalid_native_authentication"))?
+                {
+                    return Err(Error::Protocol("credentials_changed"));
+                }
+                let mut updated = prior;
+                updated.email = Some(email);
+                updated.validate()?;
+                vault.write(&scope, &updated, lease).await?;
+                guard.check()?;
+                *saved.lock().unwrap() = updated;
+                Ok(())
+            }
+        })
+        .await?;
+        let result = tracked.lock().unwrap().clone();
+        Ok(result)
     }
     pub async fn finish(&self, expected: &LoginChallenge, method: SecondFactor, code: &str) -> Result<Record, Error> {
         expected.validate()?;

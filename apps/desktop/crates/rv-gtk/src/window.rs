@@ -32,7 +32,7 @@ struct PendingLogin {
 }
 enum LoginOutcome {
     RocketChat(SessionInfo),
-    Native(rv_core::native::authentication_vault::Prepared),
+    Native(Box<rv_core::native::authentication_vault::Prepared>),
 }
 
 pub struct AppWindow {
@@ -387,7 +387,7 @@ impl AppWindow {
                     secrets::authentication_vault()
                         .prepare(step)
                         .await
-                        .map(LoginOutcome::Native)
+                        .map(|prepared| LoginOutcome::Native(Box::new(prepared)))
                         .map_err(rv_core::native::rest_error)
                 } else if recovery_code.is_some() || invitation.is_some() {
                     Err(rv_core::native::rest_error(rv_core::native::Error::Protocol(if recovery_code.is_some() {
@@ -404,22 +404,21 @@ impl AppWindow {
                 return;
             }
             match result {
-                Ok(LoginOutcome::Native(rv_core::native::authentication_vault::Prepared::Authenticated(
-                    record,
-                    proof,
-                ))) => {
-                    this.install_native_login(*record, proof, generation).await;
-                }
-                Ok(LoginOutcome::Native(rv_core::native::authentication_vault::Prepared::Challenge(saved))) => {
-                    this.pending.replace(None);
-                    this.login.clear_secrets();
-                    if this.login.ask_native_code(&saved) {
-                        this.pending_native.replace(Some(saved));
-                    } else {
-                        this.login.set_busy(false);
-                        this.login.set_error(Some(t("login.factor_unavailable")));
+                Ok(LoginOutcome::Native(prepared)) => match *prepared {
+                    rv_core::native::authentication_vault::Prepared::Authenticated(record, proof) => {
+                        this.install_native_login(*record, proof, generation).await;
                     }
-                }
+                    rv_core::native::authentication_vault::Prepared::Challenge(saved) => {
+                        this.pending.replace(None);
+                        this.login.clear_secrets();
+                        if this.login.ask_native_code(&saved) {
+                            this.pending_native.replace(Some(saved));
+                        } else {
+                            this.login.set_busy(false);
+                            this.login.set_error(Some(t("login.factor_unavailable")));
+                        }
+                    }
+                },
                 Ok(LoginOutcome::RocketChat(info)) => {
                     this.login.clear_secrets();
                     let _ = std::fs::write(last_server_file(), &info.base_url);

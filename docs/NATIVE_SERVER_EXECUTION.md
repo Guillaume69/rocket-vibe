@@ -315,6 +315,26 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, coffres OTP bureau : le coordinateur Rust conserve la livraison dans
+  le défi de connexion ou de réauthentification initial, sous le même verrou
+  OS et dans le trousseau privé. L'envoi sauvegarde son candidat avant HTTP,
+  reprend une réponse perdue et distingue un renvoi explicite avec délai relu.
+  Portée, garde de vue, métadonnées privées et échéance sont vérifiées ; les
+  codes saisis restent transitoires. Une nouvelle preuve de mot de passe ne
+  remplace pas une livraison ambiguë avant la barrière d'expiration. Sans SMTP,
+  le reçu et un code déjà envoyé restent utilisables sur le même défi. Les
+  anciens formats restent lisibles. Dix tests dédiés passent parmi 285 tests
+  Rust bureau ; Clippy, compilation GTK et inventaire régénéré passent. Les
+  contrôles HTTP vérifient aussi absence de bearer avant connexion, famille
+  conservée pour la preuve, disparition de capacité et génération changée.
+  Bindings générés, compilation et six tests locaux Swift passent. Les bancs
+  existants TOTP / contact GTK et Swift passent chacun trois vrais processus
+  avec Secret Service et leur contrôle PostgreSQL, sur deux projets jetables
+  distincts : leurs proxies de perte de réponse ne doivent pas être partagés.
+  Ils qualifient la compatibilité des coffres, pas encore un parcours OTP
+  rendu et connecté. Les projets et volumes privés sont supprimés.
+  Les formulaires GTK / SwiftUI ne sont pas encore raccordés à ces opérations.
+
 - P02, copie privée Swift pendant la reconnexion : la CI `36955805765` du
   commit mobile `020b5b6` a relevé une course entre la régénération des secours
   et leur copie. La lecture FFI reprend le même reçu après reconnexion, avec
@@ -324,6 +344,8 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   tests Rust bureau, Clippy, compilation GTK, bindings et six tests locaux
   Swift passent ; trois processus Swift avec Secret Service réel et contrôle
   PostgreSQL passent. Le banc jetable et son volume privé sont supprimés.
+  La CI native `36957450999` du correctif `3a4d12f` passe ses quatre jobs ;
+  la CI macOS `36957450981` passe compilation, package et lancement.
   Le raccordement des défis OTP aux formulaires bureau reste le point suivant.
 
 - P02, défis OTP mobile : connexion et confirmation d'identité proposent e-mail

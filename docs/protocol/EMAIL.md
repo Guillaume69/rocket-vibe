@@ -18,8 +18,9 @@ du contact, même sans SMTP ; les coffres et boutons mobile / GTK / SwiftUI sont
 raccordés à ces trois routes.
 Le second facteur e-mail est livré côté serveur et SDK, avec inscription
 explicite, retrait et livraison sur un défi déjà établi. Les défis de connexion et
-de confirmation d'identité sont raccordés au mobile. Leur raccordement GTK /
-SwiftUI et les coffres / formulaires d'inscription du facteur restent à livrer ; les
+de confirmation d'identité sont raccordés au mobile. Les coffres partagés du
+cœur Rust bureau conservent aussi leurs livraisons. Le raccordement des
+formulaires GTK / SwiftUI et les coffres / formulaires d'inscription du facteur restent à livrer ; les
 formulaires d'adresse vérifiée ne l'activent pas automatiquement. La récupération
 du compte par e-mail reste à implémenter.
 
@@ -385,6 +386,26 @@ réponses de livraison et de validation disparaissent volontairement, deux codes
 sont transmis, deux preuves sont consommées, aucune répétition ne produit un
 envoi ou une session supplémentaire. Il recrée les coffres avec un adaptateur
 portable ; il ne qualifie pas le Keystore installé, ni le rendu sur appareil.
+
+### Coffres des défis bureau
+
+`rv-core::native::factor_email` reprend la commande de livraison sous le verrou
+OS du coffre de connexion ou de la preuve de la famille active. Le candidat est
+conservé avant HTTP ; une réponse perdue ne crée pas de nouveau mail. Un renvoi
+exige un reçu connu, le délai relu du serveur et la même vue du candidat précédent.
+Les statuts sont limités à leur échéance d'origine et aux métadonnées affichables ;
+les codes et mots de passe n'entrent pas dans le trousseau. Les anciens formats
+sans livraison restent lisibles. Les gardes empêchent une écriture tardive après
+fermeture ; une livraison ambiguë reste récupérable dans le même coffre.
+
+Les lectures restent disponibles sans SMTP. Pour une preuve existante, le code
+déjà envoyé reste proposé pour le même défi après disparition de SMTP ; un
+nouveau défi ne l'annonce pas. Dix tests Rust dédiés couvrent ACK perdu,
+concurrence de coffres recréés, reprise du candidat non envoyé, stockage refusé,
+renvoi explicite, vue obsolète, fermeture, statut privé malformé et échéance.
+Les contrôles du fournisseur vérifient aussi le bearer de la famille et les
+barrières de génération / capacité. Ces coffres ne raccordent pas encore les
+boutons OTP des formulaires GTK / SwiftUI.
 
 Le composant commun d'admission SMTP est extrait : il conserve les clés des
 vérifications déjà admises et partage les budgets persistants global, compte,

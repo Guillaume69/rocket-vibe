@@ -39,6 +39,7 @@ fn challenge(base: &str) -> LoginChallenge {
             resend_after_seconds: 0,
         },
         pending: None,
+        email: None,
     }
 }
 #[tokio::test]

@@ -1,6 +1,7 @@
 //! Private settings operations on the current native family. GTK and SwiftUI
 //! share intent keys, an OS lease spanning HTTP, and fallible trousseau storage.
 pub mod email;
+mod factor_email;
 use super::{Error, NativeSession, authentication::method_name, authentication_vault::Storage};
 use rv_protocol::parity::*;
 pub use rv_protocol::parity::{FactorSetup as Setup, FactorStatus as Status};
@@ -29,6 +30,12 @@ pub trait Remote: Send + Sync {
     fn enable(&self, input: EnableFactor) -> RemoteFuture<FactorBackupCodes>;
     fn regenerate(&self, input: RegenerateFactorBackups) -> RemoteFuture<FactorBackupCodes>;
     fn disable(&self, input: DisableFactor) -> RemoteFuture<()>;
+    fn email_begin(&self, _input: RequestFactorEmail) -> RemoteFuture<FactorEmailDelivery> {
+        Box::pin(async { Err(Error::Protocol("unsupported_feature")) })
+    }
+    fn email_resume(&self, _input: RequestFactorEmail) -> RemoteFuture<FactorEmailDelivery> {
+        Box::pin(async { Err(Error::Protocol("unsupported_feature")) })
+    }
 }
 
 /// A UI closes this guard on dismissal or account change. It can cross the
@@ -210,6 +217,14 @@ impl Remote for Access {
     remote_call!(enable, EnableFactor, FactorBackupCodes, enable_factor, true);
     remote_call!(regenerate, RegenerateFactorBackups, FactorBackupCodes, regenerate_factor_backups, true);
     remote_call!(disable, DisableFactor, (), disable_factor, true);
+    fn email_begin(&self, input: RequestFactorEmail) -> RemoteFuture<FactorEmailDelivery> {
+        let access = self.clone();
+        Box::pin(async move { access.factor_email_call(input, true).await })
+    }
+    fn email_resume(&self, input: RequestFactorEmail) -> RemoteFuture<FactorEmailDelivery> {
+        let access = self.clone();
+        Box::pin(async move { access.factor_email_call(input, false).await })
+    }
 }
 impl NativeSession {
     pub fn security_supported(&self) -> bool {
@@ -266,10 +281,19 @@ pub struct ProofAttempt {
     operation_id: String,
     proof_version: String,
     challenge: Option<AuthChallenge>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::factor_email::private_intent"
+    )]
+    email: Option<super::factor_email::Intent>,
 }
 impl ProofAttempt {
     pub fn challenge(&self) -> Option<&AuthChallenge> {
         self.challenge.as_ref()
+    }
+    pub fn email(&self) -> Option<&super::factor_email::Intent> {
+        self.email.as_ref()
     }
     fn validate(&self, scope: &Scope) -> Result<(), Error> {
         self.scope.validate()?;
@@ -285,6 +309,9 @@ impl ProofAttempt {
             })
         {
             return Err(invalid());
+        }
+        if let Some(email) = &self.email {
+            email.validate(self.challenge.as_ref().ok_or_else(invalid)?)?;
         }
         Ok(())
     }
@@ -477,10 +504,23 @@ impl Vault {
         &self,
         key: &str,
         mut saved: ProofAttempt,
-        challenge: AuthChallenge,
+        mut challenge: AuthChallenge,
         lease: Arc<File>,
         guard: &Guard,
     ) -> Result<ProofState, Error> {
+        if saved.email.is_some() {
+            let old = saved.challenge.as_ref().ok_or_else(invalid)?;
+            if old.challenge_id != challenge.challenge_id
+                || !super::factor_email::same_deadline(&old.expires_at, &challenge.expires_at)
+            {
+                return Err(invalid());
+            }
+            // An already delivered code remains usable if SMTP disappears.
+            // Never advertise email for a new challenge on that authority.
+            if !challenge.methods.iter().any(|m| matches!(m, SecondFactor::Email)) {
+                challenge.methods.push(SecondFactor::Email);
+            }
+        }
         saved.challenge = Some(challenge);
         self.write_proof(key, &saved, lease, guard).await?;
         Ok(ProofState::Challenge(Box::new(saved)))
@@ -541,6 +581,7 @@ impl Vault {
             operation_id: random_token()?,
             proof_version: status.proof_version,
             challenge: None,
+            email: None,
         };
         self.write_proof(&key, &saved, lease.clone(), guard).await?;
         guard.check()?;
@@ -586,7 +627,16 @@ impl Vault {
             Some(ReauthenticationStep::Challenge { challenge }) => challenge,
             None => return Err(Error::Protocol("reauthentication_rejected")),
         };
-        if code.is_empty() || code.len() > 128 || !live.methods.iter().any(|m| method_name(*m) == method_name(method)) {
+        let delivered_email = matches!(method, SecondFactor::Email)
+            && saved.email.is_some()
+            && saved.challenge.as_ref().is_some_and(|old| {
+                old.challenge_id == live.challenge_id
+                    && super::factor_email::same_deadline(&old.expires_at, &live.expires_at)
+            });
+        if code.is_empty()
+            || code.len() > 128
+            || (!delivered_email && !live.methods.iter().any(|m| method_name(*m) == method_name(method)))
+        {
             return Err(Error::Protocol("reauthentication_rejected"));
         }
         guard.check()?;

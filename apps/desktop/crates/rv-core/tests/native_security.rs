@@ -91,6 +91,79 @@ fn context() -> ReauthenticationContext {
 fn scope() -> Scope {
     Scope::new("https://example.org", context()).unwrap()
 }
+#[tokio::test]
+async fn email_proof_recovers_lost_delivery_and_verification_without_changing_family_or_original_intent() {
+    let temp = Temp::new();
+    let memory = Arc::new(Memory::default());
+    let server = Server::new(memory.clone());
+    server.email_available.store(true, Ordering::SeqCst);
+    let vault = Vault::new(temp.0.clone(), memory.clone());
+    let guard = Guard::new();
+    let ProofState::Challenge(original) = vault.prepare(&scope(), &server, "PRIVATE-PASSWORD", &guard).await.unwrap()
+    else {
+        panic!()
+    };
+    server.lose_mail.store(true, Ordering::SeqCst);
+    assert_eq!(vault.send_email(&original, &server, false, &guard).await.err().unwrap().code(), "connection_failed");
+    let recreated = Vault::new(temp.0.clone(), memory.clone());
+    let ProofState::Challenge(restored) = recreated.prepare(&scope(), &server, "", &guard).await.unwrap() else {
+        panic!()
+    };
+    assert!(restored.email().unwrap().status.is_none());
+    let ProofState::Challenge(sent) = recreated.send_email(&restored, &server, false, &guard).await.unwrap() else {
+        panic!()
+    };
+    assert!(restored.email().unwrap().same_candidate(sent.email().unwrap()));
+    assert_eq!(sent.challenge().unwrap().expires_at, original.challenge().unwrap().expires_at);
+    assert_eq!(server.mail_starts.load(Ordering::SeqCst), 1);
+    assert_eq!(server.starts.load(Ordering::SeqCst), 1);
+    server.lose_finish.store(true, Ordering::SeqCst);
+    assert_eq!(
+        recreated.finish(&sent, &server, SecondFactor::Email, "PRIVATE-EMAIL-CODE", &guard).await.err().unwrap().code(),
+        "connection_failed"
+    );
+    assert!(matches!(recreated.prepare(&scope(), &server, "", &guard).await.unwrap(), ProofState::Ready));
+    assert_eq!(server.finishes.load(Ordering::SeqCst), 1);
+    assert!(memory.values.lock().unwrap().is_empty());
+}
+#[tokio::test]
+async fn email_proof_keeps_an_existing_delivered_method_after_smtp_disappears_and_fences_stale_resends() {
+    let temp = Temp::new();
+    let memory = Arc::new(Memory::default());
+    let server = Server::new(memory.clone());
+    server.email_available.store(true, Ordering::SeqCst);
+    let vault = Vault::new(temp.0.clone(), memory);
+    let guard = Guard::new();
+    let ProofState::Challenge(original) = vault.prepare(&scope(), &server, "PRIVATE-PASSWORD", &guard).await.unwrap()
+    else {
+        panic!()
+    };
+    let ProofState::Challenge(sent) = vault.send_email(&original, &server, false, &guard).await.unwrap() else {
+        panic!()
+    };
+    let ProofState::Challenge(resent) = vault.send_email(&sent, &server, true, &guard).await.unwrap() else { panic!() };
+    assert!(!sent.email().unwrap().same_candidate(resent.email().unwrap()));
+    assert_eq!(vault.send_email(&sent, &server, true, &guard).await.err().unwrap().code(), "credentials_changed");
+    assert_eq!(server.mail_starts.load(Ordering::SeqCst), 2);
+    server.email_available.store(false, Ordering::SeqCst);
+    let ProofState::Challenge(retained) = vault.prepare(&scope(), &server, "", &guard).await.unwrap() else { panic!() };
+    assert!(retained.challenge().unwrap().methods.iter().any(|m| matches!(m, SecondFactor::Email)));
+    assert!(matches!(
+        vault.finish(&retained, &server, SecondFactor::Email, "PRIVATE-EMAIL-CODE", &guard).await.unwrap(),
+        ProofState::Ready
+    ));
+    assert_eq!(server.mail_starts.load(Ordering::SeqCst), 2);
+    let fresh_memory = Arc::new(Memory::default());
+    let fresh_server = Server::new(fresh_memory.clone());
+    let ProofState::Challenge(fresh) = Vault::new(temp.0.clone(), fresh_memory)
+        .prepare(&scope(), &fresh_server, "PRIVATE-PASSWORD", &guard)
+        .await
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(!fresh.challenge().unwrap().methods.iter().any(|m| matches!(m, SecondFactor::Email)));
+}
 fn error(status: u16, code: &str) -> Error {
     Error::Network(rv_client::Error::Server { status, code: code.into(), request_id: None, retry_after: None })
 }
@@ -99,6 +172,8 @@ struct State {
     head: String,
     recent: bool,
     pending: HashMap<String, BeginReauthentication>,
+    challenges: HashMap<String, AuthChallenge>,
+    deliveries: HashMap<String, RequestFactorEmail>,
     grants: HashMap<String, ReauthenticationGrant>,
     factor_version: Option<String>,
     bags: HashMap<String, FactorBackupCodes>,
@@ -118,6 +193,9 @@ struct Server {
     lose_disable: Arc<AtomicBool>,
     cancel_enable: Arc<Mutex<Option<Guard>>>,
     change_enable: Arc<AtomicBool>,
+    email_available: Arc<AtomicBool>,
+    mail_starts: Arc<AtomicUsize>,
+    lose_mail: Arc<AtomicBool>,
 }
 impl Server {
     fn new(memory: Arc<Memory>) -> Self {
@@ -135,6 +213,9 @@ impl Server {
             lose_disable: Arc::default(),
             cancel_enable: Arc::default(),
             change_enable: Arc::default(),
+            email_available: Arc::default(),
+            mail_starts: Arc::default(),
+            lose_mail: Arc::default(),
         }
     }
     fn status_value(&self) -> ReauthenticationStatus {
@@ -186,10 +267,15 @@ impl Remote for Server {
             let mut state = s.state.lock().unwrap();
             assert_eq!(state.head, input.proof_version);
             state.pending.insert(input.challenge_id.clone(), input.clone());
+            let ReauthenticationStep::Challenge { mut challenge } = Self::challenge(&input) else { unreachable!() };
+            if s.email_available.load(Ordering::SeqCst) {
+                challenge.methods.push(SecondFactor::Email);
+            }
+            state.challenges.insert(input.challenge_id.clone(), challenge.clone());
             if s.lose_start.swap(false, Ordering::SeqCst) {
                 return Err(Error::Protocol("connection_failed"));
             }
-            Ok(Self::challenge(&input))
+            Ok(ReauthenticationStep::Challenge { challenge })
         })
     }
     fn resume(&self, input: ResumeReauthentication) -> RemoteFuture<ReauthenticationStep> {
@@ -199,9 +285,49 @@ impl Remote for Server {
             if let Some(grant) = state.grants.get(&input.challenge_id) {
                 return Ok(ReauthenticationStep::Granted { grant: grant.clone() });
             }
-            let input =
+            let _input =
                 state.pending.get(&input.challenge_id).ok_or_else(|| error(404, "reauthentication_not_found"))?;
-            Ok(Self::challenge(input))
+            let mut challenge = state.challenges.get(&input.challenge_id).unwrap().clone();
+            if !s.email_available.load(Ordering::SeqCst) {
+                challenge.methods.retain(|m| !matches!(m, SecondFactor::Email));
+            }
+            Ok(ReauthenticationStep::Challenge { challenge })
+        })
+    }
+    fn email_begin(&self, input: RequestFactorEmail) -> RemoteFuture<FactorEmailDelivery> {
+        let s = self.clone();
+        Box::pin(async move {
+            if !s.email_available.load(Ordering::SeqCst) {
+                return Err(Error::Protocol("unsupported_feature"));
+            }
+            assert!(s.memory.values.lock().unwrap().values().any(|raw| {
+                serde_json::from_str::<serde_json::Value>(raw).unwrap()["email"]["input"]
+                    == serde_json::to_value(&input).unwrap()
+            }));
+            assert!(!s.memory.values.lock().unwrap().values().any(|raw| raw.contains("PRIVATE-EMAIL-CODE")));
+            s.mail_starts.fetch_add(1, Ordering::SeqCst);
+            let mut state = s.state.lock().unwrap();
+            let expires_at = state.challenges.get(&input.challenge_id).unwrap().expires_at.clone();
+            state.deliveries.insert(input.delivery_id.clone(), input);
+            if s.lose_mail.swap(false, Ordering::SeqCst) {
+                return Err(Error::Protocol("connection_failed"));
+            }
+            Ok(FactorEmailDelivery { expires_at, delivery: EmailDeliveryState::Accepted, resend_after_seconds: 0 })
+        })
+    }
+    fn email_resume(&self, input: RequestFactorEmail) -> RemoteFuture<FactorEmailDelivery> {
+        let s = self.clone();
+        Box::pin(async move {
+            let state = s.state.lock().unwrap();
+            let prior = state.deliveries.get(&input.delivery_id).ok_or_else(|| error(400, "factor_rejected"))?;
+            if prior.operation_id != input.operation_id || prior.challenge_id != input.challenge_id {
+                return Err(error(400, "factor_rejected"));
+            }
+            Ok(FactorEmailDelivery {
+                expires_at: state.challenges.get(&input.challenge_id).unwrap().expires_at.clone(),
+                delivery: EmailDeliveryState::Accepted,
+                resend_after_seconds: 0,
+            })
         })
     }
     fn finish(&self, input: FinishReauthentication) -> RemoteFuture<ReauthenticationGrant> {

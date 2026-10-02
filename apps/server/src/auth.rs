@@ -242,7 +242,7 @@ async fn password_login(
         display_name,
     };
     let enabled: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM user_factors WHERE user_id=$1)")
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_factor_profiles WHERE user_id=$1)")
             .bind(&user.id)
             .fetch_one(&mut *tx)
             .await?;
@@ -286,7 +286,7 @@ pub(crate) async fn create_session(
         return Err(Error::throttled("device_limit", 60));
     }
     let device = random_token()[..32].to_owned();
-    sqlx::query("INSERT INTO session_devices(id,user_id,login_factor_id) VALUES($1,$2,(SELECT version FROM user_factors WHERE user_id=$2))")
+    sqlx::query("INSERT INTO session_devices(id,user_id,login_factor_id) VALUES($1,$2,(SELECT version FROM account_factor_profiles WHERE user_id=$2))")
         .bind(&device)
         .bind(&user.id)
         .execute(&mut **tx)

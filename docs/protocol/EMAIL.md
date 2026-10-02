@@ -268,7 +268,8 @@ et cœur Windows mais échoue dans le banc Swift sur une soumission qui précéd
 la fin de reconnexion après régénération. Le banc corrigé exige une vue fraîche
 et vérifie les pertes effectives de réponse via le proxy jetable. Compilation,
 six tests locaux, trois processus connectés et invariants PostgreSQL passent
-avec le serveur reconstruit ; sa nouvelle CI reste à qualifier.
+avec le serveur reconstruit. Le correctif et le budget SMTP du commit `fab08e0`
+passent les quatre jobs natifs `36947405591` ainsi que macOS `36947405670`.
 
 ## Décisions pour le facteur e-mail restant
 
@@ -285,6 +286,17 @@ L'inscription / désactivation exigera la preuve récente du compte et sa versio
 actuelle ; ses reçus, changements d'autorité et révocations des autres appareils
 suivront les garanties déjà appliquées à TOTP. Toute émission de nouveaux secours
 sera présentée et conservée comme un reçu privé, jamais remplacée silencieusement.
+
+Le socle 0019 implémente déjà les profils indépendants et les secours communs.
+Un profil inscrit exige une clé opérateur validée par un marqueur authentifié
+sur la version exacte du contact, y compris avant consommation d'un secours.
+Les routes refusent de retirer / remplacer ce contact tant que le facteur reste
+installé ; les contraintes SQL refusent son retrait ou le changement de sa
+version. Huit tests PostgreSQL couvrent e-mail seul,
+coexistence, changement de provenance de preuve, régénération, erreurs de clé,
+dernier facteur retiré et vraie migration depuis 0018 avec données TOTP intactes.
+L'inscription e-mail des tests reste privée à leurs bases jetables ; aucune route
+d'inscription ni méthode OTP n'est encore exposée.
 
 L'envoi sera demandé explicitement sur le défi de connexion ou de confirmation
 d'identité déjà établi. Le client conservera son candidat de livraison avant

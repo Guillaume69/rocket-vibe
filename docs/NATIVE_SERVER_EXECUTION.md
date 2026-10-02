@@ -315,6 +315,23 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, profils de facteurs indépendants : migration 0019, vue d'autorité commune
+  et validation authentifiée de la clé du profil e-mail sur son contact exact.
+  Connexion et réauthentification considèrent e-mail seul ou coexistence ; les
+  anciennes preuves TOTP conservent leur identité. Les secours appartiennent au
+  compte et ne sont effacés qu'au dernier facteur retiré. Changer le profil de
+  référence impose une nouvelle preuve ; une inscription TOTP présente une
+  seule liste de remplacement, sans additionner les anciens secours. Les routes
+  bloquent le retrait / remplacement du contact actif ; les contraintes SQL
+  refusent son retrait ou le changement de sa version.
+  Huit tests PostgreSQL passent, dont vraie migration depuis 0018 avec TOTP,
+  compteurs, secours consommés et preuve de connexion préexistants intacts.
+  Le contrôle complet passe : 132 tests serveur dont les 27 régressions facteurs,
+  7 tests protocole / client, 126 tests TypeScript, Clippy et contrats générés.
+  Le banc Swift du serveur reconstruit passe trois processus et le contrôle SQL
+  avec vrai Secret Service, SMTP TLS local et réponses perdues. Aucune inscription
+  e-mail ni émission OTP n'est encore exposée ; sa capacité reste la suite de P02.
+
 - P02, budget SMTP commun : extraction de l'admission persistante de la
   vérification vers un composant partagé, en conservant les clés des commandes
   déjà admises. Les futures finalités OTP / récupération partageront les limites
@@ -355,7 +372,9 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   Le banc exige désormais une vue fraîche avant soumission explicite et observe
   séparément les réponses réellement perdues par le proxy jetable. Sa correction
   passe compilation, six tests locaux, trois processus connectés et le contrôle
-  PostgreSQL du serveur reconstruit ; sa nouvelle CI reste à qualifier. Facteur e-mail,
+  PostgreSQL du serveur reconstruit. Le correctif et le budget SMTP du commit
+  `fab08e0` passent les quatre jobs natifs `36947405591` et macOS `36947405670`.
+  Facteur e-mail,
   récupération et trousseaux / apps installés restent la suite de P02.
 
 - P02, retrait du contact mobile : bouton avec confirmation native dans les

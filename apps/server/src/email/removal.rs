@@ -115,6 +115,7 @@ pub(crate) async fn begin(
         return Err(rejected());
     }
     factors::recent(&mut tx, account).await?;
+    factors::profiles::contact_mutable(&mut tx, &account.id).await?;
     // User/device -> verification -> outbox locks match producers. Acquire all
     // rows before rechecking the real session/proof deadlines; SMTP owns none.
     sqlx::query("SELECT token_hash FROM email_verifications WHERE user_id=$1 FOR UPDATE")

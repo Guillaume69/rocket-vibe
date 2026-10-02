@@ -1,5 +1,7 @@
 //! Native second factors: account-first SQL locks, encrypted TOTP secrets,
 //! single-use challenges/codes and replay receipts proving the same successor.
+pub(crate) mod profiles;
+
 use chrono::{DateTime, Utc};
 use rv_protocol::{
     Session, User,
@@ -64,18 +66,10 @@ pub(crate) async fn methods(
     user_id: &str,
     instance: &str,
 ) -> Result<Vec<SecondFactor>> {
-    let factor: (String, Vec<u8>) =
-        sqlx::query_as("SELECT version,totp_cipher FROM user_factors WHERE user_id=$1")
-            .bind(user_id)
-            .fetch_one(&mut **tx)
-            .await?;
     // Fail closed on a missing/wrong key or corrupt ciphertext, even if backup
     // codes remain. A deployment mistake never downgrades an enabled account.
-    let secret = key(app)?.open(
-        &factor.1,
-        &factor_crypto::aad(instance, user_id, &factor.0, "totp"),
-    )?;
-    if secret.len() != 20 {
+    let profiles = profiles::validated(app, tx, instance, user_id).await?;
+    if !profiles.enabled() {
         return Err(factor_crypto::unavailable());
     }
     let backups: bool = sqlx::query_scalar(
@@ -84,11 +78,19 @@ pub(crate) async fn methods(
     .bind(user_id)
     .fetch_one(&mut **tx)
     .await?;
-    Ok(if backups {
-        vec![SecondFactor::Totp, SecondFactor::RecoveryCode]
-    } else {
-        vec![SecondFactor::Totp]
-    })
+    let mut methods = Vec::new();
+    if profiles.totp.is_some() {
+        methods.push(SecondFactor::Totp);
+    }
+    // E-mail delivery is deliberately not advertised until its challenge
+    // producer and SMTP worker exist. A configured profile still protects login.
+    if backups {
+        methods.push(SecondFactor::RecoveryCode);
+    }
+    if methods.is_empty() {
+        return Err(factor_crypto::unavailable());
+    }
+    Ok(methods)
 }
 
 #[derive(FromRow)]
@@ -212,25 +214,22 @@ pub(crate) async fn verify_code(
     code: &str,
     deadline: DateTime<Utc>,
 ) -> Result<bool> {
-    let factor: Option<(String, Vec<u8>, i64)> = sqlx::query_as("SELECT version,totp_cipher,last_totp_counter FROM user_factors WHERE user_id=$1 FOR UPDATE")
-        .bind(user_id).fetch_optional(&mut **tx).await?;
-    let (factor_id, cipher, last) = factor.ok_or_else(rejected)?;
+    let profiles = profiles::validated(app, tx, instance, user_id).await?;
+    if !profiles.enabled() {
+        return Err(rejected());
+    }
     let now: DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
         .fetch_one(&mut **tx)
         .await?;
     if deadline <= now {
         return Ok(false);
     }
-    let secret = key(app)?.open(
-        &cipher,
-        &factor_crypto::aad(instance, user_id, &factor_id, "totp"),
-    )?;
-    if secret.len() != 20 {
-        return Err(factor_crypto::unavailable());
-    }
     let valid = match method {
         SecondFactor::Totp => {
-            if let Some(counter) = factor_crypto::verify(&secret, code, now.timestamp(), last) {
+            let counter = profiles.totp.as_ref().and_then(|totp| {
+                factor_crypto::verify(&totp.secret, code, now.timestamp(), totp.last)
+            });
+            if let Some(counter) = counter {
                 sqlx::query("UPDATE user_factors SET last_totp_counter=$2 WHERE user_id=$1")
                     .bind(user_id)
                     .bind(counter)
@@ -273,19 +272,19 @@ pub(crate) async fn recently_authenticated(
     tx: &mut Transaction<'_, Postgres>,
     account: &Account,
 ) -> Result<bool> {
-    Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM session_devices d JOIN sessions s ON s.device_id=d.id JOIN users u ON u.id=d.user_id JOIN instance i ON i.singleton LEFT JOIN user_factors f ON f.user_id=d.user_id LEFT JOIN reauthentication_grants g ON g.device_id=d.id AND g.user_id=u.id WHERE s.token_hash=$1 AND ((d.created_at>clock_timestamp()-interval '15 minutes' AND (f.user_id IS NULL OR d.login_factor_id=f.version)) OR (g.proof_version=d.reauthentication_version AND g.expires_at>clock_timestamp() AND g.authenticated_at>clock_timestamp()-interval '15 minutes' AND g.instance_id=i.instance_id AND g.data_epoch=i.data_epoch AND g.activation_version=u.activation_version AND g.factor_version=u.factor_version AND (f.user_id IS NULL OR (g.factor_completed AND g.factor_id=f.version)))))")
+    Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM session_devices d JOIN sessions s ON s.device_id=d.id JOIN users u ON u.id=d.user_id JOIN instance i ON i.singleton LEFT JOIN account_factor_profiles f ON f.user_id=d.user_id LEFT JOIN reauthentication_grants g ON g.device_id=d.id AND g.user_id=u.id WHERE s.token_hash=$1 AND ((d.created_at>clock_timestamp()-interval '15 minutes' AND (f.user_id IS NULL OR d.login_factor_id=f.version)) OR (g.proof_version=d.reauthentication_version AND g.expires_at>clock_timestamp() AND g.authenticated_at>clock_timestamp()-interval '15 minutes' AND g.instance_id=i.instance_id AND g.data_epoch=i.data_epoch AND g.activation_version=u.activation_version AND g.factor_version=u.factor_version AND (f.user_id IS NULL OR (g.factor_completed AND g.factor_id=f.version)))))")
         .bind(&account.session_hash).fetch_one(&mut **tx).await?)
 }
 
 pub(crate) async fn status(app: &App, account: &Account) -> Result<FactorStatus> {
     let mut tx = app.pool.begin().await?;
     auth::lock_active(&mut tx, account).await?;
-    let (totp, count, version): (bool, i64, Option<String>) = sqlx::query_as("SELECT EXISTS(SELECT 1 FROM user_factors WHERE user_id=$1),(SELECT COUNT(*) FROM factor_backup_codes WHERE user_id=$1 AND consumed_at IS NULL),(SELECT u.factor_version FROM users u JOIN user_factors f ON f.user_id=u.id WHERE u.id=$1)")
+    let (totp, email, count, version): (bool, bool, i64, Option<String>) = sqlx::query_as("SELECT EXISTS(SELECT 1 FROM user_factors WHERE user_id=$1),EXISTS(SELECT 1 FROM user_email_factors WHERE user_id=$1),(SELECT COUNT(*) FROM factor_backup_codes WHERE user_id=$1 AND consumed_at IS NULL),(SELECT u.factor_version FROM users u JOIN account_factor_profiles f ON f.user_id=u.id WHERE u.id=$1)")
         .bind(&account.id).fetch_one(&mut *tx).await?;
     tx.commit().await?;
     Ok(FactorStatus {
         totp,
-        email: false,
+        email,
         backup_codes_remaining: count as u32,
         factor_version: version,
     })
@@ -321,6 +320,7 @@ pub(crate) async fn begin(
             .await?;
     auth::lock_active(&mut tx, account).await?;
     recent(&mut tx, account).await?;
+    profiles::validated(app, &mut tx, &instance, &account.id).await?;
     let active: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM user_factors WHERE user_id=$1)")
             .bind(&account.id)
@@ -437,6 +437,7 @@ pub(crate) async fn enable(
             .bind(&account.id)
             .fetch_one(&mut *tx)
             .await?;
+    profiles::validated(app, &mut tx, &instance, &account.id).await?;
     if active || setup.attempts >= 5 {
         return Err(rejected());
     }
@@ -455,6 +456,12 @@ pub(crate) async fn enable(
     sqlx::query("INSERT INTO user_factors(user_id,version,totp_cipher,last_totp_counter) VALUES($1,$2,$3,$4)")
         .bind(&account.id).bind(&setup.id).bind(setup.secret_cipher).bind(counter).execute(&mut *tx).await?;
     let committed_version = auth::random_token();
+    // Enrollment explicitly issues the displayed replacement common bag.
+    // Adding TOTP alongside e-mail must not accumulate another ten live codes.
+    sqlx::query("DELETE FROM factor_backup_codes WHERE user_id=$1")
+        .bind(&account.id)
+        .execute(&mut *tx)
+        .await?;
     let codes = new_backup_codes(&mut tx, &account.id, &committed_version).await?;
     // Advance the authority and delete other families. Keep only the enrolling
     // device, which cannot disable its new factor without a full factor login.
@@ -578,18 +585,11 @@ pub(crate) async fn regenerate_backups(
         return Err(Error::conflict());
     }
     recent(&mut tx, account).await?;
-    let factor: Option<(String, Vec<u8>)> =
-        sqlx::query_as("SELECT version,totp_cipher FROM user_factors WHERE user_id=$1 FOR UPDATE")
-            .bind(&account.id)
-            .fetch_optional(&mut *tx)
-            .await?;
-    let (factor_id, cipher) = factor.ok_or_else(Error::conflict)?;
-    let secret = key.open(
-        &cipher,
-        &factor_crypto::aad(&instance, &account.id, &factor_id, "totp"),
-    )?;
-    if secret.len() != 20 {
-        return Err(factor_crypto::unavailable());
+    if !profiles::validated(app, &mut tx, &instance, &account.id)
+        .await?
+        .enabled()
+    {
+        return Err(Error::conflict());
     }
     // Serialize this successful-operation quota with the user's authority lock.
     // Receipt replays never mint codes, consume quota or revoke new devices.
@@ -655,9 +655,10 @@ pub(crate) async fn disable(
     key(app)?;
     let mut tx = app.pool.begin().await?;
     auth::mutation_deadlines(&mut tx).await?;
-    sqlx::query("SELECT instance_id FROM instance WHERE singleton FOR SHARE")
-        .fetch_one(&mut *tx)
-        .await?;
+    let instance: String =
+        sqlx::query_scalar("SELECT instance_id FROM instance WHERE singleton FOR SHARE")
+            .fetch_one(&mut *tx)
+            .await?;
     auth::lock_active(&mut tx, account).await?;
     let version: Option<String> = sqlx::query_scalar(
         "SELECT u.factor_version FROM users u JOIN user_factors f ON f.user_id=u.id WHERE u.id=$1",
@@ -673,6 +674,7 @@ pub(crate) async fn disable(
         return Err(Error::conflict());
     }
     recent(&mut tx, account).await?;
+    profiles::validated(app, &mut tx, &instance, &account.id).await?;
     sqlx::query("DELETE FROM user_factors WHERE user_id=$1")
         .bind(&account.id)
         .execute(&mut *tx)

@@ -256,6 +256,7 @@ pub(crate) async fn begin(
     }
     expected(&current, &input)?;
     factors::recent(&mut tx, account).await?;
+    factors::profiles::contact_mutable(&mut tx, &account.id).await?;
     tx.rollback().await?;
     // Global quota precedes business locks, in its own durable transaction.
     crate::email_delivery::admit(app, account, &input, peer).await?;
@@ -282,6 +283,7 @@ pub(crate) async fn begin(
     }
     expected(&current, &input)?;
     factors::recent(&mut tx, account).await?;
+    factors::profiles::contact_mutable(&mut tx, &account.id).await?;
     let exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM email_verifications WHERE device_id=$1 AND (operation_id=$2 OR requested_version=$3))").bind(&current.context.device_id).bind(&input.operation_id).bind(&current.head).fetch_one(&mut *tx).await?;
     if exists {
         return Err(Error::conflict());
@@ -374,6 +376,7 @@ pub(crate) async fn confirm(
         return Ok(result);
     }
     factors::recent(&mut tx, account).await?;
+    factors::profiles::contact_mutable(&mut tx, &account.id).await?;
     if !bool::from(
         saved
             .code_hash

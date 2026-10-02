@@ -385,3 +385,35 @@ ancien fournisseur. Les mêmes postconditions PostgreSQL prouvent une famille,
 une preuve, deux codes consommés et une régénération, sans renouveler l'âge de
 preuve. Ce banc Linux qualifie les modèles et la FFI ; la compilation SwiftUI
 macOS et le Keychain d'une app installée sont des validations distinctes.
+
+### Profils indépendants et secours communs — socle du facteur e-mail
+
+La migration 0019 ajoute un profil e-mail distinct, lié à la version du contact
+vérifié. Elle n'active aucune adresse existante. Connexion, preuve récente et
+réauthentification prennent désormais en compte les deux profils : TOTP reste
+la provenance préférée lorsqu'il coexiste avec l'e-mail, ce qui conserve les
+identités des preuves TOTP antérieures. Ajouter TOTP à un profil e-mail seul ou
+retirer TOTP en laissant l'e-mail impose une nouvelle preuve du profil courant.
+
+Les secours sont rattachés au compte. Retirer un facteur les conserve tant que
+l'autre reste installé ; retirer le dernier efface toute la liste, consommée
+ou non. Une inscription TOTP explicite présente une liste de remplacement de
+dix codes, sans accumuler les anciennes listes. La régénération et son reçu
+initial peuvent aussi fonctionner avec un profil e-mail seul, sans SMTP.
+
+Avant de proposer un défi ou de consommer un secours, le serveur valide les
+chiffrements de tous les profils installés. Le marqueur e-mail est authentifié
+avec la clé opérateur et lié à l'instance, au compte, au profil et à la version
+du contact. Clé absente, erronée, marqueur invalide ou portée différente ferment
+le parcours protégé sans consommer le secours ni délivrer une session.
+
+Un contact portant un facteur actif doit être désinscrit de ce facteur avant
+remplacement ou retrait. Les routes de contact répondent `email_factor_active`,
+et les contraintes PostgreSQL refusent aussi retrait ou changement de version
+directs. L'effacement d'un compte après retrait de ses références de sessions
+peut toujours supprimer ensemble contact, profil et secours.
+
+Ce socle ne fournit pas encore d'inscription e-mail publique ni d'émission OTP.
+La méthode e-mail n'est pas annoncée ; les profils des tests sont inscrits dans
+leurs seules bases jetables. Sans transport utilisable, un profil e-mail seul
+reste protégé par ses secours, puis fermé si ceux-ci sont épuisés.

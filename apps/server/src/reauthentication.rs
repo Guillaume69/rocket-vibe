@@ -204,7 +204,7 @@ async fn accept(
     let revision = auth::random_token();
     let factor_id: Option<String> = if factor_completed {
         Some(
-            sqlx::query_scalar("SELECT version FROM user_factors WHERE user_id=$1")
+            sqlx::query_scalar("SELECT version FROM account_factor_profiles WHERE user_id=$1")
                 .bind(&account.id)
                 .fetch_one(&mut **tx)
                 .await?,
@@ -323,7 +323,7 @@ pub(crate) async fn begin(
         return Err(Error::throttled("challenge_limit", 60));
     }
     let enabled: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM user_factors WHERE user_id=$1)")
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_factor_profiles WHERE user_id=$1)")
             .bind(&account.id)
             .fetch_one(&mut *tx)
             .await?;

@@ -472,8 +472,9 @@ La migration 0021 ajoute `POST /api/v1/auth/recovery/email/start`, annoncé par
 anonyme contient un `operation_id` aléatoire de 256 bits, le pseudo, `instance_id`
 et `data_epoch`. Le client doit conserver cette intention avant HTTP et la
 répéter après une réponse perdue. Les transports Rust et TypeScript exposent
-l'appel public ; les coffres et boutons de demande dans les trois clients restent
-à raccorder. Aucun envoi automatique n'est déclenché par la connexion.
+l'appel public ; les coffres privés décrits ci-dessous sont disponibles et les
+boutons des trois clients restent à raccorder. Aucun envoi automatique n'est
+déclenché par la connexion.
 
 Une demande valide rend `202`, `Cache-Control: no-store` et `{"accepted":true}`.
 Cette réponse reste identique pour un compte connu, inconnu, désactivé, sans
@@ -514,6 +515,48 @@ mot de passe peuvent retrouver le reçu pendant cinq minutes sans révoquer une
 nouvelle connexion. Contact, autorité, instance, génération et échéance sont
 revérifiés sous verrou du compte. Un code déjà reçu reste utilisable sans SMTP
 ni clé opérateur, comme la récupération opérateur historique.
+
+## Coffres de demande anonyme
+
+Le coordinateur Rust `native::email_recovery` est commun à GTK et SwiftUI.
+Le module mobile `EmailRecoveryVault` suit les mêmes règles et dispose de son
+adaptateur SecureStore dans `nativeAuthenticationStore`. La clé privée utilise
+le domaine `native-recovery-email-v1`, l'URL canonique et le pseudo, séparément
+des comptes actifs, preuves de connexion et clés E2EE. Le bureau retient un
+verrou OS sur toute l'opération ; l'adaptateur de trousseau doit le conserver
+jusqu'à la fin réelle de ses lectures / écritures après annulation de l'appelant.
+Seuls des fichiers de verrou vides existent hors du trousseau. La file mobile
+est partagée entre instances du coffre et couvre HTTP et stockage.
+
+Une demande explicitement lancée conserve avant HTTP son opération aléatoire,
+pseudo, instance, génération, date locale et délai conservateur d'une heure.
+Un `Retry-After` reçu est conservé dans cette intention : sa reprise attend
+ce délai même après recréation du coffre, sans requête réseau précoce ni
+changement du candidat / de son échéance. Le SDK Rust partage aussi le cooldown
+de ce endpoint entre ses clones, tout en laissant disponible la découverte.
+Le coffre ne stocke ni adresse, ni mot de passe, ni code reçu, ni bearer.
+L'acquittement reste générique : il ne confirme pas l'envoi d'un mail. Une lecture
+ne fait aucun appel réseau ; une reprise utilise l'intention d'origine, et un
+reçu déjà acquitté n'est pas envoyé à nouveau. Les versions sont vérifiées autour
+de l'appel. Une capacité absente bloque une nouvelle émission ; sa disparition
+après un acquittement n'efface pas ce reçu ni ne prétend qualifier sa livraison.
+
+L'expiration ou un nouveau formulaire ne remplace pas silencieusement la demande.
+Une nouvelle demande exige sa fermeture locale explicite. Cette fermeture ne
+révoque pas un mail déjà en file côté serveur et ne peut effacer une intention
+plus récente. Une garde fermée pendant une écriture ou une réponse ambiguë
+conserve le candidat original sans lancer de mutation tardive. Des coordonnées
+de scope, champs privés ou échéances malformés ferment le coffre sans nouvel
+envoi ; les erreurs de parsing n'exposent pas leur contenu.
+
+Douze tests Rust sur HTTP TCP et douze tests mobile couvrent clés, concurrence,
+recréation, ACK perdu, stockage refusé, génération / capacité modifiées, TTL,
+corruption, cooldown persistant, fermeture et suppression locale tardive. Un test retient réellement
+un verrou de fichier pendant une écriture `spawn_blocking` après annulation,
+puis prouve que le coffre recréé attend et reprend le même candidat. Le mobile
+annule une garde pendant une vraie promesse de stockage / réponse en cours.
+Ces tests des coordinateurs ne qualifient pas encore les boutons des applications
+ni une reprise installée Android / Windows / macOS.
 
 Il reste à qualifier les parcours installés et le relais réel avec accès
 opérateur. Un test SMTP / TLS loopback ne valide pas la délivrabilité d'un

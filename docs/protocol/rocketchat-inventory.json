@@ -33,6 +33,7 @@
     "apps/desktop/crates/rv-core/src/native/authentication.rs",
     "apps/desktop/crates/rv-core/src/native/authentication_vault.rs",
     "apps/desktop/crates/rv-core/src/native/credentials.rs",
+    "apps/desktop/crates/rv-core/src/native/email_recovery.rs",
     "apps/desktop/crates/rv-core/src/native/factor_email.rs",
     "apps/desktop/crates/rv-core/src/native/security.rs",
     "apps/desktop/crates/rv-core/src/native/security/email.rs",

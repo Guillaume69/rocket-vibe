@@ -172,6 +172,7 @@ impl NativeClient {
             "/api/v1/me/email/verification/start"
             | "/api/v1/auth/factors/email/start"
             | "/api/v1/me/reauth/email/start" => Some("email_delivery"),
+            "/api/v1/auth/recovery/email/start" => Some("email_recovery"),
             "/api/v1/auth/renew" => Some("session_rotation"),
             "/api/v1/sync/ticket" => Some("ticket"),
             "/api/v1/sync/snapshots" => Some("snapshot"),

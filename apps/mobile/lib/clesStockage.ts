@@ -46,6 +46,12 @@ export async function cleAuthentificationNative(baseUrl:string,username:string,h
   return `native-auth-${(await hacher(JSON.stringify(['native-auth-v1',canonical,username]))).slice(0,32)}`;
 }
 
+/** An anonymous recovery delivery is neither a login proof nor an active account. */
+export async function cleRecuperationEmailNative(baseUrl:string,username:string,hacher:Hacheur):Promise<string> {
+  const canonical=sansSlashFinal(new URL(baseUrl).toString());
+  return `native-recovery-email-${await hacher(JSON.stringify(['native-recovery-email-v1',canonical,username]))}`;
+}
+
 /**
  * Clé privée E2EE, propre au couple (serveur, compte).
  *

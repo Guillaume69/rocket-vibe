@@ -2,6 +2,7 @@
 pub mod authentication;
 pub mod authentication_vault;
 pub mod credentials;
+pub mod email_recovery;
 pub mod factor_email;
 pub mod security;
 pub mod store;

@@ -315,6 +315,22 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, coffres de demande de récupération e-mail : le coordinateur Rust commun
+  GTK / Swift et le coffre mobile conservent l'opération originale avant HTTP,
+  sans code reçu / mot de passe / adresse / bearer. Namespace privé par URL et
+  pseudo, scope d'instance / génération, délai local conservateur d'une heure,
+  acquittement générique et fermeture locale protégée contre les anciennes vues.
+  Lire ne fait aucun envoi ; une réponse ambiguë reprend le même candidat et une
+  demande expirée n'est jamais remplacée automatiquement. Le verrou OS bureau
+  reste détenu par l'écriture réelle du trousseau après annulation de l'appelant.
+  Le mobile utilise SecureStore et une file commune aux instances du coffre.
+  Le `Retry-After` reçu reste conservé après recréation du coffre ; le SDK Rust
+  partage aussi ce cooldown entre clones en laissant la découverte disponible.
+  Douze nouveaux tests Rust et douze TypeScript passent, ainsi que les 303 tests
+  bureau, Clippy, 1 113 régressions mobile, typecheck et lint. L'inventaire est
+  régénéré : 296 fichiers parcourus / 344 occurrences. Les boutons de
+  demande GTK / SwiftUI / mobile et leurs parcours connectés restent à raccorder.
+
 - P02, récupération du mot de passe par e-mail côté serveur / SDK : migration
   0021, demande anonyme avec acquittement générique, intention aléatoire liée à
   l'instance / génération et mail vers le contact déjà vérifié uniquement.
@@ -339,7 +355,9 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   1 101 régressions mobile, 291 tests bureau, formatage / Clippy, typecheck / lint,
   schéma / génération / inventaire sans divergence. Ces tests utilisent un
   PostgreSQL jetable et des adresses synthétiques ; ils ne qualifient pas la
-  délivrabilité extérieure ni un trousseau installé. La CI du lot reste à suivre.
+  délivrabilité extérieure ni un trousseau installé. La CI native `36971804421`
+  du commit `be42f85` passe ses quatre jobs, y compris les bancs connectés GTK /
+  Swift / mobile existants. Le PostgreSQL de tests est supprimé après vérification.
 
 - P02, inscription du facteur e-mail dans les trois clients : boutons explicites
   dans les paramètres mobile / GTK / SwiftUI existants, confirmations liées au

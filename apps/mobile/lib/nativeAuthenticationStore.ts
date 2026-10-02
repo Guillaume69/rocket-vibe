@@ -3,18 +3,21 @@
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import {AuthenticationVault} from '../fournisseurs/rocketvibe/authenticationVault.ts';
+import {EmailRecoveryVault} from '../fournisseurs/rocketvibe/emailRecoveryVault.ts';
 import type {LoginChallenge} from '../fournisseurs/rocketvibe/authentication.ts';
 import {hacher,lireSession} from './sessionStore.ts';
 
-export const nativeAuthenticationVault=new AuthenticationVault({
+const dependencies={
   hash:hacher,
   token:async()=>Array.from(Crypto.getRandomBytes(32),b=>b.toString(16).padStart(2,'0')).join(''),
   storage:{
-    read:key=>SecureStore.getItemAsync(key),
-    write:(key,value)=>SecureStore.setItemAsync(key,value,{keychainAccessible:SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY}),
-    remove:key=>SecureStore.deleteItemAsync(key),
+    read:(key:string)=>SecureStore.getItemAsync(key),
+    write:(key:string,value:string)=>SecureStore.setItemAsync(key,value,{keychainAccessible:SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY}),
+    remove:(key:string)=>SecureStore.deleteItemAsync(key),
   },
-});
+};
+export const nativeAuthenticationVault=new AuthenticationVault(dependencies);
+export const nativeEmailRecoveryVault=new EmailRecoveryVault(dependencies);
 
 export async function completeNativeAuthentication(record:LoginChallenge):Promise<boolean> {
   return nativeAuthenticationVault.clearCompleted(record,await lireSession(record.baseUrl));

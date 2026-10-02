@@ -1,11 +1,12 @@
 //! Private contact verification shares the proof/factor OS lease. Temporary
 //! input codes never enter the trousseau; original intent survives lost ACKs.
+mod removal;
 use super::{
     Access, Error, Guard, NativeSession, RemoteFuture, Scope, Vault, identifier, invalid, nonce, random_token,
 };
 use rv_protocol::parity::{
-    BeginEmailVerification, ConfirmEmailVerification, EmailVerificationStep, ResumeEmailVerification,
-    RetireEmailVerification,
+    BeginEmailVerification, ConfirmEmailVerification, EmailRemovalReceipt, EmailVerificationStep, RemoveVerifiedEmail,
+    ResumeEmailRemoval, ResumeEmailVerification, RetireEmailRemoval, RetireEmailVerification,
 };
 pub use rv_protocol::parity::{EmailDeliveryState, EmailStatus};
 use serde::{Deserialize, Serialize};
@@ -17,15 +18,34 @@ pub trait Remote: Send + Sync {
     fn resume(&self, input: ResumeEmailVerification) -> RemoteFuture<EmailVerificationStep>;
     fn confirm(&self, input: ConfirmEmailVerification) -> RemoteFuture<EmailVerificationStep>;
     fn retire(&self, input: RetireEmailVerification) -> RemoteFuture<EmailStatus>;
+    fn remove(&self, _input: RemoveVerifiedEmail) -> RemoteFuture<EmailRemovalReceipt> {
+        Box::pin(async { Err(Error::Protocol("unsupported_feature")) })
+    }
+    fn resume_removal(&self, _input: ResumeEmailRemoval) -> RemoteFuture<EmailRemovalReceipt> {
+        Box::pin(async { Err(Error::Protocol("unsupported_feature")) })
+    }
+    fn retire_removal(&self, _input: RetireEmailRemoval) -> RemoteFuture<EmailStatus> {
+        Box::pin(async { Err(Error::Protocol("unsupported_feature")) })
+    }
+}
+enum ContactAction {
+    Read,
+    Verify,
+    Remove,
 }
 impl Access {
-    async fn email_call<T, F, Fut>(&self, action: F) -> Result<T, Error>
+    async fn email_call<T, F, Fut>(&self, kind: ContactAction, action: F) -> Result<T, Error>
     where
         F: FnOnce(rv_client::NativeClient) -> Fut,
         Fut: Future<Output = Result<T, rv_client::Error>>,
     {
         self.before(false).await?;
-        if !self.session.email_supported() {
+        let supported = match kind {
+            ContactAction::Read => self.session.email_supported(),
+            ContactAction::Verify => self.session.email_verification_supported(),
+            ContactAction::Remove => self.session.email_removal_supported(),
+        };
+        if !supported {
             return Err(Error::Protocol("unsupported_feature"));
         }
         let result = action(self.session.client.clone()).await?;
@@ -35,18 +55,28 @@ impl Access {
 }
 impl NativeSession {
     pub fn email_supported(&self) -> bool {
+        self.email_feature(|c| c.email_verification || c.email_removal)
+    }
+    pub fn email_verification_supported(&self) -> bool {
+        self.email_feature(|c| c.email_verification)
+    }
+    pub fn email_removal_supported(&self) -> bool {
+        self.email_feature(|c| c.email_removal)
+    }
+    fn email_feature(&self, feature: impl FnOnce(&rv_protocol::Capabilities) -> bool) -> bool {
         self.capabilities
             .lock()
             .unwrap()
             .as_ref()
-            .is_some_and(|c| c.reauthentication && c.reauthentication_retirement && c.email_verification)
+            .is_some_and(|c| c.reauthentication && c.reauthentication_retirement && feature(c))
     }
 }
 impl Remote for Access {
     fn status(&self) -> RemoteFuture<EmailStatus> {
         let access = self.clone();
         Box::pin(async move {
-            let status = access.email_call(|client| async move { client.email_status().await }).await?;
+            let status =
+                access.email_call(ContactAction::Read, |client| async move { client.email_status().await }).await?;
             check_status(&access.scope, &status)?;
             Ok(status)
         })
@@ -54,25 +84,63 @@ impl Remote for Access {
     fn begin(&self, input: BeginEmailVerification) -> RemoteFuture<EmailVerificationStep> {
         let access = self.clone();
         Box::pin(async move {
-            access.email_call(|client| async move { client.begin_email_verification(&input).await }).await
+            access
+                .email_call(
+                    ContactAction::Verify,
+                    |client| async move { client.begin_email_verification(&input).await },
+                )
+                .await
         })
     }
     fn resume(&self, input: ResumeEmailVerification) -> RemoteFuture<EmailVerificationStep> {
         let access = self.clone();
         Box::pin(async move {
-            access.email_call(|client| async move { client.resume_email_verification(&input).await }).await
+            access
+                .email_call(ContactAction::Read, |client| async move { client.resume_email_verification(&input).await })
+                .await
         })
     }
     fn confirm(&self, input: ConfirmEmailVerification) -> RemoteFuture<EmailVerificationStep> {
         let access = self.clone();
         Box::pin(async move {
-            access.email_call(|client| async move { client.confirm_email_verification(&input).await }).await
+            access
+                .email_call(
+                    ContactAction::Read,
+                    |client| async move { client.confirm_email_verification(&input).await },
+                )
+                .await
         })
     }
     fn retire(&self, input: RetireEmailVerification) -> RemoteFuture<EmailStatus> {
         let access = self.clone();
         Box::pin(async move {
-            access.email_call(|client| async move { client.retire_email_verification(&input).await }).await
+            access
+                .email_call(ContactAction::Read, |client| async move { client.retire_email_verification(&input).await })
+                .await
+        })
+    }
+    fn remove(&self, input: RemoveVerifiedEmail) -> RemoteFuture<EmailRemovalReceipt> {
+        let access = self.clone();
+        Box::pin(async move {
+            access
+                .email_call(ContactAction::Remove, |client| async move { client.remove_verified_email(&input).await })
+                .await
+        })
+    }
+    fn resume_removal(&self, input: ResumeEmailRemoval) -> RemoteFuture<EmailRemovalReceipt> {
+        let access = self.clone();
+        Box::pin(async move {
+            access
+                .email_call(ContactAction::Remove, |client| async move { client.resume_email_removal(&input).await })
+                .await
+        })
+    }
+    fn retire_removal(&self, input: RetireEmailRemoval) -> RemoteFuture<EmailStatus> {
+        let access = self.clone();
+        Box::pin(async move {
+            access
+                .email_call(ContactAction::Remove, |client| async move { client.retire_email_removal(&input).await })
+                .await
         })
     }
 }
@@ -85,14 +153,20 @@ pub enum State {
     Pending { receipt_id: String, address: String, expires_at: String, delivery: EmailDeliveryState },
     Verified { receipt_id: String },
     Stale { receipt_id: String },
+    RemovalPending { receipt_id: String },
+    Removed { receipt_id: String },
+    RemovalStale { receipt_id: String },
 }
 impl State {
     pub fn receipt(&self) -> Option<&str> {
         match self {
             Self::Idle => None,
-            Self::Pending { receipt_id, .. } | Self::Verified { receipt_id } | Self::Stale { receipt_id } => {
-                Some(receipt_id)
-            }
+            Self::Pending { receipt_id, .. }
+            | Self::Verified { receipt_id }
+            | Self::Stale { receipt_id }
+            | Self::RemovalPending { receipt_id }
+            | Self::Removed { receipt_id }
+            | Self::RemovalStale { receipt_id } => Some(receipt_id),
         }
     }
 }
@@ -109,6 +183,12 @@ struct Record {
     input: BeginEmailVerification,
     expires_at: Option<String>,
     accepted: Option<Accepted>,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+enum Intent {
+    Verification(Record),
+    Removal(removal::Record),
 }
 fn normalized_address(value: &str) -> Result<String, Error> {
     let at = value.rfind('@').filter(|at| *at > 0 && *at + 1 < value.len());
@@ -174,14 +254,18 @@ fn conflict(error: &Error) -> bool {
 fn invalid_start(error: &Error) -> bool {
     matches!(error,Error::Network(rv_client::Error::Server{status:400,code,..}) if code=="invalid_request" || code=="invalid_email_address")
 }
+fn verification_unavailable(error: &Error) -> bool {
+    matches!(error, Error::Protocol("unsupported_feature"))
+        || matches!(error,Error::Network(rv_client::Error::Server{status:503,code,..}) if code=="email_unavailable")
+}
 impl Vault {
-    async fn read_email(
+    async fn read_email_intent(
         &self,
         key: &str,
         scope: &Scope,
         lease: Arc<File>,
         guard: &Guard,
-    ) -> Result<Option<Record>, Error> {
+    ) -> Result<Option<Intent>, Error> {
         guard.check()?;
         let raw = self.storage.read(format!("{key}-email"), lease).await?;
         guard.check()?;
@@ -189,11 +273,31 @@ impl Vault {
             if raw.len() > 8192 {
                 return Err(invalid());
             }
-            let record: Record = serde_json::from_str(&raw).map_err(|_| invalid())?;
-            record.validate(scope)?;
+            let value: serde_json::Value = serde_json::from_str(&raw).map_err(|_| invalid())?;
+            if !value.as_object().is_some_and(|v| v.len() == 4 && v.contains_key("accepted")) {
+                return Err(invalid());
+            }
+            let record: Intent = serde_json::from_value(value).map_err(|_| invalid())?;
+            match &record {
+                Intent::Verification(value) => value.validate(scope)?,
+                Intent::Removal(value) => value.validate(scope)?,
+            };
             Ok(record)
         })
         .transpose()
+    }
+    async fn read_email(
+        &self,
+        key: &str,
+        scope: &Scope,
+        lease: Arc<File>,
+        guard: &Guard,
+    ) -> Result<Option<Record>, Error> {
+        match self.read_email_intent(key, scope, lease, guard).await? {
+            None => Ok(None),
+            Some(Intent::Verification(record)) => Ok(Some(record)),
+            Some(Intent::Removal(_)) => Err(Error::Protocol("credentials_changed")),
+        }
     }
     async fn write_email(&self, key: &str, record: &Record, lease: Arc<File>, guard: &Guard) -> Result<(), Error> {
         record.validate(&record.scope)?;
@@ -276,8 +380,14 @@ impl Vault {
         guard: &Guard,
     ) -> Result<View, Error> {
         let status = self.live_email(scope, remote, guard).await?;
-        let Some(saved) = self.read_email(key, scope, lease.clone(), guard).await? else {
+        let Some(saved) = self.read_email_intent(key, scope, lease.clone(), guard).await? else {
             return Ok(View { status, state: State::Idle });
+        };
+        let saved = match saved {
+            Intent::Verification(saved) => saved,
+            Intent::Removal(saved) => {
+                return self.recover_email_removal(key, saved, status, remote, lease, guard).await;
+            }
         };
         if let Some(a) = &saved.accepted {
             let current = status.version == a.version
@@ -314,7 +424,11 @@ impl Vault {
                     }
                     Err(error) => {
                         guard.check()?;
-                        if rejected(&error) || conflict(&error) || invalid_start(&error) {
+                        if rejected(&error)
+                            || conflict(&error)
+                            || invalid_start(&error)
+                            || verification_unavailable(&error)
+                        {
                             return Ok(View { status, state: State::Stale { receipt_id: saved.input.operation_id } });
                         }
                         return Err(error);
@@ -344,7 +458,7 @@ impl Vault {
         let address = normalized_address(address)?;
         let key = scope.key()?;
         let lease = self.lease(&key, guard).await?;
-        if self.read_email(&key, &scope, lease.clone(), guard).await?.is_some() {
+        if self.read_email_intent(&key, &scope, lease.clone(), guard).await?.is_some() {
             return self.recover_email(&key, &scope, remote, lease, guard).await;
         }
         let status = self.live_email(&scope, remote, guard).await?;
@@ -433,8 +547,19 @@ impl Vault {
         let key = scope.key()?;
         let lease = self.lease(&key, guard).await?;
         self.live_email(&scope, remote, guard).await?;
-        let saved =
-            self.read_email(&key, &scope, lease.clone(), guard).await?.ok_or(Error::Protocol("credentials_changed"))?;
+        let saved = self
+            .read_email_intent(&key, &scope, lease.clone(), guard)
+            .await?
+            .ok_or(Error::Protocol("credentials_changed"))?;
+        let saved = match saved {
+            Intent::Verification(saved) => saved,
+            Intent::Removal(saved) => {
+                if saved.input.operation_id != receipt {
+                    return Err(Error::Protocol("credentials_changed"));
+                }
+                return self.cancel_email_removal(&key, saved, remote, lease, guard).await;
+            }
+        };
         if saved.input.operation_id != receipt {
             return Err(Error::Protocol("credentials_changed"));
         }
@@ -481,9 +606,15 @@ impl Vault {
         let key = scope.key()?;
         let lease = self.lease(&key, guard).await?;
         let status = self.live_email(&scope, remote, guard).await?;
-        let saved =
-            self.read_email(&key, &scope, lease.clone(), guard).await?.ok_or(Error::Protocol("credentials_changed"))?;
-        if saved.input.operation_id != receipt || saved.accepted.is_none() {
+        let saved = self
+            .read_email_intent(&key, &scope, lease.clone(), guard)
+            .await?
+            .ok_or(Error::Protocol("credentials_changed"))?;
+        let valid = match saved {
+            Intent::Verification(saved) => saved.input.operation_id == receipt && saved.accepted.is_some(),
+            Intent::Removal(saved) => saved.input.operation_id == receipt && saved.accepted.is_some(),
+        };
+        if !valid {
             return Err(Error::Protocol("credentials_changed"));
         }
         self.storage.remove(format!("{key}-email"), lease).await?;

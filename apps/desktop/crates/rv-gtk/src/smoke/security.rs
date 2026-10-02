@@ -9,7 +9,7 @@ use std::{rc::Rc, time::Duration};
 
 pub(super) fn install(window: &Rc<AppWindow>) {
     let Ok(phase) = std::env::var("RV_SMOKE_SECURITY") else { return };
-    assert!(matches!(phase.as_str(), "proof-regenerate" | "restart-ack-disable"));
+    assert!(matches!(phase.as_str(), "proof-regenerate" | "restart-ack-disable" | "removal-restart-ack-disable"));
     let weak = Rc::downgrade(window);
     let mut polls = 0;
     glib::timeout_add_local(Duration::from_millis(100), move || {
@@ -50,13 +50,28 @@ async fn wait(root: &gtk::Widget, class: &str, accept: impl Fn(&gtk::Widget) -> 
 async fn idle(root: &gtk::Widget) -> bool {
     wait(root, "native-security-page", |w| w.is_sensitive()).await.is_some()
 }
+async fn closed(root: &gtk::Widget, class: &str) -> bool {
+    for _ in 0..200 {
+        if find_by_class(root, class).is_none() {
+            return true;
+        }
+        glib::timeout_future(Duration::from_millis(25)).await;
+    }
+    check("previous native confirmation finished closing", false, 0);
+    false
+}
 fn activate(root: &gtk::Widget, class: &str) {
     let row = find_by_class(root, class).and_downcast::<adw::ButtonRow>().expect("security button");
     row.emit_by_name::<()>("activated", &[]);
 }
 async fn confirm(root: &gtk::Widget, class: &str) -> bool {
     activate(root, class);
-    let Some(alert) = wait(root, "native-security-confirm", |_| true).await.and_downcast::<adw::AlertDialog>() else {
+    let alert_class = if class == "native-security-email-remove" {
+        "native-security-email-remove-confirm"
+    } else {
+        "native-security-confirm"
+    };
+    let Some(alert) = wait(root, alert_class, |w| w.is_mapped()).await.and_downcast::<adw::AlertDialog>() else {
         return false;
     };
     let Some(button) =
@@ -170,7 +185,7 @@ async fn run(window: Rc<AppWindow>, phase: String) {
         }
         check("email start resumes the original private candidate", email_code.is_visible(), 0);
         email_code.set_text("00000000");
-    } else {
+    } else if phase == "restart-ack-disable" {
         check("pending email survives actual process and keyring restart", email_code.is_visible(), 0);
         let path = std::env::var("RV_NATIVE_SECURITY_EMAIL_FILE").unwrap();
         let mut delivered = None;
@@ -237,8 +252,84 @@ async fn run(window: Rc<AppWindow>, phase: String) {
             address.is_visible() && email_current.subtitle().as_deref() == Some("gtk-security@example.test"),
             0,
         );
+        // Delay the destructive callback across a fresh display revision.
+        // It must not consume the one removal operation checked by PostgreSQL.
+        activate(root, "native-security-email-remove");
+        let alert = wait(root, "native-security-email-remove-confirm", |_| true)
+            .await
+            .and_downcast::<adw::AlertDialog>()
+            .unwrap();
+        check(
+            "removal confirmation names the displayed private contact",
+            alert.body().contains("gtk-security@example.test"),
+            0,
+        );
+        activate(root, "native-security-refresh");
+        if !idle(root).await {
+            return;
+        }
+        let confirm = wait(alert.upcast_ref(), "destructive-action", |w| w.is::<gtk::Button>())
+            .await
+            .and_downcast::<gtk::Button>()
+            .unwrap();
+        confirm.emit_clicked();
+        if !idle(root).await {
+            return;
+        }
+        check(
+            "old removal confirmation cannot remove a refreshed contact",
+            email_current.subtitle().as_deref() == Some("gtk-security@example.test") && address.is_visible(),
+            0,
+        );
+        if !closed(root, "native-security-email-remove-confirm").await {
+            return;
+        }
+        if !self::confirm(root, "native-security-email-remove").await {
+            return;
+        }
+        check(
+            "lost removal response retains an explicitly cancelable private intent",
+            find_by_class(root, "native-security-email-cancel").is_some_and(|w| w.is_visible())
+                && !email_code.is_visible(),
+            0,
+        );
+        let s = session.clone();
+        let factor = on_tokio(async move {
+            let access = s.security(Guard::new()).await?;
+            access.factor_status().await
+        })
+        .await;
+        check("removing a contact preserves the enabled second factor", factor.is_ok_and(|value| value.totp), 0);
+    } else {
+        check(
+            "committed removal resumes after real process and keyring restart",
+            email_current.subtitle().as_deref().is_none_or(str::is_empty)
+                && find_by_class(root, "native-security-email-acknowledge").is_some_and(|w| w.is_visible()),
+            0,
+        );
+        check("resumed removal keeps typed code widgets hidden", !email_code.is_visible(), 0);
+        activate(root, "native-security-email-acknowledge");
+        if !idle(root).await {
+            return;
+        }
+        let s = session.clone();
+        let restored = on_tokio(async move {
+            let access = s.security(Guard::new()).await?;
+            crate::secrets::security_vault().email_resume(access.scope(), &access, &access.guard()).await
+        })
+        .await;
+        check(
+            "explicit removal acknowledgement erases only its own receipt",
+            matches!(restored,Ok(email::View {state:email::State::Idle,ref status}) if status.address.is_none()),
+            0,
+        );
+        check(
+            "absent contact has no destructive removal action",
+            find_by_class(root, "native-security-email-remove").is_some_and(|w| !w.is_visible()),
+            0,
+        );
     }
-    if phase == "restart-ack-disable" {
+    if phase == "removal-restart-ack-disable" {
         activate(root, "native-security-acknowledge");
         if !idle(root).await {
             return;
@@ -295,7 +386,7 @@ async fn run(window: Rc<AppWindow>, phase: String) {
         email_code.text().is_empty() && email_current.subtitle().as_deref().is_none_or(str::is_empty),
         0,
     );
-    if phase == "restart-ack-disable" {
+    if phase == "removal-restart-ack-disable" {
         let _ = open(root).await;
     }
     println!("smoke: native security phase {phase} completed");

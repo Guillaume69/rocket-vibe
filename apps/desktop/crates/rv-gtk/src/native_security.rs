@@ -106,6 +106,8 @@ pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) 
     let email_address =
         adw::EntryRow::builder().title(t("email.address")).css_classes(["native-security-email-address"]).build();
     let email_start = button("email.start", "native-security-email-start");
+    let email_remove = button("email.remove", "native-security-email-remove");
+    email_remove.add_css_class("destructive-action");
     let email_pending =
         adw::ActionRow::builder().title(t("email.pending")).css_classes(["native-security-email-pending"]).build();
     let email_code =
@@ -119,6 +121,7 @@ pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) 
     email_group.add(&email_current);
     email_group.add(&email_address);
     email_group.add(&email_start);
+    email_group.add(&email_remove);
     email_group.add(&email_pending);
     email_group.add(&email_code);
     email_group.add(&email_confirm);
@@ -159,6 +162,7 @@ pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) 
         email_current,
         email_address,
         email_start,
+        email_remove,
         email_pending,
         email_code,
         email_confirm,
@@ -168,6 +172,7 @@ pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) 
         email_stale,
         email_retire,
         email: RefCell::new(None),
+        email_revision: Cell::new(0),
         proof: RefCell::new(ProofState::Password),
         factor: RefCell::new(FactorState::Idle),
         factor_status: RefCell::new(None),
@@ -324,6 +329,41 @@ pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) 
         }
     });
     let weak = Rc::downgrade(&state);
+    state.email_remove.connect_activated(move |_| {
+        let Some(state) = weak.upgrade() else { return };
+        if !state.guard.alive() || state.busy.get() || !state.session.email_removal_supported() {
+            return;
+        }
+        let Some(expected) = state.email.borrow().as_ref().and_then(|view| {
+            (matches!(view.state, email::State::Idle) && view.status.address.is_some()).then(|| view.status.clone())
+        }) else {
+            return;
+        };
+        let revision = state.email_revision.get();
+        let Some(parent) = state.dialog.upgrade() else { return };
+        let alert = adw::AlertDialog::builder()
+            .heading(t("email.remove"))
+            .body(format!("{}\n\n{}", expected.address.as_deref().unwrap_or(""), t("email.remove_body")))
+            .css_classes(["native-security-email-remove-confirm"])
+            .default_response("cancel")
+            .close_response("cancel")
+            .build();
+        alert.add_responses(&[("cancel", t("actions.cancel")), ("confirm", t("email.remove"))]);
+        alert.set_response_appearance("confirm", adw::ResponseAppearance::Destructive);
+        let weak = Rc::downgrade(&state);
+        alert.connect_response(Some("confirm"), move |_, _| {
+            if let Some(state) = weak.upgrade()
+                && state.email_revision.get() == revision
+                && state.email.borrow().as_ref().is_some_and(|view| matches!(view.state, email::State::Idle))
+            {
+                state.email_address.set_text("");
+                state.email_code.set_text("");
+                state.run(Work::EmailRemove(expected.clone()));
+            }
+        });
+        alert.present(Some(&parent));
+    });
+    let weak = Rc::downgrade(&state);
     state.email_confirm.connect_activated(move |_| {
         if let Some(state) = weak.upgrade() {
             let receipt = state.email.borrow().as_ref().and_then(|view| {
@@ -388,6 +428,7 @@ enum Work {
     Clear(String),
     Copy(CopyKind),
     EmailStart(String, EmailStatus),
+    EmailRemove(EmailStatus),
     EmailConfirm(String, String),
     EmailCancel(String),
     EmailAck(String),
@@ -427,6 +468,7 @@ struct Controller {
     email_current: adw::ActionRow,
     email_address: adw::EntryRow,
     email_start: adw::ButtonRow,
+    email_remove: adw::ButtonRow,
     email_pending: adw::ActionRow,
     email_code: adw::PasswordEntryRow,
     email_confirm: adw::ButtonRow,
@@ -436,6 +478,7 @@ struct Controller {
     email_stale: adw::ActionRow,
     email_retire: adw::ButtonRow,
     email: RefCell<Option<email::View>>,
+    email_revision: Cell<u64>,
     proof: RefCell<ProofState>,
     factor: RefCell<FactorState>,
     factor_status: RefCell<Option<rv_core::native::security::Status>>,
@@ -460,6 +503,7 @@ impl Controller {
         self.email_current.set_subtitle("");
         self.email_pending.set_subtitle("");
         self.email.replace(None);
+        self.email_revision.set(self.email_revision.get().wrapping_add(1));
     }
     fn render(&self) {
         let proof = self.proof.borrow();
@@ -521,18 +565,50 @@ impl Controller {
         self.email_group.set_visible(email_loaded);
         let ready = matches!(*proof, ProofState::Ready);
         let phase = email.as_ref().map(|view| &view.state);
-        self.email_address.set_visible(matches!(phase, Some(email::State::Idle)));
-        self.email_start.set_visible(matches!(phase, Some(email::State::Idle)));
+        let can_verify = self.session.email_verification_supported() && matches!(phase, Some(email::State::Idle));
+        self.email_address.set_visible(can_verify);
+        self.email_start.set_visible(can_verify);
         self.email_start.set_sensitive(ready);
-        self.email_pending.set_visible(matches!(phase, Some(email::State::Pending { .. })));
+        self.email_remove.set_visible(
+            self.session.email_removal_supported()
+                && matches!(phase, Some(email::State::Idle))
+                && email.as_ref().is_some_and(|view| view.status.address.is_some()),
+        );
+        self.email_remove.set_sensitive(ready);
+        self.email_pending
+            .set_visible(matches!(phase, Some(email::State::Pending { .. } | email::State::RemovalPending { .. })));
         self.email_code.set_visible(matches!(phase, Some(email::State::Pending { .. })));
         self.email_confirm.set_visible(matches!(phase, Some(email::State::Pending { .. })));
         self.email_confirm.set_sensitive(ready);
-        self.email_cancel.set_visible(matches!(phase, Some(email::State::Pending { .. })));
-        self.email_verified.set_visible(matches!(phase, Some(email::State::Verified { .. })));
-        self.email_ack.set_visible(matches!(phase, Some(email::State::Verified { .. })));
-        self.email_stale.set_visible(matches!(phase, Some(email::State::Stale { .. })));
-        self.email_retire.set_visible(matches!(phase, Some(email::State::Stale { .. })));
+        self.email_cancel
+            .set_visible(matches!(phase, Some(email::State::Pending { .. } | email::State::RemovalPending { .. })));
+        self.email_cancel.set_title(t(if matches!(phase, Some(email::State::RemovalPending { .. })) {
+            "email.cancel_removal"
+        } else {
+            "email.cancel"
+        }));
+        self.email_verified
+            .set_visible(matches!(phase, Some(email::State::Verified { .. } | email::State::Removed { .. })));
+        self.email_verified.set_title(t(if matches!(phase, Some(email::State::Removed { .. })) {
+            "email.removed"
+        } else {
+            "email.verified"
+        }));
+        self.email_ack.set_visible(matches!(phase, Some(email::State::Verified { .. } | email::State::Removed { .. })));
+        self.email_stale
+            .set_visible(matches!(phase, Some(email::State::Stale { .. } | email::State::RemovalStale { .. })));
+        self.email_stale.set_title(t(if matches!(phase, Some(email::State::RemovalStale { .. })) {
+            "email.removal_stale"
+        } else {
+            "email.stale"
+        }));
+        self.email_retire
+            .set_visible(matches!(phase, Some(email::State::Stale { .. } | email::State::RemovalStale { .. })));
+        self.email_retire.set_title(t(if matches!(phase, Some(email::State::RemovalStale { .. })) {
+            "email.close_removal"
+        } else {
+            "email.restart"
+        }));
         self.email_current.set_title(t(if email.as_ref().is_some_and(|view| view.status.address.is_some()) {
             "email.current"
         } else {
@@ -552,6 +628,7 @@ impl Controller {
                 })
             ));
         } else {
+            self.email_pending.set_title(t("email.removal_pending"));
             self.email_pending.set_subtitle("");
         }
         if !ready {
@@ -636,7 +713,16 @@ impl Controller {
                                 factor = Some(fresh);
                             }
                             Work::EmailStart(address, expected) => {
+                                if !session.email_verification_supported() {
+                                    return Err(rv_core::native::Error::Protocol("unsupported_feature"));
+                                }
                                 email = Some(vault.email_start(&scope, &access, &address, &expected, &guard).await?)
+                            }
+                            Work::EmailRemove(expected) => {
+                                if !session.email_removal_supported() {
+                                    return Err(rv_core::native::Error::Protocol("unsupported_feature"));
+                                }
+                                email = Some(vault.email_remove(&scope, &access, &expected, &guard).await?)
                             }
                             Work::EmailConfirm(receipt, code) => {
                                 email = Some(vault.email_confirm(&scope, &access, &receipt, &code, &guard).await?)
@@ -718,6 +804,7 @@ impl Controller {
                     state.factor_status.replace(Some(loaded.status));
                     state.email_code.set_text("");
                     state.email.replace(loaded.email);
+                    state.email_revision.set(state.email_revision.get().wrapping_add(1));
                     if !loaded.recent && matches!(*state.proof.borrow(), ProofState::Ready) {
                         state.proof.replace(ProofState::Password);
                     }
@@ -762,6 +849,8 @@ impl Controller {
                             "email.invalid"
                         } else if error.code() == "email_verification_rejected" {
                             "email.rejected"
+                        } else if error.code() == "email_removal_rejected" {
+                            "email.removal_stale"
                         } else if matches!(error.code(), "email_queue_limit" | "email_delivery_limit") {
                             "email.limited"
                         } else if matches!(error.code(), "reauthentication_rejected" | "factor_rejected") {

@@ -10,6 +10,7 @@ const securityPaths=new Set(['/api/v1/me/reauth/start','/api/v1/me/reauth/finish
 if(process.env.RV_PILOT_EMAIL==='1'){
   securityPaths.add('/api/v1/me/email/verification/start');
   securityPaths.add('/api/v1/me/email/verification/confirm');
+  securityPaths.add('/api/v1/me/email/removal/start');
 }
 const server=http.createServer((request,response)=>{
   if(!request.url?.startsWith('/')){response.writeHead(400).end();return;}

@@ -9,6 +9,12 @@ section here.
 
 ### Added
 
+- Private email removal in the existing GTK and SwiftUI security settings,
+  with confirmation bound to the displayed contact, one durable operation
+  across lost replies and restarts, cancellation and explicit acknowledgement.
+  Contact settings remain available without SMTP; a new verification requires
+  its advertised capability. Removal keeps two-factor authentication enabled.
+
 - Private email verification in the existing GTK and SwiftUI security settings:
   delivery status, original-attempt recovery after lost replies and process
   restarts, explicit cancellation and receipt acknowledgement. GTK and Swift

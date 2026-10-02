@@ -1,5 +1,6 @@
 mod common;
 use common::{FakeHttp, respond};
+use rv_core::native::security::email::Remote as EmailRemote;
 use rv_core::{
     native::{
         self, Identity,
@@ -7,7 +8,7 @@ use rv_core::{
     },
     session::{Connection, SessionInfo},
 };
-use rv_protocol::parity::BeginFactorSetup;
+use rv_protocol::parity::{BeginEmailVerification, BeginFactorSetup, RemoveVerifiedEmail};
 use serde_json::json;
 use std::{
     sync::{
@@ -56,6 +57,11 @@ async fn access_fences_late_results_reconnections_capabilities_and_context() {
     let gate = Arc::new(Gate::default());
     let factor_reads = Arc::new(AtomicUsize::new(0));
     let mutations = Arc::new(AtomicUsize::new(0));
+    let removals = Arc::new(AtomicBool::new(true));
+    let email_writes = Arc::new(AtomicUsize::new(0));
+    let (contact_enabled, contact_writes) = (removals.clone(), email_writes.clone());
+    let epoch_changed = Arc::new(AtomicBool::new(false));
+    let epoch = epoch_changed.clone();
     let (data, enabled, wrong, delayed, waiting, reads, writes) = (
         fixture.clone(),
         factors.clone(),
@@ -71,6 +77,9 @@ async fn access_fences_late_results_reconnections_capabilities_and_context() {
             discovery["capabilities"]["reauthentication"] = json!(true);
             discovery["capabilities"]["reauthentication_retirement"] = json!(true);
             discovery["capabilities"]["second_factors"] = json!(enabled.load(Ordering::SeqCst));
+            discovery["capabilities"]["email_verification"] = json!(false);
+            discovery["capabilities"]["email_removal"] = json!(contact_enabled.load(Ordering::SeqCst));
+            if epoch.load(Ordering::SeqCst) { discovery["data_epoch"] = json!("changed-epoch"); }
             respond(200, &discovery.to_string())
         }
         "/api/v1/me" => respond(200, &data["session"]["user"].to_string()),
@@ -90,6 +99,14 @@ async fn access_fences_late_results_reconnections_capabilities_and_context() {
         "/api/v1/me/factors/totp/setup" => {
             writes.fetch_add(1, Ordering::SeqCst);
             respond(403, r#"{"code":"reauthentication_required","request_id":"fixture"}"#)
+        }
+        "/api/v1/me/email" => respond(200, &json!({
+            "address":"owner@example.org", "verified_at":"2026-10-01T12:00:00Z", "version":"contact", "verification_version":"head",
+            "context":{"user_id":data["session"]["user"]["id"], "device_id":"current", "instance_id":data["discovery"]["instance_id"], "data_epoch":data["discovery"]["data_epoch"]}
+        }).to_string()),
+        "/api/v1/me/email/removal/start" | "/api/v1/me/email/verification/start" => {
+            contact_writes.fetch_add(1, Ordering::SeqCst);
+            respond(400, r#"{"code":"email_removal_rejected","request_id":"fixture"}"#)
         }
         _ => respond(404, r#"{"code":"not_found","request_id":"fixture"}"#),
     }).await;
@@ -150,14 +167,56 @@ async fn access_fences_late_results_reconnections_capabilities_and_context() {
     );
     assert_eq!(mutations.load(Ordering::SeqCst), 0);
     assert!(session.security_supported() && !session.factors_supported());
+    assert!(session.email_supported() && session.email_removal_supported() && !session.email_verification_supported());
+    let contact = EmailRemote::status(&live).await.unwrap();
+    assert_eq!(contact.address.as_deref(), Some("owner@example.org"));
+    let removal = RemoveVerifiedEmail {
+        operation_id: "b".repeat(64),
+        expected_version: contact.version,
+        verification_version: contact.verification_version,
+        context: live.scope().context(),
+    };
+    assert_eq!(live.remove(removal.clone()).await.err().unwrap().code(), "email_removal_rejected");
+    assert_eq!(email_writes.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        EmailRemote::begin(
+            &live,
+            BeginEmailVerification {
+                verification_id: "c".repeat(64),
+                operation_id: "d".repeat(64),
+                address: "new@example.org".into(),
+                expected_version: "contact".into(),
+                verification_version: "head".into(),
+                context: live.scope().context()
+            }
+        )
+        .await
+        .err()
+        .unwrap()
+        .code(),
+        "unsupported_feature"
+    );
+    assert_eq!(email_writes.load(Ordering::SeqCst), 1);
+    removals.store(false, Ordering::SeqCst);
+    assert_eq!(live.remove(removal.clone()).await.err().unwrap().code(), "unsupported_feature");
+    assert!(!session.email_supported());
+    assert_eq!(email_writes.load(Ordering::SeqCst), 1);
+    removals.store(true, Ordering::SeqCst);
     // Identity confirmation still works without a configured factor key.
-    assert!(!live.status().await.unwrap().recent);
+    assert!(!Remote::status(&live).await.unwrap().recent);
     wrong_user.store(true, Ordering::SeqCst);
-    assert_eq!(live.status().await.unwrap_err().code(), "server_identity_changed");
+    assert_eq!(Remote::status(&live).await.unwrap_err().code(), "server_identity_changed");
     assert_eq!(session.security(Guard::new()).await.err().unwrap().code(), "server_identity_changed");
+    // Discovery, rather than an unrelated proof response, is the source's
+    // generation barrier before any contact mutation.
+    epoch_changed.store(true, Ordering::SeqCst);
+    assert_eq!(live.remove(removal.clone()).await.err().unwrap().code(), "server_identity_changed");
+    assert_eq!(email_writes.load(Ordering::SeqCst), 1);
     session.shutdown();
     assert!(session.is_closed());
     assert_eq!(live.factor_status().await.unwrap_err().code(), "session_closed");
+    assert_eq!(live.remove(removal).await.err().unwrap().code(), "session_closed");
+    assert_eq!(email_writes.load(Ordering::SeqCst), 1);
     drop(access);
     drop(stale);
     drop(live);

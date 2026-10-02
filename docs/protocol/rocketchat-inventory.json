@@ -35,6 +35,7 @@
     "apps/desktop/crates/rv-core/src/native/credentials.rs",
     "apps/desktop/crates/rv-core/src/native/security.rs",
     "apps/desktop/crates/rv-core/src/native/security/email.rs",
+    "apps/desktop/crates/rv-core/src/native/security/email/removal.rs",
     "apps/desktop/crates/rv-core/src/native/store.rs",
     "apps/desktop/crates/rv-core/src/normalize.rs",
     "apps/desktop/crates/rv-core/src/notify.rs",
@@ -561,79 +562,79 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 518,
+      "line": 537,
       "kind": "endpoint",
       "surface": "e2e.banner"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 519,
+      "line": 538,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 520,
+      "line": 539,
       "kind": "endpoint",
       "surface": "e2e.lock"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 521,
+      "line": 540,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 523,
+      "line": 542,
       "kind": "endpoint",
       "surface": "e2e.body"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 527,
+      "line": 546,
       "kind": "endpoint",
       "surface": "e2e.password"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 528,
+      "line": 547,
       "kind": "endpoint",
       "surface": "e2e.wrong"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 529,
+      "line": 548,
       "kind": "endpoint",
       "surface": "e2e.no_keys"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 530,
+      "line": 549,
       "kind": "endpoint",
       "surface": "e2e.failed"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 531,
+      "line": 550,
       "kind": "endpoint",
       "surface": "e2e.read_only"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 532,
+      "line": 551,
       "kind": "endpoint",
       "surface": "e2e.status"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 533,
+      "line": 552,
       "kind": "endpoint",
       "surface": "e2e.locked"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 534,
+      "line": 553,
       "kind": "endpoint",
       "surface": "e2e.unlocked"
     },

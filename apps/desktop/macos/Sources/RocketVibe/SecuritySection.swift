@@ -9,10 +9,14 @@ struct SecuritySection: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var model: SecurityModel?
     @State private var confirmation: Confirmation?
+    private enum ConfirmationAction {
+        case factor(NativeFactorAction)
+        case removeEmail(String)
+    }
     private struct Confirmation: Identifiable {
         let id = UUID()
         let model: SecurityModel
-        let action: NativeFactorAction
+        let action: ConfirmationAction
         let revision: UInt64
     }
     var body: some View {
@@ -56,10 +60,10 @@ struct SecuritySection: View {
                         if value.factor == .idle {
                             if value.enabled {
                                 Button(L("security.regenerate"), role: .destructive) {
-                                    confirmation = Confirmation(model: model, action: .regenerate, revision: value.viewRevision)
+                                    confirmation = Confirmation(model: model, action: .factor(.regenerate), revision: value.viewRevision)
                                 }
                                 Button(L("security.disable"), role: .destructive) {
-                                    confirmation = Confirmation(model: model, action: .disable, revision: value.viewRevision)
+                                    confirmation = Confirmation(model: model, action: .factor(.disable), revision: value.viewRevision)
                                 }
                             } else {
                                 Button(L("security.setup")) { Task { await model.factor(.setup, revision: value.viewRevision) } }
@@ -90,11 +94,16 @@ struct SecuritySection: View {
             if let pending = confirmation {
                 Button(title(pending.action), role: .destructive) {
                     confirmation = nil
-                    Task { await pending.model.factor(pending.action, revision: pending.revision) }
+                    Task {
+                        switch pending.action {
+                        case let .factor(action): await pending.model.factor(action, revision: pending.revision)
+                        case .removeEmail: await pending.model.removeEmail(revision: pending.revision)
+                        }
+                    }
                 }
             }
             Button(L("actions.cancel"), role: .cancel) { confirmation = nil }
-        } message: { Text(L(confirmation?.action == .disable ? "security.disable_body" : "security.regenerate_body")) }
+        } message: { Text(confirmationBody(confirmation?.action)) }
     }
     private func input(_ model: SecurityModel, _ key: ReferenceWritableKeyPath<SecurityModel, String>) -> Binding<String> {
         Binding(get: { model[keyPath: key] }, set: { model[keyPath: key] = $0 })
@@ -124,10 +133,16 @@ struct SecuritySection: View {
                 Text(address)
             } else { Text(L("email.none")).foregroundStyle(.secondary) }
         }
-        if email.phase == .idle {
+        if email.phase == .idle && email.canVerify {
             TextField(L("email.address"), text: input(model, \.emailAddress))
             Button(L("email.start")) { Task { await model.startEmail(revision: value.viewRevision) } }
                 .disabled(value.proof != .ready)
+        }
+        if email.phase == .idle && email.canRemove, let address = email.address {
+            Button(L("email.remove"), role: .destructive) {
+                confirmation = Confirmation(model: model, action: .removeEmail(address), revision: value.viewRevision)
+            }
+            .disabled(value.proof != .ready)
         }
         if email.phase == .pending {
             Text(L("email.pending")).font(.caption).foregroundStyle(.secondary)
@@ -146,6 +161,18 @@ struct SecuritySection: View {
             Text(L("email.stale")).foregroundStyle(.secondary)
             Button(L("email.restart")) { Task { await model.cancelEmail(revision: value.viewRevision) } }
         }
+        if email.phase == .removalPending {
+            Text(L("email.removal_pending")).foregroundStyle(.secondary)
+            Button(L("email.cancel_removal")) { Task { await model.cancelEmail(revision: value.viewRevision) } }
+        }
+        if email.phase == .removed {
+            Text(L("email.removed"))
+            Button(L("email.done")) { Task { await model.acknowledgeEmail(revision: value.viewRevision) } }
+        }
+        if email.phase == .removalStale {
+            Text(L("email.removal_stale")).foregroundStyle(.secondary)
+            Button(L("email.close_removal")) { Task { await model.cancelEmail(revision: value.viewRevision) } }
+        }
     }
     private func deliveryTitle(_ delivery: NativeEmailDelivery) -> String {
         switch delivery {
@@ -156,8 +183,19 @@ struct SecuritySection: View {
         case .exhausted: return L("email.exhausted")
         }
     }
-    private func title(_ action: NativeFactorAction?) -> String {
-        L(action == .disable ? "security.disable" : "security.regenerate")
+    private func title(_ action: ConfirmationAction?) -> String {
+        switch action {
+        case .removeEmail: return L("email.remove")
+        case .factor(.disable): return L("security.disable")
+        default: return L("security.regenerate")
+        }
+    }
+    private func confirmationBody(_ action: ConfirmationAction?) -> String {
+        switch action {
+        case let .removeEmail(address): return address + "\n\n" + L("email.remove_body")
+        case .factor(.disable): return L("security.disable_body")
+        default: return L("security.regenerate_body")
+        }
     }
     private func copy(_ model: SecurityModel, _ kind: NativeSecurityCopy, _ revision: UInt64) {
         Task {

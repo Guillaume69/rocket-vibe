@@ -315,6 +315,32 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, retrait du contact bureau : boutons dans les paramètres GTK / SwiftUI
+  existants et une seule entrée privée partagée entre vérification et retrait.
+  Le format des anciennes vérifications reste lisible ; aucun retrait ne conserve
+  l'ancienne adresse. Une confirmation épingle contact / révision avant HTTP ;
+  les anciennes révisions, fournisseurs, vues fermées et générations sont refusés.
+  Le verrou OS reste pris pendant le travail de trousseau annulé côté appelant.
+  Une réponse perdue conserve l'opération initiale ; Annuler ne relance pas le
+  start et une acceptation gagnante reste visible jusqu'à Terminer. Un reçu
+  nettoyé sans acceptation enregistrée ne permet pas de déduire le succès de la
+  seule absence d'adresse. Le contact reste consultable et retirable sans SMTP,
+  tandis que les nouvelles vérifications suivent leur capacité propre.
+  Vérifications : 22 tests de contact dont 12 de retrait, gardes HTTP sans SMTP /
+  TOTP, 275 régressions Rust bureau, Clippy et compilation GTK passent ; bindings
+  générés, compilation et six tests locaux Swift réussis. Les bancs PostgreSQL
+  GTK / Swift passent chacun trois vrais processus avec Secret Service et SMTP
+  TLS local : verification start / confirm perdus, retrait perdu, reprise après
+  nouveau restart, fermeture explicite et ancien callback refusé. SQL conserve
+  une famille, une preuve avec son âge, deux secours consommés, une régénération,
+  une admission et un retrait, sans ancien contact, défi ou job. Le retrait laisse
+  le second facteur actif avant sa désactivation explicitement testée à part.
+  Un premier scénario GTK retrouvait l'ancien dialogue encore en fermeture :
+  l'attente porte désormais sur sa disparition effective ; le banc complet passe.
+  La vue finale tient à 435 px et n'affiche aucun code privé. La compilation
+  SwiftUI doit encore être confirmée sur macOS en CI. Facteur e-mail,
+  récupération et trousseaux / apps installés restent la suite de P02.
+
 - P02, retrait du contact mobile : bouton avec confirmation native dans les
   paramètres existants, révision / focus épinglés et saisies transitoires.
   SecureStore contient une seule intention e-mail, vérification ou retrait,
@@ -335,6 +361,8 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   1 076 tests mobiles passent, avec Clippy, typecheck, lint, bundle Android et
   contrats. Les repères de lignes de l'inventaire Rocket.Chat sont régénérés
   après les traductions. ADB voit zéro appareil connecté le 2026-10-02.
+  La CI `native-server` du commit `10eade4` est entièrement verte (run
+  `36941624686`, quatre jobs : serveur / mobile, Fedora, cœur Windows et Swift).
   Les boutons / coffres GTK et SwiftUI, le facteur e-mail et la récupération
   restent la suite de P02. Les widgets / SecureStore installés restent ouverts.
 

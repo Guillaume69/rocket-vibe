@@ -69,6 +69,10 @@ public final class SecurityModel {
         let input = emailCode.trimmingCharacters(in: .whitespacesAndNewlines); emailCode = ""
         await run { try await $0.confirmEmail(code: input, viewRevision: revision) }
     }
+    public func removeEmail(revision: UInt64) async {
+        emailAddress = ""; emailCode = ""
+        await run { try await $0.removeEmail(viewRevision: revision) }
+    }
     public func cancelEmail(revision: UInt64) async {
         emailCode = ""
         await run { try await $0.cancelEmail(viewRevision: revision) }
@@ -126,6 +130,7 @@ public final class SecurityModel {
             else if code == "reauthentication_rejected" || code == "factor_rejected" { key = "security.rejected" }
             else if code == "invalid_email_address" { key = "email.invalid" }
             else if code == "email_verification_rejected" { key = "email.rejected" }
+            else if code == "email_removal_rejected" { key = "email.removal_stale" }
             else if code == "email_queue_limit" || code == "email_delivery_limit" { key = "email.limited" }
         }
         if handle.isClosed() {

@@ -480,6 +480,25 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("email.cancel", "Annuler cette vérification", "Cancel this verification"),
     ("email.verified", "L’adresse a été vérifiée.", "The address has been verified."),
     ("email.done", "Terminer", "Done"),
+    ("email.remove", "Retirer cette adresse e-mail", "Remove this email address"),
+    (
+        "email.remove_body",
+        "Cette adresse ne pourra plus recevoir de codes ni servir à récupérer le compte. Le retrait ne désactive pas l’authentification à deux facteurs.",
+        "This address will no longer receive codes or recover the account. Removing it does not disable two-factor authentication.",
+    ),
+    ("email.removed", "L’adresse e-mail a été retirée.", "The email address has been removed."),
+    (
+        "email.removal_pending",
+        "Le retrait n’est pas encore confirmé. Actualisez pour reprendre ou annulez cette demande.",
+        "Removal is not confirmed yet. Refresh to resume or cancel this request.",
+    ),
+    ("email.cancel_removal", "Annuler cette demande de retrait", "Cancel this removal request"),
+    (
+        "email.removal_stale",
+        "Ce retrait ne peut plus être confirmé. Fermez la demande puis vérifiez l’adresse actuelle.",
+        "This removal can no longer be confirmed. Close the request and check the current address.",
+    ),
+    ("email.close_removal", "Fermer cette demande de retrait", "Close this removal request"),
     (
         "email.stale",
         "Cette vérification n’est plus disponible. Fermez-la avant de vérifier une adresse à nouveau.",

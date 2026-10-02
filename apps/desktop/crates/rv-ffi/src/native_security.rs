@@ -40,6 +40,9 @@ pub enum NativeEmailPhase {
     Pending,
     Verified,
     Stale,
+    RemovalPending,
+    Removed,
+    RemovalStale,
 }
 #[derive(Clone, Copy, uniffi::Enum)]
 pub enum NativeEmailDelivery {
@@ -54,6 +57,8 @@ pub enum NativeEmailDelivery {
 #[derive(Clone, uniffi::Record)]
 pub struct NativeEmailState {
     pub phase: NativeEmailPhase,
+    pub can_verify: bool,
+    pub can_remove: bool,
     pub address: Option<String>,
     pub pending_address: Option<String>,
     pub expires_at: Option<String>,
@@ -63,6 +68,8 @@ impl From<&email::View> for NativeEmailState {
     fn from(view: &email::View) -> Self {
         let mut value = Self {
             phase: NativeEmailPhase::Idle,
+            can_verify: false,
+            can_remove: false,
             address: view.status.address.clone(),
             pending_address: None,
             expires_at: None,
@@ -72,6 +79,9 @@ impl From<&email::View> for NativeEmailState {
             email::State::Idle => NativeEmailPhase::Idle,
             email::State::Verified { .. } => NativeEmailPhase::Verified,
             email::State::Stale { .. } => NativeEmailPhase::Stale,
+            email::State::RemovalPending { .. } => NativeEmailPhase::RemovalPending,
+            email::State::Removed { .. } => NativeEmailPhase::Removed,
+            email::State::RemovalStale { .. } => NativeEmailPhase::RemovalStale,
             email::State::Pending { address, expires_at, delivery, .. } => {
                 value.pending_address = Some(address.clone());
                 value.expires_at = Some(expires_at.clone());
@@ -126,7 +136,8 @@ impl State {
         self.status = None;
         self.email = None;
     }
-    fn snapshot(&self, supported: bool, supports_email: bool) -> NativeSecurityState {
+    fn snapshot(&self, supported: bool, email_features: (bool, bool)) -> NativeSecurityState {
+        let supports_email = email_features.0 || email_features.1;
         let (proof, methods) = match &self.proof {
             ProofState::Ready => (NativeProofPhase::Ready, vec![]),
             ProofState::Password => (NativeProofPhase::Password, vec![]),
@@ -159,7 +170,15 @@ impl State {
             setup_uri: uri,
             codes,
             supports_email,
-            email: if supports_email { self.email.as_ref().map(NativeEmailState::from) } else { None },
+            email: if supports_email {
+                self.email.as_ref().map(|view| {
+                    let mut email = NativeEmailState::from(view);
+                    (email.can_verify, email.can_remove) = email_features;
+                    email
+                })
+            } else {
+                None
+            },
         }
     }
     fn revision(&self, expected: u64) -> Result<(), Error> {
@@ -196,6 +215,7 @@ enum Action {
     Enable(String, u64),
     Clear(u64),
     EmailStart(String, u64),
+    EmailRemove(u64),
     EmailConfirm(String, u64),
     EmailCancel(u64),
     EmailAcknowledge(u64),
@@ -335,6 +355,9 @@ impl Inner {
                 factor = Some(FactorState::Idle);
             }
             Action::EmailStart(address, revision) => {
+                if !self.session.email_verification_supported() {
+                    return Err(Error::Protocol("unsupported_feature"));
+                }
                 let expected = {
                     let state = self.state.lock().unwrap();
                     state.revision(revision)?;
@@ -345,6 +368,21 @@ impl Inner {
                     view.status.clone()
                 };
                 email = Some(vault.email_start(scope, &access, &address, &expected, guard).await?);
+            }
+            Action::EmailRemove(revision) => {
+                if !self.session.email_removal_supported() {
+                    return Err(Error::Protocol("unsupported_feature"));
+                }
+                let expected = {
+                    let state = self.state.lock().unwrap();
+                    state.revision(revision)?;
+                    let view = state.email.as_ref().ok_or(Error::Protocol("credentials_changed"))?;
+                    if !matches!(view.state, email::State::Idle) || view.status.address.is_none() {
+                        return Err(Error::Protocol("credentials_changed"));
+                    }
+                    view.status.clone()
+                };
+                email = Some(vault.email_remove(scope, &access, &expected, guard).await?);
             }
             Action::EmailConfirm(code, revision) => {
                 let receipt = self.email_receipt(revision, NativeEmailPhase::Pending)?;
@@ -383,7 +421,10 @@ impl Inner {
         }
         state.status = Some(status);
         state.email = email;
-        Ok(state.snapshot(self.session.factors_supported(), self.session.email_supported()))
+        Ok(state.snapshot(
+            self.session.factors_supported(),
+            (self.session.email_verification_supported(), self.session.email_removal_supported()),
+        ))
     }
     fn email_receipt(&self, revision: u64, phase: NativeEmailPhase) -> Result<String, Error> {
         let state = self.state.lock().unwrap();
@@ -394,6 +435,8 @@ impl Inner {
             (email::State::Pending { .. }, NativeEmailPhase::Pending | NativeEmailPhase::Stale)
                 | (email::State::Stale { .. }, NativeEmailPhase::Stale)
                 | (email::State::Verified { .. }, NativeEmailPhase::Verified)
+                | (email::State::RemovalPending { .. } | email::State::RemovalStale { .. }, NativeEmailPhase::Stale)
+                | (email::State::Removed { .. }, NativeEmailPhase::Verified)
         );
         if !allowed {
             return Err(Error::Protocol("credentials_changed"));
@@ -415,7 +458,10 @@ impl NativeSecurity {
         if !self.inner.guard.alive() || self.inner.session.is_closed() {
             state.clear();
         }
-        state.snapshot(self.inner.session.factors_supported(), self.inner.session.email_supported())
+        state.snapshot(
+            self.inner.session.factors_supported(),
+            (self.inner.session.email_verification_supported(), self.inner.session.email_removal_supported()),
+        )
     }
     pub async fn refresh(&self) -> Result<NativeSecurityState, RvError> {
         self.perform(Action::Refresh).await
@@ -441,6 +487,9 @@ impl NativeSecurity {
     }
     pub async fn start_email(&self, address: String, view_revision: u64) -> Result<NativeSecurityState, RvError> {
         self.perform(Action::EmailStart(address, view_revision)).await
+    }
+    pub async fn remove_email(&self, view_revision: u64) -> Result<NativeSecurityState, RvError> {
+        self.perform(Action::EmailRemove(view_revision)).await
     }
     pub async fn confirm_email(&self, code: String, view_revision: u64) -> Result<NativeSecurityState, RvError> {
         self.perform(Action::EmailConfirm(code, view_revision)).await

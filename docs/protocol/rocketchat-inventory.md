@@ -2,7 +2,7 @@
 
 Commande : `node scripts/inventory-rocketchat.mjs`. Contrôle : ajouter `--check`.
 
-289 fichiers de production parcourus ; 344 occurrences.
+290 fichiers de production parcourus ; 344 occurrences.
 Les appels à premier argument dynamique restent visibles : leur résolution est
 consignée dans [le contrat de parité](PARITY.md). Les lignes sont des repères de
 source au moment de la génération. Le JSON conserve le périmètre et tous les fichiers.
@@ -52,19 +52,19 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/crates/rv-core/src/i18n.rs:232](../../apps/desktop/crates/rv-core/src/i18n.rs#L232) | endpoint | rooms.section_direct |
 | [apps/desktop/crates/rv-core/src/i18n.rs:233](../../apps/desktop/crates/rv-core/src/i18n.rs#L233) | endpoint | rooms.new |
 | [apps/desktop/crates/rv-core/src/i18n.rs:236](../../apps/desktop/crates/rv-core/src/i18n.rs#L236) | endpoint | rooms.back_to_room |
-| [apps/desktop/crates/rv-core/src/i18n.rs:518](../../apps/desktop/crates/rv-core/src/i18n.rs#L518) | endpoint | e2e.banner |
-| [apps/desktop/crates/rv-core/src/i18n.rs:519](../../apps/desktop/crates/rv-core/src/i18n.rs#L519) | endpoint | e2e.unlock |
-| [apps/desktop/crates/rv-core/src/i18n.rs:520](../../apps/desktop/crates/rv-core/src/i18n.rs#L520) | endpoint | e2e.lock |
-| [apps/desktop/crates/rv-core/src/i18n.rs:521](../../apps/desktop/crates/rv-core/src/i18n.rs#L521) | endpoint | e2e.title |
-| [apps/desktop/crates/rv-core/src/i18n.rs:523](../../apps/desktop/crates/rv-core/src/i18n.rs#L523) | endpoint | e2e.body |
-| [apps/desktop/crates/rv-core/src/i18n.rs:527](../../apps/desktop/crates/rv-core/src/i18n.rs#L527) | endpoint | e2e.password |
-| [apps/desktop/crates/rv-core/src/i18n.rs:528](../../apps/desktop/crates/rv-core/src/i18n.rs#L528) | endpoint | e2e.wrong |
-| [apps/desktop/crates/rv-core/src/i18n.rs:529](../../apps/desktop/crates/rv-core/src/i18n.rs#L529) | endpoint | e2e.no_keys |
-| [apps/desktop/crates/rv-core/src/i18n.rs:530](../../apps/desktop/crates/rv-core/src/i18n.rs#L530) | endpoint | e2e.failed |
-| [apps/desktop/crates/rv-core/src/i18n.rs:531](../../apps/desktop/crates/rv-core/src/i18n.rs#L531) | endpoint | e2e.read_only |
-| [apps/desktop/crates/rv-core/src/i18n.rs:532](../../apps/desktop/crates/rv-core/src/i18n.rs#L532) | endpoint | e2e.status |
-| [apps/desktop/crates/rv-core/src/i18n.rs:533](../../apps/desktop/crates/rv-core/src/i18n.rs#L533) | endpoint | e2e.locked |
-| [apps/desktop/crates/rv-core/src/i18n.rs:534](../../apps/desktop/crates/rv-core/src/i18n.rs#L534) | endpoint | e2e.unlocked |
+| [apps/desktop/crates/rv-core/src/i18n.rs:537](../../apps/desktop/crates/rv-core/src/i18n.rs#L537) | endpoint | e2e.banner |
+| [apps/desktop/crates/rv-core/src/i18n.rs:538](../../apps/desktop/crates/rv-core/src/i18n.rs#L538) | endpoint | e2e.unlock |
+| [apps/desktop/crates/rv-core/src/i18n.rs:539](../../apps/desktop/crates/rv-core/src/i18n.rs#L539) | endpoint | e2e.lock |
+| [apps/desktop/crates/rv-core/src/i18n.rs:540](../../apps/desktop/crates/rv-core/src/i18n.rs#L540) | endpoint | e2e.title |
+| [apps/desktop/crates/rv-core/src/i18n.rs:542](../../apps/desktop/crates/rv-core/src/i18n.rs#L542) | endpoint | e2e.body |
+| [apps/desktop/crates/rv-core/src/i18n.rs:546](../../apps/desktop/crates/rv-core/src/i18n.rs#L546) | endpoint | e2e.password |
+| [apps/desktop/crates/rv-core/src/i18n.rs:547](../../apps/desktop/crates/rv-core/src/i18n.rs#L547) | endpoint | e2e.wrong |
+| [apps/desktop/crates/rv-core/src/i18n.rs:548](../../apps/desktop/crates/rv-core/src/i18n.rs#L548) | endpoint | e2e.no_keys |
+| [apps/desktop/crates/rv-core/src/i18n.rs:549](../../apps/desktop/crates/rv-core/src/i18n.rs#L549) | endpoint | e2e.failed |
+| [apps/desktop/crates/rv-core/src/i18n.rs:550](../../apps/desktop/crates/rv-core/src/i18n.rs#L550) | endpoint | e2e.read_only |
+| [apps/desktop/crates/rv-core/src/i18n.rs:551](../../apps/desktop/crates/rv-core/src/i18n.rs#L551) | endpoint | e2e.status |
+| [apps/desktop/crates/rv-core/src/i18n.rs:552](../../apps/desktop/crates/rv-core/src/i18n.rs#L552) | endpoint | e2e.locked |
+| [apps/desktop/crates/rv-core/src/i18n.rs:553](../../apps/desktop/crates/rv-core/src/i18n.rs#L553) | endpoint | e2e.unlocked |
 | [apps/desktop/crates/rv-core/src/live.rs:8](../../apps/desktop/crates/rv-core/src/live.rs#L8) | stream | stream-notify-logged |
 | [apps/desktop/crates/rv-core/src/media.rs:26](../../apps/desktop/crates/rv-core/src/media.rs#L26) | resource | /avatar/{…} |
 | [apps/desktop/crates/rv-core/src/media.rs:27](../../apps/desktop/crates/rv-core/src/media.rs#L27) | resource | /avatar/uid/{…} |

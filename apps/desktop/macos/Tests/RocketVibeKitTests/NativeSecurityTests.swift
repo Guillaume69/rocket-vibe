@@ -3,8 +3,8 @@ import RocketVibeCore
 import XCTest
 @testable import RocketVibeKit
 
-/// Run twice by the dedicated disposable bench. No proof/code is printed or
-/// written to a test artifact; the second process uses the real private keyring.
+/// Run three times by the dedicated disposable bench. No proof/code is printed
+/// or written to a test artifact; later processes use the real private keyring.
 final class NativeSecurityTests: XCTestCase {
     @MainActor
     func testPrivateSettingsAcrossProcessRestartAndLostAcknowledgements() async throws {
@@ -102,6 +102,7 @@ final class NativeSecurityTests: XCTestCase {
             XCTAssertTrue(model.password.isEmpty && model.code.isEmpty && model.setupCode.isEmpty && model.method.isEmpty)
             XCTAssertTrue(model.emailAddress.isEmpty && model.emailCode.isEmpty)
             await model.acknowledge(revision: bag.viewRevision)
+            await model.removeEmail(revision: bag.viewRevision)
             XCTAssertNil(model.value, "A closed view cannot acknowledge the durable receipt")
             // app.end() closes the socket without logging out. The next process
             // must resume this one family and the original private code bag.
@@ -187,6 +188,42 @@ final class NativeSecurityTests: XCTestCase {
             await current.open()
             XCTAssertEqual(current.value?.enabled, true)
             XCTAssertEqual(current.value?.factor, .codes)
+            XCTAssertEqual(current.value?.email?.canRemove, true)
+            let oldRemovalRevision = try XCTUnwrap(current.value?.viewRevision)
+            await current.refresh()
+            await current.removeEmail(revision: oldRemovalRevision)
+            XCTAssertNotNil(current.error, "The confirmation for an older displayed contact cannot remove it")
+            XCTAssertEqual(current.value?.email?.address, "swift-security@example.test")
+            XCTAssertEqual(current.value?.email?.phase, .idle)
+            current.emailAddress = "transient@example.test"; current.emailCode = "00000000"
+            await current.removeEmail(revision: try XCTUnwrap(current.value?.viewRevision))
+            XCTAssertNil(current.error)
+            XCTAssertEqual(current.value?.email?.phase, .removalPending, "The proxy discards the committed removal reply")
+            XCTAssertTrue(current.emailAddress.isEmpty && current.emailCode.isEmpty)
+            XCTAssertEqual(current.value?.enabled, true, "Removing a contact does not disable the second factor")
+            let accounts = await app.client.accounts()
+            XCTAssertEqual(accounts.count, 1)
+        } else if phase == "removal-restart-ack-disable" {
+            await app.start()
+            XCTAssertEqual(app.account?.username, "swift-security")
+            try await until { app.connection == .online }
+            let current = SecurityModel(app: app)
+            defer { current.close() }
+            await current.open()
+            XCTAssertNil(current.error)
+            XCTAssertEqual(current.value?.email?.phase, .removed, "The original removal resumes from the actual keyring after process restart")
+            XCTAssertNil(current.value?.email?.address)
+            XCTAssertEqual(current.value?.enabled, true)
+            XCTAssertEqual(current.value?.factor, .codes)
+            let previous = try XCTUnwrap(current.value?.viewRevision)
+            await current.refresh()
+            await current.acknowledgeEmail(revision: previous)
+            XCTAssertNotNil(current.error, "An old view cannot acknowledge the durable removal receipt")
+            XCTAssertEqual(current.value?.email?.phase, .removed)
+            await current.acknowledgeEmail(revision: try XCTUnwrap(current.value?.viewRevision))
+            XCTAssertNil(current.error)
+            XCTAssertEqual(current.value?.email?.phase, .idle)
+            XCTAssertNil(current.value?.email?.address)
             await current.acknowledge(revision: try XCTUnwrap(current.value?.viewRevision))
             XCTAssertNil(current.error)
             XCTAssertEqual(current.value?.factor, .idle)

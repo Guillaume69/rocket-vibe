@@ -23,13 +23,12 @@ BEGIN
   IF EXISTS(SELECT 1 FROM user_factors WHERE user_id=account) THEN
     RAISE EXCEPTION 'Expected factor disabled after resumed acknowledgement';
   END IF;
-  IF NOT EXISTS(SELECT 1 FROM account_emails WHERE user_id=account AND address=fixture||'@example.test')
-     OR (SELECT count(*) FROM email_verifications WHERE user_id=account AND verified_at IS NOT NULL)<>1
-     OR (SELECT count(*) FROM email_verifications WHERE user_id=account)<>1
+  IF EXISTS(SELECT 1 FROM account_emails WHERE user_id=account)
+     OR EXISTS(SELECT 1 FROM email_verifications WHERE user_id=account)
      OR (SELECT count(*) FROM email_delivery_admissions)<>1
-     OR NOT EXISTS(SELECT 1 FROM email_outbox o JOIN email_verifications v ON v.token_hash=o.verification_hash
-        WHERE v.user_id=account AND o.sent_at IS NOT NULL AND o.payload_cipher IS NULL) THEN
-    RAISE EXCEPTION 'Expected one private verified contact, one mail admission and delivered ciphertext erased';
+     OR EXISTS(SELECT 1 FROM email_outbox)
+     OR (SELECT count(*) FROM email_removals WHERE user_id=account)<>1 THEN
+    RAISE EXCEPTION 'Expected exactly one private mail removal, one retained admission and no former contact, verification or outbox';
   END IF;
   IF NOT EXISTS(SELECT 1 FROM reauthentication_grants g JOIN reauthentication_challenges c
       ON c.device_id=g.device_id AND c.committed_version=g.proof_version
@@ -37,5 +36,5 @@ BEGIN
         AND g.expires_at=c.authenticated_at+interval '15 minutes') THEN
     RAISE EXCEPTION 'Settings replay or factor mutation changed the original proof age';
   END IF;
-  RAISE NOTICE 'Native security: one family, one proof, two consumed codes, one regeneration, one verified mail and committed disable';
+  RAISE NOTICE 'Native security: one family, one proof, two consumed codes, one regeneration, one mail verified then removed and committed disable';
 END $$;

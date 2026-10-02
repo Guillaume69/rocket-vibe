@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Dedicated disposable Compose pilot; two real GTK processes and Secret Service.
+# Dedicated disposable Compose pilot; three real GTK processes and Secret Service.
 set -euo pipefail
 mkdir -p "$HOME" ../../artifacts
 export XDG_RUNTIME_DIR="$HOME/runtime"
@@ -38,4 +38,7 @@ unset RV_SMOKE_LOGIN RV_SMOKE_FACTOR_FILE
 export RV_SMOKE_SECURITY=restart-ack-disable
 export RV_SMOKE_SHOT=/workspace/artifacts/native-desktop-security-resumed.png
 run_with_keyring
-echo 'GTK security: proof / regeneration / disable ACK recovery and private receipt after process restart passed'
+export RV_SMOKE_SECURITY=removal-restart-ack-disable
+export RV_SMOKE_SHOT=/workspace/artifacts/native-desktop-security-email-removed.png
+run_with_keyring
+echo 'GTK security: proof / mail verification / removal / factor ACK recovery and private receipts after process restart passed'

@@ -14,8 +14,8 @@ annoncée seulement avec transport SMTP et clé opérateur configurés.
 Les formulaires mobile, GTK et SwiftUI rejoignent leurs paramètres de sécurité
 existants, avec SecureStore ou trousseau système privé et reprise de l'intention
 initiale. La migration 0018 et les SDK permettent aussi le retrait conditionnel
-du contact, même sans SMTP ; le mobile est raccordé, les coffres et boutons
-GTK / SwiftUI restent à livrer.
+du contact, même sans SMTP ; les coffres et boutons mobile / GTK / SwiftUI sont
+raccordés à ces trois routes.
 Le second facteur e-mail et la récupération par e-mail restent à implémenter. La présence
 de `SecondFactor::Email` dans les types et de `FactorStatus.email=false` ne
 signifie pas que ces deux dernières opérations soient disponibles.
@@ -30,7 +30,7 @@ course ; un ancien bouton ne peut effacer la tentative suivante. Le reçu
 accepté reste privé jusqu'à Terminer. L'horloge du serveur décide l'expiration,
 même si l'appareil corrige son horloge.
 
-Le mobile conserve vérification ou retrait dans une seule entrée privée ; le
+Les trois clients conservent vérification ou retrait dans une seule entrée privée ; le
 format des vérifications déjà enregistrées reste lisible. Le retrait ne stocke
 pas l'ancienne adresse, seulement la portée, l'opération, les versions initiales
 et son reçu éventuel. La confirmation native épingle la révision et le contact
@@ -44,14 +44,15 @@ le contact toujours absent. L'ancienne intention ne retire jamais un contact
 remplacé depuis.
 
 GTK et Swift partagent `rv-core::native::security::email`. Le verrou OS reste
-commun aux preuves, facteurs et vérifications e-mail, y compris pendant le
+commun aux preuves, facteurs, vérifications et retraits e-mail, y compris pendant le
 travail réel d'une écriture de trousseau dont l'appelant a été annulé. Le handle
 UniFFI conserve candidats, reçus, portée et versions : Swift reçoit seulement
 les valeurs d'affichage, et chaque action e-mail porte la révision affichée.
 Une adresse refusée conserve un reçu périmé explicitement annulable ; aucun
 client ne remplace ou efface silencieusement cette intention. Les bancs GTK et
-Swift utilisent deux processus et le vrai Secret Service Linux, avec perte des
-réponses start / confirm et relais SMTP TLS loopback. Les trousseaux Windows /
+Swift utilisent trois processus et le vrai Secret Service Linux, avec perte des
+réponses de vérification start / confirm et de retrait, puis reprise après un
+nouveau redémarrage. Le relais SMTP utilise TLS loopback. Les trousseaux Windows /
 macOS et SecureStore sur appareil installé restent à qualifier.
 
 ## Configuration du transport
@@ -170,11 +171,10 @@ Si elles sont toujours celles affichées, elle ouvre une nouvelle tête et bloqu
 le start ancien, sans retirer le contact. Après remplacement du contact, elle
 préserve une nouvelle vérification même si cet appareil a encore la même tête.
 Si le retrait a déjà gagné, l'annulation ne l'inverse pas : le client devra
-reprendre son reçu avant de conclure ou d'effacer l'intention locale. Le coffre
-et le formulaire mobile implémentent ces règles, avec lecture / retrait sans
+reprendre son reçu avant de conclure ou d'effacer l'intention locale. Les coffres
+et formulaires mobile / GTK / SwiftUI implémentent ces règles, avec lecture / retrait sans
 SMTP ou configuration TOTP. Une vérification non reçue devenue indisponible
-reste explicitement fermable. Les coffres et formulaires GTK / SwiftUI restent
-le prochain lot ; le parcours mobile installé reste à qualifier.
+reste explicitement fermable. Les parcours installés restent à qualifier.
 
 ## Contrat de la suite du chantier
 
@@ -247,6 +247,22 @@ existent uniquement dans le serveur de test ; aucun envoi extérieur ne part.
 Le stockage privé de ce banc est simulé. Typecheck, lint, tests mobiles et
 export du bundle Android passent ; ils ne prouvent pas le SecureStore ou les
 widgets d'une app installée. ADB ne signale actuellement aucun appareil connecté.
+
+Le coffre commun bureau passe 22 tests de contact, dont 12 scénarios de retrait :
+réponse perdue, échec de stockage du reçu, reprise du même candidat, nettoyage,
+contact remplacé, concurrence, preuve expirée, fermeture et verrou OS conservé
+par une écriture réelle dont l'appelant est annulé. Les gardes HTTP vérifient le
+retrait sans capacités de vérification / TOTP et refusent une génération ou un
+fournisseur fermé avant mutation. Le workspace Fedora passe ses 275 tests et
+Clippy ; les bindings UniFFI sont réellement générés et les modèles Swift compilés.
+Les deux bancs PostgreSQL / Secret Service passent chacun les trois processus.
+GTK exerce aussi une ancienne confirmation native après Actualiser et attend sa
+fermeture effective avant d'ouvrir la suivante ; Swift refuse les anciennes
+révisions de retrait / acknowledgement. SQL exige une seule famille, une preuve
+complète conservant son âge, une admission et un reçu de retrait, sans ancien
+contact, vérification ni job. Le second facteur reste actif pendant le retrait,
+puis sa désactivation explicite est testée séparément. La compilation SwiftUI
+du nouveau lot doit encore être confirmée par la CI macOS.
 
 Il reste à qualifier les parcours installés et le relais réel avec accès
 opérateur. Un test SMTP / TLS loopback ne valide pas la délivrabilité d'un

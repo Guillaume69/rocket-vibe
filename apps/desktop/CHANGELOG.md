@@ -14,6 +14,8 @@ section here.
   shows its first image, whatever its size.
 - The update card's Restart brings the app back on Linux sessions where it only closed it
   (seen on Omarchy).
+- A file whose upload the network cut is sent again by itself within seconds, instead of
+  staying "Waiting" until the app reconnects; meanwhile it reads "Connection lost, retrying…".
 
 ## [0.6.0] - 2026-10-01
 

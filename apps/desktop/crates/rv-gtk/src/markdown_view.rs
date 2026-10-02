@@ -304,6 +304,79 @@ fn with_previews(label: &gtk::Label) {
     });
 }
 
+fn text_at(widget: &gtk::Widget, x: f64, y: f64) -> Option<gtk::Widget> {
+    let picked = widget.pick(x, y, gtk::PickFlags::DEFAULT)?;
+    std::iter::successors(Some(picked), |w| w.parent())
+        .take(4)
+        .find(|w| w.is::<gtk::Label>() || w.is::<gtk::TextView>())
+}
+
+/// Whether `(x, y)` of `widget` (a message row) falls on its text.
+pub fn is_text_at(widget: &gtk::Widget, x: f64, y: f64) -> bool {
+    text_at(widget, x, y).is_some()
+}
+
+/// The link under `(x, y)` of `widget` (a message row), when that point
+/// falls on a link of its text.
+pub fn link_at_point(widget: &gtk::Widget, x: f64, y: f64) -> Option<String> {
+    let label = text_at(widget, x, y)?.downcast::<gtk::Label>().ok()?;
+    let point = widget.compute_point(&label, &gtk::graphene::Point::new(x as f32, y as f32))?;
+    let (dx, dy) = label.layout_offsets();
+    let at = |v: f32, offset: i32| ((v as f64 - offset as f64) * pango::SCALE as f64) as i32;
+    let (inside, index, _) = label.layout().xy_to_index(at(point.x(), dx), at(point.y(), dy));
+    inside.then(|| rv_core::markdown::link_at(&label.label(), index as usize)).flatten()
+}
+
+/// Follows a link of a message: ours to the handler, any other to the browser.
+pub fn open_link(widget: &impl IsA<gtk::Widget>, uri: &str) {
+    if !LINKS.with_borrow(Clone::clone).is_some_and(|h| h(uri)) {
+        crate::cards::open_uri(widget, uri);
+    }
+}
+
+/// The right click on a message's text when it holds a selection or a link:
+/// copy what is selected, open or copy the link. False when there is neither.
+pub fn text_menu(anchor: &gtk::Widget, x: f64, y: f64, selection: Option<String>, link: Option<String>) -> bool {
+    use gtk::gio;
+    let actions = gio::SimpleActionGroup::new();
+    let menu = gio::Menu::new();
+    if let Some(text) = selection {
+        let copy = gio::SimpleAction::new("copy", None);
+        let widget = anchor.clone();
+        copy.connect_activate(move |_, _| widget.clipboard().set_text(&text));
+        actions.add_action(&copy);
+        menu.append(Some(crate::i18n::t("actions.copy")), Some("text.copy"));
+    }
+    if let Some(uri) = link.filter(|l| !l.starts_with("rv-")) {
+        let open = gio::SimpleAction::new("open", None);
+        let (widget, target) = (anchor.clone(), uri.clone());
+        open.connect_activate(move |_, _| open_link(&widget, &target));
+        actions.add_action(&open);
+        let copy_link = gio::SimpleAction::new("copy-link", None);
+        let widget = anchor.clone();
+        copy_link.connect_activate(move |_, _| widget.clipboard().set_text(&uri));
+        actions.add_action(&copy_link);
+        let links = gio::Menu::new();
+        links.append(Some(crate::i18n::t("text.open_link")), Some("text.open"));
+        links.append(Some(crate::i18n::t("text.copy_link")), Some("text.copy-link"));
+        menu.append_section(None, &links);
+    }
+    if menu.n_items() == 0 {
+        return false;
+    }
+    anchor.insert_action_group("text", Some(&actions));
+    let popover = gtk::PopoverMenu::from_model(Some(&menu));
+    popover.set_parent(anchor);
+    popover.set_has_arrow(false);
+    popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+    popover.connect_closed(|popover| {
+        let popover = popover.clone();
+        glib::idle_add_local_once(move || popover.unparent());
+    });
+    popover.popup();
+    true
+}
+
 /// Our own links (`rv-user:`, `rv-room:`): the handler says whether it took one.
 pub fn set_link_handler(f: impl Fn(&str) -> bool + 'static) {
     LINKS.with_borrow_mut(|h| *h = Some(std::rc::Rc::new(f)));

@@ -865,7 +865,15 @@ impl ChatPage {
                     }
                 });
             }
-            RowEvent::Menu { row, anchor, x, y } => {
+            RowEvent::Menu { row, anchor, x, y, link } => {
+                let selection = self
+                    .list
+                    .selection_text()
+                    .or_else(|| self.thread.borrow().as_ref().and_then(|t| t.list.selection_text()))
+                    .or_else(crate::markdown_view::selected_text);
+                if crate::markdown_view::text_menu(&anchor, x, y, selection, link) {
+                    return;
+                }
                 let Some(open) = self.current.borrow().clone() else { return };
                 let room = actions_menu::RoomContext {
                     rid: open.rid.clone(),

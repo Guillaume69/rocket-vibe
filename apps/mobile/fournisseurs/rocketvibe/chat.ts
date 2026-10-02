@@ -7,6 +7,7 @@ import { NativeError, type NativeTransport } from './transport.ts';
 import { decodeNative } from './validation.ts';
 import type { Capabilities } from './protocol.generated.ts';
 import type {RoomOperation,SavedRoomOperation} from './roomOperations.ts';
+import type {PendingRead,SavedFavorite} from './readIntents.ts';
 import { canonicalEmoji } from './emojis.ts';
 import type {FactorRemote} from './factorVault.ts';
 import type {EmailRemote} from './emailVault.ts';
@@ -37,6 +38,10 @@ export class NativeChat {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private retryAt = 0;
   private retryAttempt = 0;
+  private stateFlushing:Promise<void>|null=null;
+  private stateRetryTimer:ReturnType<typeof setTimeout>|null=null;
+  private readRetryAt=0;
+  private favoriteRetryAt=0;
   private credentialCheckAt=Date.now()+24*60*60*1000;
   status: NativeStatus = {online:false,error:null};
   capabilities: Capabilities | null = null;
@@ -59,6 +64,8 @@ export class NativeChat {
     this.verified = false;
     if (this.retryTimer!==null) clearTimeout(this.retryTimer);
     this.retryTimer = null;
+    if(this.stateRetryTimer!==null)clearTimeout(this.stateRetryTimer);
+    this.stateRetryTimer=null;
     const socket = this.socket; this.socket = null;
     this.cancelOpening?.(); this.cancelOpening = null;
     if (socket) { socket.onopen = null; socket.onclose = null; socket.onerror = null; socket.onmessage = null; socket.close(); }
@@ -116,6 +123,15 @@ export class NativeChat {
           if (!alive()) return;
           checkIdentity(this.session, await this.transport.discover());
           if (!alive()) return;
+          await this.store.applySnapshot(snapshot);
+        }
+      }
+      if(discovery.capabilities.read_markers && (await this.store.rooms()).length){
+        let unstamped=false;
+        for(const room of await this.store.rooms())if(!(await this.store.readState(room.rid))?.membership_version){unstamped=true;break;}
+        if(unstamped){
+          const snapshot=await this.transport.snapshot();if(!alive())return;
+          checkIdentity(this.session,await this.transport.discover());if(!alive())return;
           await this.store.applySnapshot(snapshot);
         }
       }
@@ -489,14 +505,137 @@ export class NativeChat {
     if (this.verified) await this.flush();
     return id;
   }
+  async markObservedRead(room:string,message:string):Promise<void> {
+    this.stateStagingSupported(false);
+    if(await this.store.stageRead(room,message))await this.flushStateIntents();
+  }
+  async setFavorite(room:string,present:boolean):Promise<void> {
+    this.stateStagingSupported(true);
+    if(!await this.store.stageFavorite(room,present,this.id))throw new NativeError(409,'favorite_action_pending');
+    this.notify();await this.flushStateIntents();
+  }
+  async resumeFavorite(room:string):Promise<void> {
+    this.stateStagingSupported(true);const saved=await this.store.favoriteIntent(room);
+    if(!saved)throw new NativeError(409,'favorite_action_missing');
+    if(saved.phase==='failed')throw new NativeError(409,'favorite_action_failed');
+    await this.flushStateIntents();
+  }
+  async dismissFailedFavorite(room:string,id:string):Promise<boolean> {
+    if(this.stopped)throw new NativeError(0,'session_closed');
+    const dismissed=await this.store.dismissFailedFavorite(room,id);this.notify();return dismissed;
+  }
+  private stateStagingSupported(favorite:boolean):void {
+    if(this.stopped)throw new NativeError(0,'session_closed');
+    if(!(favorite?this.capabilities?.favorites:this.capabilities?.read_markers))throw new NativeError(501,'unsupported_feature');
+  }
+  private async stateGeneration(generation:number,projection:number,room:string,membership:string):Promise<void> {
+    this.roomOperationGeneration(generation);
+    const current=await this.store.readState(room);
+    if(projection!==this.store.projectionToken() || current?.membership_version!==membership)throw new NativeError(409,'delivery_revalidate');
+  }
+  private deferState(favorite:boolean,error:unknown):void {
+    const delay=error instanceof NativeError && error.status===429?Math.min(300,Math.max(1,error.retryAfter??1))*1000:2000;
+    if(favorite)this.favoriteRetryAt=Date.now()+delay+Math.random()*250;else this.readRetryAt=Date.now()+delay+Math.random()*250;
+  }
+  private armStateRetry():void {
+    if(this.stateRetryTimer!==null)clearTimeout(this.stateRetryTimer);
+    this.stateRetryTimer=null;if(!this.verified || this.stopped)return;
+    const deadlines=[this.readRetryAt,this.favoriteRetryAt].filter(t=>t>0);if(!deadlines.length)return;
+    this.stateRetryTimer=setTimeout(()=>{this.stateRetryTimer=null;void this.flushStateIntents();},Math.max(1,Math.min(...deadlines)-Date.now()));
+  }
+  async flushStateIntents():Promise<void> {
+    if(this.stateFlushing)return this.stateFlushing;
+    if(!this.verified || this.stopped)return;
+    this.stateFlushing=this.flushStateOnce().catch(error=>{
+      if(error instanceof NativeError && ['session_rejected','server_identity_changed'].includes(error.code)){this.status={online:false,error:error.code};this.stop();}
+      else if(this.verified && !this.stopped){this.deferState(false,error);this.deferState(true,error);}
+    }).finally(()=>{this.stateFlushing=null;this.armStateRetry();});
+    return this.stateFlushing;
+  }
+  private async flushStateOnce():Promise<void> {
+    if(Date.now()>=this.favoriteRetryAt){
+      this.favoriteRetryAt=0;
+      for(const saved of await this.store.pendingFavorites()){
+        try{await this.applyFavorite(saved);}
+        catch(error){
+          if(error instanceof NativeError && ['session_rejected','server_identity_changed'].includes(error.code))throw error;
+          if(this.stopped || !this.verified)return;
+          if(saved.phase==='pending' && permanentRoomError(error) && !(error instanceof NativeError && error.code==='invalid_favorite_receipt')){await this.store.failFavorite(saved.room,saved.input.operation_id,(error as NativeError).code);this.notify();}
+          else{this.deferState(true,error);break;}
+        }
+      }
+      if(!this.favoriteRetryAt && (await this.store.pendingFavorites()).length)this.favoriteRetryAt=Date.now()+2000;
+    }
+    if(Date.now()>=this.readRetryAt){
+      this.readRetryAt=0;
+      for(const saved of await this.store.pendingReads()){
+        try{await this.applyObservedRead(saved);}
+        catch(error){
+          if(error instanceof NativeError && ['session_rejected','server_identity_changed'].includes(error.code))throw error;
+          if(this.stopped || !this.verified)return;
+          this.deferState(false,error);break;
+        }
+      }
+      if(!this.readRetryAt && (await this.store.pendingReads()).length)this.readRetryAt=Date.now()+100;
+    }
+  }
+  private async applyObservedRead(saved:PendingRead):Promise<void> {
+    const generation=this.generation,projection=this.store.projectionToken();
+    await this.stateGeneration(generation,projection,saved.room,saved.membership);
+    checkIdentity(this.session,await this.transport.discover());await this.stateGeneration(generation,projection,saved.room,saved.membership);
+    if(!this.capabilities?.read_markers)throw new NativeError(501,'unsupported_feature');
+    const current=await this.transport.roomReadState(saved.room);
+    checkIdentity(this.session,await this.transport.discover());await this.stateGeneration(generation,projection,saved.room,saved.membership);
+    if(current.room_id!==saved.room)throw new NativeError(409,'invalid_read_state');
+    if(!await this.store.cacheReadState(current,projection))throw new NativeError(409,'delivery_revalidate');
+    this.notify();
+    const known=await this.store.readState(saved.room);
+    if(known && BigInt(known.root_position)>=BigInt(saved.root_position))return;
+    await this.stateGeneration(generation,projection,saved.room,saved.membership);
+    const confirmed=await this.transport.markRoomRead(saved.room,{root_position:saved.root_position,reply_position:'0'});
+    checkIdentity(this.session,await this.transport.discover());await this.stateGeneration(generation,projection,saved.room,saved.membership);
+    if(confirmed.room_id!==saved.room)throw new NativeError(409,'invalid_read_state');
+    if(!await this.store.cacheReadState(confirmed,projection))throw new NativeError(409,'delivery_revalidate');
+    this.notify();
+  }
+  private applyFavorite(saved:SavedFavorite):Promise<void> {
+    const operation=this.commands.then(async()=>{
+      const generation=this.generation,projection=this.store.projectionToken();
+      const live=async()=>{const current=await this.store.favoriteIntent(saved.room);return current?.phase!=='failed' && current?.input.operation_id===saved.input.operation_id;};
+      await this.stateGeneration(generation,projection,saved.room,saved.membership);if(!await live())return;
+      const discovery=await this.transport.discover();checkIdentity(this.session,discovery);this.capabilities=discovery.capabilities;
+      await this.stateGeneration(generation,projection,saved.room,saved.membership);
+      if(saved.phase==='pending'){
+        let receipt:import('./protocol.generated.ts').RoomCommandReceipt;
+        try{receipt=await this.transport.roomCommandReceipt(saved.room,saved.input.operation_id);}
+        catch(error){
+          if(!(error instanceof NativeError) || error.status!==404 || error.code!=='not_found')throw error;
+          await this.stateGeneration(generation,projection,saved.room,saved.membership);if(!await live())return;
+          if(!this.capabilities?.favorites)throw new NativeError(501,'unsupported_feature');
+          receipt=await this.transport.setRoomFavorite(saved.room,saved.input);
+        }
+        checkIdentity(this.session,await this.transport.discover());await this.stateGeneration(generation,projection,saved.room,saved.membership);
+        if(receipt.room_id!==saved.room || receipt.operation_id!==saved.input.operation_id)throw new NativeError(409,'invalid_favorite_receipt');
+        if(!await this.store.confirmFavoriteReceipt(receipt,projection))return;
+        this.notify();
+      }
+      const current=await this.transport.roomReadState(saved.room);
+      checkIdentity(this.session,await this.transport.discover());await this.stateGeneration(generation,projection,saved.room,saved.membership);
+      if(current.room_id!==saved.room)throw new NativeError(409,'invalid_read_state');
+      if(!await this.store.cacheReadState(current,projection))throw new NativeError(409,'delivery_revalidate');
+      this.notify();
+    });
+    this.commands=operation.catch(()=>{});return operation;
+  }
   async flush(): Promise<void> {
     if (this.flushing) { await this.flushing; return this.flush(); }
     if (!this.verified || this.stopped) return;
-    if (Date.now()<this.retryAt) { this.armRetry(); return; }
+    const state=this.flushStateIntents();
+    if (Date.now()<this.retryAt) { this.armRetry(); await state; return; }
     this.flushing = this.flushOnce().catch(error => {
       if (this.verified && !this.stopped) this.deferSend(error);
     }).finally(() => { this.flushing = null; });
-    return this.flushing;
+    await Promise.all([this.flushing,state]);
   }
   private armRetry(): void {
     if (this.retryTimer!==null) clearTimeout(this.retryTimer);

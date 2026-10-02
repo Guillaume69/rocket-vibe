@@ -315,6 +315,25 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P05, intentions durables mobile / bureau : SQLite conserve la position du
+  message confirmé réellement observé, puis regroupe les observations par
+  maximum exact. Le favori garde son ID, sa révision attendue et sa valeur
+  originale ; après réponse perdue le runner lit son reçu avant tout PUT.
+  Un reçu confirmé reste sauvegardé jusqu'à une lecture actuelle couvrant sa
+  version, sans rétablir une préférence historique. Les formes refusées exigent
+  l'effacement de leur ID exact ; retrait / nouvelle adhésion ou génération
+  purgent les deux queues. Les délais de lecture et de favori sont séparés : le
+  quota de lecture conserve socket, envois et favoris disponibles.
+  Vérifications : 332 tests bureau complets, puis quatre parcours HTTP / SQLite
+  ciblés, Clippy et compilation GTK Fedora ; 1 149 tests mobiles complets puis
+  quatre parcours réseau ciblés (dont un nouveau), typecheck / lint et export
+  Android Hermes. Les dix parcours PostgreSQL passent : le runner mobile réel
+  manque deux réponses, récupère les reçus sans seconde écriture, conserve un
+  message ultérieur non lu et purge ses queues après réadhésion. Inventaire :
+  310 fichiers / 414 occurrences. Les quatre jobs CI du cache `19871f0` sont
+  verts (`37009882605`). Boutons, badges, timers et nettoyage des buffers ouverts
+  des interfaces existantes restent à raccorder avant activation des capacités.
+
 - P05, cache confirmé mobile / bureau : SQLite sépare versions des métadonnées
   et de l'état personnel. Les nouvelles lectures ne font pas reculer le nom du
   salon ni invalider ses droits ; les réponses anciennes ne restaurent aucun

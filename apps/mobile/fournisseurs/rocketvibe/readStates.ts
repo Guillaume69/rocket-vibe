@@ -3,15 +3,22 @@ import type {ReadState} from './protocol.generated.ts';
 import {decodeNative} from './validation.ts';
 import {roomIdentifier} from './roomOperations.ts';
 
+export function readDecimal(value:string):bigint {
+  if(!/^(0|[1-9]\d*)$/.test(value) || value.length>20)throw new Error('Invalid native read position');
+  const position=BigInt(value);
+  if(position>18446744073709551615n)throw new Error('Invalid native read position');
+  return position;
+}
+
 export function readState(value:unknown,rid:string):ReadState {
   const state={...decodeNative('ReadState',value)};
   if(state.favorite_revision==null)delete state.favorite_revision;
   if(state.membership_version==null)delete state.membership_version;
   if(state.room_id!==rid)throw new Error('Mismatched native read state');
   for(const key of ['revision','root_position','reply_position','unread_roots','unread_replies','mentions','group_mentions'] as const){
-    if(!/^(0|[1-9]\d*)$/.test(state[key]) || state[key].length>20 || BigInt(state[key])>18446744073709551615n)throw new Error('Invalid native read position');
+    readDecimal(state[key]);
   }
-  if(state.favorite_revision!=null && (!/^(0|[1-9]\d*)$/.test(state.favorite_revision) || BigInt(state.favorite_revision)>BigInt(state.revision)))throw new Error('Invalid native favorite version');
+  if(state.favorite_revision!=null && readDecimal(state.favorite_revision)>BigInt(state.revision))throw new Error('Invalid native favorite version');
   if(state.membership_version!=null && !roomIdentifier(state.membership_version))throw new Error('Invalid native membership version');
   return state;
 }

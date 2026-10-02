@@ -5,7 +5,8 @@ import type { DepotBrouillons } from '../../db/depot.ts';
 import { UPSERT_MESSAGE, UPSERT_SALON, UPSERT_ABONNEMENT, INSERER_SORTIE, SUPPRIMER_SORTIE, MARQUER_SORTIE_ECHEC, SUPPRIMER_BROUILLONS_SALON, paramsMessage, paramsSalon, paramsAbonnement } from '../../db/upserts.ts';
 import type { MessageLocal } from '../../lib/normaliser.ts';
 import type { Message, Room, RoomDetails, Snapshot, SyncBatch, ReadState } from './protocol.generated.ts';
-import {readState,readOrder} from './readStates.ts';
+import {readState,readOrder,readDecimal} from './readStates.ts';
+import {FAVORITE_SELECT,savedFavorite,type PendingRead,type SavedFavorite,type FavoriteRow} from './readIntents.ts';
 import {roomIdentifier,roomOperation,sameRoomForm,savedRoomOperation,type RoomOperation,type RoomOperationRow,type SavedRoomOperation} from './roomOperations.ts';
 import {decodeNative} from './validation.ts';
 
@@ -78,7 +79,7 @@ export class NativeStore {
   prepare(): Promise<void> {
     return this.atomic(async () => {
       if (await this.sameGeneration()) return;
-      for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs','native_room_creations','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+      for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs','native_room_creations','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
     });
   }
   drafts(): DepotBrouillons {
@@ -111,6 +112,7 @@ export class NativeStore {
     const reset=order==='reset' || !old && known && state.membership_version!=null;
     if(reset)await this.remove(room.id,true);
     await this.db.runAsync('INSERT INTO native_read_states(rid,payload) VALUES(?,?) ON CONFLICT(rid) DO UPDATE SET payload=excluded.payload',[room.id,JSON.stringify(state)]);
+    await this.satisfyReadIntents(state);
     return reset;
   }
   private async room(room: Room): Promise<boolean> {
@@ -177,7 +179,7 @@ export class NativeStore {
     await this.preview(message.room_id);
   }
   private async remove(rid: string,keepMetadata=false): Promise<void> {
-    for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'native_positions','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states']) {
+    for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'native_positions','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents']) {
       if(keepMetadata && table==='salons')continue;
       await this.db.runAsync(`DELETE FROM ${table} WHERE rid=?`, [rid]);
     }
@@ -190,7 +192,7 @@ export class NativeStore {
       const old = await this.db.getFirstAsync<NativeState>('SELECT instance_id,data_epoch,cursor FROM native_sync_state WHERE singleton=1', []);
       if (!old || old.instance_id !== this.session.nativeInstanceId || old.data_epoch !== this.session.nativeDataEpoch) {
         // A fresh login to a different generation must never replay its predecessor's outbox.
-        for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'brouillons', 'native_positions', 'etat_synchro', 'utilisateurs', 'native_room_creations','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+        for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'brouillons', 'native_positions', 'etat_synchro', 'utilisateurs', 'native_room_creations','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
       } else {
         const live = new Set(snapshot.rooms.map(room => room.id));
         const known = await this.db.getAllAsync<{rid:string}>('SELECT rid FROM salons', []);
@@ -243,7 +245,87 @@ export class NativeStore {
       if(!old || readOrder(state,old)!=='same')return false;
       if(state.revision===old.revision)return true;
       await this.db.runAsync('UPDATE native_read_states SET payload=? WHERE rid=?',[JSON.stringify(state),state.room_id]);
+      await this.satisfyReadIntents(state);
       return true;
+    });
+  }
+  private async satisfyReadIntents(state:ReadState):Promise<void> {
+    if(!state.membership_version)return;
+    const root=await this.db.getFirstAsync<{root_position:string}>('SELECT root_position FROM native_read_intents WHERE rid=? AND membership=?',[state.room_id,state.membership_version]);
+    if(root && readDecimal(root.root_position)<=readDecimal(state.root_position))await this.db.runAsync('DELETE FROM native_read_intents WHERE rid=? AND membership=?',[state.room_id,state.membership_version]);
+    const saved=await this.db.getFirstAsync<FavoriteRow>(`${FAVORITE_SELECT} WHERE rid=? AND membership=? AND phase='confirmed'`,[state.room_id,state.membership_version]);
+    if(saved){
+      const intention=savedFavorite(saved);
+      if(state.favorite_revision!=null && readDecimal(state.favorite_revision)>=readDecimal(intention.receiptRevision!))await this.db.runAsync('DELETE FROM native_favorite_intents WHERE id=?',[saved.id]);
+    }
+  }
+  stageRead(rid:string,observed:string):Promise<boolean> {
+    if(![rid,observed].every(roomIdentifier))throw new Error('Invalid observed native message');
+    return this.atomic(async()=>{
+      if(!await this.sameGeneration())throw new Error('Native generation unavailable');
+      const state=await this.readStateIn(rid);
+      if(!state?.membership_version)throw new Error('Native membership unavailable');
+      const row=await this.db.getFirstAsync<{position:string}>('SELECT p.position FROM native_positions p JOIN messages m ON m.id=p.id WHERE p.id=? AND p.rid=? AND m.rid=?',[observed,rid,rid]);
+      if(!row || readDecimal(row.position)<=readDecimal(state.root_position))return false;
+      const previous=await this.db.getFirstAsync<{root_position:string}>('SELECT root_position FROM native_read_intents WHERE rid=? AND membership=?',[rid,state.membership_version]);
+      if(previous && readDecimal(previous.root_position)>=readDecimal(row.position))return false;
+      await this.db.runAsync('INSERT INTO native_read_intents(rid,membership,root_position) VALUES(?,?,?) ON CONFLICT(rid) DO UPDATE SET membership=excluded.membership,root_position=excluded.root_position',[rid,state.membership_version,row.position]);
+      return true;
+    });
+  }
+  pendingReads():Promise<PendingRead[]> {
+    return this.queue(async()=>{
+      if(!await this.sameGeneration())return [];
+      const rows=await this.db.getAllAsync<{rid:string;membership:string;root_position:string}>("SELECT q.* FROM native_read_intents q JOIN native_read_states s ON s.rid=q.rid WHERE q.membership=json_extract(s.payload,'$.membership_version') ORDER BY q.rowid",[]);
+      return rows.map(row=>{readDecimal(row.root_position);if(![row.rid,row.membership].every(roomIdentifier))throw new Error('Invalid saved read');return {room:row.rid,membership:row.membership,root_position:row.root_position};});
+    });
+  }
+  favoriteIntent(rid:string):Promise<SavedFavorite|null> {
+    return this.queue(async()=>{
+      if(!await this.sameGeneration())return null;
+      const row=await this.db.getFirstAsync<FavoriteRow>(`${FAVORITE_SELECT} WHERE rid=?`,[rid]);return row?savedFavorite(row):null;
+    });
+  }
+  stageFavorite(rid:string,present:boolean,id:()=>string):Promise<SavedFavorite|null> {
+    if(!roomIdentifier(rid))throw new Error('Invalid native room');
+    return this.atomic(async()=>{
+      if(!await this.sameGeneration())throw new Error('Native generation unavailable');
+      const state=await this.readStateIn(rid);
+      if(!state?.membership_version || state.favorite_revision==null)throw new Error('Native personal state unavailable');
+      const row=await this.db.getFirstAsync<FavoriteRow>(`${FAVORITE_SELECT} WHERE rid=?`,[rid]);
+      if(row){const old=savedFavorite(row);return old.phase!=='failed' && old.membership===state.membership_version && old.input.present===present?old:null;}
+      const input={operation_id:id(),expected_revision:state.favorite_revision,present};
+      const saved=savedFavorite({id:input.operation_id,rid,membership:state.membership_version,payload:JSON.stringify(input),phase:'pending',receipt_revision:null,error:null});
+      await this.db.runAsync('INSERT INTO native_favorite_intents(id,rid,membership,payload) VALUES(?,?,?,?)',[input.operation_id,rid,state.membership_version,JSON.stringify(input)]);
+      return saved;
+    });
+  }
+  pendingFavorites():Promise<SavedFavorite[]> {
+    return this.queue(async()=>await this.sameGeneration()?(await this.db.getAllAsync<FavoriteRow>(`${FAVORITE_SELECT} WHERE phase IN ('pending','confirmed') ORDER BY rowid`,[])).map(savedFavorite):[]);
+  }
+  confirmFavoriteReceipt(value:import('./protocol.generated.ts').RoomCommandReceipt,token:number):Promise<boolean> {
+    const receipt=decodeNative('RoomCommandReceipt',value);readDecimal(receipt.applied_revision);
+    if(![receipt.operation_id,receipt.room_id].every(roomIdentifier))throw new Error('Invalid favorite receipt');
+    return this.atomic(async()=>{
+      if(!await this.sameGeneration() || token!==this.projectionToken())return false;
+      const row=await this.db.getFirstAsync<FavoriteRow>(`${FAVORITE_SELECT} WHERE id=?`,[receipt.operation_id]);
+      if(!row)return false;
+      const saved=savedFavorite(row);
+      if(saved.room!==receipt.room_id || readDecimal(receipt.applied_revision)<readDecimal(saved.input.expected_revision))throw new Error('Mismatched favorite receipt');
+      const state=await this.readStateIn(saved.room);
+      if(state?.membership_version!==saved.membership)return false;
+      await this.db.runAsync("UPDATE native_favorite_intents SET phase='confirmed',receipt_revision=?,error=NULL WHERE id=?",[receipt.applied_revision,receipt.operation_id]);
+      await this.satisfyReadIntents(state);return true;
+    });
+  }
+  failFavorite(rid:string,id:string,code:string):Promise<void> {
+    if(!roomIdentifier(code))throw new Error('Invalid favorite failure');
+    return this.atomic(async()=>{if(await this.sameGeneration())await this.db.runAsync("UPDATE native_favorite_intents SET phase='failed',error=? WHERE rid=? AND id=? AND phase='pending'",[code,rid,id]);});
+  }
+  dismissFailedFavorite(rid:string,id:string):Promise<boolean> {
+    return this.atomic(async()=>{
+      if(!await this.sameGeneration() || !await this.db.getFirstAsync("SELECT id FROM native_favorite_intents WHERE rid=? AND id=? AND phase='failed'",[rid,id]))return false;
+      await this.db.runAsync("DELETE FROM native_favorite_intents WHERE rid=? AND id=? AND phase='failed'",[rid,id]);return true;
     });
   }
   cacheRoomAccess(details:RoomDetails,token:number):Promise<boolean> {

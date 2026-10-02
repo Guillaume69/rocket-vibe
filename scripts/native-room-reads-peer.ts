@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import {NativeTransport} from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
 import {NativeStore} from '../apps/mobile/fournisseurs/rocketvibe/store.ts';
+import {NativeChat} from '../apps/mobile/fournisseurs/rocketvibe/chat.ts';
 import {nativeTestDatabase} from '../apps/mobile/fournisseurs/rocketvibe/testDatabase.ts';
 import {creerFileEcritures} from '../apps/mobile/db/fileEcritures.ts';
 const base=process.env.RV_ROOM_PEER_URL!,room=process.env.RV_ROOM_PEER_ROOM!;
@@ -44,11 +45,39 @@ assert.equal((await reader.roomReadState(room)).mentions,'0');
 assert.equal((await reader.markRoomRead(room,{root_position:mentioned.position,reply_position:'0'})).unread_roots,'0');
 const discovery=await reader.discover();
 const {db,adapter}=nativeTestDatabase();
+let chat:NativeChat|undefined;
 try {
-  const cache=new NativeStore(adapter,creerFileEcritures(),{baseUrl:base,authToken:account.token,userId:account.user.id,username:account.user.username,genre:'rocketvibe',siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch});
+  const session={baseUrl:base,authToken:account.token,userId:account.user.id,username:account.user.username,genre:'rocketvibe' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+  const cache=new NativeStore(adapter,creerFileEcritures(),session);
   await cache.applySnapshot(await reader.snapshot());
   const originalState=(await cache.readState(room))!,projection=cache.projectionToken();
   assert.equal(originalState.favorite,false);assert.equal(originalState.unread_roots,'0');
+  const observed=await owner.send(room,{operation_id:'ts-queue-observed',text:'Observed before crash'});
+  const newer=await owner.send(room,{operation_id:'ts-queue-newer',text:'Not observed yet'});
+  await cache.applySnapshot(await reader.snapshot());
+  let favoriteAttempts=0,readAttempts=0;
+  const queueTransport=new NativeTransport(base,async(url,options)=>{
+    const response=await fetch(url,options),path=new URL(String(url)).pathname;
+    if(response.ok && path.endsWith('/favorite') && options?.method==='PUT') {favoriteAttempts++;throw new Error('Lost queue favorite response');}
+    if(response.ok && path.endsWith('/read') && options?.method==='POST') {readAttempts++;throw new Error('Lost observed read response');}
+    return response;
+  });queueTransport.restore(account.token);
+  // This HTTP/SQLite test does not consume the WebSocket; replay and response
+  // scopes are exercised against the real PostgreSQL server.
+  const socket=()=>{const ws={onopen:null,close:()=>{}} as unknown as WebSocket;queueMicrotask(()=>ws.onopen?.(new Event('open')));return ws;};
+  await cache.stageRead(room,observed.id);await cache.stageFavorite(room,true,()=> 'ts-queue-favorite');
+  chat=new NativeChat(session,cache,()=>{throw new Error('Saved operation required');},{transport:queueTransport,socket});await chat.connect();
+  assert.equal((await cache.pendingReads()).length,1);assert.equal((await cache.pendingFavorites()).length,1);
+  assert.equal((await reader.roomReadState(room)).root_position,observed.position);
+  assert.equal((await reader.roomReadState(room)).unread_roots,'1');
+  chat.stop();
+  const afterAck=await reader.roomReadState(room);
+  await reader.setRoomFavorite(room,{operation_id:'ts-queue-other-device',expected_revision:afterAck.favorite_revision!,present:false});
+  chat=new NativeChat(session,cache,()=>{throw new Error('Retry must keep its nonce');},{transport:queueTransport,socket});await chat.connect();
+  assert.deepEqual(await cache.pendingReads(),[]);assert.deepEqual(await cache.pendingFavorites(),[]);
+  assert.equal(favoriteAttempts,1);assert.equal(readAttempts,1);assert.equal((await cache.readState(room))?.favorite,false);
+  chat.stop();
+  await cache.stageRead(room,newer.id);await cache.stageFavorite(room,true,()=> 'ts-queue-before-withdrawal');
   await cache.enqueue('ts-absent-send',room,'Never replay after a missed withdrawal');
   await cache.drafts().ecrire(room,'Private before withdrawal');
   const details=await reader.roomDetails(room);
@@ -58,7 +87,8 @@ try {
   await cache.applySnapshot(await reader.snapshot());
   assert.notEqual((await cache.readState(room))?.membership_version,originalState.membership_version);
   assert.deepEqual(await cache.pending(),[]);assert.equal(await cache.drafts().lire(room),null);
+  assert.deepEqual(await cache.pendingReads(),[]);assert.deepEqual(await cache.pendingFavorites(),[]);
   assert.equal(await cache.cacheReadState(originalState,projection),false);
   assert.equal((await cache.readState(room))?.favorite,false);
-} finally {db.close();}
-console.log(JSON.stringify({unreads:true,monotone:true,privateFavorite:true,lostAckRecovered:true,noSecondFavorite:true,oldReplayHarmless:true,mentions:true,sqliteCache:true,missedRejoin:true}));
+} finally {chat?.stop();db.close();}
+console.log(JSON.stringify({unreads:true,monotone:true,privateFavorite:true,lostAckRecovered:true,noSecondFavorite:true,oldReplayHarmless:true,mentions:true,sqliteCache:true,missedRejoin:true,durableRunner:true}));

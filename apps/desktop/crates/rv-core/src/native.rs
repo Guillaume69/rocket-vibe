@@ -4,6 +4,7 @@ pub mod authentication_vault;
 pub mod credentials;
 pub mod email_recovery;
 pub mod factor_email;
+mod read_intents;
 mod room_operations;
 pub use room_operations::{
     ChangeRoomRole, LeaveRoom, RoomDetails, RoomMemberPage, RoomRole, UpdateRoom, room_operation_id,
@@ -257,6 +258,9 @@ pub struct NativeSession {
     task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     credentials: Option<Arc<dyn credentials::Provider>>,
     security_generation: AtomicU64,
+    state_intent_lock: tokio::sync::Mutex<()>,
+    read_retry: Mutex<Option<tokio::time::Instant>>,
+    favorite_retry: Mutex<Option<tokio::time::Instant>>,
 }
 impl NativeSession {
     pub fn start(info: SessionInfo, path: &Path) -> Result<Arc<Self>, Error> {
@@ -295,6 +299,9 @@ impl NativeSession {
             task: Mutex::new(None),
             credentials,
             security_generation: AtomicU64::new(0),
+            state_intent_lock: tokio::sync::Mutex::new(()),
+            read_retry: Mutex::new(None),
+            favorite_retry: Mutex::new(None),
         });
         let weak = Arc::downgrade(&session);
         let task = tokio::spawn(async move {
@@ -468,6 +475,14 @@ impl NativeSession {
         } else {
             self.snapshot().await?;
         }
+        // Before replaying any old intention, upgrade an unstamped cache from
+        // the authoritative snapshot. A missed withdrawal cannot be inferred
+        // from an HTTP state response or from room metadata alone.
+        let upgrade_read_cache = self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.read_markers)
+            && self.store.rooms()?.iter().any(|r| r.read_state.as_ref().is_none_or(|s| s.membership_version.is_none()));
+        if upgrade_read_cache {
+            self.snapshot().await?;
+        }
         self.verified.store(true, Ordering::SeqCst);
         self.flush().await?;
         let url = self.client.socket_url(&self.store.cursor()?.unwrap()).await?;
@@ -480,6 +495,7 @@ impl NativeSession {
         let mut last = tokio::time::Instant::now();
         let credential_check = tokio::time::Instant::now() + Duration::from_secs(24 * 60 * 60);
         loop {
+            let state_retry = self.state_retry_deadline();
             tokio::select! {
                 frame=socket.next()=>{
                     match frame {
@@ -489,6 +505,7 @@ impl NativeSession {
                     }
                 }
                 _=self.wake.notified()=>self.flush().await?,
+                _=tokio::time::sleep_until(state_retry.unwrap_or(credential_check)), if state_retry.is_some()=>self.flush_state_intents().await?,
                 _=tokio::time::sleep_until(credential_check), if self.credentials.is_some()=>return Ok(()),
                 _=tokio::time::sleep_until(last+Duration::from_secs(45))=>return Err(Error::Protocol("socket_timeout")),
             }
@@ -535,6 +552,7 @@ impl NativeSession {
                 Err(error) => return Err(error),
             }
         }
+        self.flush_state_intents().await?;
         Ok(())
     }
     pub fn send(&self, rid: &str, text: &str) -> Result<String, Error> {

@@ -24,6 +24,11 @@ section here.
 
 ### Added
 
+- Native read and favorite intentions survive process restart in SQLite.
+  Read retries retain the observed message position; favorite retries recover
+  the original receipt without restoring an older preference. Existing UI
+  buttons and badges will enable these handlers with the next P05 integration.
+
 - Existing GTK and SwiftUI room information panels offer native room settings,
   paginated members, roles and departure according to current permissions.
   Interrupted commands resume their original receipt; rejected forms require

@@ -1,8 +1,10 @@
 //! Fallible transactions: a failed projection never acknowledges its cursor or outbox echo.
+mod read_intents;
 mod read_states;
 mod room_access;
 mod room_operations;
 use super::Identity;
+pub use read_intents::{PendingRead, SavedFavorite};
 pub use room_access::RoomAccess;
 pub use room_operations::{RoomOperation, SavedRoomOperation};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
@@ -122,6 +124,8 @@ impl NativeStore {
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_room_access(rid TEXT PRIMARY KEY,revision TEXT NOT NULL,read_only INTEGER NOT NULL,can_send INTEGER NOT NULL,role TEXT NOT NULL);")?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_read_states(rid TEXT PRIMARY KEY,payload TEXT NOT NULL);
             INSERT INTO native_read_states SELECT id,json_extract(payload,'$.read_state') FROM native_rooms WHERE json_type(payload,'$.read_state')='object' ON CONFLICT(rid) DO NOTHING;")?;
+        conn.execute_batch("CREATE TABLE IF NOT EXISTS native_read_intents(rid TEXT PRIMARY KEY,membership TEXT NOT NULL,root_position TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS native_favorite_intents(id TEXT NOT NULL UNIQUE,rid TEXT PRIMARY KEY,membership TEXT NOT NULL,payload TEXT NOT NULL,phase TEXT NOT NULL DEFAULT 'pending' CHECK(phase IN ('pending','confirmed','failed')),receipt_revision TEXT,error TEXT);")?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_commands(id TEXT PRIMARY KEY,rid TEXT NOT NULL,message_id TEXT NOT NULL UNIQUE,kind TEXT NOT NULL CHECK(kind IN ('edit','delete')),expected_revision TEXT NOT NULL,text TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',error TEXT);")?;
         let command_schema: String =
             conn.query_row("SELECT sql FROM sqlite_master WHERE name='native_commands'", [], |r| r.get(0))?;
@@ -170,6 +174,8 @@ impl NativeStore {
                 "native_room_operations",
                 "native_room_access",
                 "native_read_states",
+                "native_read_intents",
+                "native_favorite_intents",
             ] {
                 tx.execute(&format!("DELETE FROM {table}"), [])?;
             }
@@ -423,6 +429,8 @@ impl NativeStore {
             "native_room_operations",
             "native_room_access",
             "native_read_states",
+            "native_read_intents",
+            "native_favorite_intents",
         ] {
             tx.execute(&format!("DELETE FROM {table} WHERE rid=?1"), [rid])?;
         }
@@ -444,6 +452,8 @@ impl NativeStore {
                     "native_room_operations",
                     "native_room_access",
                     "native_read_states",
+                    "native_read_intents",
+                    "native_favorite_intents",
                 ] {
                     tx.execute(&format!("DELETE FROM {table}"), [])?;
                 }

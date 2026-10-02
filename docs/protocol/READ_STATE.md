@@ -128,5 +128,27 @@ d'adhésion ne peuvent prouver que leurs anciennes intentions ont survécu à un
 retrait manqué : leur premier snapshot portant ce témoin les purge également.
 Le bureau récupère les témoins déjà présents dans ses anciens payloads de salon.
 
-Ce lot stocke l'état confirmé ; les files durables de lecture / favori et leur
-raccordement aux badges, boutons et minuteries existants restent à livrer.
+Les deux clients conservent maintenant leurs intentions dans des tables privées
+`native_read_intents` / `native_favorite_intents`. Le renderer fournit l'ID du
+message réellement observé ; seul un message confirmé du même salon peut être
+enregistré. Les positions observées se regroupent par maximum exact, sans prendre
+le dernier message du cache au moment du retry. Une réponse antérieure n'efface
+pas une observation plus récente, et l'enregistrement seul ne réarme aucun timer.
+
+Le favori enregistre une fois son ID, sa durée d'adhésion, sa révision attendue et
+sa valeur explicite. Une autre valeur ne remplace pas une tentative non résolue.
+Le runner relit le reçu original ; seul `404 not_found` autorise le PUT original.
+Un reçu sauvegardé devient une borne de version : la commande reste confirmée
+jusqu'à un état actuel dont `favorite_revision` couvre cette borne. Après crash,
+une lecture d'état reprend cette confirmation sans second PUT. Un refus permanent
+reste conservé et exige l'effacement explicite de son ID exact avant remplacement.
+
+Les lectures relisent d'abord l'état pour récupérer un acquittement perdu, puis
+renvoient seulement la position observée sauvegardée. Les délais de lecture et de
+favori sont séparés ; un quota de lecture laisse le journal, les envois et favoris
+disponibles. Identité, génération, projection et durée d'adhésion sont revérifiées
+autour des requêtes. Une connexion modernise un cache sans témoin d'adhésion par
+snapshot avant de rejouer ses intentions.
+
+Les capacités clientes restent masquées jusqu'au raccordement et à la qualification
+des badges, boutons et minuteries des interfaces existantes.

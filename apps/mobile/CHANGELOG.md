@@ -9,6 +9,11 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Lectures et favoris natifs possèdent maintenant une reprise SQLite après
+  interruption : message observé conservé, reçu de favori original récupéré,
+  sans rétablir une ancienne préférence. Leur activation dans les boutons et
+  badges existants reste à venir avec P05.
+
 - Le cache détecte un retrait suivi d'une réadhésion même après un événement
   manqué et un nouveau snapshot : historique privé, brouillons et intentions
   antérieurs sont purgés. Un changement de rôle conserve les intentions de

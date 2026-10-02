@@ -90,8 +90,8 @@ les compteurs sans changer la position de lecture. Le favori est personnel.
 
 Le premier lot [P05](READ_STATE.md) livre les états personnels des racines,
 lectures monotones et favoris avec reçus côté serveur / transports. Les mentions
-nominatives et `@all` sont résolues à l'envoi ; les contrôleurs durables et
-interfaces clientes restent à livrer ; les capacités
+nominatives et `@all` sont résolues à l'envoi ; les queues SQLite et reprises
+réseau des deux clients sont livrées. Les interfaces restent à raccorder ; les capacités
 clientes correspondantes restent masquées. Les réponses sont réservées à P11.
 
 Par défaut, une adhésion donne accès à l'historique entier du salon. Ce choix est
@@ -192,7 +192,7 @@ ouverte tant que serveur, clients concernés et scénario de parité manquent.
 | P02 2FA | J2 | TOTP / secours, réauthentification, adresse vérifiée / retrait, défis OTP, facteur email et récupération email dans les 3 clients livrés ; qualification sur appareils et SMTP externe à poursuivre |
 | P03 Multi-serveurs | J1 | Isolation livrée ; validation appareils / liens et générations après restauration |
 | P04 Salons / DM | J1–J2 | DM / membres, création idempotente, découverte / join, détails et commandes durables de réglages / rôles / départ dans les 3 fiches existantes, droits effectifs de rédaction dans les composeurs livrés ; qualification des applications installées ouverte |
-| P05 Favoris / non-lus / mentions | J2 | États personnels, lectures monotones, mentions nominatives / @all et favoris avec reçus serveur / transports livrés ; contrôleurs durables et interfaces existantes à raccorder ; @here dépend des baux P12 |
+| P05 Favoris / non-lus / mentions | J2 | États personnels, lectures monotones, mentions nominatives / @all et favoris avec reçus serveur / transports livrés ; queues SQLite et reprises réseau mobile / bureau livrées ; interfaces existantes à raccorder ; @here dépend des baux P12 |
 | P06 Historique / temps réel | J1–J2 | Socle, snapshots matérialisés et barrière de révocation livrés ; tombstones / actions J2 |
 | P07 Markdown / emojis / citations | J2–J3 | Corpus testé ; références / messages système / catalogue natif et raccordement |
 | P08 Envoi / brouillons | J1 | Socle livré ; crash réel après commit / réponse perdue, Android ↔ Windows |

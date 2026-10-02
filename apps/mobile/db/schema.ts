@@ -353,3 +353,21 @@ export const nativeReadStates = sqliteTable('native_read_states', {
   rid: text('rid').primaryKey(),
   payload: text('payload').notNull(),
 });
+
+/** Observed confirmed positions coalesce without using the newest cached message. */
+export const nativeReadIntents = sqliteTable('native_read_intents', {
+  rid: text('rid').primaryKey(),
+  membership: text('membership').notNull(),
+  rootPosition: text('root_position').notNull(),
+});
+
+/** A receipt is a version floor, never a historical favorite value to project. */
+export const nativeFavoriteIntents = sqliteTable('native_favorite_intents', {
+  rid: text('rid').primaryKey(),
+  id: text('id').notNull(),
+  membership: text('membership').notNull(),
+  payload: text('payload').notNull(),
+  phase: text('phase').notNull().default('pending'),
+  receiptRevision: text('receipt_revision'),
+  error: text('error'),
+}, (t) => [uniqueIndex('idx_native_favorite_operation').on(t.id)]);

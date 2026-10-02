@@ -29,7 +29,7 @@ fn validate(state: &ReadState, rid: &str) -> rusqlite::Result<()> {
     }
     Ok(())
 }
-fn state_in(conn: &Connection, rid: &str) -> rusqlite::Result<Option<ReadState>> {
+pub(super) fn state_in(conn: &Connection, rid: &str) -> rusqlite::Result<Option<ReadState>> {
     let payload: Option<String> =
         conn.query_row("SELECT payload FROM native_read_states WHERE rid=?1", [rid], |r| r.get(0)).optional()?;
     payload
@@ -43,7 +43,7 @@ fn state_in(conn: &Connection, rid: &str) -> rusqlite::Result<Option<ReadState>>
 fn save(tx: &Transaction, state: &ReadState) -> rusqlite::Result<()> {
     tx.execute("INSERT INTO native_read_states(rid,payload) VALUES(?1,?2) ON CONFLICT(rid) DO UPDATE SET payload=excluded.payload",
         params![state.room_id,json(state)?])?;
-    Ok(())
+    NativeStore::satisfy_read_intents(tx, state)
 }
 impl NativeStore {
     pub fn read_state(&self, rid: &str) -> rusqlite::Result<Option<ReadState>> {

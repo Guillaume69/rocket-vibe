@@ -425,6 +425,7 @@ impl NativeSession {
                     reactions: true,
                     pins: true,
                     stars: true,
+                    quotes: true,
                     fine_permissions: true,
                     session_rotation: self.credentials.is_some(),
                     device_sessions: true,

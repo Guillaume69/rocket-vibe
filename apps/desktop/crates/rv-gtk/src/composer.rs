@@ -24,6 +24,7 @@ pub struct Composer {
     reply_preview: gtk::Label,
     /// The quoted message's permalink, put before the text on send.
     reply_link: RefCell<Option<String>>,
+    native_reply: RefCell<Option<rv_core::native::store::QuoteSelection>>,
     on_changed: Handler<String>,
     completion: gtk::Popover,
     choices: gtk::ListBox,
@@ -259,6 +260,7 @@ impl Composer {
             reply_title,
             reply_preview,
             reply_link: RefCell::default(),
+            native_reply: RefCell::default(),
             on_changed: RefCell::default(),
             completion,
             choices,
@@ -686,6 +688,7 @@ impl Composer {
 
     /// Arms a reply: the bar shows who and what, the send carries the quote.
     pub fn set_reply(&self, name: &str, preview: &str, permalink: String) {
+        self.native_reply.replace(None);
         self.reply_title.set_label(&tf("composer.replying", &[("name", name)]));
         self.reply_preview.set_label(preview);
         self.reply_link.replace(Some(permalink));
@@ -695,7 +698,30 @@ impl Composer {
 
     pub fn clear_reply(&self) {
         self.reply_link.replace(None);
+        self.native_reply.replace(None);
+        self.reply_title.set_label("");
+        self.reply_preview.set_label("");
         self.reply_bar.set_visible(false);
+    }
+
+    pub fn set_native_reply(&self, name: &str, preview: &str, selection: rv_core::native::store::QuoteSelection) {
+        self.set_reply(name, preview, String::new());
+        self.reply_link.replace(None);
+        self.native_reply.replace(Some(selection));
+    }
+
+    pub fn native_reply(&self) -> Option<rv_core::native::store::QuoteSelection> {
+        self.native_reply.borrow().clone()
+    }
+
+    pub fn validate_native_reply(&self, store: &rv_core::native::store::NativeStore) {
+        if let Some(selected) = self.native_reply()
+            && store.quote_selection(&selected.reference.room_id, &selected.reference.message_id).ok().as_ref()
+                != Some(&selected)
+        {
+            self.reply_title.set_label(t("quote.unavailable"));
+            self.reply_preview.set_label("");
+        }
     }
 
     /// Sends as the Enter key would.
@@ -706,7 +732,7 @@ impl Composer {
     fn submit(&self) {
         let mut text = self.text();
         let files = !self.staged.is_empty();
-        if text.trim().is_empty() && !files {
+        if text.trim().is_empty() && !files && self.native_reply.borrow().is_none() {
             return;
         }
         self.completion.popdown();

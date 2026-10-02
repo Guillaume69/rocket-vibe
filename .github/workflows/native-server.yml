@@ -127,6 +127,10 @@ jobs:
           test "$(docker inspect -f '{{.State.ExitCode}}' rocketvibe-pilot-mobile-1)" = 0
           test "$(docker inspect -f '{{.State.Running}}' rocketvibe-pilot-mobile-1)" = false
           docker compose -f docker/compose.native-pilot.yml run --rm --no-deps session-check
+      - name: Existing GTK quote composer and unavailable cards
+        run: |
+          docker compose -f docker/compose.native-pilot.yml run --rm --no-deps mobile node scripts/native-quotes-gtk-seed.ts
+          docker compose -f docker/compose.native-pilot.yml run --rm --no-deps --user nobody desktop bash scripts/native-quotes-smoke.sh
       - name: Existing GTK security settings and private receipt after restart
         run: |
           docker compose -p rocketvibe-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml up -d factor-proxy

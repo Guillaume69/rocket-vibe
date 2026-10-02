@@ -7,6 +7,7 @@
 //!   RV_SMOKE_EXPECT_ABSENT `|`-separated texts it must NOT show
 //!   RV_SMOKE_SIZE          `WIDTHxHEIGHT` of the window
 //!   RV_SMOKE_NATIVE=1      asserts the native provider in the existing chat UI
+//!   RV_SMOKE_QUOTES=1      checks native references through the existing reply bar and composer
 //!   RV_SMOKE_COMPOSER=1    checks the composer: no window handle around it, a scrollbar
 //!                          only once it overflows, one line high when short
 //!   RV_SMOKE_ACTIONS=<tag>  reacts to bob's last message, quotes it, edits my last one,
@@ -63,6 +64,7 @@ use crate::window::AppWindow;
 
 mod email_factor;
 mod email_settings;
+mod native_quotes;
 mod native_reads;
 mod room_management;
 mod security;
@@ -108,6 +110,7 @@ pub fn install(window: &Rc<AppWindow>) {
     security::install(window);
     room_management::install(window);
     native_reads::install(window);
+    native_quotes::install(window);
     email_factor::install(window);
     email_settings::install(window);
     let login = std::env::var("RV_SMOKE_LOGIN").unwrap_or_default();

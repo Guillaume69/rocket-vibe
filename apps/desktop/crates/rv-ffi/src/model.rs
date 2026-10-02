@@ -245,6 +245,7 @@ pub struct FileItem {
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct Quote {
+    pub unavailable: bool,
     pub link: String,
     pub author: Option<String>,
     pub body: Vec<BodyBlock>,
@@ -318,6 +319,7 @@ pub struct MessageItem {
 pub fn quote(q: content::Quote, me: &str) -> Quote {
     let ctx = markdown::Context { me };
     Quote {
+        unavailable: q.unavailable,
         link: q.link,
         author: q.author,
         body: markup::blocks(markdown::render(q.md.as_deref(), Some(&q.text), &ctx)),

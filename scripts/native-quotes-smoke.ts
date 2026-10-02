@@ -5,6 +5,10 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {randomBytes} from 'node:crypto';
 import {NativeChat} from '../apps/mobile/fournisseurs/rocketvibe/chat.ts';
+import {creerFournisseurRV} from '../apps/mobile/fournisseurs/rocketvibe/index.ts';
+import {creerDepotEnvoi} from '../apps/mobile/db/depot.ts';
+import {ClientRest} from '../apps/mobile/lib/rest.ts';
+import type {SQLiteDatabase} from 'expo-sqlite';
 import {NativeError,NativeTransport} from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
 import {NativeStore} from '../apps/mobile/fournisseurs/rocketvibe/store.ts';
 import {nativeTestDatabase} from '../apps/mobile/fournisseurs/rocketvibe/testDatabase.ts';
@@ -41,9 +45,11 @@ export async function quoteSmoke():Promise<void> {
     const losing=new NativeTransport(base);losing.restore(account.token);
     const attempts:SendMessage[]=[];
     losing.send=async(rid,input)=>{attempts.push(structuredClone(input));await reader.send(rid,input);throw new NativeError(503,'response_lost');};
-    const first=new NativeChat(session,store,()=>`quote-send-${nonce}`,{transport:losing,socket});chats.push(first);
+    const provider=creerFournisseurRV(session,new ClientRest(base),()=>`quote-send-${nonce}`,store,{transport:losing,socket});
+    const first=provider.native!.chat;chats.push(first);
     await first.connect();
-    const id=await first.send(destination.id,'Ma réponse',{membership:grant},[selected]);
+    assert.equal(provider.capacites.citations,true,'discovery and the existing mobile provider must enable native quotes');
+    const id=await provider.creerEnvoi(creerDepotEnvoi(harness.adapter as SQLiteDatabase,creerFileEcritures()),async()=>{}).envoyer(destination.id,'Ma réponse',null,null,[selected]);
     first.stop();assert.equal(attempts.length,1);
     const pending=(await store.pending())[0];assert.equal(pending.id,id);assert.deepEqual(pending.quotes,[selected.reference]);
     const removed=await fetch(`${base}/api/v1/rooms/${origin.id}/members/${account.user.id}`,{method:'DELETE',headers:{authorization:`Bearer ${ownerAccount.token}`}});assert.equal(removed.status,204);
@@ -79,6 +85,6 @@ export async function quoteSmoke():Promise<void> {
     const freshId=await second.send(destination.id,'Mots conservés',{membership:grant},[fresh]);
     assert.equal((await reader.history(destination.id)).messages.filter(m=>m.id===freshId).length,1);
     assert.deepEqual(await store.pending(),[]);
-    console.log(JSON.stringify({nativeQuoteRunner:true,actualPostgres:true,lostResponse:true,sqliteRestart:true,sourceWithdrawal:true,immutableConflict:true,freshSelection:true}));
+    console.log(JSON.stringify({nativeQuoteRunner:true,nativeProviderOutbox:true,actualPostgres:true,lostResponse:true,sqliteRestart:true,sourceWithdrawal:true,immutableConflict:true,freshSelection:true}));
   }finally {for(const chat of chats)chat.stop();await store.state();harness.db.close();unlinkSync(filename);rmdirSync(dir);}
 }

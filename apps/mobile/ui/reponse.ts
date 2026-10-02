@@ -33,6 +33,8 @@ export type CibleReponse = {
   jointeLocale: string;
   /** URL (relative) de la première image du cité — vignette du bandeau. */
   imageApercu: string | null;
+  native?: import('../fournisseurs/rocketvibe/quotes.ts').NativeQuoteSelection;
+  nativeIndisponible?: boolean;
 };
 
 const cibles = new Map<string, CibleReponse>();
@@ -49,6 +51,18 @@ export function demanderReponse(cle: string, cible: CibleReponse): void {
 
 export function annulerReponse(cle: string): void {
   if (cibles.delete(cle)) notifier();
+}
+
+/** A delayed enqueue must not consume a target selected in the meantime. */
+export function annulerReponseSi(cle: string, cible: CibleReponse): void {
+  const actuelle = cibles.get(cle);
+  if (actuelle === cible || cible.native !== undefined && actuelle?.native === cible.native) annulerReponse(cle);
+}
+
+/** Keep the selection for validation, while discarding its private preview. */
+export function invaliderReponseNative(cle: string, cible: CibleReponse): void {
+  if (cibles.get(cle) !== cible || cible.nativeIndisponible) return;
+  demanderReponse(cle, {...cible, auteur:null, apercu:null, imageApercu:null, jointeLocale:'[]', nativeIndisponible:true});
 }
 
 /** Fin de session / changement de serveur : aucune citation ne traverse. */

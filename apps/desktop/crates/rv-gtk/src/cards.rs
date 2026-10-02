@@ -47,9 +47,13 @@ fn on_click(widget: &impl IsA<gtk::Widget>, f: impl Fn(&gtk::Widget) + 'static) 
 }
 
 /// The quoted message: author, words, images, and the message it quoted in turn.
-pub fn quote(session: &Arc<Session>, q: &Quote, me: &str) -> gtk::Widget {
+pub fn quote(session: Option<&Arc<Session>>, q: &Quote, me: &str) -> gtk::Widget {
     let card =
         gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(3).css_classes(["quote-card"]).build();
+    if q.unavailable {
+        card.append(&label(t("quote.unavailable"), &["quote-text"]));
+        return card.upcast();
+    }
     if let Some(author) = &q.author {
         card.append(&label(author, &["quote-author"]));
     }
@@ -60,8 +64,10 @@ pub fn quote(session: &Arc<Session>, q: &Quote, me: &str) -> gtk::Widget {
         let blocks = markdown::render(q.md.as_deref(), Some(&q.text), &markdown::Context { me });
         card.append(&markdown_view::view(&blocks, &["quote-text"]));
     }
-    for image in &q.images {
-        card.append(&image_widget(session, image));
+    if let Some(session) = session {
+        for image in &q.images {
+            card.append(&image_widget(session, image));
+        }
     }
     card.upcast()
 }

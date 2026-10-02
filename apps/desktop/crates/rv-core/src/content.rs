@@ -10,6 +10,7 @@ pub const QUOTE_DEPTH: usize = 2;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Quote {
+    pub unavailable: bool,
     pub link: String,
     pub author: Option<String>,
     pub text: String,
@@ -106,19 +107,23 @@ fn is_quote(a: &Value) -> bool {
 }
 
 fn quote_of(a: &Value, depth: usize) -> Quote {
+    let unavailable = a.get("native_unavailable").and_then(Value::as_bool) == Some(true);
     let inner = a.get("attachments").map(|v| v.to_string());
     let source = a.get("text").and_then(Value::as_str).unwrap_or_default();
     Quote {
-        link: text(a, "message_link").unwrap_or_default(),
-        author: text(a, "author_name"),
-        text: if a.get("native_reference").is_some_and(Value::is_object) {
+        unavailable,
+        link: if unavailable { String::new() } else { text(a, "message_link").unwrap_or_default() },
+        author: if unavailable { None } else { text(a, "author_name") },
+        text: if unavailable {
+            String::new()
+        } else if a.get("native_reference").is_some_and(Value::is_object) {
             source.to_owned()
         } else {
             crate::actions::strip_quote_prefix(source).to_owned()
         },
-        md: a.get("md").filter(|v| v.is_array()).map(Value::to_string),
-        images: image_attachments(inner.as_deref()),
-        quotes: if depth < QUOTE_DEPTH { quotes_at(inner.as_deref(), depth + 1) } else { Vec::new() },
+        md: if unavailable { None } else { a.get("md").filter(|v| v.is_array()).map(Value::to_string) },
+        images: if unavailable { Vec::new() } else { image_attachments(inner.as_deref()) },
+        quotes: if !unavailable && depth < QUOTE_DEPTH { quotes_at(inner.as_deref(), depth + 1) } else { Vec::new() },
     }
 }
 
@@ -359,6 +364,17 @@ mod tests {
         let official =
             json!([{"message_link":"https://example.test/channel/general?msg=source","text":source}]).to_string();
         assert_eq!(quotes(Some(&official))[0].text, "mots");
+        assert!(!quotes(Some(&official))[0].unavailable);
+        let unavailable=json!([{"message_link":"https://private.invalid","native_unavailable":true,"text":"private words","author_name":"private author","attachments":[{"image_url":"/private.png"}],"native_reference":{"message_id":"source","room_id":"origin","revision":"1"}}]).to_string();
+        let censored = quotes(Some(&unavailable)).remove(0);
+        assert!(censored.unavailable);
+        assert!(
+            censored.author.is_none()
+                && censored.text.is_empty()
+                && censored.link.is_empty()
+                && censored.images.is_empty()
+                && censored.quotes.is_empty()
+        );
     }
 
     #[test]

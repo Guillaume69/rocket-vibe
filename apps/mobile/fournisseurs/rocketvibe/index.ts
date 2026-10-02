@@ -13,7 +13,7 @@ export const CAPACITES_ROCKETVIBE: Capacites = {
   edition:true, suppression:true,
   typing:false, presence:false, push:false, e2ee:false, emojisCustom:false,
   appelVideo:false, recherche:false, modeleFil:'tmid',
-  fichiers:false, fils:false, reactions:true, marques:true, profil:false, infosSalon:true, favorisSalon:true, citations:false,
+  fichiers:false, fils:false, reactions:true, marques:true, profil:false, infosSalon:true, favorisSalon:true, citations:true,
   reglagesSalon:true,rolesSalon:true,quitterSalon:true,lecturesSalon:true,
 };
 const unsupported = async (): Promise<never> => { throw new NativeError(501,'unsupported_feature'); };
@@ -122,9 +122,9 @@ export function creerFournisseurRV(session: Session, client: ClientRest, generer
     },
     chargerFil:unsupported,
     creerEnvoi:() => ({
-      envoyer:async (rid,text,fil) => {
+      envoyer:async (rid,text,fil,_jointes,citations=[]) => {
         if (fil) return unsupported();
-        return chat.send(rid,text);
+        return chat.send(rid,text,undefined,citations);
       },
       traiter:async () => chat.refresh(),
       reessayer:id => chat.retry(id),

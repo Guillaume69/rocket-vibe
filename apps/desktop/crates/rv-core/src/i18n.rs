@@ -163,6 +163,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("native.abandon", "Abandonner cet envoi", "Abandon this send"),
     ("native.pending", "En attente", "Pending"),
     ("native.failed", "Non envoyé", "Not sent"),
+    ("quote.unavailable", "Citation indisponible", "Quote unavailable"),
     (
         "native.identity_changed",
         "L'identité du serveur a changé. Déconnecte-toi puis reconnecte-toi.",
@@ -758,6 +759,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("actions.saved", "Enregistré dans Téléchargements", "Saved to Downloads"),
     ("actions.save_failed", "Impossible d'enregistrer ce fichier.", "Couldn't save this file."),
     ("composer.replying", "Réponse à {name}", "Replying to {name}"),
+    ("composer.cancel_reply", "Annuler la citation", "Cancel quote"),
     ("thread.title", "Fil", "Thread"),
     ("thread.not_found", "Fil introuvable.", "Thread not found."),
     ("sys.uj", "a rejoint le salon", "joined the channel"),

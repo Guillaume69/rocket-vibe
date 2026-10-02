@@ -749,6 +749,7 @@ mod tests {
             || native_message_items(store.messages("destination", 50).unwrap(), "destination", "me", "me", None);
         let before = items();
         assert_eq!(before[0].quotes.len(), 1);
+        assert!(!before[0].quotes[0].unavailable);
         assert_eq!(before[0].quotes[0].author.as_deref(), Some("alice"));
         let crate::markup::BodyBlock::Paragraph { runs } = &before[0].quotes[0].body[0] else {
             panic!("missing quoted body")
@@ -758,6 +759,7 @@ mod tests {
         store.ingest(&[serde_json::from_value(source).unwrap()]).unwrap();
         let after = items();
         assert_eq!(after[0].quotes.len(), 1);
+        assert!(after[0].quotes[0].unavailable);
         assert!(after[0].quotes[0].author.is_none());
         assert!(after[0].quotes[0].body.is_empty());
         assert_eq!(after[0].text.as_deref(), Some("Réponse"));

@@ -56,7 +56,7 @@ import { NavigateurEmoji, usePanneauEmoji } from './navigateurEmoji.tsx';
 import { PiecesEnAttente, type PieceEnAttente } from './piecesEnAttente.tsx';
 import { reduirePieceJointe } from './preparerPieceJointe.ts';
 import { reductionProposable, type QualiteEnvoi } from './qualitePieceJointe.ts';
-import { annulerReponse, useReponse } from './reponse.ts';
+import { annulerReponse, annulerReponseSi, invaliderReponseNative, useReponse } from './reponse.ts';
 import { useRetourMateriel } from './retourMateriel.ts';
 import { demanderSource, feuilleEstMontee } from './sourcePieceJointe.ts';
 import { useSynchro } from './synchro.tsx';
@@ -217,6 +217,23 @@ export function Composer({
   // jointe : inscrit en dernier, le back referme d'abord le bandeau de réponse.
   const cleReponse = filId === null ? rid : `${rid}:${filId}`;
   const reponse = useReponse(cleReponse);
+  const [envoiNatif, setEnvoiNatif] = useState(false);
+  useEffect(() => {
+    const native = synchro.phase === 'pret' ? synchro.fournisseur.native : undefined;
+    if (!native || !reponse?.native || reponse.nativeIndisponible) return;
+    let active = true;
+    const selected = reponse.native;
+    const verifier = async () => {
+      try {
+        const fresh = await native.store.quoteSelection(selected.reference.room_id,selected.reference.message_id);
+        if (fresh.reference.revision === selected.reference.revision && fresh.membership_version === selected.membership_version && fresh.instance_id === selected.instance_id && fresh.data_epoch === selected.data_epoch) return;
+      } catch { /* Purge the preview when the source is no longer current. */ }
+      if (active) invaliderReponseNative(cleReponse,reponse);
+    };
+    void verifier();
+    const unsubscribe = native.chat.subscribe(() => { void verifier(); });
+    return () => { active=false; unsubscribe(); };
+  }, [synchro,reponse,cleReponse]);
   const annulerCitation = useCallback(() => annulerReponse(cleReponse), [cleReponse]);
   useRetourMateriel(reponse !== null, annulerCitation);
   // La feuille se referme sur la cible armée : le clavier s'ouvre sur le champ,
@@ -237,7 +254,23 @@ export function Composer({
     const legende = brouillon.trim();
     // Une citation armée préfixe le texte de son permalien `[ ](…)` — le
     // serveur en fera la pièce jointe de citation (lib/citation.ts).
-    const texteAEnvoyer = reponse === null ? legende : citer(reponse.permalien, legende);
+    const texteAEnvoyer = reponse === null || reponse.native ? legende : citer(reponse.permalien, legende);
+    if (client.genre === 'rocketvibe') {
+      if (envoiNatif || legende === '' && !reponse?.native) return;
+      setEnvoiNatif(true);
+      setErreurFichier(null);
+      void envoi.envoyer(rid,texteAEnvoyer,filId,null,reponse?.native?[reponse.native]:[]).then(idMessage => {
+        if (demonte.current) return;
+        if (brouillonRef.current === brouillon) {
+          setBrouillon(''); reinitialiser(); effacerBrouillon();
+        }
+        if (reponse) annulerReponseSi(cleReponse,reponse);
+        apresEnvoi?.(idMessage);
+      }).catch(() => {
+        if (!demonte.current) setErreurFichier(t(reponse?.native?'citation.selectionChangee':'native.error'));
+      }).finally(() => { if (!demonte.current) setEnvoiNatif(false); });
+      return;
+    }
     // Les pièces en attente partent une par une, dans l'ordre ; la légende
     // (citation comprise) accompagne la PREMIÈRE — répétée sous chaque pièce,
     // elle s'afficherait autant de fois. (`fichiers` ne peut pas être null ici :
@@ -327,6 +360,8 @@ export function Composer({
       .catch((e: unknown) => console.warn('envoi: échec local', e));
   }, [
     brouillon,
+    client.genre,
+    envoiNatif,
     enAttente,
     qualite,
     envoi,
@@ -554,7 +589,7 @@ export function Composer({
   // Le bouton d'envoi remplace le micro dès qu'il y a un texte OU une pièce
   // jointe en attente — mais JAMAIS pendant l'enregistrement, où le bouton doit
   // rester « arrêter » (⏹), même si du texte a été tapé entre-temps.
-  const montrerEnvoi = (!brouillonVide || enAttente.length > 0) && !enregistrement;
+  const montrerEnvoi = (!brouillonVide || enAttente.length > 0 || reponse?.native !== undefined) && !enregistrement;
 
   return (
     <View>
@@ -643,7 +678,7 @@ export function Composer({
         {montrerEnvoi ? (
           <Pressable
             onPress={envoyer}
-            disabled={envoiFichier}
+            disabled={envoiFichier || envoiNatif}
             style={({ pressed }) => ({ opacity: pressed || envoiFichier ? 0.7 : 1 })}
             accessibilityLabel={t('commun.envoyer')}
           >

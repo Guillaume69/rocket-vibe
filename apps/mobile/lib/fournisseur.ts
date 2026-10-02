@@ -264,6 +264,7 @@ export interface Outbox {
     texte: string,
     filId?: string | null,
     jointesLocales?: string | null,
+    citations?: readonly import('../fournisseurs/rocketvibe/quotes.ts').NativeQuoteSelection[],
   ): Promise<string>;
   traiter(): Promise<void>;
   abandonner(id: string): Promise<void>;

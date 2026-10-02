@@ -56,6 +56,14 @@ struct Composer: View {
     var body: some View {
         @Bindable var model = model
         VStack(alignment: .leading, spacing: 6) {
+            if let quote = model.pendingQuote {
+                HStack(alignment:.top) {
+                    QuoteCard(quote:quote)
+                    Button { model.cancelQuote() } label: { Image(systemName:"xmark") }
+                        .buttonStyle(.borderless)
+                        .help(L("composer.cancel_reply"))
+                }
+            }
             if let suggestions {
                 SuggestionList(items: suggestions.items, selected: selected) { accept($0) }
             }
@@ -124,7 +132,7 @@ struct Composer: View {
                     Button(action: send) { Image(systemName: "arrow.up") }
                         .buttonStyle(SendButtonStyle())
                         .help(L("composer.send"))
-                        .disabled(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && staged.isEmpty)
+                        .disabled(!model.canSend && staged.isEmpty)
                         .keyboardShortcut(.return, modifiers: .command)
                 }
             }

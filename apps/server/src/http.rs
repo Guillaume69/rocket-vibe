@@ -245,6 +245,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             reactions: true,
             pins: true,
             stars: true,
+            quotes: true,
             session_rotation: true,
             device_sessions: true,
             account_invitations: true,

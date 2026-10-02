@@ -127,9 +127,25 @@ final class NativeProviderTests: XCTestCase {
         try await room.prepareMutation(latest, editing: true)
         XCTAssertEqual(room.editingText(latest), "Stale editor must not overwrite", "A failed edit remains available for review")
         XCTAssertEqual(room.editingOriginalText(latest), "Concurrent Swift edit")
+        try await until { room.actions(for:latest).contains(.reply) }
+        await room.quote(latest)
+        XCTAssertEqual(room.pendingQuote?.author,latest.author)
+        XCTAssertTrue(room.canSend)
+        room.draft = "Swift native quote through the existing model"
+        await room.send()
+        XCTAssertNil(room.pendingQuote)
+        try await until { room.messages.contains { $0.text == "Swift native quote through the existing model" && $0.delivery == .sent && $0.quotes.count == 1 } }
+        await room.quote(latest)
         try await room.prepareMutation(latest, editing: false)
         try await room.delete(latest)
         try await until { !room.messages.contains { $0.id == message.id } }
+        try await until { room.pendingQuote?.unavailable == true }
+        room.draft = "Words kept after losing the quoted source"
+        await room.send()
+        XCTAssertEqual(room.draft,"Words kept after losing the quoted source")
+        XCTAssertNotNil(room.pendingQuote)
+        room.cancelQuote()
+        room.draft = ""
         XCTAssertEqual(room.quickReactions.count, 6)
 
         let directoryClient = Client(home: home + "/directory-owner")

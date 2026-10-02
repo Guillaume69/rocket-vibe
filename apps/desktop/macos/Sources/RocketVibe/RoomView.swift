@@ -679,6 +679,7 @@ struct QuoteCard: View {
         HStack(alignment: .top, spacing: 8) {
             RoundedRectangle(cornerRadius: 2).fill(LinearGradient(colors: [Vibe.violet, Vibe.pink], startPoint: .top, endPoint: .bottom)).frame(width: 3)
             VStack(alignment: .leading, spacing: 3) {
+                if quote.unavailable { Text(L("quote.unavailable")).foregroundStyle(Vibe.muted) }
                 if let author = quote.author { Text(author).font(.vibe(13, .heavy)) }
                 BodyView(blocks: quote.body)
                 ForEach(Array(quote.images.enumerated()), id: \.offset) { _, image in

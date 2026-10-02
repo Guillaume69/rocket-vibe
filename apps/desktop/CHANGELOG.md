@@ -9,6 +9,11 @@ section here.
 
 ### Fixed
 
+- GTK and SwiftUI reuse their reply controls for native message references.
+  Quoted sends survive retries; a rejected selection keeps the entered words.
+  Unavailable sources have a translated label and discard private previews.
+  GTK now renders native quotes in the existing cards without an RC session.
+
 - A stale native editor keeps its unsent words and reports `revision_conflict`
   when the cache already contains a newer message. Quote references are captured
   only for the matching revision.

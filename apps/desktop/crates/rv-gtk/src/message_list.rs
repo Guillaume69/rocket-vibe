@@ -658,6 +658,11 @@ impl MessageList {
         self.on_event.replace(Some(Rc::new(f)));
     }
 
+    /// The currently bound row, for anchoring actions and inspecting rendered content.
+    pub fn row_widget(&self, id: &str) -> Option<gtk::Widget> {
+        self.bound.borrow().get(id).cloned()
+    }
+
     pub fn connect_top_reached(&self, f: impl Fn() + 'static) {
         self.on_top.replace(Some(Rc::new(move |()| f())));
     }

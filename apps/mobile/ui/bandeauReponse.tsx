@@ -39,10 +39,10 @@ export function BandeauReponse({
       )}
       <View style={styles.corps}>
         <Text style={[styles.titre, { color: c.accent }]} numberOfLines={1}>
-          {t('salon.reponseA', { nom: cible.auteur ?? '?' })}
+          {cible.nativeIndisponible ? t('citation.indisponible') : t('salon.reponseA', { nom: cible.auteur ?? '?' })}
         </Text>
         <Text style={[styles.extrait, { color: c.attenue }]} numberOfLines={1}>
-          {apercu !== '' ? apercu : t('commun.pieceJointe')}
+          {cible.nativeIndisponible ? t('citation.selectionChangee') : apercu !== '' ? apercu : t('commun.pieceJointe')}
         </Text>
       </View>
       <Pressable

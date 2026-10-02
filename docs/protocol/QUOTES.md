@@ -1,10 +1,11 @@
 # Citations natives — P07
 
-Les premiers lots livrent les références, leur résolution côté serveur, les
-caches bureau commun GTK / SwiftUI et mobile, et les corps d'intention durables. La capacité
-`quotes` reste désactivée tant que les adaptateurs et caches des trois interfaces
-existantes ne satisfont pas les règles ci-dessous. Les cartes, menus et bandeaux
-de réponse actuels seront réutilisés.
+Les références plates, leur résolution côté serveur, les caches bureau commun
+GTK / SwiftUI et mobile, et les corps d'intention durables sont livrés. La capacité
+`quotes` active les actions de réponse des trois interfaces existantes : cartes,
+menus, bandeaux et composeurs sont réutilisés. Citations imbriquées, fichiers cités
+et qualification des applications installées restent ouverts ; ce lot ne ferme
+pas P07.
 
 ## Commandes et reçus
 
@@ -127,17 +128,21 @@ transactionnels ; abandon et changement de génération purgent les lignes assoc
 Les anciennes intentions texte migrent avec une liste vide sans modifier leur rejeu.
 
 Le pont UniFFI expose cette sélection et l'envoi lié à l'adhésion pour les modèles
-Swift existants. Le parcours HTTP / PostgreSQL et SQLite mobile vérifie réponse
+Swift existants. Le parcours du fournisseur mobile, HTTP / PostgreSQL et SQLite vérifie réponse
 perdue après commit, retrait de source, reprise du corps original, message unique,
-conflit après édition et nouvelle sélection. Les menus et composeurs des trois
-interfaces restent à raccorder avant d'activer la capacité ; ces APIs ne clôturent
-pas la qualification des applications installées.
+conflit après édition et nouvelle sélection. Les trois menus et composeurs sont
+raccordés aux références natives. Rocket.Chat conserve ses permaliens et son
+affichage optimiste historique. Une sélection native seule peut être envoyée
+sans texte ajouté. Une mise en file refusée conserve les mots et la sélection
+pour correction / annulation. Les aperçus ouverts perdent leurs mots et auteur
+si la source n'est plus actuelle ou accessible ; une référence indisponible a un
+libellé traduit dans les cartes existantes.
 
 ## Raccordement suivant et conditions de sortie
 
-Les adaptateurs doivent traduire les références vers les cartes de citation
+Les adaptateurs traduisent les références vers les cartes de citation
 existantes, avec un libellé explicite pour
-les références indisponibles. Le cache des extraits doit rester distinct de la révision publique
+les références indisponibles. Le cache des extraits reste distinct de la révision publique
 de la réponse, suivre les révisions de la source et être lié à son adhésion.
 Les positions de résolution ordonnent aussi les résultats sans extrait : une
 ancienne réponse ne doit jamais restaurer le texte après une suppression ou un
@@ -152,7 +157,7 @@ La file d'envoi durable conserve les références, sans capturer un droit ni un
 extrait comme autorité. Les scénarios de perte de réponse et de reprise doivent
 traverser les vrais caches mobile / desktop et les modèles Swift.
 Les commandes durables d'édition conservent maintenant les références ; le
-raccordement de l'envoi depuis les contrôles de réponse existants reste ouvert.
+raccordement de l'envoi depuis les contrôles de réponse existants est livré.
 
 Les citations imbriquées, fichiers cités et aperçus protégés restent à raccorder
 avec leur contrôle d'accès ; les fichiers sont liés à J3. Les essais installés

@@ -55,6 +55,8 @@ const fr = {
   'native.failed': 'Échec',
   'native.identityChanged': 'L’identité ou les données du serveur ont changé. Reconnectez-vous pour continuer.',
   'native.error': 'Action impossible. Vérifiez la connexion et les droits du compte.',
+  'citation.indisponible': 'Citation indisponible',
+  'citation.selectionChangee': 'La citation a changé ou son accès a été retiré. Sélectionnez-la à nouveau.',
   'native.loading': 'Préparation des conversations…',
   'native.changeServer': 'Changer de serveur',
   // ── Commun — réutilisé par plusieurs écrans. Préférer une clé d'écran
@@ -618,6 +620,8 @@ const en: Record<CleTraduction, string> = {
   'native.failed': 'Failed',
   'native.identityChanged': 'The server identity or data has changed. Sign in again to continue.',
   'native.error': 'Action failed. Check your connection and account permissions.',
+  'citation.indisponible': 'Quote unavailable',
+  'citation.selectionChangee': 'The quote changed or access was removed. Select it again.',
   'native.loading': 'Preparing conversations…',
   'native.changeServer': 'Change server',
   'commun.enregistrer': 'Save',

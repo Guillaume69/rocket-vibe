@@ -23,6 +23,25 @@ const message = decodeNative('Message',fixture.message);
 const account: Session = {genre:'rocketvibe',baseUrl:'http://localhost:3400',authToken:'test-token',userId:message.author.id,username:message.author.username,
   nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch,siteUrl:null};
 
+test('the existing provider outbox carries native references and never trusts optimistic attachments',async()=>{
+  const h=nativeTestDatabase(),queue=creerFileEcritures(),store=new NativeStore(h.adapter,queue,account);
+  const scoped={...room,read_state:{room_id:room.id,revision:'1',membership_version:'source-grant',favorite_revision:'1',root_position:'0',reply_position:'0',unread_roots:'0',unread_replies:'0',mentions:'0',group_mentions:'0',favorite:false}};
+  await store.applySnapshot({protocol_version:1,rooms:[scoped],messages:[message],cursor:'initial'});
+  const provider=creerFournisseurRV(account,new ClientRest(account.baseUrl),()=> 'quoted-intent',store);
+  try {
+    const selected=await store.quoteSelection(room.id,message.id);
+    const outbox=provider.creerEnvoi(creerDepotEnvoi(h.adapter as SQLiteDatabase,queue),async()=>{});
+    await outbox.envoyer(room.id,'',null,'[{"author_name":"forged","text":"forged"}]',[selected]);
+    assert.deepEqual(await store.pending(),[{id:'quoted-intent',rid:room.id,texte:'',quotes:[selected.reference]}]);
+    const cards=JSON.parse(h.db.prepare('SELECT pieces_jointes FROM messages WHERE id=?').get('quoted-intent')!.pieces_jointes as string);
+    assert.equal(cards[0].text,message.text);
+    assert.notEqual(cards[0].author_name,'forged');
+    await store.ingest([{...message,revision:(BigInt(message.revision)+1n).toString(),position:(BigInt(message.position)+1n).toString(),text:'New source'}]);
+    await assert.rejects(outbox.envoyer(room.id,'Keep these words',null,null,[selected]),/selection changed/);
+    assert.equal((await store.pending()).length,1);
+  } finally { provider.listener.fermer();h.db.close(); }
+});
+
 test('one provider selector keeps Rocket.Chat features and supplies the native durable outbox',async () => {
   const h = nativeTestDatabase(); const queue = creerFileEcritures();
   const store = new NativeStore(h.adapter,queue,account);

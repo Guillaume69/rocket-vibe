@@ -422,6 +422,20 @@ impl ChatPage {
                             return;
                         }
                         let Ok((message, rights)) = context else { return };
+                        if !message.deleted && expected.supported_features().iter().any(|f| f == "quotes") {
+                            let button = gtk::Button::builder().label(t("actions.reply")).css_classes(["flat"]).build();
+                            let (weak, s, p, row) = (weak.clone(), expected.clone(), popover.clone(), row.clone());
+                            button.connect_clicked(move |_| {
+                                if let Some(this) = weak.upgrade()
+                                    && this.native_session().is_some_and(|current| Arc::ptr_eq(&current, &s))
+                                    && this.current_rid().as_deref() == Some(&row.rid)
+                                {
+                                    this.start_reply(*row.clone(), false);
+                                    p.popdown();
+                                }
+                            });
+                            list.append(&button);
+                        }
                         for (key, starred, present, allowed) in [
                             (
                                 if message.pinned { "actions.unpin" } else { "actions.pin" },

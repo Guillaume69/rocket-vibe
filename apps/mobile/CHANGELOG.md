@@ -9,6 +9,11 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Citations natives dans l'action Répondre, le bandeau et le composeur existants,
+  y compris sans texte ajouté. Les références sont transmises à la file durable ;
+  une sélection refusée conserve les mots saisis. Une source indisponible porte
+  un libellé explicite et son aperçu privé est effacé.
+
 - Une édition devenue obsolète conserve les mots saisis et signale un conflit,
   même si le cache a déjà reçu la nouvelle version du message.
 

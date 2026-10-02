@@ -1000,6 +1000,26 @@ impl ChatPage {
 
     /// Quoting needs the permalink the server recognises, built on `Site_Url`.
     fn start_reply(self: &Rc<Self>, row: rv_core::store::MessageRow, in_thread: bool) {
+        if let Some(session) = self.native_session() {
+            let prepared = (|| {
+                let selected = session.store.quote_selection(&row.rid, &row.id).ok()?;
+                let source = session
+                    .store
+                    .messages(&row.rid, self.limit.get() as usize)
+                    .ok()?
+                    .into_iter()
+                    .find(|source| source.id == row.id)?;
+                if session.store.quote_selection(&row.rid, &row.id).ok()? != selected {
+                    return None;
+                }
+                Some((selected, source))
+            })();
+            match prepared {
+                Some((selected, source)) => self.composer.set_native_reply(&source.author, &source.text, selected),
+                None => self.toast(t("quote.unavailable").to_owned()),
+            }
+            return;
+        }
         let Some(session) = self.session.borrow().clone() else { return };
         let Some(open) = self.current.borrow().clone() else { return };
         let composer = match (in_thread, self.thread.borrow().as_ref()) {
@@ -1611,6 +1631,7 @@ impl ChatPage {
     fn reload_messages(&self) {
         let Some(open) = self.current.borrow().clone() else { return };
         if let Some(session) = self.native_session() {
+            self.composer.validate_native_reply(&session.store);
             match session.store.messages(&open.rid, self.limit.get() as usize) {
                 Ok(rows) => self.list.set_native_rows(
                     rv_core::native::read_presentation::group(
@@ -1801,13 +1822,16 @@ impl ChatPage {
             let Some((rid, membership)) = scope.filter(|(rid, _)| rid == &open.rid) else {
                 return;
             };
-            if let Err(error) = session.send_from_membership(&rid, text, membership.as_deref()) {
+            let selected = self.composer.native_reply().into_iter().collect::<Vec<_>>();
+            if let Err(error) = session.send_quotes_from_membership(&rid, text, membership.as_deref(), &selected) {
                 if error.code() == "delivery_revalidate" {
                     self.invalidate_native_room();
                 } else {
                     self.composer.set_text(text);
                 }
-                self.toast(error.to_string());
+                self.native_error(&error);
+            } else {
+                self.composer.clear_reply();
             }
             return;
         }

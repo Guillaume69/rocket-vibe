@@ -125,6 +125,9 @@ public final class RoomModel {
     private var nativeActions: [String: NativeMessageActions] = [:]
     private var roomAccessTask: Task<Void, Never>?
     private let nativeMembership: String?
+    @ObservationIgnored private var nativeQuote: NativeQuoteSelection?
+    public private(set) var pendingQuote: Quote?
+    public var canSend: Bool { !draft.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty || nativeQuote != nil }
     @ObservationIgnored private var actionLoads: Set<String> = []
     @ObservationIgnored private var mutations: [String: NativeMessageActions] = [:]
 
@@ -168,6 +171,7 @@ public final class RoomModel {
         roomAccessTask?.cancel()
         try? saveDraft(draft)
         active = false
+        cancelQuote()
         draft = ""
         roomOperationRevision &+= 1
         roomInformationRevision = "closed"
@@ -208,6 +212,10 @@ public final class RoomModel {
 
     /// Publishes only what changed: an equal list leaves every row alone.
     public func reload() {
+        if let native = provider.native, let selection = nativeQuote,
+           (try? native.quoteSelection(room:selection.roomId,messageId:selection.messageId)) != selection {
+            pendingQuote = Quote(unavailable:true,link:"",author:nil,body:[],images:[],quotes:[])
+        }
         guard active, let fresh = try? provider.messages(rid: room.rid, limit: limit, thread: threadId, unreadAfter: unreadAfter, nativeBoundary:nativeReadBoundary) else { return }
         if fresh != messages {
             let changed = fresh.filter { item in messages.first { $0.id == item.id } != item }
@@ -276,13 +284,16 @@ public final class RoomModel {
     public func send() async {
         guard active else { return }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty || nativeQuote != nil else { return }
         draft = ""
         draftSave?.cancel()
         do {
             // Clear before awaiting the transport: words typed during an RC send must survive.
             try saveDraft("")
-            if let native = provider.native { _ = try native.sendFromMembership(room: room.rid, text: text, membership: nativeMembership) }
+            if let native = provider.native {
+                _ = try native.sendQuotesFromMembership(room:room.rid,text:text,membership:nativeMembership,quotes:nativeQuote.map { [$0] } ?? [])
+                cancelQuote()
+            }
             else { try await provider.send(rid: room.rid, text: text, thread: threadId) }
             reload()
         } catch {
@@ -323,6 +334,7 @@ public final class RoomModel {
             loadNativeActions(message)
             guard let rights = nativeActions[message.id] else { return [.copy] }
             var result: [MessageAction] = [.copy]
+            if message.delivery == .sent && provider.native?.supportedFeatures().contains("quotes") == true { result.append(.reply) }
             let deadline = rights.editUntil.flatMap { value -> Date? in
                 let parser = ISO8601DateFormatter()
                 parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -444,10 +456,26 @@ public final class RoomModel {
 
     /// Puts a quote of the message at the start of the draft.
     public func quote(_ message: MessageItem) async {
-        guard active, let chat else { return }
+        guard active, membershipIsCurrent else { return }
+        if let native = provider.native {
+            do {
+                let selected = try native.quoteSelection(room:room.rid,messageId:message.id)
+                guard let source = try native.messageItems(room:room.rid,limit:UInt32(clamping:limit)).first(where: { $0.id == message.id }),
+                      try native.quoteSelection(room:room.rid,messageId:message.id) == selected else { throw CancellationError() }
+                nativeQuote = selected
+                pendingQuote = Quote(unavailable:false,link:"",author:source.author,body:source.body,images:[],quotes:[])
+            } catch { self.error = L("quote.unavailable") }
+            return
+        }
+        guard let chat else { return }
         let q = await chat.quote(
             kind: room.kind, slug: room.slug, rid: room.rid, messageId: message.id, text: message.text ?? "")
         draft = q + draft
+    }
+
+    public func cancelQuote() {
+        nativeQuote = nil
+        pendingQuote = nil
     }
 
     /// My latest message still editable, for the Up arrow in an empty composer.

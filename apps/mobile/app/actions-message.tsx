@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { abonnements, messages, salons } from '../db/schema.ts';
 import { nativeReactions } from '../fournisseurs/rocketvibe/store.ts';
 import { canonicalEmoji } from '../fournisseurs/rocketvibe/emojis.ts';
+import { NativeError } from '../fournisseurs/rocketvibe/transport.ts';
 import {
   actionsPossibles,
   messageDisparuDuServeur,
@@ -135,6 +136,11 @@ export default function EcranActionsMessage() {
   const moteur = synchro.phase === 'pret' ? synchro.moteur : null;
   const actionneur = synchro.phase === 'pret' ? synchro.actions : null;
   const fournisseur = synchro.phase === 'pret' ? synchro.fournisseur : null;
+  const generationVue = useRef(0);
+  useEffect(() => {
+    generationVue.current += 1;
+    return () => { generationVue.current += 1; };
+  }, [fournisseur,id]);
   const e2e = synchro.phase === 'pret' ? synchro.e2e : null;
   const client = etat.phase === 'connecte' ? etat.client : null;
   const moi = etat.phase === 'connecte' ? etat.session.userId : null;
@@ -195,6 +201,7 @@ export default function EcranActionsMessage() {
         // le serveur ne lit de toute façon que le `?msg=` du permalien.
         salon: { type: lignesSalon[0]?.type ?? 'c', nom: lignesSalon[0]?.nom ?? null },
         actions: client.genre === 'rocketvibe' ? [
+          ...(contexteNatif && fournisseur?.capacites.citations ? ['repondre'] as const : []),
           ...(brut.texte ? ['copier', 'partager'] as const : []),
           ...(droitsNatifs?.edit && fournisseur?.capacites.edition ? ['modifier'] as const : []),
           ...(droitsNatifs?.delete && fournisseur?.capacites.suppression ? ['supprimer'] as const : []),
@@ -292,8 +299,22 @@ export default function EcranActionsMessage() {
 
   // Arme la cible de réponse pour le composer d'origine (salon ou fil) puis se
   // referme — l'envoi lui-même se joue là-bas, avec le texte tapé ensuite.
-  const repondre = () => {
+  const repondre = async () => {
+    const generation = generationVue.current;
     void Haptics.selectionAsync();
+    if (fournisseur?.native) {
+      try {
+        const selection = await fournisseur.native.store.quoteSelection(message.rid, message.id);
+        if (selection.reference.revision !== charge.revision) throw new NativeError(409,'quote_revision_conflict');
+        if (generationVue.current !== generation) return;
+        demanderReponse(message.rid, {
+          id:message.id, auteur:message.auteurNom, apercu:message.texte?.trim() || null,
+          permalien:'', jointeLocale:'[]', imageApercu:null, native:selection,
+        });
+        routeur.back();
+      } catch { if (generationVue.current === generation) setErreur(t('citation.selectionChangee')); }
+      return;
+    }
     const permalien = permalienMessage({
       baseUrl: client.baseUrl,
       siteUrl,

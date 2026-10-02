@@ -522,10 +522,8 @@ pub fn message_widget(
     } else {
         markdown::render(row.md.as_deref(), row.text.as_deref(), &markdown::Context { me: &me })
     };
-    if let Some(session) = session {
-        for q in content::quotes(row.attachments.as_deref()) {
-            column.append(&cards::quote(session, &q, &me));
-        }
+    for q in content::quotes(row.attachments.as_deref()) {
+        column.append(&cards::quote(session, &q, &me));
     }
     let state: &[&str] = match (pending, failed) {
         (true, _) => &["pending"],

@@ -621,9 +621,9 @@ function Salon({
   const envoiObserve=useMemo<Outbox>(()=>{
     const chat=fournisseur.native?.chat;
     if(!chat || membership===undefined)return envoi;
-    return {reessayer:envoi.reessayer?.bind(envoi),traiter:()=>envoi.traiter(),abandonner:id=>envoi.abandonner(id),envoyer:(target,text,thread)=>{
+    return {reessayer:envoi.reessayer?.bind(envoi),traiter:()=>envoi.traiter(),abandonner:id=>envoi.abandonner(id),envoyer:(target,text,thread,_jointes,citations=[])=>{
       if(target!==rid || thread)throw new Error('Room unavailable in this composer');
-      return chat.send(target,text,{membership});
+      return chat.send(target,text,{membership},citations);
     }};
   },[envoi,fournisseur,rid,membership]);
   const persistance = useBrouillon(depotObserve, rid);

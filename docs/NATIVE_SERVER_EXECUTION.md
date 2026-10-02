@@ -315,6 +315,35 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+Les entrées relatent les lots livrés du plus récent au plus ancien. La matrice de
+parité donne les conditions de sortie actuelles ; les limites des anciens lots
+sont conservées avec leurs résultats de vérification.
+
+- P07, contrôles de citation des applications existantes : action Répondre,
+  bandeaux / cartes et composeurs GTK, SwiftUI et mobile utilisent des références
+  natives ; les permaliens Rocket.Chat gardent leur chemin historique. La mise
+  en file transmet la sélection liée à l'adhésion, accepte une citation seule
+  et conserve les mots après rejet local. Un retrait / une modification de source
+  purge les aperçus ouverts ; le libellé indisponible est traduit dans les cartes
+  actuelles. Le renderer GTK affiche maintenant ces cartes même sans session
+  Rocket.Chat, condition qui empêchait leur affichage dans le lot de cache seul.
+  Citations plates activées par `quotes` côté serveur et intersection des capacités
+  client / serveur. Le parcours GTK sous Xvfb clique sur le menu de réponse réel,
+  confirme l'envoi, inspecte les widgets de carte, supprime la source et vérifie
+  aperçu purgé / mots conservés ; scripts reproductibles ajoutés à la CI native.
+  Les vrais modèles Swift et le trousseau passent le scénario correspondant ; le
+  fournisseur mobile passe PostgreSQL / HTTP, réponse perdue, SQLite sur disque,
+  retrait et rejeu identique. Les essais sans serveur configuré ou avec mauvaise
+  fixture ne sont pas utilisés comme preuves.
+  Régression : 201 tests du workspace natif, 1 182 tests mobiles et 355 tests
+  du workspace bureau réussis,
+  typecheck / lint, export Android, Clippy et compilation GTK passent. Les contrôles
+  supplémentaires de rendu / masquage sont vérifiés après ajustement. La CI du lot
+  `43f2f3e` est verte (`native-server` 37063060051, `desktop-swiftui` 37063059954).
+  Citations imbriquées et fichiers cités J3, messages système / emojis custom et
+  qualification installée restent ouverts ; P07 n'est pas clos.
+  [Contrat](protocol/QUOTES.md).
+
 - P07, corps durables d'envoi de citations : le cœur bureau, le moteur mobile et
   le pont UniFFI sélectionnent les sources confirmées depuis le cache existant.
   La mise en file revérifie révision, génération et adhésion source / destination

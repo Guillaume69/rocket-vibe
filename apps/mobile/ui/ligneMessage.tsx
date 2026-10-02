@@ -477,7 +477,7 @@ function Citation({
       ))}
       {vide && (
         <Text style={[styles.texte, styles.italique, { color: c.attenue }]}>
-          📎 {t('commun.pieceJointe')}
+          {jointe.native_unavailable === true ? t('citation.indisponible') : `📎 ${t('commun.pieceJointe')}`}
         </Text>
       )}
     </Pressable>
@@ -641,6 +641,7 @@ function CarteAppel({ c, callId }: { c: Couleurs; callId: string | null }) {
 }
 
 type PieceJointe = {
+  native_unavailable?: boolean;
   title?: string;
   title_link?: string;
   image_url?: string;

@@ -315,6 +315,16 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, budget SMTP commun : extraction de l'admission persistante de la
+  vérification vers un composant partagé, en conservant les clés des commandes
+  déjà admises. Les futures finalités OTP / récupération partageront les limites
+  globales, par compte, adresse et IP. Cinq tests PostgreSQL couvrent concurrence,
+  reprise après redémarrage et saturation, casse de l'adresse, expiration,
+  absence de valeurs privées en clair et annulation sous le verrou réel du quota.
+  Le contrôle complet passe : 124 tests serveur, 7 tests protocole / client,
+  126 tests TypeScript, Clippy et générations des contrats. Ce composant ne rend
+  pas encore disponibles le facteur e-mail ni la récupération du mot de passe.
+
 - P02, retrait du contact bureau : boutons dans les paramètres GTK / SwiftUI
   existants et une seule entrée privée partagée entre vérification et retrait.
   Le format des anciennes vérifications reste lisible ; aucun retrait ne conserve
@@ -338,7 +348,14 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   Un premier scénario GTK retrouvait l'ancien dialogue encore en fermeture :
   l'attente porte désormais sur sa disparition effective ; le banc complet passe.
   La vue finale tient à 435 px et n'affiche aucun code privé. La compilation
-  SwiftUI doit encore être confirmée sur macOS en CI. Facteur e-mail,
+  SwiftUI est confirmée par la CI macOS `36944950019` du commit `b06487b` :
+  compilation, package et démarrage réussis. Sa CI native `36944950072` passe
+  serveur / mobile, GTK et cœur Windows mais échoue dans le banc Swift : aucun
+  start de vérification n'était parti après la reconnexion de régénération.
+  Le banc exige désormais une vue fraîche avant soumission explicite et observe
+  séparément les réponses réellement perdues par le proxy jetable. Sa correction
+  passe compilation, six tests locaux, trois processus connectés et le contrôle
+  PostgreSQL du serveur reconstruit ; sa nouvelle CI reste à qualifier. Facteur e-mail,
   récupération et trousseaux / apps installés restent la suite de P02.
 
 - P02, retrait du contact mobile : bouton avec confirmation native dans les

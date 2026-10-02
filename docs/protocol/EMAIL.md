@@ -262,7 +262,47 @@ révisions de retrait / acknowledgement. SQL exige une seule famille, une preuve
 complète conservant son âge, une admission et un reçu de retrait, sans ancien
 contact, vérification ni job. Le second facteur reste actif pendant le retrait,
 puis sa désactivation explicite est testée séparément. La compilation SwiftUI
-du nouveau lot doit encore être confirmée par la CI macOS.
+du lot `b06487b` est confirmée : la CI macOS `36944950019` compile, package et
+démarre l'application. La CI native `36944950072` passe serveur / mobile, GTK
+et cœur Windows mais échoue dans le banc Swift sur une soumission qui précédait
+la fin de reconnexion après régénération. Le banc corrigé exige une vue fraîche
+et vérifie les pertes effectives de réponse via le proxy jetable. Compilation,
+six tests locaux, trois processus connectés et invariants PostgreSQL passent
+avec le serveur reconstruit ; sa nouvelle CI reste à qualifier.
+
+## Décisions pour le facteur e-mail restant
+
+Ce parcours n'est pas encore disponible. Une adresse vérifiée ne l'activera pas
+implicitement : une inscription distincte permettra e-mail seul ou coexistence
+avec TOTP, avec codes de secours communs. Le statut distinguera l'inscription
+effective de la capacité d'envoi du runtime. Une panne de SMTP ne permettra pas
+une session avec le seul mot de passe. Une clé opérateur absente ou incorrecte
+fermera le parcours protégé, y compris son repli vers les secours.
+
+Le facteur sera lié à la version du contact vérifié. Un contact utilisé comme
+facteur devra d'abord être désactivé explicitement avant remplacement ou retrait.
+L'inscription / désactivation exigera la preuve récente du compte et sa version
+actuelle ; ses reçus, changements d'autorité et révocations des autres appareils
+suivront les garanties déjà appliquées à TOTP. Toute émission de nouveaux secours
+sera présentée et conservée comme un reçu privé, jamais remplacée silencieusement.
+
+L'envoi sera demandé explicitement sur le défi de connexion ou de confirmation
+d'identité déjà établi. Le client conservera son candidat de livraison avant
+HTTP et reprendra la même opération après réponse perdue. Le code n'entrera
+jamais dans le coffre. Le serveur liera la livraison au compte, défi, finalité,
+contact, autorité et génération ; le contexte de l'appareil s'ajoutera pour la
+confirmation d'identité. Renvoi, retries SMTP et reprise du reçu ne prolongeront
+pas l'échéance initiale du défi. Ils ne pourront pas consommer les codes d'un
+autre défi ou d'une autre finalité.
+
+Le composant commun d'admission SMTP est extrait : il conserve les clés des
+vérifications déjà admises et partage les budgets persistants global, compte,
+adresse et IP entre producteurs. Cinq tests PostgreSQL couvrent concurrence,
+reprise pendant le cooldown, expiration, annulation sous verrou et absence de
+clés privées en clair. Les futurs producteurs OTP / récupération ajouteront leur
+liaison au défi et sa propre limite sans contourner ces budgets. Le quota de
+transport et le verrou du compte restent distincts, et aucun de ces verrous
+ne couvre une transmission SMTP.
 
 Il reste à qualifier les parcours installés et le relais réel avec accès
 opérateur. Un test SMTP / TLS loopback ne valide pas la délivrabilité d'un

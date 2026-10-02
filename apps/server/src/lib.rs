@@ -9,6 +9,7 @@ mod http;
 pub mod invitations;
 mod limits;
 pub mod mail;
+mod mail_admission;
 mod marks;
 mod message_actions;
 mod permissions;

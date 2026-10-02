@@ -51,6 +51,7 @@ pub(crate) struct MessageRow {
 
 impl MessageRow {
     pub fn wire(self) -> Message {
+        let body = (!self.deleted).then(|| Box::new(rv_protocol::markdown::parse(&self.text)));
         Message {
             id: self.id,
             room_id: self.room_id,
@@ -60,6 +61,7 @@ impl MessageRow {
                 display_name: self.display_name,
             },
             text: self.text,
+            body,
             created_at: self.created_at.to_rfc3339(),
             position: self.position.to_string(),
             revision: self.revision.to_string(),

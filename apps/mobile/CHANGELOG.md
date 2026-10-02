@@ -9,6 +9,12 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Les messages natifs confirmés sont traduits vers les composants de rendu
+  existants depuis un document typé commun avec le bureau. Les conventions de
+  gras, italique et barré du composeur sont conservées. Code, citations, labels
+  de liens et mentions échappées ne deviennent pas des mentions actives ; les
+  images Markdown restent littérales en attendant les fichiers natifs.
+
 - Badges de non-lus et mentions confirmés, et barre existante des nouveaux
   messages avec la position capturée à l'ouverture. Les minuteries retiennent
   un message confirmé réellement visible dans FlashList et l'adhésion ouverte,

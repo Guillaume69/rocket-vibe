@@ -73,6 +73,7 @@ pub struct MessageRow {
     pub position: Option<String>,
     pub text: String,
     pub author: String,
+    pub body: Option<String>,
     pub author_id: String,
     pub ts: i64,
     pub status: Option<String>,
@@ -83,6 +84,7 @@ pub struct MessageRow {
 }
 impl MessageRow {
     pub fn presentation(self, rid: &str, uid: &str) -> crate::store::MessageRow {
+        let md = super::markdown::cached_tree(self.body.as_deref(), &self.text);
         crate::store::MessageRow {
             id: self.id,
             rid: rid.into(),
@@ -92,6 +94,7 @@ impl MessageRow {
             pinned: self.pinned,
             starred: self.starred.then(|| uid.into()),
             text: Some(self.text),
+            md: Some(md),
             author: Some(self.author),
             author_id: if self.status.is_some() { uid.into() } else { self.author_id },
             outbox_status: self.status.map(|s| if s == "failed" { "failed".into() } else { "pending".into() }),
@@ -153,6 +156,7 @@ impl NativeStore {
             ("pinned", "INTEGER NOT NULL DEFAULT 0"),
             ("starred", "INTEGER NOT NULL DEFAULT 0"),
             ("star_revision", "TEXT NOT NULL DEFAULT '0'"),
+            ("body", "TEXT"),
         ] {
             if !columns.iter().any(|c| c == name) {
                 conn.execute_batch(&format!("ALTER TABLE native_messages ADD COLUMN {name} {declaration}"))?;
@@ -393,7 +397,8 @@ impl NativeStore {
         } else {
             Some(json(&message.reactions.iter().map(|reaction|(format!(":{}:",reaction.emoji),serde_json::json!({"usernames":reaction.users.iter().map(|user|&user.username).collect::<Vec<_>>()}))).collect::<std::collections::BTreeMap<_,_>>())?)
         };
-        tx.execute("INSERT INTO native_messages(id,rid,position,revision,text,author,author_id,ts,deleted,edited,reactions) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11) ON CONFLICT(id) DO UPDATE SET position=excluded.position,revision=excluded.revision,text=excluded.text,author=excluded.author,author_id=excluded.author_id,ts=excluded.ts,deleted=excluded.deleted,edited=excluded.edited,reactions=excluded.reactions",params![message.id,message.room_id,message.position,message.revision,message.text,message.author.username,message.author.id,ts,message.deleted,message.edited_at.is_some(),reactions])?;
+        let body = if message.deleted { None } else { message.body.as_ref().map(json).transpose()? };
+        tx.execute("INSERT INTO native_messages(id,rid,position,revision,text,author,author_id,ts,deleted,edited,reactions,body) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12) ON CONFLICT(id) DO UPDATE SET position=excluded.position,revision=excluded.revision,text=excluded.text,author=excluded.author,author_id=excluded.author_id,ts=excluded.ts,deleted=excluded.deleted,edited=excluded.edited,reactions=excluded.reactions,body=excluded.body",params![message.id,message.room_id,message.position,message.revision,message.text,message.author.username,message.author.id,ts,message.deleted,message.edited_at.is_some(),reactions,body])?;
         tx.execute("DELETE FROM native_outbox WHERE id=?1", [&message.id])?;
         tx.execute("UPDATE native_messages SET pinned=?2 WHERE id=?1", params![message.id, message.pinned])?;
         Self::personal(tx, message)?;
@@ -544,7 +549,7 @@ impl NativeStore {
         if !self.same(&conn)? {
             return Ok(vec![]);
         }
-        let mut rows=conn.prepare("SELECT m.id,m.text,m.author,o.status,m.author_id,m.ts,m.edited,m.reactions,m.pinned,m.starred,m.position FROM native_messages m LEFT JOIN native_outbox o ON o.id=m.id WHERE m.rid=?1 AND NOT m.deleted ORDER BY m.position IS NULL DESC,o.created DESC,length(m.position) DESC,m.position DESC,m.id DESC LIMIT ?2")?.query_map(params![rid,limit as i64],|r|Ok(MessageRow {id:r.get(0)?,text:r.get(1)?,author:r.get(2)?,status:r.get(3)?,author_id:r.get(4)?,ts:r.get(5)?,edited:r.get(6)?,reactions:r.get(7)?,pinned:r.get(8)?,starred:r.get(9)?,position:r.get(10)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut rows=conn.prepare("SELECT m.id,m.text,m.author,o.status,m.author_id,m.ts,m.edited,m.reactions,m.pinned,m.starred,m.position,m.body FROM native_messages m LEFT JOIN native_outbox o ON o.id=m.id WHERE m.rid=?1 AND NOT m.deleted ORDER BY m.position IS NULL DESC,o.created DESC,length(m.position) DESC,m.position DESC,m.id DESC LIMIT ?2")?.query_map(params![rid,limit as i64],|r|Ok(MessageRow {id:r.get(0)?,text:r.get(1)?,author:r.get(2)?,body:r.get(11)?,status:r.get(3)?,author_id:r.get(4)?,ts:r.get(5)?,edited:r.get(6)?,reactions:r.get(7)?,pinned:r.get(8)?,starred:r.get(9)?,position:r.get(10)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
         rows.reverse();
         Ok(rows)
     }
@@ -556,7 +561,7 @@ impl NativeStore {
         if !self.same(&conn)? {
             return Ok(vec![]);
         }
-        let mut query = conn.prepare("SELECT id,text,author,author_id,ts,edited,reactions,pinned,starred,position FROM native_messages WHERE id=?1 AND NOT deleted")?;
+        let mut query = conn.prepare("SELECT id,text,author,author_id,ts,edited,reactions,pinned,starred,position,body FROM native_messages WHERE id=?1 AND NOT deleted")?;
         let mut rows = Vec::new();
         for id in ids {
             if let Some(row) = query
@@ -564,6 +569,7 @@ impl NativeStore {
                     Ok(MessageRow {
                         id: r.get(0)?,
                         position: r.get(9)?,
+                        body: r.get(10)?,
                         text: r.get(1)?,
                         author: r.get(2)?,
                         author_id: r.get(3)?,

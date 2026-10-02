@@ -682,6 +682,7 @@ mod tests {
             id: id.into(),
             position: None,
             text: "**hello** :smile:".into(),
+            body: None,
             author: "alice".into(),
             author_id: "alice-id".into(),
             ts,

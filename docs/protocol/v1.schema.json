@@ -671,6 +671,24 @@
       ],
       "type": "object"
     },
+    "Document": {
+      "properties": {
+        "format": {
+          "$ref": "#/$defs/Format"
+        },
+        "nodes": {
+          "items": {
+            "$ref": "#/$defs/Node"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "format",
+        "nodes"
+      ],
+      "type": "object"
+    },
     "EditMessage": {
       "additionalProperties": false,
       "properties": {
@@ -1095,6 +1113,12 @@
       ],
       "type": "object"
     },
+    "Format": {
+      "enum": [
+        "native1"
+      ],
+      "type": "string"
+    },
     "LeaveRoom": {
       "additionalProperties": false,
       "properties": {
@@ -1147,6 +1171,17 @@
       "properties": {
         "author": {
           "$ref": "#/$defs/User"
+        },
+        "body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Document"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional canonical native presentation. Source remains authoritative;\nno Rocket.Chat tree, HTML markup, or authenticated resource URL."
         },
         "created_at": {
           "type": "string"
@@ -1352,6 +1387,330 @@
         "users"
       ],
       "type": "object"
+    },
+    "Node": {
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "text",
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "children": {
+              "items": {
+                "$ref": "#/$defs/Node"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "paragraph",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "children"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "children": {
+              "items": {
+                "$ref": "#/$defs/Node"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "bold",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "children"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "children": {
+              "items": {
+                "$ref": "#/$defs/Node"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "italic",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "children"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "children": {
+              "items": {
+                "$ref": "#/$defs/Node"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "strike",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "children"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "inline_code",
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "code_block",
+              "type": "string"
+            },
+            "language": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text",
+            "language"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "children": {
+              "items": {
+                "$ref": "#/$defs/Node"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "heading",
+              "type": "string"
+            },
+            "level": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "level",
+            "children"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "children": {
+              "items": {
+                "$ref": "#/$defs/Node"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "quote",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "children"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "children": {
+              "items": {
+                "$ref": "#/$defs/Node"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "list",
+              "type": "string"
+            },
+            "start": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "children"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "checked": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "children": {
+              "items": {
+                "$ref": "#/$defs/Node"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "list_item",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "children"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "children": {
+              "items": {
+                "$ref": "#/$defs/Node"
+              },
+              "type": "array"
+            },
+            "href": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "link",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "href",
+            "children"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "mention",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "room_mention",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "emoji",
+              "type": "string"
+            },
+            "shortcode": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "shortcode"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "break",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "rule",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "ParityContract": {
       "description": "Export root for the J0 fixture. Crypto `format` is opaque until the dedicated\nspecification/review; these types make no algorithm or trust guarantee.",

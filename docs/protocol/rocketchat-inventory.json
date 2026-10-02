@@ -10,6 +10,7 @@
     "apps/desktop/macos/Sources"
   ],
   "scanned": [
+    "apps/desktop/crates/rv-core/examples/export-native-rendering.rs",
     "apps/desktop/crates/rv-core/examples/native-smoke.rs",
     "apps/desktop/crates/rv-core/src/account.rs",
     "apps/desktop/crates/rv-core/src/actions.rs",
@@ -35,6 +36,7 @@
     "apps/desktop/crates/rv-core/src/native/credentials.rs",
     "apps/desktop/crates/rv-core/src/native/email_recovery.rs",
     "apps/desktop/crates/rv-core/src/native/factor_email.rs",
+    "apps/desktop/crates/rv-core/src/native/markdown.rs",
     "apps/desktop/crates/rv-core/src/native/read_intents.rs",
     "apps/desktop/crates/rv-core/src/native/read_presentation.rs",
     "apps/desktop/crates/rv-core/src/native/room_operations.rs",

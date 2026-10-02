@@ -4,6 +4,7 @@ pub mod authentication_vault;
 pub mod credentials;
 pub mod email_recovery;
 pub mod factor_email;
+pub mod markdown;
 mod read_intents;
 pub mod read_presentation;
 mod room_operations;

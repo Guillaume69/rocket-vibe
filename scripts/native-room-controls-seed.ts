@@ -8,4 +8,8 @@ if(process.env.RV_ROOM_PHASE?.startsWith('reads')) {
   await member.send(room.id,{operation_id:process.env.RV_ROOM_PHASE+'-first',text:'Read fixture first @desktop'});
   await member.send(room.id,{operation_id:process.env.RV_ROOM_PHASE+'-second',text:'Read fixture second'});
 }
+if(process.env.RV_ROOM_PHASE?.startsWith('render')) {
+  await member.send(room.id,{operation_id:process.env.RV_ROOM_PHASE+'-first',text:'**Un seul client** _deux serveurs_ :rocket:\n\n> Une citation @desktop\n\n- [x] Rocket.Chat\n- [ ] RocketVibe\n\n`@desktop` reste du code'});
+  await member.send(room.id,{operation_id:process.env.RV_ROOM_PHASE+'-second',text:'Bonjour @desktop [le projet](https://example.org)\n\n```rust\nlet texte = "<>&";\n```\n\n:smile:'});
+}
 console.log(JSON.stringify({seeded:true,members:2}));

@@ -414,6 +414,27 @@ pub fn install(window: &Rc<AppWindow>) {
         let texts = w.chat.message_texts();
         if native {
             check("native session", w.chat.native_session().is_some(), texts.len());
+            if std::env::var("RV_SMOKE_RENDERING").as_deref() == Ok("1") {
+                check(
+                    "native source reaches existing message widgets",
+                    texts
+                        .iter()
+                        .any(|t| t.contains("Un seul client") && t.contains("@desktop") && t.contains("Rocket.Chat")),
+                    texts.len(),
+                );
+                check(
+                    "native code and mention retain their visible text",
+                    texts.iter().any(|t| t.contains("Bonjour @desktop") && t.contains("let texte = \"<>&\";")),
+                    texts.len(),
+                );
+                let cached =
+                    w.chat.native_session().unwrap().store.messages(&w.chat.current_rid().unwrap(), 10).unwrap();
+                check(
+                    "native canonical body is persisted",
+                    cached.len() == 2 && cached.iter().all(|m| m.body.is_some()),
+                    cached.len(),
+                );
+            }
             if std::env::var_os("RV_SMOKE_INVITATION_FILE").is_some()
                 || std::env::var_os("RV_SMOKE_RECOVERY_FILE").is_some()
             {

@@ -53,6 +53,7 @@ mod tests {
             reactions: None,
             pinned: false,
             starred: false,
+            body: None,
         };
         let rows = vec![
             row("read", Some("9007199254740992"), 5000, "other", None),

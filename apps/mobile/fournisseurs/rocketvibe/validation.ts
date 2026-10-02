@@ -11,30 +11,37 @@ type Schema = {
   properties?: Readonly<Record<string, Schema>>;
   required?: readonly string[];
   additionalProperties?: boolean;
+  minimum?: number;
+  maximum?: number;
 };
 
 const definitions: Readonly<Record<string, Schema>> = nativeSchema.$defs;
 
-function valid(schema: Schema, value: unknown): boolean {
-  if (Array.isArray(schema.type)) return schema.type.some(type => valid({...schema,type},value));
-  if (schema.$ref) return valid(definitions[schema.$ref.split('/').at(-1) ?? ''] ?? {}, value);
+function valid(schema: Schema, value: unknown, depth=0): boolean {
+  if(depth>160)return false;
+  if (Array.isArray(schema.type)) return schema.type.some(type => valid({...schema,type},value,depth+1));
+  if (schema.$ref) return valid(definitions[schema.$ref.split('/').at(-1) ?? ''] ?? {}, value,depth+1);
   if ('const' in schema && value !== schema.const) return false;
   if (schema.enum && !schema.enum.includes(value)) return false;
   const alternatives = schema.anyOf ?? schema.oneOf;
-  if (alternatives) return alternatives.some(s => valid(s, value));
+  if (alternatives) return alternatives.some(s => valid(s, value,depth+1));
   switch (schema.type) {
     case 'string': return typeof value === 'string';
     case 'boolean': return typeof value === 'boolean';
-    case 'number': return typeof value === 'number' && Number.isFinite(value);
-    case 'integer': return typeof value === 'number' && Number.isSafeInteger(value);
+    case 'number': return typeof value === 'number' && Number.isFinite(value) && (schema.minimum===undefined || value>=schema.minimum) && (schema.maximum===undefined || value<=schema.maximum);
+    case 'integer': return typeof value === 'number' && Number.isSafeInteger(value) && (schema.minimum===undefined || value>=schema.minimum) && (schema.maximum===undefined || value<=schema.maximum);
     case 'null': return value === null;
-    case 'array': return Array.isArray(value) && value.every(v => valid(schema.items ?? {}, v));
+    case 'array': return Array.isArray(value) && value.every(v => valid(schema.items ?? {}, v,depth+1));
     case 'object': {
       if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
       const object = value as Record<string, unknown>;
       if (schema.required?.some(k => !Object.hasOwn(object, k))) return false;
       if (schema.additionalProperties === false && Object.keys(object).some(k => !(k in (schema.properties ?? {})))) return false;
-      return Object.entries(schema.properties ?? {}).every(([key, property]) => !Object.hasOwn(object, key) || valid(property, object[key]));
+      // Recursive tagged unions must reject a different kind before walking
+      // children. Otherwise every impossible alternative repeats that walk.
+      if(Object.entries(schema.properties??{}).some(([key,property])=>Object.hasOwn(object,key) &&
+        ('const' in property && object[key]!==property.const || property.enum && !property.enum.includes(object[key]))))return false;
+      return Object.entries(schema.properties ?? {}).every(([key, property]) => !Object.hasOwn(object, key) || valid(property, object[key],depth+1));
     }
     default: return 'const' in schema || schema.enum !== undefined;
   }

@@ -8,6 +8,10 @@ décrit la destination ; ce contrat ne couvre que le socle livré, pas toute la 
 validation à l'exécution dans le pilote TypeScript mobile. Ces fichiers générés
 sont versionnés et vérifiés sans diff en CI.
 
+Les [documents Markdown natifs](MARKDOWN.md) sont traduits vers les renderers
+existants aux frontières des fournisseurs. Le texte source reste présent ;
+ce contrat ne transporte pas le format `md` Rocket.Chat.
+
 ## Transport et identité
 
 - Découverte : `GET /.well-known/rocketvibe`, produit `rocketvibe`, protocole `1`,

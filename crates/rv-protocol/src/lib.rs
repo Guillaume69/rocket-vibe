@@ -4,6 +4,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub mod emojis;
+pub mod markdown;
 pub mod parity;
 
 pub const VERSION: u32 = 1;
@@ -290,6 +291,10 @@ pub struct Message {
     pub room_id: String,
     pub author: User,
     pub text: String,
+    /// Optional canonical native presentation. Source remains authoritative;
+    /// no Rocket.Chat tree, HTML markup, or authenticated resource URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<Box<markdown::Document>>,
     pub created_at: String,
     pub position: String,
     pub revision: String,

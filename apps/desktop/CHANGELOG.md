@@ -29,6 +29,11 @@ section here.
 
 ### Added
 
+- Native message bodies adapt to the existing GTK and SwiftUI renderers from a
+  shared typed document. Composer bold / italic / strike markers keep their
+  current behavior; escaped mentions, code, quotes and link labels do not gain
+  mention highlighting. Markdown images remain literal until native uploads.
+
 - Native unread / mention badges and the existing new-messages divider in GTK
   and SwiftUI. Read timers retain a displayed confirmed message and its opening
   membership; later arrivals cannot postpone the timer or replace that message.

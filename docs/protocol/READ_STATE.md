@@ -62,7 +62,9 @@ mentionne directement un destinataire et contient aussi `@all` compte dans
 `mentions`, avec priorité sur `group_mentions` : aucun double badge.
 
 Le parseur [pulldown-cmark](https://docs.rs/pulldown-cmark/0.13.4/pulldown_cmark/)
-identifie la structure Markdown ; ses offsets source conservent les échappements.
+identifie la structure Markdown ; le [document natif partagé](MARKDOWN.md) utilise
+les mêmes règles et les marqueurs des composeurs existants. Ses offsets source
+conservent les échappements.
 Code en ligne / blocs, citations, liens et labels d'images ne déclenchent pas de
 mention. Les adresses email et URL brutes sont également exclues. Les noms
 formatés en gras / italique restent reconnus. Aucun ID de destinataire fourni

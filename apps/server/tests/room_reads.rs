@@ -103,6 +103,80 @@ fn favorite(revision: &str, id: &str, present: bool) -> SetRoomFavorite {
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn native_rendering_crosses_mobile_http_cache_and_preserves_acl_tombstones(pool: PgPool) {
+    let b = Bench::start(pool).await;
+    let (owner, _, token) = b.user("read-owner", false).await;
+    let (reader, uid, _) = b.user("read-member", false).await;
+    let (_, _, outsider) = b.user("render-outsider", false).await;
+    let room = b.room(&owner, &token, &uid).await;
+    let mut command = tokio::process::Command::new("node");
+    command
+        .arg(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../scripts/native-rendering-peer.ts"),
+        )
+        .env("RV_ROOM_PEER_URL", &b.base)
+        .env("RV_ROOM_PEER_ROOM", &room)
+        .kill_on_drop(true);
+    let output = tokio::time::timeout(std::time::Duration::from_secs(30), command.output())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        result,
+        json!({"canonicalNativeBody":true,"existingMobileRenderer":true,"revisionAndDeletion":true,"cases":15})
+    );
+    let id = "native-rich-styles";
+    let deleted = owner.message(id).await.unwrap();
+    assert!(deleted.body.is_none());
+    assert!(deleted.text.is_empty());
+    assert!(
+        reader
+            .history(&room, None)
+            .await
+            .unwrap()
+            .messages
+            .iter()
+            .all(|m| m.id != id || m.deleted && m.body.is_none() && m.text.is_empty())
+    );
+    assert!(
+        reader
+            .snapshot()
+            .await
+            .unwrap()
+            .messages
+            .iter()
+            .all(|m| m.id != id || m.deleted && m.body.is_none() && m.text.is_empty())
+    );
+    let journal: Vec<sqlx::types::Json<Change>> =
+        sqlx::query_scalar("SELECT change FROM journal WHERE change #>> '{data,id}'=$1")
+            .bind(id)
+            .fetch_all(&b.app.pool)
+            .await
+            .unwrap();
+    assert!(!journal.is_empty());
+    assert!(journal.iter().all(|change|matches!(&change.0,Change::MessageUpsert(message) if message.body.is_none() && message.text.is_empty())));
+    assert_eq!(
+        b.request(
+            Method::GET,
+            &outsider,
+            "/api/v1/messages/native-rich-unicode",
+            json!({})
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(b.request(Method::POST,&token,&format!("/api/v1/rooms/{room}/messages"),json!({"operation_id":"forged-render-body","text":"source","body":{"format":"native1","nodes":[]}})).await.status(),StatusCode::BAD_REQUEST);
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn actual_mobile_transport_recovers_lost_favorite_ack_without_a_second_write(pool: PgPool) {
     let b = Bench::start(pool).await;
     let (owner, _, token) = b.user("read-owner", false).await;

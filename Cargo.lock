@@ -1817,6 +1817,7 @@ dependencies = [
 name = "rv-protocol"
 version = "0.1.0"
 dependencies = [
+ "pulldown-cmark",
  "schemars",
  "serde",
  "serde_json",
@@ -1835,7 +1836,6 @@ dependencies = [
  "futures-util",
  "hmac",
  "lettre",
- "pulldown-cmark",
  "rand_core 0.6.4",
  "reqwest",
  "rv-client",

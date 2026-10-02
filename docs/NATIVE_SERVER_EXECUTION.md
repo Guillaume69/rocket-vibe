@@ -315,6 +315,32 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P07, documents natifs vers les renderers existants : `Message.text` reste la
+  source et `body` fournit un document typé `native1`, sans arbre `md` Rocket.Chat
+  ni HTML rendu dans le protocole. Les adaptateurs du fournisseur traduisent ce
+  document vers les mêmes widgets GTK / SwiftUI / mobile ; aucun écran ou
+  composeur n'est remplacé. Les marqueurs des composeurs existants conservent
+  gras / italique / barré. Reconnaissance des mentions et présentation partagent
+  le parseur, avec exclusions par occurrence, limites de profondeur / parcours,
+  et repli intégral en texte brut. Quinze cas vérifient styles, code, citations
+  de texte, tâches, listes imbriquées, liens, échappements, Unicode et emojis.
+  Les arbres locaux bureau / mobile sont comparés exactement ; les runs du
+  cœur commun servent également SwiftUI. Le vrai parcours PostgreSQL / HTTP /
+  mobile vérifie le corpus, SQLite, édition, refus d'un ancien replay, effacement
+  du corps dans le journal et ACL. Vérification locale : 340 tests bureau et
+  1 164 tests mobiles de la suite complète, puis 2 tests de rendu bureau et
+  34 tests mobiles ciblés après l'ajustement des marqueurs ; formatage / Clippy,
+  typecheck / lint et export Android Hermes réussis. Les 11 cas PostgreSQL
+  passent avec le corpus final. Le vrai GTK connecté au serveur montre les
+  deux messages riches dans les widgets actuels à 435 px, avec document en
+  SQLite et composeur contenu dans la fenêtre. Les bindings / modèles Swift
+  se construisent sous Linux : 6 tests réussis et 11 sauts liés à l'environnement,
+  puis le test connecté de gestion des salons réussit en 3,58 s. La qualification
+  des applications installées Android / macOS / Windows reste ouverte.
+  Citations de messages avec ACL,
+  messages système et catalogue natif d'emojis restent la suite P07 ; réponses
+  P11 / présence P12 ne sont pas annoncées par ce rendu. [Contrat](protocol/MARKDOWN.md).
+
 - P05, contrôles de lecture existants : badges confirmés racines + réponses et
   mentions, séparateur lié à la position d'ouverture et minuteries d'ID visibles
   raccordés dans GTK / SwiftUI / mobile. La durée d'adhésion de l'écran est
@@ -336,8 +362,8 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   fenêtre masquée sans lecture, position visible sauvegardée hors ligne, badges
   conservés puis effacés sur acquittement, et barre conservée. Capture à 435
   pixels inspectée. Inventaire : 318 fichiers / 443 occurrences. Les deux
-  workflows des favoris corrigés `49a88dd` sont verts (`37025290486`,
-  `37025290897`). La CI des nouvelles vues SwiftUI reste à suivre ; qualification
+  workflows du lot de lectures `0a2147b` sont verts (`37032625434`,
+  `37032625413`), dont les nouvelles vues SwiftUI sur macOS ; qualification
   des applications installées ouverte. Réponses P11 et `@here` P12 restent leurs
   lots suivants.
 

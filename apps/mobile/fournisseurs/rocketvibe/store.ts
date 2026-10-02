@@ -9,6 +9,7 @@ import {readState,readOrder,readDecimal,readBadges} from './readStates.ts';
 import {FAVORITE_SELECT,savedFavorite,type PendingRead,type SavedFavorite,type FavoriteRow} from './readIntents.ts';
 import {roomIdentifier,roomOperation,sameRoomForm,savedRoomOperation,type RoomOperation,type RoomOperationRow,type SavedRoomOperation} from './roomOperations.ts';
 import {decodeNative} from './validation.ts';
+import {nativeMarkdown} from './markdown.ts';
 
 // Native revisions, checked below as exact decimal strings, order projection.
 // The shared RC statement's wall-clock condition would discard a valid edit
@@ -45,7 +46,7 @@ export function localMessage(message: Message, selfId?: string): MessageLocal {
     id: message.id, rid: message.room_id, texte: message.text, horodatage: time,
     auteurId: message.author.id, auteurNom: message.author.username, typeSysteme: null,
     filId: null, filReponses: 0, filDernier: null, filAffiche: false, modifieLe: edited,
-    md: null, piecesJointes: null, reactions: nativeReactions(message.reactions), urls: null, appelId: null,
+    md: message.deleted?null:nativeMarkdown(message.body), piecesJointes: null, reactions: nativeReactions(message.reactions), urls: null, appelId: null,
     chiffreBrut: null, epingle: message.pinned ?? false,
     etoiles: message.personal_star?.present && selfId ? JSON.stringify([selfId]) : null, misAJourLe: time,
   };

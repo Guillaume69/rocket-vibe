@@ -8,7 +8,7 @@ pub(super) fn install(window: &Rc<AppWindow>) {
     let Ok(phase) = std::env::var("RV_SMOKE_ROOM_MANAGEMENT") else {
         return;
     };
-    assert!(matches!(phase.as_str(), "settings" | "last-owner" | "roles" | "flow"));
+    assert!(matches!(phase.as_str(), "settings" | "last-owner" | "roles" | "flow" | "favorites"));
     let weak = Rc::downgrade(window);
     let mut polls = 0;
     glib::timeout_add_local(Duration::from_millis(100), move || {
@@ -86,6 +86,71 @@ async fn run(window: Rc<AppWindow>, phase: String) {
     let name = std::env::var("RV_SMOKE_ROOM").unwrap();
     let rid = session.store.rooms().unwrap().into_iter().find(|room| room.name == name).unwrap().id;
     let root = window.window.upcast_ref::<gtk::Widget>();
+    if phase == "favorites" {
+        check(
+            "GTK native room context menu installed",
+            find_by_class(root, "native-room-favorite-context").is_some(),
+            true,
+        );
+        let original = session.store.read_state(&rid).unwrap().unwrap();
+        session.suspend();
+        wait(root, "native-room-favorite-action").await.downcast::<gtk::Button>().unwrap().emit_clicked();
+        wait(root, "native-room-favorite-resume").await;
+        check(
+            "GTK favorite is visibly pending while offline",
+            !session.store.read_state(&rid).unwrap().unwrap().favorite
+                && session.store.favorite_intent(&rid).unwrap().is_some(),
+            true,
+        );
+        session.reconnect();
+        for _ in 0..240 {
+            if session.store.read_state(&rid).unwrap().is_some_and(|s| s.favorite)
+                && session.store.favorite_intent(&rid).unwrap().is_none()
+            {
+                break;
+            }
+            glib::timeout_future(Duration::from_millis(25)).await;
+        }
+        check("GTK favorite confirmed by the server", session.store.read_state(&rid).unwrap().unwrap().favorite, true);
+        check(
+            "GTK stale preference click refuses to stage a different request",
+            session
+                .set_favorite_from_state(
+                    &rid,
+                    false,
+                    original.membership_version.as_deref().unwrap(),
+                    original.favorite_revision.as_deref().unwrap(),
+                )
+                .is_err(),
+            true,
+        );
+        for _ in 0..240 {
+            if let Some(button) = find_by_class(root, "native-room-favorite-action").and_downcast::<gtk::Button>()
+                && button.is_sensitive()
+                && button.label().as_deref() == Some(super::super::i18n::t("rooms.favorite_remove"))
+            {
+                button.emit_clicked();
+                break;
+            }
+            glib::timeout_future(Duration::from_millis(25)).await;
+        }
+        for _ in 0..240 {
+            if session.store.read_state(&rid).unwrap().is_some_and(|s| !s.favorite)
+                && session.store.favorite_intent(&rid).unwrap().is_none()
+            {
+                break;
+            }
+            glib::timeout_future(Duration::from_millis(25)).await;
+        }
+        check(
+            "GTK favorite removal confirmed",
+            !session.store.read_state(&rid).unwrap().unwrap().favorite
+                && session.store.favorite_intent(&rid).unwrap().is_none(),
+            true,
+        );
+        eprintln!("smoke: native favorites completed");
+        return;
+    }
     if phase == "flow" {
         window.chat.composer().set_text("Draft belonging to the original membership");
     }

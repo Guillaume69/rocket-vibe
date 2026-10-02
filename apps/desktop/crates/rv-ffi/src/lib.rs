@@ -457,6 +457,10 @@ impl Chat {
         let s = self.session.clone();
         on_tokio(async move { s.mark_read(&rid).await }).await
     }
+    pub async fn set_favorite(&self, rid: String, present: bool) -> Result<(), RvError> {
+        let s = self.session.clone();
+        Ok(on_tokio(async move { s.set_favorite(&rid, present).await }).await?)
+    }
 
     pub async fn send(&self, rid: String, text: String, thread_id: Option<String>) {
         let s = self.session.clone();

@@ -141,7 +141,7 @@ impl ChatPage {
                     unread: 0,
                     mentions: 0,
                     alert: false,
-                    favorite: false,
+                    favorite: room.read_state.as_ref().is_some_and(|s| s.favorite),
                     encrypted: false,
                     read_only,
                     dm_other_uid: None,

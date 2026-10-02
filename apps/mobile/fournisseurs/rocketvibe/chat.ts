@@ -509,14 +509,15 @@ export class NativeChat {
     this.stateStagingSupported(false);
     if(await this.store.stageRead(room,message))await this.flushStateIntents();
   }
-  async setFavorite(room:string,present:boolean):Promise<void> {
+  async setFavorite(room:string,present:boolean,observed?:{membership:string;revision:string}):Promise<void> {
     this.stateStagingSupported(true);
-    if(!await this.store.stageFavorite(room,present,this.id))throw new NativeError(409,'favorite_action_pending');
+    if(!await this.store.stageFavorite(room,present,this.id,observed))throw new NativeError(409,observed?'favorite_state_changed':'favorite_action_pending');
     this.notify();await this.flushStateIntents();
   }
-  async resumeFavorite(room:string):Promise<void> {
+  async resumeFavorite(room:string,key?:string):Promise<void> {
     this.stateStagingSupported(true);const saved=await this.store.favoriteIntent(room);
     if(!saved)throw new NativeError(409,'favorite_action_missing');
+    if(key && saved.input.operation_id!==key)throw new NativeError(409,'favorite_action_missing');
     if(saved.phase==='failed')throw new NativeError(409,'favorite_action_failed');
     await this.flushStateIntents();
   }

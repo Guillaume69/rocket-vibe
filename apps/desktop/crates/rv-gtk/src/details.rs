@@ -16,7 +16,9 @@ use crate::i18n::{t, tf, tn};
 use crate::rows::{label, local, presence_dot, room_tile, with_photo};
 use crate::widgets::{self, TileSize};
 use crate::{markdown_view, on_tokio};
+mod native_favorites;
 mod native_rooms;
+pub(crate) use native_favorites::menu as native_favorite_menu;
 
 fn dialog(title: &str, content: &gtk::Widget, height: i32) -> adw::Dialog {
     let view = adw::ToolbarView::new();
@@ -161,6 +163,7 @@ pub fn native_room_info(
     let rid = rid.to_owned();
     glib::spawn_future_local(async move {
         let mut displayed = None;
+        let mut cached: Option<rv_core::native::RoomDetails> = None;
         while rx.recv().await.is_ok() && active.get() {
             let room = session.store.rooms().ok().and_then(|rooms| rooms.into_iter().find(|r| r.id == rid));
             if session.is_closed()
@@ -170,19 +173,30 @@ pub fn native_room_info(
                 dialog.close();
                 break;
             }
-            let revision = room.unwrap().revision;
+            let room = room.unwrap();
+            let personal = room.read_state.as_ref().map(|s| s.revision.clone());
+            let favorite =
+                session.store.favorite_intent(&rid).ok().flatten().map(|s| (s.input.operation_id, s.phase, s.error));
+            let revision = room.revision;
             let intention = session
                 .store
                 .room_operation(&rid)
                 .ok()
                 .flatten()
                 .map(|saved| (saved.command.id().to_owned(), saved.failed, saved.error));
-            let display_key = (revision, intention);
+            let display_key = (revision.clone(), intention, personal, favorite);
             if displayed.as_ref() == Some(&display_key) {
                 continue;
             }
             let (s, r) = (session.clone(), rid.clone());
-            let result = on_tokio(async move { s.room_details(&r).await }).await;
+            let result = if session.status().connection != rv_core::session::Connection::Online {
+                cached
+                    .clone()
+                    .filter(|details| details.room.revision == revision)
+                    .ok_or(rv_core::native::Error::Protocol("offline"))
+            } else {
+                on_tokio(async move { s.room_details(&r).await }).await
+            };
             if !active.get() {
                 break;
             }
@@ -198,6 +212,7 @@ pub fn native_room_info(
             }
             match result {
                 Ok(details) => {
+                    cached = Some(details.clone());
                     let can_invite = details.permissions.invite;
                     let info = rv_core::info::native_room_info(details.clone());
                     let tile = room_tile(&info.name, &info.kind, false, TileSize::Profile);
@@ -205,6 +220,7 @@ pub fn native_room_info(
                     content.append(&tile);
                     content.append(&centered(&info.name, &["details-name"]));
                     fill_room(&content, &info, &session.info.username);
+                    native_favorites::controls(&content, session.clone(), &rid, active.clone());
                     if can_invite {
                         let button = gtk::Button::builder().label(t("native.invite")).build();
                         let (callback, live) = (invite.clone(), active.clone());

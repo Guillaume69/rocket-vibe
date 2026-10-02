@@ -111,7 +111,7 @@ fn load_collapsed() -> Vec<Section> {
 }
 
 pub struct ChatPage {
-    native: RefCell<Option<Arc<rv_core::native::NativeSession>>>,
+    native: Rc<RefCell<Option<Arc<rv_core::native::NativeSession>>>>,
     native_forward: RefCell<Option<tokio::task::JoinHandle<()>>>,
     native_edit: RefCell<Option<(String, String, String)>>,
     native_membership: RefCell<Option<(String, Option<String>)>>,
@@ -172,8 +172,10 @@ impl ChatPage {
         rooms_selection.set_autoselect(false);
         rooms_selection.set_can_unselect(true);
         let session: Rc<RefCell<Option<Arc<Session>>>> = Rc::default();
+        let native_session: Rc<RefCell<Option<Arc<rv_core::native::NativeSession>>>> = Rc::default();
         let room_factory = gtk::SignalListItemFactory::new();
         let shared = session.clone();
+        let native_shared = native_session.clone();
         let toggle_section: Rc<Handler<Section>> = Rc::default();
         let toggler = toggle_section.clone();
         room_factory.connect_bind(move |_, item| {
@@ -201,6 +203,8 @@ impl ChatPage {
                     let widget = room_widget(room, shared.borrow().as_ref());
                     if let Some(session) = shared.borrow().clone() {
                         favorite_menu(&widget, session, &room.rid, room.favorite);
+                    } else if let Some(session) = native_shared.borrow().clone() {
+                        crate::details::native_favorite_menu(&widget, session, &room.rid);
                     }
                     item.set_child(Some(&widget));
                 }
@@ -375,7 +379,7 @@ impl ChatPage {
         split.set_max_sidebar_width(400.0);
 
         let this = Rc::new(ChatPage {
-            native: RefCell::default(),
+            native: native_session,
             native_forward: RefCell::default(),
             native_edit: RefCell::default(),
             native_membership: RefCell::default(),

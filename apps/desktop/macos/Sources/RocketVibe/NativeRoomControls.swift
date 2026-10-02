@@ -17,6 +17,7 @@ struct NativeRoomControls: View {
     @State private var task: Task<Void, Never>?
 
     var body: some View {
+        if model.supportsRoomFavorite { NativeFavoriteControls(model:model) }
         Section {
             if let error { Text(error).foregroundStyle(.red) }
             if let intention {

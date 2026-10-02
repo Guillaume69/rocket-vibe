@@ -19,6 +19,9 @@ export class ActionsRC implements ActionsFournisseur {
   constructor(client: ClientRest) {
     this.client = client;
   }
+  favoriSalon={modifier:async(rid:string,present:boolean):Promise<void>=>{
+    await this.client.post('rooms.favorite',{corps:{roomId:rid,favorite:present}});
+  }};
 
   async infosSalon(rid: string): Promise<InformationsSalon> {
     const response=await this.client.get<{room?:Record<string,unknown>}>('rooms.info',{params:{roomId:rid}});

@@ -88,6 +88,22 @@ test('invalid receipts and corrupt floors roll back without losing the original 
     await assert.rejects(store.pendingFavorites());await assert.rejects(state(store,'20'));assert.equal((await store.readState('room'))?.revision,'10');
   }finally{db.close();}
 });
+test('rendered favorite guards its observed revision and membership and projects only confirmed preferences',async()=>{
+  const {store,db}=await setup();try{
+    await state(store,'20','0','19');
+    assert.equal(await store.stageFavorite('room',true,()=>{throw new Error('Stale click created an ID');},{membership:'membership',revision:'9'}),null);
+    assert.equal(await store.stageFavorite('room',true,()=>{throw new Error('Old membership created an ID');},{membership:'obsolete',revision:'19'}),null);
+    const saved=(await store.stageFavorite('room',true,()=> 'ui-favorite',{membership:'membership',revision:'19'}))!;
+    assert.equal(saved.input.expected_revision,'19');
+    assert.equal(db.prepare('SELECT favori FROM abonnements WHERE rid=?').get('room')?.favori,0);
+    await state(store,'21','0','21',true);
+    assert.equal(db.prepare('SELECT favori FROM abonnements WHERE rid=?').get('room')?.favori,1);
+    const oldMetadata=snapshot().rooms[0];
+    await store.applyBatch({protocol_version:1,cursor:'old-metadata',has_more:false,changes:[{type:'room_upsert',data:{...oldMetadata,revision:'0',read_state:{...(await store.readState('room'))!,revision:'22',favorite_revision:'22',favorite:false}}}]});
+    assert.equal(db.prepare('SELECT favori FROM abonnements WHERE rid=?').get('room')?.favori,0);
+    assert.equal((await store.favoriteIntent('room'))?.input.operation_id,'ui-favorite');
+  }finally{db.close();}
+});
 test('queue writes and membership cleanup commit atomically when SQLite fails',async()=>{
   const {store,db,failWhen}=await setup();try{
     await store.stageRead('room','observed');await store.stageFavorite('room',true,()=> 'original');const token=store.projectionToken();

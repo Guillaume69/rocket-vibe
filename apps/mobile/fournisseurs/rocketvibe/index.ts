@@ -13,7 +13,7 @@ export const CAPACITES_ROCKETVIBE: Capacites = {
   edition:true, suppression:true,
   typing:false, presence:false, push:false, e2ee:false, emojisCustom:false,
   appelVideo:false, recherche:false, modeleFil:'tmid',
-  fichiers:false, fils:false, reactions:true, marques:true, profil:false, infosSalon:true, favorisSalon:false, citations:false,
+  fichiers:false, fils:false, reactions:true, marques:true, profil:false, infosSalon:true, favorisSalon:true, citations:false,
   reglagesSalon:true,rolesSalon:true,quitterSalon:true,
 };
 const unsupported = async (): Promise<never> => { throw new NativeError(501,'unsupported_feature'); };
@@ -31,7 +31,7 @@ export function capacitesEffectives(annonce: Capabilities | null, client: Capaci
     recherche:both(annonce?.search,client.recherche), fichiers:both(annonce?.uploads,client.fichiers),
     fils:both(annonce?.threads,client.fils), reactions:both(annonce?.reactions,client.reactions),
     marques:both(annonce?.pins && annonce?.stars,client.marques), profil:both(annonce?.profiles,client.profil),
-    infosSalon:both(annonce?.room_info,client.infosSalon), favorisSalon:false, citations:both(annonce?.quotes,client.citations),
+    infosSalon:both(annonce?.room_info,client.infosSalon), favorisSalon:both(annonce?.favorites,client.favorisSalon), citations:both(annonce?.quotes,client.citations),
     reglagesSalon:both(annonce?.room_settings,client.reglagesSalon),rolesSalon:both(annonce?.room_roles,client.rolesSalon),quitterSalon:both(annonce?.room_leave,client.quitterSalon),
   };
 }
@@ -58,6 +58,19 @@ export function creerFournisseurRV(session: Session, client: ClientRest, generer
       versSalon:() => null, versAbonnement:() => null,
     },
     actions:{
+      favoriSalon:{
+        lire:async rid=>{
+          const state=await store.readState(rid);
+          if(!state?.membership_version || state.favorite_revision==null)return null;
+          const saved=await store.favoriteIntent(rid);
+          return {adhesion:state.membership_version,revision:state.favorite_revision,present:state.favorite,intention:saved?.membership===state.membership_version?{cle:saved.input.operation_id,present:saved.input.present,echouee:saved.phase==='failed',erreur:saved.error}:null};
+        },
+        modifier:(rid,present,state)=>{
+          if(!state)throw new NativeError(409,'revision_required');
+          return chat.setFavorite(rid,present,{membership:state.adhesion,revision:state.revision});
+        },
+        reprendre:(rid,cle)=>chat.resumeFavorite(rid,cle),effacer:(rid,cle)=>chat.dismissFailedFavorite(rid,cle),
+      },
       infosSalon:async rid => {
         const details=await chat.roomDetails(rid);
         const capabilities=capacitesEffectives(chat.capabilities);

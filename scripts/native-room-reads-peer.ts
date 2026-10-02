@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {NativeTransport} from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
 import {NativeStore} from '../apps/mobile/fournisseurs/rocketvibe/store.ts';
 import {NativeChat} from '../apps/mobile/fournisseurs/rocketvibe/chat.ts';
+import {creerFournisseurRV} from '../apps/mobile/fournisseurs/rocketvibe/index.ts';
+import {ClientRest} from '../apps/mobile/lib/rest.ts';
 import {nativeTestDatabase} from '../apps/mobile/fournisseurs/rocketvibe/testDatabase.ts';
 import {creerFileEcritures} from '../apps/mobile/db/fileEcritures.ts';
 const base=process.env.RV_ROOM_PEER_URL!,room=process.env.RV_ROOM_PEER_ROOM!;
@@ -65,11 +67,18 @@ try {
   // This HTTP/SQLite test does not consume the WebSocket; replay and response
   // scopes are exercised against the real PostgreSQL server.
   const socket=()=>{const ws={onopen:null,close:()=>{}} as unknown as WebSocket;queueMicrotask(()=>ws.onopen?.(new Event('open')));return ws;};
-  await cache.stageRead(room,observed.id);await cache.stageFavorite(room,true,()=> 'ts-queue-favorite');
-  chat=new NativeChat(session,cache,()=>{throw new Error('Saved operation required');},{transport:queueTransport,socket});await chat.connect();
+  const guardedRest=new ClientRest(base,{fetch:async()=>{throw new Error('Rocket.Chat route in a native favorite');}});
+  const provider=creerFournisseurRV(session,guardedRest,()=> 'ts-queue-favorite',cache,{transport:queueTransport,socket});
+  chat=provider.native!.chat;await chat.connect();
+  assert.equal(provider.capacites.favorisSalon,true);
+  await chat.markObservedRead(room,observed.id);
+  const displayed=(await provider.actions.favoriSalon!.lire!(room))!;
+  assert.equal(displayed.present,false);
+  await provider.actions.favoriSalon!.modifier(room,true,displayed);
   assert.equal((await cache.pendingReads()).length,1);assert.equal((await cache.pendingFavorites()).length,1);
   assert.equal((await reader.roomReadState(room)).root_position,observed.position);
   assert.equal((await reader.roomReadState(room)).unread_roots,'1');
+  assert.equal((await provider.actions.favoriSalon!.lire!(room))?.intention?.cle,'ts-queue-favorite');
   chat.stop();
   const afterAck=await reader.roomReadState(room);
   await reader.setRoomFavorite(room,{operation_id:'ts-queue-other-device',expected_revision:afterAck.favorite_revision!,present:false});
@@ -102,4 +111,4 @@ try {
   assert.deepEqual(await cache.pending(),[]);
   await newComposer.supprimer(room);
 } finally {chat?.stop();db.close();}
-console.log(JSON.stringify({unreads:true,monotone:true,privateFavorite:true,lostAckRecovered:true,noSecondFavorite:true,oldReplayHarmless:true,mentions:true,sqliteCache:true,missedRejoin:true,durableRunner:true,openComposerFenced:true}));
+console.log(JSON.stringify({unreads:true,monotone:true,privateFavorite:true,lostAckRecovered:true,noSecondFavorite:true,oldReplayHarmless:true,mentions:true,sqliteCache:true,missedRejoin:true,durableRunner:true,openComposerFenced:true,providerFavorite:true}));

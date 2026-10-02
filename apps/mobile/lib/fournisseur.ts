@@ -170,6 +170,7 @@ export interface Traducteur {
  * ne définit pas à l'avance.
  */
 export interface ActionsFournisseur {
+  favoriSalon?: FavoriSalon;
   infosSalon(rid: string): Promise<InformationsSalon>;
   gestionSalon?: GestionSalon;
   reagir(rid: string, mid: string, emoji: string, mettre: boolean): Promise<void>;
@@ -191,6 +192,14 @@ export interface ActionsFournisseur {
    * validations différentes de la réponse.
    */
   ouvrirOuCreerDm(username: string): Promise<{ rid: string; salonBrut: Record<string, unknown> }>;
+}
+
+export type EtatFavoriSalon={adhesion:string;revision:string;present:boolean;intention:{cle:string;present:boolean;echouee:boolean;erreur:string|null}|null};
+export interface FavoriSalon {
+  lire?: (rid:string)=>Promise<EtatFavoriSalon|null>;
+  modifier:(rid:string,present:boolean,etat?:Pick<EtatFavoriSalon,'adhesion'|'revision'>)=>Promise<void>;
+  reprendre?:(rid:string,cle:string)=>Promise<void>;
+  effacer?:(rid:string,cle:string)=>Promise<boolean>;
 }
 
 /** Données de la fiche existante, indépendantes du protocole serveur. */

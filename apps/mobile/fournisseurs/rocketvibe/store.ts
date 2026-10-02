@@ -124,10 +124,12 @@ export class NativeStore {
     const previous=await this.db.getFirstAsync<NativeRoomAccess>('SELECT * FROM native_room_access WHERE rid=?',[room.id]);
     const known=!!await this.db.getFirstAsync('SELECT rid FROM salons WHERE rid=?',[room.id]);
     const reset=await this.personalRoom(room,known);
+    const favori=(await this.readStateIn(room.id))?.favorite??false;
+    await this.db.runAsync('UPDATE abonnements SET favori=? WHERE rid=? AND favori<>?',[Number(favori),room.id,Number(favori)]);
     if(previous && BigInt(previous.revision)>BigInt(room.revision)){
       if(reset){
         await this.db.runAsync('INSERT INTO native_room_access(rid,revision) VALUES(?,?)',[room.id,previous.revision]);
-        await this.db.runAsync(UPSERT_ABONNEMENT,paramsAbonnement({rid:room.id,subId:null,nonLus:0,mentions:0,mentionsGroupe:0,alerte:false,ouvert:true,favori:false,luJusquA:null,e2eKey:null,e2eKeyId:null,roles:null,misAJourLe:Date.now()}));
+        await this.db.runAsync(UPSERT_ABONNEMENT,paramsAbonnement({rid:room.id,subId:null,nonLus:0,mentions:0,mentionsGroupe:0,alerte:false,ouvert:true,favori,luJusquA:null,e2eKey:null,e2eKeyId:null,roles:null,misAJourLe:Date.now()}));
         await this.preview(room.id);
       }
       return reset;
@@ -142,7 +144,7 @@ export class NativeStore {
     }));
     await this.db.runAsync(UPSERT_ABONNEMENT, paramsAbonnement({
       rid: room.id, subId: null, nonLus: 0, mentions: 0, mentionsGroupe: 0, alerte: false,
-      ouvert: true, favori: false, luJusquA: null, e2eKey: null, e2eKeyId: null,
+      ouvert: true, favori, luJusquA: null, e2eKey: null, e2eKeyId: null,
       roles: null, misAJourLe: Date.now(),
     }));
     await this.preview(room.id);
@@ -249,6 +251,7 @@ export class NativeStore {
       if(!old || readOrder(state,old)!=='same')return false;
       if(state.revision===old.revision)return true;
       await this.db.runAsync('UPDATE native_read_states SET payload=? WHERE rid=?',[JSON.stringify(state),state.room_id]);
+      await this.db.runAsync('UPDATE abonnements SET favori=? WHERE rid=? AND favori<>?',[Number(state.favorite),state.room_id,Number(state.favorite)]);
       await this.satisfyReadIntents(state);
       return true;
     });
@@ -290,12 +293,13 @@ export class NativeStore {
       const row=await this.db.getFirstAsync<FavoriteRow>(`${FAVORITE_SELECT} WHERE rid=?`,[rid]);return row?savedFavorite(row):null;
     });
   }
-  stageFavorite(rid:string,present:boolean,id:()=>string):Promise<SavedFavorite|null> {
+  stageFavorite(rid:string,present:boolean,id:()=>string,observed?:{membership:string;revision:string}):Promise<SavedFavorite|null> {
     if(!roomIdentifier(rid))throw new Error('Invalid native room');
     return this.atomic(async()=>{
       if(!await this.sameGeneration())throw new Error('Native generation unavailable');
       const state=await this.readStateIn(rid);
       if(!state?.membership_version || state.favorite_revision==null)throw new Error('Native personal state unavailable');
+      if(observed && (observed.membership!==state.membership_version || observed.revision!==state.favorite_revision))return null;
       const row=await this.db.getFirstAsync<FavoriteRow>(`${FAVORITE_SELECT} WHERE rid=?`,[rid]);
       if(row){const old=savedFavorite(row);return old.phase!=='failed' && old.membership===state.membership_version && old.input.present===present?old:null;}
       const input={operation_id:id(),expected_revision:state.favorite_revision,present};

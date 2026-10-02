@@ -315,6 +315,28 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P05, favoris dans les interfaces existantes : GTK et SwiftUI proposent l'action
+  dans la fiche et le menu du salon ; le mobile conserve le bouton de sa fiche.
+  Le fournisseur actif utilise le protocole natif ou la route Rocket.Chat
+  officielle. Seul l'état personnel confirmé change le classement. Le clic
+  capture révision de favori et durée d'adhésion, vérifiées dans la transaction
+  SQLite avant création d'une intention. Reprendre conserve l'ID original ; un
+  refus exige l'effacement de cet ID exact. GTK garde sa fiche mise en cache hors
+  ligne pour présenter la demande, sans rétablir d'anciennes métadonnées.
+  Vérifications : 336 tests bureau, formatage / Clippy et compilation GTK Fedora ;
+  1 153 tests mobiles, typecheck / lint et export Android Hermes. Les dix parcours
+  PostgreSQL passent, dont le fournisseur mobile appelé par le bouton, avec
+  perte des réponses HTTP et récupération sans seconde écriture. Les bindings
+  Swift compilent, six tests locaux passent et le parcours connecté avec Secret
+  Service vérifie attente hors ligne, confirmations et rejet d'un ancien clic.
+  Le vrai binaire GTK vérifie menu, attente visible, ajout / retrait confirmés et
+  refus du clic obsolète ; la fiche à 435 pixels est inspectée. Inventaire :
+  315 fichiers / 443 occurrences. Les deux workflows du lot de buffers `0d5968b`
+  sont verts (`37019083297`, `37019083088`). La compilation des nouvelles vues
+  SwiftUI sur macOS attend la CI de ce lot ; les essais sur appareils restent
+  ouverts. Badges, séparateurs et minuteries de lecture restent le prochain
+  incrément ; `read_markers` demeure masquée.
+
 - P05, buffers des salons ouverts : les composeurs GTK / SwiftUI / mobile
   attachent lecture, sauvegarde, effacement et envoi de brouillon à la durée
   d'adhésion qui les a ouverts. Le contrôle et l'écriture SQLite sont atomiques.

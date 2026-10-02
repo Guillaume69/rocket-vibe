@@ -416,6 +416,7 @@ impl NativeSession {
                     room_settings: true,
                     room_roles: true,
                     room_leave: true,
+                    favorites: true,
                     editing: true,
                     deletion: true,
                     reactions: true,

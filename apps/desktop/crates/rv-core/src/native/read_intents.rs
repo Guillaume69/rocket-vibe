@@ -22,6 +22,20 @@ impl NativeSession {
         self.wake.notify_one();
         Ok(())
     }
+    pub fn set_favorite_from_state(
+        &self,
+        room: &str,
+        present: bool,
+        membership: &str,
+        revision: &str,
+    ) -> Result<(), Error> {
+        self.state_staging_supported(true)?;
+        self.store
+            .stage_favorite_from_state(room, present, membership, revision)?
+            .ok_or(Error::Protocol("favorite_state_changed"))?;
+        self.wake.notify_one();
+        Ok(())
+    }
     pub fn dismiss_failed_favorite(&self, room: &str, operation: &str) -> Result<bool, Error> {
         if self.is_closed() {
             return Err(Error::Protocol("session_closed"));

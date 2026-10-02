@@ -9,6 +9,12 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Favoris dans la fiche existante : seule la préférence confirmée change le
+  classement du salon. Une demande en attente affiche Reprendre ; un refus
+  permet un effacement explicite. Un ancien clic ne remplace pas une préférence
+  récente et ne traverse pas un changement d'adhésion. Rocket.Chat conserve son
+  action officielle via le fournisseur actif.
+
 - Les composeurs et formulaires ouverts repartent à vide lors d'une nouvelle
   adhésion. Les sauvegardes et envois tardifs de l'ancien composeur ne peuvent
   écraser un nouveau brouillon ni remettre l'ancien texte en attente. Un
@@ -16,8 +22,8 @@ release, et ses notes sont la section de la version ici.
 
 - Lectures et favoris natifs possèdent maintenant une reprise SQLite après
   interruption : message observé conservé, reçu de favori original récupéré,
-  sans rétablir une ancienne préférence. Leur activation dans les boutons et
-  badges existants reste à venir avec P05.
+  sans rétablir une ancienne préférence. Le raccordement des badges, séparateurs
+  et minuteries de lecture reste à venir avec P05.
 
 - Le cache détecte un retrait suivi d'une réadhésion même après un événement
   manqué et un nouveau snapshot : historique privé, brouillons et intentions
@@ -37,7 +43,7 @@ release, et ses notes sont la section de la version ici.
 - La fiche existante affiche le sujet, la description, l'annonce, le nombre de
   membres et la lecture seule depuis le fournisseur actif. Elle se rafraîchit
   après modification et masque ses données après retrait du salon. Les textes
-  longs défilent dans la feuille ; les favoris natifs suivront avec P05.
+  longs défilent dans la feuille.
 
 ### Sécurité RocketVibe
 

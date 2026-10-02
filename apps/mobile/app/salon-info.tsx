@@ -32,6 +32,7 @@ import { POLICES, useCouleurs } from '../ui/theme.ts';
 import { useMargeBasFeuille } from '../ui/margeFeuille.ts';
 import {CommandesSalon} from '../ui/gestionSalon.tsx';
 import {BorneAdhesionSalon} from '../ui/adhesionSalon.tsx';
+import {FavoriSalonNatif} from '../ui/favoriSalonNatif.tsx';
 
 const PHRASE_TYPE: Record<string, CleTraduction> = {
   c: 'salonInfo.typeCanalPublic',
@@ -51,10 +52,10 @@ export default function EcranSalonInfo() {
   if (etat.phase !== 'connecte' || synchro.phase !== 'pret' || typeof rid !== 'string') {
     return null;
   }
-  const contenu=(
-    <ContenuSalonInfo key={JSON.stringify(synchro.fournisseur.identite)+rid} rid={rid} base={synchro.base} client={etat.client} actions={synchro.actions} native={synchro.fournisseur.identite.genre==='rocketvibe'} favoris={synchro.capacites.favorisSalon!==false} e2e={synchro.e2e} c={c} />
+  const contenu=(membership?:string|null)=>(
+    <ContenuSalonInfo key={JSON.stringify(synchro.fournisseur.identite)+rid} membership={membership} rid={rid} base={synchro.base} client={etat.client} actions={synchro.actions} native={synchro.fournisseur.identite.genre==='rocketvibe'} favoris={synchro.capacites.favorisSalon!==false} e2e={synchro.e2e} c={c} />
   );
-  return synchro.fournisseur.native?<BorneAdhesionSalon key={JSON.stringify(synchro.fournisseur.identite)+rid} base={synchro.base} rid={rid}>{()=>contenu}</BorneAdhesionSalon>:contenu;
+  return synchro.fournisseur.native?<BorneAdhesionSalon key={JSON.stringify(synchro.fournisseur.identite)+rid} base={synchro.base} rid={rid}>{contenu}</BorneAdhesionSalon>:contenu();
 }
 
 function ContenuSalonInfo({
@@ -64,6 +65,7 @@ function ContenuSalonInfo({
   actions,
   native,
   favoris,
+  membership,
   e2e,
   c,
 }: {
@@ -73,6 +75,7 @@ function ContenuSalonInfo({
   actions: ActionsFournisseur;
   native: boolean;
   favoris: boolean;
+  membership?:string|null;
   e2e: MoteurE2E;
   c: ReturnType<typeof useCouleurs>;
 }) {
@@ -98,8 +101,7 @@ function ContenuSalonInfo({
     if (basculeFavori) return;
     setBasculeFavori(true);
     setErreurFavori(false);
-    void client
-      .post('rooms.favorite', { corps: { roomId: rid, favorite: !favori } })
+    void (actions.favoriSalon?.modifier(rid,!favori)??Promise.reject(new Error('Favorite unavailable')))
       .then(() => base.update(abonnements).set({ favori: !favori }).where(eq(abonnements.rid, rid)))
       .catch(() => setErreurFavori(true))
       .finally(() => setBasculeFavori(false));
@@ -174,7 +176,8 @@ function ContenuSalonInfo({
         </View>
       </View>
 
-      {favoris && <Appuyable
+      {favoris && native && membership && actions.favoriSalon && <FavoriSalonNatif rid={rid} adhesion={membership} base={base} actions={actions.favoriSalon} c={c} bouton={(label,action,disabled)=><Appuyable onPress={action} disabled={disabled} accessibilityRole="button" android_ripple={{color:c.ondulation}} style={[styles.favori,{backgroundColor:c.carte}]}><Text style={[styles.favoriTexte,{color:c.texte}]}>{label}</Text></Appuyable>} />}
+      {favoris && !native && <Appuyable
         onPress={basculerFavori}
         disabled={basculeFavori}
         accessibilityRole="button"

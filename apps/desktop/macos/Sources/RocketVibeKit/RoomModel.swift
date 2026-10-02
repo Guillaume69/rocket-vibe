@@ -17,6 +17,25 @@ public final class RoomModel {
     public var supportsEditing: Bool { provider.supportsEditing }
     public var supportsRoomInfo: Bool { active && provider.supportsRoomInfo }
     public var supportsRoomManagement: Bool { active && provider.native != nil && provider.supportsRoomInfo }
+    public var supportsRoomFavorite: Bool { active && provider.native?.supportedFeatures().contains("favorites") == true }
+    public func favoriteState() throws -> NativeFavoriteState? {
+        guard active, let native=provider.native else { throw CancellationError() }
+        let state=try native.favoriteState(room: room.rid)
+        guard state?.membership == nativeMembership else { throw CancellationError() }
+        return state
+    }
+    public func changeFavorite(present:Bool,state:NativeFavoriteState) throws {
+        guard active, let native=provider.native, state.membership == nativeMembership else { throw CancellationError() }
+        try native.setFavoriteFromState(room:room.rid,present:present,membership:state.membership,revision:state.revision)
+    }
+    public func resumeFavorite(key:String) throws {
+        guard active, membershipIsCurrent, let native=provider.native else { throw CancellationError() }
+        try native.resumeFavorite(room:room.rid,key:key)
+    }
+    public func dismissFavorite(key:String) throws {
+        guard active, membershipIsCurrent, let native=provider.native else { throw CancellationError() }
+        _ = try native.dismissFailedFavorite(room:room.rid,key:key)
+    }
     public private(set) var roomInformationRevision = ""
     public private(set) var roomOperationRevision = 0
     public func roomDetails() async throws -> RoomDetails {

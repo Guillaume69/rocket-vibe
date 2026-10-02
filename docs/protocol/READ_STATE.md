@@ -158,5 +158,12 @@ disponibles. Identité, génération, projection et durée d'adhésion sont rev�
 autour des requêtes. Une connexion modernise un cache sans témoin d'adhésion par
 snapshot avant de rejouer ses intentions.
 
-Les capacités clientes restent masquées jusqu'au raccordement et à la qualification
-des badges, boutons et minuteries des interfaces existantes.
+Les favoris sont raccordés aux fiches et menus existants GTK / SwiftUI et à la
+fiche mobile, avec leur capacité cliente activée. Le clic conserve la révision
+et la durée d'adhésion affichées, contrôlées atomiquement avant l'enregistrement.
+Seul l'état personnel confirmé modifie le classement dans les favoris ; une
+demande en attente affiche Reprendre, un refus permet l'effacement de son ID exact.
+Les handlers Rocket.Chat conservent leur route officielle via le fournisseur actif.
+
+La capacité cliente `read_markers` reste masquée jusqu'au raccordement et à la
+qualification des badges, séparateurs et minuteries de lecture existants.

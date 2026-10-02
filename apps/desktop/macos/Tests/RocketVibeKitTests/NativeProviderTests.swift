@@ -214,6 +214,20 @@ final class NativeProviderTests: XCTestCase {
         let room = try XCTUnwrap(app.room); try await until { !room.loading }
         let originalMembership = try XCTUnwrap(native.membershipVersion(room: rid))
         room.draft = "Draft belonging to the original membership"
+        let originalFavorite = try XCTUnwrap(room.favoriteState())
+        XCTAssertFalse(originalFavorite.present)
+        native.suspend()
+        try await until { app.connection == .offline }
+        try room.changeFavorite(present:true,state:originalFavorite)
+        let queuedFavorite = try XCTUnwrap(room.favoriteState())
+        XCTAssertFalse(queuedFavorite.present, "A pending preference never moves the sidebar optimistically")
+        XCTAssertNotNil(queuedFavorite.intention)
+        native.reconnect()
+        try await until { (try? room.favoriteState())?.present == true && (try? room.favoriteState())?.intention == nil }
+        try await until { app.rooms.first { $0.rid == rid }?.favorite == true }
+        XCTAssertThrowsError(try room.changeFavorite(present:false,state:originalFavorite))
+        try room.changeFavorite(present:false,state:try XCTUnwrap(room.favoriteState()))
+        try await until { (try? room.favoriteState())?.present == false && (try? room.favoriteState())?.intention == nil }
         let original = try await room.roomManagement()
         XCTAssertTrue(original.canEdit); XCTAssertTrue(original.canChangeRoles); XCTAssertTrue(original.canLeave)
         var fields = original.fields
@@ -256,6 +270,7 @@ final class NativeProviderTests: XCTestCase {
         app.open(rid)
         let freshRoom = try XCTUnwrap(app.room)
         XCTAssertNotEqual(try native.membershipVersion(room: rid), originalMembership)
+        XCTAssertThrowsError(try native.setFavoriteFromState(room:rid,present:true,membership:originalFavorite.membership,revision:originalFavorite.revision))
         XCTAssertEqual(freshRoom.draft, "")
         freshRoom.draft = "Fresh draft after rejoining"
         try native.setDraftFromMembership(room: rid, text: freshRoom.draft, membership: native.membershipVersion(room: rid))

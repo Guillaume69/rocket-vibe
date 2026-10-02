@@ -29,10 +29,16 @@ section here.
 
 ### Added
 
+- Native favorites in the existing GTK and SwiftUI room information panels and
+  sidebar menus. Only confirmed preferences move rooms into favorites; pending
+  requests can resume and rejected requests can be explicitly cleared. A stale
+  click cannot replace a newer preference or cross a membership change. The
+  SwiftUI sidebar also offers the official Rocket.Chat favorite action.
+
 - Native read and favorite intentions survive process restart in SQLite.
   Read retries retain the observed message position; favorite retries recover
-  the original receipt without restoring an older preference. Existing UI
-  buttons and badges will enable these handlers with the next P05 integration.
+  the original receipt without restoring an older preference. Read badges,
+  separators and timers will enable the read handler with the next P05 integration.
 
 - Existing GTK and SwiftUI room information panels offer native room settings,
   paginated members, roles and departure according to current permissions.

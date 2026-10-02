@@ -84,6 +84,20 @@ pub struct NativeStatus {
     pub retry_after: Option<u64>,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+pub struct NativeFavoriteIntention {
+    pub key: String,
+    pub present: bool,
+    pub failed: bool,
+    pub error: Option<String>,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct NativeFavoriteState {
+    pub membership: String,
+    pub revision: String,
+    pub present: bool,
+    pub intention: Option<NativeFavoriteIntention>,
+}
+#[derive(Clone, Debug, uniffi::Record)]
 pub struct NativeDeviceSession {
     pub id: String,
     pub label: String,
@@ -296,7 +310,7 @@ impl NativeChat {
                     unread: 0,
                     mentions: 0,
                     alert: false,
-                    favorite: false,
+                    favorite: room.read_state.as_ref().is_some_and(|s| s.favorite),
                     encrypted: false,
                     read_only,
                     dm_other_uid: None,
@@ -352,6 +366,51 @@ impl NativeChat {
     }
     pub fn supported_features(&self) -> Vec<String> {
         self.session.supported_features()
+    }
+    pub fn favorite_state(&self, room: String) -> Result<Option<NativeFavoriteState>, RvError> {
+        self.room_revision(room.clone())?;
+        let Some(state) = self.session.store.read_state(&room).map_err(RvError::local)? else { return Ok(None) };
+        let (Some(membership), Some(revision)) = (state.membership_version, state.favorite_revision) else {
+            return Ok(None);
+        };
+        let intention = self
+            .session
+            .store
+            .favorite_intent(&room)
+            .map_err(RvError::local)?
+            .filter(|s| s.membership == membership)
+            .map(|s| NativeFavoriteIntention {
+                key: s.input.operation_id,
+                present: s.input.present,
+                failed: s.phase == "failed",
+                error: s.error,
+            });
+        Ok(Some(NativeFavoriteState { membership, revision, present: state.favorite, intention }))
+    }
+    pub fn set_favorite_from_state(
+        &self,
+        room: String,
+        present: bool,
+        membership: String,
+        revision: String,
+    ) -> Result<(), RvError> {
+        self.session.set_favorite_from_state(&room, present, &membership, &revision).map_err(native_error)
+    }
+    pub fn resume_favorite(&self, room: String, key: String) -> Result<(), RvError> {
+        self.room_revision(room.clone())?;
+        if self
+            .session
+            .store
+            .favorite_intent(&room)
+            .map_err(RvError::local)?
+            .is_none_or(|s| s.input.operation_id != key)
+        {
+            return Err(native_error(rv_core::native::Error::Protocol("favorite_action_missing")));
+        }
+        self.session.resume_favorite(&room).map_err(native_error)
+    }
+    pub fn dismiss_failed_favorite(&self, room: String, key: String) -> Result<bool, RvError> {
+        self.session.dismiss_failed_favorite(&room, &key).map_err(native_error)
     }
     pub fn security_supported(&self) -> bool {
         self.session.security_supported()

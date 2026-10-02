@@ -112,6 +112,25 @@ impl NativeStore {
     }
     /// A second desired value never overwrites an unresolved or failed form.
     pub fn stage_favorite(&self, rid: &str, present: bool) -> rusqlite::Result<Option<SavedFavorite>> {
+        self.stage_favorite_checked(rid, present, None)
+    }
+    /// A UI command must keep the exact personal revision it displayed.
+    pub fn stage_favorite_from_state(
+        &self,
+        rid: &str,
+        present: bool,
+        membership: &str,
+        revision: &str,
+    ) -> rusqlite::Result<Option<SavedFavorite>> {
+        decimal(revision)?;
+        self.stage_favorite_checked(rid, present, Some((membership, revision)))
+    }
+    fn stage_favorite_checked(
+        &self,
+        rid: &str,
+        present: bool,
+        expected: Option<(&str, &str)>,
+    ) -> rusqlite::Result<Option<SavedFavorite>> {
         if !identifier(rid) {
             return Err(rusqlite::Error::InvalidQuery);
         }
@@ -120,6 +139,12 @@ impl NativeStore {
                 return Err(rusqlite::Error::InvalidQuery);
             }
             let state = read_states::state_in(tx, rid)?.ok_or(rusqlite::Error::InvalidQuery)?;
+            if expected.is_some_and(|(membership, revision)| {
+                state.membership_version.as_deref() != Some(membership)
+                    || state.favorite_revision.as_deref() != Some(revision)
+            }) {
+                return Ok(None);
+            }
             let membership = state.membership_version.ok_or(rusqlite::Error::InvalidQuery)?;
             if let Some(old) =
                 tx.query_row(&format!("{FAVORITE_SELECT} WHERE rid=?1"), [rid], favorite_row).optional()?
@@ -415,5 +440,21 @@ mod tests {
         changed.revision = "20".into();
         assert!(store.cache_read_state(&changed, store.projection_token()).is_err());
         assert_eq!(store.read_state(&rid).unwrap().unwrap().revision, "10");
+    }
+    #[test]
+    fn rendered_favorite_keeps_observed_cas_and_membership_without_optimistic_projection() {
+        let (store, rid) = store();
+        let mut updated = store.read_state(&rid).unwrap().unwrap();
+        updated.revision = "20".into();
+        updated.favorite_revision = Some("19".into());
+        assert!(store.cache_read_state(&updated, store.projection_token()).unwrap());
+        assert!(store.stage_favorite_from_state(&rid, true, "membership", "9").unwrap().is_none());
+        assert!(store.stage_favorite_from_state(&rid, true, "obsolete", "19").unwrap().is_none());
+        assert!(store.favorite_intent(&rid).unwrap().is_none());
+        let saved = store.stage_favorite_from_state(&rid, true, "membership", "19").unwrap().unwrap();
+        assert_eq!(saved.input.expected_revision, "19");
+        assert!(!store.read_state(&rid).unwrap().unwrap().favorite);
+        assert!(store.stage_favorite_from_state(&rid, false, "membership", "19").unwrap().is_none());
+        assert_eq!(store.favorite_intent(&rid).unwrap().unwrap().input.operation_id, saved.input.operation_id);
     }
 }

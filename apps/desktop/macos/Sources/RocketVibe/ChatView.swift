@@ -272,6 +272,20 @@ struct RoomRow: View {
         }
         .padding(.vertical, 4)
         .animation(Vibe.spring, value: room.unread)
+        .contextMenu {
+            let accountKey=app.account?.key
+            if let native=app.native, native.supportedFeatures().contains("favorites") {
+                NativeFavoriteMenu(native:native,room:room,accountKey:accountKey)
+            } else if let chat=app.chat {
+                Button(L(room.favorite ? "rooms.favorite_remove" : "rooms.favorite_add")) {
+                    Task {
+                        guard accountKey == app.account?.key else {return}
+                        do {try await chat.setFavorite(rid:room.rid,present:!room.favorite)}
+                        catch {if accountKey == app.account?.key {app.notice=L("rooms.failed")}}
+                    }
+                }
+            }
+        }
     }
 
     var preview: String {

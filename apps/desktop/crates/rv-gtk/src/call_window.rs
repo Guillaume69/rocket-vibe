@@ -28,6 +28,7 @@ fn open_window(url: &str, _room: &str, fallback: impl Fn() + 'static) {
     let Some(browser) = APP_MODE_BROWSERS.iter().find_map(glib::find_program_in_path) else {
         return fallback();
     };
+    name_window(&browser, url);
     let profile = glib::user_data_dir().join("rocket-vibe-rs").join("call-window");
     let spawned = std::process::Command::new(&browser)
         .arg(format!("--app={url}"))
@@ -44,6 +45,49 @@ fn open_window(url: &str, _room: &str, fallback: impl Fn() + 'static) {
             eprintln!("Call window not started: {e}");
             fallback();
         }
+    }
+}
+
+/// What a call window entry carries, to find the ones left by earlier calls.
+#[cfg(target_os = "linux")]
+const CALL_ENTRY_MARK: &str = "X-RocketVibe-Call=true";
+
+/// The desktop names a window's icon after a desktop entry with its app id.
+/// The browser's window has none (on Wayland it ignores `--class` and takes
+/// an id from the call's address), so the session showed a generic icon: a
+/// hidden entry with our icon is written for it, and one for X11's class.
+#[cfg(target_os = "linux")]
+fn name_window(browser: &std::path::Path, url: &str) {
+    use gtk::glib;
+    let name = browser.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let prefix = match name.as_str() {
+        n if n.starts_with("brave") => "brave",
+        n if n.starts_with("microsoft-edge") => "msedge",
+        n if n.starts_with("vivaldi") => "vivaldi",
+        _ => "chrome",
+    };
+    let Some(wayland_id) = rv_core::call::app_window_id(prefix, url) else { return };
+    let icon =
+        glib::user_cache_dir().join("rocket-vibe-rs/icons/hicolor/256x256/apps").join(format!("{}.png", crate::APP_ID));
+    let dir = glib::user_data_dir().join("applications");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let current = [format!("{wayland_id}.desktop"), "rocket-vibe-call.desktop".to_owned()];
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let stale = !current.iter().any(|c| entry.file_name().to_string_lossy() == c.as_str());
+            if stale && std::fs::read_to_string(entry.path()).is_ok_and(|text| text.contains(CALL_ENTRY_MARK)) {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+    for (file, class) in [(&current[0], wayland_id.as_str()), (&current[1], "rocket-vibe-call")] {
+        let entry = format!(
+            "[Desktop Entry]\nType=Application\nName=rocket-vibe\nIcon={}\nExec=true\nNoDisplay=true\nStartupWMClass={class}\n{CALL_ENTRY_MARK}\n",
+            icon.display()
+        );
+        let _ = std::fs::write(dir.join(file), entry);
     }
 }
 

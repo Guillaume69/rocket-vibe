@@ -2,8 +2,10 @@
 
 Le serveur et les transports Rust / TypeScript exposent ces routes v1. Les fiches
 de salon mobile, GTK et SwiftUI existantes lisent leurs informations depuis le
-fournisseur choisi. Le raccordement durable des commandes de paramètres, de rôles
-et de départ reste à livrer ; l'annonce serveur ne les active pas seule dans l'UI.
+fournisseur choisi. Les contrôleurs Rust et mobile sauvegardent les commandes
+avant HTTP et reprennent leur reçu personnel après coupure. Les contrôles de
+paramètres, de rôles et de départ restent à raccorder dans les trois fiches ;
+l'annonce serveur ne les active pas seule dans l'UI.
 
 ## Lectures
 
@@ -60,6 +62,20 @@ retirée : `409 last_room_owner`. Les commandes concurrentes sont sérialisées
 sur le salon et refusent les révisions devenues obsolètes.
 
 ## Réponses perdues et limites
+
+SQLite conserve au plus une intention non résolue par salon : corps fermé,
+identifiant original, révision du formulaire et état en attente / échec définitif.
+Un formulaire identique réutilise le candidat original, même après réception
+d'une révision plus récente. Un formulaire différent reste bloqué ; seul un
+échec définitif peut être effacé explicitement puis remplacé. Une coupure ou
+une limite de débit conserve le candidat pour la reprise avec backoff.
+
+Chaque tentative relit d'abord le reçu personnel. Seul `404 not_found` autorise
+l'envoi du corps sauvegardé ; une autre réponse n'est pas interprétée comme une
+absence de commande. Un reçu valide efface exactement son intention, sans
+projeter d'anciens réglages. Les commandes partagent la file de mutations de la
+session. Identité / génération et durée de vie sont revérifiées ; un retrait
+du salon purge ses formes privées et une réadhésion ne les ressuscite pas.
 
 Une commande réussie retourne `RoomCommandReceipt`, limité à `operation_id`,
 `room_id`, `applied_revision`. Le reçu PostgreSQL est lié au compte et conserve

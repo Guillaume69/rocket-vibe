@@ -315,6 +315,21 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P04, intentions de réglages / rôles / départ : SQLite sauvegarde la commande
+  originale avant HTTP sur bureau et mobile, puis consulte le reçu personnel
+  avant chaque reprise. Une réponse perdue et un redémarrage ne réappliquent pas
+  la mutation ; les révisions ne sont jamais réactualisées silencieusement.
+  Les refus définitifs gardent le formulaire jusqu'à effacement explicite ; les
+  erreurs temporaires utilisent le backoff existant. Retrait / changement de
+  génération purgent les intentions privées ; un reçu ne projette aucun réglage.
+  Les trois commandes sont vérifiées avec vrai HTTP et bases SQLite sur disque,
+  plus conflits, reçus étrangers, erreurs de lecture, retrait et fermeture.
+  Vérifications : 312 tests bureau, Clippy / formatage, 1 124 tests mobiles,
+  typecheck / lint sans avertissement et inventaire Rocket.Chat à jour.
+  Les contrôles des trois fiches restent le lot suivant : leurs capacités de
+  mutation sont encore masquées. Les CI des fiches `6a081df` sont entièrement
+  vertes : quatre jobs natifs (`36988516194`) et macOS (`36988516235`).
+
 - P02, dernier raccordement de récupération e-mail : les formulaires existants
   mobile / GTK / SwiftUI proposent une demande anonyme et une reprise explicites.
   Ouverture et countdown n'effectuent aucun appel réseau ; le reçu générique ne

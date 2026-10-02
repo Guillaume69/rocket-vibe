@@ -184,7 +184,7 @@ ouverte tant que serveur, clients concernés et scénario de parité manquent.
 | P01 Découverte / comptes / sessions | J1–J2 | Rotation / reprise sécurisée, appareils, inscription sur invitation, récupération opérateur / email dans les trois clients existants livrés ; qualification des appareils / trousseaux à poursuivre |
 | P02 2FA | J2 | TOTP / secours, réauthentification, adresse vérifiée / retrait, défis OTP, facteur email et récupération email dans les 3 clients livrés ; qualification sur appareils et SMTP externe à poursuivre |
 | P03 Multi-serveurs | J1 | Isolation livrée ; validation appareils / liens et générations après restauration |
-| P04 Salons / DM | J1–J2 | DM / membres, création idempotente, découverte / join et lecture des détails dans les 3 fiches existantes livrés ; rôles, réglages et départ versionnés côté serveur / transports ; commandes durables et leurs contrôles dans les 3 UI à compléter |
+| P04 Salons / DM | J1–J2 | DM / membres, création idempotente, découverte / join et lecture des détails dans les 3 fiches existantes livrés ; rôles, réglages et départ versionnés côté serveur / transports, reprise durable Rust / mobile livrée ; contrôles dans les 3 UI à compléter |
 | P05 Favoris / non-lus / mentions | J2 | Modèle figé ; états personnels et compteurs atomiques à livrer |
 | P06 Historique / temps réel | J1–J2 | Socle, snapshots matérialisés et barrière de révocation livrés ; tombstones / actions J2 |
 | P07 Markdown / emojis / citations | J2–J3 | Corpus testé ; références / messages système / catalogue natif et raccordement |

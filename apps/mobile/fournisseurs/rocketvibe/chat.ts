@@ -6,6 +6,7 @@ import { NativeStore, type NativeCommand } from './store.ts';
 import { NativeError, type NativeTransport } from './transport.ts';
 import { decodeNative } from './validation.ts';
 import type { Capabilities } from './protocol.generated.ts';
+import type {RoomOperation,SavedRoomOperation} from './roomOperations.ts';
 import { canonicalEmoji } from './emojis.ts';
 import type {FactorRemote} from './factorVault.ts';
 import type {EmailRemote} from './emailVault.ts';
@@ -171,6 +172,84 @@ export class NativeChat {
   private ready(): void {
     if (this.stopped) throw new NativeError(0,'session_closed');
     if (!this.verified) throw new NativeError(0,'offline');
+  }
+  async roomMembers(room:string,after?:string,revision?:string):Promise<import('./protocol.generated.ts').RoomMemberPage> {
+    this.ready();
+    if(!this.capabilities?.room_info)throw new NativeError(501,'unsupported_feature');
+    const generation=this.generation,projection=this.store.projectionToken();
+    checkIdentity(this.session,await this.transport.discover());this.roomOperationGeneration(generation);
+    const page=await this.transport.roomMembers(room,after,revision);
+    checkIdentity(this.session,await this.transport.discover());this.roomOperationGeneration(generation);
+    if(page.room_id!==room || revision!==undefined && page.revision!==revision)throw new NativeError(409,'invalid_room_members');
+    if(projection!==this.store.projectionToken() || !(await this.store.rooms()).some(r=>r.rid===room))throw new NativeError(409,'delivery_revalidate');
+    return page;
+  }
+  async updateRoom(room:string,input:Omit<import('./protocol.generated.ts').UpdateRoom,'operation_id'>):Promise<void> {
+    await this.submitRoomOperation(room,{kind:'settings',input:{...input,operation_id:this.id()}});
+  }
+  async changeRoomRole(room:string,target:string,input:Omit<import('./protocol.generated.ts').ChangeRoomRole,'operation_id'>):Promise<void> {
+    await this.submitRoomOperation(room,{kind:'role',target,input:{...input,operation_id:this.id()}});
+  }
+  async leaveRoom(room:string,revision:string):Promise<void> {
+    await this.submitRoomOperation(room,{kind:'leave',input:{operation_id:this.id(),expected_revision:revision}});
+  }
+  async resumeRoomOperation(room:string):Promise<void> {
+    this.ready();
+    const saved=await this.store.roomOperation(room);
+    if(!saved)throw new NativeError(409,'room_operation_missing');
+    if(saved.failed)throw new NativeError(409,'room_action_failed');
+    try{await this.applyRoomOperation(saved);}catch(error){await this.roomOperationFailed(saved,error);throw error;}
+  }
+  async dismissRoomOperation(room:string,id:string):Promise<boolean> {
+    const operation=this.commands.then(async()=>{this.ready();return this.store.dismissRoomOperation(room,id);});
+    this.commands=operation.then(()=>{},()=>{});
+    const dismissed=await operation;this.notify();return dismissed;
+  }
+  private roomCommandSupported(command:RoomOperation):boolean {
+    return !!(command.kind==='settings'?this.capabilities?.room_settings:command.kind==='role'?this.capabilities?.room_roles:this.capabilities?.room_leave);
+  }
+  private roomOperationGeneration(generation:number):void {
+    this.ready();if(generation!==this.generation)throw new NativeError(0,'session_closed');
+  }
+  private async submitRoomOperation(room:string,command:RoomOperation):Promise<void> {
+    this.ready();
+    if(!this.roomCommandSupported(command))throw new NativeError(501,'unsupported_feature');
+    const saved=await this.store.stageRoomOperation(room,command);
+    if(!saved)throw new NativeError(409,'room_action_pending');
+    this.notify();
+    try{await this.applyRoomOperation(saved);}catch(error){await this.roomOperationFailed(saved,error);throw error;}
+  }
+  private async applyRoomOperation(saved:SavedRoomOperation):Promise<void> {
+    const operation=this.commands.then(async()=>{
+      this.ready();const generation=this.generation;
+      const live=async()=>{const current=await this.store.roomOperation(saved.room);return !!current && !current.failed && current.command.input.operation_id===saved.command.input.operation_id;};
+      if(!await live())return;
+      const discovery=await this.transport.discover();checkIdentity(this.session,discovery);this.roomOperationGeneration(generation);
+      this.capabilities=discovery.capabilities;
+      if(!await live())return;
+      let receipt:import('./protocol.generated.ts').RoomCommandReceipt;
+      try{receipt=await this.transport.roomCommandReceipt(saved.room,saved.command.input.operation_id);}
+      catch(error){
+        if(!(error instanceof NativeError) || error.status!==404 || error.code!=='not_found')throw error;
+        this.roomOperationGeneration(generation);
+        if(!await live())return;
+        if(!this.roomCommandSupported(saved.command))throw new NativeError(501,'unsupported_feature');
+        receipt=saved.command.kind==='settings'?await this.transport.updateRoom(saved.room,saved.command.input)
+          :saved.command.kind==='role'?await this.transport.changeRoomRole(saved.room,saved.command.target,saved.command.input)
+          :await this.transport.leaveRoom(saved.room,saved.command.input);
+      }
+      checkIdentity(this.session,await this.transport.discover());this.roomOperationGeneration(generation);
+      if(receipt.operation_id!==saved.command.input.operation_id || receipt.room_id!==saved.room)throw new NativeError(409,'invalid_room_receipt');
+      await this.store.confirmRoomOperation(receipt);
+      this.retryAttempt=0;this.retryAt=0;this.notify();
+    });
+    this.commands=operation.catch(()=>{});return operation;
+  }
+  private async roomOperationFailed(saved:SavedRoomOperation,error:unknown):Promise<void> {
+    if(this.stopped || !this.verified)return;
+    if(permanentRoomError(error)){await this.store.failRoomOperation(saved.room,saved.command.input.operation_id,(error as NativeError).code);this.notify();}
+    else if(error instanceof NativeError && ['session_rejected','server_identity_changed'].includes(error.code)){this.status={online:false,error:error.code};this.stop();}
+    else{this.deferSend(error);if(error instanceof NativeError && error.code==='delivery_revalidate')this.lost();}
   }
   async roomDetails(room: string):Promise<import('./protocol.generated.ts').RoomDetails> {
     this.ready();
@@ -437,6 +516,11 @@ export class NativeChat {
       try { await this.applyCommand(command); }
       catch (error) { await this.commandFailed(command,error); if (!permanentCommandError(error)) return; }
     }
+    for(const saved of await this.store.pendingRoomOperations()){
+      if(!this.verified || this.stopped)return;
+      try{await this.applyRoomOperation(saved);}
+      catch(error){await this.roomOperationFailed(saved,error);if(!permanentRoomError(error))return;}
+    }
   }
   async retry(id: string): Promise<void> { await this.store.retry(id); this.notify(); await this.flush(); }
   async abandon(id: string): Promise<void> { await this.store.abandon(id); this.notify(); }
@@ -508,6 +592,10 @@ export class NativeChat {
 function permanentCommandError(error: unknown): boolean {
   return error instanceof NativeError && error.status>=400 && error.status<500 && error.status!==401 && error.status!==429 && error.code!=='delivery_revalidate'
     || error instanceof NativeError && error.code==='unsupported_feature';
+}
+
+function permanentRoomError(error:unknown):boolean {
+  return permanentCommandError(error) && !(error instanceof NativeError && ['invalid_room_receipt','server_identity_changed'].includes(error.code));
 }
 
 function reactionIntent(text:string):{emoji:string;present:boolean} {

@@ -4,6 +4,7 @@ pub mod authentication_vault;
 pub mod credentials;
 pub mod email_recovery;
 pub mod factor_email;
+mod room_operations;
 pub mod security;
 pub mod store;
 
@@ -514,6 +515,15 @@ impl NativeSession {
             match self.apply_command(&command).await {
                 Ok(()) => (),
                 Err(error) if permanent_command_error(&error) => self.store.fail_command(&command.id, error.code())?,
+                Err(error) => return Err(error),
+            }
+        }
+        for operation in self.store.pending_room_operations()? {
+            match self.apply_room_operation(&operation).await {
+                Ok(()) => (),
+                Err(error) if permanent_command_error(&error) => {
+                    self.store.fail_room_operation(&operation.room, operation.command.id(), error.code())?
+                }
                 Err(error) => return Err(error),
             }
         }

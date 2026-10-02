@@ -5,6 +5,8 @@ import type { DepotBrouillons } from '../../db/depot.ts';
 import { UPSERT_MESSAGE, UPSERT_SALON, UPSERT_ABONNEMENT, INSERER_SORTIE, SUPPRIMER_SORTIE, MARQUER_SORTIE_ECHEC, SUPPRIMER_BROUILLONS_SALON, paramsMessage, paramsSalon, paramsAbonnement } from '../../db/upserts.ts';
 import type { MessageLocal } from '../../lib/normaliser.ts';
 import type { Message, Room, Snapshot, SyncBatch } from './protocol.generated.ts';
+import {roomIdentifier,roomOperation,sameRoomForm,savedRoomOperation,type RoomOperation,type RoomOperationRow,type SavedRoomOperation} from './roomOperations.ts';
+import {decodeNative} from './validation.ts';
 
 // Native revisions, checked below as exact decimal strings, order projection.
 // The shared RC statement's wall-clock condition would discard a valid edit
@@ -74,7 +76,7 @@ export class NativeStore {
   prepare(): Promise<void> {
     return this.atomic(async () => {
       if (await this.sameGeneration()) return;
-      for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs','native_room_creations','native_commands','native_star_states']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+      for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs','native_room_creations','native_commands','native_star_states','native_room_operations']) await this.db.runAsync(`DELETE FROM ${table}`, []);
     });
   }
   drafts(): DepotBrouillons {
@@ -144,7 +146,7 @@ export class NativeStore {
     await this.preview(message.room_id);
   }
   private async remove(rid: string): Promise<void> {
-    for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'native_positions','native_commands','native_star_states']) await this.db.runAsync(`DELETE FROM ${table} WHERE rid=?`, [rid]);
+    for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'native_positions','native_commands','native_star_states','native_room_operations']) await this.db.runAsync(`DELETE FROM ${table} WHERE rid=?`, [rid]);
     await this.db.runAsync(SUPPRIMER_BROUILLONS_SALON, [rid]);
     await this.db.runAsync("DELETE FROM etat_synchro WHERE portee=?", [rid]);
   }
@@ -153,7 +155,7 @@ export class NativeStore {
       const old = await this.db.getFirstAsync<NativeState>('SELECT instance_id,data_epoch,cursor FROM native_sync_state WHERE singleton=1', []);
       if (!old || old.instance_id !== this.session.nativeInstanceId || old.data_epoch !== this.session.nativeDataEpoch) {
         // A fresh login to a different generation must never replay its predecessor's outbox.
-        for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'brouillons', 'native_positions', 'etat_synchro', 'utilisateurs', 'native_room_creations','native_commands','native_star_states']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+        for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'brouillons', 'native_positions', 'etat_synchro', 'utilisateurs', 'native_room_creations','native_commands','native_star_states','native_room_operations']) await this.db.runAsync(`DELETE FROM ${table}`, []);
       } else {
         const live = new Set(snapshot.rooms.map(room => room.id));
         const known = await this.db.getAllAsync<{rid:string}>('SELECT rid FROM salons', []);
@@ -190,6 +192,52 @@ export class NativeStore {
   }
   rooms(): Promise<NativeRoomRow[]> {
     return this.queue(async () => await this.sameGeneration() ? this.db.getAllAsync<NativeRoomRow>('SELECT rid,COALESCE(nom_affiche,nom,rid) AS nom,type,dernier_message FROM salons ORDER BY COALESCE(horodatage_dernier_message,0) DESC,rid', []) : []);
+  }
+  roomOperation(rid:string):Promise<SavedRoomOperation|null> {
+    return this.queue(async()=>{
+      if(!await this.sameGeneration())return null;
+      const row=await this.db.getFirstAsync<RoomOperationRow>('SELECT id,rid,payload,state,error FROM native_room_operations WHERE rid=?',[rid]);
+      return row?savedRoomOperation(row):null;
+    });
+  }
+  stageRoomOperation(rid:string,value:RoomOperation):Promise<SavedRoomOperation|null> {
+    const command=roomOperation(value);
+    if(!roomIdentifier(rid))throw new Error('Invalid room intention');
+    return this.atomic(async()=>{
+      if(!await this.sameGeneration() || !await this.db.getFirstAsync('SELECT rid FROM salons WHERE rid=?',[rid]))throw new Error('Room unavailable in this generation');
+      const row=await this.db.getFirstAsync<RoomOperationRow>('SELECT id,rid,payload,state,error FROM native_room_operations WHERE rid=?',[rid]);
+      if(row){const saved=savedRoomOperation(row);return !saved.failed && sameRoomForm(saved.command,command)?saved:null;}
+      await this.db.runAsync('INSERT INTO native_room_operations(id,rid,payload) VALUES(?,?,?)',[command.input.operation_id,rid,JSON.stringify(command)]);
+      return {room:rid,command,failed:false,error:null};
+    });
+  }
+  pendingRoomOperations():Promise<SavedRoomOperation[]> {
+    return this.queue(async()=>await this.sameGeneration()?(await this.db.getAllAsync<RoomOperationRow>("SELECT id,rid,payload,state,error FROM native_room_operations WHERE state='pending' ORDER BY rowid",[])).map(savedRoomOperation):[]);
+  }
+  failRoomOperation(rid:string,id:string,error:string):Promise<void> {
+    if(!roomIdentifier(error))throw new Error('Invalid room failure');
+    return this.atomic(async()=>{if(await this.sameGeneration())await this.db.runAsync("UPDATE native_room_operations SET state='failed',error=? WHERE rid=? AND id=?",[error,rid,id]);});
+  }
+  dismissRoomOperation(rid:string,id:string):Promise<boolean> {
+    return this.atomic(async()=>{
+      if(!await this.sameGeneration())return false;
+      const failed=await this.db.getFirstAsync("SELECT id FROM native_room_operations WHERE rid=? AND id=? AND state='failed'",[rid,id]);
+      if(!failed)return false;
+      await this.db.runAsync("DELETE FROM native_room_operations WHERE rid=? AND id=? AND state='failed'",[rid,id]);return true;
+    });
+  }
+  confirmRoomOperation(value:import('./protocol.generated.ts').RoomCommandReceipt):Promise<boolean> {
+    const receipt=decodeNative('RoomCommandReceipt',value);
+    if(![receipt.operation_id,receipt.room_id,receipt.applied_revision].every(roomIdentifier))throw new Error('Invalid room acknowledgement');
+    return this.atomic(async()=>{
+      if(!await this.sameGeneration())return false;
+      const row=await this.db.getFirstAsync<RoomOperationRow>('SELECT id,rid,payload,state,error FROM native_room_operations WHERE id=?',[receipt.operation_id]);
+      if(!row)return false;
+      if(savedRoomOperation(row).room!==receipt.room_id)throw new Error('Mismatched room acknowledgement');
+      await this.db.runAsync('DELETE FROM native_room_operations WHERE id=?',[receipt.operation_id]);
+      // A personal receipt never writes an old room payload into the projection.
+      return true;
+    });
   }
   async roomCreation(name: string, privateRoom: boolean, generateId: () => string): Promise<string> {
     let id='';

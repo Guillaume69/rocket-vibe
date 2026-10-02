@@ -329,3 +329,12 @@ export const nativeMessageCommands = sqliteTable('native_commands', {
   state: text('state').notNull().default('pending'),
   error: text('error'),
 }, (t) => [uniqueIndex('idx_native_command_message').on(t.messageId)]);
+
+/** One unresolved room form keeps its original nonce and version until acknowledged. */
+export const nativeRoomOperations = sqliteTable('native_room_operations', {
+  id: text('id').primaryKey(),
+  rid: text('rid').notNull(),
+  payload: text('payload').notNull(),
+  state: text('state').notNull().default('pending'),
+  error: text('error'),
+}, (t) => [uniqueIndex('idx_native_room_operation_room').on(t.rid)]);

@@ -1,5 +1,7 @@
 //! Fallible transactions: a failed projection never acknowledges its cursor or outbox echo.
+mod room_operations;
 use super::Identity;
+pub use room_operations::{RoomOperation, SavedRoomOperation};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use rv_protocol::{Change, Message, Room, Snapshot, SyncBatch, VERSION};
 use std::path::Path;
@@ -113,6 +115,7 @@ impl NativeStore {
             CREATE TABLE IF NOT EXISTS native_outbox(id TEXT PRIMARY KEY,rid TEXT NOT NULL,text TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',error TEXT,created INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS native_drafts(rid TEXT PRIMARY KEY,text TEXT NOT NULL);")?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_room_creations(id TEXT PRIMARY KEY,name TEXT NOT NULL,private INTEGER NOT NULL,UNIQUE(name,private));")?;
+        conn.execute_batch("CREATE TABLE IF NOT EXISTS native_room_operations(id TEXT PRIMARY KEY,rid TEXT NOT NULL UNIQUE,payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','failed')),error TEXT);")?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_commands(id TEXT PRIMARY KEY,rid TEXT NOT NULL,message_id TEXT NOT NULL UNIQUE,kind TEXT NOT NULL CHECK(kind IN ('edit','delete')),expected_revision TEXT NOT NULL,text TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',error TEXT);")?;
         let command_schema: String =
             conn.query_row("SELECT sql FROM sqlite_master WHERE name='native_commands'", [], |r| r.get(0))?;
@@ -158,6 +161,7 @@ impl NativeStore {
                 "native_drafts",
                 "native_room_creations",
                 "native_commands",
+                "native_room_operations",
             ] {
                 tx.execute(&format!("DELETE FROM {table}"), [])?;
             }
@@ -378,7 +382,8 @@ impl NativeStore {
     }
     fn remove(tx: &Transaction, rid: &str) -> rusqlite::Result<()> {
         tx.execute("DELETE FROM native_rooms WHERE id=?1", [rid])?;
-        for table in ["native_messages", "native_outbox", "native_drafts", "native_commands"] {
+        for table in ["native_messages", "native_outbox", "native_drafts", "native_commands", "native_room_operations"]
+        {
             tx.execute(&format!("DELETE FROM {table} WHERE rid=?1"), [rid])?;
         }
         Ok(())
@@ -396,6 +401,7 @@ impl NativeStore {
                     "native_drafts",
                     "native_room_creations",
                     "native_commands",
+                    "native_room_operations",
                 ] {
                     tx.execute(&format!("DELETE FROM {table}"), [])?;
                 }

@@ -21,6 +21,7 @@ import m0016 from './0016_illegal_moon_knight.sql';
 import m0017 from './0017_blushing_venom.sql';
 import m0018 from './0018_tearful_stepford_cuckoos.sql';
 import m0019 from './0019_wealthy_pete_wisdom.sql';
+import m0020 from './0020_lowly_photon.sql';
 
   export default {
     journal,
@@ -44,7 +45,8 @@ m0015,
 m0016,
 m0017,
 m0018,
-m0019
+m0019,
+m0020
     }
   }
   

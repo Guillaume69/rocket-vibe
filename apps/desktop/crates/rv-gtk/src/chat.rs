@@ -454,7 +454,14 @@ impl ChatPage {
         search_button.connect_clicked(move |_| {
             let Some(this) = weak.upgrade() else { return };
             if let (Some(session), Some(rid)) = (this.session(), this.current_rid()) {
-                crate::details::search(&this.split, session, &rid);
+                let target = Rc::downgrade(&this);
+                crate::details::search(&this.split, session, &rid, move |id, thread| {
+                    let Some(this) = target.upgrade() else { return };
+                    match thread {
+                        Some(root) => this.open_thread_of(&root),
+                        None => this.jump_to(&id),
+                    }
+                });
             }
         });
         let weak = Rc::downgrade(&this);

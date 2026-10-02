@@ -11,8 +11,9 @@
 //! only in contents encrypted under the room key, as the web client sends them.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
@@ -116,7 +117,14 @@ pub struct Uploads {
     sealed: Mutex<HashMap<String, Sealed>>,
     /// The rid whose upload progressed.
     changed: broadcast::Sender<String>,
+    /// Passes in a row that ended for want of a connection; each schedules
+    /// the next one, without waiting for the socket to come back.
+    offline_passes: AtomicU32,
 }
+
+/// Delays before trying the queue again after a connection error.
+const OFFLINE_RETRY: [Duration; 4] =
+    [Duration::from_secs(2), Duration::from_secs(5), Duration::from_secs(15), Duration::from_secs(30)];
 
 impl Uploads {
     pub fn new(store: Arc<Store>, rest: RestClient, sync: Arc<SyncEngine>) -> Self {
@@ -136,6 +144,7 @@ impl Uploads {
             encryptor: Mutex::new(None),
             sealed: Mutex::default(),
             changed,
+            offline_passes: AtomicU32::new(0),
         }
     }
 
@@ -177,10 +186,35 @@ impl Uploads {
         };
         loop {
             self.again.store(false, Ordering::SeqCst);
-            if !self.pass().await || !self.again.load(Ordering::SeqCst) {
+            if !self.pass().await {
+                self.retry_later();
+                return;
+            }
+            self.offline_passes.store(0, Ordering::SeqCst);
+            if !self.again.load(Ordering::SeqCst) {
                 return;
             }
         }
+    }
+
+    fn retry_later(self: &Arc<Self>) {
+        let passes = self.offline_passes.fetch_add(1, Ordering::SeqCst) as usize;
+        let delay = OFFLINE_RETRY[passes.min(OFFLINE_RETRY.len() - 1)];
+        let this = Arc::downgrade(self);
+        tokio::spawn(async move {
+            tokio::time::sleep(delay).await;
+            if let Some(this) = this.upgrade() {
+                this.process().await;
+            }
+        });
+        for rid in self.store.pending_uploads().into_iter().map(|row| row.rid) {
+            let _ = self.changed.send(rid);
+        }
+    }
+
+    /// The last pass found no connection: the queue is being retried.
+    pub fn reconnecting(&self) -> bool {
+        self.offline_passes.load(Ordering::SeqCst) > 0
     }
 
     /// The explicit "Retry": the only way out of `failed`.

@@ -120,6 +120,32 @@ async fn refused_fails_and_offline_waits() {
 }
 
 #[tokio::test]
+async fn a_lost_connection_is_retried_without_waiting_for_the_socket() {
+    let dropped_once = std::sync::atomic::AtomicBool::new(false);
+    let f = fixture(move |r| {
+        if r.path().contains("rooms.media/") && !dropped_once.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            dropped()
+        } else {
+            media_then_confirm(r)
+        }
+    })
+    .await;
+    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", None, false);
+    f.uploads.process().await;
+    assert_eq!(f.store.uploads("r")[0].status, "pending");
+    assert!(f.uploads.reconnecting());
+    for _ in 0..40 {
+        if f.store.uploads("r").is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert!(f.store.uploads("r").is_empty(), "sent on the retry");
+    assert_eq!(calls(&f.server, "rooms.media/r").len(), 2);
+    assert!(!f.uploads.reconnecting());
+}
+
+#[tokio::test]
 async fn discard_removes_the_row() {
     let f = fixture(media_then_confirm).await;
     f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", None, false);

@@ -68,7 +68,11 @@ pub(crate) async fn refresh(
     store::event(tx, revision, room, None, Change::MessageUpsert(message)).await
 }
 
-async fn root_room(conn: &mut sqlx::PgConnection, user: &str, root: &str) -> Result<String> {
+pub(crate) async fn root_room(
+    conn: &mut sqlx::PgConnection,
+    user: &str,
+    root: &str,
+) -> Result<String> {
     if !identifier(root) {
         return Err(Error::invalid());
     }

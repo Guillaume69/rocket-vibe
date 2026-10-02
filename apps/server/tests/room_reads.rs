@@ -94,7 +94,7 @@ async fn threads_keep_roots_separate_and_reads_only_clear_the_observed_thread(po
             .replies,
         "3"
     );
-    let path = format!("/api/v1/messages/{}/thread?limit=2", first.id);
+    let path = format!("/api/v1/messages/{}/replies?limit=2", first.id);
     let page: rv_protocol::ThreadPage = b
         .request(Method::GET, &reader_token, &path, json!({}))
         .await
@@ -204,7 +204,39 @@ async fn threads_enforce_same_room_roots_replays_deletions_and_withdrawal(pool: 
     let (_, _, outsider_token) = b.user("carol", true).await;
     let room = b.room(&owner, &token, &uid).await;
     let root = thread_send(&owner, &room, None, "thread-root", "Root").await;
-    let reply = thread_send(&owner, &room, Some(&root.id), "thread-reply", "Response").await;
+    let reply_response = b
+        .request(
+            Method::POST,
+            &token,
+            &format!("/api/v1/messages/{}/replies", root.id),
+            json!({"operation_id":"thread-reply","text":"Response"}),
+        )
+        .await;
+    assert!(reply_response.status().is_success());
+    let reply: rv_protocol::Message = reply_response.json().await.unwrap();
+    assert_eq!(reply.reply_to.as_deref(), Some(root.id.as_str()));
+    assert_eq!(
+        b.request(
+            Method::POST,
+            &token,
+            &format!("/api/v1/messages/{}/replies", root.id),
+            json!({"operation_id":"wrong-parent","text":"Response","reply_to":"different-root"})
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        b.request(
+            Method::POST,
+            &outsider_token,
+            &format!("/api/v1/messages/{}/replies", root.id),
+            json!({"operation_id":"private-bypass","text":"Response"})
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
     let replay = thread_send(&owner, &room, Some(&root.id), "thread-reply", "Response").await;
     assert_eq!(reply.id, replay.id);
     assert_eq!(

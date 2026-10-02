@@ -70,6 +70,7 @@ présence ne déclare pas les endpoints correspondants disponibles.
 | GET | `/rooms/{room}/messages?before=…&limit=…` | Racines par position décroissante, keyset, limite 1–100 |
 | POST | `/rooms/{room}/messages` | `{ operation_id, text, quotes?, reply_to? }` → message committé |
 | GET | `/messages/{root}/thread?before=…&limit=…` | Racine et réponses paginées avec état personnel |
+| GET / POST | `/messages/{root}/replies` | Route réservée de parité : même page de fil ; envoi avec racine implicite |
 | POST | `/messages/{root}/thread/read` | Position observée, lecture monotone de ce seul fil |
 | GET | `/messages/{id}` | Message courant ou tombstone, pour un membre actuel |
 | PATCH | `/messages/{id}` | `EditMessage` avec opération et révision attendue ; Markdown clair |

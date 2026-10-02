@@ -30,6 +30,10 @@ La limite vaut 50 par défaut, entre 1 et 100. La vue transactionnelle et les
 barrières de livraison comprennent également les sources des citations.
 Une racine supprimée reste consultable comme tombstone avec ses anciennes réponses.
 L'administration de l'instance ne donne aucun accès implicite à un fil privé.
+La route réservée `GET /messages/{root}/replies` retourne cette même page.
+`POST /messages/{root}/replies` envoie dans la racine du chemin ; un `reply_to`
+redondant doit la désigner exactement. Les deux routes d'envoi partagent la même
+empreinte, les mêmes droits et le même reçu, y compris après suppression de racine.
 
 Les snapshots gardent au plus 50 racines **et** 50 réponses récentes par salon.
 Un afflux de réponses ne chasse donc pas toutes les racines de la fenêtre.

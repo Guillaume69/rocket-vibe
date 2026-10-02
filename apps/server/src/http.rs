@@ -120,6 +120,10 @@ pub fn router(app: App) -> Router {
         )
         .route("/api/v1/messages/{message}/thread", get(thread))
         .route(
+            "/api/v1/messages/{message}/replies",
+            get(thread).post(reply),
+        )
+        .route(
             "/api/v1/messages/{message}/thread/read",
             post(mark_thread_read),
         )
@@ -1098,6 +1102,27 @@ async fn send(
 struct History {
     before: Option<String>,
     limit: Option<i64>,
+}
+async fn reply(
+    state: State<App>,
+    headers: HeaderMap,
+    Path(root): Path<String>,
+    input: Input<SendMessage>,
+) -> Result<Response> {
+    let actor = account(&state.0, &headers).await?;
+    let mut input = body(input)?;
+    if input
+        .reply_to
+        .as_ref()
+        .is_some_and(|parent| parent != &root)
+    {
+        return Err(Error::invalid());
+    }
+    let mut connection = state.0.pool.acquire().await?;
+    let room = crate::threads::root_room(&mut connection, &actor.id, &root).await?;
+    drop(connection);
+    input.reply_to = Some(root);
+    send(state, headers, Path(room), Ok(Json(input))).await
 }
 async fn thread(
     State(app): State<App>,

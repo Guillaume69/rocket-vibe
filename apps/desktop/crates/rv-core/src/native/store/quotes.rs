@@ -106,17 +106,33 @@ fn save_source(
             return Ok(());
         }
     }
+    // Keep source references, never private descendant copies inside a parent.
+    let stored = excerpt.map(|source| QuoteExcerpt {
+        author: source.author.clone(),
+        text: source.text.clone(),
+        created_at: source.created_at.clone(),
+        revision: source.revision.clone(),
+        membership_version: source.membership_version.clone(),
+        references: source.references.clone(),
+        quotes: vec![],
+    });
     tx.execute("INSERT INTO native_quote_sources(id,rid,membership,view_position,payload) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(id) DO UPDATE SET membership=excluded.membership,view_position=excluded.view_position,payload=excluded.payload",
-        params![id,rid,membership,view,excerpt.map(json).transpose()?])?;
+        params![id,rid,membership,view,stored.as_ref().map(json).transpose()?])?;
     Ok(())
 }
 
-fn source_view(tx: &Transaction, quote: &MessageQuote) -> rusqlite::Result<()> {
+fn source_view(tx: &Transaction, quote: &MessageQuote, depth: usize) -> rusqlite::Result<()> {
+    if depth > 2 {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
     let view = position(&quote.view_position)?;
     if view == 0 {
         return Ok(());
     } // Legacy prototypes supply no read authority.
     let reference = &quote.reference;
+    if !identifier(&reference.message_id) || !identifier(&reference.room_id) || position(&reference.revision)? == 0 {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
     let current = read_states::state_in(tx, &reference.room_id)?;
     let membership = current.as_ref().and_then(|s| s.membership_version.as_deref());
     if let Some(excerpt) = &quote.excerpt
@@ -128,6 +144,25 @@ fn source_view(tx: &Transaction, quote: &MessageQuote) -> rusqlite::Result<()> {
             || chrono::DateTime::parse_from_rfc3339(&excerpt.created_at).is_err())
     {
         return Err(rusqlite::Error::InvalidQuery);
+    }
+    if let Some(excerpt) = &quote.excerpt {
+        let mut ids = BTreeSet::new();
+        if excerpt.references.len() > 8
+            || excerpt.quotes.len() > 8
+            || depth == 2 && !excerpt.quotes.is_empty()
+            || excerpt.references.iter().any(|r| {
+                !identifier(&r.message_id)
+                    || !identifier(&r.room_id)
+                    || r.message_id == reference.message_id
+                    || !ids.insert(&r.message_id)
+                    || position(&r.revision).map_or(true, |n| n == 0)
+            })
+            || !excerpt.quotes.is_empty()
+                && excerpt.quotes.iter().map(|q| &q.reference).collect::<Vec<_>>()
+                    != excerpt.references.iter().collect::<Vec<_>>()
+        {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
     }
     if let Some(grant) = &quote.source_membership_version {
         if !identifier(grant) {
@@ -150,6 +185,11 @@ fn source_view(tx: &Transaction, quote: &MessageQuote) -> rusqlite::Result<()> {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         for id in ids {
             save_source(tx, &id, &reference.room_id, None, &quote.view_position, None)?;
+        }
+    }
+    if let Some(excerpt) = &quote.excerpt {
+        for child in &excerpt.quotes {
+            source_view(tx, child, depth + 1)?;
         }
     }
     save_source(
@@ -198,19 +238,21 @@ pub(super) fn project(tx: &Transaction, message: &Message, public_fresh: bool) -
     }
     if !message.deleted {
         for quote in &message.quotes {
-            source_view(tx, quote)?;
+            source_view(tx, quote, 1)?;
         }
     }
     // A received source edit/tombstone refreshes all cards that reference it.
     if let Some(grant) = read_states::state_in(tx, &message.room_id)?.and_then(|s| s.membership_version)
         && position(&message.revision)? > 0
     {
-        let excerpt = (!message.deleted).then(|| QuoteExcerpt {
+        let excerpt = (!message.deleted && message.system.is_none()).then(|| QuoteExcerpt {
             author: message.author.as_ref().clone(),
             text: message.text.chars().take(1024).collect(),
             created_at: message.created_at.clone(),
             revision: message.revision.clone(),
             membership_version: grant.clone(),
+            references: message.quotes.iter().map(|q| q.reference.clone()).collect(),
+            quotes: vec![],
         });
         save_source(tx, &message.id, &message.room_id, Some(&grant), &message.revision, excerpt.as_ref())?;
     }
@@ -225,29 +267,45 @@ pub(super) fn attachments(conn: &Connection, message: &str) -> rusqlite::Result<
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut cards = vec![];
     for reference in rows {
-        let source: Option<(Option<String>, Option<String>)> = conn
-            .query_row(
-                "SELECT membership,payload FROM native_quote_sources WHERE id=?1 AND rid=?2",
-                params![reference.message_id, reference.room_id],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()?;
-        let grant = read_states::state_in(conn, &reference.room_id)?.and_then(|s| s.membership_version);
-        let excerpt = source
-            .filter(|s| grant.is_some() && s.0 == grant)
-            .and_then(|s| s.1)
-            .map(|s| serde_json::from_str::<QuoteExcerpt>(&s).map_err(|_| rusqlite::Error::InvalidQuery))
-            .transpose()?;
-        let mut card =
-            value!({"message_link":"","native_reference":reference,"native_unavailable":excerpt.is_none(),"text":""});
-        if let Some(excerpt) = excerpt {
-            card["author_name"] = Value::String(excerpt.author.username);
-            card["md"] = value!(super::super::markdown::tree(&rv_protocol::markdown::parse(&excerpt.text)));
-            card["text"] = Value::String(excerpt.text);
-        }
-        cards.push(card);
+        cards.push(quote_card(conn, reference, 1, &[message])?);
     }
     if cards.is_empty() { Ok(None) } else { json(&cards).map(Some) }
+}
+
+fn quote_card(conn: &Connection, reference: QuoteReference, depth: usize, path: &[&str]) -> rusqlite::Result<Value> {
+    let source: Option<(Option<String>, Option<String>)> = conn
+        .query_row(
+            "SELECT membership,payload FROM native_quote_sources WHERE id=?1 AND rid=?2",
+            params![reference.message_id, reference.room_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let grant = read_states::state_in(conn, &reference.room_id)?.and_then(|s| s.membership_version);
+    let excerpt = source
+        .filter(|s| grant.is_some() && s.0 == grant && !path.contains(&reference.message_id.as_str()))
+        .and_then(|s| s.1)
+        .map(|s| serde_json::from_str::<QuoteExcerpt>(&s).map_err(|_| rusqlite::Error::InvalidQuery))
+        .transpose()?;
+    let mut card =
+        value!({"message_link":"","native_reference":reference,"native_unavailable":excerpt.is_none(),"text":""});
+    if let Some(excerpt) = excerpt {
+        if depth < 2 {
+            let mut next = path.to_vec();
+            next.push(&reference.message_id);
+            let children = excerpt
+                .references
+                .into_iter()
+                .map(|r| quote_card(conn, r, depth + 1, &next))
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            if !children.is_empty() {
+                card["attachments"] = value!(children);
+            }
+        }
+        card["author_name"] = Value::String(excerpt.author.username);
+        card["md"] = value!(super::super::markdown::tree(&rv_protocol::markdown::parse(&excerpt.text)));
+        card["text"] = Value::String(excerpt.text);
+    }
+    Ok(card)
 }
 
 #[cfg(test)]

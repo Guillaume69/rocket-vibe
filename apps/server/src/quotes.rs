@@ -22,6 +22,7 @@ struct Resolution {
     source_text: Option<String>,
     source_created_at: Option<chrono::DateTime<chrono::Utc>>,
     source_revision: Option<i64>,
+    source_references: Option<sqlx::types::Json<Vec<QuoteReference>>>,
 }
 impl Resolution {
     fn excerpt(&self) -> Option<QuoteExcerpt> {
@@ -35,6 +36,12 @@ impl Resolution {
             created_at: self.source_created_at?.to_rfc3339(),
             revision: self.source_revision?.to_string(),
             membership_version: self.membership_version.clone()?,
+            references: self
+                .source_references
+                .as_ref()
+                .map(|r| r.0.clone())
+                .unwrap_or_default(),
+            quotes: vec![],
         })
     }
 }
@@ -137,43 +144,73 @@ pub(crate) async fn personalize(
     // even for the send response's READ COMMITTED pooled connection. In
     // particular, a pre-join unavailable result cannot receive a post-join stamp.
     let resolutions = sqlx::query_as::<_, Resolution>(
-        "SELECT q.message_id,q.room_id,i.position AS view_position,s.membership_version,\
+        "WITH roots AS (\
+         SELECT m.quote_references FROM unnest($1::text[],$2::text[]) q(message_id,room_id) \
+         JOIN room_read_states s ON s.room_id=q.room_id AND s.user_id=$3 \
+         JOIN messages m ON m.id=q.message_id AND m.room_id=q.room_id AND NOT m.deleted AND m.system IS NULL), \
+         requested AS (SELECT * FROM unnest($1::text[],$2::text[]) q(message_id,room_id) UNION \
+         SELECT child->>'message_id',child->>'room_id' FROM roots CROSS JOIN LATERAL jsonb_array_elements(quote_references) child) \
+         SELECT q.message_id,q.room_id,i.position AS view_position,s.membership_version,\
          m.author_id AS source_author,u.username AS source_username,u.display_name AS source_display_name,\
-         left(m.text,1024) AS source_text,m.created_at AS source_created_at,m.revision AS source_revision \
-         FROM unnest($1::text[],$2::text[]) q(message_id,room_id) CROSS JOIN instance i \
+         left(m.text,1024) AS source_text,m.created_at AS source_created_at,m.revision AS source_revision,m.quote_references AS source_references \
+         FROM requested q CROSS JOIN instance i \
          LEFT JOIN room_read_states s ON s.room_id=q.room_id AND s.user_id=$3 \
          LEFT JOIN messages m ON m.id=q.message_id AND m.room_id=q.room_id AND NOT m.deleted AND m.system IS NULL AND s.membership_version IS NOT NULL \
          LEFT JOIN users u ON u.id=m.author_id WHERE i.singleton",
     ).bind(ids).bind(rooms).bind(user).fetch_all(&mut *conn).await?;
-    for quote in messages.iter_mut().flat_map(|m| &mut m.quotes) {
-        if let Some(resolution) = resolutions.iter().find(|s| {
-            s.message_id == quote.reference.message_id && s.room_id == quote.reference.room_id
-        }) {
-            quote.excerpt = resolution.excerpt().map(Box::new);
-            quote.view_position = resolution.view_position.to_string();
-            quote.source_membership_version = resolution.membership_version.clone();
+    for message in messages {
+        for quote in &mut message.quotes {
+            *quote = resolved(&quote.reference, &resolutions, 1);
         }
     }
     Ok(())
 }
 
+fn resolved(
+    reference: &QuoteReference,
+    rows: &[Resolution],
+    depth: usize,
+) -> rv_protocol::MessageQuote {
+    let row = rows
+        .iter()
+        .find(|s| s.message_id == reference.message_id && s.room_id == reference.room_id);
+    let mut excerpt = row.and_then(Resolution::excerpt);
+    if depth < 2
+        && let Some(source) = &mut excerpt
+    {
+        source.quotes = source
+            .references
+            .iter()
+            .map(|r| resolved(r, rows, depth + 1))
+            .collect();
+    }
+    rv_protocol::MessageQuote {
+        reference: reference.clone(),
+        excerpt: excerpt.map(Box::new),
+        view_position: row.map_or_else(|| "0".into(), |r| r.view_position.to_string()),
+        source_membership_version: row.and_then(|r| r.membership_version.clone()),
+    }
+}
+
 /// Delivery leases the destination and every included source membership, even
 /// when its source is deleted. A grant's absence includes no source authority.
 pub(crate) fn delivery_rooms(messages: &[Message]) -> Vec<String> {
-    messages
-        .iter()
-        .flat_map(|message| {
-            std::iter::once(message.room_id.clone()).chain(
-                message
-                    .quotes
-                    .iter()
-                    .filter(|q| q.excerpt.is_some() || q.source_membership_version.is_some())
-                    .map(|q| q.reference.room_id.clone()),
-            )
-        })
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect()
+    fn add(quotes: &[rv_protocol::MessageQuote], rooms: &mut BTreeSet<String>) {
+        for quote in quotes {
+            if quote.excerpt.is_some() || quote.source_membership_version.is_some() {
+                rooms.insert(quote.reference.room_id.clone());
+            }
+            if let Some(excerpt) = &quote.excerpt {
+                add(&excerpt.quotes, rooms);
+            }
+        }
+    }
+    let mut rooms = BTreeSet::new();
+    for message in messages {
+        rooms.insert(message.room_id.clone());
+        add(&message.quotes, &mut rooms);
+    }
+    rooms.into_iter().collect()
 }
 
 #[cfg(test)]

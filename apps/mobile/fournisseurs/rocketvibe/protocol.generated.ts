@@ -53,7 +53,7 @@ export type PrepareUpload = { "bytes": string; "encrypted": boolean; "filename"?
 export type PublicDeviceKey = { "device_id": string; "fingerprint": string; "format": string; "public_key": string; "revision": string; "user_id": string; };
 export type PublicRoom = { "joined": boolean; "room": Room; };
 export type PublicRoomPage = { "next"?: string | null; "rooms": (PublicRoom)[]; };
-export type QuoteExcerpt = { "author": User; "created_at": string; "membership_version": string; "revision": string; "text": string; };
+export type QuoteExcerpt = { "author": User; "created_at": string; "membership_version": string; "quotes"?: (MessageQuote)[]; "references"?: (QuoteReference)[]; "revision": string; "text": string; };
 export type QuoteReference = { "message_id": string; "revision": string; "room_id": string; };
 export type ReadState = { "favorite": boolean; "favorite_revision"?: string | null; "group_mentions": string; "membership_version"?: string | null; "mentions": string; "reply_position": string; "revision": string; "room_id": string; "root_position": string; "unread_replies": string; "unread_roots": string; };
 export type ReauthenticationContext = { "data_epoch": string; "device_id": string; "instance_id": string; "user_id": string; };
@@ -2520,6 +2520,20 @@ export const nativeSchema = {
         "membership_version": {
           "description": "Reader's current membership lifetime in the source room.",
           "type": "string"
+        },
+        "quotes": {
+          "description": "Reader-resolved children. Presentation stops at two quote levels.",
+          "items": {
+            "$ref": "#/$defs/MessageQuote"
+          },
+          "type": "array"
+        },
+        "references": {
+          "description": "Current source references, also present at the rendering depth limit.\nCaches keep these references separately from descendants' private text.",
+          "items": {
+            "$ref": "#/$defs/QuoteReference"
+          },
+          "type": "array"
         },
         "revision": {
           "description": "Current source revision, distinct from the author's observed revision.",

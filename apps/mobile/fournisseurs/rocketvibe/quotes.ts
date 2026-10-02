@@ -6,7 +6,7 @@ import {readDecimal,readState} from './readStates.ts';
 import {decodeNative} from './validation.ts';
 
 type SourceRow={rid:string;membership:string|null;view_position:string;payload:string|null};
-export type NativeQuoteAttachment={message_link:string;native_reference:QuoteReference;native_unavailable:boolean;text:string;author_name?:string};
+export type NativeQuoteAttachment={message_link:string;native_reference:QuoteReference;native_unavailable:boolean;text:string;author_name?:string;attachments?:NativeQuoteAttachment[]};
 export type NativeQuoteSelection={reference:QuoteReference;instance_id:string;data_epoch:string;membership_version:string};
 function position(value:string):bigint {
   const n=readDecimal(value);
@@ -49,14 +49,27 @@ export class NativeQuoteCache {
       const previous=position(old.view_position);
       if(next<previous || next===previous && (old.payload===null || excerpt!==null))return;
     }
-    await this.db.runAsync('INSERT INTO native_quote_sources(id,rid,membership,view_position,payload) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET membership=excluded.membership,view_position=excluded.view_position,payload=excluded.payload',[id,rid,membership,view,excerpt?JSON.stringify(excerpt):null]);
+    // Descendant text belongs only in its own membership-scoped source row.
+    const stored:QuoteExcerpt|null=excerpt?{author:{id:excerpt.author.id,username:excerpt.author.username,display_name:excerpt.author.display_name},text:excerpt.text,created_at:excerpt.created_at,revision:excerpt.revision,membership_version:excerpt.membership_version,references:excerpt.references??[],quotes:[]}:null;
+    await this.db.runAsync('INSERT INTO native_quote_sources(id,rid,membership,view_position,payload) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET membership=excluded.membership,view_position=excluded.view_position,payload=excluded.payload',[id,rid,membership,view,stored?JSON.stringify(stored):null]);
   }
-  private async view(quote:MessageQuote):Promise<void> {
+  private async view(quote:MessageQuote,depth=1):Promise<void> {
+    if(depth>2)throw new Error('Native quote depth exceeded');
     const stamp=quote.view_position??'0',watermark=position(stamp);
     if(watermark===0n)return; // Legacy prototypes supply no read authority.
     const r=quote.reference,current=await this.membership(r.room_id),grant=quote.source_membership_version??null;
+    if(!roomIdentifier(r.message_id) || !roomIdentifier(r.room_id) || position(r.revision)===0n)throw new Error('Invalid nested quote reference');
     const excerpt=quote.excerpt;
     if(excerpt && (grant!==excerpt.membership_version || position(excerpt.revision)===0n || position(excerpt.revision)>watermark || !roomIdentifier(excerpt.author.id) || Array.from(excerpt.text).length>1024 || !Number.isFinite(Date.parse(excerpt.created_at))))throw new Error('Invalid native quote excerpt');
+    if(excerpt){
+      const refs=excerpt.references??[],children=excerpt.quotes??[],ids=new Set<string>();
+      if(refs.length>8 || children.length>8 || depth===2 && children.length)throw new Error('Invalid nested quote bounds');
+      for(const ref of refs){
+        if(!roomIdentifier(ref.message_id) || !roomIdentifier(ref.room_id) || ref.message_id===r.message_id || ids.has(ref.message_id) || position(ref.revision)===0n)throw new Error('Invalid nested source references');
+        ids.add(ref.message_id);
+      }
+      if(children.length && (children.length!==refs.length || children.some((child,i)=>{const ref=refs[i];return child.reference.message_id!==ref.message_id || child.reference.room_id!==ref.room_id || child.reference.revision!==ref.revision;})))throw new Error('Mismatched nested quote references');
+    }
     if(grant!==null){
       if(!roomIdentifier(grant))throw new Error('Invalid native quote lifetime');
       if(current!==grant)return;
@@ -68,6 +81,7 @@ export class NativeQuoteCache {
       const sources=await this.db.getAllAsync<{id:string}>('SELECT id FROM native_quote_sources WHERE rid=?',[r.room_id]);
       for(const {id} of sources)await this.save(id,r.room_id,null,stamp,null);
     }
+    if(excerpt)for(const child of excerpt.quotes??[])await this.view(child,depth+1);
     await this.save(r.message_id,r.room_id,grant,stamp,excerpt??null);
   }
   async project(message:Message,publicFresh:boolean):Promise<void> {
@@ -90,7 +104,7 @@ export class NativeQuoteCache {
     if(!message.deleted)for(const quote of quotes)await this.view(quote);
     const grant=await this.membership(message.room_id);
     if(grant!==null && position(message.revision)>0n){
-      const excerpt:QuoteExcerpt|null=message.deleted?null:{author:message.author,text:Array.from(message.text).slice(0,1024).join(''),created_at:message.created_at,revision:message.revision,membership_version:grant};
+      const excerpt:QuoteExcerpt|null=message.deleted||message.system!=null?null:{author:message.author,text:Array.from(message.text).slice(0,1024).join(''),created_at:message.created_at,revision:message.revision,membership_version:grant,references:quotes.map(q=>q.reference),quotes:[]};
       await this.save(message.id,message.room_id,grant,message.revision,excerpt);
     }
     await this.refresh(new Set([message.room_id,...quotes.map(q=>q.reference.room_id)]),message.id);
@@ -98,12 +112,18 @@ export class NativeQuoteCache {
   private async attachments(id:string):Promise<string|null> {
     const refs=await this.db.getAllAsync<{source_id:string;source_room:string;observed_revision:string}>('SELECT source_id,source_room,observed_revision FROM native_quote_references WHERE message_id=? ORDER BY ordinal',[id]);
     const cards:NativeQuoteAttachment[]=[];
-    for(const r of refs){
-      const source=await this.db.getFirstAsync<SourceRow>('SELECT * FROM native_quote_sources WHERE id=? AND rid=?',[r.source_id,r.source_room]),grant=await this.membership(r.source_room);
-      const excerpt=grant!==null && source?.membership===grant && source.payload!==null?decodeNative('QuoteExcerpt',JSON.parse(source.payload)):null;
-      cards.push({message_link:'',native_reference:{message_id:r.source_id,room_id:r.source_room,revision:r.observed_revision},native_unavailable:excerpt===null,text:excerpt?.text??'',...(excerpt?{author_name:excerpt.author.username}:{})});
-    }
+    for(const r of refs)cards.push(await this.card({message_id:r.source_id,room_id:r.source_room,revision:r.observed_revision},1,[id]));
     return cards.length?JSON.stringify(cards):null;
+  }
+  private async card(reference:QuoteReference,depth:number,path:readonly string[]):Promise<NativeQuoteAttachment> {
+    const source=await this.db.getFirstAsync<SourceRow>('SELECT * FROM native_quote_sources WHERE id=? AND rid=?',[reference.message_id,reference.room_id]),grant=await this.membership(reference.room_id);
+    const excerpt=!path.includes(reference.message_id) && grant!==null && source?.membership===grant && source.payload!==null?decodeNative('QuoteExcerpt',JSON.parse(source.payload)):null;
+    const card:NativeQuoteAttachment={message_link:'',native_reference:reference,native_unavailable:excerpt===null,text:excerpt?.text??'',...(excerpt?{author_name:excerpt.author.username}:{})};
+    if(excerpt && depth<2 && excerpt.references?.length){
+      card.attachments=[];
+      for(const child of excerpt.references)card.attachments.push(await this.card(child,depth+1,[...path,reference.message_id]));
+    }
+    return card;
   }
   async refreshOrigin(rid:string):Promise<void> { await this.refresh(new Set([rid])); }
   /** Immutable references for an edit intent; never capture excerpt or access authority. */
@@ -115,7 +135,12 @@ export class NativeQuoteCache {
   private async refresh(rooms:Set<string>,own?:string):Promise<void> {
     const ids=new Set(own?[own]:[]),roomIds=[...rooms];
     if(roomIds.length){
-      const rows=await this.db.getAllAsync<{message_id:string}>(`SELECT DISTINCT message_id FROM native_quote_references WHERE source_room IN (${roomIds.map(()=>'?').join(',')})`,roomIds);
+      const placeholders=roomIds.map(()=>'?').join(',');
+      const rows=await this.db.getAllAsync<{message_id:string}>(`WITH RECURSIVE seeds(id) AS (
+        SELECT id FROM native_quote_sources WHERE rid IN (${placeholders}) UNION
+        SELECT s.id FROM native_quote_sources s,json_each(s.payload,'$.references') edge WHERE json_extract(edge.value,'$.room_id') IN (${placeholders})),
+        affected(id) AS (SELECT id FROM seeds UNION SELECT s.id FROM native_quote_sources s,json_each(s.payload,'$.references') edge JOIN affected a ON json_extract(edge.value,'$.message_id')=a.id)
+        SELECT DISTINCT message_id FROM native_quote_references WHERE source_room IN (${placeholders}) OR source_id IN (SELECT id FROM affected)`,[...roomIds,...roomIds,...roomIds]);
       for(const row of rows)ids.add(row.message_id);
     }
     for(const id of ids){

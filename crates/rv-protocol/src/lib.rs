@@ -357,6 +357,13 @@ pub struct QuoteExcerpt {
     pub revision: String,
     /// Reader's current membership lifetime in the source room.
     pub membership_version: String,
+    /// Current source references, also present at the rendering depth limit.
+    /// Caches keep these references separately from descendants' private text.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub references: Vec<parity::QuoteReference>,
+    /// Reader-resolved children. Presentation stops at two quote levels.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub quotes: Vec<MessageQuote>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

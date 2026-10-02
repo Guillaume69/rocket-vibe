@@ -139,11 +139,25 @@ final class NativeProviderTests: XCTestCase {
         await room.send()
         XCTAssertNil(room.pendingQuote)
         try await until { room.messages.contains { $0.text == "Swift native quote through the existing model" && $0.delivery == .sent && $0.quotes.count == 1 } }
+        let quoted = try XCTUnwrap(room.messages.first { $0.text == "Swift native quote through the existing model" && $0.delivery == .sent })
+        await room.quote(quoted)
+        room.draft = "Swift nested quote through the existing model"
+        await room.send()
+        try await until {
+            guard let nested = room.messages.first(where: { $0.text == "Swift nested quote through the existing model" && $0.delivery == .sent }),
+                  let leaf = nested.quotes.first?.quotes.first else { return false }
+            return leaf.body == latest.body
+        }
         await room.quote(latest)
         try await room.prepareMutation(latest, editing: false)
         try await room.delete(latest)
         try await until { !room.messages.contains { $0.id == message.id } }
         try await until { room.pendingQuote?.unavailable == true }
+        try await until {
+            guard let nested = room.messages.first(where: { $0.text == "Swift nested quote through the existing model" }),
+                  let parent = nested.quotes.first, let leaf = parent.quotes.first else { return false }
+            return !parent.unavailable && leaf.unavailable && leaf.body.isEmpty
+        }
         room.draft = "Words kept after losing the quoted source"
         await room.send()
         XCTAssertEqual(room.draft,"Words kept after losing the quoted source")

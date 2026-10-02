@@ -2418,6 +2418,20 @@
           "description": "Reader's current membership lifetime in the source room.",
           "type": "string"
         },
+        "quotes": {
+          "description": "Reader-resolved children. Presentation stops at two quote levels.",
+          "items": {
+            "$ref": "#/$defs/MessageQuote"
+          },
+          "type": "array"
+        },
+        "references": {
+          "description": "Current source references, also present at the rendering depth limit.\nCaches keep these references separately from descendants' private text.",
+          "items": {
+            "$ref": "#/$defs/QuoteReference"
+          },
+          "type": "array"
+        },
         "revision": {
           "description": "Current source revision, distinct from the author's observed revision.",
           "type": "string"

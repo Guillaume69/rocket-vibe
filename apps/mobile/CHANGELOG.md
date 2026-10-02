@@ -9,6 +9,9 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Citations natives imbriquées sur deux niveaux dans les cartes existantes.
+  Chaque source garde ses droits ; le retrait d'une source enfant efface son
+  texte privé sans masquer le parent encore accessible, même après redémarrage.
 - Créations, membres et changements de réglages affichés dans les lignes
   système existantes, en français ou anglais, sans créer de non-lus ni proposer
   d'actions de message sur ces événements.
@@ -30,7 +33,6 @@ release, et ses notes sont la section de la version ici.
   la source actualisent les citations dans les autres salons ; les anciennes
   réponses ne rétablissent pas un extrait supprimé. Migration SQLite additive et
   texte natif conservé, même s'il ressemble à un ancien préfixe Rocket.Chat.
-  L'envoi de citations reste désactivé jusqu'au raccordement des contrôles actuels.
 
 - Les messages natifs confirmés sont traduits vers les composants de rendu
   existants depuis un document typé commun avec le bureau. Les conventions de

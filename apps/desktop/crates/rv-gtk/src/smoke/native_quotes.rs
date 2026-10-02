@@ -165,9 +165,19 @@ async fn run(window: Rc<AppWindow>) {
     };
     let references = rv_core::content::quotes(reply.attachments.as_deref());
     check("native reference reaches the existing card", references.len() == 1 && references[0].text == source.text, ());
+    check(
+        "nested native reference reaches the existing card",
+        references.first().is_some_and(|q| q.quotes.first().is_some_and(|child| child.text == "GTK nested leaf")),
+        (),
+    );
     check("GTK clears a successfully queued selection", window.chat.composer().native_reply().is_none(), ());
     for _ in 0..80 {
-        if window.chat.room_list().row_widget(&reply.id).is_some_and(|widget| has_quote(&widget, &source.text)) {
+        if window
+            .chat
+            .room_list()
+            .row_widget(&reply.id)
+            .is_some_and(|widget| has_quote(&widget, &source.text) && has_quote(&widget, "GTK nested leaf"))
+        {
             break;
         }
         glib::timeout_future(Duration::from_millis(50)).await;
@@ -175,6 +185,11 @@ async fn run(window: Rc<AppWindow>) {
     check(
         "existing GTK card renders the native source",
         window.chat.room_list().row_widget(&reply.id).is_some_and(|widget| has_quote(&widget, &source.text)),
+        (),
+    );
+    check(
+        "existing GTK card renders the nested native source",
+        window.chat.room_list().row_widget(&reply.id).is_some_and(|widget| has_quote(&widget, "GTK nested leaf")),
         (),
     );
     window.chat.start_quote(source.clone().presentation(&rid, &session.info.user_id));
@@ -215,7 +230,9 @@ async fn run(window: Rc<AppWindow>) {
     let current = session.store.messages(&rid, 100).unwrap().into_iter().find(|m| m.id == reply.id).unwrap();
     check(
         "existing card marks a deleted source unavailable",
-        rv_core::content::quotes(current.attachments.as_deref()).first().is_some_and(|q| q.unavailable),
+        rv_core::content::quotes(current.attachments.as_deref())
+            .first()
+            .is_some_and(|q| q.unavailable && q.quotes.is_empty()),
         (),
     );
     window.chat.composer().clear_reply();

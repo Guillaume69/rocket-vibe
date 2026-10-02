@@ -196,6 +196,150 @@ fn assert_quote_view(message: &rv_protocol::Message, allowed: bool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn nested_quotes_resolve_each_grant_bound_depth_and_keep_shared_journal_reference_only(
+    pool: PgPool,
+) {
+    let q = QuoteBench::start(pool).await;
+    let initial = q.reader.snapshot().await.unwrap();
+    let middle = q
+        .reader
+        .send(&q.destination, &q.input("nested-middle", "Visible middle"))
+        .await
+        .unwrap();
+    let reference = |message: &rv_protocol::Message| rv_protocol::parity::QuoteReference {
+        room_id: message.room_id.clone(),
+        message_id: message.id.clone(),
+        revision: message.revision.clone(),
+    };
+    let outer = q
+        .reader
+        .send(
+            &q.destination,
+            &SendMessage {
+                operation_id: "nested-outer".into(),
+                text: "Outer".into(),
+                quotes: vec![reference(&middle)],
+            },
+        )
+        .await
+        .unwrap();
+    let parent = outer.quotes[0].excerpt.as_ref().unwrap();
+    assert_eq!(parent.text, "Visible middle");
+    assert_eq!(parent.references, vec![q.reference()]);
+    assert_eq!(
+        parent.quotes[0].excerpt.as_ref().unwrap().text,
+        q.source.text
+    );
+    assert_eq!(
+        parent.quotes[0].view_position,
+        outer.quotes[0].view_position
+    );
+    let outsider = q.outsider.message(&outer.id).await.unwrap();
+    let parent = outsider.quotes[0].excerpt.as_ref().unwrap();
+    assert_eq!(parent.text, "Visible middle");
+    assert!(
+        parent.quotes[0].excerpt.is_none() && parent.quotes[0].source_membership_version.is_none()
+    );
+    assert!(
+        !serde_json::to_string(&outsider)
+            .unwrap()
+            .contains(&q.source.text)
+    );
+    for read in [
+        q.reader.message(&outer.id).await.unwrap(),
+        q.reader
+            .history(&q.destination, None)
+            .await
+            .unwrap()
+            .messages
+            .into_iter()
+            .find(|m| m.id == outer.id)
+            .unwrap(),
+        q.reader
+            .snapshot()
+            .await
+            .unwrap()
+            .messages
+            .into_iter()
+            .find(|m| m.id == outer.id)
+            .unwrap(),
+    ] {
+        assert_eq!(
+            read.quotes[0].excerpt.as_ref().unwrap().quotes[0]
+                .excerpt
+                .as_ref()
+                .unwrap()
+                .text,
+            q.source.text
+        );
+    }
+    let batch = q.reader.changes(&initial.cursor).await.unwrap();
+    let synced = batch
+        .changes
+        .into_iter()
+        .find_map(|c| match c {
+            rv_protocol::Change::MessageUpsert(m) if m.id == outer.id => Some(m),
+            _ => None,
+        })
+        .unwrap();
+    assert!(
+        synced.quotes[0].excerpt.as_ref().unwrap().quotes[0]
+            .excerpt
+            .is_some()
+    );
+    let third = q
+        .reader
+        .send(
+            &q.destination,
+            &SendMessage {
+                operation_id: "nested-third".into(),
+                text: "Third".into(),
+                quotes: vec![reference(&outer)],
+            },
+        )
+        .await
+        .unwrap();
+    let terminal = third.quotes[0].excerpt.as_ref().unwrap().quotes[0]
+        .excerpt
+        .as_ref()
+        .unwrap();
+    assert_eq!(terminal.text, "Visible middle");
+    assert!(terminal.quotes.is_empty());
+    assert_eq!(terminal.references, vec![q.reference()]);
+    let journal: Vec<serde_json::Value> =
+        sqlx::query_scalar("SELECT change FROM journal WHERE room_id=$1")
+            .bind(&q.destination)
+            .fetch_all(&q.b.app.pool)
+            .await
+            .unwrap();
+    assert!(
+        !serde_json::to_string(&journal)
+            .unwrap()
+            .contains(&q.source.text)
+    );
+    assert_eq!(
+        q.b.request(
+            Method::DELETE,
+            &q.token,
+            &format!("/api/v1/rooms/{}/members/{}", q.source.room_id, q.reader_id),
+            json!({})
+        )
+        .await
+        .status(),
+        StatusCode::NO_CONTENT
+    );
+    let withdrawn = q.reader.message(&outer.id).await.unwrap();
+    let parent = withdrawn.quotes[0].excerpt.as_ref().unwrap();
+    assert_eq!(parent.text, "Visible middle");
+    assert!(parent.quotes[0].excerpt.is_none());
+    assert!(
+        !serde_json::to_string(&withdrawn)
+            .unwrap()
+            .contains(&q.source.text)
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn quotes_resolve_per_reader_in_every_read_without_private_journal_excerpts(pool: PgPool) {
     let q = QuoteBench::start(pool).await;
     let initial_reader = q.reader.snapshot().await.unwrap();

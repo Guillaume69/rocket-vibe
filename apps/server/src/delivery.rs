@@ -575,6 +575,79 @@ mod tests {
     }
 
     #[sqlx::test]
+    async fn nested_source_revocation_waits_for_the_existing_http_delivery_lease(pool: PgPool) {
+        let (f, middle) = quoted_fixture(pool).await;
+        let outer = store::send(
+            &f.app,
+            &f.reader,
+            &middle.room_id,
+            SendMessage {
+                operation_id: "nested-quote-lease".into(),
+                text: "Outer".into(),
+                quotes: vec![rv_protocol::parity::QuoteReference {
+                    room_id: middle.room_id.clone(),
+                    message_id: middle.id,
+                    revision: middle.revision,
+                }],
+            },
+        )
+        .await
+        .unwrap();
+        let payload = crate::message_actions::read(&f.app, &f.reader, &outer.id)
+            .await
+            .unwrap();
+        assert_eq!(
+            payload.quotes[0].excerpt.as_ref().unwrap().quotes[0]
+                .excerpt
+                .as_ref()
+                .unwrap()
+                .text,
+            "Private quote bytes"
+        );
+        let proof = ReadProof::capture(&f.app, &f.reader, Scope::All)
+            .await
+            .unwrap();
+        let response = proof
+            .json(
+                &f.app,
+                &f.hash,
+                &payload,
+                &crate::quotes::delivery_rooms(std::slice::from_ref(&payload)),
+                None,
+            )
+            .await
+            .unwrap();
+        let app = f.app.clone();
+        let owner = f.owner.clone();
+        let source = f.room.id.clone();
+        let reader = f.reader.id.clone();
+        let mut revoke =
+            tokio::spawn(
+                async move { store::membership(&app, &owner, &source, &reader, true).await },
+            );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), &mut revoke)
+                .await
+                .is_err(),
+            "nested source revocation crossed a leased body"
+        );
+        drop(response);
+        tokio::time::timeout(Duration::from_secs(3), revoke)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let withdrawn = crate::message_actions::read(&f.app, &f.reader, &outer.id)
+            .await
+            .unwrap();
+        assert!(
+            withdrawn.quotes[0].excerpt.as_ref().unwrap().quotes[0]
+                .excerpt
+                .is_none()
+        );
+    }
+
+    #[sqlx::test]
     async fn room_metadata_and_roster_reject_stale_payloads_including_aba(pool: PgPool) {
         let f = fixture(pool).await;
         let proof = ReadProof::capture(&f.app, &f.reader, Scope::Room(&f.room.id))

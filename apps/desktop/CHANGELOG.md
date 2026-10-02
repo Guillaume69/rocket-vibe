@@ -9,6 +9,9 @@ section here.
 
 ### Fixed
 
+- Native quotes render two levels in the existing GTK and SwiftUI cards.
+  Each source keeps its own access checks; removing a nested source clears its
+  private text without hiding a still accessible parent.
 - Native room activity uses the existing translated system rows in GTK and
   SwiftUI. Membership and settings changes stay out of unread badges and
   message actions.

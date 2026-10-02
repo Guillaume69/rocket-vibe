@@ -24,8 +24,8 @@ function initial():Snapshot {
   reply.quotes=[{reference:{room_id:source.room_id,message_id:source.id,revision:source.revision},view_position:'20',source_membership_version:'source-grant',excerpt:{author:source.author,text:source.text,created_at:source.created_at,revision:source.revision,membership_version:'source-grant'}}];
   return {protocol_version:1,rooms:[room('origin'),room('destination','1','destination-grant')],messages:[source,reply],cursor:'initial'};
 }
-function setup() {
-  const harness=nativeTestDatabase();return {...harness,store:new NativeStore(harness.adapter,creerFileEcritures(),session)};
+function setup(filename?:string,initialize=true) {
+  const harness=nativeTestDatabase(filename,initialize);return {...harness,store:new NativeStore(harness.adapter,creerFileEcritures(),session)};
 }
 async function cards(h:ReturnType<typeof setup>):Promise<NativeQuoteAttachment[]> {
   const row=await h.adapter.getFirstAsync<{pieces_jointes:string|null}>('SELECT pieces_jointes FROM messages WHERE id=?',['reply']);
@@ -36,6 +36,30 @@ async function unavailable(h:ReturnType<typeof setup>) {
   const values=await cards(h);assert.equal(values.length,1);assert.equal(values[0].native_unavailable,true);assert.equal(values[0].text,'');assert.equal(values[0].author_name,undefined);
 }
 function batch(changes:SyncBatch['changes']):SyncBatch {return {protocol_version:1,changes,cursor:'next',has_more:false};}
+
+test('nested cards keep independent source grants and never retain descendant text inside their parent',async()=>{
+  const directory=mkdtempSync(join(tmpdir(),'rv-nested-quotes-')),filename=join(directory,'cache.sqlite');
+  let h=setup(filename);try{
+    const snapshot=initial(),parent=snapshot.messages[0],reply=snapshot.messages[1];
+    const leaf=message('leaf','leaf-room','25','Nested private leaf');
+    parent.revision='26';parent.position='26';reply.revision='30';reply.position='30';
+    const child={reference:{room_id:leaf.room_id,message_id:leaf.id,revision:leaf.revision},view_position:'40',source_membership_version:'leaf-grant',excerpt:{author:leaf.author,text:leaf.text,created_at:leaf.created_at,revision:leaf.revision,membership_version:'leaf-grant'}};
+    parent.quotes=[child];reply.quotes![0].reference.revision='26';reply.quotes![0].view_position='40';
+    Object.assign(reply.quotes![0].excerpt!,{revision:'26',references:[child.reference],quotes:[child]});
+    snapshot.rooms.push(room('leaf-room','1','leaf-grant'));snapshot.messages.unshift(leaf);
+    await h.store.applySnapshot(snapshot);
+    const tree=(await cards(h))[0];assert.equal(tree.attachments?.[0].text,leaf.text);
+    const raw=h.db.prepare("SELECT payload FROM native_quote_sources WHERE id='source'").get()!.payload as string;
+    assert.ok(!raw.includes(leaf.text),'parent cache may keep references but no private descendant copy');
+    await h.store.applyBatch(batch([{type:'room_removed',data:{room_id:'leaf-room'}}]));
+    const hidden=(await cards(h))[0];assert.equal(hidden.text,parent.text);assert.equal(hidden.attachments?.[0].native_unavailable,true);assert.equal(hidden.attachments?.[0].text,'');
+    assert.ok(!JSON.stringify(h.db.prepare('SELECT payload FROM native_quote_sources').all()).includes(leaf.text));
+    await h.store.ingest([reply]);assert.equal((await cards(h))[0].attachments?.[0].native_unavailable,true);
+    assert.ok(!JSON.stringify(h.db.prepare('SELECT payload FROM native_quote_sources').all()).includes(leaf.text));
+    h.db.close();h=setup(filename,false);assert.equal((await cards(h))[0].attachments?.[0].native_unavailable,true);
+    assert.equal((await h.store.state())?.cursor,'next');
+  }finally{h.db.close();unlinkSync(filename);rmdirSync(directory);}
+});
 
 test('mobile quoted outbox keeps the body and existing cards after source loss, restart and reset',async()=>{
   const dir=mkdtempSync(join(tmpdir(),'rv-quoted-outbox-')),filename=join(dir,'cache.sqlite');

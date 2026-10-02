@@ -1,11 +1,11 @@
 # Citations natives — P07
 
-Les références plates, leur résolution côté serveur, les caches bureau commun
+Les références, leur résolution côté serveur, les caches bureau commun
 GTK / SwiftUI et mobile, et les corps d'intention durables sont livrés. La capacité
 `quotes` active les actions de réponse des trois interfaces existantes : cartes,
-menus, bandeaux et composeurs sont réutilisés. Citations imbriquées, fichiers cités
-et qualification des applications installées restent ouverts ; ce lot ne ferme
-pas P07.
+menus, bandeaux et composeurs sont réutilisés, y compris les citations imbriquées
+sur deux niveaux. Fichiers cités et qualification des applications installées
+restent ouverts ; ce lot ne ferme pas P07.
 
 ## Commandes et reçus
 
@@ -42,6 +42,15 @@ le salon source. La référence conserve la révision observée lors de la séle
 L'extrait suit le contenu actuel ; une ancienne copie du texte n'est pas conservée
 dans le message de réponse. Les références ne déclenchent aucune mention.
 
+L'extrait porte aussi les `references` actuelles de sa source et les `quotes`
+résolues pour ce lecteur. Les deux listes sont additives et vides par défaut.
+Le serveur résout au plus deux niveaux, avec huit références par source : une
+réponse porte au plus huit extraits directs et soixante-quatre enfants. Le niveau
+terminal conserve les références de sa source mais aucun extrait supplémentaire.
+Chaque enfant possède sa propre position et son propre droit d'accès ; lire la
+source parente ne donne pas accès à ses citations privées. Un parent inaccessible
+ne divulgue aucune référence enfant. Les messages système ne sont pas citables.
+
 Chaque résolution porte une `view_position`, chaîne décimale exacte du journal
 d'instance, même quand l'extrait est absent. La source, l'adhésion et cette position
 sont lus dans une seule vue SQL. `source_membership_version` est présent si le
@@ -77,6 +86,14 @@ nouvelle adhésion purge les extraits de l'origine dans les autres salons ; le
 jeton de projection existant écarte les anciens appels HTTP. Une absence d'adhésion
 datée avant la nouvelle adhésion ne purge pas ses données. Un reset de snapshot
 reconstruit les extraits pour ne pas conserver une suppression manquée.
+
+Une ligne source garde seulement son extrait et ses références ; elle ne garde
+jamais de copie du texte de ses descendants. Les cartes imbriquées sont rebâties
+depuis les lignes source, avec contrôle de chaque adhésion, limite de profondeur
+et coupure des cycles. Le cache mobile actualise aussi les réponses dépendant
+indirectement d'une source modifiée ou retirée, dans la transaction existante.
+Les charges source conservées après un retrait ne contiennent donc aucun texte
+privé descendant, et une réponse tardive ne le restaure pas après réouverture.
 
 Les fournisseurs projettent les références et vues autorisées vers les pièces locales
 déjà consommées par `content::quotes`, les modèles Swift et le composant mobile
@@ -159,6 +176,6 @@ traverser les vrais caches mobile / desktop et les modèles Swift.
 Les commandes durables d'édition conservent maintenant les références ; le
 raccordement de l'envoi depuis les contrôles de réponse existants est livré.
 
-Les citations imbriquées, fichiers cités et aperçus protégés restent à raccorder
-avec leur contrôle d'accès ; les fichiers sont liés à J3. Les essais installés
+Les fichiers cités et aperçus protégés restent à raccorder avec leur contrôle
+d'accès dans J3. Les essais installés
 Android / macOS / Windows restent ouverts. Ces lots ne clôturent pas P07.

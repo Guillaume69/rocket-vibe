@@ -319,6 +319,21 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P07, citations imbriquées (3 octobre 2026) : résolution personnalisée sur deux
+  niveaux, huit références par source, droit et position propres à chaque enfant.
+  Le journal partagé reste constitué de références ; une source parente ne
+  conserve aucune copie privée descendante. Les caches bureau / mobile réutilisent
+  les cartes existantes, coupent les cycles et actualisent les dépendances
+  indirectes après édition, suppression ou retrait. Une réponse tardive ne
+  restaure pas le texte retiré, même après réouverture du cache mobile.
+  Vérifications : 205 tests serveur / protocole, 357 tests bureau et 1 185 tests
+  mobiles ; formatage, Clippy, typecheck, lint, schéma généré et inventaire passent.
+  Le vrai composeur / widget GTK passe 15 contrôles. Le parcours des modèles
+  Swift connectés à PostgreSQL / trousseau vérifie l'envoi imbriqué puis la purge
+  du seul enfant supprimé (un test exécuté, aucun saut).
+  Contrat : [citations natives](protocol/QUOTES.md). Les fichiers cités et
+  les essais sur applications installées restent ouverts ; P07 n'est pas clos.
+
 - P07, activité structurée des salons (3 octobre 2026) : création, membres,
   réglages et rôles publiés dans la transaction de leur action ; rejeux sans
   doublon, compteurs sans activité système, actions de message refusées.

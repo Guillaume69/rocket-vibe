@@ -52,6 +52,8 @@ fn initial() -> Snapshot {
             created_at: source.created_at.clone(),
             revision: source.revision.clone(),
             membership_version: "source-grant".into(),
+            references: vec![],
+            quotes: vec![],
         })),
         view_position: "20".into(),
         source_membership_version: Some("source-grant".into()),
@@ -67,6 +69,68 @@ fn store() -> NativeStore {
     let store = NativeStore::open(Path::new(":memory:"), identity("epoch")).unwrap();
     store.snapshot(&initial()).unwrap();
     store
+}
+
+#[test]
+fn nested_cards_use_each_grant_and_parents_keep_no_private_descendant_copy() {
+    let store = NativeStore::open(Path::new(":memory:"), identity("epoch")).unwrap();
+    let mut snapshot = initial();
+    let leaf = message("leaf", "leaf-room", "25", "Nested private leaf");
+    let reference =
+        QuoteReference { room_id: leaf.room_id.clone(), message_id: leaf.id.clone(), revision: leaf.revision.clone() };
+    let child = MessageQuote {
+        reference: reference.clone(),
+        view_position: "40".into(),
+        source_membership_version: Some("leaf-grant".into()),
+        excerpt: Some(Box::new(QuoteExcerpt {
+            author: leaf.author.as_ref().clone(),
+            text: leaf.text.clone(),
+            created_at: leaf.created_at.clone(),
+            revision: leaf.revision.clone(),
+            membership_version: "leaf-grant".into(),
+            references: vec![],
+            quotes: vec![],
+        })),
+    };
+    snapshot.messages[0].revision = "26".into();
+    snapshot.messages[0].position = "26".into();
+    snapshot.messages[0].quotes = vec![child.clone()];
+    let reply = &mut snapshot.messages[1];
+    reply.revision = "30".into();
+    reply.position = "30".into();
+    reply.quotes[0].reference.revision = "26".into();
+    reply.quotes[0].view_position = "40".into();
+    let parent = reply.quotes[0].excerpt.as_mut().unwrap();
+    parent.revision = "26".into();
+    parent.references = vec![reference];
+    parent.quotes = vec![child];
+    let stale = reply.clone();
+    snapshot.rooms.push(room("leaf-room", "1", "leaf-grant"));
+    snapshot.messages.insert(0, leaf.clone());
+    store.snapshot(&snapshot).unwrap();
+    assert_eq!(cards(&store)[0].quotes[0].text, leaf.text);
+    let raw: String = store
+        .conn
+        .lock()
+        .unwrap()
+        .query_row("SELECT payload FROM native_quote_sources WHERE id='source'", [], |r| r.get(0))
+        .unwrap();
+    assert!(!raw.contains(&leaf.text));
+    store.batch(&batch(vec![Change::RoomRemoved { room_id: "leaf-room".into() }])).unwrap();
+    assert!(!cards(&store)[0].unavailable && cards(&store)[0].quotes[0].unavailable);
+    store.ingest(&[stale]).unwrap();
+    assert!(cards(&store)[0].quotes[0].unavailable);
+    let raw: Vec<String> = store
+        .conn
+        .lock()
+        .unwrap()
+        .prepare("SELECT payload FROM native_quote_sources WHERE payload IS NOT NULL")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert!(raw.iter().all(|row| !row.contains(&leaf.text)));
 }
 fn cards(store: &NativeStore) -> Vec<crate::content::Quote> {
     let row = store.selected_messages(&["reply".into()]).unwrap().pop().unwrap().presentation("destination", "self");

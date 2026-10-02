@@ -8,5 +8,6 @@ const previous=(await client.snapshot()).rooms.find(room=>room.name===name);
 const room=previous??await client.createRoom({operation_id:randomUUID(),name,private:true});
 const details=await client.roomDetails(room.id);
 await client.updateRoom(room.id,{operation_id:randomUUID(),expected_revision:details.revision,name,private:true,read_only:false,topic:`GTK native system topic ${randomUUID()}`,description:details.description,announcement:details.announcement});
-await client.send(room.id,{operation_id:randomUUID(),text:'GTK quote source'});
+const leaf=await client.send(room.id,{operation_id:randomUUID(),text:'GTK nested leaf'});
+await client.send(room.id,{operation_id:randomUUID(),text:'GTK quote source',quotes:[{room_id:room.id,message_id:leaf.id,revision:leaf.revision}]});
 console.log('Existing GTK quote composer fixture ready');

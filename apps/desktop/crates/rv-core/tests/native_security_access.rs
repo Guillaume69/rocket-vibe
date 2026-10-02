@@ -8,7 +8,9 @@ use rv_core::{
     },
     session::{Connection, SessionInfo},
 };
-use rv_protocol::parity::{BeginEmailVerification, BeginFactorSetup, RemoveVerifiedEmail, RequestFactorEmail};
+use rv_protocol::parity::{
+    BeginEmailVerification, BeginFactorSetup, ChangeEmailFactor, RemoveVerifiedEmail, RequestFactorEmail,
+};
 use serde_json::json;
 use std::{
     sync::{
@@ -62,6 +64,9 @@ async fn access_fences_late_results_reconnections_capabilities_and_context() {
     let delivery = Arc::new(AtomicBool::new(true));
     let otp_starts = Arc::new(AtomicUsize::new(0));
     let otp_reads = Arc::new(AtomicUsize::new(0));
+    let profiles = Arc::new(AtomicBool::new(true));
+    let profile_writes = Arc::new(AtomicUsize::new(0));
+    let (profile_capable, profile_changes) = (profiles.clone(), profile_writes.clone());
     let (delivery_enabled, delivery_starts, delivery_reads) = (delivery.clone(), otp_starts.clone(), otp_reads.clone());
     let (contact_enabled, contact_writes) = (removals.clone(), email_writes.clone());
     let epoch_changed = Arc::new(AtomicBool::new(false));
@@ -84,6 +89,7 @@ async fn access_fences_late_results_reconnections_capabilities_and_context() {
             discovery["capabilities"]["email_verification"] = json!(false);
             discovery["capabilities"]["email_removal"] = json!(contact_enabled.load(Ordering::SeqCst));
             discovery["capabilities"]["email_factor_delivery"] = json!(delivery_enabled.load(Ordering::SeqCst));
+            discovery["capabilities"]["email_factors"] = json!(profile_capable.load(Ordering::SeqCst));
             if epoch.load(Ordering::SeqCst) { discovery["data_epoch"] = json!("changed-epoch"); }
             respond(200, &discovery.to_string())
         }
@@ -118,6 +124,11 @@ async fn access_fences_late_results_reconnections_capabilities_and_context() {
             if request.path().ends_with("/start") { delivery_starts.fetch_add(1, Ordering::SeqCst); }
             else { delivery_reads.fetch_add(1, Ordering::SeqCst); }
             respond(200, &json!({"expires_at":"2026-10-01T12:00:00Z","delivery":"accepted","resend_after_seconds":0}).to_string())
+        }
+        "/api/v1/me/factors/email/enable" | "/api/v1/me/factors/email/disable" => {
+            assert!(request.headers.contains_key("authorization"), "Factor change keeps the initiating family");
+            profile_changes.fetch_add(1, Ordering::SeqCst);
+            respond(409, r#"{"code":"operation_conflict","request_id":"fixture"}"#)
         }
         _ => respond(404, r#"{"code":"not_found","request_id":"fixture"}"#),
     }).await;
@@ -187,6 +198,18 @@ async fn access_fences_late_results_reconnections_capabilities_and_context() {
     assert_eq!(otp_reads.load(Ordering::SeqCst), 1);
     assert!(session.security_supported() && !session.factors_supported());
     assert!(session.email_supported() && session.email_removal_supported() && !session.email_verification_supported());
+    assert!(session.email_factors_supported());
+    let profile = ChangeEmailFactor {
+        operation_id: "e".repeat(64),
+        email_version: "contact".into(),
+        factor_version: None,
+        context: live.scope().context(),
+    };
+    assert_eq!(live.change_email_factor(profile.clone(), false).await.err().unwrap().code(), "operation_conflict");
+    assert_eq!(profile_writes.load(Ordering::SeqCst), 1);
+    profiles.store(false, Ordering::SeqCst);
+    assert_eq!(live.change_email_factor(profile, true).await.err().unwrap().code(), "unsupported_feature");
+    assert_eq!(profile_writes.load(Ordering::SeqCst), 1);
     let contact = EmailRemote::status(&live).await.unwrap();
     assert_eq!(contact.address.as_deref(), Some("owner@example.org"));
     let removal = RemoveVerifiedEmail {

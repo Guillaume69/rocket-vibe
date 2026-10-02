@@ -102,7 +102,7 @@ function SecuriteNative({c,chat,reauthOnly=false,onConfirmed}:{c:Couleurs;chat:N
       if(result.kind==='ready' && guard())await updateEmail(access,guard);
     });
   };
-  const sendProofEmail=(resend=false)=>{const expected=proof;
+  const sendProofEmail=(resend=false)=>{const expected=proof;setCode('');
     if(expected.kind==='challenge')void run(async(access,guard)=>{
       const result=await nativeReauthenticationVault.sendEmail(expected.attempt,access.remote.proof,resend,guard);
       acceptProof(result,guard);
@@ -167,7 +167,7 @@ function SecuriteNative({c,chat,reauthOnly=false,onConfirmed}:{c:Couleurs;chat:N
     <Text style={[styles.heading,{color:c.attenue}]}>{t('security.title')}</Text>
     <View style={[styles.card,{backgroundColor:c.carteProfonde,borderColor:c.bordure}]}>
       {busy && <ActivityIndicator color={c.accent}/>}
-      {factorAvailable && factor && <Text style={[styles.text,{color:c.texte}]}>{t(factor.totp?'security.enabled':'security.disabled')}{factor.totp?` · ${t('security.remaining',{n:factor.backup_codes_remaining})}`:''}</Text>}
+      {factorAvailable && factor && <Text style={[styles.text,{color:c.texte}]}>{t(factor.totp || factor.email?'security.enabled':'security.disabled')}{factor.totp || factor.email?` · ${t('security.remaining',{n:factor.backup_codes_remaining})}`:''}</Text>}
       {proof.kind==='ready' ? <Text style={[styles.text,{color:c.texteSecondaire}]}>{t('security.ready')}</Text> : <>
         <Text style={[styles.text,{color:c.texteSecondaire}]}>{t('security.required')}</Text>
         {proof.kind==='password' && <>
@@ -205,7 +205,8 @@ function SecuriteNative({c,chat,reauthOnly=false,onConfirmed}:{c:Couleurs;chat:N
       </>}
       {factorAvailable && view.kind==='stale' && <><Text style={[styles.text,{color:c.texteSecondaire}]}>{t('security.stale')}</Text><Action c={c} label="security.discard" onPress={acknowledge} disabled={busy}/></>}
       {factorAvailable && view.kind==='idle' && factor && <>
-        {factor.totp? <><Action c={c} label="security.regenerate" onPress={()=>confirm('regenerate')} disabled={busy}/><Action c={c} label="security.disable" onPress={()=>confirm('disable')} disabled={busy}/></> : <Action c={c} label="security.setup" onPress={()=>start('setup')} disabled={busy}/>}
+        {(factor.totp || factor.email) && <Action c={c} label="security.regenerate" onPress={()=>confirm('regenerate')} disabled={busy}/>}
+        {factor.totp? <Action c={c} label="security.disable" onPress={()=>confirm('disable')} disabled={busy}/> : <Action c={c} label="security.setup" onPress={()=>start('setup')} disabled={busy}/>}
       </>}
       {emailAvailable && emailView && <>
         <Text style={[styles.text,{color:c.texte}]}>{t('email.title')}</Text>

@@ -34,7 +34,7 @@ function address(value:string):string {
   if(value.length>254 || at<1 || at===value.length-1 || /[^\x21-\x7e]/.test(value))throw new NativeError(400,'invalid_email_address');
   return value.slice(0,at+1)+value.slice(at+1).toLowerCase();
 }
-function statusFor(scope:SecurityScope,value:EmailStatus):ContactStatus {
+export function statusFor(scope:SecurityScope,value:EmailStatus):ContactStatus {
   const status=decodeNative('EmailStatus',value);
   checkSecurityScope(scope,status.context);
   const contact=status.address??null,verified=status.verified_at??null;

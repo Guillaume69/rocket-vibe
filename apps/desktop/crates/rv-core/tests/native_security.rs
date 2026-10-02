@@ -1,7 +1,9 @@
 use rv_core::native::{
     Error,
     authentication_vault::{Storage, StorageFuture},
-    security::{FactorAction, FactorState, Guard, ProofState, Remote, RemoteFuture, Scope, Vault},
+    security::{
+        EmailFactorExpectation, FactorAction, FactorState, Guard, ProofState, Remote, RemoteFuture, Scope, Vault,
+    },
 };
 use rv_protocol::parity::*;
 use serde_json::json;
@@ -91,6 +93,195 @@ fn context() -> ReauthenticationContext {
 fn scope() -> Scope {
     Scope::new("https://example.org", context()).unwrap()
 }
+async fn email_approval(server: &Server, enabled: bool) -> EmailFactorExpectation {
+    EmailFactorExpectation {
+        contact: server.contact_status().await.unwrap(),
+        factors: server.factor_status().await.unwrap(),
+        enabled,
+    }
+}
+#[tokio::test]
+async fn email_enrollment_and_last_profile_removal_recover_the_same_private_operation() {
+    let temp = Temp::new();
+    let memory = Arc::new(Memory::default());
+    let server = Server::new(memory.clone());
+    server.email_available.store(true, Ordering::SeqCst);
+    let vault = Vault::new(temp.0.clone(), memory.clone());
+    let guard = Guard::new();
+    let approved = email_approval(&server, true).await;
+    server.lose_enable.store(true, Ordering::SeqCst);
+    assert_eq!(
+        vault.factor_email_start(&scope(), &server, &approved, &guard).await.err().unwrap().code(),
+        "connection_failed"
+    );
+    server.email_available.store(false, Ordering::SeqCst);
+    let other = Vault::new(temp.0.clone(), memory.clone());
+    let family = scope();
+    let (a, b) =
+        tokio::join!(vault.factor_resume(&family, &server, &guard), other.factor_resume(&family, &server, &guard));
+    let FactorState::Codes { receipt_id, codes } = a.unwrap() else { panic!() };
+    let FactorState::Codes { codes: second, .. } = b.unwrap() else { panic!() };
+    assert!(codes.codes == second.codes && codes.factor_version == second.factor_version);
+    assert_eq!(server.changes.load(Ordering::SeqCst), 1);
+    assert_eq!(codes.codes.len(), 10);
+    assert!(matches!(
+        vault.factor_email_start(&scope(), &server, &email_approval(&server, false).await, &guard).await.unwrap(),
+        FactorState::Codes { .. }
+    ));
+    assert_eq!(server.changes.load(Ordering::SeqCst), 1);
+    assert!(!vault.factor_clear(&scope(), "another-receipt", &guard).await.unwrap());
+    assert!(vault.factor_clear(&scope(), &receipt_id, &guard).await.unwrap());
+    server.lose_regenerate.store(true, Ordering::SeqCst);
+    assert!(vault.factor_start(&scope(), &server, FactorAction::Regenerate, &guard).await.is_err());
+    let FactorState::Codes { receipt_id, .. } = other.factor_resume(&scope(), &server, &guard).await.unwrap() else {
+        panic!()
+    };
+    assert_eq!(server.regenerations.load(Ordering::SeqCst), 1);
+    vault.factor_clear(&scope(), &receipt_id, &guard).await.unwrap();
+    server.lose_enable.store(true, Ordering::SeqCst);
+    assert_eq!(
+        vault
+            .factor_email_start(&scope(), &server, &email_approval(&server, false).await, &guard)
+            .await
+            .err()
+            .unwrap()
+            .code(),
+        "connection_failed"
+    );
+    assert!(matches!(other.factor_resume(&scope(), &server, &guard).await.unwrap(), FactorState::Idle));
+    assert_eq!(server.changes.load(Ordering::SeqCst), 2);
+    assert!(memory.values.lock().unwrap().is_empty());
+    let status = server.factor_status().await.unwrap();
+    assert!(!status.email && !status.totp && status.factor_version.is_none());
+}
+#[tokio::test]
+async fn email_enrollment_checks_the_displayed_contact_profile_and_scope_before_storage_or_http() {
+    let temp = Temp::new();
+    let memory = Arc::new(Memory::default());
+    let server = Server::new(memory.clone());
+    server.email_available.store(true, Ordering::SeqCst);
+    let vault = Vault::new(temp.0.clone(), memory.clone());
+    let guard = Guard::new();
+    let approved = email_approval(&server, true).await;
+    server.state.lock().unwrap().contact_version = "another-contact".into();
+    assert_eq!(
+        vault.factor_email_start(&scope(), &server, &approved, &guard).await.err().unwrap().code(),
+        "credentials_changed"
+    );
+    let approved = email_approval(&server, true).await;
+    server.state.lock().unwrap().factor_version = Some("another-profile".into());
+    assert_eq!(
+        vault.factor_email_start(&scope(), &server, &approved, &guard).await.err().unwrap().code(),
+        "credentials_changed"
+    );
+    let mut approved = email_approval(&server, true).await;
+    approved.contact.context.device_id = "other-family".into();
+    assert_eq!(
+        vault.factor_email_start(&scope(), &server, &approved, &guard).await.err().unwrap().code(),
+        "server_identity_changed"
+    );
+    assert!(memory.values.lock().unwrap().is_empty());
+    assert_eq!(server.changes.load(Ordering::SeqCst), 0);
+}
+#[tokio::test]
+async fn email_factor_storage_and_closed_views_fence_changes_and_keep_an_accepted_receipt_recoverable() {
+    let temp = Temp::new();
+    let memory = Arc::new(Memory::default());
+    let server = Server::new(memory.clone());
+    server.email_available.store(true, Ordering::SeqCst);
+    let vault = Vault::new(temp.0.clone(), memory.clone());
+    let guard = Guard::new();
+    let approved = email_approval(&server, true).await;
+    memory.fail.store(true, Ordering::SeqCst);
+    assert_eq!(
+        vault.factor_email_start(&scope(), &server, &approved, &guard).await.err().unwrap().code(),
+        "secure_storage_unavailable"
+    );
+    memory.fail.store(false, Ordering::SeqCst);
+    let closed = Guard::new();
+    closed.cancel();
+    assert_eq!(
+        vault.factor_email_start(&scope(), &server, &approved, &closed).await.err().unwrap().code(),
+        "session_closed"
+    );
+    assert_eq!(server.changes.load(Ordering::SeqCst), 0);
+    *server.cancel_enable.lock().unwrap() = Some(guard.clone());
+    assert_eq!(
+        vault.factor_email_start(&scope(), &server, &approved, &guard).await.err().unwrap().code(),
+        "session_closed"
+    );
+    assert!(!memory.values.lock().unwrap().values().any(|v| v.contains("PRIVATE-BACKUP")));
+    assert!(matches!(vault.factor_resume(&scope(), &server, &Guard::new()).await.unwrap(), FactorState::Codes { .. }));
+    assert_eq!(server.changes.load(Ordering::SeqCst), 1);
+}
+#[tokio::test]
+async fn email_factor_rejects_a_receipt_from_another_epoch_before_presenting_its_codes() {
+    let temp = Temp::new();
+    let memory = Arc::new(Memory::default());
+    let server = Server::new(memory.clone());
+    server.email_available.store(true, Ordering::SeqCst);
+    server.corrupt_email_change.store(true, Ordering::SeqCst);
+    let vault = Vault::new(temp.0.clone(), memory.clone());
+    let guard = Guard::new();
+    assert_eq!(
+        vault
+            .factor_email_start(&scope(), &server, &email_approval(&server, true).await, &guard)
+            .await
+            .err()
+            .unwrap()
+            .code(),
+        "server_identity_changed"
+    );
+    assert!(!memory.values.lock().unwrap().values().any(|v| v.contains("PRIVATE-BACKUP")));
+    server.corrupt_email_change.store(false, Ordering::SeqCst);
+    assert!(matches!(vault.factor_resume(&scope(), &server, &guard).await.unwrap(), FactorState::Codes { .. }));
+    assert_eq!(server.changes.load(Ordering::SeqCst), 1);
+}
+#[tokio::test]
+async fn concurrent_email_factor_approvals_reuse_the_bag_and_stale_profiles_hide_it() {
+    let temp = Temp::new();
+    let memory = Arc::new(Memory::default());
+    let server = Server::new(memory.clone());
+    server.email_available.store(true, Ordering::SeqCst);
+    let one = Vault::new(temp.0.clone(), memory.clone());
+    let two = Vault::new(temp.0.clone(), memory.clone());
+    let guard = Guard::new();
+    let approved = email_approval(&server, true).await;
+    let family = scope();
+    let (a, b) = tokio::join!(
+        one.factor_email_start(&family, &server, &approved, &guard),
+        two.factor_email_start(&family, &server, &approved, &guard)
+    );
+    assert!(matches!(a.unwrap(), FactorState::Codes { .. }));
+    assert!(matches!(b.unwrap(), FactorState::Codes { .. }));
+    assert_eq!(server.changes.load(Ordering::SeqCst), 1);
+    server.state.lock().unwrap().factor_version = Some("another-version".into());
+    assert!(matches!(two.factor_resume(&scope(), &server, &guard).await.unwrap(), FactorState::Stale { .. }));
+}
+#[tokio::test]
+async fn email_factor_coexistence_and_removal_preserve_the_remaining_totp_profile() {
+    let temp = Temp::new();
+    let memory = Arc::new(Memory::default());
+    let server = Server::new(memory.clone());
+    server.email_available.store(true, Ordering::SeqCst);
+    server.state.lock().unwrap().factor_version = Some("totp-version".into());
+    let vault = Vault::new(temp.0.clone(), memory.clone());
+    let guard = Guard::new();
+    let FactorState::Codes { receipt_id, .. } =
+        vault.factor_email_start(&scope(), &server, &email_approval(&server, true).await, &guard).await.unwrap()
+    else {
+        panic!()
+    };
+    let status = server.factor_status().await.unwrap();
+    assert!(status.totp && status.email);
+    vault.factor_clear(&scope(), &receipt_id, &guard).await.unwrap();
+    assert!(matches!(
+        vault.factor_email_start(&scope(), &server, &email_approval(&server, false).await, &guard).await.unwrap(),
+        FactorState::Idle
+    ));
+    let status = server.factor_status().await.unwrap();
+    assert!(status.totp && !status.email && status.factor_version.is_some());
+}
 #[tokio::test]
 async fn email_proof_recovers_lost_delivery_and_verification_without_changing_family_or_original_intent() {
     let temp = Temp::new();
@@ -177,6 +368,10 @@ struct State {
     grants: HashMap<String, ReauthenticationGrant>,
     factor_version: Option<String>,
     bags: HashMap<String, FactorBackupCodes>,
+    email_installed: bool,
+    email_only: bool,
+    contact_version: String,
+    email_changes: HashMap<String, EmailFactorChange>,
 }
 #[derive(Clone)]
 struct Server {
@@ -196,11 +391,17 @@ struct Server {
     email_available: Arc<AtomicBool>,
     mail_starts: Arc<AtomicUsize>,
     lose_mail: Arc<AtomicBool>,
+    changes: Arc<AtomicUsize>,
+    corrupt_email_change: Arc<AtomicBool>,
 }
 impl Server {
     fn new(memory: Arc<Memory>) -> Self {
         Self {
-            state: Arc::new(Mutex::new(State { head: "initial".into(), ..State::default() })),
+            state: Arc::new(Mutex::new(State {
+                head: "initial".into(),
+                contact_version: "contact".into(),
+                ..State::default()
+            })),
             memory,
             starts: Arc::default(),
             finishes: Arc::default(),
@@ -216,6 +417,8 @@ impl Server {
             email_available: Arc::default(),
             mail_starts: Arc::default(),
             lose_mail: Arc::default(),
+            changes: Arc::default(),
+            corrupt_email_change: Arc::default(),
         }
     }
     fn status_value(&self) -> ReauthenticationStatus {
@@ -373,11 +576,75 @@ impl Remote for Server {
         Box::pin(async move {
             let state = s.state.lock().unwrap();
             Ok(FactorStatus {
-                totp: state.factor_version.is_some(),
-                email: false,
+                totp: state.factor_version.is_some() && !state.email_only,
+                email: state.email_installed,
                 backup_codes_remaining: if state.factor_version.is_some() { 10 } else { 0 },
                 factor_version: state.factor_version.clone(),
             })
+        })
+    }
+    fn contact_status(&self) -> RemoteFuture<EmailStatus> {
+        let s = self.clone();
+        Box::pin(async move {
+            Ok(EmailStatus {
+                address: Some("private@example.test".into()),
+                verified_at: Some("2026-10-02T00:00:00Z".into()),
+                version: s.state.lock().unwrap().contact_version.clone(),
+                verification_version: "head".into(),
+                context: context(),
+            })
+        })
+    }
+    fn change_email_factor(&self, input: ChangeEmailFactor, enabled: bool) -> RemoteFuture<EmailFactorChange> {
+        let s = self.clone();
+        Box::pin(async move {
+            assert!(s.has_operation(&input.operation_id));
+            let mut state = s.state.lock().unwrap();
+            if let Some(receipt) = state.email_changes.get(&input.operation_id) {
+                return Ok(receipt.clone());
+            }
+            if state.factor_version != input.factor_version
+                || state.contact_version != input.email_version
+                || state.email_installed == enabled
+            {
+                return Err(error(409, "credentials_changed"));
+            }
+            if enabled && !s.email_available.load(Ordering::SeqCst) {
+                return Err(Error::Protocol("unsupported_feature"));
+            }
+            s.changes.fetch_add(1, Ordering::SeqCst);
+            let (version, codes) = if enabled {
+                state.email_only = state.factor_version.is_none();
+                let bag = Self::bag(&mut state, &input.operation_id);
+                (bag.factor_version.unwrap(), bag.codes)
+            } else {
+                let version = format!("disabled-{}", input.operation_id);
+                state.factor_version = if state.email_only { None } else { Some(version.clone()) };
+                (version, vec![])
+            };
+            state.email_installed = enabled;
+            let receipt = EmailFactorChange {
+                enabled,
+                codes,
+                factor_version: version,
+                email_version: input.email_version,
+                context: context(),
+            };
+            state.email_changes.insert(input.operation_id, receipt.clone());
+            if s.change_enable.load(Ordering::SeqCst) {
+                state.factor_version = Some("different-revision".into());
+            }
+            if let Some(guard) = s.cancel_enable.lock().unwrap().take() {
+                guard.cancel();
+            }
+            if s.lose_enable.swap(false, Ordering::SeqCst) {
+                return Err(Error::Protocol("connection_failed"));
+            }
+            let mut receipt = receipt;
+            if s.corrupt_email_change.load(Ordering::SeqCst) {
+                receipt.context.data_epoch = "wrong-epoch".into();
+            }
+            Ok(receipt)
         })
     }
     fn setup(&self, input: BeginFactorSetup) -> RemoteFuture<FactorSetup> {
@@ -403,6 +670,7 @@ impl Remote for Server {
             if let Some(bag) = state.bags.get(&input.operation_id) {
                 return Ok(bag.clone());
             }
+            state.email_only = false;
             let bag = Self::bag(&mut state, &input.operation_id);
             if s.change_enable.load(Ordering::SeqCst) {
                 state.factor_version = Some("different-revision".into());

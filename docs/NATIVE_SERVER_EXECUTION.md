@@ -315,6 +315,25 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P02, coffres d'inscription du facteur e-mail : les coordinateurs Rust bureau
+  et mobile conservent l'opération, le contact affiché et la version des profils
+  avant HTTP, dans le même coffre privé que TOTP / secours. Une réponse perdue
+  reprend le reçu et les dix codes d'origine ; une demande concurrente ne peut
+  remplacer ce reçu avant son acknowledgement. Contact / génération / famille,
+  fermeture, stockage refusé et versions obsolètes sont contrôlés. Le retrait
+  reste accessible sans SMTP et conserve TOTP / secours s'il reste installé.
+  Les secours communs peuvent aussi être régénérés avec un profil e-mail seul.
+  Six nouveaux tests Rust et neuf tests TypeScript dédiés passent : 291 tests
+  bureau et 1 099 tests mobiles au total, formatage / Clippy / compilation GTK,
+  typecheck / lint / export Android, bindings et six tests locaux Swift.
+  L'inventaire compte 294 fichiers / 344 occurrences. Le transport bureau
+  vérifie aussi la route de retrait avec les capacités TOTP / SMTP absentes et
+  refuse une capacité de profil disparue avant HTTP. Ces tests de coffres ne
+  remplacent pas encore un parcours positif connecté d'inscription par les
+  widgets : les boutons mobile / GTK / SwiftUI sont le prochain raccordement.
+  La CI native `36963735968` du lot OTP Swift `e0ee062` passe ses quatre jobs,
+  et sa CI macOS `36963735943` passe compilation, package et lancement.
+
 - P02, défis OTP SwiftUI : les écrans existants proposent e-mail à la connexion
   et à la confirmation d'identité. `NativeLoginAttempt` / `NativeSecurity`
   exposent statut, échéance, capacité et révision affichée ; les candidats et

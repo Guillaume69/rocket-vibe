@@ -201,7 +201,7 @@ fn normalized_address(value: &str) -> Result<String, Error> {
 fn date(value: &str) -> bool {
     value.len() <= 64 && chrono::DateTime::parse_from_rfc3339(value).is_ok()
 }
-fn check_status(scope: &Scope, status: &EmailStatus) -> Result<(), Error> {
+pub(super) fn check_status(scope: &Scope, status: &EmailStatus) -> Result<(), Error> {
     let c = &status.context;
     scope.matches(&c.user_id, &c.device_id, &c.instance_id, &c.data_epoch)?;
     if !identifier(&status.version)

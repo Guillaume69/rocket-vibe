@@ -37,6 +37,7 @@
     "apps/desktop/crates/rv-core/src/native/security.rs",
     "apps/desktop/crates/rv-core/src/native/security/email.rs",
     "apps/desktop/crates/rv-core/src/native/security/email/removal.rs",
+    "apps/desktop/crates/rv-core/src/native/security/email_settings.rs",
     "apps/desktop/crates/rv-core/src/native/security/factor_email.rs",
     "apps/desktop/crates/rv-core/src/native/store.rs",
     "apps/desktop/crates/rv-core/src/normalize.rs",

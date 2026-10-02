@@ -5,8 +5,10 @@ que la réauthentification et la gestion des facteurs dans les paramètres des
 trois clients. Le serveur et les SDK proposent aussi le facteur e-mail décrit
 dans [EMAIL.md](EMAIL.md). Les défis e-mail de connexion / réauthentification
 sont raccordés aux trois clients ; les coffres du cœur Rust bureau reprennent
-leur livraison dans la tentative d'origine. P02 reste ouvert pour
-l'inscription du facteur dans les trois clients, la récupération e-mail et la
+leur livraison dans la tentative d'origine. Les coffres Rust / mobile reprennent
+aussi l'inscription et le retrait explicites du profil e-mail, avec versions du
+contact et des profils affichés. P02 reste ouvert pour les boutons d'inscription
+du facteur dans les trois clients, la récupération e-mail et la
 qualification des appareils.
 Le fournisseur Rocket.Chat garde son parcours.
 

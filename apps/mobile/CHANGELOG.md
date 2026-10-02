@@ -9,6 +9,9 @@ release, et ses notes sont la section de la version ici.
 
 ### Sécurité RocketVibe
 
+- Un profil protégé uniquement par e-mail est affiché comme actif et peut
+  régénérer ses codes de secours communs sans SMTP. Demander ou reprendre un
+  code de confirmation d’identité efface la saisie précédente.
 - Codes de connexion et de confirmation d’identité par e-mail dans les écrans
   existants, avec livraison explicite et reprise du même candidat depuis
   SecureStore après une réponse perdue. Les renvois gardent le même code et

@@ -20,7 +20,14 @@ Le second facteur e-mail est livré côté serveur et SDK, avec inscription
 explicite, retrait et livraison sur un défi déjà établi. Les défis de connexion et
 de confirmation d'identité sont raccordés au mobile et aux formulaires GTK / SwiftUI
 existants. Les coffres partagés du cœur Rust bureau conservent leurs livraisons.
-Les coffres / formulaires d'inscription du facteur restent à livrer ; les
+Les coffres Rust bureau / mobile conservent aussi les intentions d'inscription
+et de retrait du facteur, sous le verrou commun des opérations de sécurité.
+Ils épinglent le contact et les profils affichés, reprennent le même reçu après
+réponse perdue et présentent les dix secours communs jusqu'à confirmation de
+leur sauvegarde. Le retrait sans SMTP conserve les autres profils ; la
+régénération des secours fonctionne également avec un profil e-mail seul.
+Six tests Rust et neuf tests TypeScript dédiés couvrent ce coordinateur ; le
+parcours positif connecté des boutons d'inscription reste à livrer. Les
 formulaires d'adresse vérifiée ne l'activent pas automatiquement. La récupération
 du compte par e-mail reste à implémenter.
 

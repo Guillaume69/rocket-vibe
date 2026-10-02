@@ -227,6 +227,13 @@ export class NativeChat {
       status:()=>call(()=>this.transport.factorStatus()),setup:input=>factorCall(()=>this.transport.beginFactorSetup(input)),
       enable:input=>factorCall(()=>this.transport.enableFactor(input)),regenerate:input=>factorCall(()=>this.transport.regenerateFactorBackups(input)),
       disable:input=>factorCall(()=>this.transport.disableFactor(input)),
+      ...(this.capabilities?.email_factors?{emailSettings:{
+        status:()=>emailCall(()=>this.transport.emailStatus()),
+        change:(input:import('./protocol.generated.ts').ChangeEmailFactor,enabled:boolean)=>call(()=>{
+          if(!this.capabilities?.email_factors)throw new NativeError(501,'unsupported_feature');
+          return enabled?this.transport.enableEmailFactor(input):this.transport.disableEmailFactor(input);
+        }),
+      }}:{}),
     }};
   }
   async deviceSessions():Promise<import('./protocol.generated.ts').DeviceSession[]> {

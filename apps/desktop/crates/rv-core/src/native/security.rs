@@ -1,8 +1,10 @@
 //! Private settings operations on the current native family. GTK and SwiftUI
 //! share intent keys, an OS lease spanning HTTP, and fallible trousseau storage.
 pub mod email;
+mod email_settings;
 mod factor_email;
 use super::{Error, NativeSession, authentication::method_name, authentication_vault::Storage};
+pub use email_settings::EmailFactorExpectation;
 use rv_protocol::parity::*;
 pub use rv_protocol::parity::{FactorSetup as Setup, FactorStatus as Status};
 use serde::{Deserialize, Serialize};
@@ -30,6 +32,12 @@ pub trait Remote: Send + Sync {
     fn enable(&self, input: EnableFactor) -> RemoteFuture<FactorBackupCodes>;
     fn regenerate(&self, input: RegenerateFactorBackups) -> RemoteFuture<FactorBackupCodes>;
     fn disable(&self, input: DisableFactor) -> RemoteFuture<()>;
+    fn contact_status(&self) -> RemoteFuture<EmailStatus> {
+        Box::pin(async { Err(Error::Protocol("unsupported_feature")) })
+    }
+    fn change_email_factor(&self, _input: ChangeEmailFactor, _enabled: bool) -> RemoteFuture<EmailFactorChange> {
+        Box::pin(async { Err(Error::Protocol("unsupported_feature")) })
+    }
     fn email_begin(&self, _input: RequestFactorEmail) -> RemoteFuture<FactorEmailDelivery> {
         Box::pin(async { Err(Error::Protocol("unsupported_feature")) })
     }
@@ -217,6 +225,26 @@ impl Remote for Access {
     remote_call!(enable, EnableFactor, FactorBackupCodes, enable_factor, true);
     remote_call!(regenerate, RegenerateFactorBackups, FactorBackupCodes, regenerate_factor_backups, true);
     remote_call!(disable, DisableFactor, (), disable_factor, true);
+    fn contact_status(&self) -> RemoteFuture<EmailStatus> {
+        <Self as email::Remote>::status(self)
+    }
+    fn change_email_factor(&self, input: ChangeEmailFactor, enabled: bool) -> RemoteFuture<EmailFactorChange> {
+        let access = self.clone();
+        Box::pin(async move {
+            access.before(false).await?;
+            if !access.session.email_factors_supported() {
+                return Err(Error::Protocol("unsupported_feature"));
+            }
+            // Replay is available without SMTP; the server gates a new enable.
+            let result = if enabled {
+                access.session.client.enable_email_factor(&input).await?
+            } else {
+                access.session.client.disable_email_factor(&input).await?
+            };
+            access.check()?;
+            Ok(result)
+        })
+    }
     fn email_begin(&self, input: RequestFactorEmail) -> RemoteFuture<FactorEmailDelivery> {
         let access = self.clone();
         Box::pin(async move { access.factor_email_call(input, true).await })
@@ -336,6 +364,7 @@ enum FactorIntent {
     Setup { operation_id: String, setup: Option<FactorSetup>, enable_operation_id: Option<String> },
     Regenerate { operation_id: String, factor_version: String },
     Disable { operation_id: String, factor_version: String },
+    Email { operation_id: String, email_version: String, factor_version: Option<String>, enabled: bool },
     Codes { operation_id: String, factor_version: String, codes: FactorBackupCodes },
 }
 impl FactorIntent {
@@ -344,6 +373,7 @@ impl FactorIntent {
             Self::Setup { operation_id, .. }
             | Self::Regenerate { operation_id, .. }
             | Self::Disable { operation_id, .. }
+            | Self::Email { operation_id, .. }
             | Self::Codes { operation_id, .. } => operation_id,
         }
     }
@@ -368,6 +398,11 @@ impl FactorIntent {
             }
             Self::Regenerate { factor_version, .. } | Self::Disable { factor_version, .. } => {
                 if !identifier(factor_version) {
+                    return Err(invalid());
+                }
+            }
+            Self::Email { email_version, factor_version, .. } => {
+                if !identifier(email_version) || factor_version.as_ref().is_some_and(|v| !identifier(v)) {
                     return Err(invalid());
                 }
             }
@@ -704,7 +739,7 @@ impl Vault {
     ) -> Result<FactorState, Error> {
         let status = self.factor_status(scope, remote, guard).await?;
         let version = codes.factor_version.clone().filter(|v| identifier(v)).ok_or_else(invalid)?;
-        let stale = !status.totp || status.factor_version.as_deref() != Some(&version);
+        let stale = !(status.totp || status.email) || status.factor_version.as_deref() != Some(&version);
         let result = if stale {
             FactorState::Stale { receipt_id: operation.clone() }
         } else {
@@ -752,6 +787,20 @@ impl Vault {
                 self.storage.remove(format!("{key}-factors"), lease).await?;
                 guard.check()?;
                 Ok(FactorState::Idle)
+            }
+            FactorIntent::Email { operation_id, email_version, factor_version, enabled } => {
+                self.recover_email_factor(
+                    key,
+                    scope,
+                    (
+                        ChangeEmailFactor { operation_id, email_version, factor_version, context: scope.context() },
+                        enabled,
+                    ),
+                    remote,
+                    lease,
+                    guard,
+                )
+                .await
             }
             FactorIntent::Regenerate { operation_id, factor_version } => {
                 guard.check()?;
@@ -853,9 +902,14 @@ impl Vault {
                     FactorIntent::Setup { operation_id, setup: None, enable_operation_id: None }
                 }
                 FactorAction::Regenerate | FactorAction::Disable => {
+                    let installed = if matches!(action, FactorAction::Regenerate) {
+                        status.totp || status.email
+                    } else {
+                        status.totp
+                    };
                     let factor_version = status
                         .factor_version
-                        .filter(|v| status.totp && identifier(v))
+                        .filter(|v| installed && identifier(v))
                         .ok_or(Error::Protocol("credentials_changed"))?;
                     if matches!(action, FactorAction::Regenerate) {
                         FactorIntent::Regenerate { operation_id, factor_version }

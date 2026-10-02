@@ -1164,8 +1164,27 @@ impl ChatPage {
     }
 
     pub fn show_room_info(self: &Rc<Self>) {
-        if self.native_session().is_some() {
-            self.native_conversation(true);
+        if let Some(session) = self.native_session() {
+            let Some(rid) = self.current_rid() else { return };
+            if !session.supported_features().iter().any(|f| f == "room_info") {
+                return;
+            }
+            let weak = Rc::downgrade(self);
+            let expected = session.clone();
+            let selected = rid.clone();
+            crate::details::native_room_info(
+                &self.split,
+                session,
+                &rid,
+                Rc::new(move || {
+                    if let Some(this) = weak.upgrade()
+                        && this.native_session().is_some_and(|s| Arc::ptr_eq(&s, &expected))
+                        && this.current_rid().as_deref() == Some(&selected)
+                    {
+                        this.native_conversation(true);
+                    }
+                }),
+            );
             return;
         }
         let (Some(session), Some(open)) = (self.session(), self.current.borrow().clone()) else { return };

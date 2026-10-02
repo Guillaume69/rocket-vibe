@@ -63,6 +63,18 @@ final class NativeProviderTests: XCTestCase {
         let room = try XCTUnwrap(app.room)
         try await until { !room.loading }
         XCTAssertFalse(room.supportsFiles)
+        XCTAssertTrue(room.supportsRoomInfo)
+        let roomInfo = try await room.roomDetails()
+        XCTAssertEqual(roomInfo.id, rid)
+        XCTAssertEqual(roomInfo.kind, "p")
+        XCTAssertEqual(roomInfo.members, 1)
+        XCTAssertFalse(roomInfo.readOnly)
+        XCTAssertFalse(room.roomInformationRevision.isEmpty)
+        let originalRoomRevision = room.roomInformationRevision
+        try await changeRoomTopic(server: server, password: password, rid: rid, name: roomInfo.name)
+        try await until { room.roomInformationRevision != originalRoomRevision }
+        let refreshedRoomInfo = try await room.roomDetails()
+        XCTAssertEqual(refreshedRoomInfo.topic, "Topic changed on another device")
         room.draft = "**Swift shared view** :smile:"
         await room.send()
         try await until { room.messages.contains { $0.text == "**Swift shared view** :smile:" && $0.delivery == .sent } }
@@ -392,6 +404,27 @@ final class NativeProviderTests: XCTestCase {
         let (sessions, _) = try await URLSession.shared.data(for: listing)
         let records = try JSONSerialization.jsonObject(with: sessions) as! [[String: Any]]
         return (try XCTUnwrap(records.first { $0["current"] as? Bool == true }?["id"] as? String), token)
+    }
+
+    @MainActor
+    private func changeRoomTopic(server: String, password: String, rid: String, name: String) async throws {
+        let device = try await makeExtraDevice(server: server, password: password)
+        var read = URLRequest(url: URL(string: server + "/api/v1/rooms/" + rid)!)
+        read.setValue("Bearer " + device.token, forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: read)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+        let details = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        var change = read
+        change.httpMethod = "PATCH"
+        change.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        change.httpBody = try JSONSerialization.data(withJSONObject: ["operation_id": "swift-room-" + UUID().uuidString, "expected_revision": details["revision"] as! String, "name": name, "private": true, "topic": "Topic changed on another device", "description": "", "announcement": "", "read_only": false])
+        let (_, changed) = try await URLSession.shared.data(for: change)
+        XCTAssertEqual((changed as? HTTPURLResponse)?.statusCode, 200)
+        var logout = URLRequest(url: URL(string: server + "/api/v1/auth/logout")!)
+        logout.httpMethod = "POST"
+        logout.setValue("Bearer " + device.token, forHTTPHeaderField: "Authorization")
+        let (_, closed) = try await URLSession.shared.data(for: logout)
+        XCTAssertEqual((closed as? HTTPURLResponse)?.statusCode, 204)
     }
 
     @MainActor

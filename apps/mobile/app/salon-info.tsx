@@ -6,7 +6,7 @@
  *
  * Le squelette (nom, type, chiffré/lecture seule) vient de la base locale —
  * affiché immédiatement, même hors ligne. Description, sujet, annonce et
- * nombre de membres viennent de `rooms.info` (non stockés localement : ils ne
+ * nombre de membres viennent du fournisseur actif (non stockés localement : ils ne
  * servent qu'ici) et se posent à l'arrivée.
  */
 
@@ -14,12 +14,13 @@ import { eq } from 'drizzle-orm';
 import { useRequeteVive } from '../ui/requeteVive.ts';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import type { BaseLocale } from '../db/client.ts';
 import { abonnements, salons } from '../db/schema.ts';
 import type { MoteurE2E } from '../lib/e2e/moteur.ts';
 import type { ClientRest } from '../lib/rest.ts';
+import type { ActionsFournisseur, InformationsSalon } from '../lib/fournisseur.ts';
 import { useE2EDeverrouille } from '../ui/e2e.ts';
 import { traduireCourant, useT } from '../ui/i18n.ts';
 import { Appuyable } from '../ui/appuyable.tsx';
@@ -29,17 +30,6 @@ import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { POLICES, useCouleurs } from '../ui/theme.ts';
 import { useMargeBasFeuille } from '../ui/margeFeuille.ts';
-
-type Complement = {
-  description: string | null;
-  sujet: string | null;
-  annonce: string | null;
-  membres: number | null;
-};
-
-function chaine(v: unknown): string | null {
-  return typeof v === 'string' && v !== '' ? v : null;
-}
 
 const PHRASE_TYPE: Record<string, CleTraduction> = {
   c: 'salonInfo.typeCanalPublic',
@@ -60,7 +50,7 @@ export default function EcranSalonInfo() {
     return null;
   }
   return (
-    <ContenuSalonInfo rid={rid} base={synchro.base} client={etat.client} e2e={synchro.e2e} c={c} />
+    <ContenuSalonInfo key={JSON.stringify(synchro.fournisseur.identite)+rid} rid={rid} base={synchro.base} client={etat.client} actions={synchro.actions} native={synchro.fournisseur.identite.genre==='rocketvibe'} favoris={synchro.capacites.favorisSalon!==false} e2e={synchro.e2e} c={c} />
   );
 }
 
@@ -68,12 +58,18 @@ function ContenuSalonInfo({
   rid,
   base,
   client,
+  actions,
+  native,
+  favoris,
   e2e,
   c,
 }: {
   rid: string;
   base: BaseLocale;
   client: ClientRest;
+  actions: ActionsFournisseur;
+  native: boolean;
+  favoris: boolean;
   e2e: MoteurE2E;
   c: ReturnType<typeof useCouleurs>;
 }) {
@@ -85,6 +81,7 @@ function ContenuSalonInfo({
     [rid],
   );
   const salon = (lignes ?? [])[0];
+  const salonPresent = salon !== undefined;
   const { data: lignesAbonnement } = useRequeteVive(
     base.select().from(abonnements).where(eq(abonnements.rid, rid)),
     [rid],
@@ -105,47 +102,47 @@ function ContenuSalonInfo({
       .finally(() => setBasculeFavori(false));
   };
 
-  const [complement, setComplement] = useState<Complement | null>(null);
-  const [erreur, setErreur] = useState<string | null>(null);
+  const version = `${rid}:${salon?.misAJourLe ?? 0}`;
+  const [details, setDetails] = useState<{version:string;value:InformationsSalon} | null>(null);
+  const [incident, setIncident] = useState<{version:string;message:string} | null>(null);
+  const complement = details?.version === version ? details.value : null;
+  const erreur = incident?.version === version ? incident.message : null;
 
   useEffect(() => {
     let vivant = true;
-    void client
-      .get<{ room?: Record<string, unknown> }>('rooms.info', { params: { roomId: rid } })
+    if(native && !salonPresent)return;
+    void actions
+      .infosSalon(rid)
       .then((r) => {
         if (!vivant) return;
-        setComplement({
-          description: chaine(r.room?.description),
-          sujet: chaine(r.room?.topic),
-          annonce: chaine(r.room?.announcement),
-          membres: typeof r.room?.usersCount === 'number' ? r.room.usersCount : null,
-        });
+        setDetails({version,value:r});
       })
       .catch((e: unknown) => {
         // La base locale a déjà rempli l'essentiel : l'échec ne coûte que les
         // sections complémentaires.
-        if (vivant) setErreur(e instanceof Error ? e.message : traduireCourant('salonInfo.detailsIndisponibles'));
+        if (vivant) setIncident({version,message:e instanceof Error ? e.message : traduireCourant('salonInfo.detailsIndisponibles')});
       });
     return () => {
       vivant = false;
     };
-  }, [client, rid]);
+  }, [actions, rid, native, salonPresent, version]);
 
-  const nom = salon?.nomAffiche ?? salon?.nom ?? '?';
-  const cleType = PHRASE_TYPE[salon?.type ?? ''];
+  const nom = complement?.nom || salon?.nomAffiche || salon?.nom || '?';
+  const cleType = PHRASE_TYPE[complement?.type ?? salon?.type ?? ''];
   const sousTitre = [
     cleType !== undefined ? t(cleType) : null,
     complement?.membres !== null && complement !== null
       ? t('salonInfo.membres', { n: complement.membres })
       : null,
     salon?.chiffre === true ? t('salonInfo.chiffre') : null,
-    salon?.lectureSeule === true ? t('salonInfo.lectureSeule') : null,
+    (complement?.lectureSeule ?? salon?.lectureSeule) === true ? t('salonInfo.lectureSeule') : null,
   ]
     .filter((x): x is string => x !== null)
     .join(' · ');
 
+  if(native && !salon)return null;
   return (
-    <View style={[styles.feuille, { backgroundColor: c.carteProfonde, paddingBottom: margeBas }]}>
+    <ScrollView style={{ backgroundColor: c.carteProfonde }} contentContainerStyle={[styles.feuille, { paddingBottom: margeBas }]}>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.entete}>
         <AvatarSalon
@@ -173,7 +170,7 @@ function ContenuSalonInfo({
         </View>
       </View>
 
-      <Appuyable
+      {favoris && <Appuyable
         onPress={basculerFavori}
         disabled={basculeFavori}
         accessibilityRole="button"
@@ -183,7 +180,7 @@ function ContenuSalonInfo({
         <Text style={[styles.favoriTexte, { color: c.texte }]}>
           {favori ? '★ ' + t('salonInfo.retirerFavori') : '☆ ' + t('salonInfo.ajouterFavori')}
         </Text>
-      </Appuyable>
+      </Appuyable>}
       {erreurFavori && (
         <Text style={[styles.vide, { color: c.texteErreur }]}>{t('salonInfo.favoriEchec')}</Text>
       )}
@@ -206,7 +203,7 @@ function ContenuSalonInfo({
           </Text>
         )}
       {erreur !== null && <Text style={[styles.vide, { color: c.texteErreur }]}>{erreur}</Text>}
-    </View>
+    </ScrollView>
   );
 }
 

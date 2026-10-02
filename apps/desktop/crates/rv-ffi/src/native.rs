@@ -205,6 +205,23 @@ impl Client {
 }
 #[uniffi::export]
 impl NativeChat {
+    pub async fn room_details(&self, room: String) -> Result<crate::people::RoomDetails, RvError> {
+        let session = self.session.clone();
+        Ok(on_tokio(async move { session.room_info(&room).await }).await.map_err(native_error)?.into())
+    }
+    pub fn room_revision(&self, room: String) -> Result<String, RvError> {
+        if self.session.is_closed() {
+            return Err(native_error(rv_core::native::Error::Protocol("session_closed")));
+        }
+        self.session
+            .store
+            .rooms()
+            .map_err(|e| native_error(e.into()))?
+            .into_iter()
+            .find(|r| r.id == room)
+            .map(|r| r.revision)
+            .ok_or_else(|| native_error(rv_core::native::Error::Protocol("room_missing")))
+    }
     /// Synchronous: the UI calls this only after its account-selection guard.
     pub fn activate_account(&self) {
         accounts::remember_server(&self.dirs, &self.session.info.base_url);

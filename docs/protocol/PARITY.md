@@ -75,7 +75,8 @@ propriétaire. Le premier lot J2 expose les lectures de droits, les rôles
 propriétaire / modérateur / membre et l'application transactionnelle de la lecture
 seule et des restrictions de création. Les commandes de réglage, de rôles et de
 départ sont disponibles côté serveur / transports : [contrat P04](ROOMS.md).
-Leur raccordement durable aux interfaces existantes suit.
+Les lectures sont raccordées aux fiches existantes des trois clients ; le
+raccordement durable des commandes aux interfaces suit.
 
 `ReadState` sépare positions racines / réponses et compteurs. Seuls les nouveaux
 messages visibles d'autres auteurs augmentent les non-lus ; édition, réaction,
@@ -183,7 +184,7 @@ ouverte tant que serveur, clients concernés et scénario de parité manquent.
 | P01 Découverte / comptes / sessions | J1–J2 | Rotation / reprise sécurisée, appareils, inscription sur invitation, récupération opérateur / email dans les trois clients existants livrés ; qualification des appareils / trousseaux à poursuivre |
 | P02 2FA | J2 | TOTP / secours, réauthentification, adresse vérifiée / retrait, défis OTP, facteur email et récupération email dans les 3 clients livrés ; qualification sur appareils et SMTP externe à poursuivre |
 | P03 Multi-serveurs | J1 | Isolation livrée ; validation appareils / liens et générations après restauration |
-| P04 Salons / DM | J1–J2 | DM / membres, création idempotente et découverte / join livrés ; détails, rôles, réglages et départ versionnés côté serveur / transports ; raccordement durable aux 3 UI existantes à compléter |
+| P04 Salons / DM | J1–J2 | DM / membres, création idempotente, découverte / join et lecture des détails dans les 3 fiches existantes livrés ; rôles, réglages et départ versionnés côté serveur / transports ; commandes durables et leurs contrôles dans les 3 UI à compléter |
 | P05 Favoris / non-lus / mentions | J2 | Modèle figé ; états personnels et compteurs atomiques à livrer |
 | P06 Historique / temps réel | J1–J2 | Socle, snapshots matérialisés et barrière de révocation livrés ; tombstones / actions J2 |
 | P07 Markdown / emojis / citations | J2–J3 | Corpus testé ; références / messages système / catalogue natif et raccordement |

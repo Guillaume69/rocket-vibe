@@ -337,6 +337,26 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   Le développement fonctionnel e-mail est clos pour ce stade ; le prochain lot
   est P04, rôles et paramètres serveur / salon. Pas de nouveau lot SMTP prévu.
 
+- P04, fiches de salon existantes : lectures neutres dans le fournisseur mobile,
+  modèle `RoomInfo` partagé GTK et binding `RoomDetails` SwiftUI existant.
+  Sujet, description, annonce, nombre de membres et lecture seule sont affichés
+  sans nouvel écran de chat. L'annonce `room_info` est intersectée avec le client ;
+  les favoris natifs restent masqués jusqu'à P05. Le propriétaire conserve son
+  formulaire GTK d'invitation. Les changements de révision rafraîchissent les
+  fiches, y compris un sujet modifié sans changement de nom. Fermeture du compte,
+  retrait du salon et génération remplacée écartent les réponses tardives.
+  Vérifications : 307 tests bureau, Clippy / binaire GTK, 1 118 tests mobiles,
+  typecheck / lint sans avertissement et export Android Hermes frais. Bindings /
+  modèles Swift compilés : six tests locaux passent, dix parcours conditionnés
+  à leurs bancs ; le parcours connecté des modèles existants passe contre le
+  vrai PostgreSQL et Secret Service, avec modification de sujet sur un autre
+  appareil. GTK rend la fiche à 435 pixels, actualise le sujet pendant son
+  ouverture puis ferme le dialogue après retrait du lecteur ; les trois captures
+  sont inspectées. Le banc est jetable, les trousseaux installés Android / Windows
+  / macOS restent à qualifier. Les commandes durables et contrôles de paramètres,
+  rôles et départ sont le prochain lot P04. Le socle précédent `fcb411d` a ses
+  quatre jobs CI verts (`36984189328`).
+
 - P04, détails / rôles / paramètres côté serveur et transports : migration 0022,
   métadonnées bornées, liste des membres paginée et révision opaque indépendante
   des messages. Les propriétaires règlent visibilité / lecture seule / textes

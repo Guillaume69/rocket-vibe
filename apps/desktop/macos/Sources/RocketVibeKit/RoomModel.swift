@@ -15,6 +15,14 @@ public final class RoomModel {
     var chat: Chat? { provider.legacy }
     public var supportsFiles: Bool { provider.supportsFiles }
     public var supportsEditing: Bool { provider.supportsEditing }
+    public var supportsRoomInfo: Bool { active && provider.supportsRoomInfo }
+    public private(set) var roomInformationRevision = ""
+    public func roomDetails() async throws -> RoomDetails {
+        guard active else { throw CancellationError() }
+        let result = try await provider.roomDetails(rid: room.rid)
+        guard active, !Task.isCancelled else { throw CancellationError() }
+        return result
+    }
     public var supportsMarks: Bool { chat != nil || (provider.native?.supportedFeatures().contains("pins") == true && provider.native?.supportedFeatures().contains("stars") == true) }
     public var canAbandon: Bool { provider.native != nil }
     public private(set) var error: String?
@@ -58,6 +66,7 @@ public final class RoomModel {
         let unread = room.unread > 0 || room.alert
         unreadAfter = unread && threadId == nil ? provider.legacy?.lastSeen(rid: room.rid) : nil
         draft = (try? provider.draft(rid: room.rid, thread: threadId)) ?? ""
+        roomInformationRevision = (try? provider.native?.roomRevision(room: room.rid)) ?? "\(room.rid):\(room.name):\(room.kind)"
     }
 
     /// Flush before leaving; a delayed save must not outlive this visible room.
@@ -66,6 +75,7 @@ public final class RoomModel {
         draftSave?.cancel()
         try? provider.setDraft(rid: room.rid, thread: threadId, text: draft)
         active = false
+        roomInformationRevision = "closed"
         messages = []
         actionsOf.removeAll()
         nativeActions.removeAll()
@@ -76,6 +86,7 @@ public final class RoomModel {
 
     func update(room: Room) {
         if room != self.room { self.room = room }
+        roomInformationRevision = (try? provider.native?.roomRevision(room: room.rid)) ?? "\(room.rid):\(room.name):\(room.kind)"
     }
 
     /// Publishes only what changed: an equal list leaves every row alone.

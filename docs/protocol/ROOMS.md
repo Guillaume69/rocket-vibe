@@ -1,8 +1,9 @@
 # Informations, membres et paramètres des salons — P04
 
-Le serveur et les transports Rust / TypeScript exposent ces routes v1. Le
-raccordement aux écrans mobile, GTK et SwiftUI existants reste à livrer ; leurs
-capacités effectives ne sont pas activées par la seule annonce serveur.
+Le serveur et les transports Rust / TypeScript exposent ces routes v1. Les fiches
+de salon mobile, GTK et SwiftUI existantes lisent leurs informations depuis le
+fournisseur choisi. Le raccordement durable des commandes de paramètres, de rôles
+et de départ reste à livrer ; l'annonce serveur ne les active pas seule dans l'UI.
 
 ## Lectures
 

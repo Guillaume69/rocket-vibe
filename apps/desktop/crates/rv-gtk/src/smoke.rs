@@ -271,6 +271,23 @@ pub fn install(window: &Rc<AppWindow>) {
                     });
                 });
             }
+            if native
+                && std::env::var("RV_SMOKE_DETAILS").as_deref() == Ok("room")
+                && let Some(session) = w.chat.native_session()
+            {
+                let (chat, rid) = (w.chat.clone(), rid.clone());
+                glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+                    glib::spawn_future_local(async move {
+                        let info = crate::on_tokio(async move { session.room_info(&rid).await }).await;
+                        check(
+                            "native room info read",
+                            info.as_ref().is_ok_and(|i| i.members.is_some()),
+                            info.as_ref().map(|i| i.members),
+                        );
+                        chat.show_room_info();
+                    });
+                });
+            }
             if let Ok(what) = std::env::var("RV_SMOKE_DETAILS")
                 && !what.is_empty()
                 && let Some(session) = w.chat.session()

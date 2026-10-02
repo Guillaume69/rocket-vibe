@@ -57,6 +57,7 @@ struct SheetFrame<Content: View>: View {
 }
 
 struct RoomInfoView: View {
+    @Environment(\.dismiss) var dismiss
     @Environment(AppModel.self) var app
     let model: RoomModel
     @State var details: RoomDetails?
@@ -88,14 +89,18 @@ struct RoomInfoView: View {
             }
             .formStyle(.grouped)
         }
-        .task {
-            guard let chat = app.chat else { return }
-            do { details = try await chat.roomDetails(rid: model.rid) } catch { failed = true }
+        .task(id: "\(model.roomInformationRevision):\(app.connection)") {
+            guard model.supportsRoomInfo else { dismiss(); return }
+            details = nil; failed = false
+            do {
+                let fresh = try await model.roomDetails()
+                if !Task.isCancelled { details = fresh }
+            } catch { if !Task.isCancelled { failed = true } }
         }
     }
 
     func flags(_ d: RoomDetails) -> String {
-        var out = [d.kind == "c" ? L("info.public") : L("info.private")]
+        var out = [d.kind == "d" ? L("native.direct") : d.kind == "c" ? L("info.public") : L("info.private")]
         if d.readOnly { out.append(L("info.read_only")) }
         if d.encrypted { out.append(L("info.encrypted")) }
         if d.archived { out.append(L("info.archived")) }

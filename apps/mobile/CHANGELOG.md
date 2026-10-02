@@ -7,6 +7,13 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+### Salons RocketVibe
+
+- La fiche existante affiche le sujet, la description, l'annonce, le nombre de
+  membres et la lecture seule depuis le fournisseur actif. Elle se rafraîchit
+  après modification et masque ses données après retrait du salon. Les textes
+  longs défilent dans la feuille ; les favoris natifs suivront avec P05.
+
 ### Sécurité RocketVibe
 
 - Demande d’un code de récupération du mot de passe par e-mail dans le

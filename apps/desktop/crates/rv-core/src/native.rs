@@ -399,6 +399,7 @@ impl NativeSession {
             .map(|server| {
                 server.supported_features(&rv_protocol::Capabilities {
                     room_discovery: true,
+                    room_info: true,
                     editing: true,
                     deletion: true,
                     reactions: true,
@@ -560,6 +561,28 @@ impl NativeSession {
         let permissions = self.client.message_permissions(id).await?;
         self.ready()?;
         Ok(permissions)
+    }
+    pub async fn room_details(&self, room: &str) -> Result<rv_protocol::parity::RoomDetails, Error> {
+        self.ready()?;
+        if !self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.room_info) {
+            return Err(Error::Protocol("unsupported_feature"));
+        }
+        let projection = self.store.projection_token();
+        self.identity().await?;
+        self.ready()?;
+        let details = self.client.room_details(room).await?;
+        self.identity().await?;
+        self.ready()?;
+        if details.room.id != room || details.permissions.room_id != room {
+            return Err(Error::Protocol("invalid_room_details"));
+        }
+        if projection != self.store.projection_token() || !self.store.rooms()?.iter().any(|r| r.id == room) {
+            return Err(Error::Protocol("delivery_revalidate"));
+        }
+        Ok(details)
+    }
+    pub async fn room_info(&self, room: &str) -> Result<crate::info::RoomInfo, Error> {
+        Ok(crate::info::native_room_info(self.room_details(room).await?))
     }
     pub async fn edit(&self, rid: &str, id: &str, revision: &str, text: &str) -> Result<(), Error> {
         if text.trim().is_empty() || text.len() > 32_768 {

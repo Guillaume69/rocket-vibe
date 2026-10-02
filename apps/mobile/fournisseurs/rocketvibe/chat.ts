@@ -172,6 +172,23 @@ export class NativeChat {
     if (this.stopped) throw new NativeError(0,'session_closed');
     if (!this.verified) throw new NativeError(0,'offline');
   }
+  async roomDetails(room: string):Promise<import('./protocol.generated.ts').RoomDetails> {
+    this.ready();
+    if(!this.capabilities?.room_info)throw new NativeError(501,'unsupported_feature');
+    const generation=this.generation,projection=this.store.projectionToken();
+    checkIdentity(this.session,await this.transport.discover());
+    this.ready();
+    if(generation!==this.generation)throw new NativeError(0,'session_closed');
+    const details=await this.transport.roomDetails(room);
+    this.ready();
+    if(generation!==this.generation)throw new NativeError(0,'session_closed');
+    if(details.room.id!==room || details.permissions.room_id!==room)throw new NativeError(502,'invalid_room_details');
+    if(projection!==this.store.projectionToken())throw new NativeError(409,'delivery_revalidate');
+    checkIdentity(this.session,await this.transport.discover());
+    this.ready();
+    if(generation!==this.generation || projection!==this.store.projectionToken())throw new NativeError(409,'delivery_revalidate');
+    return details;
+  }
   private deviceAccess():number {
     this.ready();
     if(!this.capabilities?.device_sessions)throw new NativeError(501,'unsupported_feature');

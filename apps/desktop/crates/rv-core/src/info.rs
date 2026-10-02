@@ -24,6 +24,29 @@ pub struct RoomInfo {
     pub default: bool,
 }
 
+/// Native metadata projected into the existing room information view.
+pub fn native_room_info(details: rv_protocol::parity::RoomDetails) -> RoomInfo {
+    let text = |value: String| (!value.trim().is_empty()).then_some(value);
+    RoomInfo {
+        id: details.room.id,
+        name: details.room.name,
+        kind: match details.room.kind {
+            rv_protocol::RoomKind::Public => "c",
+            rv_protocol::RoomKind::Private => "p",
+            rv_protocol::RoomKind::Direct => "d",
+        }
+        .into(),
+        topic: text(details.topic),
+        announcement: text(details.announcement),
+        description: text(details.description),
+        members: Some(i64::from(details.member_count)),
+        read_only: details.read_only,
+        encrypted: false,
+        archived: false,
+        default: false,
+    }
+}
+
 /// `rooms.info`'s `room`.
 pub fn room_info(room: &Value) -> Option<RoomInfo> {
     Some(RoomInfo {

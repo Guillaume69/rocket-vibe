@@ -15,6 +15,11 @@ section here.
 
 ### Added
 
+- Existing GTK and SwiftUI room information panels display native topics,
+  descriptions, announcements, member counts and read-only status. Room changes
+  refresh the panel; withdrawal or account closure discards it. GTK keeps its
+  existing owner invitation form accessible from the room information panel.
+
 - Request a password recovery code by email from the existing GTK / SwiftUI
   sign-in forms. Opening the form reads private storage only; interrupted requests
   resume the original operation, with persisted retry limits and explicit local

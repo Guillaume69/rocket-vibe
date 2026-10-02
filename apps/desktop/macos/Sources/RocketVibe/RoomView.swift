@@ -66,7 +66,7 @@ struct RoomView: View {
                     .keyboardShortcut("f", modifiers: .command)
                     .disabled(app.chat == nil)
                 Button { panel = .info } label: { Image(systemName: "info.circle") }.help(L("info.room"))
-                    .disabled(app.chat == nil)
+                    .disabled(!model.supportsRoomInfo)
             }
         }
         .task(id: model.rid) {

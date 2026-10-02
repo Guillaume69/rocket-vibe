@@ -91,6 +91,7 @@ export type Capacites = {
   marques?: boolean;
   profil?: boolean;
   infosSalon?: boolean;
+  favorisSalon?: boolean;
   citations?: boolean;
   typing: boolean;
   presence: boolean;
@@ -166,6 +167,7 @@ export interface Traducteur {
  * ne définit pas à l'avance.
  */
 export interface ActionsFournisseur {
+  infosSalon(rid: string): Promise<InformationsSalon>;
   reagir(rid: string, mid: string, emoji: string, mettre: boolean): Promise<void>;
   /** `chiffreur` : le message est chiffré, sa nouvelle version aussi. */
   modifier(rid: string, mid: string, texte: string, chiffreur?: ChiffreurEnvoi, revision?: string): Promise<void>;
@@ -186,6 +188,18 @@ export interface ActionsFournisseur {
    */
   ouvrirOuCreerDm(username: string): Promise<{ rid: string; salonBrut: Record<string, unknown> }>;
 }
+
+/** Données de la fiche existante, indépendantes du protocole serveur. */
+export type InformationsSalon = {
+  id: string;
+  nom: string;
+  type: string;
+  description: string | null;
+  sujet: string | null;
+  annonce: string | null;
+  membres: number | null;
+  lectureSeule: boolean;
+};
 
 /** Capacités de Rocket.Chat. E2EE dégradé (lecture seule), push par gateway hors périmètre. */
 export const CAPACITES_ROCKETCHAT: Capacites = {

@@ -84,7 +84,16 @@ pub fn room_info(
 }
 
 fn fill_room(content: &gtk::Box, info: &RoomInfo, me: &str) {
-    let mut facts = vec![t(if info.kind == "p" { "info.private" } else { "info.public" }).to_owned()];
+    let mut facts = vec![
+        t(if info.kind == "d" {
+            "native.direct"
+        } else if info.kind == "p" {
+            "info.private"
+        } else {
+            "info.public"
+        })
+        .to_owned(),
+    ];
     if let Some(n) = info.members {
         facts.push(tn("info.members", n));
     }
@@ -111,6 +120,95 @@ fn fill_room(content: &gtk::Box, info: &RoomInfo, me: &str) {
     if info.topic.is_none() && info.announcement.is_none() && info.description.is_none() {
         content.append(&centered(t("info.nothing"), &["details-sub"]));
     }
+}
+
+/// Same information dialog, fed by the native provider. A room removal or an
+/// account switch closes it; the original invitation form remains accessible.
+pub fn native_room_info(
+    parent: &impl IsA<gtk::Widget>,
+    session: Arc<rv_core::native::NativeSession>,
+    rid: &str,
+    invite: Rc<dyn Fn()>,
+) {
+    use tokio::sync::broadcast::error::RecvError;
+    let content = column();
+    loading(&content);
+    let dialog = dialog(t("info.room"), content.upcast_ref(), 460);
+    let active = Rc::new(Cell::new(true));
+    let (tx, rx) = async_channel::bounded(1);
+    let (mut changes, mut events) = (session.store.changes(), session.events());
+    tx.try_send(()).ok();
+    let forward = crate::runtime().spawn(async move {
+        loop {
+            let update = tokio::select! { result = changes.recv() => result, result = events.recv() => result };
+            if matches!(update, Err(RecvError::Closed)) {
+                return;
+            }
+            if let Err(async_channel::TrySendError::Closed(_)) = tx.try_send(()) {
+                return;
+            }
+        }
+    });
+    let abort = forward.abort_handle();
+    let live = active.clone();
+    dialog.connect_closed(move |_| {
+        live.set(false);
+        abort.abort();
+    });
+    dialog.present(Some(parent));
+    let rid = rid.to_owned();
+    glib::spawn_future_local(async move {
+        let mut displayed = None;
+        while rx.recv().await.is_ok() && active.get() {
+            let room = session.store.rooms().ok().and_then(|rooms| rooms.into_iter().find(|r| r.id == rid));
+            if session.is_closed() || room.is_none() {
+                dialog.close();
+                break;
+            }
+            let revision = room.unwrap().revision;
+            if displayed.as_ref() == Some(&revision) {
+                continue;
+            }
+            let (s, r) = (session.clone(), rid.clone());
+            let result = on_tokio(async move { s.room_details(&r).await }).await;
+            if !active.get() {
+                break;
+            }
+            if session.is_closed() || session.store.rooms().is_ok_and(|rooms| !rooms.iter().any(|r| r.id == rid)) {
+                dialog.close();
+                break;
+            }
+            while let Some(child) = content.first_child() {
+                content.remove(&child);
+            }
+            match result {
+                Ok(details) => {
+                    let can_invite = details.permissions.invite;
+                    let info = rv_core::info::native_room_info(details);
+                    let tile = room_tile(&info.name, &info.kind, false, TileSize::Profile);
+                    tile.set_halign(gtk::Align::Center);
+                    content.append(&tile);
+                    content.append(&centered(&info.name, &["details-name"]));
+                    fill_room(&content, &info, &session.info.username);
+                    if can_invite {
+                        let button = gtk::Button::builder().label(t("native.invite")).build();
+                        let (callback, live) = (invite.clone(), active.clone());
+                        button.connect_clicked(move |_| {
+                            if live.get() {
+                                callback();
+                            }
+                        });
+                        content.append(&button);
+                    }
+                    displayed = Some(revision);
+                }
+                Err(_) => {
+                    displayed = None;
+                    content.append(&centered(t("info.failed"), &["details-sub"]));
+                }
+            }
+        }
+    });
 }
 
 /// What the profile's buttons do.

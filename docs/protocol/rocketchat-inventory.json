@@ -1237,31 +1237,31 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1461,
+      "line": 1480,
       "kind": "endpoint",
       "surface": "rooms.section_unread"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1462,
+      "line": 1481,
       "kind": "endpoint",
       "surface": "rooms.section_favorites"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1463,
+      "line": 1482,
       "kind": "endpoint",
       "surface": "rooms.section_channels"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1464,
+      "line": 1483,
       "kind": "endpoint",
       "surface": "rooms.section_direct"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1561,
+      "line": 1580,
       "kind": "endpoint",
       "surface": "e2e.read_only"
     },
@@ -1663,157 +1663,157 @@
     },
     {
       "file": "apps/mobile/app/salon-info.tsx",
-      "line": 101,
+      "line": 98,
       "kind": "call:POST",
       "surface": "'rooms.favorite'"
     },
     {
       "file": "apps/mobile/app/salon-info.tsx",
-      "line": 102,
+      "line": 99,
       "kind": "endpoint",
       "surface": "rooms.favorite"
     },
     {
-      "file": "apps/mobile/app/salon-info.tsx",
-      "line": 113,
+      "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
+      "line": 24,
       "kind": "call:GET",
       "surface": "'rooms.info'"
     },
     {
-      "file": "apps/mobile/app/salon-info.tsx",
-      "line": 114,
+      "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
+      "line": 24,
       "kind": "endpoint",
       "surface": "rooms.info"
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
-      "line": 29,
+      "line": 37,
       "kind": "call:POST",
       "surface": "'chat.react'"
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
-      "line": 29,
+      "line": 37,
       "kind": "endpoint",
       "surface": "chat.react"
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
-      "line": 40,
+      "line": 48,
       "kind": "call:POST",
       "surface": "'chat.update'"
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
-      "line": 40,
+      "line": 48,
       "kind": "endpoint",
       "surface": "chat.update"
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
-      "line": 45,
+      "line": 53,
       "kind": "call:POST",
       "surface": "'chat.update'"
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
-      "line": 45,
+      "line": 53,
       "kind": "endpoint",
       "surface": "chat.update"
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
-      "line": 51,
+      "line": 59,
       "kind": "call:POST",
       "surface": "'chat.delete'"
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
-      "line": 51,
+      "line": 59,
       "kind": "endpoint",
       "surface": "chat.delete"
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
-      "line": 55,
+      "line": 63,
       "kind": "call:POST",
       "surface": "'chat.pinMessage'"
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
-      "line": 55,
+      "line": 63,
       "kind": "endpoint",
       "surface": "chat.pinMessage"
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
-      "line": 59,
+      "line": 67,
       "kind": "call:POST",
       "surface": "'chat.unPinMessage'"
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
-      "line": 59,
+      "line": 67,
       "kind": "endpoint",
       "surface": "chat.unPinMessage"
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
-      "line": 63,
+      "line": 71,
       "kind": "call:POST",
       "surface": "mettre ? 'chat.starMessage' : 'chat.unStarMessage'"
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
-      "line": 63,
+      "line": 71,
       "kind": "endpoint",
       "surface": "chat.starMessage"
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
-      "line": 63,
+      "line": 71,
       "kind": "endpoint",
       "surface": "chat.unStarMessage"
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
-      "line": 69,
+      "line": 77,
       "kind": "endpoint",
       "surface": "chat.getPinnedMessages"
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
-      "line": 73,
+      "line": 81,
       "kind": "endpoint",
       "surface": "chat.getStarredMessages"
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
-      "line": 77,
+      "line": 85,
       "kind": "call:GET",
       "surface": "chemin"
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
-      "line": 87,
+      "line": 95,
       "kind": "call:POST",
       "surface": "'subscriptions.read'"
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
-      "line": 87,
+      "line": 95,
       "kind": "endpoint",
       "surface": "subscriptions.read"
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
-      "line": 93,
+      "line": 101,
       "kind": "call:POST",
       "surface": "'im.create'"
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/actions.ts",
-      "line": 93,
+      "line": 101,
       "kind": "endpoint",
       "surface": "im.create"
     },

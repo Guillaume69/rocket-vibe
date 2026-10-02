@@ -13,7 +13,7 @@ export const CAPACITES_ROCKETVIBE: Capacites = {
   edition:true, suppression:true,
   typing:false, presence:false, push:false, e2ee:false, emojisCustom:false,
   appelVideo:false, recherche:false, modeleFil:'tmid',
-  fichiers:false, fils:false, reactions:true, marques:true, profil:false, infosSalon:false, citations:false,
+  fichiers:false, fils:false, reactions:true, marques:true, profil:false, infosSalon:true, favorisSalon:false, citations:false,
 };
 const unsupported = async (): Promise<never> => { throw new NativeError(501,'unsupported_feature'); };
 const noSubscription = () => () => {};
@@ -30,7 +30,7 @@ export function capacitesEffectives(annonce: Capabilities | null, client: Capaci
     recherche:both(annonce?.search,client.recherche), fichiers:both(annonce?.uploads,client.fichiers),
     fils:both(annonce?.threads,client.fils), reactions:both(annonce?.reactions,client.reactions),
     marques:both(annonce?.pins && annonce?.stars,client.marques), profil:both(annonce?.profiles,client.profil),
-    infosSalon:both(annonce?.room_info,client.infosSalon), citations:both(annonce?.quotes,client.citations),
+    infosSalon:both(annonce?.room_info,client.infosSalon), favorisSalon:false, citations:both(annonce?.quotes,client.citations),
   };
 }
 
@@ -56,6 +56,10 @@ export function creerFournisseurRV(session: Session, client: ClientRest, generer
       versSalon:() => null, versAbonnement:() => null,
     },
     actions:{
+      infosSalon:async rid => {
+        const details=await chat.roomDetails(rid);
+        return {id:details.room.id,nom:details.room.name,type:details.room.kind==='private'?'p':details.room.kind==='direct'?'d':'c',description:details.description||null,sujet:details.topic||null,annonce:details.announcement||null,membres:details.member_count,lectureSeule:details.read_only};
+      },
       reagir:(rid,id,emoji,present) => chat.react(rid,id,emoji,present),
       modifier:async (rid,id,text,chiffreur,revision) => {
         if (chiffreur) return unsupported();

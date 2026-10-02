@@ -105,7 +105,7 @@ export function EnTeteSalon({
         <Appuyable
           disabled={capacites?.infosSalon === false}
           onPress={() =>
-            estDM && salon?.dmAutreUid != null
+            estDM && capacites?.profil !== false && salon?.dmAutreUid != null
               ? void ouvrirFicheProfil({ uid: salon.dmAutreUid })
               : routeur.push({ pathname: '/salon-info', params: { rid } })
           }

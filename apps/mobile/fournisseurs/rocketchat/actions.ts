@@ -7,7 +7,7 @@
 
 import { mentionsE2E } from '../../lib/e2e/mentions.ts';
 import type { ChiffreurEnvoi } from '../../lib/envoi.ts';
-import type { ActionsFournisseur } from '../../lib/fournisseur.ts';
+import type { ActionsFournisseur, InformationsSalon } from '../../lib/fournisseur.ts';
 import { versMessage, type MessageLocal } from '../../lib/normaliser.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 
@@ -18,6 +18,14 @@ export class ActionsRC implements ActionsFournisseur {
 
   constructor(client: ClientRest) {
     this.client = client;
+  }
+
+  async infosSalon(rid: string): Promise<InformationsSalon> {
+    const response=await this.client.get<{room?:Record<string,unknown>}>('rooms.info',{params:{roomId:rid}});
+    const room=response.room;
+    if(!room || room._id!==rid)throw new Error('Invalid room details');
+    const text=(key:string)=>typeof room[key]==='string' && room[key]!=='' ? room[key] as string : null;
+    return {id:rid,nom:text('fname')??text('name')??'',type:text('t')??'c',description:text('description'),sujet:text('topic'),annonce:text('announcement'),membres:typeof room.usersCount==='number'?room.usersCount:null,lectureSeule:room.ro===true};
   }
 
   /**

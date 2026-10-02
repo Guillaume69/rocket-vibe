@@ -16,6 +16,11 @@ public enum ChatProvider {
     }
     public var supportsFiles: Bool { legacy != nil || native?.supportedFeatures().contains("uploads") == true }
     public var supportsEditing: Bool { legacy != nil || native?.supportedFeatures().contains("editing") == true }
+    public var supportsRoomInfo: Bool { legacy != nil || native?.supportedFeatures().contains("room_info") == true }
+    func roomDetails(rid: String) async throws -> RoomDetails {
+        switch self { case let .rocketChat(chat): return try await chat.roomDetails(rid: rid)
+        case let .rocketVibe(chat): return try await chat.roomDetails(room: rid) }
+    }
 
     func account() -> Account {
         switch self { case let .rocketChat(chat): return chat.account()

@@ -633,7 +633,20 @@ fn details_checks(
             let (s, r, q) = (session.clone(), rid.clone(), text.to_owned());
             let hits = crate::on_tokio(async move { s.search(&r, &q).await }).await.unwrap_or_default();
             check("search finds", hits.iter().any(|m| m.text.as_deref().is_some_and(|t| t.contains(text))), hits.len());
-            crate::details::search(chat.widget(), session, &rid);
+            let target = std::rc::Rc::downgrade(&chat);
+            crate::details::search(chat.widget(), session, &rid, move |id, _| {
+                if let Some(chat) = target.upgrade() {
+                    chat.jump_to(&id);
+                }
+            });
+            if let Some(hit) = hits.iter().find(|m| m.thread_id.is_none()) {
+                chat.jump_to(&hit.id);
+                let (chat, id) = (chat.clone(), hit.id.clone());
+                glib::timeout_add_local_once(Duration::from_millis(6000), move || {
+                    let list = chat.room_list();
+                    check("jumped to a search hit", list.row(&id).is_some(), list.len());
+                });
+            }
         }
     });
 }

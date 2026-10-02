@@ -208,7 +208,13 @@ mod tests {
     fn snapshot() -> Snapshot {
         Snapshot {
             protocol_version: 1,
-            rooms: vec![Room { id: "room".into(), name: "Room".into(), kind: RoomKind::Private, revision: "1".into() }],
+            rooms: vec![Room {
+                id: "room".into(),
+                name: "Room".into(),
+                kind: RoomKind::Private,
+                revision: "1".into(),
+                read_state: None,
+            }],
             messages: vec![],
             cursor: "cursor".into(),
         }

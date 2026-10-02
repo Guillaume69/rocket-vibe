@@ -184,7 +184,7 @@ async fn rust_client_exchanges_and_replays_on_real_server(pool: PgPool) {
     );
     assert_eq!(
         bob.changes(&snapshot.cursor).await.unwrap().changes.len(),
-        1
+        2
     );
     let url = bob.socket_url(&snapshot.cursor).await.unwrap();
     assert_eq!(url.scheme(), "ws");

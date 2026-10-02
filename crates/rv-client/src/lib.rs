@@ -182,8 +182,15 @@ impl NativeClient {
                 Some("message_action")
             }
             _ if path.starts_with("/api/v1/rooms/")
+                && *method == Method::POST
+                && path.ends_with("/read") =>
+            {
+                Some("room_read")
+            }
+            _ if path.starts_with("/api/v1/rooms/")
                 && (*method == Method::PATCH
-                    || *method == Method::PUT && path.ends_with("/role")
+                    || *method == Method::PUT
+                        && (path.ends_with("/role") || path.ends_with("/favorite"))
                     || *method == Method::POST && path.ends_with("/leave")) =>
             {
                 Some("room_command")
@@ -579,6 +586,42 @@ impl NativeClient {
             url.as_str()
                 .strip_prefix(&self.base)
                 .ok_or(Error::InvalidUrl)?,
+        )
+        .await
+    }
+    pub async fn room_read_state(
+        &self,
+        room: &str,
+    ) -> Result<rv_protocol::parity::ReadState, Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!("/api/v1/rooms/{room}/read")).await
+    }
+    pub async fn mark_room_read(
+        &self,
+        room: &str,
+        input: &rv_protocol::parity::MarkRead,
+    ) -> Result<rv_protocol::parity::ReadState, Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        self.post(&format!("/api/v1/rooms/{room}/read"), input)
+            .await
+    }
+    pub async fn set_room_favorite(
+        &self,
+        room: &str,
+        input: &rv_protocol::parity::SetRoomFavorite,
+    ) -> Result<rv_protocol::parity::RoomCommandReceipt, Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        self.request(
+            Method::PUT,
+            &format!("/api/v1/rooms/{room}/favorite"),
+            Some(input),
+            false,
         )
         .await
     }

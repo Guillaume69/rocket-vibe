@@ -97,7 +97,8 @@ async fn materialize(app: &App, user: &Account, id: &str) -> Result<String> {
     let mut current = empty(id, 0);
     let (mut bytes, mut total) = (1024, 0);
     for room in rooms {
-        let room = room.wire();
+        let mut room = room.wire();
+        crate::room_reads::personalize(&mut tx, &user.id, &mut room).await?;
         let size = serde_json::to_vec(&room)
             .map_err(|_| Error::internal())?
             .len()

@@ -18,6 +18,7 @@ mod reactions;
 mod reauthentication;
 pub mod recovery;
 mod room_details;
+mod room_reads;
 mod sessions;
 mod snapshots;
 mod store;

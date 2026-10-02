@@ -349,6 +349,12 @@ pub struct MessagePermissions {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct ReadState {
     pub room_id: String,
+    /// Membership lifetime nonce, used to purge a missed withdrawal / rejoin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub membership_version: Option<String>,
+    /// Independent favorite version; reading or receiving a message does not change it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub favorite_revision: Option<String>,
     pub revision: String,
     pub root_position: String,
     pub reply_position: String,
@@ -364,6 +370,14 @@ pub struct ReadState {
 pub struct MarkRead {
     pub root_position: String,
     pub reply_position: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetRoomFavorite {
+    pub operation_id: String,
+    pub expected_revision: String,
+    pub present: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
@@ -508,6 +522,8 @@ pub struct RoomKeyEnvelope {
 /// specification/review; these types make no algorithm or trust guarantee.
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct ParityContract {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub room_favorite: Option<SetRoomFavorite>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub room_details: Option<RoomDetails>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

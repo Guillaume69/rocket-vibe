@@ -1814,6 +1814,16 @@
             }
           ]
         },
+        "room_favorite": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SetRoomFavorite"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "room_key_envelope": {
           "$ref": "#/$defs/RoomKeyEnvelope"
         },
@@ -2011,8 +2021,22 @@
         "favorite": {
           "type": "boolean"
         },
+        "favorite_revision": {
+          "description": "Independent favorite version; reading or receiving a message does not change it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "group_mentions": {
           "type": "string"
+        },
+        "membership_version": {
+          "description": "Membership lifetime nonce, used to purge a missed withdrawal / rejoin.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "mentions": {
           "type": "string"
@@ -2437,6 +2461,17 @@
         "name": {
           "type": "string"
         },
+        "read_state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReadState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Account-scoped state; absent from public journal payloads and old servers."
+        },
         "revision": {
           "type": "string"
         }
@@ -2734,6 +2769,26 @@
       "required": [
         "operation_id",
         "emoji",
+        "present"
+      ],
+      "type": "object"
+    },
+    "SetRoomFavorite": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_revision": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "present": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "operation_id",
+        "expected_revision",
         "present"
       ],
       "type": "object"

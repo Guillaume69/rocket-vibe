@@ -196,6 +196,9 @@ pub async fn apply(app: &App, account: &Account, id: &str, command: Command) -> 
         Change::MessageUpsert(current),
     )
     .await?;
+    if text.is_none() {
+        crate::room_reads::message_changed(&mut tx, &room).await?;
+    }
     tx.commit().await?;
     Ok(())
 }

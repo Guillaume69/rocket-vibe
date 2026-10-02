@@ -27,6 +27,7 @@ impl RoomRow {
                 _ => RoomKind::Public,
             },
             revision: self.revision.to_string(),
+            read_state: None,
         }
     }
 }
@@ -107,6 +108,9 @@ pub(crate) async fn event(
     recipient: Option<&str>,
     change: Change,
 ) -> Result<()> {
+    if matches!(&change, Change::RoomUpsert(_)) {
+        crate::room_reads::initialize_revision(tx, room, position).await?;
+    }
     sqlx::query("INSERT INTO journal(position,room_id,recipient_id,change) VALUES($1,$2,$3,$4)")
         .bind(position)
         .bind(room)
@@ -439,8 +443,17 @@ pub async fn membership(
 }
 
 pub async fn rooms(app: &App, account: &Account) -> Result<Vec<Room>> {
-    Ok(sqlx::query_as::<_, RoomRow>("SELECT r.id,r.name,r.kind,r.revision FROM rooms r JOIN members m ON m.room_id=r.id WHERE m.user_id=$1 ORDER BY r.revision DESC,r.id")
-        .bind(&account.id).fetch_all(&app.pool).await?.into_iter().map(RoomRow::wire).collect())
+    let mut tx = app.pool.begin().await?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        .execute(&mut *tx)
+        .await?;
+    let mut rooms:Vec<_>=sqlx::query_as::<_, RoomRow>("SELECT r.id,r.name,r.kind,r.revision FROM rooms r JOIN members m ON m.room_id=r.id WHERE m.user_id=$1 ORDER BY r.revision DESC,r.id")
+        .bind(&account.id).fetch_all(&mut *tx).await?.into_iter().map(RoomRow::wire).collect();
+    for room in &mut rooms {
+        crate::room_reads::personalize(&mut tx, &account.id, room).await?;
+    }
+    tx.commit().await?;
+    Ok(rooms)
 }
 
 pub async fn send(
@@ -457,6 +470,7 @@ pub async fn send(
     // All sends by a user serialize before room / journal locks. This also protects
     // operation IDs across rooms, including malicious cross-room replays.
     lock_active(&mut tx, account).await?;
+    crate::room_reads::lock_room(&mut tx, room_id).await?;
     require_member(&mut tx, room_id, &account.id).await?;
     let used: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM room_creation_requests WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM message_actions WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM room_commands WHERE user_id=$1 AND operation_id=$2)",
@@ -529,6 +543,7 @@ pub async fn send(
         Change::MessageUpsert(message.clone()),
     )
     .await?;
+    crate::room_reads::message_changed(&mut tx, room_id).await?;
     tx.commit().await?;
     Ok(message)
 }

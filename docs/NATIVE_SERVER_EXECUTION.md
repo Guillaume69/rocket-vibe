@@ -315,6 +315,21 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P05, premier lot serveur / transports : états personnels attachés aux salons
+  après contrôle des destinataires / adhésions, sans données privées dans le
+  journal partagé. Lectures par maximum sur deux appareils, compteurs de racines
+  excluant l'envoi propre et diminuant à la suppression, favoris explicites avec
+  révision indépendante et reçus personnels. Retrait / réadhésion renouvelle la
+  durée d'adhésion et purge la préférence ; un rôle modifié ne la renouvelle pas.
+  Les anciens reçus ne restaurent aucune préférence. Six scénarios PostgreSQL /
+  HTTP passent, dont le transport mobile réel avec réponse perdue et récupération
+  du reçu sans seconde écriture. Le workspace natif complet passe ses 175 tests,
+  puis le sixième scénario dédié ajouté passe également (176 au total).
+  Les 1 131 tests mobiles, typecheck / lint, et les 314 tests bureau, Clippy /
+  compilation GTK dans Fedora passent ; schéma / types et inventaire reproductibles.
+  Les mentions, contrôleurs durables et UI P05 restent ouverts ; capacités clientes
+  encore masquées et réponses réservées à P11. [Contrat](protocol/READ_STATE.md).
+
 - P04, composeurs existants : GTK / SwiftUI / mobile utilisent le droit effectif
   `send`, avec exception des propriétaires / modérateurs dans un salon en lecture
   seule. Les fiches gardent le réglage global. SQLite lie ces indications au
@@ -333,8 +348,8 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   est inspectée.
   Le développement P04 est terminé ; les qualifications des applications
   installées restent ouvertes. Le prochain lot est P05, lectures / non-lus,
-  mentions et favoris personnels de salons. La CI macOS du lot `79aaa00`
-  (`36997807732`) et ses quatre jobs natifs (`36997807664`) sont verts.
+  mentions et favoris personnels de salons. La CI macOS du lot `a4df1fd`
+  (`37000328250`) et ses quatre jobs natifs (`37000328247`) sont verts.
 
 - P04, contrôles dans les fiches existantes : mobile / GTK / SwiftUI exposent
   les réglages, la liste paginée des membres, les rôles et le départ selon les

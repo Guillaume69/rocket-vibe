@@ -363,7 +363,7 @@ pub(crate) async fn publish(
     .await?;
     Ok(room)
 }
-async fn admission(tx: &mut Transaction<'_, Postgres>, user: &str) -> Result<()> {
+pub(crate) async fn admission(tx: &mut Transaction<'_, Postgres>, user: &str) -> Result<()> {
     let (attempts,retry):(i32,i64)=sqlx::query_as("INSERT INTO room_command_windows(user_id,attempts,expires_at) VALUES($1,1,clock_timestamp()+interval '60 seconds') ON CONFLICT(user_id) DO UPDATE SET attempts=CASE WHEN room_command_windows.expires_at<=clock_timestamp() THEN 1 ELSE room_command_windows.attempts+1 END,expires_at=CASE WHEN room_command_windows.expires_at<=clock_timestamp() THEN clock_timestamp()+interval '60 seconds' ELSE room_command_windows.expires_at END RETURNING attempts,GREATEST(1,ceil(extract(epoch from expires_at-clock_timestamp())))::bigint")
         .bind(user).fetch_one(&mut **tx).await?;
     if attempts > 30 {

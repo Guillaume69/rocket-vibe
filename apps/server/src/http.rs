@@ -20,8 +20,8 @@ use crate::{
     App, auth,
     delivery::{ReadProof, Scope},
     error::{Error, Result},
-    limits, marks, message_actions, permissions, reactions, room_details, sessions, snapshots,
-    store, sync,
+    limits, marks, message_actions, permissions, reactions, room_details, room_reads, sessions,
+    snapshots, store, sync,
 };
 
 pub fn router(app: App) -> Router {
@@ -97,6 +97,14 @@ pub fn router(app: App) -> Router {
             axum::routing::put(change_room_role),
         )
         .route("/api/v1/rooms/{room}/leave", post(leave_room))
+        .route(
+            "/api/v1/rooms/{room}/read",
+            get(room_read_state).post(mark_room_read),
+        )
+        .route(
+            "/api/v1/rooms/{room}/favorite",
+            axum::routing::put(room_favorite),
+        )
         .route(
             "/api/v1/rooms/{room}/commands/{operation}",
             get(room_command_receipt),
@@ -227,6 +235,8 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             room_settings: true,
             room_roles: true,
             room_leave: true,
+            read_markers: true,
+            favorites: true,
             fine_permissions: true,
             editing: true,
             deletion: true,
@@ -898,6 +908,37 @@ async fn room_details(
     proof
         .versioned_room_json(&app, &hash, &room, &details.revision, &details)
         .await
+}
+async fn room_read_state(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::Room(&room)).await?;
+    let state = room_reads::read(&app, &actor, &room).await?;
+    proof.json(&app, &hash, &state, &[room], None).await
+}
+async fn mark_room_read(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+    input: Input<rv_protocol::parity::MarkRead>,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::Room(&room)).await?;
+    let state = room_reads::mark(&app, &actor, &room, body(input)?).await?;
+    proof.json(&app, &hash, &state, &[room], None).await
+}
+async fn room_favorite(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+    input: Input<rv_protocol::parity::SetRoomFavorite>,
+) -> Result<Response> {
+    let hash = auth::bearer(&headers)?;
+    let actor = auth::authenticate(&app, &hash).await?;
+    let receipt = room_reads::favorite(&app, &actor, &room, body(input)?).await?;
+    let proof = ReadProof::capture(&app, &actor, Scope::None).await?;
+    proof.json(&app, &hash, &receipt, &[], None).await
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

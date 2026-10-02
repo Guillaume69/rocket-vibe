@@ -3451,7 +3451,7 @@ async fn large_json_is_bounded_without_skipping_replay_events(pool: PgPool) {
     );
     let after_snapshot = server.changes(&alice.token, &frozen_cursor).await;
     assert!(
-        matches!(after_snapshot.changes.as_slice(), [Change::MessageUpsert(m)] if m.id==future)
+        matches!(after_snapshot.changes.as_slice(), [Change::MessageUpsert(m),Change::RoomUpsert(r)] if m.id==future && r.id==m.room_id && r.read_state.is_some())
     );
     let mut native = rv_client::NativeClient::new(&server.base).unwrap();
     native.restore(alice.token.clone());

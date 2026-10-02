@@ -73,7 +73,10 @@ pub async fn snapshot(app: &App, account: &Account) -> Result<Snapshot> {
     if rooms.len() > 100 {
         return Err(snapshot_limit());
     }
-    let rooms: Vec<_> = rooms.into_iter().map(RoomRow::wire).collect();
+    let mut rooms: Vec<_> = rooms.into_iter().map(RoomRow::wire).collect();
+    for room in &mut rooms {
+        crate::room_reads::personalize(&mut tx, &account.id, room).await?;
+    }
     let mut bytes = wire_len(&rooms)? + 128;
     let mut messages = Vec::new();
     for room in &rooms {
@@ -151,7 +154,9 @@ pub async fn changes(app: &App, account: &Account, token: &str, limit: i64) -> R
     let mut output = Vec::new();
     let mut bytes = 128;
     let mut last = after;
-    for (position, room_id, recipient, change) in scanned {
+    let mut read_states: std::collections::HashMap<String, rv_protocol::parity::ReadState> =
+        std::collections::HashMap::new();
+    for (position, room_id, recipient, mut change) in scanned {
         if let Some(recipient) = recipient {
             if recipient == account.id {
                 // A withdrawal contains only an ID previously accessible to this user.
@@ -178,6 +183,16 @@ pub async fn changes(app: &App, account: &Account, token: &str, limit: i64) -> R
         .fetch_one(&mut *tx)
         .await?;
         if allowed {
+            if let Change::RoomUpsert(room) = &mut change.0 {
+                let state = if let Some(cached) = read_states.get(&room.id) {
+                    cached.clone()
+                } else {
+                    let state = crate::room_reads::state(&mut tx, &room.id, &account.id).await?;
+                    read_states.insert(room.id.clone(), state.clone());
+                    state
+                };
+                room.read_state = Some(Box::new(state));
+            }
             let size = wire_len(&change.0)? + 1;
             if bytes + size > limits::BATCH_BYTES {
                 break;

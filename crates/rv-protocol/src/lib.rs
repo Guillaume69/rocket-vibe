@@ -238,6 +238,9 @@ pub struct Room {
     pub name: String,
     pub kind: RoomKind,
     pub revision: String,
+    /// Account-scoped state; absent from public journal payloads and old servers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_state: Option<Box<parity::ReadState>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

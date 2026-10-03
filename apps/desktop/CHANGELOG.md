@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-03
+
 ### Added
 
 - A close button beside a playing video's title stops it and brings the thumbnail back.
@@ -325,7 +327,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.6.1...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.7.0...HEAD
+[0.7.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.6.1...desktop-v0.7.0
 [0.6.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.6.0...desktop-v0.6.1
 [0.6.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.5.0...desktop-v0.6.0
 [0.5.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.4.1...desktop-v0.5.0

@@ -319,6 +319,19 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P16, fiches publiques mobiles (3 octobre 2026) : la feuille de profil existante
+  s'ouvre depuis les auteurs / mentions avec les données de son fournisseur.
+  Préchargement gardé au changement de compte, identités / versions d'avatars
+  propagées par le live vers SQLite, lectures antérieures refusées. Les tuiles
+  de photos des messages, DM et fiches reçoivent des PNG locaux issus du transport
+  authentifié ; cache mémoire borné, concurrence limitée à quatre et purge à la
+  fermeture. Retrait / remplacement efface les pixels y compris en cas de réponse
+  tardive. Le bouton Message résout l'UID courant même après un renommage.
+  Vérifications : 25 tests mobiles ciblés, typage / lint et banc réel HTTP /
+  PostgreSQL / WebSocket / SQLite ; ce parcours ne qualifie pas l'écran Android.
+  Éditeur personnel / préférences mobiles et raccordement GTK / SwiftUI restent
+  la suite de P16 ; aucun autre client ni interface n'est créé.
+
 - P16 / J2–J3, socle profils (3 octobre 2026) : API publiques sans email,
   profil personnel avec adresse vérifiée privée, commandes de nom / bio / statut
   et préférences versionnées séparément. Changement de pseudo protégé par preuve

@@ -15,6 +15,7 @@
 
 import { memeOrigine } from './origine.ts';
 import type { ClientRest } from './rest.ts';
+import {uriAvatarNatif} from './avatarsNatifs.ts';
 
 export type FichierAEnvoyer = {
   uri: string;
@@ -232,7 +233,7 @@ export function urlAvatar(
     etag?: string | null;
   },
 ): string | null {
-  if (client.genre === 'rocketvibe') return null;
+  if (client.genre === 'rocketvibe') return cible.rid?null:uriAvatarNatif(client,cible.etag);
   const { uid, username, rid, etag } = cible;
   let chemin: string;
   if (typeof username === 'string' && username !== '') {

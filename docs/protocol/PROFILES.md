@@ -1,8 +1,9 @@
 # Profils et réglages natifs — P16
 
-Le socle serveur et les transports sont disponibles. Le raccordement aux fiches,
-à l'éditeur personnel et aux caches d'avatars existants des trois clients reste
-en cours : leur masque `profiles` reste désactivé jusqu'à ce raccordement.
+Le socle serveur et les transports sont disponibles. La fiche publique et les
+avatars mobiles sont raccordés aux interfaces existantes. L'éditeur personnel,
+les préférences et les clients GTK / SwiftUI restent en cours ; le masque général
+`profiles` reste désactivé jusqu'à leur raccordement complet.
 
 ## Lectures et confidentialité
 
@@ -95,7 +96,27 @@ retrait des anciennes URLs, les pannes disque, le nettoyage et les limites.
 Les transports mobiles sont vérifiés avec le contrat JSON Schema généré, le
 corps binaire, les en-têtes d'authentification et le cooldown partagé.
 
-Restent les intentions clientes persistantes et les parcours existants mobile /
-GTK / SwiftUI, la propagation des noms et versions d'avatar dans leurs caches,
-les contrôles connectés et les validations sur applications installées. P16 ne
-peut être déclaré livré avant ces étapes.
+La fiche publique mobile lit chaque serveur par son fournisseur, depuis un UID
+stable ou une mention. Le préchargement borne son tampon à 64 fiches et refuse
+cache / navigation après changement de compte. Les stamps live mettent à jour
+les pseudos et versions de photos dans `utilisateurs`, sans étendre l'historique
+ni avancer le curseur. Une réponse de profil antérieure à un stamp est refusée.
+
+Les tuiles d'avatars existantes chargent les octets via le transport natif
+(`Bearer`, redirections refusées), puis affichent une URI PNG locale. Aucune URL
+d'image ne porte un credential natif. Le cache applicatif reste en mémoire, par
+fournisseur : 128 entrées, 32 Mio de caractères d'image et quatre téléchargements
+simultanés au plus. Retrait / remplacement efface les pixels et refuse une
+réponse tardive ; une identité disparue de la photo live provoque une relecture
+autorisée si sa photo est encore affichée. La fermeture du fournisseur purge le
+cache. Aucun fichier d'avatar n'est ajouté au stockage du téléphone par ce cache.
+
+Le banc HTTP / PostgreSQL / WebSocket / SQLite exécute ce même fournisseur :
+fiche / préchargement, avatar protégé, renommage, retrait, DM par UID stable et
+purge de compte. Les tests ciblés couvrent aussi les réponses tardives et la
+limite de concurrence. Ce banc n'est pas une qualification de l'écran Android.
+
+Restent les intentions de modification persistantes, l'éditeur personnel et les
+préférences mobiles, les fiches / réglages / caches GTK et SwiftUI, puis les
+validations sur applications installées. P16 ne peut être déclaré livré avant
+ces étapes.

@@ -42,6 +42,10 @@ export class NativeChat {
   private flushing: Promise<void> | null = null;
   private commands: Promise<void> = Promise.resolve();
   private roomAccessReads = new Map<string,Promise<void>>();
+  private profileHeads=new Map<string,string>();
+  private livePeers=new Map<string,string>();
+  private profileChanges=0;
+  private profileReads:Promise<void>=Promise.resolve();
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private retryAt = 0;
   private retryAttempt = 0;
@@ -65,12 +69,15 @@ export class NativeChat {
   }
   subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   get searchVersion():string {return `${this.generation}:${this.store.projectionToken()}:${this.store.searchToken()}`;}
+  get profileVersion():string {return `${this.generation}:${this.store.projectionToken()}:${this.profileChanges}`;}
+  profileVersionFor(id:string|null):string {return `${this.generation}:${this.store.projectionToken()}:${id?this.profileHeads.get(id)??'unobserved':this.profileChanges}`;}
   private notify(): void { for (const listener of this.listeners) listener(); }
   start(): void { this.reconnect.declencher(); }
   private disconnect(): void {
     if(this.verified && this.capabilities?.presence)this.emitPresence('offline');
     if(this.presenceTimer!==null)clearInterval(this.presenceTimer);
     this.presenceTimer=null;this.typingDesired=null;this.typingLast=null;this.live.clear();
+    this.profileHeads.clear();this.livePeers.clear();
     this.generation++;
     this.verified = false;
     if (this.retryTimer!==null) clearTimeout(this.retryTimer);
@@ -199,7 +206,22 @@ export class NativeChat {
               if(generation!==this.generation)return;
               if(grant?.membership_version!==room.membership_version){this.live.clear();return;}
             }
-            if(generation===this.generation)this.live.apply(frame.data,Math.max(0,performance.now()-receivedAt));
+            if(generation===this.generation && !frame.data.limited && frame.data.ttl_ms<=8000 && frame.data.ttl_ms>performance.now()-receivedAt){
+              const profiles=frame.data.profiles??[];
+              if(profiles.length>512 || new Set(profiles.map(p=>p.user.id)).size!==profiles.length)throw new NativeError(0,'invalid_profile_page');
+              const changed=profiles.filter(p=>this.profileHeads.get(p.user.id)!==p.revision);
+              const peerKey=(room:import('./protocol.generated.ts').LiveRoom)=>room.direct_peer?`${room.direct_peer.id}:${room.direct_peer.username}`:'';
+              const peers=frame.data.rooms.filter(room=>(room.direct_peer!=null||this.livePeers.has(room.room_id))&&this.livePeers.get(room.room_id)!==peerKey(room));
+              this.livePeers=new Map(frame.data.rooms.filter(room=>room.direct_peer!=null).map(room=>[room.room_id,peerKey(room)]));
+              const profileChanged=changed.length>0||profiles.length!==this.profileHeads.size;
+              if(profileChanged)this.profileChanges++;
+              this.profileHeads=new Map(profiles.map(p=>[p.user.id,p.revision]));
+              const projection=this.store.projectionToken();
+              if(changed.length||peers.length)await this.store.profileIdentities(changed,()=>generation===this.generation && !this.stopped && projection===this.store.projectionToken(),peers);
+              if(generation===this.generation)this.live.apply(frame.data,Math.max(0,performance.now()-receivedAt));
+              if(generation===this.generation && profileChanged)this.notify();
+            }
+            else if(generation===this.generation)this.live.clear();
             return;
           }
           const batch = decodeNative('SyncBatch',value);
@@ -475,6 +497,33 @@ export class NativeChat {
   }
   async setMark(rid:string,id:string,present:boolean,starred:boolean):Promise<void> {
     return this.submitCommand(rid,id,'0',starred?'star':'pin',JSON.stringify(present));
+  }
+  async profile(cible:{uid?:string;username?:string}):Promise<import('./protocol.generated.ts').UserProfile> {
+    const operation=this.profileReads.then(async()=>{
+      this.ready();
+      if(!this.capabilities?.profiles)throw new NativeError(501,'unsupported_feature');
+      if(!cible.uid && !cible.username)throw new NativeError(422,'invalid_profile');
+      const target=cible.uid??null,version=this.profileVersionFor(target),generation=this.generation;
+      const guard=()=>{this.roomOperationGeneration(generation);if(version!==this.profileVersionFor(target))throw new NativeError(409,'delivery_revalidate');};
+      checkIdentity(this.session,await this.transport.discover());guard();
+      const profile=cible.uid?await this.transport.userProfile(cible.uid):await this.transport.lookupProfile(cible.username!);
+      checkIdentity(this.session,await this.transport.discover());guard();
+      if(cible.uid && profile.user.id!==cible.uid || !cible.uid && profile.user.username!==cible.username)throw new NativeError(0,'invalid_profile');
+      await this.store.profileIdentities([profile],()=>version===this.profileVersionFor(target) && !this.stopped);
+      guard();return profile;
+    });
+    this.profileReads=operation.then(()=>{},()=>{});return operation;
+  }
+  async profileAvatar(id:string):Promise<Uint8Array> {
+    this.ready();
+    if(!this.capabilities?.profile_avatars)throw new NativeError(501,'unsupported_feature');
+    if(!/^[0-9a-f]{64}$/.test(id))throw new NativeError(422,'invalid_avatar');
+    const projection=this.store.projectionToken(),generation=this.generation;
+    checkIdentity(this.session,await this.transport.discover());this.roomOperationGeneration(generation);
+    const bytes=await this.transport.avatarBytes(id);
+    checkIdentity(this.session,await this.transport.discover());this.roomOperationGeneration(generation);
+    if(projection!==this.store.projectionToken())throw new NativeError(409,'delivery_revalidate');
+    return bytes;
   }
   async searchMessages(rid:string,q:string,before?:string):Promise<import('./protocol.generated.ts').Message[]> {
     if(!this.capabilities?.search)throw new NativeError(501,'unsupported_feature');
@@ -835,12 +884,12 @@ export class NativeChat {
     // The next journal batch provides authoritative membership and the durable cursor.
     this.refresh(); return room.id;
   }
-  async direct(username: string): Promise<string> {
+  async direct(username: string,uid?:string): Promise<string> {
     this.ready();
     const generation = this.generation;
-    const user = (await this.transport.users()).find(user => user.username === username.trim());
+    const user = uid&&this.capabilities?.profiles?(await this.profile({uid})).user:(await this.transport.users()).find(user => uid?user.id===uid:user.username===username.trim());
     if (!user) throw new NativeError(404,'user_not_found');
-    this.ready();
+    this.roomOperationGeneration(generation);
     const room = await this.transport.direct({user_id:user.id});
     if (this.stopped || generation !== this.generation) throw new NativeError(0,'session_closed');
     this.refresh(); return room.id;

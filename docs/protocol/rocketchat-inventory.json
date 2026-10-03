@@ -204,6 +204,7 @@
     "apps/mobile/lib/apercuLien.ts",
     "apps/mobile/lib/appel.ts",
     "apps/mobile/lib/auth.ts",
+    "apps/mobile/lib/avatarsNatifs.ts",
     "apps/mobile/lib/citation.ts",
     "apps/mobile/lib/clesStockage.ts",
     "apps/mobile/lib/completionEmoji.ts",
@@ -237,6 +238,7 @@
     "apps/mobile/lib/permissions.ts",
     "apps/mobile/lib/presence.ts",
     "apps/mobile/lib/profilPreload.ts",
+    "apps/mobile/lib/profilsFournisseur.ts",
     "apps/mobile/lib/push.ts",
     "apps/mobile/lib/pushToken.ts",
     "apps/mobile/lib/raccordement.ts",
@@ -264,6 +266,7 @@
     "apps/mobile/ui/apercuPieceJointe.tsx",
     "apps/mobile/ui/appareils.tsx",
     "apps/mobile/ui/appuyable.tsx",
+    "apps/mobile/ui/avatarNatif.ts",
     "apps/mobile/ui/bandeauReponse.tsx",
     "apps/mobile/ui/barreNonLus.ts",
     "apps/mobile/ui/barreTransfert.tsx",
@@ -2236,18 +2239,6 @@
       "surface": "users.setPreferences"
     },
     {
-      "file": "apps/mobile/app/profil.tsx",
-      "line": 143,
-      "kind": "call:GET",
-      "surface": "'users.info'"
-    },
-    {
-      "file": "apps/mobile/app/profil.tsx",
-      "line": 144,
-      "kind": "endpoint",
-      "surface": "users.info"
-    },
-    {
       "file": "apps/mobile/app/recherche.tsx",
       "line": 83,
       "kind": "call:GET",
@@ -2477,13 +2468,25 @@
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/index.ts",
-      "line": 51,
+      "line": 50,
+      "kind": "call:GET",
+      "surface": "'users.info'"
+    },
+    {
+      "file": "apps/mobile/fournisseurs/rocketchat/index.ts",
+      "line": 50,
+      "kind": "endpoint",
+      "surface": "users.info"
+    },
+    {
+      "file": "apps/mobile/fournisseurs/rocketchat/index.ts",
+      "line": 52,
       "kind": "call:GET",
       "surface": "'chat.search'"
     },
     {
       "file": "apps/mobile/fournisseurs/rocketchat/index.ts",
-      "line": 51,
+      "line": 52,
       "kind": "endpoint",
       "surface": "chat.search"
     },
@@ -2711,13 +2714,13 @@
     },
     {
       "file": "apps/mobile/lib/profilPreload.ts",
-      "line": 187,
+      "line": 75,
       "kind": "call:GET",
       "surface": "'users.info'"
     },
     {
       "file": "apps/mobile/lib/profilPreload.ts",
-      "line": 188,
+      "line": 75,
       "kind": "endpoint",
       "surface": "users.info"
     },
@@ -2855,43 +2858,43 @@
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 87,
+      "line": 88,
       "kind": "url",
       "surface": "/api/v1/rooms.media/{…}"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 125,
+      "line": 126,
       "kind": "call:POST",
       "surface": "`rooms.mediaConfirm/{…}/{…}`"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 125,
+      "line": 126,
       "kind": "endpoint",
       "surface": "rooms.mediaConfirm/{…}/{…}"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 155,
+      "line": 156,
       "kind": "url",
       "surface": "/api/v1/users.setAvatar"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 239,
+      "line": 240,
       "kind": "resource",
       "surface": "/avatar/{…}"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 241,
+      "line": 242,
       "kind": "resource",
       "surface": "/avatar/uid/{…}"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 243,
+      "line": 244,
       "kind": "resource",
       "surface": "/avatar/room/{…}"
     },

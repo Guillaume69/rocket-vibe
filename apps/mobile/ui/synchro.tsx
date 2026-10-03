@@ -20,8 +20,8 @@
  */
 
 import * as Crypto from 'expo-crypto';
-import {preparerSessionNative} from '../lib/sessionStore.ts';
 import {NativeError} from '../fournisseurs/rocketvibe/transport.ts';
+import {monterProfilsFournisseur} from '../lib/profilsFournisseur.ts';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { AppState } from 'react-native';
 
@@ -66,6 +66,7 @@ import {
   lireClePriveeE2E,
   purgerCleE2EHeritee,
   retenirJetonPush,
+  preparerSessionNative,
 } from '../lib/sessionStore.ts';
 import { oublierDisponibiliteAppel } from '../lib/appel.ts';
 import { oublierFichesProfil } from '../lib/profilPreload.ts';
@@ -190,6 +191,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           },
         });
         const chat = fournisseur.native!.chat;
+        const unprofile=monterProfilsFournisseur(client,fournisseur);
         runner = chat;
         const moteur = new MoteurSynchro(creerDepot(brute,fileEcritures),fournisseur.traducteur);
         const envoi = fournisseur.creerEnvoi(creerDepotEnvoi(brute,fileEcritures),async () => {});
@@ -203,14 +205,16 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         let lastError: string | null = null;
         const unlisten = chat.subscribe(() => {
           if (!alive) return;
-          if (chat.status.online && !online) setSynchro(s => s.phase === 'pret' ? {...s,capacites:fournisseur.capacites,generation:s.generation+1} : s);
+          if (chat.status.online && !online){
+            setSynchro(s => s.phase === 'pret' ? {...s,capacites:fournisseur.capacites,generation:s.generation+1} : s);
+          }
           online = chat.status.online;
           if (chat.status.error && chat.status.error !== lastError) {
             signaler(traduireCourant(chat.status.error === 'server_identity_changed' ? 'native.identityChanged' : 'native.error'));
           }
           lastError = chat.status.error;
         });
-        stop = () => { unlisten();unlive();presence.invalider();chat.stop(); };
+        stop = () => { unlisten();unlive();unprofile();presence.invalider();chat.stop(); };
         setSynchro({
           phase:'pret',base,brouillons:store.drafts(),moteur,envoi,
           fichiers:fournisseur.creerTeleversement(creerDepotTeleversements(brute,fileEcritures),transportExpo,async () => {}),
@@ -227,6 +231,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
     const fournisseur = creerFournisseur(session, client, () =>
       idDepuisOctets(Crypto.getRandomBytes(12)),
     );
+    const unprofile=monterProfilsFournisseur(client,fournisseur);
     const ddp = fournisseur.listener;
     let reconnecteur: Reconnecteur | null = null;
     let surAbandon: (() => void) | null = null;
@@ -668,6 +673,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       oublierDisponibiliteAppel();
       oublierEtatNotifications();
       oublierFichesProfil();
+      unprofile();
       ddp.fermer();
       ddp.reinitialiser();
     };

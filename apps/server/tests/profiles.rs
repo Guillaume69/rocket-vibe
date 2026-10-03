@@ -95,6 +95,33 @@ fn png(color: u8) -> Vec<u8> {
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn mobile_profiles_and_protected_avatars_use_the_existing_provider(pool: PgPool) {
+    let b = Bench::start(pool).await;
+    b.user("profile_owner").await;
+    b.user("profile_reader").await;
+    let fixture = b.root.join("profile-fixture.png");
+    std::fs::write(&fixture, png(120)).unwrap();
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(45),
+        tokio::process::Command::new("node")
+            .arg("../../scripts/native-profiles-smoke.ts")
+            .env("RV_SMOKE_URL", &b.base)
+            .env("RV_PROFILE_PNG", fixture)
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .expect("mobile profiles must finish within 45 seconds")
+    .expect("Node is required for the mobile SQLite bench");
+    assert!(
+        output.status.success(),
+        "{} {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn profile_identity_privacy_conflicts_and_replays(pool: PgPool) {
     let b = Bench::start(pool).await;
     let (alice, uid, token) = b.user("alice").await;

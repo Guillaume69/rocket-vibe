@@ -9,6 +9,12 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Fiches des utilisateurs dans la feuille existante, depuis un auteur ou une
+  mention, avec pseudo, nom, bio et photo natifs. Les changements d'identité
+  alimentent aussi les messages et les avatars des DM. Les photos protégées
+  passent par le fournisseur et un cache mémoire borné, purgé au changement
+  de compte ; le préchargement refuse les réponses du compte quitté.
+
 - Recherche dans les messages du salon via le fournisseur natif, dans l'écran
   existant. Résultats temporaires, droits vérifiés et relance avec Entrée ;
   la recherche Rocket.Chat passe par son propre fournisseur.

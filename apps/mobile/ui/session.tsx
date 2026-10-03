@@ -103,7 +103,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     sessionCourante.current=etat.phase==='connecte'?etat.session:null;
     // Le préchargement de fiche (`lib/profilPreload`) ouvre `/profil` depuis des
     // fonctions de rendu sans client sous la main : on lui pose le client actif.
-    definirClientProfil(etat.phase === 'connecte' && etat.session.genre === 'rocketchat' ? etat.client : null);
+    definirClientProfil(etat.phase === 'connecte' ? etat.client : null);
   }, [etat]);
 
   /**

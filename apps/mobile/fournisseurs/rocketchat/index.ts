@@ -47,6 +47,7 @@ export function creerFournisseurRC(
     identite:{genre:'rocketchat',origine:session.baseUrl,compteId:session.userId,instanceId:null,generation:null},
     decrireErreur:decrireErreurFournisseur,
     capacites: CAPACITES_ROCKETCHAT,
+    lireProfil:async cible=>(await client.get<{user?:Record<string,unknown>}>('users.info',{params:cible.uid?{userId:cible.uid}:{username:cible.username}})).user,
     rechercherMessages:async(rid,texte)=>{
       const r=await client.get<{messages?:Record<string,unknown>[]}>('chat.search',{params:{roomId:rid,searchText:texte,count:50}});
       return (r.messages??[]).map(versMessage).filter((m):m is MessageLocal=>m!==null);

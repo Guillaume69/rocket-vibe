@@ -61,9 +61,23 @@ const SEUIL_INDICATEUR_MS = 450;
 const DUREE_MIN_VISIBLE_MS = 400;
 
 let clientActif: ClientRest | null = null;
+let generation=0;
+const lecteurs=new WeakMap<ClientRest,(p:ParamsProfil)=>Promise<Record<string,unknown>|undefined>>();
+
+export function definirLecteurProfil(client:ClientRest,lire:(p:ParamsProfil)=>Promise<Record<string,unknown>|undefined>):()=>void {
+  lecteurs.set(client,lire);
+  return()=>{if(lecteurs.get(client)===lire){lecteurs.delete(client);if(clientActif===client)oublierFichesProfil();}};
+}
+export function chargerProfil(client:ClientRest,p:ParamsProfil):Promise<Record<string,unknown>|undefined> {
+  const lire=lecteurs.get(client);
+  if(lire)return lire(p);
+  if(client.genre==='rocketvibe')return Promise.reject(new Error('profile_provider_unavailable'));
+  return client.get<{user?:Record<string,unknown>}>('users.info',{params:p.uid?{userId:p.uid}:{username:p.username}}).then(r=>r.user);
+}
 
 /** Posé par `SessionProvider` à chaque changement de session. */
 export function definirClientProfil(client: ClientRest | null): void {
+  if(client!==clientActif)oublierFichesProfil();
   clientActif = client;
 }
 
@@ -125,8 +139,10 @@ export function lireProfilPrecharge(p: ParamsProfil): ProfilBrut | undefined {
  * justifie — et une course étroite suffit à les afficher.
  */
 export function oublierFichesProfil(): void {
+  generation++;
   cache.clear();
   cleEnCours = null;
+  poserBusy(false);
 }
 
 const delai = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -154,6 +170,7 @@ let cleEnCours: string | null = null;
  * donc le comportement d'avant.
  */
 export async function ouvrirFicheProfil(p: ParamsProfil): Promise<void> {
+  const version=generation;
   const k = cle(p);
   if (cleEnCours === k) return;
   cleEnCours = k;
@@ -161,12 +178,13 @@ export async function ouvrirFicheProfil(p: ParamsProfil): Promise<void> {
     await prechargerPuisOuvrir(p);
   } finally {
     // Une ouverture plus récente a pris la main : ne pas effacer SA clé.
-    if (cleEnCours === k) cleEnCours = null;
+    if (generation===version && cleEnCours === k) cleEnCours = null;
   }
 }
 
 async function prechargerPuisOuvrir(p: ParamsProfil): Promise<void> {
   const client = clientActif;
+  const version=generation;
   const k = cle(p);
 
   // Sans client (cas improbable : avant que la session soit posée) — on ouvre
@@ -182,23 +200,21 @@ async function prechargerPuisOuvrir(p: ParamsProfil): Promise<void> {
     typeof p.username === 'string' && p.username !== ''
       ? { username: p.username }
       : { uid: p.uid ?? '' };
-  const rest = params.username !== undefined ? { username: params.username } : { userId: params.uid };
-
-  const fetchBrut = client
-    .get<{ user?: Record<string, unknown> }>('users.info', { params: rest })
-    .then<ProfilBrut>((r) => ({
-      user: r.user,
-      erreur: r.user ? null : { cle: 'profil.profilIllisible' },
+  const fetchBrut = chargerProfil(client,params)
+    .then<ProfilBrut>((user) => ({
+      user,
+      erreur: user ? null : { cle: 'profil.profilIllisible' },
     }))
     .catch<ProfilBrut>((e: unknown) => ({
       user: undefined,
-      erreur: e instanceof Error ? { message: e.message } : { cle: 'profil.profilIntrouvable' },
+      erreur: client.genre==='rocketvibe'?{cle:'native.error'}:e instanceof Error ? { message: e.message } : { cle: 'profil.profilIntrouvable' },
     }));
 
   // Indicateur différé : ne s'affiche QUE si l'attente dépasse le seuil, et
   // reste alors visible un minimum (anti-flash — voir les constantes).
   let afficheA: number | null = null;
   const minuteur = setTimeout(() => {
+    if(version!==generation || client!==clientActif)return;
     poserBusy(true);
     afficheA = Date.now();
   }, SEUIL_INDICATEUR_MS);
@@ -218,10 +234,12 @@ async function prechargerPuisOuvrir(p: ParamsProfil): Promise<void> {
       const reste = DUREE_MIN_VISIBLE_MS - (Date.now() - afficheA);
       if (reste > 0) await delai(reste);
     }
-    poserBusy(false);
+    if(version===generation)poserBusy(false);
   }
 
+  if(version!==generation || client!==clientActif)return;
   if (brut !== null) {
+    if(cache.size>=64)cache.delete(cache.keys().next().value!);
     cache.set(k, brut);
   } else {
     // Plafond dépassé : ouvrir sans servir une entrée périmée d'avant — l'écran

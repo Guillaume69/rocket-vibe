@@ -13,12 +13,12 @@
  */
 
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { appelDisponibleMemo, demarrerConference, sonderAppelDisponible } from '../lib/appel.ts';
 import type { StatutPresence } from '../lib/presence.ts';
-import { lireProfilPrecharge, type ErreurProfil } from '../lib/profilPreload.ts';
+import { chargerProfil,lireProfilPrecharge, type ErreurProfil } from '../lib/profilPreload.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar } from '../lib/upload.ts';
 import { traduireCourant, useT } from '../ui/i18n.ts';
@@ -105,8 +105,10 @@ export default function EcranProfil() {
 
   const client: ClientRest | null = etat.phase === 'connecte' ? etat.client : null;
   const moi = etat.phase === 'connecte' ? etat.session.username : null;
+  const moiId=etat.phase==='connecte'?etat.session.userId:null;
   const moteur = synchro.phase === 'pret' ? synchro.moteur : null;
   const actions = synchro.phase === 'pret' ? synchro.actions : null;
+  const chat=synchro.phase==='pret'?synchro.fournisseur.native?.chat:null;
   const etags = useEtagsAvatars();
 
   // Fiche préchargée AVANT l'ouverture (`lib/profilPreload`) : présente, on
@@ -118,6 +120,20 @@ export default function EcranProfil() {
   const [profil, setProfil] = useState<Profil | null>(() =>
     precharge !== undefined ? profilDe(precharge.user) : null,
   );
+  const cibleProfil=uid??username??'';
+  const profilUid=profil?.uid??uid??null;
+  const subscribeProfiles=useCallback((fn:()=>void)=>chat?.subscribe(fn)??(()=>{}),[chat]);
+  const snapshotProfiles=useCallback(()=>chat?.profileVersionFor(profilUid)??'', [chat,profilUid]);
+  const profileVersion=useSyncExternalStore(subscribeProfiles,snapshotProfiles,snapshotProfiles);
+  const preloadVersion=useRef(profileVersion);
+  const identiteResolue=useRef({cible:cibleProfil,uid:profil?.uid??null});
+  const subscribePresence=useCallback((fn:()=>void)=>chat?.live.subscribe(fn)??(()=>{}),[chat]);
+  const snapshotPresence=useCallback(()=>{
+    const state=chat?.live.state,id=profilUid;
+    return state&&id?state.presence.find(p=>p.user.id===id)?.status??(state.profiles?.some(p=>p.user.id===id)?'offline':null):null;
+  },[chat,profilUid]);
+  const presenceNative=useSyncExternalStore(subscribePresence,snapshotPresence,snapshotPresence);
+  const statutAff=client?.genre==='rocketvibe'?presenceNative:profil?.statut??null;
   const [erreur, setErreur] = useState<string | null>(() =>
     precharge !== undefined && precharge.user === undefined
       ? texteErreurProfil(precharge.erreur)
@@ -131,25 +147,25 @@ export default function EcranProfil() {
 
   useEffect(() => {
     // Déjà préchargé : ne rien recharger — un second rendu rebougerait la hauteur.
-    if (precharge !== undefined) return;
+    if (precharge !== undefined && preloadVersion.current===profileVersion) return;
+    const stableUid=client?.genre==='rocketvibe'&&identiteResolue.current.cible===cibleProfil?identiteResolue.current.uid:null;
     const params =
-      typeof username === 'string' && username !== ''
+      stableUid?{uid:stableUid}:typeof username === 'string' && username !== ''
         ? { username }
         : typeof uid === 'string' && uid !== ''
-          ? { userId: uid }
+          ? { uid }
           : null;
     if (client === null || params === null) return;
     let vivant = true;
-    void client
-      .get<{ user?: Record<string, unknown> }>('users.info', { params })
-      .then((r) => {
+    void chargerProfil(client,params)
+      .then((user) => {
         if (!vivant) return;
-        const p = profilDe(r.user);
+        const p = profilDe(user);
         if (p === null) setErreur(traduireCourant('profil.profilIllisible'));
-        else setProfil(p);
+        else {identiteResolue.current={cible:cibleProfil,uid:p.uid};setProfil(p);setErreur(null);}
       })
       .catch((e: unknown) => {
-        if (vivant) setErreur(e instanceof Error ? e.message : traduireCourant('profil.profilIntrouvable'));
+        if (vivant){setProfil(null);setErreur(client.genre==='rocketvibe'?traduireCourant('native.error'):e instanceof Error ? e.message : traduireCourant('profil.profilIntrouvable'));}
       });
     void sonderAppelDisponible(client).then((ok) => {
       if (vivant) setAppelDispo(ok);
@@ -157,14 +173,14 @@ export default function EcranProfil() {
     return () => {
       vivant = false;
     };
-  }, [client, username, uid, precharge]);
+  }, [client, username, uid, precharge,profileVersion,cibleProfil]);
 
   // Ce que la fiche vient d'apprendre profite au reste de l'app : pseudo courant
   // et version de photo rangés en base, donc la liste des salons et les messages
   // affichent la MÊME photo, tout de suite. Le SQL ne touche la ligne que si
   // quelque chose a vraiment changé (voir `UPSERT_IDENTITE`).
   useEffect(() => {
-    if (profil === null || moteur === null) return;
+    if (profil === null || moteur === null || client?.genre==='rocketvibe') return;
     void moteur.depotSynchro
       .enregistrerIdentite({
         uid: profil.uid,
@@ -174,7 +190,7 @@ export default function EcranProfil() {
       .catch(() => {
         // Une base indisponible ne doit pas empêcher d'afficher la fiche.
       });
-  }, [profil, moteur]);
+  }, [profil, moteur,client]);
 
   /** Ouvre (ou crée) le DM, puis y va — la sheet est REMPLACÉE par le salon. */
   const ouvrirDm = useCallback(
@@ -184,7 +200,7 @@ export default function EcranProfil() {
       setOccupe(true);
       setErreur(null);
       try {
-        const { rid, salonBrut } = await actions.ouvrirOuCreerDm(profil.username);
+        const { rid, salonBrut } = await actions.ouvrirOuCreerDm(profil.username,profil.uid);
         if (moteur !== null) await moteur.ingererSalons([salonBrut]);
         if (versAppel) {
           // `start` crée la conférence et poste le message d'appel dans le DM ;
@@ -253,10 +269,10 @@ export default function EcranProfil() {
       ? urlAvatar(client, {
           username: usernameAff,
           uid: uid ?? profil?.uid,
-          etag: profil?.avatarEtag ?? etagConnu,
+          etag: client.genre==='rocketvibe'?etagConnu??profil?.avatarEtag:profil?.avatarEtag??etagConnu,
         })
       : null;
-  const estMoi = usernameAff !== null && usernameAff === moi;
+  const estMoi = profil?.uid?profil.uid===moiId:usernameAff !== null && usernameAff === moi;
   const erreurAvantProfil = profil === null && erreur !== null;
 
   return (
@@ -287,11 +303,11 @@ export default function EcranProfil() {
             <View
               style={[
                 styles.pastille,
-                { backgroundColor: profil !== null ? couleursPresence(c)[profil.statut] : c.attenue },
+                { backgroundColor: statutAff !== null ? couleursPresence(c)[statutAff] : c.attenue },
               ]}
             />
             <Text style={[styles.phrasePresence, { color: c.attenue }]}>
-              {profil !== null ? t(CLES_PRESENCE[profil.statut]) : '…'}
+              {statutAff !== null ? t(CLES_PRESENCE[statutAff]) : '…'}
             </Text>
           </View>
         </View>

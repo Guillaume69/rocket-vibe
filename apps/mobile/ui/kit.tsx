@@ -35,6 +35,7 @@ import Animated, {
 import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar } from '../lib/upload.ts';
 import { useEtagsAvatars } from './identites.tsx';
+import {useAvatarNatif} from './avatarNatif.ts';
 import { useJour } from './i18n.ts';
 import { type Couleurs, degradeAvatar, type Degrade, POLICES } from './theme.ts';
 
@@ -143,13 +144,14 @@ export function TuileAvatar({
   // Une photo échouée (SVG placeholder, réseau) fait retomber sur la tuile. On
   // réarme à chaque changement d'`uri` — lignes de liste recyclées — via le
   // motif « ajuster l'état pendant le rendu » (React docs), pas un effet.
+  const source=useAvatarNatif(uri);
   const [photoKO, setPhotoKO] = useState(false);
-  const [uriSuivie, setUriSuivie] = useState(uri);
-  if (uri !== uriSuivie) {
-    setUriSuivie(uri);
+  const [uriSuivie, setUriSuivie] = useState(source);
+  if (source !== uriSuivie) {
+    setUriSuivie(source);
     setPhotoKO(false);
   }
-  const photo = typeof uri === 'string' && uri !== '' && !photoKO ? uri : null;
+  const photo = typeof source === 'string' && source !== '' && !photoKO ? source : null;
 
   return (
     <LinearGradient

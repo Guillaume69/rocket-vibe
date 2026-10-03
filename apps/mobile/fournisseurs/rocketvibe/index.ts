@@ -52,6 +52,10 @@ export function creerFournisseurRV(session: Session, client: ClientRest, generer
   return {
     identite:{genre:'rocketvibe',origine:session.baseUrl,compteId:session.userId,instanceId:session.nativeInstanceId ?? null,generation:session.nativeDataEpoch ?? null},
     decrireErreur:decrireErreurFournisseur,
+    lireProfil:async cible=>{
+      const p=await chat.profile(cible);
+      return {_id:p.user.id,username:p.user.username,name:p.user.display_name,status:p.status??'online',statusText:p.status_text,bio:p.bio,avatarETag:p.avatar_file_id??'sans-photo'};
+    },
     rechercherMessages:async(rid,texte)=>(await chat.searchMessages(rid,texte)).map(m=>localMessage(m,session.userId)),
     native:{chat,store}, ordreMessages:'sequence', get capacites() { return capacitesEffectives(chat.capabilities); }, listener,
     traducteur:{
@@ -112,7 +116,7 @@ export function creerFournisseurRV(session: Session, client: ClientRest, generer
         if(!observation)throw new NativeError(409,'read_observation_required');
         await chat.markObservedRead(rid,observation.messageId,observation.adhesion);
       },
-      ouvrirOuCreerDm:async username => ({rid:await chat.direct(username), salonBrut:{}}),
+      ouvrirOuCreerDm:async (username,uid) => ({rid:await chat.direct(username,uid), salonBrut:{}}),
     },
     souscriptionsInitiales:() => [], souscriptionsSalon:() => [],
     chargerHistorique:async (_moteur,rid,_type,latest) => {

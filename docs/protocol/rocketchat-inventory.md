@@ -2,7 +2,7 @@
 
 Commande : `node scripts/inventory-rocketchat.mjs`. Contrôle : ajouter `--check`.
 
-327 fichiers de production parcourus ; 443 occurrences.
+330 fichiers de production parcourus ; 443 occurrences.
 Les appels à premier argument dynamique restent visibles : leur résolution est
 consignée dans [le contrat de parité](PARITY.md). Les lignes sont des repères de
 source au moment de la génération. Le JSON conserve le périmètre et tous les fichiers.
@@ -325,8 +325,6 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/mobile/app/parametres.tsx:80](../../apps/mobile/app/parametres.tsx#L80) | call:GET | 'me' |
 | [apps/mobile/app/parametres.tsx:105](../../apps/mobile/app/parametres.tsx#L105) | call:POST | 'users.setPreferences' |
 | [apps/mobile/app/parametres.tsx:105](../../apps/mobile/app/parametres.tsx#L105) | endpoint | users.setPreferences |
-| [apps/mobile/app/profil.tsx:143](../../apps/mobile/app/profil.tsx#L143) | call:GET | 'users.info' |
-| [apps/mobile/app/profil.tsx:144](../../apps/mobile/app/profil.tsx#L144) | endpoint | users.info |
 | [apps/mobile/app/recherche.tsx:83](../../apps/mobile/app/recherche.tsx#L83) | call:GET | 'spotlight' |
 | [apps/mobile/app/recherche.tsx:83](../../apps/mobile/app/recherche.tsx#L83) | endpoint | spotlight |
 | [apps/mobile/app/recherche.tsx:138](../../apps/mobile/app/recherche.tsx#L138) | call:POST | 'channels.join' |
@@ -365,8 +363,10 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/mobile/fournisseurs/rocketchat/historique.ts:93](../../apps/mobile/fournisseurs/rocketchat/historique.ts#L93) | endpoint | chat.getMessage |
 | [apps/mobile/fournisseurs/rocketchat/historique.ts:99](../../apps/mobile/fournisseurs/rocketchat/historique.ts#L99) | call:GET | 'chat.getThreadMessages' |
 | [apps/mobile/fournisseurs/rocketchat/historique.ts:100](../../apps/mobile/fournisseurs/rocketchat/historique.ts#L100) | endpoint | chat.getThreadMessages |
-| [apps/mobile/fournisseurs/rocketchat/index.ts:51](../../apps/mobile/fournisseurs/rocketchat/index.ts#L51) | call:GET | 'chat.search' |
-| [apps/mobile/fournisseurs/rocketchat/index.ts:51](../../apps/mobile/fournisseurs/rocketchat/index.ts#L51) | endpoint | chat.search |
+| [apps/mobile/fournisseurs/rocketchat/index.ts:50](../../apps/mobile/fournisseurs/rocketchat/index.ts#L50) | call:GET | 'users.info' |
+| [apps/mobile/fournisseurs/rocketchat/index.ts:50](../../apps/mobile/fournisseurs/rocketchat/index.ts#L50) | endpoint | users.info |
+| [apps/mobile/fournisseurs/rocketchat/index.ts:52](../../apps/mobile/fournisseurs/rocketchat/index.ts#L52) | call:GET | 'chat.search' |
+| [apps/mobile/fournisseurs/rocketchat/index.ts:52](../../apps/mobile/fournisseurs/rocketchat/index.ts#L52) | endpoint | chat.search |
 | [apps/mobile/lib/actionsMessage.ts:163](../../apps/mobile/lib/actionsMessage.ts#L163) | call:GET | 'chat.getMessage' |
 | [apps/mobile/lib/actionsMessage.ts:163](../../apps/mobile/lib/actionsMessage.ts#L163) | endpoint | chat.getMessage |
 | [apps/mobile/lib/appel.ts:39](../../apps/mobile/lib/appel.ts#L39) | call:POST | 'video-conference.start' |
@@ -404,8 +404,8 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/mobile/lib/presence.ts:27](../../apps/mobile/lib/presence.ts#L27) | stream | stream-notify-logged |
 | [apps/mobile/lib/presence.ts:163](../../apps/mobile/lib/presence.ts#L163) | call:GET | 'users.presence' |
 | [apps/mobile/lib/presence.ts:163](../../apps/mobile/lib/presence.ts#L163) | endpoint | users.presence |
-| [apps/mobile/lib/profilPreload.ts:187](../../apps/mobile/lib/profilPreload.ts#L187) | call:GET | 'users.info' |
-| [apps/mobile/lib/profilPreload.ts:188](../../apps/mobile/lib/profilPreload.ts#L188) | endpoint | users.info |
+| [apps/mobile/lib/profilPreload.ts:75](../../apps/mobile/lib/profilPreload.ts#L75) | call:GET | 'users.info' |
+| [apps/mobile/lib/profilPreload.ts:75](../../apps/mobile/lib/profilPreload.ts#L75) | endpoint | users.info |
 | [apps/mobile/lib/pushToken.ts:32](../../apps/mobile/lib/pushToken.ts#L32) | call:POST | 'push.token' |
 | [apps/mobile/lib/pushToken.ts:32](../../apps/mobile/lib/pushToken.ts#L32) | endpoint | push.token |
 | [apps/mobile/lib/pushToken.ts:37](../../apps/mobile/lib/pushToken.ts#L37) | call:DELETE | 'push.token' |
@@ -428,13 +428,13 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/mobile/lib/sync.ts:124](../../apps/mobile/lib/sync.ts#L124) | stream | stream-room-messages |
 | [apps/mobile/lib/sync.ts:125](../../apps/mobile/lib/sync.ts#L125) | stream | stream-notify-user |
 | [apps/mobile/lib/sync.ts:126](../../apps/mobile/lib/sync.ts#L126) | stream | stream-notify-room |
-| [apps/mobile/lib/upload.ts:87](../../apps/mobile/lib/upload.ts#L87) | url | /api/v1/rooms.media/{…} |
-| [apps/mobile/lib/upload.ts:125](../../apps/mobile/lib/upload.ts#L125) | call:POST | \`rooms.mediaConfirm/{…}/{…}\` |
-| [apps/mobile/lib/upload.ts:125](../../apps/mobile/lib/upload.ts#L125) | endpoint | rooms.mediaConfirm/{…}/{…} |
-| [apps/mobile/lib/upload.ts:155](../../apps/mobile/lib/upload.ts#L155) | url | /api/v1/users.setAvatar |
-| [apps/mobile/lib/upload.ts:239](../../apps/mobile/lib/upload.ts#L239) | resource | /avatar/{…} |
-| [apps/mobile/lib/upload.ts:241](../../apps/mobile/lib/upload.ts#L241) | resource | /avatar/uid/{…} |
-| [apps/mobile/lib/upload.ts:243](../../apps/mobile/lib/upload.ts#L243) | resource | /avatar/room/{…} |
+| [apps/mobile/lib/upload.ts:88](../../apps/mobile/lib/upload.ts#L88) | url | /api/v1/rooms.media/{…} |
+| [apps/mobile/lib/upload.ts:126](../../apps/mobile/lib/upload.ts#L126) | call:POST | \`rooms.mediaConfirm/{…}/{…}\` |
+| [apps/mobile/lib/upload.ts:126](../../apps/mobile/lib/upload.ts#L126) | endpoint | rooms.mediaConfirm/{…}/{…} |
+| [apps/mobile/lib/upload.ts:156](../../apps/mobile/lib/upload.ts#L156) | url | /api/v1/users.setAvatar |
+| [apps/mobile/lib/upload.ts:240](../../apps/mobile/lib/upload.ts#L240) | resource | /avatar/{…} |
+| [apps/mobile/lib/upload.ts:242](../../apps/mobile/lib/upload.ts#L242) | resource | /avatar/uid/{…} |
+| [apps/mobile/lib/upload.ts:244](../../apps/mobile/lib/upload.ts#L244) | resource | /avatar/room/{…} |
 | [apps/mobile/plugins/ios-notification-service/NotificationService.swift:163](../../apps/mobile/plugins/ios-notification-service/NotificationService.swift#L163) | url | /api/v1/push.get |
 | [apps/mobile/plugins/with-fcm-deeplink.js:1017](../../apps/mobile/plugins/with-fcm-deeplink.js#L1017) | url | /api/v1/chat.sendMessage |
 | [apps/mobile/plugins/with-fcm-deeplink.js:1030](../../apps/mobile/plugins/with-fcm-deeplink.js#L1030) | url | /api/v1/chat.sendMessage |

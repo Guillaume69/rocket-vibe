@@ -194,7 +194,7 @@ export interface ActionsFournisseur {
    * stream. Était écrit deux fois (fiche profil, recherche), avec deux
    * validations différentes de la réponse.
    */
-  ouvrirOuCreerDm(username: string): Promise<{ rid: string; salonBrut: Record<string, unknown> }>;
+  ouvrirOuCreerDm(username: string,uid?:string): Promise<{ rid: string; salonBrut: Record<string, unknown> }>;
 }
 
 export type ObservationLecture={messageId:string;adhesion:string};
@@ -308,6 +308,8 @@ export interface Fournisseur {
   readonly capacites: Capacites;
   /** Résultats temporaires, normalisés pour le renderer existant. */
   rechercherMessages?(rid:string,texte:string):Promise<MessageLocal[]>;
+  /** Données de présentation de la fiche existante, fournies par chaque protocole. */
+  lireProfil?(cible:import('./profilPreload.ts').ParamsProfil):Promise<Record<string,unknown>|undefined>;
   /** Transport temps réel (RC : DDP ; MM : WebSocket JSON). */
   readonly listener: Listener;
   /** Décodeur d'`Evenement`/documents bruts vers formes neutres. */

@@ -4,7 +4,7 @@ import type { FileEcritures } from '../../db/fileEcritures.ts';
 import type { DepotBrouillons } from '../../db/depot.ts';
 import { UPSERT_MESSAGE, UPSERT_SALON, UPSERT_ABONNEMENT, INSERER_SORTIE, SUPPRIMER_SORTIE, MARQUER_SORTIE_ECHEC, SUPPRIMER_BROUILLONS_SALON, paramsMessage, paramsSalon, paramsAbonnement } from '../../db/upserts.ts';
 import type { MessageLocal } from '../../lib/normaliser.ts';
-import type { Message, Room, RoomDetails, Snapshot, SyncBatch, ReadState } from './protocol.generated.ts';
+import type { Message, Room, RoomDetails, Snapshot, SyncBatch, ReadState, ProfileStamp, LiveRoom } from './protocol.generated.ts';
 import {readState,readOrder,readDecimal,readBadges} from './readStates.ts';
 import {FAVORITE_SELECT,savedFavorite,type PendingRead,type SavedFavorite,type FavoriteRow} from './readIntents.ts';
 import {roomIdentifier,roomOperation,sameRoomForm,savedRoomOperation,type RoomOperation,type RoomOperationRow,type SavedRoomOperation} from './roomOperations.ts';
@@ -87,6 +87,22 @@ export class NativeStore {
   }
   projectionToken(): number { return this.projection; }
   searchToken():number {return this.searchRevision;}
+  /** Public identity metadata only; profile bodies and emails stay out of history. */
+  profileIdentities(profiles:readonly ProfileStamp[],valid:()=>boolean,peers:readonly LiveRoom[]=[]):Promise<void> {
+    return this.atomic(async()=>{
+      if(!valid() || !await this.sameGeneration())throw new Error('Stale profile projection');
+      for(const p of profiles)await this.db.runAsync(`INSERT INTO utilisateurs(uid,username,avatar_etag,mis_a_jour_le) VALUES(?,?,?,0)
+        ON CONFLICT(uid) DO UPDATE SET username=excluded.username,avatar_etag=excluded.avatar_etag
+        WHERE username IS NOT excluded.username OR avatar_etag IS NOT excluded.avatar_etag`,[p.user.id,p.user.username,p.avatar_file_id??'sans-photo']);
+      for(const room of peers){
+        if(!await this.membershipMatches(room.room_id,room.membership_version))throw new Error('Stale direct peer projection');
+        const uid=room.direct_peer?.id??null;
+        await this.db.runAsync(`UPDATE salons SET dm_autre_uid=? WHERE rid=? AND type='d'
+          AND dm_autre_uid IS NOT ?`,[uid,room.room_id,uid]);
+      }
+      if(!valid())throw new Error('Stale profile projection');
+    });
+  }
   state(): Promise<NativeState | null> {
     return this.queue(() => this.db.getFirstAsync<NativeState>('SELECT instance_id,data_epoch,cursor FROM native_sync_state WHERE singleton=1', []));
   }

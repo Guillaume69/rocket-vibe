@@ -20,6 +20,7 @@ import { beforeEach, describe, test, type TestContext } from 'node:test';
 import { oublierDisponibiliteAppel } from './appel.ts';
 import {
   definirClientProfil,
+  definirLecteurProfil,
   definirNavigateurProfil,
   lireProfilPrecharge,
   oublierFichesProfil,
@@ -30,6 +31,24 @@ import {
 import type { ClientRest } from './rest.ts';
 
 const UTILISATEUR = { _id: 'u1', username: 'alice' };
+
+test('native preload uses its provider, and an account change fences late cache and navigation',async(t)=>{
+  t.mock.timers.enable({apis:['setTimeout','Date']});
+  const c={genre:'rocketvibe',baseUrl:'http://native.local',get:()=>{throw new Error('Unexpected RC request');}} as unknown as ClientRest;
+  const other={...c,baseUrl:'http://other.local'} as unknown as ClientRest;
+  const navigations:ParamsProfil[]=[];
+  definirNavigateurProfil(p=>navigations.push(p));definirClientProfil(c);
+  let pending=differee<Record<string,unknown>>();
+  const un=definirLecteurProfil(c,async()=>pending.promesse);
+  try{
+    const first=ouvrirFicheProfil({uid:'u1'});pending.resoudre(UTILISATEUR);await drainer();await first;
+    assert.deepEqual(lireProfilPrecharge({uid:'u1'})?.user,UTILISATEUR);assert.equal(navigations.length,1);
+    pending=differee<Record<string,unknown>>();const late=ouvrirFicheProfil({username:'alice'});
+    definirClientProfil(other);pending.resoudre(UTILISATEUR);await drainer();await late;
+    assert.equal(lireProfilPrecharge({uid:'u1'}),undefined);assert.equal(lireProfilPrecharge({username:'alice'}),undefined);
+    assert.equal(navigations.length,1);
+  }finally{un();definirClientProfil(null);definirNavigateurProfil(null);}
+});
 
 function differee<T>(): { promesse: Promise<T>; resoudre: (v: T) => void } {
   let resoudre!: (v: T) => void;

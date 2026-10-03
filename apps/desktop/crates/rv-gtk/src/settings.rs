@@ -19,6 +19,13 @@ use crate::widgets::{self, TileSize};
 
 const NOTIFICATION_CHOICES: [&str; 4] = ["default", "all", "mention", "nothing"];
 const LANGUAGE_CHOICES: [&str; 3] = ["auto", "fr", "en"];
+mod native_profiles;
+
+#[derive(Clone)]
+enum ProfileSource {
+    Legacy(Arc<Session>),
+    Native(Arc<rv_core::native::NativeSession>, Rc<RefCell<rv_core::native::profiles::OwnProfile>>),
+}
 
 /// Account selection and local preferences are shared by both providers.
 pub fn open_native(
@@ -29,6 +36,7 @@ pub fn open_native(
 ) {
     let info = &session.info;
     let dialog = adw::PreferencesDialog::builder().title(t("settings.title")).build();
+    dialog.add_css_class("native-profile-settings");
     let page = adw::PreferencesPage::builder().title(t("settings.title")).icon_name("emblem-system-symbolic").build();
     let profile = adw::PreferencesGroup::new();
     let row = adw::ActionRow::builder().title(&info.username).subtitle(&info.base_url).build();
@@ -47,14 +55,7 @@ pub fn open_native(
     if crate::background::SUPPORTED {
         page.add(&background_group(&dialog));
     }
-    let group = adw::PreferencesGroup::builder().title(t("settings.language")).build();
-    let labels: Vec<_> = LANGUAGE_CHOICES.iter().map(|c| t(&format!("settings.lang_{c}"))).collect();
-    let current = LANGUAGE_CHOICES.iter().position(|c| *c == i18n::saved_choice()).unwrap_or(0);
-    let language = combo(t("settings.language"), &labels, current);
-    language.set_subtitle(t("settings.language_restart"));
-    language.connect_selected_notify(|row| i18n::save_choice(LANGUAGE_CHOICES[row.selected() as usize]));
-    group.add(&language);
-    page.add(&group);
+    native_profiles::settings(&dialog, &page, &row, session.clone());
     let group = adw::PreferencesGroup::builder().title(t("settings.account")).build();
     let logout = adw::ButtonRow::builder().title(t("rooms.sign_out")).css_classes(["destructive-action"]).build();
     let d = dialog.clone();
@@ -586,14 +587,21 @@ fn wire_status(dialog: &adw::PreferencesDialog, session: &Arc<Session>, status: 
 /// Name, username, email, bio and photo. Username and email changes ask for
 /// the current password, and maybe a second factor.
 fn edit_profile(parent: &adw::PreferencesDialog, session: Arc<Session>, me: Me) {
+    edit_profile_for(parent, ProfileSource::Legacy(session), me);
+}
+fn edit_profile_for(parent: &adw::PreferencesDialog, source: ProfileSource, me: Me) {
     let page = adw::PreferencesPage::new();
     let photo_group = adw::PreferencesGroup::new();
     let photo_row = adw::ActionRow::builder().title(t("settings.photo")).build();
-    let photo = with_photo(
-        widgets::tile(&me.username, &widgets::initial(&me.username), TileSize::Room, false),
-        Some(&session),
-        Some(avatar_path(AvatarTarget::User(&me.username), me.avatar_etag.as_deref())),
-    );
+    let tile = widgets::tile(&me.username, &widgets::initial(&me.username), TileSize::Room, false);
+    let photo = match &source {
+        ProfileSource::Legacy(session) => with_photo(
+            tile,
+            Some(session),
+            Some(avatar_path(AvatarTarget::User(&me.username), me.avatar_etag.as_deref())),
+        ),
+        ProfileSource::Native(session, _) => crate::rows::with_native_photo(tile, session, me.avatar_etag.clone()),
+    };
     photo.set_margin_top(6);
     photo.set_margin_bottom(6);
     photo_row.add_prefix(&photo);
@@ -640,6 +648,18 @@ fn edit_profile(parent: &adw::PreferencesDialog, session: Arc<Session>, me: Me) 
     view.set_content(Some(&page));
     let subpage = adw::NavigationPage::builder().title(t("settings.edit_profile")).child(&view).build();
     parent.push_subpage(&subpage);
+
+    if let ProfileSource::Native(session, current) = source {
+        native_profiles::editor(
+            parent,
+            &subpage,
+            session,
+            current,
+            native_profiles::Fields { name, username, email, bio, save, change, remove, photo_row, photo },
+        );
+        return;
+    }
+    let ProfileSource::Legacy(session) = source else { unreachable!() };
 
     let changes = {
         let (me, name, username, email, bio) = (me.clone(), name.clone(), username.clone(), email.clone(), bio.clone());

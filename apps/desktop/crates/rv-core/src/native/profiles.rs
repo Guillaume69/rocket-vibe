@@ -176,11 +176,13 @@ impl NativeSession {
     }
     pub async fn resume_profile_operation(&self, slot: &str) -> Result<OwnProfile, Error> {
         self.ready()?;
-        let saved = self
-            .store
-            .profile_operation(slot)?
-            .filter(|s| s.phase != "failed")
-            .ok_or(Error::Protocol("profile_action_pending"))?;
+        let Some(saved) = self.store.profile_operation(slot)? else {
+            // The background worker may have confirmed it before the view's Resume click.
+            return self.own_profile().await;
+        };
+        if saved.phase == "failed" {
+            return Err(Error::Protocol("profile_action_pending"));
+        }
         if saved.phase == "proof" {
             self.store.mark_profile_operation(&saved, "pending", None)?;
         }

@@ -319,6 +319,17 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P16, formulaires personnels bureau (3 octobre 2026) : GTK réutilise son éditeur
+  et SwiftUI son formulaire, derrière le fournisseur du compte. Profil / statut,
+  photo PNG de 512 pixels, langue et notifications passent par les intentions
+  communes ; email vérifié privé dans Sécurité, preuve récente / reprise / abandon.
+  Révisions de brouillon conservées face à un changement concurrent ; notification
+  de profil sans annulation d'un avatar courant. Vérifications : 12 tests Rust /
+  clippy ; 39 contrôles du binaire GTK avec enregistrement du profil ; modèle Swift
+  contre PostgreSQL / Secret Service en 1,4 s. Erreur d'accès à l'ID de session
+  détectée par macOS corrigée, vues à revalider par CI. Métadonnées / photos de
+  liste DM bureau et qualification installée restent ouvertes dans P16.
+
 - P16, fiches publiques bureau (3 octobre 2026) : mêmes dialogs GTK / SwiftUI et
   mêmes tuiles de messages, profils par UID, renommages live et DM par UID stable.
   Avatars authentifiés bornés à 128 entrées / 32 Mio / quatre téléchargements,

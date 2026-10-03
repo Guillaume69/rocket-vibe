@@ -40,7 +40,7 @@ public final class MediaStore {
         }
         coming[path] = task
         let media = await task.value
-        coming[path] = nil
+        if version == generation { coming[path] = nil }
         guard version==generation,current(path) else{return nil}
         if let media {
             let byteCount=done.values.reduce(0){$0+$1.bytes.count}

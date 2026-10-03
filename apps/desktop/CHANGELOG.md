@@ -9,6 +9,12 @@ section here.
 
 ### Fixed
 
+- Personal profiles, status, photos, language and notification preferences now
+  use the existing GTK and SwiftUI settings with either server. Native changes
+  survive retries; rejected changes can be resumed or discarded, and verified
+  email remains in the existing security flow. Profile notifications no longer
+  cancel downloads of current native avatars.
+
 - Native public profiles and protected avatars use the existing GTK and SwiftUI
   dialogs and message tiles. Identity changes refresh displayed names; profile
   actions open direct conversations by stable user ID.

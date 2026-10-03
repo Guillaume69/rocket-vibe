@@ -38,7 +38,7 @@ public final class AppModel {
     var historyAt = -1
     @ObservationIgnored var pending = Pending()
     @ObservationIgnored var flush: Task<Void, Never>?
-    @ObservationIgnored var sessionId = UUID()
+    @ObservationIgnored public private(set) var sessionId = UUID()
     @ObservationIgnored var selectionId = UUID()
 
     public var onIncoming: ((Incoming) -> Void)?
@@ -186,7 +186,9 @@ public final class AppModel {
         case let .upload(rid):
             if room?.rid == rid { room?.refreshUploads() }
         case .avatar:
-            media?.forget()
+            // Native photos have immutable IDs; retired IDs are rejected by the store.
+            // A profile notification must not cancel a current protected download.
+            if chat != nil { media?.forget() }
             imagesVersion += 1
             later(rooms: true)
         case .e2e:

@@ -541,6 +541,8 @@ impl NativeSession {
                     typing: true,
                     presence: true,
                     search: true,
+                    profiles: true,
+                    profile_avatars: true,
                     fine_permissions: true,
                     session_rotation: self.credentials.is_some(),
                     device_sessions: true,

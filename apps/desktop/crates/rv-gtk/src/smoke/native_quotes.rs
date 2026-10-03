@@ -109,6 +109,46 @@ async fn run(window: Rc<AppWindow>) {
     }
     check("native profile uses existing GTK dialog", profile.is_some(), ());
     profile.unwrap().downcast::<adw::Dialog>().unwrap().close();
+    crate::settings::open_native(window.chat.widget(), session.clone(), None, || {});
+    let mut edit = None;
+    for _ in 0..200 {
+        edit = super::find_by_class(window.window.upcast_ref(), "native-profile-edit")
+            .and_then(|widget| widget.downcast::<gtk::Button>().ok())
+            .filter(|button| button.is_sensitive());
+        if edit.is_some() {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(20)).await;
+    }
+    check("native personal profile loads in existing settings", edit.is_some(), ());
+    edit.unwrap().emit_clicked();
+    let field = super::find_by_class(window.window.upcast_ref(), "native-profile-bio")
+        .unwrap()
+        .downcast::<adw::EntryRow>()
+        .unwrap();
+    let bio = format!("GTK personal profile {}", session.info.user_id);
+    field.set_text(&bio);
+    super::find_by_class(window.window.upcast_ref(), "native-profile-save")
+        .unwrap()
+        .downcast::<adw::ButtonRow>()
+        .unwrap()
+        .emit_by_name::<()>("activated", &[]);
+    let mut saved = false;
+    for _ in 0..100 {
+        let session = session.clone();
+        let found = crate::on_tokio(async move { session.own_profile().await }).await;
+        if found.is_ok_and(|own| own.profile.bio == bio) {
+            saved = true;
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(20)).await;
+    }
+    check("existing GTK personal form saves native profile", saved, ());
+    super::find_by_class(window.window.upcast_ref(), "native-profile-settings")
+        .unwrap()
+        .downcast::<adw::PreferencesDialog>()
+        .unwrap()
+        .close();
     let rid = window.chat.current_rid().unwrap();
     let activity = session
         .store

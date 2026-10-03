@@ -147,5 +147,20 @@ préserve aussi les intentions originales de profil / préférences / avatar et
 leurs octets, avec reprise, preuve requise et abandon explicite via UniFFI.
 Les données privées du profil personnel ne sont pas mises dans le cache public.
 
-Restent à raccorder les éditeurs personnels et réglages GTK / SwiftUI aux API
-partagées, puis à qualifier les applications installées. P16 reste ouvert.
+Les formulaires personnels GTK et SwiftUI existants sont raccordés aux deux
+fournisseurs. Les champs privés restent en mémoire sur leur compte ; l'email
+natif est en lecture seule avec renvoi vers Sécurité. Les photos sélectionnées
+sont réencodées en PNG de 512 pixels maximum par les bibliothèques natives.
+Statut, texte de statut, nom, pseudo, bio, langue et niveau de notifications
+passent par les intentions Rust. Les formulaires restaurent les données en
+attente, demandent la preuve récente existante, puis proposent reprise / abandon.
+Une préférence ou une photo indépendante ne donne pas à un brouillon de profil
+le droit d'écraser silencieusement une modification concurrente.
+
+Vérification : 12 tests ciblés Rust / clippy ; 39 contrôles du vrai binaire GTK
+incluant la fiche publique et l'enregistrement personnel ; modèle Swift personnel
+contre PostgreSQL et Secret Service (1,4 s), conflit, abandon, préférences et
+photos protégées. Les notifications de profil conservent les téléchargements
+d'avatars courants, dont les IDs sont immuables. Compilation des vues macOS suivie
+par la CI. Restent les métadonnées / photos de la liste de DM bureau à compléter
+et les qualifications sur applications installées ; P16 reste ouvert.

@@ -52,6 +52,35 @@ final class NativeProviderTests: XCTestCase {
         XCTAssertNil(media.cached(withAvatar.me.avatar))
         let retired = await media.load(withAvatar.me.avatar)
         XCTAssertNil(retired)
+        let form = MyProfileModel(app: app)
+        await form.load()
+        XCTAssertEqual(form.saved?.bio, fields.bio)
+        form.edited?.bio = "Draft preserved across an independent preference"
+        var remote = cleared.me
+        remote.bio = "New profile from another device"
+        _ = try await native.updateOwnProfile(revision: cleared.revision, after: remote)
+        await form.setNotifications("nothing")
+        XCTAssertEqual(form.edited?.bio, "Draft preserved across an independent preference")
+        await form.save()
+        XCTAssertEqual(form.message, L("profile.conflict"))
+        let rejected = try XCTUnwrap(form.intention("profile"))
+        XCTAssertEqual(rejected.phase, "failed")
+        await form.discard(rejected)
+        XCTAssertNil(form.intention("profile"))
+        XCTAssertEqual(form.edited?.bio, remote.bio)
+        form.edited?.bio = "Existing personal form saved"
+        await form.save()
+        XCTAssertEqual(form.saved?.bio, "Existing personal form saved")
+        await form.setLanguage("fr")
+        XCTAssertEqual(form.language, "fr")
+        await form.changePhoto(png: png)
+        XCTAssertFalse(form.saved?.avatar.isEmpty ?? true)
+        await form.removePhoto()
+        XCTAssertTrue(form.saved?.avatar.isEmpty ?? false)
+        form.close()
+        await form.save()
+        XCTAssertNil(form.saved)
+        XCTAssertFalse(form.isCurrent)
     }
 
     @MainActor

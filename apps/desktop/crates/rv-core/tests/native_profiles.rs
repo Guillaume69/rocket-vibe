@@ -195,6 +195,7 @@ async fn native_profile_replay_retains_the_original_form_and_reads_current_priva
     .await
     .unwrap();
     assert_eq!(session.store.profile_identity("alice-id").unwrap().unwrap().revision, "newer");
+    assert_eq!(session.resume_profile_operation("profile").await.unwrap().profile.bio, "Newer remote bio");
     assert!(writes.lock().unwrap().len() >= 2);
     common::close_native(session).await;
     std::fs::remove_file(path).unwrap();

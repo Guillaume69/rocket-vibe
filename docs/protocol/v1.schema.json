@@ -1225,6 +1225,50 @@
       ],
       "type": "object"
     },
+    "LinkPreview": {
+      "properties": {
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "image": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PreviewImage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/PreviewKind"
+        },
+        "site": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "description": "Original link in the message, including its fragment. The final URL of\na redirect never replaces the author's navigation target.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "kind"
+      ],
+      "type": "object"
+    },
     "LiveFrame": {
       "oneOf": [
         {
@@ -1420,6 +1464,12 @@
         },
         "position": {
           "type": "string"
+        },
+        "previews": {
+          "items": {
+            "$ref": "#/$defs/LinkPreview"
+          },
+          "type": "array"
         },
         "quotes": {
           "description": "Typed references. Excerpts are resolved for this reader, never supplied\nby an author or persisted in a shared journal event.",
@@ -2610,6 +2660,48 @@
         "away",
         "busy",
         "offline"
+      ],
+      "type": "string"
+    },
+    "PreviewImage": {
+      "properties": {
+        "bytes": {
+          "type": "string"
+        },
+        "file_id": {
+          "type": "string"
+        },
+        "height": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "media_type": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "width": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "file_id",
+        "sha256",
+        "bytes",
+        "width",
+        "height",
+        "media_type"
+      ],
+      "type": "object"
+    },
+    "PreviewKind": {
+      "enum": [
+        "page",
+        "image"
       ],
       "type": "string"
     },

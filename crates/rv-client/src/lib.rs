@@ -28,6 +28,8 @@ pub enum Error {
     InvalidAvatar,
     #[error("invalid native emoji catalogue or image")]
     InvalidEmoji,
+    #[error("invalid native link preview image")]
+    InvalidPreview,
     #[error("session missing")]
     SessionMissing,
     #[error("server refused request ({status}): {code}")]
@@ -778,6 +780,64 @@ impl NativeClient {
             .collect::<String>();
         if bytes.len().to_string() != image.bytes || hash != image.sha256 {
             return Err(Error::InvalidEmoji);
+        }
+        Ok(bytes)
+    }
+    /// The resource path is derived locally; no third-party URL can receive
+    /// this bearer. Providers additionally fence the current message revision.
+    pub async fn preview_image(
+        &self,
+        message: &str,
+        image: &rv_protocol::link_previews::PreviewImage,
+    ) -> Result<Vec<u8>, Error> {
+        if !path_segment(message) || !rv_protocol::link_previews::validate_image(image) {
+            return Err(Error::InvalidPreview);
+        }
+        let sent = self.saved_token().ok_or(Error::SessionMissing)?;
+        let mut response = self
+            .accepted(
+                self.http
+                    .get(format!(
+                        "{}/api/v1/messages/{}/previews/{}",
+                        self.base,
+                        encode(message),
+                        encode(&image.file_id)
+                    ))
+                    .bearer_auth(&sent)
+                    .send()
+                    .await?,
+                None,
+                Some(sent.clone()),
+            )
+            .await?;
+        if response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|h| h.to_str().ok())
+            != Some("image/png")
+            || response.content_length() != image.bytes.parse::<u64>().ok()
+        {
+            return Err(Error::InvalidPreview);
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            if bytes.len() + chunk.len() > 4 * 1024 * 1024 {
+                return Err(Error::InvalidPreview);
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        use sha2::{Digest, Sha256};
+        if self.saved_token().as_deref() != Some(sent.as_str()) {
+            return Err(Error::SessionMissing);
+        }
+        if bytes.len().to_string() != image.bytes
+            || format!("{:x}", Sha256::digest(&bytes)) != image.sha256
+            || bytes.len() < 33
+            || !bytes.starts_with(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR")
+            || u32::from_be_bytes(bytes[16..20].try_into().unwrap()) != image.width
+            || u32::from_be_bytes(bytes[20..24].try_into().unwrap()) != image.height
+        {
+            return Err(Error::InvalidPreview);
         }
         Ok(bytes)
     }

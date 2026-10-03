@@ -266,6 +266,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 }
             });
             let maintenance = app.clone();
+            let preview_app = app.clone();
+            let preview_worker = tokio::spawn(async move {
+                let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
+                loop {
+                    tick.tick().await;
+                    if let Err(error) = rv_server::link_previews::drain(&preview_app).await {
+                        tracing::error!(code = error.code, "link preview iteration failed");
+                    }
+                }
+            });
             let cleanup = tokio::spawn(async move {
                 let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
                 interval.tick().await;
@@ -289,6 +299,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .await?;
             cleanup.abort();
             mail_worker.abort();
+            preview_worker.abort();
         }
         Command::CreateUser { username, admin } => {
             let password = std::env::var("RV_USER_PASSWORD")

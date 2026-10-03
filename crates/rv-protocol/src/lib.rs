@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod custom_emojis;
 pub mod emojis;
+pub mod link_previews;
 pub mod live;
 pub mod markdown;
 pub mod parity;
@@ -318,6 +319,8 @@ pub struct Message {
     pub quotes: Vec<MessageQuote>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<parity::FileDescriptor>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previews: Vec<link_previews::LinkPreview>,
     pub created_at: String,
     pub position: String,
     pub revision: String,

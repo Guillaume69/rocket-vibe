@@ -28,6 +28,10 @@ pub fn router(app: App) -> Router {
     Router::new()
         .route("/api/v1/emoji", get(emoji_catalog))
         .route("/api/v1/emoji/files/{id}", get(emoji_image))
+        .route(
+            "/api/v1/messages/{message}/previews/{id}",
+            get(preview_image),
+        )
         .route("/api/v1/uploads", post(prepare_upload))
         .route(
             "/api/v1/uploads/{id}",
@@ -816,6 +820,14 @@ async fn avatar(
 async fn emoji_catalog(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
     let (_, hash, proof) = read_access(&app, &headers, Scope::None).await?;
     crate::custom_emojis::catalog_response(&app, &hash, &proof).await
+}
+async fn preview_image(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path((message, id)): Path<(String, String)>,
+) -> Result<Response> {
+    let (actor, hash, _) = read_access(&app, &headers, Scope::None).await?;
+    crate::link_previews::image_response(&app, &actor, &hash, &message, &id).await
 }
 async fn emoji_image(
     State(app): State<App>,

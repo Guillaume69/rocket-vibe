@@ -53,6 +53,7 @@ pub(crate) struct MessageRow {
     pub pinned: bool,
     pub quote_references: Json<Vec<rv_protocol::parity::QuoteReference>>,
     pub files: Json<Vec<rv_protocol::parity::FileDescriptor>>,
+    pub previews: Json<Vec<rv_protocol::link_previews::LinkPreview>>,
 }
 
 impl MessageRow {
@@ -99,6 +100,11 @@ impl MessageRow {
             reactions: self.reactions.0,
             pinned: self.pinned,
             personal_star: None,
+            previews: if self.deleted {
+                Vec::new()
+            } else {
+                self.previews.0
+            },
             files: if self.deleted {
                 Vec::new()
             } else {
@@ -108,7 +114,7 @@ impl MessageRow {
     }
 }
 
-pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,m.text,m.reply_to,(SELECT count(*) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_replies,(SELECT max(r.created_at) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_last_reply,m.system,m.created_at,m.position,m.revision,m.deleted,m.edited_at,m.pinned,m.quote_references,m.files,COALESCE((SELECT jsonb_agg(jsonb_build_object('emoji',g.emoji,'users',g.users) ORDER BY g.emoji) FROM (SELECT e.emoji,jsonb_agg(jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name) ORDER BY a.id) AS users FROM message_reactions e JOIN users a ON a.id=e.user_id WHERE e.message_id=m.id GROUP BY e.emoji) g),'[]'::jsonb) AS reactions FROM messages m JOIN users u ON u.id=m.author_id";
+pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,m.text,m.reply_to,(SELECT count(*) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_replies,(SELECT max(r.created_at) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_last_reply,m.system,m.created_at,m.position,m.revision,m.deleted,m.edited_at,m.pinned,m.quote_references,m.files,m.previews,COALESCE((SELECT jsonb_agg(jsonb_build_object('emoji',g.emoji,'users',g.users) ORDER BY g.emoji) FROM (SELECT e.emoji,jsonb_agg(jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name) ORDER BY a.id) AS users FROM message_reactions e JOIN users a ON a.id=e.user_id WHERE e.message_id=m.id GROUP BY e.emoji) g),'[]'::jsonb) AS reactions FROM messages m JOIN users u ON u.id=m.author_id";
 
 pub(crate) fn send_fingerprint(room: &str, text: &str) -> String {
     crate::auth::hash_token(&serde_json::json!([room, text]).to_string())
@@ -639,6 +645,7 @@ pub(crate) async fn send_in_tx(
         .bind(position)
         .execute(&mut **tx)
         .await?;
+    crate::link_previews::enqueue(tx, &id, &input.text).await?;
     let query = format!("{MESSAGE_SELECT} WHERE m.id=$1");
     let message = sqlx::query_as::<_, MessageRow>(&query)
         .bind(&id)

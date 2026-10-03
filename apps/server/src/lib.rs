@@ -11,6 +11,7 @@ mod files;
 mod http;
 pub mod invitations;
 mod limits;
+pub mod link_previews;
 mod live;
 pub mod mail;
 mod mail_admission;
@@ -47,6 +48,7 @@ pub struct App {
     pub(crate) objects: Option<objects::LocalObjects>,
     image_slots: Arc<tokio::sync::Semaphore>,
     file_slots: Arc<tokio::sync::Semaphore>,
+    preview_slots: Arc<tokio::sync::Semaphore>,
     password_slots: Arc<tokio::sync::Semaphore>,
     dummy_password_hash: String,
     socket_slots: Arc<limits::SocketSlots>,
@@ -98,6 +100,7 @@ impl App {
             objects: None,
             image_slots: Arc::new(tokio::sync::Semaphore::new(2)),
             file_slots: Arc::new(tokio::sync::Semaphore::new(4)),
+            preview_slots: Arc::new(tokio::sync::Semaphore::new(4)),
             password_slots: Arc::new(tokio::sync::Semaphore::new(4)),
             dummy_password_hash,
             socket_slots: Arc::default(),
@@ -130,6 +133,7 @@ impl App {
             tracing::warn!(code = error.code, "object garbage collection failed");
         }
         for query in [
+            "DELETE FROM link_preview_jobs WHERE (message_id,slot) IN (SELECT j.message_id,j.slot FROM link_preview_jobs j JOIN messages m ON m.id=j.message_id JOIN instance i ON i.singleton WHERE j.expires_at<=clock_timestamp() OR j.token IS DISTINCT FROM m.preview_token OR j.data_epoch<>i.data_epoch OR m.deleted LIMIT 1000 FOR UPDATE OF j SKIP LOCKED)",
             "DELETE FROM presence_leases WHERE device_id IN (SELECT device_id FROM presence_leases WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM typing_leases WHERE (device_id,room_id,root_key) IN (SELECT device_id,room_id,root_key FROM typing_leases WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM live_windows WHERE device_id IN (SELECT device_id FROM live_windows WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",

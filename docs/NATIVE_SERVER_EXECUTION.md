@@ -319,6 +319,26 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P15 / J3, collecte des aperçus (3 octobre 2026) : métadonnées natives bornées,
+  tâches PostgreSQL avec génération de contenu, baux, retries et échéance ;
+  le réseau tourne hors transaction. DNS public intégralement vérifié puis
+  épinglé, redirections revalidées, refus des réseaux privés / loopback et de
+  l'authentification distante. HTML / images bornés ; vignettes normalisées en
+  PNG et servies avec session / adhésion / message courant vérifiés. Le transport
+  Rust vérifie empreinte et dimensions. [Contrat](protocol/LINK_PREVIEWS.md).
+  Vérifications : 18 tests ciblés passent, dont sept avec PostgreSQL et une
+  lecture SDK / HTTP réelle ; refus DNS mixtes, limites chunked, expiration
+  pendant une attente réelle du journal, révision / suppression / epoch et
+  droits de lecture couverts. Clippy workspace sans avertissement, corpus et
+  contrats Rust, régression édition / suppression et CLI opérateur passent ;
+  le cœur bureau compile avec le contrat additif et son lockfile synchronisé.
+  Schéma / types TypeScript synchronisés, typecheck et 14 tests SQLite mobiles
+  passent ; aucune refonte de l'interface n'est livrée dans ce lot serveur.
+  La capacité reste désactivée jusqu'au raccordement des cartes existantes
+  mobile / GTK / SwiftUI ; caches / invalidation, vidéos et cartes d'intégration
+  restent ouverts. Le test de santé opérateur suit maintenant la dernière
+  migration compilée, corrigeant l'échec CI `33` contre attente figée `32`.
+
 - P07 / J3, emojis personnalisés (3 octobre 2026) : catalogue opérateur versionné,
   reçus / audit partagés, import PNG / JPEG normalisé et GIF borné, noms / alias
   uniques sans masquer Unicode, images privées avec contrôle de taille / empreinte.

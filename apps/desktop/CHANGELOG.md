@@ -17,6 +17,7 @@ section here.
   played alone), and starting a downloaded video no longer crashes the app now and then: both
   are drawn without the GPU path that failed there. `RV_SOFTWARE_VIDEO=1` does the same on
   any machine.
+- Starting a YouTube, Dailymotion or Vimeo video no longer flashes white in its card.
 
 ## [0.6.1] - 2026-10-03
 

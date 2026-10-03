@@ -71,6 +71,7 @@ import { oublierEtatNotifications } from './etatNotifications.ts';
 import { traduireCourant } from './i18n.ts';
 import { oublierReponses } from './reponse.ts';
 import { oublierIdentites } from './storeIdentites.ts';
+import { poserNotePrivee } from './notesPrivees.tsx';
 import { useSession } from './session.tsx';
 import { brancherSondeUpload } from './sondeUpload.ts';
 import { oublierFilsCharges } from './filsCharges.ts';
@@ -362,6 +363,8 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       ddp.surEvenement((evenement) => {
         if (abandonne) return;
         presence.appliquer(evenement);
+        const note = fournisseur.notePrivee(evenement);
+        if (note !== null) poserNotePrivee(note.rid, note.texte);
         moteur.appliquer(evenement).catch(() => {
           // Une écriture qui échoue ne doit pas tuer l'écouteur ; le
           // rattrapage REST de l'étape 5.2 refera passer le document.

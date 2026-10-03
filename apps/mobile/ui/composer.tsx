@@ -37,11 +37,13 @@ import {
 } from 'react-native';
 
 import { citer } from '../lib/citation.ts';
+import { decouperCommande, lancerCommande } from '../lib/commandes.ts';
 import type { CandidatMention } from '../lib/completionMention.ts';
 import type { Outbox, OutboxFichiers } from '../lib/fournisseur.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import type { FichierEnAttente } from './apercuPieceJointe.tsx';
 import { BandeauReponse } from './bandeauReponse.tsx';
+import { BandeauCompletionCommande, useCommandes } from './completionCommande.tsx';
 import { BandeauCompletionEmoji, useCompletionEmoji } from './completionEmoji.tsx';
 import { BandeauCompletionMention } from './completionMention.tsx';
 import { useE2EDeverrouille } from './e2e.ts';
@@ -53,6 +55,7 @@ import { estRejetArbreDeVues, lancerSelecteurAvecReprise } from './lancerSelecte
 import { ModaleVideo } from './lecteurVideo.tsx';
 import { estImage } from './mime.ts';
 import { NavigateurEmoji, usePanneauEmoji } from './navigateurEmoji.tsx';
+import { NotePrivee, useNotePrivee } from './notesPrivees.tsx';
 import { PiecesEnAttente, type PieceEnAttente } from './piecesEnAttente.tsx';
 import { reduirePieceJointe } from './preparerPieceJointe.ts';
 import { reductionProposable, type QualiteEnvoi } from './qualitePieceJointe.ts';
@@ -61,6 +64,7 @@ import { useRetourMateriel } from './retourMateriel.ts';
 import { demanderSource, feuilleEstMontee } from './sourcePieceJointe.ts';
 import { useSynchro } from './synchro.tsx';
 import { type Couleurs, POLICES } from './theme.ts';
+import { signaler } from './toast.tsx';
 import { phraseValidation } from './validationFichiers.ts';
 import { useVisionneuse } from './visionneuse.tsx';
 import { Appuyable } from './appuyable.tsx';
@@ -182,6 +186,8 @@ export function Composer({
   // composer du fil (`useCompletionEmoji`).
   const { curseur, selection, surSelection, choisirEmoji, insererAuCurseur, reinitialiser } =
     useCompletionEmoji(brouillon, setBrouillon, sauverBrouillon);
+  const { commandes, accordees } = useCommandes(client, rid);
+  const notePrivee = useNotePrivee(rid);
 
   // Navigateur d'emojis : un panneau qui prend la place du clavier. Le bouton
   // 😀 bascule de l'un à l'autre ; toucher le champ rouvre le clavier (onFocus).
@@ -312,6 +318,26 @@ export function Composer({
     setBrouillon('');
     reinitialiser();
     effacerBrouillon();
+    // Une commande slash part par `commands.run` ; un nom que le serveur ne
+    // connaît pas reste un message ordinaire. Refusée, elle revient au champ.
+    if (reponse === null && decouperCommande(legende) !== null) {
+      void lancerCommande(client, rid, legende, filId)
+        .then((lancee) => {
+          if (lancee) return;
+          envoi
+            .envoyer(rid, legende, filId, null)
+            .then((idMessage) => apresEnvoi?.(idMessage))
+            .catch((e: unknown) => console.warn('envoi: échec local', e));
+        })
+        .catch((e: unknown) => {
+          if (brouillonRef.current === '') {
+            setBrouillon(legende);
+            sauverBrouillon(legende);
+          }
+          signaler(t('salon.commandeRefusee', { erreur: e instanceof Error ? e.message : String(e) }));
+        });
+      return;
+    }
     // L'aperçu optimiste de la citation : la version du serveur, qui porte les
     // vraies pièces jointes reconstruites du permalien, l'écrasera.
     const jointesLocales = reponse === null ? null : reponse.jointeLocale;
@@ -337,6 +363,8 @@ export function Composer({
     cleReponse,
     apresEnvoi,
     effacerBrouillon,
+    sauverBrouillon,
+    client,
     reinitialiser,
     t,
   ]);
@@ -584,6 +612,17 @@ export function Composer({
       )}
       {reponse !== null && (
         <BandeauReponse c={c} cible={reponse} client={client} surAnnuler={annulerCitation} />
+      )}
+      {notePrivee !== null && <NotePrivee c={c} rid={rid} texte={notePrivee} />}
+      {!emoji.ouvert && (
+        <BandeauCompletionCommande
+          texte={brouillon}
+          curseur={curseur}
+          commandes={commandes}
+          accordees={accordees}
+          c={c}
+          surChoisir={choisirEmoji}
+        />
       )}
       {!emoji.ouvert && (
         <BandeauCompletionEmoji texte={brouillon} curseur={curseur} c={c} surChoisir={choisirEmoji} />

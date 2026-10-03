@@ -7,6 +7,7 @@
  */
 
 import type { Session } from '../../lib/auth.ts';
+import { EVENEMENT_MESSAGE_PRIVE, messagePrive } from '../../lib/commandes.ts';
 import { ClientDdp } from '../../lib/ddp.ts';
 import { MoteurEnvoi } from '../../lib/envoi.ts';
 import { MoteurTeleversement } from '../../lib/envoiFichiers.ts';
@@ -50,12 +51,19 @@ export function creerFournisseurRC(
       return [
         [STREAM_NOTIFY_USER, `${session.userId}/subscriptions-changed`],
         [STREAM_NOTIFY_USER, `${session.userId}/rooms-changed`],
+        // La réponse d'une commande slash (`lib/commandes.ts`).
+        [STREAM_NOTIFY_USER, `${session.userId}/${EVENEMENT_MESSAGE_PRIVE}`],
         [STREAM_NOTIFY_LOGGED, EVENEMENT_PRESENCE],
         // Photos de profil et de salon : le serveur diffuse la nouvelle version
         // (`etag`) à TOUS les connectés. Sans cet abonnement, un avatar changé
         // reste figé jusqu'au prochain `me`/`users.info` — voir `urlAvatar`.
         [STREAM_NOTIFY_LOGGED, EVENEMENT_AVATAR],
       ];
+    },
+    notePrivee(evenement) {
+      const cle = `${session.userId}/${EVENEMENT_MESSAGE_PRIVE}`;
+      if (evenement.collection !== STREAM_NOTIFY_USER || evenement.cleEvenement !== cle) return null;
+      return messagePrive(evenement.args);
     },
     souscriptionsSalon(rid: string): readonly (readonly [string, string])[] {
       // Le format « rid » / « rid/sujet » est CELUI de Rocket.Chat : fabriqué

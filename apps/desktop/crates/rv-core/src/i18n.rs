@@ -120,6 +120,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ),
     ("upload.waiting", "En attente", "Waiting"),
     ("text.open_link", "Ouvrir le lien", "Open link"),
+    ("player.stop", "Arrêter la vidéo", "Stop the video"),
     ("text.copy_link", "Copier l'adresse du lien", "Copy link address"),
     ("upload.retrying", "Connexion perdue, nouvel essai…", "Connection lost, retrying…"),
     ("upload.failed", "Échec de l'envoi", "Upload failed"),

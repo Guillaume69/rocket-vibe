@@ -555,7 +555,7 @@ pub fn message_widget(
             column.append(&cards::attachment_card(&card));
         }
         for video in content::video_links(row.text.as_deref().unwrap_or_default(), row.urls.as_deref(), 3) {
-            column.append(&cards::video_link(session, &video));
+            column.append(&cards::video_link(session, &row.id, &video));
         }
         for preview in content::link_previews(row.urls.as_deref(), 3) {
             column.append(&cards::link_preview(session, &preview));

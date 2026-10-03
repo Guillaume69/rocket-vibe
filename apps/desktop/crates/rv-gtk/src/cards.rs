@@ -1,7 +1,10 @@
 //! What a message carries beside its text, as cards: quoted messages, files,
 //! audio and video, link previews, video links and calls.
 
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use adw::prelude::*;
@@ -359,9 +362,44 @@ fn refit(clamp: &adw::Clamp) {
     clamp.set_tightening_threshold(natural);
 }
 
+/// A video playing in a card, kept across the card being built again as its
+/// row scrolls out and back, until stopped or its room left.
+struct Live {
+    player: gtk::Overlay,
+    close: Rc<dyn Fn()>,
+    /// The thumbnail back in the card that shows the player now.
+    restore: Rc<dyn Fn()>,
+}
+
+thread_local! {
+    static LIVE: RefCell<HashMap<(String, String), Live>> = RefCell::default();
+}
+
+/// How many video cards play their video.
+pub fn players_shown() -> usize {
+    LIVE.with_borrow(HashMap::len)
+}
+
+/// How many of them are on screen.
+pub fn players_mapped() -> usize {
+    LIVE.with_borrow(|live| live.values().filter(|l| l.player.is_mapped()).count())
+}
+
+/// Stops the videos playing in these messages' cards.
+pub fn stop_players(message_ids: &HashSet<&str>) {
+    let stopped: Vec<Live> = LIVE.with_borrow_mut(|live| {
+        let keys: Vec<_> = live.keys().filter(|(id, _)| message_ids.contains(id.as_str())).cloned().collect();
+        keys.iter().filter_map(|k| live.remove(k)).collect()
+    });
+    for live in stopped {
+        (live.close)();
+        (live.restore)();
+    }
+}
+
 /// A YouTube, Dailymotion or Vimeo link: thumbnail and title. The thumbnail
 /// plays the video in the card, the title opens it in the browser.
-pub fn video_link(session: &Arc<Session>, video: &VideoLink) -> gtk::Widget {
+pub fn video_link(session: &Arc<Session>, message_id: &str, video: &VideoLink) -> gtk::Widget {
     let card = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(3)
@@ -379,7 +417,19 @@ pub fn video_link(session: &Arc<Session>, video: &VideoLink) -> gtk::Widget {
     heading.set_tooltip_text(Some(&video.url));
     let url = video.url.clone();
     on_click(&heading, move |w| open_uri(w, &url));
-    card.append(&heading);
+    heading.set_hexpand(true);
+    let stop = gtk::Button::builder()
+        .icon_name("window-close-symbolic")
+        .tooltip_text(t("player.stop"))
+        .css_classes(["flat", "circular"])
+        .valign(gtk::Align::Start)
+        .visible(false)
+        .build();
+    stop.set_cursor(pointer().as_ref());
+    let top = gtk::Box::builder().spacing(6).build();
+    top.append(&heading);
+    top.append(&stop);
+    card.append(&top);
     let frame = match &video.thumbnail {
         Some(thumbnail) => external_image(session, thumbnail, 300, 169),
         None => widgets::media_frame(300, 169, &["preview-image"]),
@@ -387,32 +437,77 @@ pub fn video_link(session: &Arc<Session>, video: &VideoLink) -> gtk::Widget {
     frame.add_overlay(&widgets::play_badge(56));
     frame.set_margin_top(4);
     card.append(&frame);
-    let (weak_card, weak_frame) = (card.downgrade(), frame.downgrade());
-    let (provider, id, url) = (video.provider, video.id.clone(), video.url.clone());
-    let play: std::rc::Rc<dyn Fn() -> bool> = std::rc::Rc::new(move || {
-        let (Some(card), Some(thumbnail)) = (weak_card.upgrade(), weak_frame.upgrade()) else { return false };
-        if thumbnail.parent().as_ref() != Some(card.upcast_ref()) {
+    let key = (message_id.to_owned(), video.url.clone());
+    let current: Rc<RefCell<Option<gtk::Overlay>>> = Rc::default();
+    let (weak_card, weak_stop, weak_frame, shown) =
+        (card.downgrade(), stop.downgrade(), frame.downgrade(), current.clone());
+    // The thumbnail stays in the card, hidden while the player shows.
+    let show: Rc<dyn Fn(Option<gtk::Overlay>)> = Rc::new(move |player| {
+        let (Some(card), Some(stop), Some(frame)) = (weak_card.upgrade(), weak_stop.upgrade(), weak_frame.upgrade())
+        else {
+            return;
+        };
+        if let Some(old) = shown.take()
+            && old.parent().as_ref() == Some(card.upcast_ref())
+        {
+            card.remove(&old);
+        }
+        if let Some(player) = &player {
+            if let Some(previous) = player.parent().and_downcast::<gtk::Box>() {
+                previous.remove(player);
+            }
+            card.insert_child_after(player, Some(&frame));
+        }
+        frame.set_visible(player.is_none());
+        stop.set_visible(player.is_some());
+        shown.replace(player);
+        if let Some(clamp) = card.parent().and_downcast::<adw::Clamp>() {
+            refit(&clamp);
+        }
+    });
+    let s = show.clone();
+    let restore: Rc<dyn Fn()> = Rc::new(move || s(None));
+    let adopted = LIVE.with_borrow_mut(|live| {
+        live.get_mut(&key).map(|l| {
+            l.restore = restore.clone();
+            l.player.clone()
+        })
+    });
+    if let Some(player) = adopted {
+        show(Some(player));
+    }
+    let k = key.clone();
+    stop.connect_clicked(move |_| {
+        if let Some(live) = LIVE.with_borrow_mut(|live| live.remove(&k)) {
+            (live.close)();
+            (live.restore)();
+        }
+    });
+    let (weak_card, provider, id, url) = (card.downgrade(), video.provider, video.id.clone(), video.url.clone());
+    let play: Rc<dyn Fn() -> bool> = Rc::new(move || {
+        let Some(card) = weak_card.upgrade() else { return false };
+        if current.borrow().is_some() || card.root().is_none() {
             return false;
         }
         let player = widgets::media_frame(480, 270, &["preview-image", "player-frame"]);
         player.set_margin_top(4);
-        let clamp = card.parent().and_downcast::<adw::Clamp>();
-        card.insert_child_after(&player, Some(&thumbnail));
-        card.remove(&thumbnail);
-        if crate::player::start(&player, provider, &id) {
-            if let Some(clamp) = &clamp {
-                refit(clamp);
+        show(Some(player.clone()));
+        match crate::player::start(&player, provider, &id) {
+            Some(close) => {
+                LIVE.with_borrow_mut(|live| live.insert(key.clone(), Live { player, close, restore: restore.clone() }));
+                true
             }
-            return true;
+            None => {
+                show(None);
+                open_uri(&card, &url);
+                false
+            }
         }
-        card.insert_child_after(&thumbnail, Some(&player));
-        card.remove(&player);
-        open_uri(&card, &url);
-        false
     });
     crate::player::set_last(play.clone());
+    let started = play.clone();
     on_click(&frame, move |_| {
-        play();
+        started();
     });
     fitted(&card).upcast()
 }

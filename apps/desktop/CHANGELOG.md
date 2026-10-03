@@ -7,6 +7,21 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- A close button beside a playing video's title stops it and brings the thumbnail back.
+
+### Fixed
+
+- With NVIDIA's driver on Linux, a video playing in its card is no longer black (its sound
+  played alone), and starting a downloaded video no longer crashes the app now and then: both
+  are drawn without the GPU path that failed there. `RV_SOFTWARE_VIDEO=1` does the same on
+  any machine.
+- Starting a YouTube, Dailymotion or Vimeo video no longer flashes white in its card.
+- A YouTube, Dailymotion or Vimeo video keeps playing while its message is scrolled out of
+  view, and stops when changing rooms: it no longer plays on unseen in a room left, nor stacks
+  a second one on coming back.
+
 ## [0.6.1] - 2026-10-03
 
 ### Fixed

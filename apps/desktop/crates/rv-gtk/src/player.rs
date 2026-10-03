@@ -25,17 +25,17 @@ pub fn play_last() -> bool {
     LAST.with_borrow(Clone::clone).is_some_and(|start| start())
 }
 
-/// Plays the video in `frame`, over whatever it shows; false when it cannot
-/// be played here and should open in the browser instead.
-pub fn start(frame: &gtk::Overlay, provider: &str, id: &str) -> bool {
-    let Some(html) = rv_core::player::page(provider, id) else { return false };
-    let started = attach(frame, &rv_core::player::page_url(provider, id), &html);
-    println!("player: {provider} {id} started {started}");
-    started
+/// Plays the video in `frame`, over whatever it shows, and gives what stops
+/// it; none when it cannot be played here and should open in the browser instead.
+pub fn start(frame: &gtk::Overlay, provider: &str, id: &str) -> Option<Rc<dyn Fn()>> {
+    let html = rv_core::player::page(provider, id)?;
+    let close = attach(frame, &rv_core::player::page_url(provider, id), &html);
+    println!("player: {provider} {id} started {}", close.is_some());
+    close
 }
 
 #[cfg(target_os = "linux")]
-fn attach(frame: &gtk::Overlay, _url: &str, html: &str) -> bool {
+fn attach(frame: &gtk::Overlay, _url: &str, html: &str) -> Option<Rc<dyn Fn()>> {
     use webkit6::prelude::*;
 
     thread_local! {
@@ -47,7 +47,11 @@ fn attach(frame: &gtk::Overlay, _url: &str, html: &str) -> bool {
     if let Some(settings) = WebViewExt::settings(&web) {
         settings.set_media_playback_requires_user_gesture(false);
         settings.set_enable_developer_extras(false);
+        if crate::gst_stream::video_on_cpu() {
+            settings.set_hardware_acceleration_policy(webkit6::HardwareAccelerationPolicy::Never);
+        }
     }
+    web.set_background_color(&gtk::gdk::RGBA::BLACK);
     web.connect_enter_fullscreen(|_| true);
     web.connect_decide_policy(|web, decision, kind| {
         let Some(action) =
@@ -81,12 +85,18 @@ fn attach(frame: &gtk::Overlay, _url: &str, html: &str) -> bool {
     });
     web.load_html(html, Some(&format!("{}/", rv_core::player::ORIGIN)));
     frame.add_overlay(&web);
-    true
+    let web = web.downgrade();
+    Some(Rc::new(move || {
+        if let Some(web) = web.upgrade() {
+            web.load_uri("about:blank");
+            println!("player: closed");
+        }
+    }))
 }
 
 #[cfg(any(windows, target_os = "macos"))]
-fn attach(frame: &gtk::Overlay, url: &str, html: &str) -> bool {
-    let Some(root) = frame.root() else { return false };
+fn attach(frame: &gtk::Overlay, url: &str, html: &str) -> Option<Rc<dyn Fn()>> {
+    let root = frame.root()?;
     let decide: rv_native::Decide =
         |target, main_frame, clicked| match rv_core::player::navigation(target, main_frame, clicked) {
             rv_core::player::Navigation::Allow => rv_native::Go::Allow,
@@ -97,30 +107,41 @@ fn attach(frame: &gtk::Overlay, url: &str, html: &str) -> bool {
         Ok(player) => player,
         Err(e) => {
             eprintln!("Player not made: {e}");
-            return false;
+            return None;
         }
     };
     let holder = gtk::Box::builder().css_classes(["player-holder"]).build();
-    frame.add_overlay(&holder);
     let player = Rc::new(RefCell::new(Some(player)));
-    let kept = player.clone();
-    holder.add_tick_callback(move |holder, _| {
-        match kept.borrow().as_ref() {
-            Some(player) => place(holder, player),
-            None => return glib::ControlFlow::Break,
-        }
-        glib::ControlFlow::Continue
+    // Laid over the card on every frame while on screen, the card possibly moved
+    // to another row built for the same message.
+    let tick: Rc<RefCell<Option<gtk::TickCallbackId>>> = Rc::default();
+    let (kept, t) = (player.clone(), tick.clone());
+    holder.connect_map(move |holder| {
+        let kept = kept.clone();
+        t.replace(Some(holder.add_tick_callback(move |holder, _| {
+            if let Some(player) = kept.borrow().as_ref() {
+                place(holder, player);
+            }
+            glib::ControlFlow::Continue
+        })));
     });
     let kept = player.clone();
     holder.connect_unmap(move |_| {
+        if let Some(id) = tick.take() {
+            id.remove();
+        }
         if let Some(player) = kept.borrow().as_ref() {
             player.hide();
         }
     });
-    holder.connect_unrealize(move |_| {
-        player.replace(None);
+    let kept = player.clone();
+    holder.connect_destroy(move |_| {
+        kept.replace(None);
     });
-    true
+    frame.add_overlay(&holder);
+    Some(Rc::new(move || {
+        player.replace(None);
+    }))
 }
 
 #[cfg(windows)]

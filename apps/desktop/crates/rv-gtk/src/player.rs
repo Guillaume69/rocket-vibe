@@ -51,6 +51,7 @@ fn attach(frame: &gtk::Overlay, _url: &str, html: &str) -> bool {
             settings.set_hardware_acceleration_policy(webkit6::HardwareAccelerationPolicy::Never);
         }
     }
+    web.set_background_color(&gtk::gdk::RGBA::BLACK);
     web.connect_enter_fullscreen(|_| true);
     web.connect_decide_policy(|web, decision, kind| {
         let Some(action) =

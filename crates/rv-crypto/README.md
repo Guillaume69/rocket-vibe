@@ -131,7 +131,18 @@ octets d'origine, sans générer une nouvelle genèse.
 Un changement de pins ou une expiration interdit la retransmission. La recherche
 du reçu reste disponible : un reçu déjà accepté peut finaliser l'état historique,
 sans réautoriser un nouvel envoi. `ready_epoch` est uniquement un diagnostic.
-Jointure / réception dans le coordinateur, transitions suivantes, politique de
+
+`preview_admission` valide un vrai Welcome dans une copie temporaire du fournisseur :
+aucune consommation de package n'est persistée. La confirmation lie aussi les
+adhésions / activations actuelles observées indépendamment. `accept_admission`
+revérifie le vrai package consommé, son certificat / incarnation, l'auteur MLS
+du Welcome, chaque feuille et pin, l'ID / contexte / arbre / époque. Consommation,
+groupe rejoint et reçu sont sauvegardés ensemble avant tout succès remis aux apps.
+Un refus tardif annule les écritures MLS ; un checkpoint perdu reprend seulement
+l'acceptation exacte historique. Ni une racine ni un appareil inconnu ne sont
+approuvés automatiquement par une signature valide de transition.
+
+Réception des commits / messages, transitions suivantes, politique de
 chaque envoi, transport et ponts vers les apps restent ouverts ; E2EE demeure
 désactivé. Voir le [contrat de livraison](../../docs/protocol/E2EE_GROUPS.md).
 
@@ -145,7 +156,7 @@ cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --features syste
 node crates/rv-crypto/scripts/verify-identity-vector.mjs
 ```
 
-Cinquante et un scénarios Linux passent, dont l'échange OpenMLS entre deux véritables bases
+Cinquante-neuf scénarios Linux passent, dont l'échange OpenMLS entre deux véritables bases
 rouvertes : consommation / ciphertext original conservés, réception altérée
 annulée puis original accepté, et rejeu refusé. Les autres preuves couvrent AEAD,
 portées, tête ancienne restaurée, auteur concurrent, échec SQL, limites, fichier
@@ -173,6 +184,11 @@ Neuf scénarios de groupe vérifient vraie jointure par Welcome et mêmes secret
 d'époque, commit non fusionné avant reçu, réouverture / retry identique, chaque
 champ du reçu altéré, checkpoint perdu, consentement périmé, pins / révocation,
 certificat expiré, portée / incarnation, genèse solitaire et bornes d'observation.
+Huit scénarios de jointure couvrent preview sans consommation, vrai groupe
+persistant / mêmes secrets, package à usage unique, métadonnées valablement
+signées mais fausses, auteur MLS différent, Welcome corrompu, adhésions / époque
+de salon, approbation de chaque destinataire, refus applicatif après crypto et
+reprise historique après checkpoint perdu.
 
 [`scripts/keystore-smoke.sh`](scripts/keystore-smoke.sh) utilise un **vrai Secret
 Service Linux**, ses répertoires XDG jetables et plusieurs processus CLI. Un
@@ -184,8 +200,10 @@ Aucun profil utilisateur de l'hôte n'est connecté.
 
 La CI a une matrice crypto Linux / Windows / macOS : formatage, Clippy, tests et
 compilation du backend natif ; Linux exécute aussi le vrai banc de trousseau.
-Les longs pilotes clients restent obligatoires pour changements clients / serveur,
+Les validations serveur / mobile et longs pilotes clients restent obligatoires pour changements clients / serveur,
 workflow, base inconnue, ou moteur crypto consommé par une app. Seuls les lots
-crypto encore isolés et Markdown peuvent les éviter. Les tests ne qualifient pas
+crypto encore isolés et Markdown peuvent les éviter. La détection vise la
+dépendance privée exacte, y compris renommée / indirecte ; `rv-crypto-public`
+seul n'ajoute pas de coffre au serveur. Les tests ne qualifient pas
 la coupure électrique, les trousseaux installés ou une revue crypto indépendante.
 J4 reste ouvert jusqu'à l'intégration et la revue.

@@ -315,6 +315,22 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P19 / J4, admission cliente protégée (4 octobre 2026) : preview du vrai Welcome
+  sans consommation persistante, confirmation puis jointure atomique. Comparaison
+  de chaque feuille / certificat / pin, package réellement consommé, incarnation,
+  auteur MLS, ID / contexte / arbre / époque et adhésions / activations courantes.
+  Preuve publique valablement signée mais incohérente avec MLS refusée ; refus
+  applicatif tardif annulant toute consommation et écriture. Groupe et reçu
+  conservés ensemble, récupération exacte après checkpoint perdu / réouverture.
+  Huit nouveaux scénarios passent ; suite complète : 59 réussis et enfant
+  réellement exécuté / tué via son parent, Clippy strict sans avertissement.
+  Le filtre CI distingue désormais le moteur privé des formats publics ; les
+  lots isolés évitent serveur / mobile / pilotes inchangés, toute consommation
+  par une autre crate réactive leurs régressions. Un changement de workflow
+  conserve toutes les validations. Réception des commits / messages, transitions
+  suivantes, transport / ponts / apps, archives / fichiers / import et revue
+  restent ouverts ; aucune capacité E2EE activée.
+
 - P19 / J4, genèse cliente protégée (4 octobre 2026) : vrai groupe MLS préparé
   dans le coffre, indices issus de l'arbre validé, confirmation opaque liée aux
   pins / certificat / politique / nonces / packages et portée. Incarnation de

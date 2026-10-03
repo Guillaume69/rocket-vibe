@@ -594,3 +594,6 @@ fn oversized_observations_are_refused_before_intent_serialization() {
     request.roster.members = vec![request.roster.members[0].clone(); public::MAX_MEMBERS + 1];
     assert_eq!(request_fingerprint(&request), Err(Error::Limit));
 }
+
+#[path = "admission_tests.rs"]
+mod admission;

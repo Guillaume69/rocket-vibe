@@ -129,7 +129,7 @@ le commit, pour éviter un cycle avec la désactivation d'un compte qui attend s
 verrou d'incarnation. Les expirations des participants et packages sont revérifiées
 avant commit, après la publication transactionnelle du fanout.
 
-## Coordinateur client : genèse persistante
+## Coordinateur client : genèse et admission persistantes
 
 Le module privé `rv-crypto::groups` prépare une genèse réelle dans le coffre
 protégé. La confirmation locale lie la liste, les nonces, la politique, les
@@ -144,10 +144,21 @@ originale. Une modification de confiance / expiration bloque son retry, mais
 la recherche du reçu permet de réconcilier une acceptation déjà survenue.
 Finaliser ce reçu historique ne vaut pas permission d'un nouvel envoi.
 
-La jointure et réception dans ce coordinateur, les transitions suivantes et
-le raccordement HTTP / fournisseurs sont encore ouverts. Le test de Welcome
-utilise directement OpenMLS dans un second coffre protégé ; ce n'est pas encore
-un parcours utilisateur connecté. Aucune capacité E2EE n'est activée.
+La jointure utilise maintenant ce coordinateur : preview sur un fournisseur
+temporaire, confirmation opaque puis acceptation dans la transaction protégée.
+Elle compare le package réellement consommé, le certificat / incarnation local,
+l'auteur MLS du Welcome, chaque feuille certifiée / pin et l'ID / contexte /
+arbre / époque avec la preuve. La liste et les nonces doivent correspondre à
+l'état autorisé courant observé séparément. Une preuve signée peut être valide
+et néanmoins refusée si ses déclarations ne décrivent pas le vrai groupe.
+
+Un échec, même après création MLS du groupe, annule consommation et écritures.
+Un succès sauvegarde le reçu et le groupe ensemble avant retour. Le retry
+historique exact après checkpoint perdu ne réaccorde aucun droit d'envoi.
+Les tests utilisent de vraies bases privées rouvertes et prouvent les mêmes
+secrets d'époque. Réception de commits / messages, transitions suivantes et
+raccordement HTTP / fournisseurs restent ouverts ; ce n'est pas encore un
+parcours utilisateur connecté. Aucune capacité E2EE n'est activée.
 
 ## Limites et preuves exécutées
 

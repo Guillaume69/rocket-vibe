@@ -74,9 +74,11 @@ jobs:
           if grep -Evq '^(crates/(rv-crypto|rv-crypto-spike)/|docs/.*\.md$|[^/]+\.md$)' "$changed"; then
             clients=true
           fi
-          # Once the shared engine is consumed by an app, its changes require
-          # that app's full regression paths as well as the crypto matrix.
-          if grep -Eq '^crates/rv-crypto/' "$changed" && git grep -q 'rv-crypto' -- 'apps/**/Cargo.toml'; then
+          # Once another crate consumes the shared engine, its changes require
+          # full regressions as well as the crypto matrix (including indirect users).
+          # Match the exact private dependency, including renamed/table forms.
+          # rv-crypto-public only verifies public proofs and consumes no vault.
+          if grep -Eq '^crates/rv-crypto/' "$changed" && git grep -Eq '(^|[[:space:].])"?rv-crypto"?([[:space:]]*=|\])|package[[:space:]]*=[[:space:]]*"rv-crypto"' -- ':(glob)**/Cargo.toml'; then
             clients=true
           fi
           echo "clients=$clients" >> "$GITHUB_OUTPUT"
@@ -117,6 +119,8 @@ jobs:
           bash crates/rv-crypto/scripts/keystore-smoke.sh
 
   verify:
+    needs: scope
+    if: needs.scope.outputs.clients == 'true'
     runs-on: ubuntu-24.04
     services:
       postgres:

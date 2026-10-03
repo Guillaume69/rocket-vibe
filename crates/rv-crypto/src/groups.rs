@@ -9,8 +9,8 @@ use crate::{
 use data_encoding::{BASE64URL_NOPAD as B64, HEXLOWER};
 use openmls::prelude::{
     Ciphersuite, GroupId, KeyPackage, KeyPackageIn, MlsGroup, MlsGroupCreateConfig,
-    MlsMessageBodyIn, MlsMessageIn, MlsMessageOut, OpenMlsProvider, ProposalStore, ProtocolVersion,
-    PublicGroup,
+    MlsGroupJoinConfig, MlsMessageBodyIn, MlsMessageIn, MlsMessageOut, OpenMlsProvider,
+    ProcessedWelcome, ProposalStore, ProtocolVersion, PublicGroup,
     tls_codec::{Deserialize as _, Serialize as _},
 };
 use openmls_rust_crypto::OpenMlsRustCrypto;
@@ -109,6 +109,19 @@ pub struct Receipt {
     pub revision: u64,
     pub epoch: u64,
     pub fingerprint: Fingerprint,
+}
+/// One targeted event, with the current independently observed room grants.
+/// Public HTTP metadata alone cannot authorize the join; preview validates MLS.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Admission {
+    pub roster: Roster,
+    pub receipt: Receipt,
+    #[serde(with = "bytes")]
+    pub transition: Vec<u8>,
+    #[serde(with = "optional_bytes")]
+    pub commit: Option<Vec<u8>>,
+    pub welcome: Welcome,
 }
 /// Lookup remains available when a changed pin/expired certificate forbids retry.
 pub struct PendingLookup {
@@ -315,8 +328,8 @@ fn draft(request: &Genesis, participants: Vec<Participant>) -> Plan {
 }
 
 /// Account adapter. Every result is released after the protected checkpoint.
-/// Genesis / ACK / original retry are implemented here; joining and subsequent
-/// roster transitions are the next part of the same coordinator, not enabled UI.
+/// Genesis, targeted admission, ACK and original retry share this coordinator.
+/// Later roster transitions and message delivery remain to integrate before UI.
 pub struct Coordinator {
     manager: Arc<Manager>,
     root: Root,
@@ -764,6 +777,200 @@ impl Coordinator {
             })
         })
     }
+    /// Validate a real Welcome in a disposable provider snapshot. Package
+    /// consumption in OpenMLS is discarded until the confirmed transaction.
+    pub fn preview_admission(&self, admission: &Admission, now: u64) -> Result<(Preview, Consent)> {
+        let (transition, intent) = check_admission(admission)?;
+        self.scope(&transition.plan.scope)?;
+        self.inspect(|provider, records| {
+            let state = read(records, &transition.plan.scope.room)?;
+            check_clock(state.as_ref(), now)?;
+            if let Some(state) = &state {
+                return Err(if state.pending.is_some() {
+                    Error::Pending
+                } else {
+                    Error::Exists
+                });
+            }
+            let context = self.context(records, now)?;
+            let recipients_expire =
+                self.validate_admission(provider, &context, admission, &transition, now)?;
+            let own = context.certificate.fingerprint()?;
+            let state = fingerprint("rocketvibe-local-group-state-v1", &state)?;
+            let expires = recipients_expire
+                .min(
+                    transition
+                        .certificate
+                        .device
+                        .expires_at
+                        .min(context.certificate.device.expires_at),
+                )
+                .min(now.saturating_add(300));
+            let fingerprint = fingerprint(
+                "rocketvibe-local-group-confirmation-v1",
+                &(intent, state, context.pins_fingerprint, own, expires),
+            )?;
+            Ok((
+                Preview {
+                    fingerprint,
+                    scope: transition.plan.scope.clone(),
+                    recipients: transition.plan.participants,
+                },
+                Consent {
+                    fingerprint,
+                    intent,
+                    state,
+                    pins: context.pins_fingerprint,
+                    own,
+                    expires,
+                },
+            ))
+        })
+    }
+    /// Accept only the exact validated preview, atomically with consumption of
+    /// the private package. A lost checkpoint is reconciled by this same input.
+    pub fn accept_admission(
+        &self,
+        admission: &Admission,
+        consent: &Consent,
+        confirmed: Fingerprint,
+        now: u64,
+    ) -> Result<()> {
+        let (transition, intent) = check_admission(admission)?;
+        self.scope(&transition.plan.scope)?;
+        if intent != consent.intent || confirmed != consent.fingerprint {
+            return Err(Error::Changed);
+        }
+        self.transact(|provider, records| {
+            let state = read(records, &transition.plan.scope.room)?;
+            check_clock(state.as_ref(), now)?;
+            if let Some(state) = &state {
+                if state.pending.is_some() {
+                    return Err(Error::Pending);
+                }
+                if let Some(active) = &state.active {
+                    if active.receipt != admission.receipt || active.transition != transition {
+                        return Err(Error::Exists);
+                    }
+                    let group = MlsGroup::load(
+                        provider.storage(),
+                        &GroupId::from_slice(&state.scope.group_id()?),
+                    )
+                    .map_err(|_| Error::Mls)?
+                    .ok_or(Error::Changed)?;
+                    // Historical reconciliation is not a fresh encryption grant.
+                    return check_actual(group.public_group(), &active.transition.plan);
+                }
+                return Err(Error::Changed);
+            }
+            if now >= consent.expires
+                || fingerprint("rocketvibe-local-group-state-v1", &state)? != consent.state
+            {
+                return Err(Error::Changed);
+            }
+            let context = self.context(records, now)?;
+            if context.pins_fingerprint != consent.pins
+                || context.certificate.fingerprint()? != consent.own
+            {
+                return Err(Error::Changed);
+            }
+            self.validate_admission(provider, &context, admission, &transition, now)?;
+            save(
+                records,
+                &State {
+                    version: 1,
+                    scope: transition.plan.scope.clone(),
+                    clock: now,
+                    pending: None,
+                    active: Some(Active {
+                        created: now,
+                        transition,
+                        receipt: admission.receipt.clone(),
+                    }),
+                },
+            )
+        })
+    }
+    fn validate_admission(
+        &self,
+        provider: &OpenMlsRustCrypto,
+        context: &Context,
+        admission: &Admission,
+        transition: &Transition,
+        now: u64,
+    ) -> Result<u64> {
+        transition.verify(now)?;
+        let welcome = &admission.welcome;
+        if welcome.device != context.certificate.device.device
+            || welcome.incarnation != context.local.incarnation()
+        {
+            return Err(identity::Error::Scope.into());
+        }
+        let group_id = GroupId::from_slice(&transition.plan.scope.group_id()?);
+        if MlsGroup::load(provider.storage(), &group_id)
+            .map_err(|_| Error::Mls)?
+            .is_some()
+        {
+            return Err(Error::Changed);
+        }
+        let message =
+            MlsMessageIn::tls_deserialize_exact(&welcome.payload).map_err(|_| Error::Mls)?;
+        let MlsMessageBodyIn::Welcome(message) = message.extract() else {
+            return Err(Error::Mls);
+        };
+        if message.ciphersuite() != SUITE {
+            return Err(Error::Mls);
+        }
+        let processed =
+            ProcessedWelcome::new_from_welcome(provider, &MlsGroupJoinConfig::default(), message)
+                .map_err(|_| Error::Mls)?;
+        let package = processed.own_key_package().ok_or(Error::Mls)?;
+        if package.last_resort()
+            || package
+                .hash_ref(provider.crypto())
+                .map_err(|_| Error::Mls)?
+                .as_slice()
+                != welcome.key_package
+        {
+            return Err(Error::Changed);
+        }
+        let certificate = Certificate::from_credential(package.leaf_node().credential())?;
+        if certificate != context.certificate
+            || package.leaf_node().signature_key().as_slice() != context.local.public_key()
+        {
+            return Err(Error::Changed);
+        }
+        let staged = processed
+            .into_staged_welcome(provider, None)
+            .map_err(|_| Error::Mls)?;
+        let sender = staged.welcome_sender().map_err(|_| Error::Mls)?;
+        let author = transition.certificate.fingerprint()?;
+        if Certificate::from_credential(sender.credential())? != transition.certificate
+            || sender.signature_key().as_slice() != transition.certificate.device.signature_key
+            || !transition
+                .plan
+                .participants
+                .iter()
+                .any(|p| p.leaf == staged.welcome_sender_index().u32() && p.certificate == author)
+        {
+            return Err(Error::Changed);
+        }
+        let own_leaf = staged.own_leaf_index().u32();
+        let group = staged.into_group(provider).map_err(|_| Error::Mls)?;
+        if group.ciphersuite() != SUITE {
+            return Err(Error::Mls);
+        }
+        check_actual(group.public_group(), &transition.plan)?;
+        let expires = check_participants(group.public_group(), &transition.plan, context, now)?;
+        if !transition.plan.participants.iter().any(|p| {
+            p.device == welcome.device
+                && p.leaf == own_leaf
+                && p.key_package == Some(welcome.key_package)
+        }) {
+            return Err(Error::Changed);
+        }
+        Ok(expires)
+    }
     pub fn confirm(&self, receipt: &Receipt, now: u64) -> Result<()> {
         self.scope(&receipt.scope)?;
         self.transact(|provider, records| {
@@ -819,6 +1026,79 @@ impl Coordinator {
             Ok(group.epoch().as_u64())
         })
     }
+}
+fn check_admission(admission: &Admission) -> Result<(Transition, Fingerprint)> {
+    let welcome = &admission.welcome;
+    if admission.transition.len() > public::WIRE_LIMIT
+        || welcome.payload.is_empty()
+        || welcome.payload.len() > PAYLOAD_LIMIT
+        || admission
+            .commit
+            .as_ref()
+            .is_some_and(|v| v.is_empty() || v.len() > PAYLOAD_LIMIT)
+        || welcome.payload.len() + admission.commit.as_ref().map_or(0, Vec::len) > TOTAL_LIMIT
+    {
+        return Err(Error::Limit);
+    }
+    let transition = Transition::from_bytes(&admission.transition)?;
+    transition.plan.validate()?;
+    check_receipt(&transition, &admission.receipt)?;
+    if transition.plan.scope != admission.roster.scope
+        || transition.plan.authority_version != admission.roster.authority_version
+        || transition.plan.members != admission.roster.members
+        || transition.plan.commit != admission.commit.as_deref().map(digest)
+        || !transition.plan.welcomes.iter().any(|w| {
+            w.device == welcome.device
+                && w.incarnation == welcome.incarnation
+                && w.key_package == welcome.key_package
+                && w.digest == digest(&welcome.payload)
+        })
+    {
+        return Err(Error::Changed);
+    }
+    let intent = fingerprint("rocketvibe-local-group-admission-v1", admission)?;
+    Ok((transition, intent))
+}
+fn check_participants(
+    group: &PublicGroup,
+    plan: &Plan,
+    context: &Context,
+    now: u64,
+) -> Result<u64> {
+    let expected: BTreeMap<_, _> = plan.participants.iter().map(|p| (p.leaf, p)).collect();
+    let mut count = 0;
+    let mut expires = u64::MAX;
+    for member in group.members() {
+        count += 1;
+        let certificate = Certificate::from_credential(&member.credential)?;
+        certificate.verify(now)?;
+        expires = expires.min(certificate.device.expires_at);
+        let participant = expected.get(&member.index.u32()).ok_or(Error::Changed)?;
+        let device = &certificate.device;
+        if device.root.instance != plan.scope.instance
+            || device.root.user != participant.user
+            || device.device != participant.device
+            || device.incarnation != participant.incarnation
+            || device.root.fingerprint()? != participant.root
+            || certificate.fingerprint()? != participant.certificate
+            || member.signature_key.as_slice() != device.signature_key
+        {
+            return Err(Error::Changed);
+        }
+        if device.device == context.certificate.device.device {
+            if certificate != context.certificate {
+                return Err(Error::Changed);
+            }
+        } else {
+            context
+                .pins
+                .authorize_credential(&member.credential, &member.signature_key, now)?;
+        }
+    }
+    if count != expected.len() {
+        return Err(Error::Changed);
+    }
+    Ok(expires)
 }
 fn check_actual(group: &PublicGroup, plan: &Plan) -> Result<()> {
     if group.group_context().group_id().as_slice() != plan.scope.group_id()?

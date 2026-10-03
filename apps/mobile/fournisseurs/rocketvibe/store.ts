@@ -73,6 +73,7 @@ export class NativeStore {
   private readonly quotes:NativeQuoteCache;
   private readonly threads:NativeThreadCache;
   private projection=0;
+  private searchRevision=0;
   constructor(db: NativeDatabase, queue: FileEcritures, session: AppSession) {
     this.db = db; this.queue = queue; this.session = session;this.quotes=new NativeQuoteCache(db,{instance_id:session.nativeInstanceId??'',data_epoch:session.nativeDataEpoch??''});this.threads=new NativeThreadCache(db);
   }
@@ -85,6 +86,7 @@ export class NativeStore {
     });
   }
   projectionToken(): number { return this.projection; }
+  searchToken():number {return this.searchRevision;}
   state(): Promise<NativeState | null> {
     return this.queue(() => this.db.getFirstAsync<NativeState>('SELECT instance_id,data_epoch,cursor FROM native_sync_state WHERE singleton=1', []));
   }
@@ -195,6 +197,7 @@ export class NativeStore {
       return;
     }
     const local = localMessage(message,this.session.userId);
+    if((message.deleted || message.revision!==message.position) && existing?.revision!==message.revision)this.searchRevision++;
     local.etoiles=stars;
     if (message.deleted) {
       await this.db.runAsync('DELETE FROM messages WHERE id=?',[message.id]);

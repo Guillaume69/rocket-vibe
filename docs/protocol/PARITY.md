@@ -205,7 +205,7 @@ ouverte tant que serveur, clients concernés et scénario de parité manquent.
 | P10 Réactions / épingles / étoiles | J2 | API idempotente, alias, épingles, étoiles privées, intentions SQLite et menus / listes existants des 3 clients livrés ; qualification appareils à poursuivre |
 | P11 Fils | J2 | API, racines / réponses séparées, compteurs, lectures par fil et brouillons / outbox durables raccordés aux écrans de fil GTK / SwiftUI / mobile existants ; citations dans un fil, rejeu après suppression de racine et purge d'adhésion couverts ; [contrat](THREADS.md), qualification installée ouverte |
 | P12 Présence / saisie | J2 | Baux par appareil, photos WebSocket séparées du journal, expiration et émission / écoute raccordées aux composeurs et indicateurs existants ; @here résolu à l'envoi ; [contrat](LIVE.md), qualification installée ouverte |
-| P13 Recherche | J2 / J4 | Recherche PG avec ACL ; index chiffré local borné / purge après verrouillage |
+| P13 Recherche | J2 / J4 | Recherche PG autorisée, pages bornées, édition / suppression et résultats temporaires raccordés aux écrans existants ; [contrat](SEARCH.md). Index local du chiffré et purge au verrouillage encore ouverts avec J4 ; qualification installée ouverte |
 | P14 Photos / documents / vidéos / vocaux | J3 | Objets protégés, upload / retry / confirmation idempotente ; partage et lecteurs |
 | P15 Liens / cartes | J3 | DTO, métadonnées bornées et refus SSRF ; lecteurs existants |
 | P16 Profils / réglages | J2–J3 | Fiches, bio / statut / préférences, avatars protégés et invalidation du cache |

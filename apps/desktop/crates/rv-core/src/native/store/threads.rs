@@ -143,9 +143,9 @@ impl NativeStore {
             {
                 return Ok(false);
             }
-            Self::message(tx, &page.root)?;
+            self.message(tx, &page.root)?;
             for reply in &page.messages {
-                Self::message(tx, reply)?;
+                self.message(tx, reply)?;
             }
             save(tx, &page.read_state)?;
             Ok(true)

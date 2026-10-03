@@ -381,6 +381,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("search.placeholder", "Chercher des messages", "Search messages"),
     ("search.none", "Aucun message trouvé", "No messages found"),
     ("search.failed", "Recherche impossible", "Search failed"),
+    ("search.changed", "Le salon a changé. Relancez la recherche.", "The room changed. Search again."),
     ("settings.title", "Paramètres", "Settings"),
     ("settings.edit_profile", "Mon profil", "My profile"),
     ("settings.status", "Statut", "Status"),

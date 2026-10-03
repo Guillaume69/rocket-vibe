@@ -8,6 +8,9 @@ décrit la destination ; ce contrat ne couvre que le socle livré, pas toute la 
 validation à l'exécution dans le pilote TypeScript mobile. Ces fichiers générés
 sont versionnés et vérifiés sans diff en CI.
 
+La [recherche native en salon](SEARCH.md) utilise PostgreSQL, des résultats
+temporaires et les écrans existants ; son index local chiffré reste lié à J4.
+
 Les [documents Markdown natifs](MARKDOWN.md) sont traduits vers les renderers
 existants aux frontières des fournisseurs. Le texte source reste présent ;
 ce contrat ne transporte pas le format `md` Rocket.Chat.

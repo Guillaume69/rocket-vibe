@@ -41,6 +41,7 @@
     "apps/desktop/crates/rv-core/src/native/read_intents.rs",
     "apps/desktop/crates/rv-core/src/native/read_presentation.rs",
     "apps/desktop/crates/rv-core/src/native/room_operations.rs",
+    "apps/desktop/crates/rv-core/src/native/search.rs",
     "apps/desktop/crates/rv-core/src/native/security.rs",
     "apps/desktop/crates/rv-core/src/native/security/email.rs",
     "apps/desktop/crates/rv-core/src/native/security/email/removal.rs",
@@ -730,79 +731,79 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 675,
+      "line": 676,
       "kind": "endpoint",
       "surface": "e2e.banner"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 676,
+      "line": 677,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 677,
+      "line": 678,
       "kind": "endpoint",
       "surface": "e2e.lock"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 678,
+      "line": 679,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 680,
+      "line": 681,
       "kind": "endpoint",
       "surface": "e2e.body"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 684,
+      "line": 685,
       "kind": "endpoint",
       "surface": "e2e.password"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 685,
+      "line": 686,
       "kind": "endpoint",
       "surface": "e2e.wrong"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 686,
+      "line": 687,
       "kind": "endpoint",
       "surface": "e2e.no_keys"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 687,
+      "line": 688,
       "kind": "endpoint",
       "surface": "e2e.failed"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 688,
+      "line": 689,
       "kind": "endpoint",
       "surface": "e2e.read_only"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 689,
+      "line": 690,
       "kind": "endpoint",
       "surface": "e2e.status"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 690,
+      "line": 691,
       "kind": "endpoint",
       "surface": "e2e.locked"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 691,
+      "line": 692,
       "kind": "endpoint",
       "surface": "e2e.unlocked"
     },
@@ -1378,49 +1379,49 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1145,
+      "line": 1147,
       "kind": "endpoint",
       "surface": "rooms.online"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1146,
+      "line": 1148,
       "kind": "endpoint",
       "surface": "rooms.connecting"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1147,
+      "line": 1149,
       "kind": "endpoint",
       "surface": "rooms.offline"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1539,
+      "line": 1541,
       "kind": "endpoint",
       "surface": "rooms.section_unread"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1540,
+      "line": 1542,
       "kind": "endpoint",
       "surface": "rooms.section_favorites"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1541,
+      "line": 1543,
       "kind": "endpoint",
       "surface": "rooms.section_channels"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1542,
+      "line": 1544,
       "kind": "endpoint",
       "surface": "rooms.section_direct"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1643,
+      "line": 1645,
       "kind": "endpoint",
       "surface": "e2e.read_only"
     },
@@ -2247,18 +2248,6 @@
       "surface": "users.info"
     },
     {
-      "file": "apps/mobile/app/recherche-messages.tsx",
-      "line": 69,
-      "kind": "call:GET",
-      "surface": "'chat.search'"
-    },
-    {
-      "file": "apps/mobile/app/recherche-messages.tsx",
-      "line": 70,
-      "kind": "endpoint",
-      "surface": "chat.search"
-    },
-    {
       "file": "apps/mobile/app/recherche.tsx",
       "line": 83,
       "kind": "call:GET",
@@ -2485,6 +2474,18 @@
       "line": 100,
       "kind": "endpoint",
       "surface": "chat.getThreadMessages"
+    },
+    {
+      "file": "apps/mobile/fournisseurs/rocketchat/index.ts",
+      "line": 51,
+      "kind": "call:GET",
+      "surface": "'chat.search'"
+    },
+    {
+      "file": "apps/mobile/fournisseurs/rocketchat/index.ts",
+      "line": 51,
+      "kind": "endpoint",
+      "surface": "chat.search"
     },
     {
       "file": "apps/mobile/lib/actionsMessage.ts",
@@ -2962,37 +2963,37 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 844,
+      "line": 845,
       "kind": "endpoint",
       "surface": "e2e.titre"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 845,
+      "line": 846,
       "kind": "endpoint",
       "surface": "e2e.explication"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 847,
+      "line": 848,
       "kind": "endpoint",
       "surface": "e2e.champ"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 848,
+      "line": 849,
       "kind": "endpoint",
       "surface": "e2e.deverrouiller"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 849,
+      "line": 850,
       "kind": "endpoint",
       "surface": "e2e.erreurMotDePasse"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 850,
+      "line": 851,
       "kind": "endpoint",
       "surface": "e2e.erreurGenerique"
     }

@@ -107,6 +107,19 @@ public final class RoomModel {
         return result
     }
     public var supportsMarks: Bool { chat != nil || (provider.native?.supportedFeatures().contains("pins") == true && provider.native?.supportedFeatures().contains("stars") == true) }
+    public var supportsSearch:Bool { active && (chat != nil || provider.native?.supportedFeatures().contains("search") == true) }
+    public let searchContext=UUID().uuidString
+    public var searchVersion:String { guard active else {return "closed"};return searchContext+":"+(provider.native.map{(try? $0.searchVersion()) ?? "offline"} ?? "rc") }
+    public func search(text:String) async throws -> [SearchHit] {
+        guard supportsSearch, !Task.isCancelled else {throw CancellationError()}
+        let version=searchVersion
+        let hits:[SearchHit]
+        if let native=provider.native {hits=try await native.search(room:room.rid,text:text)}
+        else if let chat {hits=try await chat.search(rid:room.rid,text:text)}
+        else {throw CancellationError()}
+        guard active,!Task.isCancelled,version==searchVersion else {throw CancellationError()}
+        return hits
+    }
     public var canAbandon: Bool { provider.native != nil }
     public private(set) var error: String?
     var active = true

@@ -2,7 +2,7 @@
 
 Commande : `node scripts/inventory-rocketchat.mjs`. Contrôle : ajouter `--check`.
 
-326 fichiers de production parcourus ; 443 occurrences.
+327 fichiers de production parcourus ; 443 occurrences.
 Les appels à premier argument dynamique restent visibles : leur résolution est
 consignée dans [le contrat de parité](PARITY.md). Les lignes sont des repères de
 source au moment de la génération. Le JSON conserve le périmètre et tous les fichiers.
@@ -74,19 +74,19 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/crates/rv-core/src/i18n.rs:351](../../apps/desktop/crates/rv-core/src/i18n.rs#L351) | endpoint | rooms.section_direct |
 | [apps/desktop/crates/rv-core/src/i18n.rs:352](../../apps/desktop/crates/rv-core/src/i18n.rs#L352) | endpoint | rooms.new |
 | [apps/desktop/crates/rv-core/src/i18n.rs:355](../../apps/desktop/crates/rv-core/src/i18n.rs#L355) | endpoint | rooms.back_to_room |
-| [apps/desktop/crates/rv-core/src/i18n.rs:675](../../apps/desktop/crates/rv-core/src/i18n.rs#L675) | endpoint | e2e.banner |
-| [apps/desktop/crates/rv-core/src/i18n.rs:676](../../apps/desktop/crates/rv-core/src/i18n.rs#L676) | endpoint | e2e.unlock |
-| [apps/desktop/crates/rv-core/src/i18n.rs:677](../../apps/desktop/crates/rv-core/src/i18n.rs#L677) | endpoint | e2e.lock |
-| [apps/desktop/crates/rv-core/src/i18n.rs:678](../../apps/desktop/crates/rv-core/src/i18n.rs#L678) | endpoint | e2e.title |
-| [apps/desktop/crates/rv-core/src/i18n.rs:680](../../apps/desktop/crates/rv-core/src/i18n.rs#L680) | endpoint | e2e.body |
-| [apps/desktop/crates/rv-core/src/i18n.rs:684](../../apps/desktop/crates/rv-core/src/i18n.rs#L684) | endpoint | e2e.password |
-| [apps/desktop/crates/rv-core/src/i18n.rs:685](../../apps/desktop/crates/rv-core/src/i18n.rs#L685) | endpoint | e2e.wrong |
-| [apps/desktop/crates/rv-core/src/i18n.rs:686](../../apps/desktop/crates/rv-core/src/i18n.rs#L686) | endpoint | e2e.no_keys |
-| [apps/desktop/crates/rv-core/src/i18n.rs:687](../../apps/desktop/crates/rv-core/src/i18n.rs#L687) | endpoint | e2e.failed |
-| [apps/desktop/crates/rv-core/src/i18n.rs:688](../../apps/desktop/crates/rv-core/src/i18n.rs#L688) | endpoint | e2e.read_only |
-| [apps/desktop/crates/rv-core/src/i18n.rs:689](../../apps/desktop/crates/rv-core/src/i18n.rs#L689) | endpoint | e2e.status |
-| [apps/desktop/crates/rv-core/src/i18n.rs:690](../../apps/desktop/crates/rv-core/src/i18n.rs#L690) | endpoint | e2e.locked |
-| [apps/desktop/crates/rv-core/src/i18n.rs:691](../../apps/desktop/crates/rv-core/src/i18n.rs#L691) | endpoint | e2e.unlocked |
+| [apps/desktop/crates/rv-core/src/i18n.rs:676](../../apps/desktop/crates/rv-core/src/i18n.rs#L676) | endpoint | e2e.banner |
+| [apps/desktop/crates/rv-core/src/i18n.rs:677](../../apps/desktop/crates/rv-core/src/i18n.rs#L677) | endpoint | e2e.unlock |
+| [apps/desktop/crates/rv-core/src/i18n.rs:678](../../apps/desktop/crates/rv-core/src/i18n.rs#L678) | endpoint | e2e.lock |
+| [apps/desktop/crates/rv-core/src/i18n.rs:679](../../apps/desktop/crates/rv-core/src/i18n.rs#L679) | endpoint | e2e.title |
+| [apps/desktop/crates/rv-core/src/i18n.rs:681](../../apps/desktop/crates/rv-core/src/i18n.rs#L681) | endpoint | e2e.body |
+| [apps/desktop/crates/rv-core/src/i18n.rs:685](../../apps/desktop/crates/rv-core/src/i18n.rs#L685) | endpoint | e2e.password |
+| [apps/desktop/crates/rv-core/src/i18n.rs:686](../../apps/desktop/crates/rv-core/src/i18n.rs#L686) | endpoint | e2e.wrong |
+| [apps/desktop/crates/rv-core/src/i18n.rs:687](../../apps/desktop/crates/rv-core/src/i18n.rs#L687) | endpoint | e2e.no_keys |
+| [apps/desktop/crates/rv-core/src/i18n.rs:688](../../apps/desktop/crates/rv-core/src/i18n.rs#L688) | endpoint | e2e.failed |
+| [apps/desktop/crates/rv-core/src/i18n.rs:689](../../apps/desktop/crates/rv-core/src/i18n.rs#L689) | endpoint | e2e.read_only |
+| [apps/desktop/crates/rv-core/src/i18n.rs:690](../../apps/desktop/crates/rv-core/src/i18n.rs#L690) | endpoint | e2e.status |
+| [apps/desktop/crates/rv-core/src/i18n.rs:691](../../apps/desktop/crates/rv-core/src/i18n.rs#L691) | endpoint | e2e.locked |
+| [apps/desktop/crates/rv-core/src/i18n.rs:692](../../apps/desktop/crates/rv-core/src/i18n.rs#L692) | endpoint | e2e.unlocked |
 | [apps/desktop/crates/rv-core/src/live.rs:8](../../apps/desktop/crates/rv-core/src/live.rs#L8) | stream | stream-notify-logged |
 | [apps/desktop/crates/rv-core/src/media.rs:26](../../apps/desktop/crates/rv-core/src/media.rs#L26) | resource | /avatar/{…} |
 | [apps/desktop/crates/rv-core/src/media.rs:27](../../apps/desktop/crates/rv-core/src/media.rs#L27) | resource | /avatar/uid/{…} |
@@ -182,14 +182,14 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/crates/rv-gtk/src/chat.rs:249](../../apps/desktop/crates/rv-gtk/src/chat.rs#L249) | endpoint | rooms.new |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:337](../../apps/desktop/crates/rv-gtk/src/chat.rs#L337) | endpoint | e2e.banner |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:339](../../apps/desktop/crates/rv-gtk/src/chat.rs#L339) | endpoint | e2e.unlock |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1145](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1145) | endpoint | rooms.online |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1146](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1146) | endpoint | rooms.connecting |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1147](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1147) | endpoint | rooms.offline |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1539](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1539) | endpoint | rooms.section_unread |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1540](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1540) | endpoint | rooms.section_favorites |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1541](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1541) | endpoint | rooms.section_channels |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1542](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1542) | endpoint | rooms.section_direct |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1643](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1643) | endpoint | e2e.read_only |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1147](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1147) | endpoint | rooms.online |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1148](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1148) | endpoint | rooms.connecting |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1149](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1149) | endpoint | rooms.offline |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1541](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1541) | endpoint | rooms.section_unread |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1542](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1542) | endpoint | rooms.section_favorites |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1543](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1543) | endpoint | rooms.section_channels |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1544](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1544) | endpoint | rooms.section_direct |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1645](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1645) | endpoint | e2e.read_only |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:19](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L19) | endpoint | rooms.favorite_add |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:19](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L19) | endpoint | rooms.favorite_remove |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:31](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L31) | endpoint | rooms.conflict |
@@ -327,8 +327,6 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/mobile/app/parametres.tsx:105](../../apps/mobile/app/parametres.tsx#L105) | endpoint | users.setPreferences |
 | [apps/mobile/app/profil.tsx:143](../../apps/mobile/app/profil.tsx#L143) | call:GET | 'users.info' |
 | [apps/mobile/app/profil.tsx:144](../../apps/mobile/app/profil.tsx#L144) | endpoint | users.info |
-| [apps/mobile/app/recherche-messages.tsx:69](../../apps/mobile/app/recherche-messages.tsx#L69) | call:GET | 'chat.search' |
-| [apps/mobile/app/recherche-messages.tsx:70](../../apps/mobile/app/recherche-messages.tsx#L70) | endpoint | chat.search |
 | [apps/mobile/app/recherche.tsx:83](../../apps/mobile/app/recherche.tsx#L83) | call:GET | 'spotlight' |
 | [apps/mobile/app/recherche.tsx:83](../../apps/mobile/app/recherche.tsx#L83) | endpoint | spotlight |
 | [apps/mobile/app/recherche.tsx:138](../../apps/mobile/app/recherche.tsx#L138) | call:POST | 'channels.join' |
@@ -367,6 +365,8 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/mobile/fournisseurs/rocketchat/historique.ts:93](../../apps/mobile/fournisseurs/rocketchat/historique.ts#L93) | endpoint | chat.getMessage |
 | [apps/mobile/fournisseurs/rocketchat/historique.ts:99](../../apps/mobile/fournisseurs/rocketchat/historique.ts#L99) | call:GET | 'chat.getThreadMessages' |
 | [apps/mobile/fournisseurs/rocketchat/historique.ts:100](../../apps/mobile/fournisseurs/rocketchat/historique.ts#L100) | endpoint | chat.getThreadMessages |
+| [apps/mobile/fournisseurs/rocketchat/index.ts:51](../../apps/mobile/fournisseurs/rocketchat/index.ts#L51) | call:GET | 'chat.search' |
+| [apps/mobile/fournisseurs/rocketchat/index.ts:51](../../apps/mobile/fournisseurs/rocketchat/index.ts#L51) | endpoint | chat.search |
 | [apps/mobile/lib/actionsMessage.ts:163](../../apps/mobile/lib/actionsMessage.ts#L163) | call:GET | 'chat.getMessage' |
 | [apps/mobile/lib/actionsMessage.ts:163](../../apps/mobile/lib/actionsMessage.ts#L163) | endpoint | chat.getMessage |
 | [apps/mobile/lib/appel.ts:39](../../apps/mobile/lib/appel.ts#L39) | call:POST | 'video-conference.start' |
@@ -446,9 +446,9 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/mobile/ui/messages.ts:292](../../apps/mobile/ui/messages.ts#L292) | endpoint | e2e.deverrouiller |
 | [apps/mobile/ui/messages.ts:293](../../apps/mobile/ui/messages.ts#L293) | endpoint | e2e.erreurMotDePasse |
 | [apps/mobile/ui/messages.ts:294](../../apps/mobile/ui/messages.ts#L294) | endpoint | e2e.erreurGenerique |
-| [apps/mobile/ui/messages.ts:844](../../apps/mobile/ui/messages.ts#L844) | endpoint | e2e.titre |
-| [apps/mobile/ui/messages.ts:845](../../apps/mobile/ui/messages.ts#L845) | endpoint | e2e.explication |
-| [apps/mobile/ui/messages.ts:847](../../apps/mobile/ui/messages.ts#L847) | endpoint | e2e.champ |
-| [apps/mobile/ui/messages.ts:848](../../apps/mobile/ui/messages.ts#L848) | endpoint | e2e.deverrouiller |
-| [apps/mobile/ui/messages.ts:849](../../apps/mobile/ui/messages.ts#L849) | endpoint | e2e.erreurMotDePasse |
-| [apps/mobile/ui/messages.ts:850](../../apps/mobile/ui/messages.ts#L850) | endpoint | e2e.erreurGenerique |
+| [apps/mobile/ui/messages.ts:845](../../apps/mobile/ui/messages.ts#L845) | endpoint | e2e.titre |
+| [apps/mobile/ui/messages.ts:846](../../apps/mobile/ui/messages.ts#L846) | endpoint | e2e.explication |
+| [apps/mobile/ui/messages.ts:848](../../apps/mobile/ui/messages.ts#L848) | endpoint | e2e.champ |
+| [apps/mobile/ui/messages.ts:849](../../apps/mobile/ui/messages.ts#L849) | endpoint | e2e.deverrouiller |
+| [apps/mobile/ui/messages.ts:850](../../apps/mobile/ui/messages.ts#L850) | endpoint | e2e.erreurMotDePasse |
+| [apps/mobile/ui/messages.ts:851](../../apps/mobile/ui/messages.ts#L851) | endpoint | e2e.erreurGenerique |

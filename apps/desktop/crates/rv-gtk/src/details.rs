@@ -331,6 +331,45 @@ fn fill_profile(
 
 /// `chat.search` in the open room, as you type.
 pub fn search(parent: &impl IsA<gtk::Widget>, session: Arc<Session>, rid: &str) {
+    search_with_source(parent, SearchSource::Legacy(session), rid);
+}
+pub fn search_native(
+    parent: &impl IsA<gtk::Widget>,
+    session: Arc<rv_core::native::NativeSession>,
+    rid: &str,
+) -> adw::Dialog {
+    search_with_source(parent, SearchSource::Native(session), rid)
+}
+#[derive(Clone)]
+enum SearchSource {
+    Legacy(Arc<Session>),
+    Native(Arc<rv_core::native::NativeSession>),
+}
+impl SearchSource {
+    fn username(&self) -> &str {
+        match self {
+            Self::Legacy(s) => &s.info.username,
+            Self::Native(s) => &s.info.username,
+        }
+    }
+    fn version(&self) -> Option<String> {
+        match self {
+            Self::Legacy(_) => None,
+            Self::Native(s) => Some(s.search_version().unwrap_or_else(|_| "unavailable".into())),
+        }
+    }
+    async fn search(
+        &self,
+        rid: &str,
+        text: &str,
+    ) -> Result<Vec<rv_core::normalize::Message>, rv_core::rest::RestError> {
+        match self {
+            Self::Legacy(s) => s.search(rid, text).await,
+            Self::Native(s) => s.search(rid, text).await.map_err(rv_core::native::rest_error),
+        }
+    }
+}
+fn search_with_source(parent: &impl IsA<gtk::Widget>, session: SearchSource, rid: &str) -> adw::Dialog {
     let entry = gtk::SearchEntry::builder().placeholder_text(t("search.placeholder")).build();
     let results = gtk::Box::builder().orientation(gtk::Orientation::Vertical).build();
     let status = gtk::Label::builder().css_classes(["details-sub"]).visible(false).margin_top(10).build();
@@ -342,7 +381,33 @@ pub fn search(parent: &impl IsA<gtk::Widget>, session: Arc<Session>, rid: &str) 
     dialog.present(Some(parent));
     entry.grab_focus();
     let generation = Rc::new(Cell::new(0u64));
+    if matches!(&session, SearchSource::Native(_)) {
+        let (source, generation, results, status) =
+            (session.clone(), generation.clone(), results.clone(), status.clone());
+        let dialog = dialog.downgrade();
+        let mut version = source.version();
+        glib::timeout_add_local(std::time::Duration::from_millis(200), move || {
+            let Some(dialog) = dialog.upgrade() else { return glib::ControlFlow::Break };
+            if !dialog.is_visible() {
+                return glib::ControlFlow::Break;
+            }
+            let next = source.version();
+            if next != version {
+                version = next;
+                generation.set(generation.get() + 1);
+                while let Some(child) = results.first_child() {
+                    results.remove(&child);
+                }
+                status.set_visible(true);
+                status.set_label(t("search.changed"));
+            }
+            glib::ControlFlow::Continue
+        });
+    }
     let rid = rid.to_owned();
+    entry.connect_activate(|entry| {
+        entry.emit_by_name::<()>("search-changed", &[]);
+    });
     entry.connect_search_changed(move |entry| {
         let query = entry.text().trim().to_owned();
         let current = generation.get() + 1;
@@ -360,10 +425,12 @@ pub fn search(parent: &impl IsA<gtk::Widget>, session: Arc<Session>, rid: &str) 
                 status.set_visible(false);
                 return;
             }
-            let me = session.info.username.clone();
+            let me = session.username().to_owned();
+            let version = session.version();
             glib::spawn_future_local(async move {
-                let found = on_tokio(async move { session.search(&rid, &query).await }).await;
-                if generation.get() != current {
+                let request = session.clone();
+                let found = on_tokio(async move { request.search(&rid, &query).await }).await;
+                if generation.get() != current || session.version() != version {
                     return;
                 }
                 match found {
@@ -394,4 +461,5 @@ pub fn search(parent: &impl IsA<gtk::Widget>, session: Arc<Session>, rid: &str) 
             });
         });
     });
+    dialog
 }

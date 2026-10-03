@@ -9,6 +9,7 @@ pub mod markdown;
 mod read_intents;
 pub mod read_presentation;
 mod room_operations;
+mod search;
 pub use room_operations::{
     ChangeRoomRole, LeaveRoom, RoomDetails, RoomMemberPage, RoomRole, UpdateRoom, room_operation_id,
 };
@@ -534,6 +535,7 @@ impl NativeSession {
                     threads: true,
                     typing: true,
                     presence: true,
+                    search: true,
                     fine_permissions: true,
                     session_rotation: self.credentials.is_some(),
                     device_sessions: true,
@@ -910,6 +912,36 @@ impl NativeSession {
             if present { "true" } else { "false" },
         )
         .await
+    }
+    pub fn search_version(&self) -> Result<String, Error> {
+        self.ready()?;
+        if self.status().connection != Connection::Online {
+            return Err(Error::Protocol("offline"));
+        }
+        Ok(format!(
+            "{}:{}:{}",
+            self.security_generation.load(Ordering::SeqCst),
+            self.store.projection_token(),
+            self.store.search_token()
+        ))
+    }
+    pub async fn search(&self, rid: &str, text: &str) -> Result<Vec<crate::normalize::Message>, Error> {
+        if !self.supported_features().iter().any(|f| f == "search") {
+            return Err(Error::Protocol("unsupported_feature"));
+        }
+        let version = self.search_version()?;
+        let membership = self
+            .store
+            .read_state(rid)?
+            .and_then(|s| s.membership_version)
+            .ok_or(Error::Protocol("delivery_revalidate"))?;
+        let page = self.client.search_messages(rid, text, None).await?;
+        if version != self.search_version()?
+            || self.store.read_state(rid)?.and_then(|s| s.membership_version).as_deref() != Some(&membership)
+        {
+            return Err(Error::Protocol("delivery_revalidate"));
+        }
+        search::present(page, rid, &membership)
     }
     pub async fn marked(&self, rid: &str, starred: bool) -> Result<Vec<rv_protocol::Message>, Error> {
         self.ready()?;

@@ -9,6 +9,10 @@ section here.
 
 ### Fixed
 
+- Native message search uses the existing GTK dialog and SwiftUI search view,
+  with authorized temporary results, thread replies and Enter to search again.
+  Suspension and content changes clear stale results.
+
 - Native presence and typing use the existing GTK / SwiftUI indicators and
   composers, expire after disconnection, and clear on suspension. Native @here
   mentions capture the members present when the message is sent.

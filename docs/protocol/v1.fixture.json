@@ -126,6 +126,8 @@
   },
   "set_presence":{"status":"online"},
   "set_typing":{"active":true,"membership_version":"current-grant"},
+  "search_messages":{"q":"hello","limit":50},
+  "search_page":{"membership_version":"current-grant","messages":[],"has_more":false},
   "mark_thread_read": {
     "position": "9007199254740995"
   }

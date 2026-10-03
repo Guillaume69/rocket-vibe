@@ -126,6 +126,7 @@ pub struct NativeStore {
     identity: Identity,
     changes: broadcast::Sender<()>,
     projection: AtomicU64,
+    search_revision: AtomicU64,
 }
 fn json<T: serde::Serialize>(value: &T) -> rusqlite::Result<String> {
     serde_json::to_string(value).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
@@ -203,7 +204,13 @@ impl NativeStore {
                 conn.execute_batch(&format!("ALTER TABLE native_messages ADD COLUMN {name} {declaration}"))?;
             }
         }
-        Ok(Self { conn: Mutex::new(conn), identity, changes, projection: AtomicU64::new(0) })
+        Ok(Self {
+            conn: Mutex::new(conn),
+            identity,
+            changes,
+            projection: AtomicU64::new(0),
+            search_revision: AtomicU64::new(0),
+        })
     }
     pub fn changes(&self) -> broadcast::Receiver<()> {
         self.changes.subscribe()
@@ -271,6 +278,9 @@ impl NativeStore {
     }
     pub fn projection_token(&self) -> u64 {
         self.projection.load(Ordering::SeqCst)
+    }
+    pub fn search_token(&self) -> u64 {
+        self.search_revision.load(Ordering::SeqCst)
     }
     pub fn cursor(&self) -> rusqlite::Result<Option<String>> {
         let conn = self.conn.lock().unwrap();
@@ -390,7 +400,7 @@ impl NativeStore {
             if command.message_id != message.id || command.room_id != message.room_id {
                 return Err(rusqlite::Error::InvalidQuery);
             }
-            Self::message(tx, message)?;
+            self.message(tx, message)?;
             tx.execute("DELETE FROM native_commands WHERE id=?1", [id])?;
             Ok(true)
         })
@@ -418,7 +428,7 @@ impl NativeStore {
         )?;
         Ok(reset)
     }
-    fn message(tx: &Transaction, message: &Message) -> rusqlite::Result<()> {
+    fn message(&self, tx: &Transaction, message: &Message) -> rusqlite::Result<()> {
         // Late history/HTTP echoes cannot restore data after a room withdrawal.
         if !tx.query_row("SELECT 1 FROM native_rooms WHERE id=?1", [&message.room_id], |_| Ok(())).optional()?.is_some()
         {
@@ -448,6 +458,11 @@ impl NativeStore {
                 Self::personal(tx, message)?;
             }
             return Ok(());
+        }
+        if (message.deleted || revision != decimal(&message.position)?)
+            && old.as_ref().and_then(|r| r.0.as_deref()) != Some(message.revision.as_str())
+        {
+            self.search_revision.fetch_add(1, Ordering::SeqCst);
         }
         let ts = chrono::DateTime::parse_from_rfc3339(&message.created_at)
             .map_err(|_| rusqlite::Error::InvalidQuery)?
@@ -575,7 +590,7 @@ impl NativeStore {
                 Self::room(tx, room)?;
             }
             for message in &snapshot.messages {
-                Self::message(tx, message)?;
+                self.message(tx, message)?;
             }
             self.cursor_in(tx, &snapshot.cursor)
         })
@@ -592,7 +607,7 @@ impl NativeStore {
             for change in &batch.changes {
                 match change {
                     Change::RoomUpsert(room) => rotate |= Self::room(tx, room)?,
-                    Change::MessageUpsert(message) => Self::message(tx, message)?,
+                    Change::MessageUpsert(message) => self.message(tx, message)?,
                     Change::RoomRemoved { room_id } => Self::remove(tx, room_id)?,
                 }
             }
@@ -612,7 +627,7 @@ impl NativeStore {
                 return Ok(false);
             }
             for message in messages {
-                Self::message(tx, message)?;
+                self.message(tx, message)?;
             }
             Ok(true)
         })

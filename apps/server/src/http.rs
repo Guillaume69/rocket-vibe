@@ -151,6 +151,7 @@ pub fn router(app: App) -> Router {
             post(add_member).delete(remove_member),
         )
         .route("/api/v1/rooms/{room}/messages", get(history).post(send))
+        .route("/api/v1/rooms/{room}/messages/search", get(search_messages))
         .route("/api/v1/sync/snapshot", get(snapshot))
         .route("/api/v1/sync/snapshots", post(begin_snapshot))
         .route("/api/v1/sync/snapshots/{token}", get(snapshot_page))
@@ -261,6 +262,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             threads: true,
             presence: true,
             typing: true,
+            search: true,
             session_rotation: true,
             device_sessions: true,
             account_invitations: true,
@@ -1193,6 +1195,19 @@ async fn history(
     proof
         .json(&app, &hash, &messages, &delivery_rooms, None)
         .await
+}
+
+async fn search_messages(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+    Query(input): Query<rv_protocol::search::SearchMessages>,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::All).await?;
+    let page = crate::search::messages(&app, &actor, &room, input).await?;
+    let mut rooms = crate::quotes::delivery_rooms(&page.messages);
+    rooms.push(room);
+    proof.json(&app, &hash, &page, &rooms, None).await
 }
 
 async fn snapshot(State(app): State<App>, headers: HeaderMap) -> Result<Response> {

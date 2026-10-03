@@ -753,6 +753,23 @@ impl NativeChat {
         let s = self.session.clone();
         on_tokio(async move { s.set_mark(&room, &message_id, present, starred).await }).await.map_err(native_error)
     }
+    pub fn search_version(&self) -> Result<String, RvError> {
+        self.session.search_version().map_err(native_error)
+    }
+    pub async fn search(&self, room: String, text: String) -> Result<Vec<crate::people::SearchHit>, RvError> {
+        let s = self.session.clone();
+        let found = on_tokio(async move { s.search(&room, &text).await }).await.map_err(native_error)?;
+        let ctx = rv_core::markdown::Context { me: &self.session.info.username };
+        Ok(found
+            .into_iter()
+            .map(|m| crate::people::SearchHit {
+                body: crate::markup::blocks(rv_core::markdown::render(m.md.as_deref(), m.text.as_deref(), &ctx)),
+                author: m.author_name.unwrap_or_default(),
+                id: m.id,
+                ts: m.ts,
+            })
+            .collect())
+    }
     pub async fn marked(&self, room: String, starred: bool) -> Result<Vec<MessageItem>, RvError> {
         let (s, rid) = (self.session.clone(), room.clone());
         let messages = on_tokio(async move { s.marked(&rid, starred).await }).await.map_err(native_error)?;

@@ -22,6 +22,7 @@ mod reauthentication;
 pub mod recovery;
 mod room_details;
 mod room_reads;
+mod search;
 mod sessions;
 mod snapshots;
 mod store;
@@ -106,6 +107,7 @@ impl App {
             "DELETE FROM presence_leases WHERE device_id IN (SELECT device_id FROM presence_leases WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM typing_leases WHERE (device_id,room_id,root_key) IN (SELECT device_id,room_id,root_key FROM typing_leases WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM live_windows WHERE device_id IN (SELECT device_id FROM live_windows WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
+            "DELETE FROM search_windows WHERE device_id IN (SELECT device_id FROM search_windows WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "UPDATE email_recovery_outbox SET payload_cipher=NULL,lease_id=NULL,lease_expires_at=NULL WHERE request_hash IN (SELECT o.request_hash FROM email_recovery_outbox o WHERE o.payload_cipher IS NOT NULL AND (o.expires_at<=clock_timestamp() OR NOT EXISTS(SELECT 1 FROM current_email_recovery_requests r WHERE r.operation_hash=o.request_hash)) LIMIT 1000 FOR UPDATE OF o SKIP LOCKED)",
             "DELETE FROM email_recovery_requests WHERE operation_hash IN (SELECT operation_hash FROM email_recovery_requests WHERE expires_at<=clock_timestamp()-interval '1 day' LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM factor_email_deliveries WHERE token_hash IN (SELECT token_hash FROM factor_email_deliveries WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",

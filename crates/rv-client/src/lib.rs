@@ -890,6 +890,27 @@ impl NativeClient {
         ))
         .await
     }
+    pub async fn search_messages(
+        &self,
+        room: &str,
+        query: &str,
+        before: Option<&str>,
+    ) -> Result<rv_protocol::search::SearchPage, Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        let mut url = Url::parse(&format!(
+            "{}/api/v1/rooms/{room}/messages/search",
+            self.base
+        ))
+        .map_err(|_| Error::InvalidUrl)?;
+        url.query_pairs_mut().append_pair("q", query);
+        if let Some(before) = before {
+            url.query_pairs_mut().append_pair("before", before);
+        }
+        self.get(&format!("{}?{}", url.path(), url.query().unwrap_or("")))
+            .await
+    }
     pub async fn thread(
         &self,
         root: &str,

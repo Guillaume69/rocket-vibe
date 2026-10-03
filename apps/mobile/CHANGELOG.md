@@ -9,6 +9,10 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Recherche dans les messages du salon via le fournisseur natif, dans l'écran
+  existant. Résultats temporaires, droits vérifiés et relance avec Entrée ;
+  la recherche Rocket.Chat passe par son propre fournisseur.
+
 - Présence dans les DM et saisie dans les composeurs existants, avec expiration
   après une coupure et arrêt à la suspension. Les mentions @here ciblent les
   membres présents au moment de l'envoi.

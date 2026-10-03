@@ -15,6 +15,293 @@ struct Bench {
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn search_plaintext_is_room_scoped_paginated_and_tracks_edits_and_deletion(pool: PgPool) {
+    let b = Bench::start(pool).await;
+    let (owner, _, token) = b.user("search-owner", false).await;
+    let (reader, uid, reader_token) = b.user("search-reader", false).await;
+    let (outsider, _, _) = b.user("search-outsider", true).await;
+    let room = b.room(&owner, &token, &uid).await;
+    let first = thread_send(&owner, &room, None, "search-first", "Bonjour ALPHA café").await;
+    let second = thread_send(&owner, &room, Some(&first.id), "search-reply", "alpha beta").await;
+    let page = reader.search_messages(&room, "alpha", None).await.unwrap();
+    assert_eq!(
+        page.membership_version,
+        reader
+            .room_read_state(&room)
+            .await
+            .unwrap()
+            .membership_version
+            .unwrap()
+    );
+    assert_eq!(
+        page.messages
+            .iter()
+            .map(|m| m.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![second.id.as_str(), first.id.as_str()]
+    );
+    assert_eq!(
+        reader
+            .search_messages(&room, "café", None)
+            .await
+            .unwrap()
+            .messages
+            .len(),
+        1
+    );
+    assert!(
+        reader
+            .search_messages(&room, "alpha OR absent", None)
+            .await
+            .unwrap()
+            .messages
+            .is_empty()
+    );
+    let response = b
+        .request(
+            Method::GET,
+            &reader_token,
+            &format!("/api/v1/rooms/{room}/messages/search?q=alpha&limit=1"),
+            json!({}),
+        )
+        .await;
+    let limited: rv_protocol::search::SearchPage = response.json().await.unwrap();
+    assert!(limited.has_more);
+    assert_eq!(limited.messages[0].id, second.id);
+    let next = reader
+        .search_messages(&room, "alpha", Some(&second.position))
+        .await
+        .unwrap();
+    assert!(!next.has_more);
+    assert_eq!(next.messages[0].id, first.id);
+    let denied = outsider
+        .search_messages(&room, "alpha", None)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(denied, rv_client::Error::Server { status: 404, .. }),
+        "admin has no private-room access"
+    );
+    let origin = owner
+        .create_room(&CreateRoom {
+            name: "Search source".into(),
+            private: true,
+            operation_id: Some("search-source".into()),
+        })
+        .await
+        .unwrap();
+    let secret = thread_send(
+        &owner,
+        &origin.id,
+        None,
+        "search-secret",
+        "classifiedneedle",
+    )
+    .await;
+    let quoted = owner
+        .send(
+            &room,
+            &SendMessage {
+                operation_id: "search-quote".into(),
+                text: "reference only".into(),
+                quotes: vec![rv_protocol::parity::QuoteReference {
+                    room_id: origin.id.clone(),
+                    message_id: secret.id.clone(),
+                    revision: secret.revision.clone(),
+                }],
+                reply_to: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(
+        reader
+            .search_messages(&room, "classifiedneedle", None)
+            .await
+            .unwrap()
+            .messages
+            .is_empty()
+    );
+    let quoted = reader
+        .search_messages(&room, "reference", None)
+        .await
+        .unwrap()
+        .messages
+        .into_iter()
+        .find(|m| m.id == quoted.id)
+        .unwrap();
+    assert!(quoted.quotes.iter().all(|q| q.excerpt.is_none()));
+    owner
+        .edit_message(
+            &first.id,
+            &rv_protocol::parity::EditMessage {
+                operation_id: "search-edit".into(),
+                expected_revision: page
+                    .messages
+                    .iter()
+                    .find(|m| m.id == first.id)
+                    .unwrap()
+                    .revision
+                    .clone(),
+                content: rv_protocol::parity::MessageContent::Plain {
+                    markdown: "changed gamma".into(),
+                    mentions: vec![],
+                    quotes: vec![],
+                    files: vec![],
+                },
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        reader
+            .search_messages(&room, "alpha", None)
+            .await
+            .unwrap()
+            .messages
+            .len(),
+        1
+    );
+    let changed = reader.search_messages(&room, "gamma", None).await.unwrap();
+    assert_eq!(changed.messages[0].id, first.id);
+    owner
+        .delete_message(
+            &first.id,
+            &DeleteMessage {
+                operation_id: "search-delete".into(),
+                expected_revision: changed.messages[0].revision.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(
+        reader
+            .search_messages(&room, "gamma", None)
+            .await
+            .unwrap()
+            .messages
+            .is_empty()
+    );
+    assert_eq!(
+        b.request(
+            Method::DELETE,
+            &token,
+            &format!("/api/v1/rooms/{room}/members/{uid}"),
+            json!({})
+        )
+        .await
+        .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert!(matches!(
+        reader
+            .search_messages(&room, "alpha", None)
+            .await
+            .unwrap_err(),
+        rv_client::Error::Server { status: 404, .. }
+    ));
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn search_is_bounded_has_an_independent_budget_and_never_writes_journal(pool: PgPool) {
+    let b = Bench::start(pool).await;
+    let (owner, _, token) = b.user("search-budget", false).await;
+    let (_, uid, _) = b.user("search-budget-reader", false).await;
+    let room = b.room(&owner, &token, &uid).await;
+    for query in ["", "!!!"] {
+        assert!(matches!(
+            owner.search_messages(&room, query, None).await.unwrap_err(),
+            rv_client::Error::Server { status: 400, .. }
+        ));
+    }
+    for suffix in [
+        "q=alpha&limit=51",
+        "q=alpha&before=01",
+        "q=alpha&before=-1",
+        "q=alpha&before=0",
+        "q=alpha&extra=1",
+    ] {
+        assert_eq!(
+            b.request(
+                Method::GET,
+                &token,
+                &format!("/api/v1/rooms/{room}/messages/search?{suffix}"),
+                json!({})
+            )
+            .await
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+    assert!(
+        owner
+            .search_messages(&room, &"a".repeat(257), None)
+            .await
+            .is_err()
+    );
+    assert!(
+        owner
+            .search_messages(&room, &"a ".repeat(17), None)
+            .await
+            .is_err()
+    );
+    let before: i64 = sqlx::query_scalar("SELECT position FROM instance")
+        .fetch_one(&b.app.pool)
+        .await
+        .unwrap();
+    for _ in 0..20 {
+        assert!(
+            owner
+                .search_messages(&room, "alpha", None)
+                .await
+                .unwrap()
+                .messages
+                .is_empty()
+        );
+    }
+    let denied = b
+        .request(
+            Method::GET,
+            &token,
+            &format!("/api/v1/rooms/{room}/messages/search?q=alpha"),
+            json!({}),
+        )
+        .await;
+    assert_eq!(denied.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert!(denied.headers().contains_key("retry-after"));
+    assert_eq!(
+        denied.json::<Value>().await.unwrap()["code"],
+        "search_rate_limited"
+    );
+    let after: i64 = sqlx::query_scalar("SELECT position FROM instance")
+        .fetch_one(&b.app.pool)
+        .await
+        .unwrap();
+    assert_eq!(before, after);
+    thread_send(
+        &owner,
+        &room,
+        None,
+        "after-search-limit",
+        "alpha still sends",
+    )
+    .await;
+    sqlx::query("UPDATE search_windows SET expires_at=clock_timestamp()-interval '1 second'")
+        .execute(&b.app.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        owner
+            .search_messages(&room, "alpha", None)
+            .await
+            .unwrap()
+            .messages
+            .len(),
+        1
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn live_leases_expire_follow_membership_and_freeze_here_recipients(pool: PgPool) {
     use futures_util::StreamExt;
     use rv_protocol::live::{LiveFrame, PresenceStatus, SetTyping};

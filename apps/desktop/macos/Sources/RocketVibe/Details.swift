@@ -189,14 +189,17 @@ struct SearchView: View {
     @State var hits: [SearchHit] = []
     @State var failed = false
     @State var searched = false
+    @State var hitsVersion = ""
+    @State var requestRevision = 0
 
     var body: some View {
         SheetFrame(title: L("search.title")) {
             VStack(spacing: 0) {
                 TextField(L("search.placeholder"), text: $query)
+                    .onSubmit {requestRevision &+= 1}
                     .textFieldStyle(.roundedBorder)
                     .padding(12)
-                List(hits, id: \.id) { hit in
+                List(hitsVersion == model.searchVersion ? hits : [], id: \.id) { hit in
                     VStack(alignment: .leading, spacing: 3) {
                         HStack {
                             Text(hit.author).fontWeight(.semibold)
@@ -212,13 +215,14 @@ struct SearchView: View {
                 }
                 .overlay {
                     if failed { Text(L("search.failed")).foregroundStyle(.secondary) }
+                    else if searched && hitsVersion != model.searchVersion {Text(L("search.changed")).foregroundStyle(.secondary)}
                     else if searched && hits.isEmpty { Text(L("search.none")).foregroundStyle(.secondary) }
                 }
             }
         }
-        .task(id: query) {
+        .task(id: "\(model.searchContext):\(query):\(requestRevision)") {
             let q = query.trimmingCharacters(in: .whitespaces)
-            guard !q.isEmpty, let chat = app.chat else {
+            guard !q.isEmpty, model.supportsSearch else {
                 hits = []
                 searched = false
                 return
@@ -226,13 +230,20 @@ struct SearchView: View {
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
             do {
-                hits = try await chat.search(rid: model.rid, text: q)
+                let version=model.searchVersion
+                let found = try await model.search(text:q)
+                guard !Task.isCancelled,query.trimmingCharacters(in:.whitespaces)==q,model.searchVersion==version else {return}
+                hits = found
+                hitsVersion=version
                 failed = false
             } catch {
+                guard !Task.isCancelled else {return}
+                hits=[]
                 failed = true
             }
             searched = true
         }
+        .onChange(of:app.connection) { _,state in if app.native != nil && state != .online {hits=[]} }
     }
 }
 

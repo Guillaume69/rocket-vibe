@@ -64,7 +64,7 @@ struct RoomView: View {
                     .disabled(!model.supportsMarks)
                 Button { panel = .search } label: { Image(systemName: "magnifyingglass") }.help(L("search.title"))
                     .keyboardShortcut("f", modifiers: .command)
-                    .disabled(app.chat == nil)
+                    .disabled(!model.supportsSearch)
                 Button { panel = .info } label: { Image(systemName: "info.circle") }.help(L("info.room"))
                     .disabled(!model.supportsRoomInfo)
             }

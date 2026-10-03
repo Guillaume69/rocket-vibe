@@ -9,6 +9,7 @@
 import type { Session } from '../../lib/auth.ts';
 import { decrireErreurFournisseur } from '../../lib/erreurFournisseur.ts';
 import { ClientDdp } from '../../lib/ddp.ts';
+import {versMessage,type MessageLocal} from '../../lib/normaliser.ts';
 import { MoteurEnvoi } from '../../lib/envoi.ts';
 import { MoteurTeleversement } from '../../lib/envoiFichiers.ts';
 import {
@@ -46,6 +47,10 @@ export function creerFournisseurRC(
     identite:{genre:'rocketchat',origine:session.baseUrl,compteId:session.userId,instanceId:null,generation:null},
     decrireErreur:decrireErreurFournisseur,
     capacites: CAPACITES_ROCKETCHAT,
+    rechercherMessages:async(rid,texte)=>{
+      const r=await client.get<{messages?:Record<string,unknown>[]}>('chat.search',{params:{roomId:rid,searchText:texte,count:50}});
+      return (r.messages??[]).map(versMessage).filter((m):m is MessageLocal=>m!==null);
+    },
     listener,
     traducteur,
     actions,

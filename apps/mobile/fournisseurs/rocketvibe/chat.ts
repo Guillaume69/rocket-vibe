@@ -64,6 +64,7 @@ export class NativeChat {
     this.reconnect = new Reconnecteur({connecter: () => this.connect()});
   }
   subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
+  get searchVersion():string {return `${this.generation}:${this.store.projectionToken()}:${this.store.searchToken()}`;}
   private notify(): void { for (const listener of this.listeners) listener(); }
   start(): void { this.reconnect.declencher(); }
   private disconnect(): void {
@@ -474,6 +475,25 @@ export class NativeChat {
   }
   async setMark(rid:string,id:string,present:boolean,starred:boolean):Promise<void> {
     return this.submitCommand(rid,id,'0',starred?'star':'pin',JSON.stringify(present));
+  }
+  async searchMessages(rid:string,q:string,before?:string):Promise<import('./protocol.generated.ts').Message[]> {
+    if(!this.capabilities?.search)throw new NativeError(501,'unsupported_feature');
+    const generation=this.generation,projection=this.store.projectionToken(),version=this.searchVersion;
+    this.roomOperationGeneration(generation);
+    const membership=(await this.store.readState(rid))?.membership_version;
+    if(!membership)throw new NativeError(409,'delivery_revalidate');
+    const page=await this.transport.searchMessages(rid,q,before);
+    await this.stateGeneration(generation,projection,rid,membership);
+    if(version!==this.searchVersion || page.membership_version!==membership)throw new NativeError(409,'delivery_revalidate');
+    if(page.messages.length>50 || page.has_more && !page.messages.length)throw new NativeError(0,'invalid_search_page');
+    const ids=new Set<string>();let previous=before===undefined?null:BigInt(before);
+    for(const message of page.messages){
+      const position=BigInt(message.position);
+      if(message.room_id!==rid || message.deleted || message.system!=null || ids.has(message.id) || position<=0n || position.toString()!==message.position || previous!==null && position>=previous)throw new NativeError(0,'invalid_search_page');
+      ids.add(message.id);previous=position;
+    }
+    // Search hits never enlarge the history window or acknowledge a cursor.
+    return page.messages;
   }
   async marked(rid:string,starred:boolean):Promise<import('./protocol.generated.ts').Message[]> {
     this.ready();

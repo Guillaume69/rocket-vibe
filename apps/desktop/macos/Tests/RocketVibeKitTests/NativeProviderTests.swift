@@ -9,6 +9,33 @@ import XCTest
 /// Runs with a disposable native server and a real Secret Service / macOS Keychain.
 final class NativeProviderTests: XCTestCase {
     @MainActor
+    func testExistingModelsSearch() async throws {
+        guard let server=ProcessInfo.processInfo.environment["RV_NATIVE_TEST_SERVER"],let password=ProcessInfo.processInfo.environment["RV_NATIVE_TEST_PASSWORD"] else {throw XCTSkip("Native integration server unset")}
+        let home=FileManager.default.temporaryDirectory.appendingPathComponent("rv-search-kit-\(UUID())").path
+        defer {try? FileManager.default.removeItem(atPath:home)}
+        let app=AppModel(home:home);defer{app.end()}
+        app.login.server=server;app.login.user="desktop";app.login.password=password
+        await app.submitLogin();let native=try XCTUnwrap(app.native)
+        try await until{app.connection == .online}
+        let rid=try await native.createRoom(name:"Swift search \(UUID())",private:true)
+        try await until{app.rooms.contains{$0.rid==rid}}
+        app.open(rid);let room=try XCTUnwrap(app.room)
+        try await until{!room.loading}
+        let id=try native.send(room:rid,text:"Swift searchable needle")
+        try await until{room.messages.contains{$0.id==id && $0.delivery == .sent}}
+        XCTAssertTrue(room.supportsSearch)
+        let before=room.messages.count
+        let hits=try await room.search(text:"needle")
+        XCTAssertEqual(hits.map(\.id),[id]);XCTAssertFalse(hits[0].body.isEmpty)
+        XCTAssertEqual(room.messages.count,before)
+        let missing=try await room.search(text:"missingnativeword");XCTAssertTrue(missing.isEmpty)
+        let version=room.searchVersion;native.suspend()
+        XCTAssertNotEqual(room.searchVersion,version)
+        do {_=try await room.search(text:"needle");XCTFail("Search while suspended")}catch{}
+        room.deactivate();XCTAssertFalse(room.supportsSearch)
+        do {_=try await room.search(text:"needle");XCTFail("Search from closed room")}catch{}
+    }
+    @MainActor
     func testExistingModelsPresenceAndTyping() async throws {
         guard let server=ProcessInfo.processInfo.environment["RV_NATIVE_TEST_SERVER"],let password=ProcessInfo.processInfo.environment["RV_NATIVE_TEST_PASSWORD"] else {throw XCTSkip("Native integration server unset")}
         let home=FileManager.default.temporaryDirectory.appendingPathComponent("rv-live-kit-\(UUID())").path

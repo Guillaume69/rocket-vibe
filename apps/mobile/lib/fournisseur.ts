@@ -306,6 +306,8 @@ export interface Fournisseur {
   readonly ordreMessages?: 'sequence';
   readonly native?: { chat: import('../fournisseurs/rocketvibe/chat.ts').NativeChat; store: import('../fournisseurs/rocketvibe/store.ts').NativeStore };
   readonly capacites: Capacites;
+  /** Résultats temporaires, normalisés pour le renderer existant. */
+  rechercherMessages?(rid:string,texte:string):Promise<MessageLocal[]>;
   /** Transport temps réel (RC : DDP ; MM : WebSocket JSON). */
   readonly listener: Listener;
   /** Décodeur d'`Evenement`/documents bruts vers formes neutres. */

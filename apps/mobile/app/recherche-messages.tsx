@@ -1,5 +1,5 @@
 import { Redirect, Stack, useLocalSearchParams } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useSyncExternalStore } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -9,18 +9,20 @@ import {
   View,
 } from 'react-native';
 
-import { versMessage, type MessageLocal } from '../lib/normaliser.ts';
+import type { MessageLocal } from '../lib/normaliser.ts';
+import type { Fournisseur } from '../lib/fournisseur.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { VueEvitantLeClavier } from '../ui/clavier.tsx';
 import { useT } from '../ui/i18n.ts';
 import { LigneMessage } from '../ui/ligneMessage.tsx';
 import { useRechercheDebouncee } from '../ui/rechercheDebouncee.ts';
 import { useSession } from '../ui/session.tsx';
+import {useSynchro} from '../ui/synchro.tsx';
 import { useCouleurs, type Couleurs, POLICES } from '../ui/theme.ts';
 
 /**
- * Recherche de messages dans UN salon (8.5) — `chat.search` exige un
- * `roomId`. Les résultats sont ÉPHÉMÈRES : rendus directement depuis la
+ * Recherche dans un salon par son fournisseur. Les résultats sont temporaires,
+ * rendus directement depuis la
  * réponse (normalisés par `versMessage`, comme tout document serveur),
  * jamais écrits en base — des messages isolés hors fenêtre n'ont rien à y
  * faire. Pas de saut vers le message dans l'historique : consigné, viendra
@@ -29,17 +31,21 @@ import { useCouleurs, type Couleurs, POLICES } from '../ui/theme.ts';
 
 /** Stable (module-level) : une valeur recréée à chaque rendu relancerait l'effet. */
 const AUCUN_MESSAGE: MessageLocal[] = [];
+const AUCUN_RESULTAT:{version:string|null;revision:number;messages:MessageLocal[]}={version:null,revision:-1,messages:AUCUN_MESSAGE};
+function versionDe(f:Fournisseur):string {return JSON.stringify([f.identite,f.native?.chat.searchVersion??null]);}
 
 export default function EcranRechercheMessages() {
   const { rid } = useLocalSearchParams<{ rid: string }>();
   const { etat } = useSession();
+  const synchro=useSynchro();
   const c = useCouleurs();
   const t = useT();
 
   // Même portier que le salon : un lien profond peut atterrir ici sans session.
   if (etat.phase === 'deconnecte') return <Redirect href="/connexion" />;
+  if(synchro.phase==='erreur')return <View style={[styles.centre,{backgroundColor:c.fond}]}><Text style={[styles.messageErreur,{color:c.texteErreur}]}>{synchro.message}</Text></View>;
 
-  if (etat.phase !== 'connecte' || typeof rid !== 'string') {
+  if (etat.phase !== 'connecte' || synchro.phase!=='pret' || typeof rid !== 'string') {
     return (
       <View style={[styles.centre, { backgroundColor: c.fond }]}>
         <Stack.Screen options={{ title: t('commun.rechercher') }} />
@@ -47,44 +53,47 @@ export default function EcranRechercheMessages() {
       </View>
     );
   }
-  return <RechercheMessages c={c} client={etat.client} rid={rid} />;
+  return <RechercheMessages c={c} client={etat.client} rid={rid} fournisseur={synchro.fournisseur} />;
 }
 
 function RechercheMessages({
   c,
   client,
   rid,
+  fournisseur,
 }: {
   c: Couleurs;
   client: ClientRest;
   rid: string;
+  fournisseur:Fournisseur;
 }) {
   const t = useT();
   const [requete, setRequete] = useState('');
+  const [revisionRequete,setRevisionRequete]=useState(0);
+  const version=useSyncExternalStore(
+    useCallback(ecouter=>fournisseur.native?.chat.subscribe(ecouter)??(()=>{}),[fournisseur]),
+    ()=>versionDe(fournisseur),
+  );
 
   // Les résultats sont normalisés dès la réponse (`versMessage`, comme tout
   // document serveur) — jamais écrits en base, voir l'en-tête du fichier.
   const chercherMessages = useCallback(
-    (propre: string) =>
-      client
-        .get<{ messages?: Record<string, unknown>[] }>('chat.search', {
-          params: { roomId: rid, searchText: propre, count: 50 },
-        })
-        .then((r) =>
-          (r.messages ?? [])
-            .map((brut) => versMessage(brut))
-            .filter((m): m is MessageLocal => m !== null),
-        ),
-    [client, rid],
+    async(propre: string) => {
+      const version=versionDe(fournisseur);
+      if(!fournisseur.capacites.recherche || !fournisseur.rechercherMessages)throw new Error('unsupported_feature');
+      return {version,revision:revisionRequete,messages:await fournisseur.rechercherMessages(rid,propre)};
+    },
+    [fournisseur, rid,revisionRequete],
   );
   const { resultats, message, repondue } = useRechercheDebouncee(
     requete,
-    AUCUN_MESSAGE,
+    AUCUN_RESULTAT,
     chercherMessages,
     t('rechercheMessages.rechercheImpossible'),
   );
   const propre = requete.trim();
-  const cherche = propre !== '' && repondue !== propre;
+  const cherche = propre !== '' && message===null && (repondue !== propre || resultats.revision!==revisionRequete);
+  const perimes=resultats.version!==null && resultats.version!==version && repondue===propre;
 
   return (
     <VueEvitantLeClavier>
@@ -93,6 +102,8 @@ function RechercheMessages({
         <TextInput
           value={requete}
           onChangeText={setRequete}
+          onSubmitEditing={()=>setRevisionRequete(v=>v+1)}
+          returnKeyType="search"
           placeholder={t('rechercheMessages.placeholder')}
           placeholderTextColor={c.attenue}
           autoCapitalize="none"
@@ -105,7 +116,7 @@ function RechercheMessages({
         <Text style={[styles.messageErreur, { color: c.texteErreur }]}>{message}</Text>
       )}
       <FlatList
-        data={resultats}
+        data={resultats.version===version && resultats.revision===revisionRequete && repondue===propre?resultats.messages:AUCUN_MESSAGE}
         keyExtractor={(m) => m.id}
         renderItem={({ item }) => (
           <View style={styles.resultat}>
@@ -136,6 +147,8 @@ function RechercheMessages({
             <View style={styles.centre}>
               <ActivityIndicator />
             </View>
+          ) : perimes ? (
+            <Text style={[styles.vide,{color:c.attenue}]}>{t('rechercheMessages.modifiee')}</Text>
           ) : (
             <Text style={[styles.vide, { color: c.attenue }]}>{t('rechercheMessages.aucunMessage')}</Text>
           )

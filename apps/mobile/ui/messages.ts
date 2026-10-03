@@ -399,6 +399,7 @@ const fr = {
   'rechercheMessages.titre': 'Rechercher dans le salon',
   'rechercheMessages.placeholder': 'Rechercher des messages…',
   'rechercheMessages.rechercheImpossible': 'Recherche impossible.',
+  'rechercheMessages.modifiee': 'Le salon a changé. Relancez la recherche.',
   'rechercheMessages.aucunMessage': 'Aucun message trouvé.',
 
   // ── Messages épinglés et favoris (app/messages-marques.tsx)
@@ -942,6 +943,7 @@ const en: Record<CleTraduction, string> = {
   'rechercheMessages.titre': 'Search the channel',
   'rechercheMessages.placeholder': 'Search messages…',
   'rechercheMessages.rechercheImpossible': 'Search failed.',
+  'rechercheMessages.modifiee': 'The room changed. Search again.',
   'rechercheMessages.aucunMessage': 'No messages found.',
 
   'marques.titre': 'Pinned and starred',

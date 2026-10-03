@@ -4,6 +4,7 @@ import {invitationSmoke,recoverySmoke} from './native-invitations-smoke.ts';
 import {quoteSmoke} from './native-quotes-smoke.ts';
 import {threadSmoke} from './native-threads-smoke.ts';
 import {liveSmoke} from './native-live-smoke.ts';
+import {searchSmoke} from './native-search-smoke.ts';
 import {randomBytes} from 'node:crypto';
 import {NativeTransport} from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
 import {creerFournisseurRV} from '../apps/mobile/fournisseurs/rocketvibe/index.ts';
@@ -69,6 +70,7 @@ try {
   await outbox.envoyer(publicRoom.id,'Réponse du mobile au bureau GTK');
   await quoteSmoke();
   await threadSmoke();
-  await liveSmoke();
+await liveSmoke();
+await searchSmoke();
   console.log('Mobile peer: desktop exchange, public discovery/join, offline replay and private withdrawal passed');
 } finally {chat.stop();database.db.close();}

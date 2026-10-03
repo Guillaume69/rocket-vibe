@@ -42,7 +42,7 @@ export class NativeTransport {
     if (!anonymous && this.token === null) throw new NativeError(401, 'session_rejected');
     const sent = anonymous ? null : this.token;
     const verb=method??(input===undefined?'GET':'POST');
-    const budget = ['/api/v1/auth/login','/api/v1/auth/start','/api/v1/auth/factors/verify','/api/v1/auth/invitations/accept','/api/v1/auth/recovery','/api/v1/me/reauth/start','/api/v1/me/reauth/finish'].includes(path) ? 'login' : ['/api/v1/me/email/verification/start','/api/v1/auth/factors/email/start','/api/v1/me/reauth/email/start'].includes(path) ? 'email_delivery' : path === '/api/v1/auth/recovery/email/start' ? 'email_recovery' : path === '/api/v1/auth/renew' ? 'session_rotation' : path === '/api/v1/sync/ticket' ? 'ticket' : path === '/api/v1/sync/snapshots' ? 'snapshot' : path.startsWith('/api/v1/messages/') && ['PATCH','DELETE','PUT'].includes(verb)?'message_action':path.startsWith('/api/v1/rooms/') && verb==='POST' && path.endsWith('/read')?'room_read':path.startsWith('/api/v1/rooms/') && (verb==='PATCH' || verb==='PUT' && (path.endsWith('/role') || path.endsWith('/favorite')) || verb==='POST' && path.endsWith('/leave'))?'room_command':null;
+    const budget = path.endsWith('/messages/search') && verb==='GET' ? 'search' : ['/api/v1/auth/login','/api/v1/auth/start','/api/v1/auth/factors/verify','/api/v1/auth/invitations/accept','/api/v1/auth/recovery','/api/v1/me/reauth/start','/api/v1/me/reauth/finish'].includes(path) ? 'login' : ['/api/v1/me/email/verification/start','/api/v1/auth/factors/email/start','/api/v1/me/reauth/email/start'].includes(path) ? 'email_delivery' : path === '/api/v1/auth/recovery/email/start' ? 'email_recovery' : path === '/api/v1/auth/renew' ? 'session_rotation' : path === '/api/v1/sync/ticket' ? 'ticket' : path === '/api/v1/sync/snapshots' ? 'snapshot' : path.startsWith('/api/v1/messages/') && ['PATCH','DELETE','PUT'].includes(verb)?'message_action':path.startsWith('/api/v1/rooms/') && verb==='POST' && path.endsWith('/read')?'room_read':path.startsWith('/api/v1/rooms/') && (verb==='PATCH' || verb==='PUT' && (path.endsWith('/role') || path.endsWith('/favorite')) || verb==='POST' && path.endsWith('/leave'))?'room_command':null;
     const cooldown = budget === null ? undefined : this.cooldowns.get(budget);
     if (cooldown && cooldown.until > Date.now()) throw new NativeError(429,cooldown.code,Math.ceil((cooldown.until-Date.now())/1000),cooldown.requestId);
     const controller = new AbortController();
@@ -183,6 +183,9 @@ export class NativeTransport {
   }
   marked(room:string,starred:boolean,before?:string):Promise<MessagePage> {
     return this.request('MessagePage',`/api/v1/rooms/${encodeURIComponent(room)}/${starred?'stars':'pins'}?limit=100${before?`&before=${encodeURIComponent(before)}`:''}`);
+  }
+  searchMessages(room:string,q:string,before?:string):Promise<NativeTypes['SearchPage']> {
+    return this.request('SearchPage',`/api/v1/rooms/${encodeURIComponent(room)}/messages/search?q=${encodeURIComponent(q)}${before?`&before=${encodeURIComponent(before)}`:''}`);
   }
   async users(): Promise<NativeTypes['User'][]> {
     const users = await this.value('/api/v1/users');

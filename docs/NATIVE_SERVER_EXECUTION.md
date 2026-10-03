@@ -319,6 +319,26 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P13 / J2, recherche (3 octobre 2026) : index textuel PostgreSQL du texte écrit,
+  accès limité aux membres actuels, racines / réponses paginées par position
+  exacte et réponse plafonnée à 50 messages / 512 Kio. Édition / suppression
+  actualisent l'index ; une citation n'indexe pas le texte privé de sa source.
+  Budget séparé de 20 recherches / minute / appareil et barrière de remise sur
+  session / adhésions. Résultats temporaires raccordés aux mêmes écrans mobile,
+  GTK et SwiftUI, sans écriture d'historique ou de curseur. Leur contexte distingue
+  comptes / salons ; pertes d'accès, mutations et suspension les périment,
+  tandis qu'une actualisation de lecture les conserve. Relance par Entrée.
+  Vérifications : 211 tests Rust racine, Clippy ; 221 tests unitaires desktop
+  (204 cœur, 11 bindings, 6 GTK), Clippy de toutes les cibles et compilation GTK ;
+  1 193 tests mobiles, typage / lint, fixture et inventaire générés conformes.
+  Le fournisseur mobile réel PostgreSQL / WebSocket / SQLite vérifie résultats
+  hors fenêtre, fils, droits, rendu existant et suspension. GTK passe 36 contrôles
+  réels, dont recherche / nouvelle requête / suspension, sans capture. Le modèle
+  Swift connecté passe avec bindings et trousseau réels. Les deux CI P12 du
+  commit `d6a94f3` sont vertes. Partie P13 / J4 encore ouverte : index local du
+  déchiffré, indication de l'historique disponible et purge au verrouillage.
+  Qualification installée ouverte. [Contrat P13](protocol/SEARCH.md).
+
 - P12, présence / saisie (3 octobre 2026) : baux PostgreSQL UNLOGGED par appareil,
   présence de 60 s et saisie de 10 s ; renouvellement actif, arrêt et émission
   limitée côté clients. Photos WebSocket négociées séparément du journal,

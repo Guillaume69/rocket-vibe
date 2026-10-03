@@ -12,7 +12,7 @@ import type { Capabilities } from './protocol.generated.ts';
 export const CAPACITES_ROCKETVIBE: Capacites = {
   edition:true, suppression:true,
   typing:true, presence:true, push:false, e2ee:false, emojisCustom:false,
-  appelVideo:false, recherche:false, modeleFil:'root_id',
+  appelVideo:false, recherche:true, modeleFil:'root_id',
   fichiers:false, fils:true, reactions:true, marques:true, profil:false, infosSalon:true, favorisSalon:true, citations:true,
   reglagesSalon:true,rolesSalon:true,quitterSalon:true,lecturesSalon:true,
 };
@@ -52,6 +52,7 @@ export function creerFournisseurRV(session: Session, client: ClientRest, generer
   return {
     identite:{genre:'rocketvibe',origine:session.baseUrl,compteId:session.userId,instanceId:session.nativeInstanceId ?? null,generation:session.nativeDataEpoch ?? null},
     decrireErreur:decrireErreurFournisseur,
+    rechercherMessages:async(rid,texte)=>(await chat.searchMessages(rid,texte)).map(m=>localMessage(m,session.userId)),
     native:{chat,store}, ordreMessages:'sequence', get capacites() { return capacitesEffectives(chat.capabilities); }, listener,
     traducteur:{
       traduireEvenement:() => ({sorte:'silence'}),

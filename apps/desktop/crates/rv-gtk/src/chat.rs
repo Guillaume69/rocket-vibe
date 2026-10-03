@@ -496,6 +496,8 @@ impl ChatPage {
             let Some(this) = weak.upgrade() else { return };
             if let (Some(session), Some(rid)) = (this.session(), this.current_rid()) {
                 crate::details::search(&this.split, session, &rid);
+            } else if let (Some(session), Some(rid)) = (this.native_session(), this.current_rid()) {
+                crate::details::search_native(&this.split, session, &rid);
             }
         });
         let weak = Rc::downgrade(&this);

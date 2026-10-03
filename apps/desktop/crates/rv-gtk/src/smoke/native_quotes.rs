@@ -374,8 +374,86 @@ async fn run(window: Rc<AppWindow>) {
             == "GTK thread draft survives root deletion",
         (),
     );
+    search_controls(&window, &session, &rid).await;
     live_controls(&window, &session).await;
     std::process::exit(i32::from(super::FAILED.load(std::sync::atomic::Ordering::SeqCst)));
+}
+
+fn search_entry(root: &gtk::Widget) -> Option<gtk::SearchEntry> {
+    if let Ok(entry) = root.clone().downcast::<gtk::SearchEntry>() {
+        return Some(entry);
+    }
+    let mut child = root.first_child();
+    while let Some(widget) = child {
+        if let Some(entry) = search_entry(&widget) {
+            return Some(entry);
+        }
+        child = widget.next_sibling();
+    }
+    None
+}
+async fn search_controls(window: &Rc<AppWindow>, session: &std::sync::Arc<rv_core::native::NativeSession>, rid: &str) {
+    let membership = session.store.read_state(rid).unwrap().unwrap().membership_version;
+    let id = session.send_from_membership(rid, "GTK native search needle", membership.as_deref()).unwrap();
+    for _ in 0..100 {
+        if session.store.messages(rid, 100).unwrap().iter().any(|m| m.id == id && m.position.is_some()) {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    let dialog = crate::details::search_native(window.chat.widget(), session.clone(), rid);
+    let entry = search_entry(dialog.upcast_ref()).unwrap();
+    entry.set_text("needle");
+    for _ in 0..100 {
+        if contains(dialog.upcast_ref(), "GTK native search needle") {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    check(
+        "native search uses existing GTK search dialog",
+        contains(dialog.upcast_ref(), "GTK native search needle"),
+        (),
+    );
+    entry.set_text("missingnativeword");
+    for _ in 0..100 {
+        if !contains(dialog.upcast_ref(), "GTK native search needle") {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    check(
+        "native GTK search clears previous query results",
+        !contains(dialog.upcast_ref(), "GTK native search needle"),
+        (),
+    );
+    entry.set_text("needle");
+    for _ in 0..100 {
+        if contains(dialog.upcast_ref(), "GTK native search needle") {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    session.suspend();
+    for _ in 0..30 {
+        if !contains(dialog.upcast_ref(), "GTK native search needle") {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    check(
+        "native GTK search forgets results on suspension",
+        !contains(dialog.upcast_ref(), "GTK native search needle"),
+        (),
+    );
+    adw::prelude::AdwDialogExt::close(&dialog);
+    session.reconnect();
+    for _ in 0..100 {
+        if session.status().connection == rv_core::session::Connection::Online {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
 }
 
 async fn live_controls(window: &Rc<AppWindow>, session: &std::sync::Arc<rv_core::native::NativeSession>) {

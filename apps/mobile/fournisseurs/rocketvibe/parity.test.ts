@@ -20,6 +20,9 @@ test('a server flag alone cannot expose a feature absent from the installed app'
   const announced = {...fixture.discovery.capabilities,typing:true,uploads:true,search:true};
   assert.equal(capacitesEffectives(announced).fichiers,false);
   assert.equal(capacitesEffectives(announced).typing,true);
+  assert.equal(capacitesEffectives(announced).recherche,true);
+  assert.equal(capacitesEffectives(announced,{...CAPACITES_ROCKETVIBE,recherche:false}).recherche,false);
+  assert.equal(capacitesEffectives({...announced,search:false}).recherche,false);
   assert.equal(capacitesEffectives(announced,{...CAPACITES_ROCKETVIBE,typing:false}).typing,false);
   assert.equal(capacitesEffectives(announced,CAPACITES_ROCKETCHAT).typing,true);
   assert.equal(capacitesEffectives(null,CAPACITES_ROCKETCHAT).typing,false);

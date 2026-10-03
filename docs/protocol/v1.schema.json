@@ -3285,6 +3285,55 @@
       ],
       "type": "string"
     },
+    "SearchMessages": {
+      "additionalProperties": false,
+      "properties": {
+        "before": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "q": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "q"
+      ],
+      "type": "object"
+    },
+    "SearchPage": {
+      "properties": {
+        "has_more": {
+          "type": "boolean"
+        },
+        "membership_version": {
+          "type": "string"
+        },
+        "messages": {
+          "items": {
+            "$ref": "#/$defs/Message"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "membership_version",
+        "messages",
+        "has_more"
+      ],
+      "type": "object"
+    },
     "SecondFactor": {
       "enum": [
         "totp",
@@ -4030,6 +4079,12 @@
     "room": {
       "$ref": "#/$defs/Room"
     },
+    "search_messages": {
+      "$ref": "#/$defs/SearchMessages"
+    },
+    "search_page": {
+      "$ref": "#/$defs/SearchPage"
+    },
     "send_message": {
       "$ref": "#/$defs/SendMessage"
     },
@@ -4059,6 +4114,8 @@
     }
   },
   "required": [
+    "search_messages",
+    "search_page",
     "live_frame",
     "set_presence",
     "set_typing",

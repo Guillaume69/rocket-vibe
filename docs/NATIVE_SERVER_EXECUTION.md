@@ -319,6 +319,25 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P19 / J4, coffre privé transactionnel (3 octobre 2026) : crate Rust isolée
+  [`rv-crypto`](../crates/rv-crypto/README.md), clé / nonce OS, XChaCha20Poly1305,
+  portée authentifiée et fournisseur OpenMLS / enregistrements privés dans un
+  même commit SQLite. Un refus détruit le fournisseur temporaire ; une réception
+  altérée ne consomme donc pas l'état durable. Checkpoint extérieur protégé
+  exigé, blocage jusqu'à sauvegarde du marqueur et reprise du seul successeur
+  authentifié après crash entre SQLite / trousseau. Tête ancienne restaurée,
+  portée changée, writer périmé, échec SQL et état trop grand sont refusés.
+  Six tests Linux passent : échange MLS après vraie réouverture disque, arrêt
+  forcé avant puis après commit, AEAD / portée / limites / permissions / liens.
+  Formatage, Clippy sans avertissement, syntaxe CI et lock racine inchangé passent ;
+  ces tests rejoignent le check serveur. Le prototype précédent `f34e91e` est
+  confirmé par les quatre jobs verts du workflow `37135884643`.
+  Trousseaux réels / verrou de checkpoint, initialisation interrompue, purge,
+  destruction des anciennes clés de stockage, identités / livraison / archive et
+  pont mobile restent ouverts. Aucun client ne dépend encore du coffre et
+  aucune forward secrecy du stockage durable n'est annoncée. E2EE reste
+  désactivé ; P19 / J4 ne sont pas terminés. [Spécification](rfcs/0002-e2ee-native.md).
+
 - P18 / P19 / J4, spécification et prototype crypto (3 octobre 2026) :
   [RFC 0002](rfcs/0002-e2ee-native.md) détaille identité / appareils, livraison
   ordonnée, retraits, persistance, archive récupérable et compatibilité RC.

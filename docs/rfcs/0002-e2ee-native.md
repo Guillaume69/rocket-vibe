@@ -3,7 +3,7 @@
 | Métadonnée | Valeur |
 |---|---|
 | Date | 3 octobre 2026 |
-| Statut | Spécification de travail J4 ; prototype MLS, aucune capacité activée |
+| Statut | Spécification de travail J4 ; prototype MLS et stockage privé isolé, aucune capacité activée |
 | Référence | RFC 0001 §13, P18 / P19 |
 | Clients | Fournisseurs des apps mobile, GTK et SwiftUI actuelles |
 
@@ -108,6 +108,50 @@ trousseau / Keystore. WAL, sauvegardes et fichiers temporaires doivent suivre la
 même politique. OpenMLS fait confiance à son stockage ; une simple table SQLite
 ne satisfait pas cette exigence. [Contrat de persistance OpenMLS](https://book.openmls.tech/user_manual/persistence.html).
 
+### Fondation de stockage implémentée
+
+La crate isolée [`rv-crypto`](../../crates/rv-crypto/README.md) implémente une ligne
+SQLite contenant le fournisseur MLS et les enregistrements d'opération, scellés
+ensemble par XChaCha20Poly1305. Clé de 32 octets, nonce aléatoire OS de 24 octets,
+AAD `(rocketvibe-mls-vault-v1, portée, révision)` ; document JSON borné à 16 Mio.
+La portée comprend instance, génération, compte, appareil et incarnation.
+[AEAD RustCrypto 0.10.1](https://docs.rs/chacha20poly1305/0.10.1/chacha20poly1305/).
+
+Le fournisseur est reconstruit pour chaque transaction SQLite immédiate, puis
+détruit. Consommation MLS, ciphertext d'outbox et données privées de réception
+partagent le commit durable ; un refus annule tous les changements. Le parent
+doit être privé ; création exclusive et contrôle des permissions / liens Unix,
+WAL chiffré et `synchronous=FULL` sont appliqués. Les ACL Windows et la durabilité
+réelle après coupure électrique restent à qualifier.
+
+Un checkpoint public `(révision, digest SHA-256 de l'AAD / nonce / ciphertext)`
+est stocké avec la clé dans le trousseau, hors de la base. Chaque nouveau
+checkpoint bloque lectures / transactions suivantes tant que l'adaptateur n'a
+pas confirmé son écriture protégée. Aucun résultat ne peut être publié avant
+cette confirmation. Le verrou OS de l'adaptateur doit couvrir lecture, commit,
+écriture et vérification, y compris en cas d'annulation du demandeur, pour
+empêcher une écriture de trousseau tardive de rétablir un ancien checkpoint.
+
+Si le processus meurt après commit SQLite mais avant l'écriture du checkpoint,
+seul le successeur exactement une révision plus loin peut être repris : son
+document authentifié doit contenir le checkpoint protégé précédent. La reprise
+reste bloquée jusqu'à protection du nouveau marqueur. Tête antérieure, autre
+portée, prédécesseur altéré ou fichier incomplet n'autorisent ni envoi ni
+recréation silencieuse. Initialisation interrompue, purge et adaptateurs de
+trousseau restent ouverts ; les tests utilisent un checkpoint de fixture.
+
+Le coffre durable ne revendique pas encore la forward secrecy du stockage :
+une ancienne copie chiffrée dans le WAL / backup reste déchiffrable avec la clé
+durable compromise. La détection de restauration empêche sa réutilisation,
+sans l'effacer. Rotation / destruction des clés de stockage et politique des
+copies constituent une condition de J4, distincte de l'archive récupérable.
+
+Six tests Linux, dont échange MLS après réouverture disque et deux processus
+tués avant / après commit, vérifient cette fondation. Elle reste hors des apps,
+sans identité certifiée ni livraison réseau ; E2EE demeure désactivé.
+
+### Archive et récupération
+
 MLS n'est pas une archive récupérable : les clés d'application sont consommées.
 L'auteur ne peut pas redéchiffrer son propre envoi à partir du ciphertext seul.
 Un nouveau Welcome ne rend pas automatiquement lisible l'ancien historique.
@@ -150,6 +194,8 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    appareil, retrait et attente d'un commit préparé. Ni API publique ni capacité.
 2. Stockage privé transactionnel : redémarrage disque, crash à chaque frontière,
    réservation d'envoi, état obsolète / restauration et purge de compte.
+   Fondation SQLite chiffrée livrée ; adaptateurs, clés de stockage, purge et
+   initialisation interrompue encore ouverts.
 3. Identités, délégations et récupération : substitution, changement de racine,
    certification d'appareil, vérification et révocation testées.
 4. Livraison PostgreSQL : reçus, commits concurrents, Welcome atomique,

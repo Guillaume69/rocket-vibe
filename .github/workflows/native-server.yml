@@ -232,6 +232,11 @@ jobs:
         run: |
           cargo clippy --locked -p rv-native --all-targets -- -D warnings
           cargo test --locked -p rv-native
+      - name: Encrypted MLS storage and real process crashes on Windows
+        run: |
+          cargo fmt --manifest-path ../../crates/rv-crypto/Cargo.toml -- --check
+          cargo clippy --locked --manifest-path ../../crates/rv-crypto/Cargo.toml --target-dir target --all-targets -- -D warnings
+          cargo test --locked --manifest-path ../../crates/rv-crypto/Cargo.toml --target-dir target
 
   native-swift-models:
     runs-on: ubuntu-24.04

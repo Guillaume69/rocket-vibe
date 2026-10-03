@@ -373,6 +373,9 @@ pub struct QuoteExcerpt {
     pub revision: String,
     /// Reader's current membership lifetime in the source room.
     pub membership_version: String,
+    /// Files of the current source, readable only through its original room.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<parity::FileDescriptor>,
     /// Current source references, also present at the rendering depth limit.
     /// Caches keep these references separately from descendants' private text.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

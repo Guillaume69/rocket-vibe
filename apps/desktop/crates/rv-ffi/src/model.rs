@@ -243,6 +243,23 @@ pub struct FileItem {
     pub description: Option<String>,
 }
 
+impl From<content::FileAttachment> for FileItem {
+    fn from(f: content::FileAttachment) -> Self {
+        Self {
+            kind: match f.kind {
+                FileKind::Audio => FileType::Audio,
+                FileKind::Video => FileType::Video,
+                FileKind::Other => FileType::Other,
+            },
+            url: f.url,
+            title: f.title,
+            size: f.size.map(content::human_size),
+            mime: f.mime,
+            description: f.description,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct Quote {
     pub unavailable: bool,
@@ -250,6 +267,7 @@ pub struct Quote {
     pub author: Option<String>,
     pub body: Vec<BodyBlock>,
     pub images: Vec<ImageItem>,
+    pub files: Vec<FileItem>,
     /// What the quoted message quoted in turn.
     pub quotes: Vec<Quote>,
 }
@@ -324,6 +342,7 @@ pub fn quote(q: content::Quote, me: &str) -> Quote {
         author: q.author,
         body: markup::blocks(markdown::render(q.md.as_deref(), Some(&q.text), &ctx)),
         images: q.images.into_iter().map(ImageItem::from).collect(),
+        files: q.files.into_iter().map(FileItem::from).collect(),
         quotes: q.quotes.into_iter().map(|inner| quote(inner, me)).collect(),
     }
 }
@@ -382,21 +401,7 @@ pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
         text,
         quotes: content::quotes(attachments).into_iter().map(|q| quote(q, me)).collect(),
         images: media::image_attachments(attachments).into_iter().map(ImageItem::from).collect(),
-        files: content::files(attachments)
-            .into_iter()
-            .map(|f| FileItem {
-                kind: match f.kind {
-                    FileKind::Audio => FileType::Audio,
-                    FileKind::Video => FileType::Video,
-                    FileKind::Other => FileType::Other,
-                },
-                url: f.url,
-                title: f.title,
-                size: f.size.map(content::human_size),
-                mime: f.mime,
-                description: f.description,
-            })
-            .collect(),
+        files: content::files(attachments).into_iter().map(FileItem::from).collect(),
         cards,
         reactions: rv_core::actions::reactions(row.reactions.as_deref(), me)
             .into_iter()

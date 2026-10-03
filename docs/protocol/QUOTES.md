@@ -176,6 +176,9 @@ traverser les vrais caches mobile / desktop et les modèles Swift.
 Les commandes durables d'édition conservent maintenant les références ; le
 raccordement de l'envoi depuis les contrôles de réponse existants est livré.
 
-Les fichiers cités et aperçus protégés restent à raccorder avec leur contrôle
-d'accès dans J3. Les essais installés
+Les fichiers cités sont raccordés aux cartes et lecteurs protégés des trois
+clients : [contrat P14](FILES.md#fichiers-cités). Le cache conserve les fichiers
+de chaque source dans sa propre adhésion, même sans message source en historique.
+Un parent ne conserve pas les métadonnées privées de ses descendants.
+Les essais installés
 Android / macOS / Windows restent ouverts. Ces lots ne clôturent pas P07.

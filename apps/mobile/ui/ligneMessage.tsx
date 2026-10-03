@@ -503,6 +503,7 @@ function FichierCite({
 }) {
   const t = useT();
   if (typeof jointe.image_url === 'string') {
+    if(jointe.native_file)return <JointeNative c={c} jointe={jointe} client={client} largeurMax={LARGEUR_IMAGE_CITEE} surAppuiLong={surAppuiLong} citee/>;
     // Bornes égales = largeur FIXE : une vignette, pas la pièce plein cadre.
     return (
       <ImageJointe
@@ -642,6 +643,7 @@ function CarteAppel({ c, callId }: { c: Couleurs; callId: string | null }) {
 }
 
 type PieceJointe = {
+  native_file?: unknown;
   native_unavailable?: boolean;
   title?: string;
   title_link?: string;
@@ -797,7 +799,7 @@ function PiecesJointes({
  * historique et à sa synchronisation, et un \`rc_token\` vaut le compte entier.
  */
 /** Resolve a private local file, then use exactly the existing media components. */
-function JointeNative({c,jointe,client,largeurMax,surAppuiLong}:{c:Couleurs;jointe:PieceJointe;client:ClientRest;largeurMax:number;surAppuiLong:(()=>void)|undefined}){
+function JointeNative({c,jointe,client,largeurMax,surAppuiLong,citee=false}:{c:Couleurs;jointe:PieceJointe;client:ClientRest;largeurMax:number;surAppuiLong:(()=>void)|undefined;citee?:boolean}){
   const source=jointe.title_link!,genre=jointe.image_url?'image':jointe.audio_url?'audio':jointe.video_url?'video':null;
   const url=urlFichierProtege(client,source);
   const [loaded,setLoaded]=useState<{url:string;local:string|null;failed:boolean}|null>(null);
@@ -815,9 +817,10 @@ function JointeNative({c,jointe,client,largeurMax,surAppuiLong}:{c:Couleurs;join
     const stop=abonnerFichierNatif(url,()=>{setLoaded({url,local:null,failed:false});load();});
     return()=>{active=false;stop();};
   },[genre,url,jointe.title,jointe.image_type,jointe.audio_type,jointe.video_type,jointe.size]);
+  if(citee&&failed)return <Text style={[styles.texte,styles.italique,{color:c.attenue}]} numberOfLines={1}>📎 {jointe.title}</Text>;
   if(!genre||failed)return <JointeFichier c={c} client={client} chemin={source} titre={jointe.title??null} taille={jointe.size??null} surAppuiLong={surAppuiLong}/>;
   if(!local)return <ActivityIndicator color={c.accent}/>;
-  if(genre==='image')return <ImageJointe jointe={jointe} client={client} local={local} largeurMin={120} largeurMax={largeurMax} hauteurMin={0} hauteurMax={400} style={styles.imageJointe} surAppuiLong={surAppuiLong}/>;
+  if(genre==='image')return <ImageJointe jointe={jointe} client={client} local={local} largeurMin={citee?LARGEUR_IMAGE_CITEE:120} largeurMax={largeurMax} hauteurMin={citee?72:0} hauteurMax={citee?200:400} style={citee?styles.imageCitee:styles.imageJointe} surAppuiLong={surAppuiLong}/>;
   if(genre==='audio')return <LecteurAudio c={c} url={local} titre={jointe.title??null} surAppuiLong={surAppuiLong}/>;
   return <LecteurVideo c={c} url={local} titre={jointe.title??null} surAppuiLong={surAppuiLong}/>;
 }

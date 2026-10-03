@@ -626,8 +626,11 @@ fn message_from_provider(
     } else {
         markdown::render(row.md.as_deref(), row.text.as_deref(), &markdown::Context { me: &me })
     };
+    let quote_provider = session
+        .map(|s| media::Provider::RocketChat(s.clone()))
+        .or_else(|| native.map(|s| media::Provider::RocketVibe(s.clone())));
     for q in content::quotes(row.attachments.as_deref()) {
-        column.append(&cards::quote(session, &q, &me));
+        column.append(&cards::quote(quote_provider.as_ref(), &q, &me));
     }
     let state: &[&str] = match (pending, failed) {
         (true, _) => &["pending"],

@@ -9,6 +9,10 @@ section here.
 
 ### Fixed
 
+- Native quotes carry source attachments into the existing GTK and SwiftUI
+  cards: protected images and compact document, audio and video summaries.
+  Source deletion or membership loss removes their previews and read access.
+
 - Native files use the existing GTK and SwiftUI attachment controls, upload
   progress, retry and discard actions. Private copies and stable operation IDs
   survive restart; images, audio, video and documents use the existing readers.

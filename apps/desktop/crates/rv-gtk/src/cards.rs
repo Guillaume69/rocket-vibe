@@ -12,7 +12,7 @@ use rv_core::session::Session;
 use sha2::{Digest, Sha256};
 
 use crate::i18n::{t, tf};
-use crate::rows::{OnRowEvent, RowEvent, image_widget};
+use crate::rows::{OnRowEvent, RowEvent, image_provider};
 use crate::{markdown_view, media, on_tokio, widgets};
 
 fn label(text: &str, classes: &[&str]) -> gtk::Label {
@@ -47,7 +47,7 @@ fn on_click(widget: &impl IsA<gtk::Widget>, f: impl Fn(&gtk::Widget) + 'static) 
 }
 
 /// The quoted message: author, words, images, and the message it quoted in turn.
-pub fn quote(session: Option<&Arc<Session>>, q: &Quote, me: &str) -> gtk::Widget {
+pub fn quote(provider: Option<&media::Provider>, q: &Quote, me: &str) -> gtk::Widget {
     let card =
         gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(3).css_classes(["quote-card"]).build();
     if q.unavailable {
@@ -58,16 +58,24 @@ pub fn quote(session: Option<&Arc<Session>>, q: &Quote, me: &str) -> gtk::Widget
         card.append(&label(author, &["quote-author"]));
     }
     for nested in &q.quotes {
-        card.append(&quote(session, nested, me));
+        card.append(&quote(provider, nested, me));
     }
     if !q.text.trim().is_empty() {
         let blocks = markdown::render(q.md.as_deref(), Some(&q.text), &markdown::Context { me });
         card.append(&markdown_view::view(&blocks, &["quote-text"]));
     }
-    if let Some(session) = session {
+    if let Some(provider) = provider {
         for image in &q.images {
-            card.append(&image_widget(session, image));
+            card.append(&image_provider(provider.clone(), image));
         }
+    }
+    for file in &q.files {
+        let glyph = match file.kind {
+            FileKind::Audio => "🎵",
+            FileKind::Video => "🎬",
+            FileKind::Other => "📎",
+        };
+        card.append(&label(&format!("{glyph} {}", file.title), &["quote-text"]));
     }
     card.upcast()
 }

@@ -99,8 +99,11 @@ export class NativeStore {
   fileAccess(id:string):Promise<{file:import('./protocol.generated.ts').FileDescriptor;membership:string}|null>{
     return this.queue(async()=>{
       if(!await this.sameGeneration())return null;
+      const quoted=await this.quotes.fileAccess(id);
+      if(quoted)return quoted;
       const row=await this.db.getFirstAsync<{rid:string;file:string}>(`SELECT m.rid,json_extract(j.value,'$.native_file') AS file
-        FROM messages m JOIN json_each(m.pieces_jointes) j WHERE json_extract(j.value,'$.fileId')=? LIMIT 1`,[id]);
+        FROM messages m JOIN json_each(m.pieces_jointes) j LEFT JOIN native_quote_sources q ON q.id=m.id
+        WHERE json_extract(j.value,'$.fileId')=? AND (q.id IS NULL OR q.payload IS NOT NULL) LIMIT 1`,[id]);
       if(!row){
         const view=this.fileViews.get(id);
         return view&&view.stamp===`${this.projection}:${this.searchRevision}`&&(await this.readStateIn(view.file.room_id))?.membership_version===view.membership?{file:view.file,membership:view.membership}:null;

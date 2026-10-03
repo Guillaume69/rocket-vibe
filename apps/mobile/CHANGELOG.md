@@ -9,6 +9,10 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Les citations conservent les fichiers du message source : vignette protégée
+  pour les images, résumé compact pour les documents, vocaux et vidéos.
+  Le retrait du salon source ou la suppression du message retire leur accès.
+
 - Envoi de fichiers avec progression, reprise après redémarrage et abandon
   depuis les contrôles existants. Les images, vocaux, vidéos et documents natifs
   passent par un cache privé vérifié et les lecteurs actuels. Le transfert depuis

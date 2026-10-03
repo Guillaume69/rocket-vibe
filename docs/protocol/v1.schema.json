@@ -2662,6 +2662,13 @@
         "created_at": {
           "type": "string"
         },
+        "files": {
+          "description": "Files of the current source, readable only through its original room.",
+          "items": {
+            "$ref": "#/$defs/FileDescriptor"
+          },
+          "type": "array"
+        },
         "membership_version": {
           "description": "Reader's current membership lifetime in the source room.",
           "type": "string"

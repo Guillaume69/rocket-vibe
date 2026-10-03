@@ -113,6 +113,7 @@ fn save_source(
         created_at: source.created_at.clone(),
         revision: source.revision.clone(),
         membership_version: source.membership_version.clone(),
+        files: source.files.clone(),
         references: source.references.clone(),
         quotes: vec![],
     });
@@ -146,6 +147,8 @@ fn source_view(tx: &Transaction, quote: &MessageQuote, depth: usize) -> rusqlite
         return Err(rusqlite::Error::InvalidQuery);
     }
     if let Some(excerpt) = &quote.excerpt {
+        super::super::files::validate_descriptors(&excerpt.files, &reference.room_id)
+            .map_err(|_| rusqlite::Error::InvalidQuery)?;
         let mut ids = BTreeSet::new();
         if excerpt.references.len() > 8
             || excerpt.quotes.len() > 8
@@ -251,6 +254,7 @@ pub(super) fn project(tx: &Transaction, message: &Message, public_fresh: bool) -
             created_at: message.created_at.clone(),
             revision: message.revision.clone(),
             membership_version: grant.clone(),
+            files: message.files.clone(),
             references: message.quotes.iter().map(|q| q.reference.clone()).collect(),
             quotes: vec![],
         });
@@ -289,17 +293,21 @@ fn quote_card(conn: &Connection, reference: QuoteReference, depth: usize, path: 
     let mut card =
         value!({"message_link":"","native_reference":reference,"native_unavailable":excerpt.is_none(),"text":""});
     if let Some(excerpt) = excerpt {
+        let mut children =
+            super::super::files::attachments(&excerpt.files).map_err(|_| rusqlite::Error::InvalidQuery)?;
         if depth < 2 {
             let mut next = path.to_vec();
             next.push(&reference.message_id);
-            let children = excerpt
-                .references
-                .into_iter()
-                .map(|r| quote_card(conn, r, depth + 1, &next))
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            if !children.is_empty() {
-                card["attachments"] = value!(children);
-            }
+            children.extend(
+                excerpt
+                    .references
+                    .into_iter()
+                    .map(|r| quote_card(conn, r, depth + 1, &next))
+                    .collect::<rusqlite::Result<Vec<_>>>()?,
+            );
+        }
+        if !children.is_empty() {
+            card["attachments"] = value!(children);
         }
         card["author_name"] = Value::String(excerpt.author.username);
         card["md"] = value!(super::super::markdown::tree(&rv_protocol::markdown::parse(&excerpt.text)));

@@ -71,6 +71,33 @@ async fn run(window: Rc<AppWindow>) {
         super::find_by_class(window.chat.widget().upcast_ref(), "file-card").is_some(),
         (),
     );
+    let selection = session.store.quote_selection(&rid, &row.id).unwrap();
+    let membership = session.store.read_state(&rid).unwrap().unwrap().membership_version.unwrap();
+    let quoted = session.send_quotes_from_membership(&rid, "GTK quoted file", Some(&membership), &[selection]).unwrap();
+    for _ in 0..300 {
+        if session.store.messages(&rid, 50).unwrap().iter().any(|m| m.id == quoted && m.status.is_none()) {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(100)).await;
+    }
+    let quoted_row = session.store.messages(&rid, 50).unwrap().into_iter().find(|m| m.id == quoted).unwrap();
+    let quotes = rv_core::content::quotes(quoted_row.attachments.as_deref());
+    check(
+        "native GTK quoted file metadata",
+        quotes.len() == 1 && quotes[0].files.len() == 1 && quotes[0].files[0].title == "gtk-file.txt",
+        (),
+    );
+    for _ in 0..30 {
+        if super::find_by_class(window.chat.widget().upcast_ref(), "quote-card").is_some() {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(100)).await;
+    }
+    check(
+        "existing GTK quote card rendered",
+        super::find_by_class(window.chat.widget().upcast_ref(), "quote-card").is_some(),
+        (),
+    );
     let _ = std::fs::remove_file(path);
     window.window.application().unwrap().quit();
 }

@@ -17,6 +17,7 @@ pub struct Quote {
     /// The quoted message's parsed markdown, serialized.
     pub md: Option<String>,
     pub images: Vec<ImageAttachment>,
+    pub files: Vec<FileAttachment>,
     pub quotes: Vec<Quote>,
 }
 
@@ -123,6 +124,7 @@ fn quote_of(a: &Value, depth: usize) -> Quote {
         },
         md: if unavailable { None } else { a.get("md").filter(|v| v.is_array()).map(Value::to_string) },
         images: if unavailable { Vec::new() } else { image_attachments(inner.as_deref()) },
+        files: if unavailable { Vec::new() } else { files(inner.as_deref()) },
         quotes: if !unavailable && depth < QUOTE_DEPTH { quotes_at(inner.as_deref(), depth + 1) } else { Vec::new() },
     }
 }

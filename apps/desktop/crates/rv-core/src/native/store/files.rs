@@ -106,7 +106,12 @@ impl NativeStore {
         if !self.same(&conn)? {
             return Ok(None);
         }
-        let raw:Option<String>=conn.query_row("SELECT f.value FROM native_messages m JOIN native_rooms r ON r.id=m.rid,json_each(m.files) f WHERE NOT m.deleted AND json_extract(f.value,'$.id')=?1 LIMIT 1",[id],|r|r.get(0)).optional()?;
+        let quoted: Option<String> = conn.query_row(
+            "SELECT f.value FROM native_quote_sources q JOIN native_read_states s ON s.rid=q.rid,json_each(q.payload,'$.files') f WHERE q.membership=json_extract(s.payload,'$.membership_version') AND json_extract(f.value,'$.id')=?1 LIMIT 1", [id], |r| r.get(0)).optional()?;
+        let raw = match quoted {
+            Some(raw) => Some(raw),
+            None => conn.query_row("SELECT f.value FROM native_messages m JOIN native_rooms r ON r.id=m.rid,json_each(m.files) f LEFT JOIN native_quote_sources q ON q.id=m.id WHERE NOT m.deleted AND (q.id IS NULL OR q.payload IS NOT NULL) AND json_extract(f.value,'$.id')=?1 LIMIT 1",[id],|r|r.get(0)).optional()?,
+        };
         raw.map(|s| serde_json::from_str(&s).map_err(|_| rusqlite::Error::InvalidQuery)).transpose()
     }
 }

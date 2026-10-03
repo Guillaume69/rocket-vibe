@@ -22,6 +22,7 @@ struct Resolution {
     source_text: Option<String>,
     source_created_at: Option<chrono::DateTime<chrono::Utc>>,
     source_revision: Option<i64>,
+    source_files: Option<sqlx::types::Json<Vec<rv_protocol::parity::FileDescriptor>>>,
     source_references: Option<sqlx::types::Json<Vec<QuoteReference>>>,
 }
 impl Resolution {
@@ -36,6 +37,11 @@ impl Resolution {
             created_at: self.source_created_at?.to_rfc3339(),
             revision: self.source_revision?.to_string(),
             membership_version: self.membership_version.clone()?,
+            files: self
+                .source_files
+                .as_ref()
+                .map(|f| f.0.clone())
+                .unwrap_or_default(),
             references: self
                 .source_references
                 .as_ref()
@@ -152,7 +158,7 @@ pub(crate) async fn personalize(
          SELECT child->>'message_id',child->>'room_id' FROM roots CROSS JOIN LATERAL jsonb_array_elements(quote_references) child) \
          SELECT q.message_id,q.room_id,i.position AS view_position,s.membership_version,\
          m.author_id AS source_author,u.username AS source_username,u.display_name AS source_display_name,\
-         left(m.text,1024) AS source_text,m.created_at AS source_created_at,m.revision AS source_revision,m.quote_references AS source_references \
+         left(m.text,1024) AS source_text,m.created_at AS source_created_at,m.revision AS source_revision,m.files AS source_files,m.quote_references AS source_references \
          FROM requested q CROSS JOIN instance i \
          LEFT JOIN room_read_states s ON s.room_id=q.room_id AND s.user_id=$3 \
          LEFT JOIN messages m ON m.id=q.message_id AND m.room_id=q.room_id AND NOT m.deleted AND m.system IS NULL AND s.membership_version IS NOT NULL \

@@ -31,6 +31,13 @@ final class NativeFilesTests:XCTestCase {
         let again=await media.load(path);XCTAssertEqual(again?.bytes,Data(content.utf8))
         let privateCopy=try await media.localCopy(path,name:"swift-file.txt")
         XCTAssertTrue(privateCopy.path.contains(".native-files/"));XCTAssertEqual(try String(contentsOf:privateCopy,encoding:.utf8),content)
+        await room.quote(message)
+        XCTAssertEqual(room.pendingQuote?.files.first?.title,"swift-file.txt")
+        room.draft="Swift quoted file";await room.send()
+        try await until{room.messages.contains{$0.text=="Swift quoted file" && !$0.quotes.isEmpty}}
+        let quoted=try XCTUnwrap(room.messages.first{$0.text=="Swift quoted file"})
+        XCTAssertTrue(quoted.files.isEmpty);XCTAssertEqual(quoted.quotes[0].files.count,1)
+        XCTAssertEqual(quoted.quotes[0].files[0].url,path)
         try await until{room.uploads.isEmpty}
         native.suspend();try await until{app.connection != .online}
         let abandoned=await room.attach(path:source,name:"cancelled.txt",mime:"text/plain",caption:nil,temporary:false)

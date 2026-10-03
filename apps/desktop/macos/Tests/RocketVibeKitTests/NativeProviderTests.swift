@@ -234,7 +234,7 @@ final class NativeProviderTests: XCTestCase {
         let created = try XCTUnwrap(room.messages.first { $0.system == "rv-room-created" })
         XCTAssertTrue(created.body.isEmpty)
         XCTAssertTrue(room.actions(for: created).isEmpty)
-        XCTAssertFalse(room.supportsFiles)
+        XCTAssertEqual(room.supportsFiles,native.supportedFeatures().contains("uploads"))
         XCTAssertTrue(room.supportsRoomInfo)
         let roomInfo = try await room.roomDetails()
         XCTAssertEqual(roomInfo.id, rid)

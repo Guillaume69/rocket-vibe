@@ -15,12 +15,17 @@ export function fileDescriptor(value:unknown,room?:string):FileDescriptor {
 }
 export function nativeAttachments(message:Message):string|null {
   const files=message.files??[];
-  if(files.length>1||files.length&&(message.deleted||message.system))throw new Error('invalid_file');
+  if(files.length&&(message.deleted||message.system))throw new Error('invalid_file');
   if(!files.length)return null;
-  return JSON.stringify(files.map(value=>{
-    const file=fileDescriptor(value,message.room_id),url=`/api/v1/files/${encodeURIComponent(file.id)}`;
+  return JSON.stringify(nativeFileAttachments(files,message.room_id));
+}
+/** Shared projection for message files and membership-scoped quoted sources. */
+export function nativeFileAttachments(files:readonly FileDescriptor[],room:string):Record<string,unknown>[] {
+  if(files.length>1)throw new Error('invalid_file');
+  return files.map(value=>{
+    const file=fileDescriptor(value,room),url=`/api/v1/files/${encodeURIComponent(file.id)}`;
     const genre=/^(image|audio|video)\//.exec(file.media_type)?.[1];
     return {type:'file',fileId:file.id,native_file:file,title:file.filename,title_link:url,size:Number(file.bytes),
       ...(genre?{[`${genre}_url`]:url,[`${genre}_type`]:file.media_type,[`${genre}_size`]:Number(file.bytes)}:{})};
-  }));
+  });
 }

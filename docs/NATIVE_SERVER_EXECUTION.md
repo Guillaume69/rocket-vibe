@@ -319,6 +319,24 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P14 / P07, fichiers cités (3 octobre 2026) : les résolutions autorisées incluent
+  les descripteurs du message source courant, sans créer de lien ni de droit dans
+  le salon destinataire. Les caches conservent les fichiers dans la source liée
+  à son adhésion, sans historique artificiel ni copie privée de descendant dans
+  le parent. Suppression, vue indisponible plus récente, retrait / réadhésion et
+  génération ferment aussi la lecture d'un ancien manifest encore en cache.
+  Les cartes mobile / GTK / SwiftUI existantes reprennent les images protégées
+  et résument documents / vocaux / vidéos, jusque dans le second niveau de
+  citation. Contrat additif généré, Clippy serveur et bureau réussis ; 7 parcours
+  PostgreSQL de citations / fichiers, 34 tests mobiles ciblés, typecheck / lint
+  et 370 tests bureau passent. Le composeur GTK passe 8 contrôles sous Xvfb ;
+  les modèles Swift passent citation / lecture de fichier et le parcours existant
+  connexion / actions / fils / reprise. Deux assertions CI qui attendaient encore
+  les fichiers désactivés ont été corrigées en conservant la vérification de
+  l'intersection des capacités serveur / client. La compilation macOS et les
+  interfaces installées, les codecs et le module mobile restent à qualifier ;
+  P14 n'est pas fermé globalement. Prochain point J3 : catalogue d'emojis custom.
+
 - P14 / J3, raccordement desktop (3 octobre 2026) : composeurs, progression,
   retry / abandon et lecteurs GTK / SwiftUI existants raccordés. Copie privée,
   empreinte et intentions SQLite durables ; reprise après réponses perdues,

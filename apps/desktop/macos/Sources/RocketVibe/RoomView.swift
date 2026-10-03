@@ -689,6 +689,10 @@ struct QuoteCard: View {
                     let size = displaySize(width: image.width, height: image.height, maxWidth: 240, maxHeight: 180)
                     RemoteImage(path: image.source, width: size.width, height: size.height)
                 }
+                ForEach(Array(quote.files.enumerated()), id: \.offset) { _, file in
+                    Text("\(file.kind == .audio ? "🎵" : file.kind == .video ? "🎬" : "📎") \(file.title)")
+                        .font(.vibe(12)).foregroundStyle(Vibe.muted).lineLimit(1)
+                }
                 ForEach(Array(quote.quotes.enumerated()), id: \.offset) { _, inner in
                     AnyView(QuoteCard(quote: inner))
                 }

@@ -171,6 +171,135 @@ fn code(error: rv_client::Error) -> String {
 }
 
 #[sqlx::test]
+async fn quoted_files_keep_the_source_room_authority_and_never_create_destination_grants(
+    pool: PgPool,
+) {
+    let bench = Bench::new(pool).await;
+    let (owner, _, _) = bench.user("owner", false).await;
+    let (reader, reader_id, token) = bench.user("reader", false).await;
+    let source_room = bench.room(&owner).await;
+    let destination = bench.room(&owner).await;
+    owner.add_member(&destination, &reader_id).await.unwrap();
+    let (upload, source) = bench
+        .complete(&owner, &source_room, b"private quoted file")
+        .await;
+    let reply = owner
+        .send(
+            &destination,
+            &SendMessage {
+                operation_id: auth::random_token(),
+                text: "Quote with attachment".into(),
+                quotes: vec![rv_protocol::parity::QuoteReference {
+                    message_id: source.id.clone(),
+                    room_id: source_room.clone(),
+                    revision: source.revision.clone(),
+                }],
+                reply_to: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(reply.files.is_empty());
+    assert_eq!(
+        reply.quotes[0].excerpt.as_ref().unwrap().files,
+        source.files
+    );
+    let read = reader.history(&destination, None).await.unwrap();
+    assert!(
+        read.messages
+            .iter()
+            .find(|m| m.id == reply.id)
+            .unwrap()
+            .quotes[0]
+            .excerpt
+            .is_none()
+    );
+    assert_eq!(
+        bench
+            .raw(&token, &format!("/api/v1/files/{}", upload.id))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+
+    owner.add_member(&source_room, &reader_id).await.unwrap();
+    let read = reader.history(&destination, None).await.unwrap();
+    assert_eq!(
+        read.messages
+            .iter()
+            .find(|m| m.id == reply.id)
+            .unwrap()
+            .quotes[0]
+            .excerpt
+            .as_ref()
+            .unwrap()
+            .files,
+        source.files
+    );
+    assert_eq!(
+        reader
+            .file_response(&upload.id, None)
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap(),
+        "private quoted file"
+    );
+    let removed = reqwest::Client::new()
+        .delete(format!(
+            "{}/api/v1/rooms/{source_room}/members/{reader_id}",
+            bench.base
+        ))
+        .bearer_auth(owner.saved_token().unwrap())
+        .send()
+        .await
+        .unwrap();
+    assert!(removed.status().is_success());
+    let read = reader.history(&destination, None).await.unwrap();
+    assert!(
+        read.messages
+            .iter()
+            .find(|m| m.id == reply.id)
+            .unwrap()
+            .quotes[0]
+            .excerpt
+            .is_none()
+    );
+    assert_eq!(
+        bench
+            .raw(&token, &format!("/api/v1/files/{}", upload.id))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    owner
+        .delete_message(
+            &source.id,
+            &rv_protocol::parity::DeleteMessage {
+                operation_id: auth::random_token(),
+                expected_revision: source.revision,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(
+        owner
+            .history(&destination, None)
+            .await
+            .unwrap()
+            .messages
+            .iter()
+            .find(|m| m.id == reply.id)
+            .unwrap()
+            .quotes[0]
+            .excerpt
+            .is_none()
+    );
+    assert!(owner.file_response(&upload.id, None).await.is_err());
+}
+
+#[sqlx::test]
 async fn file_retry_is_one_atomic_message_with_protected_manifests_and_range_reads(pool: PgPool) {
     let bench = Bench::new(pool).await;
     let (client, _, token) = bench.user("author", false).await;

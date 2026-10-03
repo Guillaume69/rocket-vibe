@@ -4,9 +4,10 @@ import type {Message,MessageQuote,QuoteExcerpt,QuoteReference} from './protocol.
 import {roomIdentifier} from './roomOperations.ts';
 import {readDecimal,readState} from './readStates.ts';
 import {decodeNative} from './validation.ts';
+import {fileDescriptor,nativeFileAttachments} from './fileDescriptors.ts';
 
 type SourceRow={rid:string;membership:string|null;view_position:string;payload:string|null};
-export type NativeQuoteAttachment={message_link:string;native_reference:QuoteReference;native_unavailable:boolean;text:string;author_name?:string;attachments?:NativeQuoteAttachment[]};
+export type NativeQuoteAttachment={message_link:string;native_reference:QuoteReference;native_unavailable:boolean;text:string;author_name?:string;attachments?:(NativeQuoteAttachment|Record<string,unknown>)[]};
 export type NativeQuoteSelection={reference:QuoteReference;instance_id:string;data_epoch:string;membership_version:string};
 function position(value:string):bigint {
   const n=readDecimal(value);
@@ -50,7 +51,7 @@ export class NativeQuoteCache {
       if(next<previous || next===previous && (old.payload===null || excerpt!==null))return;
     }
     // Descendant text belongs only in its own membership-scoped source row.
-    const stored:QuoteExcerpt|null=excerpt?{author:{id:excerpt.author.id,username:excerpt.author.username,display_name:excerpt.author.display_name},text:excerpt.text,created_at:excerpt.created_at,revision:excerpt.revision,membership_version:excerpt.membership_version,references:excerpt.references??[],quotes:[]}:null;
+    const stored:QuoteExcerpt|null=excerpt?{author:{id:excerpt.author.id,username:excerpt.author.username,display_name:excerpt.author.display_name},text:excerpt.text,created_at:excerpt.created_at,revision:excerpt.revision,membership_version:excerpt.membership_version,files:(excerpt.files??[]).map(f=>fileDescriptor(f,rid)),references:excerpt.references??[],quotes:[]}:null;
     await this.db.runAsync('INSERT INTO native_quote_sources(id,rid,membership,view_position,payload) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET membership=excluded.membership,view_position=excluded.view_position,payload=excluded.payload',[id,rid,membership,view,stored?JSON.stringify(stored):null]);
   }
   private async view(quote:MessageQuote,depth=1):Promise<void> {
@@ -62,6 +63,7 @@ export class NativeQuoteCache {
     const excerpt=quote.excerpt;
     if(excerpt && (grant!==excerpt.membership_version || position(excerpt.revision)===0n || position(excerpt.revision)>watermark || !roomIdentifier(excerpt.author.id) || Array.from(excerpt.text).length>1024 || !Number.isFinite(Date.parse(excerpt.created_at))))throw new Error('Invalid native quote excerpt');
     if(excerpt){
+      nativeFileAttachments(excerpt.files??[],r.room_id);
       const refs=excerpt.references??[],children=excerpt.quotes??[],ids=new Set<string>();
       if(refs.length>8 || children.length>8 || depth===2 && children.length)throw new Error('Invalid nested quote bounds');
       for(const ref of refs){
@@ -104,7 +106,7 @@ export class NativeQuoteCache {
     if(!message.deleted)for(const quote of quotes)await this.view(quote);
     const grant=await this.membership(message.room_id);
     if(grant!==null && position(message.revision)>0n){
-      const excerpt:QuoteExcerpt|null=message.deleted||message.system!=null?null:{author:message.author,text:Array.from(message.text).slice(0,1024).join(''),created_at:message.created_at,revision:message.revision,membership_version:grant,references:quotes.map(q=>q.reference),quotes:[]};
+      const excerpt:QuoteExcerpt|null=message.deleted||message.system!=null?null:{author:message.author,text:Array.from(message.text).slice(0,1024).join(''),created_at:message.created_at,revision:message.revision,membership_version:grant,files:message.files??[],references:quotes.map(q=>q.reference),quotes:[]};
       await this.save(message.id,message.room_id,grant,message.revision,excerpt);
     }
     await this.refresh(new Set([message.room_id,...quotes.map(q=>q.reference.room_id)]),message.id);
@@ -119,11 +121,17 @@ export class NativeQuoteCache {
     const source=await this.db.getFirstAsync<SourceRow>('SELECT * FROM native_quote_sources WHERE id=? AND rid=?',[reference.message_id,reference.room_id]),grant=await this.membership(reference.room_id);
     const excerpt=!path.includes(reference.message_id) && grant!==null && source?.membership===grant && source.payload!==null?decodeNative('QuoteExcerpt',JSON.parse(source.payload)):null;
     const card:NativeQuoteAttachment={message_link:'',native_reference:reference,native_unavailable:excerpt===null,text:excerpt?.text??'',...(excerpt?{author_name:excerpt.author.username}:{})};
+    if(excerpt)card.attachments=nativeFileAttachments(excerpt.files??[],reference.room_id);
     if(excerpt && depth<2 && excerpt.references?.length){
-      card.attachments=[];
-      for(const child of excerpt.references)card.attachments.push(await this.card(child,depth+1,[...path,reference.message_id]));
+      for(const child of excerpt.references)card.attachments!.push(await this.card(child,depth+1,[...path,reference.message_id]));
     }
     return card;
+  }
+  async fileAccess(id:string):Promise<{file:import('./protocol.generated.ts').FileDescriptor;membership:string}|null>{
+    const row=await this.db.getFirstAsync<{rid:string;membership:string;file:string}>(`SELECT q.rid,q.membership,f.value AS file
+      FROM native_quote_sources q JOIN native_read_states s ON s.rid=q.rid,json_each(q.payload,'$.files') f
+      WHERE q.membership=json_extract(s.payload,'$.membership_version') AND json_extract(f.value,'$.id')=? LIMIT 1`,[id]);
+    return row?{file:fileDescriptor(JSON.parse(row.file),row.rid),membership:row.membership}:null;
   }
   async refreshOrigin(rid:string):Promise<void> { await this.refresh(new Set([rid])); }
   /** Immutable references for an edit intent; never capture excerpt or access authority. */

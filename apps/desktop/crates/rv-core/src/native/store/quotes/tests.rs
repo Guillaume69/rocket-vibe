@@ -52,6 +52,7 @@ fn initial() -> Snapshot {
             created_at: source.created_at.clone(),
             revision: source.revision.clone(),
             membership_version: "source-grant".into(),
+            files: vec![],
             references: vec![],
             quotes: vec![],
         })),
@@ -75,7 +76,16 @@ fn store() -> NativeStore {
 fn nested_cards_use_each_grant_and_parents_keep_no_private_descendant_copy() {
     let store = NativeStore::open(Path::new(":memory:"), identity("epoch")).unwrap();
     let mut snapshot = initial();
-    let leaf = message("leaf", "leaf-room", "25", "Nested private leaf");
+    let mut leaf = message("leaf", "leaf-room", "25", "Nested private leaf");
+    leaf.files = vec![rv_protocol::parity::FileDescriptor {
+        id: "leaf-file".into(),
+        room_id: leaf.room_id.clone(),
+        bytes: "5".into(),
+        sha256: "a".repeat(64),
+        media_type: "application/pdf".into(),
+        filename: Some("leaf.pdf".into()),
+        encrypted: false,
+    }];
     let reference =
         QuoteReference { room_id: leaf.room_id.clone(), message_id: leaf.id.clone(), revision: leaf.revision.clone() };
     let child = MessageQuote {
@@ -88,6 +98,7 @@ fn nested_cards_use_each_grant_and_parents_keep_no_private_descendant_copy() {
             created_at: leaf.created_at.clone(),
             revision: leaf.revision.clone(),
             membership_version: "leaf-grant".into(),
+            files: leaf.files.clone(),
             references: vec![],
             quotes: vec![],
         })),
@@ -116,8 +127,12 @@ fn nested_cards_use_each_grant_and_parents_keep_no_private_descendant_copy() {
         .query_row("SELECT payload FROM native_quote_sources WHERE id='source'", [], |r| r.get(0))
         .unwrap();
     assert!(!raw.contains(&leaf.text));
+    assert!(!raw.contains("leaf-file"));
+    assert_eq!(cards(&store)[0].quotes[0].files[0].title, "leaf.pdf");
+    assert!(store.file_descriptor("leaf-file").unwrap().is_some());
     store.batch(&batch(vec![Change::RoomRemoved { room_id: "leaf-room".into() }])).unwrap();
     assert!(!cards(&store)[0].unavailable && cards(&store)[0].quotes[0].unavailable);
+    assert!(store.file_descriptor("leaf-file").unwrap().is_none());
     store.ingest(&[stale]).unwrap();
     assert!(cards(&store)[0].quotes[0].unavailable);
     let raw: Vec<String> = store
@@ -145,6 +160,74 @@ fn unavailable(store: &NativeStore) {
 }
 fn batch(changes: Vec<Change>) -> SyncBatch {
     SyncBatch { protocol_version: 1, changes, cursor: "next".into(), has_more: false }
+}
+
+#[test]
+fn quoted_files_need_no_fabricated_history_and_follow_source_authority() {
+    for mime in ["image/png", "audio/ogg", "video/mp4", "application/pdf"] {
+        let store = NativeStore::open(Path::new(":memory:"), identity("epoch")).unwrap();
+        let mut snapshot = initial();
+        let source = snapshot.messages.remove(0);
+        let file = rv_protocol::parity::FileDescriptor {
+            id: "quoted-file".into(),
+            room_id: "origin".into(),
+            bytes: "42".into(),
+            sha256: "a".repeat(64),
+            media_type: mime.into(),
+            filename: Some("Private attachment".into()),
+            encrypted: false,
+        };
+        snapshot.messages[0].quotes[0].excerpt.as_mut().unwrap().files = vec![file.clone()];
+        store.snapshot(&snapshot).unwrap();
+        assert!(store.selected_messages(std::slice::from_ref(&source.id)).unwrap().is_empty());
+        assert_eq!(store.file_descriptor(&file.id).unwrap(), Some(file.clone()));
+        let quotes = cards(&store);
+        if mime == "image/png" {
+            assert_eq!(quotes[0].images[0].source, "rv-file:quoted-file");
+        } else {
+            assert_eq!(quotes[0].files[0].title, "Private attachment");
+        }
+        let mut malformed = snapshot.messages[0].clone();
+        malformed.revision = "21".into();
+        malformed.quotes[0].excerpt.as_mut().unwrap().files[0].room_id = "destination".into();
+        assert!(store.ingest(&[malformed]).is_err());
+        assert_eq!(store.file_descriptor(&file.id).unwrap(), Some(file.clone()));
+        let mut deleted = source;
+        deleted.revision = "30".into();
+        deleted.deleted = true;
+        deleted.text.clear();
+        store.ingest(&[deleted]).unwrap();
+        assert!(cards(&store)[0].unavailable);
+        assert!(store.file_descriptor(&file.id).unwrap().is_none());
+        store.ingest(&snapshot.messages).unwrap();
+        assert!(store.file_descriptor(&file.id).unwrap().is_none());
+    }
+    let store = store();
+    let mut snapshot = initial();
+    let file = rv_protocol::parity::FileDescriptor {
+        id: "grant-file".into(),
+        room_id: "origin".into(),
+        bytes: "10".into(),
+        sha256: "b".repeat(64),
+        media_type: "application/pdf".into(),
+        filename: Some("grant.pdf".into()),
+        encrypted: false,
+    };
+    snapshot.messages[0].files = vec![file.clone()];
+    snapshot.messages[1].quotes[0].excerpt.as_mut().unwrap().files = vec![file.clone()];
+    store.snapshot(&snapshot).unwrap();
+    let mut unavailable = snapshot.messages[1].clone();
+    unavailable.quotes[0].view_position = "30".into();
+    unavailable.quotes[0].excerpt = None;
+    store.ingest(&[unavailable]).unwrap();
+    assert!(store.file_descriptor(&file.id).unwrap().is_none());
+    assert!(!store.selected_messages(&["source".into()]).unwrap().is_empty());
+    store.batch(&batch(vec![Change::RoomRemoved { room_id: "origin".into() }])).unwrap();
+    store.ingest(&[snapshot.messages[1].clone()]).unwrap();
+    assert!(store.file_descriptor(&file.id).unwrap().is_none());
+    store.batch(&batch(vec![Change::RoomUpsert(room("origin", "40", "new-grant"))])).unwrap();
+    store.ingest(&[snapshot.messages[1].clone()]).unwrap();
+    assert!(store.file_descriptor(&file.id).unwrap().is_none());
 }
 
 #[test]

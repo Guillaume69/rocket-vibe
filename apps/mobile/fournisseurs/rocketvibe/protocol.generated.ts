@@ -64,7 +64,7 @@ export type ProfileStamp = { "avatar_file_id"?: string | null; "revision": strin
 export type PublicDeviceKey = { "device_id": string; "fingerprint": string; "format": string; "public_key": string; "revision": string; "user_id": string; };
 export type PublicRoom = { "joined": boolean; "room": Room; };
 export type PublicRoomPage = { "next"?: string | null; "rooms": (PublicRoom)[]; };
-export type QuoteExcerpt = { "author": User; "created_at": string; "membership_version": string; "quotes"?: (MessageQuote)[]; "references"?: (QuoteReference)[]; "revision": string; "text": string; };
+export type QuoteExcerpt = { "author": User; "created_at": string; "files"?: (FileDescriptor)[]; "membership_version": string; "quotes"?: (MessageQuote)[]; "references"?: (QuoteReference)[]; "revision": string; "text": string; };
 export type QuoteReference = { "message_id": string; "revision": string; "room_id": string; };
 export type ReadState = { "favorite": boolean; "favorite_revision"?: string | null; "group_mentions": string; "membership_version"?: string | null; "mentions": string; "reply_position": string; "revision": string; "room_id": string; "root_position": string; "unread_replies": string; "unread_roots": string; };
 export type ReauthenticationContext = { "data_epoch": string; "device_id": string; "instance_id": string; "user_id": string; };
@@ -2787,6 +2787,13 @@ export const nativeSchema = {
         },
         "created_at": {
           "type": "string"
+        },
+        "files": {
+          "description": "Files of the current source, readable only through its original room.",
+          "items": {
+            "$ref": "#/$defs/FileDescriptor"
+          },
+          "type": "array"
         },
         "membership_version": {
           "description": "Reader's current membership lifetime in the source room.",

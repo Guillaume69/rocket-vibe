@@ -154,7 +154,27 @@ confidentialité, tombstones, légende vide et arrêt entre deux trames après r
 Les messages, profils / avatars, contrats et compatibilité du cœur bureau restent
 vérifiés. Les tests SDK TypeScript contrôlent headers, redirections et troncature.
 
-La sortie de P14 exige encore fichiers cités et qualification installée des
+### Fichiers cités
+
+`QuoteExcerpt.files` porte les descripteurs du message source courant. La
+résolution vérifie son salon, son adhésion et son état vivant dans la même vue
+SQL que le texte ; la lease de livraison couvre ce salon. Une citation ne crée
+aucun lien de fichier dans le salon destinataire et ne donne aucun droit de lecture.
+
+Les caches mobile / bureau valident le salon de chaque descripteur et conservent
+les fichiers dans la ligne de source liée à l'adhésion. Un descendant garde sa
+propre ligne ; le parent ne conserve pas ses métadonnées privées. Ils peuvent
+ouvrir un fichier cité sans fabriquer de message source dans l'historique.
+La suppression et une vue indisponible plus récente retirent aussi l'autorité
+d'un ancien manifest encore en cache. Retrait, réadhésion et génération purgent
+ces vues. Les transferts utilisent les mêmes lecteurs protégés que les fichiers
+ordinaires et contrôlent toujours le message source côté serveur.
+
+Les cartes de citation existantes montrent les images protégées et résument
+documents / vocaux / vidéos, sans rejouer un lecteur audio dans la citation.
+Les fichiers restent présents au second et dernier niveau de citation.
+
+La sortie de P14 exige encore la qualification installée des
 trois interfaces, dont les codecs et la compilation du module mobile. J4 complète
 les fichiers chiffrés ; J5 ajoute
 configuration, rétention, sauvegarde / restauration du volume et capacité.

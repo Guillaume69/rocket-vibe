@@ -1,5 +1,5 @@
 /** Native HTTP transport shared by the mobile pilot and integration tests. */
-import type { CreateRoom, Discovery, DirectMessage, Message, MessagePage, NativeTypes, Room, SendMessage, Session, Snapshot, SocketTicket, SyncBatch } from './protocol.generated.ts';
+import type { CreateRoom, Discovery, DirectMessage, Message, MessagePage, NativeTypes, Room, SendMessage, Session, Snapshot, SocketTicket, SyncBatch, StartMeeting, JoinMeeting, Meeting, MeetingJoin } from './protocol.generated.ts';
 import { decodeNative } from './validation.ts';
 import {createHash} from 'crypto';
 import {emojiCatalog} from './customEmojis.ts';
@@ -27,6 +27,18 @@ export class NativeError extends Error {
 }
 
 export class NativeTransport {
+  async startMeeting(room:string,input:StartMeeting):Promise<Meeting> {
+    return this.request('Meeting',`/api/v1/rooms/${encodeURIComponent(room)}/meetings`,input);
+  }
+  async meeting(id:string):Promise<Meeting> {
+    return this.request('Meeting',`/api/v1/meetings/${encodeURIComponent(id)}`);
+  }
+  async joinMeeting(id:string,input:JoinMeeting):Promise<MeetingJoin> {
+    return this.request('MeetingJoin',`/api/v1/meetings/${encodeURIComponent(id)}/join`,input);
+  }
+  async endMeeting(id:string,input:JoinMeeting):Promise<Meeting> {
+    return this.request('Meeting',`/api/v1/meetings/${encodeURIComponent(id)}/end`,input);
+  }
   readonly baseUrl: string;
   private readonly fetcher: typeof fetch;
   private token: string | null = null;

@@ -9,6 +9,10 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Préparation des appels natifs : transport de réunions avec démarrage idempotent,
+  lien partageable sans jeton et entrée autorisée par le serveur. Les activités
+  d'appel sont reconnues ; le raccordement aux boutons et à l'écran existants suit.
+
 - Liens natifs par instance et époque, chemins de proxy conservés et vérification
   du compte enregistré avant une bascule explicite. Les menus existants peuvent
   copier le lien d'un message ; les notifications pointent aussi le message / fil,

@@ -16,6 +16,7 @@ mod live;
 pub mod mail;
 mod mail_admission;
 mod marks;
+pub mod meetings;
 mod mentions;
 mod message_actions;
 pub mod objects;
@@ -47,6 +48,7 @@ pub struct App {
     pub pool: PgPool,
     pub mail: Option<Arc<mail::Sender>>,
     pub push: Option<Arc<push::Sender>>,
+    pub jitsi: Option<Arc<meetings::Jitsi>>,
     pub(crate) objects: Option<objects::LocalObjects>,
     image_slots: Arc<tokio::sync::Semaphore>,
     file_slots: Arc<tokio::sync::Semaphore>,
@@ -100,6 +102,7 @@ impl App {
             pool,
             mail: None,
             push: None,
+            jitsi: None,
             objects: None,
             image_slots: Arc::new(tokio::sync::Semaphore::new(2)),
             file_slots: Arc::new(tokio::sync::Semaphore::new(4)),
@@ -125,6 +128,11 @@ impl App {
 
     pub fn with_push(mut self, push: Option<push::Sender>) -> Self {
         self.push = push.map(Arc::new);
+        self
+    }
+
+    pub fn with_jitsi(mut self, jitsi: Option<meetings::Jitsi>) -> Self {
+        self.jitsi = jitsi.map(Arc::new);
         self
     }
 

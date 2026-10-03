@@ -69,6 +69,66 @@ fn retry_after(response: &reqwest::Response) -> Option<u64> {
 }
 
 impl NativeClient {
+    pub async fn start_meeting(
+        &self,
+        room: &str,
+        input: &rv_protocol::meetings::StartMeeting,
+    ) -> Result<rv_protocol::meetings::Meeting, Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        self.request(
+            Method::POST,
+            &format!("/api/v1/rooms/{room}/meetings"),
+            Some(input),
+            false,
+        )
+        .await
+    }
+    pub async fn meeting(&self, id: &str) -> Result<rv_protocol::meetings::Meeting, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.request(
+            Method::GET,
+            &format!("/api/v1/meetings/{id}"),
+            None::<&()>,
+            false,
+        )
+        .await
+    }
+    pub async fn join_meeting(
+        &self,
+        id: &str,
+        input: &rv_protocol::meetings::JoinMeeting,
+    ) -> Result<rv_protocol::meetings::MeetingJoin, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.request(
+            Method::POST,
+            &format!("/api/v1/meetings/{id}/join"),
+            Some(input),
+            false,
+        )
+        .await
+    }
+    pub async fn end_meeting(
+        &self,
+        id: &str,
+        input: &rv_protocol::meetings::JoinMeeting,
+    ) -> Result<rv_protocol::meetings::Meeting, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.request(
+            Method::POST,
+            &format!("/api/v1/meetings/{id}/end"),
+            Some(input),
+            false,
+        )
+        .await
+    }
     pub fn new(base: &str) -> Result<Self, Error> {
         let parsed = Url::parse(base).map_err(|_| Error::InvalidUrl)?;
         if !matches!(parsed.scheme(), "http" | "https")

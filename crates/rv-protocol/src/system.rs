@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SystemMessage {
+    CallStarted {
+        meeting_id: String,
+    },
     RoomCreated {
         name: String,
     },
@@ -46,6 +49,7 @@ impl SystemMessage {
     /// Presentation identifiers are local adapter vocabulary, not wire events.
     pub fn presentation(&self) -> (&'static str, String) {
         let (kind, param) = match self {
+            Self::CallStarted { .. } => ("videoconf", ""),
             Self::RoomCreated { name } => ("rv-room-created", name.as_str()),
             Self::RoomRenamed { name } => ("r", name.as_str()),
             Self::TopicChanged { topic } => ("room_changed_topic", topic.as_str()),

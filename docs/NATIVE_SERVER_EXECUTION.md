@@ -319,6 +319,20 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P20 / J4, serveur et transports Jitsi (3 octobre 2026) : configuration HTTPS
+  privée opérateur, HS256 limité à une conférence / domaine / audience / application,
+  durée ≤ 120 s ; lien partagé sans jeton. Démarrage lié à l'adhésion / époque,
+  reçus durables et une conférence active par salon ; activité structurée unique.
+  Entrée privée, fin autorisée et bail de remise protègent la réponse contre une
+  fin / révocation concurrente. Les capacités clientes restent désactivées jusqu'au
+  raccordement aux écrans d'appel existants. Quatre tests PostgreSQL / HTTP avec
+  transport mobile et vérificateur Node indépendant passent, ainsi qu'un test de
+  configuration, 17 tests du protocole, 16 régressions du transport TypeScript,
+  typecheck mobile, lint sans avertissement et Clippy des trois crates touchées.
+  Quota de nouvelles opérations, reprise des reçus après maintenance, session
+  révoquée et expiration précise du JWT sont couverts. Vérifications et limites du service
+  réel dans le [contrat](protocol/MEETINGS.md). Ce lot ne ferme pas P20 / J4.
+
 - P21 / J3, réactivation de réponse Linux via portail v2 (3 octobre 2026) :
   sonde du portail / but `im.reply-with-text` et GLib ≥ 2.86 avant sélection,
   payload natif avec actions exportées dès le startup, cible et texte reçus
@@ -336,6 +350,8 @@ sont conservées avec leurs résultats de vérification.
   installé / Plasma, compte privé et notifications OS restent à qualifier.
   Les deux CI du clic persistant `43ec7ea` sont entièrement vertes :
   `37125203094` (quatre jobs) et `37125203112` (macOS).
+  Le workflow du portail v2 `9413bae` est également entièrement vert :
+  `37127332646`, quatre jobs dont le script D-Bus avec sa limite CI de 30 s.
   P21 / J3 ne sont pas déclarés terminés. [Contrat et sources](protocol/PUSH.md).
 
 - P21 / J3, clic hors ligne persistant (3 octobre 2026) : destination minimale

@@ -238,6 +238,29 @@ impl ReadProof {
         Ok(leased_json(bytes, lease))
     }
 
+    pub async fn meeting_json(
+        &self,
+        app: &App,
+        session: &str,
+        meeting: &rv_protocol::meetings::Meeting,
+        token_expiry: Option<&str>,
+        value: &impl Serialize,
+    ) -> Result<Response> {
+        let bytes = Bytes::from(serde_json::to_vec(value).map_err(|_| Error::internal())?);
+        let mut lease = self
+            .lock(app, session, std::slice::from_ref(&meeting.room_id), None)
+            .await?;
+        crate::meetings::lock_delivery(&mut lease, app, meeting, token_expiry).await?;
+        let mut response = leased_json(bytes, lease);
+        response
+            .headers_mut()
+            .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
+        response
+            .headers_mut()
+            .insert("referrer-policy", "no-referrer".parse().unwrap());
+        Ok(response)
+    }
+
     /// Roster and metadata changes use a separate version. Retain a SHARE
     /// lease so none can change after this check until body submission.
     pub async fn versioned_room_json(

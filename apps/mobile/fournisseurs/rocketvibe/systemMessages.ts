@@ -3,6 +3,7 @@ import type { SystemMessage } from './protocol.generated.ts';
 
 export function nativeSystemMessage(activity: SystemMessage): {type:string;param:string} {
   switch(activity.kind) {
+    case 'call_started':return {type:'videoconf',param:''};
     case 'room_created':return {type:'rv-room-created',param:activity.name};
     case 'room_renamed':return {type:'r',param:activity.name};
     case 'topic_changed':return {type:'room_changed_topic',param:activity.topic};

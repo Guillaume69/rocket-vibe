@@ -26,6 +26,10 @@ use crate::{
 
 pub fn router(app: App) -> Router {
     Router::new()
+        .route("/api/v1/rooms/{room}/meetings", post(start_meeting))
+        .route("/api/v1/meetings/{id}", get(meeting_info))
+        .route("/api/v1/meetings/{id}/join", post(join_meeting))
+        .route("/api/v1/meetings/{id}/end", post(end_meeting))
         .route(
             "/api/v1/me/push",
             put(register_push).delete(unregister_push),
@@ -306,6 +310,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             link_previews: app.objects.is_some(),
             structured_cards: true,
             push: app.push.is_some(),
+            calls: app.jitsi.is_some(),
             session_rotation: true,
             device_sessions: true,
             account_invitations: true,
@@ -321,6 +326,48 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             ..Default::default()
         },
     }))
+}
+
+async fn start_meeting(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+    input: Input<rv_protocol::meetings::StartMeeting>,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::Room(&room)).await?;
+    let value = crate::meetings::start(&app, &actor, &room, body(input)?).await?;
+    proof.meeting_json(&app, &hash, &value, None, &value).await
+}
+async fn meeting_info(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::All).await?;
+    let value = crate::meetings::info(&app, &actor, &id).await?;
+    proof.meeting_json(&app, &hash, &value, None, &value).await
+}
+async fn join_meeting(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    input: Input<rv_protocol::meetings::JoinMeeting>,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::All).await?;
+    let value = crate::meetings::join(&app, &actor, &id, body(input)?).await?;
+    proof
+        .meeting_json(&app, &hash, &value.meeting, Some(&value.expires_at), &value)
+        .await
+}
+async fn end_meeting(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    input: Input<rv_protocol::meetings::JoinMeeting>,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::All).await?;
+    let value = crate::meetings::end(&app, &actor, &id, body(input)?).await?;
+    proof.meeting_json(&app, &hash, &value, None, &value).await
 }
 
 async fn register_push(

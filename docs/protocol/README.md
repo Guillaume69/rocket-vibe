@@ -28,6 +28,10 @@ reste un lot distinct avant l'annonce de la capacité.
 
 ## Transport et identité
 
+Les [réunions Jitsi natives](MEETINGS.md) disposent d'un serveur et de transports
+avec reçus de démarrage, contrôle d'adhésion et JWT courts. Le raccordement des
+écrans d'appel existants et la qualification d'un service Jitsi restent ouverts.
+
 Le [contrat temporaire de présence et saisie](LIVE.md) définit les deux routes
 PUT, `GET /api/v1/live` et les photos WebSocket négociées avec `live=true`.
 Ces photos ne modifient ni le journal ni le curseur de reprise.

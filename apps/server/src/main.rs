@@ -14,6 +14,9 @@ struct Args {
     /// Firebase HTTP v1 service-account JSON, kept outside the repository.
     #[arg(long, env = "RV_FCM_CONFIG_FILE", hide_env_values = true)]
     fcm_config_file: Option<std::path::PathBuf>,
+    /// Private operator configuration shared with the Jitsi token verifier.
+    #[arg(long, env = "RV_JITSI_CONFIG_FILE", hide_env_values = true)]
+    jitsi_config_file: Option<std::path::PathBuf>,
     /// Durable volume; include it with PostgreSQL in backups.
     #[arg(long, env = "RV_OBJECTS_DIR", default_value = "data/objects")]
     objects_dir: std::path::PathBuf,
@@ -214,6 +217,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             args.fcm_config_file
                 .as_deref()
                 .map(rv_server::push::Sender::from_file)
+                .transpose()?,
+        )
+        .with_jitsi(
+            args.jitsi_config_file
+                .as_deref()
+                .map(rv_server::meetings::Jitsi::from_file)
                 .transpose()?,
         );
     match args.command {

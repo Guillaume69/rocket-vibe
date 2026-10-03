@@ -18,6 +18,8 @@ section here.
   are drawn without the GPU path that failed there. `RV_SOFTWARE_VIDEO=1` does the same on
   any machine.
 - Starting a YouTube, Dailymotion or Vimeo video no longer flashes white in its card.
+- A YouTube, Dailymotion or Vimeo video stops once its message leaves the screen, as when
+  changing rooms: it no longer plays on unseen, nor stacks a second one on coming back.
 
 ## [0.6.1] - 2026-10-03
 

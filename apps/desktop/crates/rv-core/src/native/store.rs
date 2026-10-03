@@ -1,5 +1,6 @@
 //! Fallible transactions: a failed projection never acknowledges its cursor or outbox echo.
 mod membership;
+mod profiles;
 mod quotes;
 mod read_intents;
 mod read_states;
@@ -7,6 +8,7 @@ mod room_access;
 mod room_operations;
 mod threads;
 use super::Identity;
+pub use profiles::{AvatarUpload, ProfileOperation, SavedProfileOperation};
 pub use quotes::QuoteSelection;
 pub use read_intents::{PendingRead, SavedFavorite};
 pub use room_access::RoomAccess;
@@ -152,6 +154,7 @@ impl NativeStore {
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_read_intents(rid TEXT PRIMARY KEY,membership TEXT NOT NULL,root_position TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS native_favorite_intents(id TEXT NOT NULL UNIQUE,rid TEXT PRIMARY KEY,membership TEXT NOT NULL,payload TEXT NOT NULL,phase TEXT NOT NULL DEFAULT 'pending' CHECK(phase IN ('pending','confirmed','failed')),receipt_revision TEXT,error TEXT);")?;
         quotes::initialize(&conn)?;
+        profiles::initialize(&conn)?;
         threads::initialize(&conn)?;
         let outbox_columns = conn
             .prepare("PRAGMA table_info(native_outbox)")?
@@ -219,6 +222,8 @@ impl NativeStore {
         self.atomic_projection(true, |tx| {
             for table in [
                 "native_state",
+                "native_users",
+                "native_profile_operations",
                 "native_rooms",
                 "native_messages",
                 "native_outbox",
@@ -550,6 +555,8 @@ impl NativeStore {
         self.atomic_projection(true, |tx| {
             if !self.same(tx)? {
                 for table in [
+                    "native_users",
+                    "native_profile_operations",
                     "native_rooms",
                     "native_messages",
                     "native_outbox",

@@ -100,6 +100,29 @@ pub fn with_photo(tile: gtk::Widget, session: Option<&Arc<Session>>, path: Optio
     }
     tile
 }
+pub fn with_native_photo(
+    tile: gtk::Widget,
+    session: &Arc<rv_core::native::NativeSession>,
+    id: Option<String>,
+) -> gtk::Widget {
+    if let Some(id) = id {
+        let (weak, s) = (tile.downgrade(), session.clone());
+        glib::spawn_future_local(async move {
+            let key = id.clone();
+            let reader = s.clone();
+            let bytes = crate::on_tokio(async move { reader.profile_avatar(&key).await }).await;
+            if s.is_closed() || !s.store.avatar_current(&id).unwrap_or(false) {
+                return;
+            }
+            if let (Some(tile), Ok(bytes)) = (weak.upgrade(), bytes)
+                && let Ok(texture) = gdk::Texture::from_bytes(&glib::Bytes::from_owned(bytes))
+            {
+                widgets::set_photo(&tile, &texture);
+            }
+        });
+    }
+    tile
+}
 
 /// A click on an author's photo or name opens their profile.
 fn opens_profile(widget: &impl IsA<gtk::Widget>, on_event: OnRowEvent, username: &str) {
@@ -433,6 +456,25 @@ pub fn message_widget(
     editing: Option<&gtk::TextBuffer>,
     on_event: OnRowEvent,
 ) -> gtk::Widget {
+    message_from_provider(d, my_id, session, None, editing, on_event)
+}
+pub fn native_message_widget(
+    d: &Display,
+    my_id: &str,
+    session: &Arc<rv_core::native::NativeSession>,
+    editing: Option<&gtk::TextBuffer>,
+    on_event: OnRowEvent,
+) -> gtk::Widget {
+    message_from_provider(d, my_id, None, Some(session), editing, on_event)
+}
+fn message_from_provider(
+    d: &Display,
+    my_id: &str,
+    session: Option<&Arc<Session>>,
+    native: Option<&Arc<rv_core::native::NativeSession>>,
+    editing: Option<&gtk::TextBuffer>,
+    on_event: OnRowEvent,
+) -> gtk::Widget {
     let row = &d.row;
     let outer = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -480,6 +522,12 @@ pub fn message_widget(
     if d.show_header {
         let tile = widgets::tile(&author, &widgets::initial(&author), TileSize::Message, false);
         let tile = with_photo(tile, session, session.filter(|_| !author.is_empty()).map(|s| s.user_avatar(&author)));
+        let tile = if let Some(native) = native {
+            let id = native.store.profile_identity(&row.author_id).ok().flatten().and_then(|p| p.avatar_file_id);
+            with_native_photo(tile, native, id)
+        } else {
+            tile
+        };
         opens_profile(&tile, on_event.clone(), &author);
         line.append(&tile);
     } else {

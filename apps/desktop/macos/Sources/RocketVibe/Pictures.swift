@@ -23,11 +23,13 @@ enum Pictures {
 
     /// `pixels`: the longest side drawn, in pixels; 0 keeps the original size.
     static func load(_ path: String, pixels: Int, media: MediaStore) async -> NSImage? {
+        guard media.current(path) else{return nil}
         if let hit = cached(path, pixels: pixels) { return hit }
         guard let data = await media.load(path), !data.placeholder else { return nil }
         let bytes = data.bytes
         guard let decoded = await Task.detached(priority: .userInitiated, operation: { decode(bytes, pixels: pixels) }).value
         else { return nil }
+        guard media.current(path),!Task.isCancelled else{return nil}
         let image = NSImage(cgImage: decoded, size: NSSize(width: decoded.width / 2, height: decoded.height / 2))
         cache.setObject(image, forKey: key(path, pixels))
         return image

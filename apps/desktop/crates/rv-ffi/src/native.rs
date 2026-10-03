@@ -330,8 +330,14 @@ impl NativeChat {
         let (mut changes, mut events) = (self.session.store.changes(), self.session.events());
         let session = Arc::downgrade(&self.session);
         let task = runtime().spawn(async move {
+            let mut profiles = String::new();
             loop {
                 let Some(s) = session.upgrade() else { return };
+                let version = s.profile_version();
+                if version != profiles {
+                    profiles = version;
+                    listener.on_event(Event::Avatar);
+                }
                 listener.on_event(Event::Connection { state: crate::state(s.status().connection) });
                 listener.on_event(Event::Resync);
                 drop(s);
@@ -408,7 +414,13 @@ impl NativeChat {
     /// Preserve journal sequence order, then apply the existing grouping and Markdown renderer.
     pub fn message_items(&self, room: String, limit: u32) -> Result<Vec<MessageItem>, RvError> {
         let rows = self.session.store.messages(&room, limit.clamp(1, 10_000) as usize).map_err(RvError::local)?;
-        Ok(native_message_items(rows, &room, &self.session.info.user_id, &self.session.info.username, None))
+        Ok(self.with_profile_avatars(native_message_items(
+            rows,
+            &room,
+            &self.session.info.user_id,
+            &self.session.info.username,
+            None,
+        )))
     }
     pub fn thread_message_items(
         &self,
@@ -421,7 +433,13 @@ impl NativeChat {
             return Ok(vec![]);
         }
         let rows = self.session.store.thread_messages(&room, &root).map_err(RvError::local)?;
-        Ok(native_message_items(rows, &room, &self.session.info.user_id, &self.session.info.username, None))
+        Ok(self.with_profile_avatars(native_message_items(
+            rows,
+            &room,
+            &self.session.info.user_id,
+            &self.session.info.username,
+            None,
+        )))
     }
     pub async fn load_thread(&self, room: String, root: String) -> Result<(), RvError> {
         let s = self.session.clone();
@@ -451,13 +469,13 @@ impl NativeChat {
             return Ok(vec![]);
         }
         let rows = self.session.store.messages(&room, limit.clamp(1, 10_000) as usize).map_err(RvError::local)?;
-        Ok(native_message_items(
+        Ok(self.with_profile_avatars(native_message_items(
             rows,
             &room,
             &self.session.info.user_id,
             &self.session.info.username,
             self.session.supported_features().iter().any(|f| f == "read_markers").then_some(root_position.as_str()),
-        ))
+        )))
     }
     pub async fn spotlight(&self, query: String) -> Result<Vec<Found>, RvError> {
         let s = self.session.clone();
@@ -775,7 +793,13 @@ impl NativeChat {
         let messages = on_tokio(async move { s.marked(&rid, starred).await }).await.map_err(native_error)?;
         let ids: Vec<_> = messages.into_iter().map(|m| m.id).collect();
         let rows = self.session.store.selected_messages(&ids).map_err(RvError::local)?;
-        Ok(native_message_items(rows, &room, &self.session.info.user_id, &self.session.info.username, None))
+        Ok(self.with_profile_avatars(native_message_items(
+            rows,
+            &room,
+            &self.session.info.user_id,
+            &self.session.info.username,
+            None,
+        )))
     }
     pub async fn direct(&self, username: String) -> Result<String, RvError> {
         let s = self.session.clone();

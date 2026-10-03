@@ -319,6 +319,18 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P16, fiches publiques bureau (3 octobre 2026) : mêmes dialogs GTK / SwiftUI et
+  mêmes tuiles de messages, profils par UID, renommages live et DM par UID stable.
+  Avatars authentifiés bornés à 128 entrées / 32 Mio / quatre téléchargements,
+  retrait / remplacement et réponses tardives protégés. Le cœur et UniFFI
+  partagent les commandes personnelles persistantes (profil / préférences / photo)
+  sans dupliquer les données privées dans le cache public. Vérifications ciblées
+  SQLite / HTTP : redémarrage, génération, réponse perdue et rejeu sans rétablir
+  un ancien profil : 12 tests ciblés en 1,8 s et clippy bureau passent. Scénarios
+  ajoutés aux bancs GTK et Swift existants ; compilation Swift locale vérifiée,
+  exécution avec serveur réservée au banc CI. Les éditeurs
+  personnels et réglages bureau restent à raccorder ; P16 reste ouvert.
+
 - P16, profil personnel mobile (3 octobre 2026) : « Mon profil » et les paramètres
   existants éditent nom / pseudo / bio / statut, photo PNG bornée et langue native.
   Email privé en lecture seule avec renvoi au parcours vérifié P02 ; confirmation

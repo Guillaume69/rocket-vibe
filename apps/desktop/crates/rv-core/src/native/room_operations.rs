@@ -89,7 +89,7 @@ impl NativeSession {
             RoomOperation::Leave { .. } => c.room_leave,
         })
     }
-    fn room_operation_generation(&self, generation: u64) -> Result<(), Error> {
+    pub(super) fn room_operation_generation(&self, generation: u64) -> Result<(), Error> {
         self.ready()?;
         if generation != self.security_generation.load(Ordering::SeqCst) {
             return Err(Error::Protocol("session_closed"));

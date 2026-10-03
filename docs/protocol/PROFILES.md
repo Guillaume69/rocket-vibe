@@ -139,5 +139,13 @@ sont raccordés mais masqués tant que le client n'annonce pas le push P17.
 SQLite couvre aussi le profil personnel, une confirmation perdue puis un profil
 concurrent plus récent, la reprise du fournisseur, les préférences et les photos.
 
-Restent les fiches / réglages / caches et intentions GTK et SwiftUI, puis les
-validations sur applications installées. P16 reste ouvert jusque-là.
+Les fiches publiques GTK / SwiftUI et leurs tuiles existantes utilisent le même
+cœur Rust : identités SQLite par UID, noms courants sans modifier le journal,
+DM par UID et avatars protégés en mémoire (128 entrées / 32 Mio / quatre lectures).
+Les pixels retirés et les réponses d'un ancien compte sont refusés. La file Rust
+préserve aussi les intentions originales de profil / préférences / avatar et
+leurs octets, avec reprise, preuve requise et abandon explicite via UniFFI.
+Les données privées du profil personnel ne sont pas mises dans le cache public.
+
+Restent à raccorder les éditeurs personnels et réglages GTK / SwiftUI aux API
+partagées, puis à qualifier les applications installées. P16 reste ouvert.

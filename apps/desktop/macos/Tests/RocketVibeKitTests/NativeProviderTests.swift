@@ -9,6 +9,52 @@ import XCTest
 /// Runs with a disposable native server and a real Secret Service / macOS Keychain.
 final class NativeProviderTests: XCTestCase {
     @MainActor
+    func testExistingModelsProfilesAndProtectedAvatars() async throws {
+        guard let server = ProcessInfo.processInfo.environment["RV_NATIVE_TEST_SERVER"],
+              let password = ProcessInfo.processInfo.environment["RV_NATIVE_TEST_PASSWORD"] else {
+            throw XCTSkip("Native integration server unset")
+        }
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("rv-profiles-kit-\(UUID())").path
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let app = AppModel(home: home)
+        defer { app.end() }
+        app.login.server = server; app.login.user = "desktop"; app.login.password = password
+        await app.submitLogin()
+        let native = try XCTUnwrap(app.native)
+        try await until { app.connection == .online }
+        let provider = try XCTUnwrap(app.provider)
+        XCTAssertTrue(provider.supportsProfiles)
+        let original = try await native.ownProfile()
+        let person = try await provider.person(key: original.me.username, byId: false)
+        XCTAssertEqual(person.username, original.me.username)
+        XCTAssertFalse(person.id.isEmpty)
+        var fields = original.me
+        fields.bio = "Swift existing profile \(UUID())"
+        let updated = try await native.updateOwnProfile(revision: original.revision, after: fields)
+        XCTAssertEqual(updated.me.bio, fields.bio)
+        let byId = try await provider.person(key: person.id, byId: true)
+        XCTAssertEqual(byId.bio, fields.bio)
+        var preferences = updated.preferences
+        preferences.language = preferences.language == "fr" ? "en" : "fr"
+        let withPreferences = try await native.updatePreferences(preferences: preferences)
+        XCTAssertEqual(withPreferences.preferences.language, preferences.language)
+        XCTAssertEqual(withPreferences.preferences.pushEnabled, updated.preferences.pushEnabled)
+        XCTAssertEqual(withPreferences.preferences.clock24h, updated.preferences.clock24h)
+        let png = try XCTUnwrap(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="))
+        let withAvatar = try await native.changeAvatar(revision: withPreferences.revision, mime: "image/png", bytes: png)
+        let media = try XCTUnwrap(app.media)
+        let photo = await media.load(withAvatar.me.avatar)
+        XCTAssertEqual(photo?.contentType, "image/png")
+        XCTAssertFalse(photo?.bytes.isEmpty ?? true)
+        let cleared = try await native.changeAvatar(revision: withAvatar.revision, mime: nil, bytes: Data())
+        XCTAssertTrue(cleared.me.avatar.isEmpty)
+        XCTAssertFalse(media.current(withAvatar.me.avatar))
+        XCTAssertNil(media.cached(withAvatar.me.avatar))
+        let retired = await media.load(withAvatar.me.avatar)
+        XCTAssertNil(retired)
+    }
+
+    @MainActor
     func testExistingModelsSearch() async throws {
         guard let server=ProcessInfo.processInfo.environment["RV_NATIVE_TEST_SERVER"],let password=ProcessInfo.processInfo.environment["RV_NATIVE_TEST_PASSWORD"] else {throw XCTSkip("Native integration server unset")}
         let home=FileManager.default.temporaryDirectory.appendingPathComponent("rv-search-kit-\(UUID())").path

@@ -123,11 +123,12 @@ struct ProfileView: View {
     let username: String
     @State var person: Person?
     @State var failed = false
+    @State var shownAccount:UUID?
 
     var body: some View {
         SheetFrame(title: L("info.profile")) {
             Form {
-                if let p = person {
+                if let p = person,shownAccount==app.sessionId,app.provider?.supportsProfiles==true {
                     HStack(spacing: 12) {
                         ZStack(alignment: .bottomTrailing) {
                             Avatar(path: p.avatar, name: p.name ?? p.username, size: 56)
@@ -142,16 +143,16 @@ struct ProfileView: View {
                     if !p.roles.isEmpty { LabeledContent(L("info.roles"), value: p.roles.joined(separator: ", ")) }
                     if let time = p.localTime { LabeledContent(L("info.local_time"), value: time) }
                     if let bio = p.bio, !bio.isEmpty { LabeledContent(L("info.bio"), value: bio) }
-                    if p.username != app.account?.username {
+                    if p.id != app.account?.userId {
                         HStack {
                             Button(L("info.message")) {
                                 dismiss()
                                 Task { await app.go(to: .user(id: p.id, username: p.username, name: p.name)) }
                             }
-                            Button(L("info.call")) {
+                            if app.chat != nil {Button(L("info.call")) {
                                 dismiss()
                                 Task { await call(p) }
-                            }
+                            }}
                         }
                     }
                 } else if failed {
@@ -162,9 +163,15 @@ struct ProfileView: View {
             }
             .formStyle(.grouped)
         }
-        .task {
-            guard let chat = app.chat else { return }
-            do { person = try await chat.person(key: username, byId: false) } catch { failed = true }
+        .task(id:"\(app.sessionId)#\(app.imagesVersion)#\(app.native?.profileVersion() ?? username)") {
+            guard let provider=app.provider,provider.supportsProfiles else { return }
+            let account=app.sessionId
+            do {
+                let previous=shownAccount==account ? person : nil
+                let loaded=try await provider.person(key:previous?.id ?? username,byId:previous != nil)
+                guard app.sessionId==account,!Task.isCancelled else{return}
+                person=loaded;shownAccount=account;failed=false
+            } catch {if app.sessionId==account,!Task.isCancelled{person=nil;failed=true}}
         }
     }
 

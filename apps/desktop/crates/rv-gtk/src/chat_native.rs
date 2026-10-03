@@ -12,6 +12,7 @@ impl ChatPage {
         self.set_session(None);
         self.native_edit.replace(None);
         self.native.replace(Some(session.clone()));
+        self.list.set_native_provider(session.clone());
         self.native_features(&session);
         self.account_name.set_label(&session.info.username);
         let host = url::Url::parse(&session.info.base_url)

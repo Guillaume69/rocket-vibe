@@ -54,6 +54,7 @@ impl ThreadPage {
         let membership = native.store.read_state(rid).ok().flatten().and_then(|s| s.membership_version);
         let mut page = Self::new(session, rid, root, false);
         let owned = Rc::get_mut(&mut page).expect("new thread page has a single owner");
+        owned.list.set_native_provider(native.clone());
         owned.composer.bind_native_thread(&native, rid, root, membership.clone());
         owned.native = Some(native);
         owned.membership = membership;

@@ -1253,12 +1253,11 @@ impl ChatPage {
     }
 
     pub fn show_profile(self: &Rc<Self>, key: &str, by_id: bool) {
-        let Some(session) = self.session() else { return };
         let (w1, w2) = (Rc::downgrade(self), Rc::downgrade(self));
         let actions = crate::details::ProfileActions {
-            message: Box::new(move |username| {
+            message: Box::new(move |found| {
                 if let Some(this) = w1.upgrade() {
-                    this.go_to(rv_core::rooms::Found::User { id: String::new(), username, name: None });
+                    this.go_to(found);
                 }
             }),
             call: Box::new(move |username| {
@@ -1280,7 +1279,11 @@ impl ChatPage {
                 });
             }),
         };
-        crate::details::profile(&self.split, session, key, by_id, actions);
+        if let Some(session) = self.native_session() {
+            crate::details::profile_native(&self.split, session, key, by_id, actions);
+        } else if let Some(session) = self.session() {
+            crate::details::profile(&self.split, session, key, by_id, actions);
+        }
     }
 
     /// A `#channel` in a message: open it, joining first if I am not in it.
@@ -1365,7 +1368,13 @@ impl ChatPage {
             glib::spawn_future_local(async move {
                 let result = on_tokio(async move {
                     match found {
-                        Found::User { username, .. } => session.direct(&username).await,
+                        Found::User { id, username, .. } => {
+                            if id.is_empty() {
+                                session.direct(&username).await
+                            } else {
+                                session.direct_user(&id).await
+                            }
+                        }
                         Found::Room { id, .. } => session.join_public(&id).await,
                     }
                 })

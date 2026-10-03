@@ -9,6 +9,10 @@ section here.
 
 ### Fixed
 
+- Native public profiles and protected avatars use the existing GTK and SwiftUI
+  dialogs and message tiles. Identity changes refresh displayed names; profile
+  actions open direct conversations by stable user ID.
+
 - Native message search uses the existing GTK dialog and SwiftUI search view,
   with authorized temporary results, thread replies and Enter to search again.
   Suspension and content changes clear stale results.

@@ -114,7 +114,7 @@ struct RoomView: View {
     func handle(_ url: URL) -> OpenURLAction.Result {
         let text = url.absoluteString
         if text.hasPrefix("rv-user:") {
-            guard app.chat != nil else { return .handled }
+            guard app.provider?.supportsProfiles == true else { return .handled }
             panel = .profile(String(text.dropFirst("rv-user:".count)))
             return .handled
         }

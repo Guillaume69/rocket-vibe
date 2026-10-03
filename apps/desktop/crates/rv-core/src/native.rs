@@ -6,6 +6,7 @@ pub mod email_recovery;
 pub mod factor_email;
 mod live;
 pub mod markdown;
+pub mod profiles;
 mod read_intents;
 pub mod read_presentation;
 mod room_operations;
@@ -270,6 +271,8 @@ pub struct NativeSession {
     typing_last: Mutex<Option<(String, std::time::Instant)>>,
     runtime_handle: tokio::runtime::Handle,
     presence_request: Arc<tokio::sync::Mutex<()>>,
+    avatars: Mutex<profiles::AvatarCache>,
+    avatar_slots: tokio::sync::Semaphore,
 }
 impl NativeSession {
     pub fn start(info: SessionInfo, path: &Path) -> Result<Arc<Self>, Error> {
@@ -316,6 +319,8 @@ impl NativeSession {
             typing_last: Mutex::new(None),
             runtime_handle: tokio::runtime::Handle::current(),
             presence_request: Arc::new(tokio::sync::Mutex::new(())),
+            avatars: Mutex::new(profiles::AvatarCache::default()),
+            avatar_slots: tokio::sync::Semaphore::new(4),
         });
         let weak = Arc::downgrade(&session);
         let task = tokio::spawn(async move {
@@ -628,7 +633,7 @@ impl NativeSession {
                             if value.get("type").and_then(Value::as_str)==Some("live") {
                                 let rv_protocol::live::LiveFrame::Live(state)=serde_json::from_value(value).map_err(|_|Error::Protocol("invalid_live_frame"))?;
                                 if state.rooms.iter().any(|r|self.store.read_state(&r.room_id).ok().flatten().and_then(|s|s.membership_version).as_deref()!=Some(&r.membership_version)) {self.clear_live();}
-                                else if self.live.lock().unwrap().apply(state,std::time::Instant::now()){let _=self.events.send(());}
+                                else {self.apply_live_profiles(&state)?;if self.live.lock().unwrap().apply(state,std::time::Instant::now()){let _=self.events.send(());}}
                             } else {
                                 let batch=serde_json::from_value(value).map_err(|_|Error::Protocol("invalid_batch"))?;self.store.batch(&batch)?;
                                 let invalid=self.live.lock().unwrap().state.as_ref().is_some_and(|s|s.rooms.iter().any(|r|self.store.read_state(&r.room_id).ok().flatten().and_then(|s|s.membership_version).as_deref()!=Some(&r.membership_version)));
@@ -701,6 +706,13 @@ impl NativeSession {
                     self.store.fail_room_operation(&operation.room, operation.command.id(), error.code())?
                 }
                 Err(error) => return Err(error),
+            }
+        }
+        for operation in self.store.pending_profile_operations()? {
+            if let Err(error) = self.finish_profile_operation(&operation).await
+                && (error.terminal() || !permanent_command_error(&error) && error.code() != "reauthentication_required")
+            {
+                return Err(error);
             }
         }
         self.flush_state_intents().await?;
@@ -1246,6 +1258,16 @@ impl NativeSession {
         self.ready()?;
         let room = self.client.direct(&uid).await?;
         self.ready()?;
+        self.reconnect();
+        Ok(room.id)
+    }
+    pub async fn direct_user(&self, uid: &str) -> Result<String, Error> {
+        self.ready()?;
+        let generation = self.security_generation.load(Ordering::SeqCst);
+        self.identity().await?;
+        self.room_operation_generation(generation)?;
+        let room = self.client.direct(uid).await?;
+        self.room_operation_generation(generation)?;
         self.reconnect();
         Ok(room.id)
     }

@@ -1,6 +1,7 @@
 //! The existing reply bar, composer and quote cards against a native server.
 use super::check;
 use crate::window::AppWindow;
+use adw::prelude::AdwDialogExt;
 use gtk::{glib, prelude::*};
 use std::{rc::Rc, time::Duration};
 
@@ -96,6 +97,18 @@ fn has_quote(root: &gtk::Widget, text: &str) -> bool {
 async fn run(window: Rc<AppWindow>) {
     let session = window.chat.native_session().unwrap();
     check("native discovery enables quotes", session.supported_features().iter().any(|f| f == "quotes"), ());
+    window.chat.show_profile(&session.info.user_id, true);
+    let mut profile = None;
+    for _ in 0..200 {
+        profile = super::find_by_class(window.window.upcast_ref(), "user-profile-dialog")
+            .filter(|dialog| contains(dialog, &format!("@{}", session.info.username)));
+        if profile.is_some() {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(20)).await;
+    }
+    check("native profile uses existing GTK dialog", profile.is_some(), ());
+    profile.unwrap().downcast::<adw::Dialog>().unwrap().close();
     let rid = window.chat.current_rid().unwrap();
     let activity = session
         .store

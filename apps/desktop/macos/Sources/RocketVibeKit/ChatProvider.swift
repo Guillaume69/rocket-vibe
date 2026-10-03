@@ -17,6 +17,11 @@ public enum ChatProvider {
     public var supportsFiles: Bool { legacy != nil || native?.supportedFeatures().contains("uploads") == true }
     public var supportsEditing: Bool { legacy != nil || native?.supportedFeatures().contains("editing") == true }
     public var supportsRoomInfo: Bool { legacy != nil || native?.supportedFeatures().contains("room_info") == true }
+    public var supportsProfiles: Bool { legacy != nil || native?.profilesAvailable() == true }
+    public func person(key:String,byId:Bool) async throws -> Person {
+        switch self {case let .rocketChat(chat):return try await chat.person(key:key,byId:byId)
+        case let .rocketVibe(chat):return try await chat.person(key:key,byId:byId)}
+    }
     func roomDetails(rid: String) async throws -> RoomDetails {
         switch self { case let .rocketChat(chat): return try await chat.roomDetails(rid: rid)
         case let .rocketVibe(chat): return try await chat.roomDetails(room: rid) }
@@ -94,9 +99,9 @@ public enum ChatProvider {
         switch self { case let .rocketChat(chat): return try await chat.spotlight(query: query)
         case let .rocketVibe(chat): return try await chat.spotlight(query: query) }
     }
-    func direct(username: String) async throws -> String {
+    func direct(username: String,userId:String? = nil) async throws -> String {
         switch self { case let .rocketChat(chat): return try await chat.openDm(username: username)
-        case let .rocketVibe(chat): return try await chat.direct(username: username) }
+        case let .rocketVibe(chat): if let userId,!userId.isEmpty{return try await chat.directUser(userId:userId)};return try await chat.direct(username: username) }
     }
     func join(rid: String) async throws {
         switch self { case let .rocketChat(chat): try await chat.joinChannel(rid: rid)

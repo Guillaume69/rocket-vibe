@@ -223,18 +223,29 @@ pub struct MessageList {
     /// The message marked by the last reveal.
     highlighted: RefCell<Option<String>>,
     native_me: RefCell<String>,
+    native_provider: RefCell<Option<Arc<rv_core::native::NativeSession>>>,
+    native_images: RefCell<String>,
 }
 
 impl MessageList {
+    pub fn set_native_provider(&self, session: Arc<rv_core::native::NativeSession>) {
+        self.native_provider.replace(Some(session));
+    }
     /// The existing renderer, preserving native server sequence order.
     pub fn set_native_rows(self: &Rc<Self>, fresh: Vec<Display>, me: &str) {
-        if *self.rows.borrow() == fresh {
+        let version = self.native_provider.borrow().as_ref().map(|s| s.profile_version()).unwrap_or_default();
+        let images_changed = self.native_images.replace(version.clone()) != version;
+        if *self.rows.borrow() == fresh && !images_changed {
             return;
         }
         self.native_me.replace(me.to_owned());
         let old = self.rows.replace(fresh.clone());
-        let prefix = old.iter().zip(&fresh).take_while(|(a, b)| a == b).count();
-        let suffix = old[prefix..].iter().rev().zip(fresh[prefix..].iter().rev()).take_while(|(a, b)| a == b).count();
+        let prefix = if images_changed { 0 } else { old.iter().zip(&fresh).take_while(|(a, b)| a == b).count() };
+        let suffix = if images_changed {
+            0
+        } else {
+            old[prefix..].iter().rev().zip(fresh[prefix..].iter().rev()).take_while(|(a, b)| a == b).count()
+        };
         let objects: Vec<_> =
             fresh[prefix..fresh.len() - suffix].iter().cloned().map(glib::BoxedAnyObject::new).collect();
         self.settling.set(self.settling.get() + 1);
@@ -300,6 +311,8 @@ impl MessageList {
             revealing: RefCell::default(),
             highlighted: RefCell::default(),
             native_me: RefCell::default(),
+            native_provider: RefCell::default(),
+            native_images: RefCell::default(),
         });
         this.wire_selection();
         this.wire(session);
@@ -334,7 +347,12 @@ impl MessageList {
             let editing = w.upgrade().and_then(|this| {
                 this.editing.borrow().as_ref().filter(|(id, _)| *id == display.row.id).map(|(_, b)| b.clone())
             });
-            let widget = rows::message_widget(&display, &my_id, session.as_ref(), editing.as_ref(), on_event);
+            let native = w.upgrade().and_then(|this| this.native_provider.borrow().clone()).filter(|s| !s.is_closed());
+            let widget = if let Some(native) = native.filter(|_| session.is_none()) {
+                rows::native_message_widget(&display, &my_id, &native, editing.as_ref(), on_event)
+            } else {
+                rows::message_widget(&display, &my_id, session.as_ref(), editing.as_ref(), on_event)
+            };
             if let Some(this) = w.upgrade() {
                 this.bound.borrow_mut().insert(display.row.id.clone(), widget.clone());
                 this.seen.borrow_mut().insert(display.row.id.clone(), texts(&widget).iter().map(segment).collect());

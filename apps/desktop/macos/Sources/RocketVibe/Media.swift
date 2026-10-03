@@ -28,7 +28,8 @@ struct Avatar: View {
 
     /// The decoded photo, or the one already in the cache when the row is new.
     var shown: NSImage? {
-        image ?? path.flatMap { Pictures.cached($0, pixels: Pictures.pixels(size)) }
+        if let path,app.media?.current(path)==false{return nil}
+        return image ?? path.flatMap { Pictures.cached($0, pixels: Pictures.pixels(size)) }
     }
 
     var initial: String {

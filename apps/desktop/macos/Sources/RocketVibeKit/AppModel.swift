@@ -111,6 +111,7 @@ public final class AppModel {
         self.provider = provider
         account = provider.account()
         if let chat { media = MediaStore(chat: chat) }
+        else if let native { media = MediaStore(native:native) }
         connection = .connecting
         let expected = sessionId
         provider.listen(Relay { [weak self] event in
@@ -323,8 +324,8 @@ public final class AppModel {
         do {
             let rid: String
             switch found {
-            case let .user(_, username, _):
-                rid = try await provider.direct(username: username)
+            case let .user(id, username, _):
+                rid = try await provider.direct(username: username,userId:id)
             case let .room(id, _, _):
                 if !rooms.contains(where: { $0.rid == id }) { try await provider.join(rid: id) }
                 rid = id

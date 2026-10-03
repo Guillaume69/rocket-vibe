@@ -245,24 +245,130 @@ pub fn native_room_info(
 
 /// What the profile's buttons do.
 pub struct ProfileActions {
-    pub message: Box<dyn Fn(String)>,
+    pub message: Box<dyn Fn(rv_core::rooms::Found)>,
     pub call: Box<dyn Fn(String)>,
 }
 
 /// A person, from `users.info`: by username, or by id when `by_id`.
 pub fn profile(parent: &impl IsA<gtk::Widget>, session: Arc<Session>, key: &str, by_id: bool, actions: ProfileActions) {
+    profile_with_source(parent, ProfileSource::Legacy(session), key, by_id, actions);
+}
+pub fn profile_native(
+    parent: &impl IsA<gtk::Widget>,
+    session: Arc<rv_core::native::NativeSession>,
+    key: &str,
+    by_id: bool,
+    actions: ProfileActions,
+) {
+    profile_with_source(parent, ProfileSource::Native(session), key, by_id, actions);
+}
+#[derive(Clone)]
+enum ProfileSource {
+    Legacy(Arc<Session>),
+    Native(Arc<rv_core::native::NativeSession>),
+}
+impl ProfileSource {
+    fn username(&self) -> &str {
+        match self {
+            Self::Legacy(s) => &s.info.username,
+            Self::Native(s) => &s.info.username,
+        }
+    }
+    fn user_id(&self) -> &str {
+        match self {
+            Self::Legacy(s) => &s.info.user_id,
+            Self::Native(s) => &s.info.user_id,
+        }
+    }
+    fn version(&self) -> Option<String> {
+        match self {
+            Self::Legacy(_) => None,
+            Self::Native(s) => Some(s.profile_version()),
+        }
+    }
+    fn closed(&self) -> bool {
+        matches!(self,Self::Native(s) if s.is_closed())
+    }
+    async fn read(&self, key: &str, by_id: bool) -> Result<Profile, rv_core::rest::RestError> {
+        match self {
+            Self::Legacy(s) => s.profile(key, by_id).await,
+            Self::Native(s) => {
+                s.profile(key, by_id).await.map(|p| s.profile_presentation(&p)).map_err(rv_core::native::rest_error)
+            }
+        }
+    }
+}
+fn profile_with_source(
+    parent: &impl IsA<gtk::Widget>,
+    source: ProfileSource,
+    key: &str,
+    by_id: bool,
+    actions: ProfileActions,
+) {
     let content = column();
-    let spinner = loading(&content);
+    loading(&content);
     let dialog = dialog(t("info.profile"), content.upcast_ref(), 520);
+    dialog.add_css_class("user-profile-dialog");
     dialog.present(Some(parent));
-    let (key, s) = (key.to_owned(), session.clone());
+    let (mut key, mut by_id) = (key.to_owned(), by_id);
     let actions = Rc::new(actions);
+    let active = Rc::new(Cell::new(true));
+    let (tx, rx) = async_channel::bounded(1);
+    tx.try_send(()).ok();
+    let forward = if let ProfileSource::Native(s) = &source {
+        let (mut changes, mut events) = (s.store.changes(), s.events());
+        Some(crate::runtime().spawn(async move {
+            loop {
+                tokio::select! {_=changes.recv()=>{},_=events.recv()=>{}};
+                if tx.try_send(()).is_err_and(|e| matches!(e, async_channel::TrySendError::Closed(_))) {
+                    return;
+                }
+            }
+        }))
+    } else {
+        None
+    };
+    let live = active.clone();
+    dialog.connect_closed(move |_| {
+        live.set(false);
+        if let Some(task) = &forward {
+            task.abort();
+        }
+    });
     glib::spawn_future_local(async move {
-        let found = on_tokio(async move { s.profile(&key, by_id).await }).await;
-        spinner.set_visible(false);
-        match found {
-            Ok(p) => fill_profile(&content, &dialog, &session, &p, actions),
-            Err(_) => content.append(&centered(t("info.failed"), &["details-sub"])),
+        let mut displayed = None;
+        while rx.recv().await.is_ok() && active.get() {
+            if source.closed() {
+                dialog.close();
+                return;
+            }
+            let version = source.version();
+            if displayed.as_ref() == Some(&version) {
+                continue;
+            }
+            let (s, k) = (source.clone(), key.clone());
+            let found = on_tokio(async move { s.read(&k, by_id).await }).await;
+            if !active.get() {
+                return;
+            }
+            if source.closed() {
+                dialog.close();
+                return;
+            }
+            while let Some(child) = content.first_child() {
+                content.remove(&child);
+            }
+            match found {
+                Ok(p) => {
+                    key = p.id.clone();
+                    by_id = true;
+                    fill_profile(&content, &dialog, &source, &p, actions.clone());
+                    displayed = Some(source.version());
+                }
+                Err(_) => {
+                    content.append(&centered(t("info.failed"), &["details-sub"]));
+                }
+            }
         }
     });
 }
@@ -270,18 +376,25 @@ pub fn profile(parent: &impl IsA<gtk::Widget>, session: Arc<Session>, key: &str,
 fn fill_profile(
     content: &gtk::Box,
     dialog: &adw::Dialog,
-    session: &Arc<Session>,
+    session: &ProfileSource,
     p: &Profile,
     actions: Rc<ProfileActions>,
 ) {
     let tile = widgets::tile(&p.username, &widgets::initial(&p.username), TileSize::Profile, false);
-    let tile =
-        with_photo(tile, Some(session), Some(avatar_path(AvatarTarget::User(&p.username), p.avatar_etag.as_deref())));
+    let tile = match session {
+        ProfileSource::Legacy(s) => {
+            with_photo(tile, Some(s), Some(avatar_path(AvatarTarget::User(&p.username), p.avatar_etag.as_deref())))
+        }
+        ProfileSource::Native(s) => crate::rows::with_native_photo(tile, s, p.avatar_etag.clone()),
+    };
     tile.set_halign(gtk::Align::Center);
     content.append(&tile);
     content.append(&centered(p.name.as_deref().unwrap_or(&p.username), &["details-name"]));
     content.append(&centered(&format!("@{}", p.username), &["details-sub"]));
-    if let Some(presence) = session.presence(&p.id).or(p.presence) {
+    if let Some(presence) = match session {
+        ProfileSource::Legacy(s) => s.presence(&p.id).or(p.presence),
+        ProfileSource::Native(_) => p.presence,
+    } {
         let line = gtk::Box::builder().spacing(6).halign(gtk::Align::Center).build();
         let dot = presence_dot(presence, &[]);
         dot.set_valign(gtk::Align::Center);
@@ -307,16 +420,20 @@ fn fill_profile(
         ));
     }
     if let Some(bio) = &p.bio {
-        section(content, t("info.bio"), bio, &session.info.username);
+        section(content, t("info.bio"), bio, session.username());
     }
-    if p.username != session.info.username {
+    if p.id != session.user_id() {
         let buttons = gtk::Box::builder().spacing(10).halign(gtk::Align::Center).margin_top(12).build();
         let message = gtk::Button::builder().label(t("info.message")).css_classes(["file-action"]).build();
         let call = gtk::Button::builder().label(t("info.call")).css_classes(["flat"]).build();
-        let (a, d, username) = (actions.clone(), dialog.clone(), p.username.clone());
+        let (a, d, found) = (
+            actions.clone(),
+            dialog.clone(),
+            rv_core::rooms::Found::User { id: p.id.clone(), username: p.username.clone(), name: p.name.clone() },
+        );
         message.connect_clicked(move |_| {
             d.close();
-            (a.message)(username.clone());
+            (a.message)(found.clone());
         });
         let (a, d, username) = (actions, dialog.clone(), p.username.clone());
         call.connect_clicked(move |_| {
@@ -324,7 +441,9 @@ fn fill_profile(
             (a.call)(username.clone());
         });
         buttons.append(&message);
-        buttons.append(&call);
+        if matches!(session, ProfileSource::Legacy(_)) {
+            buttons.append(&call);
+        }
         content.append(&buttons);
     }
 }

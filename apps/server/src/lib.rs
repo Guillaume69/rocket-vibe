@@ -22,6 +22,7 @@ pub mod objects;
 pub mod operator;
 mod permissions;
 mod profiles;
+pub mod push;
 mod quotes;
 mod reactions;
 mod reauthentication;
@@ -45,6 +46,7 @@ use std::sync::Arc;
 pub struct App {
     pub pool: PgPool,
     pub mail: Option<Arc<mail::Sender>>,
+    pub push: Option<Arc<push::Sender>>,
     pub(crate) objects: Option<objects::LocalObjects>,
     image_slots: Arc<tokio::sync::Semaphore>,
     file_slots: Arc<tokio::sync::Semaphore>,
@@ -97,6 +99,7 @@ impl App {
         let app = Self {
             pool,
             mail: None,
+            push: None,
             objects: None,
             image_slots: Arc::new(tokio::sync::Semaphore::new(2)),
             file_slots: Arc::new(tokio::sync::Semaphore::new(4)),
@@ -120,6 +123,11 @@ impl App {
         self
     }
 
+    pub fn with_push(mut self, push: Option<push::Sender>) -> Self {
+        self.push = push.map(Arc::new);
+        self
+    }
+
     /// Startup and periodic maintenance only touches expired ephemeral records.
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
         sqlx::query("UPDATE uploads SET state='expired',object_id=NULL,lease_id=NULL,lease_expires_at=NULL WHERE id IN (SELECT id FROM uploads WHERE state IN ('prepared','ready') AND expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)")
@@ -133,6 +141,7 @@ impl App {
             tracing::warn!(code = error.code, "object garbage collection failed");
         }
         for query in [
+            "DELETE FROM push_notifications WHERE id IN (SELECT id FROM push_notifications WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM link_preview_jobs WHERE (message_id,slot) IN (SELECT j.message_id,j.slot FROM link_preview_jobs j JOIN messages m ON m.id=j.message_id JOIN instance i ON i.singleton WHERE j.expires_at<=clock_timestamp() OR j.token IS DISTINCT FROM m.preview_token OR j.data_epoch<>i.data_epoch OR m.deleted LIMIT 1000 FOR UPDATE OF j SKIP LOCKED)",
             "DELETE FROM presence_leases WHERE device_id IN (SELECT device_id FROM presence_leases WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM typing_leases WHERE (device_id,room_id,root_key) IN (SELECT device_id,room_id,root_key FROM typing_leases WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",

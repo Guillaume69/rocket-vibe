@@ -25,7 +25,8 @@ import {monterProfilsFournisseur} from '../lib/profilsFournisseur.ts';
 import {monterEmojisFournisseur} from '../lib/emojisFournisseur.ts';
 import {monterApercusNatifs} from '../lib/apercusNatifs.ts';
 import { createContext, useContext, useEffect, useState } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
+import {registerNativePush} from '../fournisseurs/rocketvibe/push.ts';
 
 import type { BaseLocale } from '../db/client.ts';
 import { ouvrirBase } from '../db/client.ts';
@@ -69,6 +70,7 @@ import {
   purgerCleE2EHeritee,
   retenirJetonPush,
   preparerSessionNative,
+  retenirAppareilPushNatif,
 } from '../lib/sessionStore.ts';
 import { oublierDisponibiliteAppel } from '../lib/appel.ts';
 import { oublierFichesProfil } from '../lib/profilPreload.ts';
@@ -186,6 +188,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         await store.prepare();
         if (!alive) return;
         const fournisseur = creerFournisseur(session,client,() => idDepuisOctets(Crypto.getRandomBytes(12)),store,{
+          pushAndroid:Platform.OS==='android',
           credentials:async(previous)=>{
             const fresh=await preparerSessionNative(previous);
             if(!alive)throw new NativeError(0,'session_closed');
@@ -204,18 +207,30 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         runner = chat;
         const moteur = new MoteurSynchro(creerDepot(brute,fileEcritures),fournisseur.traducteur);
         const envoi = fournisseur.creerEnvoi(creerDepotEnvoi(brute,fileEcritures),async () => {});
-        // Passive local read models: no RC initialization, push, REST or DDP on this branch.
+        // Passive legacy read models; native networking stays in the provider.
         const e2e = new MoteurE2E({client,uid:session.userId,stockage:{lire:async () => null,enregistrer:async () => {},effacer:async () => {}}});
         const activite = new MoteurActivite();
         const presence = new MoteurPresence();
         const unlive=chat.live.subscribe(()=>presence.remplacer(chat.live.state?.presence??null));
         const salonsOuverts = creerPileSalonsOuverts();
         let online = false;
+        let pushCommands:Promise<void>=Promise.resolve();
+        const registerPush=(token:string)=>{
+          pushCommands=pushCommands.catch(()=>{}).then(async()=>{
+            if(!alive || !chat.status.online || !fournisseur.capacites.push)return;
+            const fresh=await preparerSessionNative(session);
+            if(!alive)return;
+            await registerNativePush(fresh,token,retenirAppareilPushNatif);
+            await retenirJetonPush(token);
+          }).catch(()=>{});
+        };
+        const unpush=Platform.OS==='android'?surRotationJeton(registerPush):()=>{};
         let lastError: string | null = null;
         const unlisten = chat.subscribe(() => {
           if (!alive) return;
           if (chat.status.online && !online){
             setSynchro(s => s.phase === 'pret' ? {...s,capacites:fournisseur.capacites,generation:s.generation+1} : s);
+            if(fournisseur.capacites.push)void obtenirJetonFcm().then(result=>{if(alive && result.ok)registerPush(result.jeton);}).catch(()=>{});
           }
           online = chat.status.online;
           if (chat.status.error && chat.status.error !== lastError) {
@@ -223,7 +238,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           }
           lastError = chat.status.error;
         });
-        stop = () => { unlisten();unlive();unprofile();unemojis();unpreviews();unfiles();fichiers.fermer?.();presence.invalider();chat.stop(); };
+        stop = () => { unlisten();unpush();unlive();unprofile();unemojis();unpreviews();unfiles();fichiers.fermer?.();presence.invalider();chat.stop(); };
         setSynchro({
           phase:'pret',base,brouillons:store.drafts(),moteur,envoi,
           fichiers,

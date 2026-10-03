@@ -26,6 +26,11 @@ use crate::{
 
 pub fn router(app: App) -> Router {
     Router::new()
+        .route(
+            "/api/v1/me/push",
+            put(register_push).delete(unregister_push),
+        )
+        .route("/api/v1/push/notifications/{id}", get(push_content))
         .route("/api/v1/emoji", get(emoji_catalog))
         .route("/api/v1/emoji/files/{id}", get(emoji_image))
         .route(
@@ -300,6 +305,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             custom_emojis: app.objects.is_some(),
             link_previews: app.objects.is_some(),
             structured_cards: true,
+            push: app.push.is_some(),
             session_rotation: true,
             device_sessions: true,
             account_invitations: true,
@@ -315,6 +321,32 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             ..Default::default()
         },
     }))
+}
+
+async fn register_push(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::push::RegisterPush>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    let hash = auth::bearer(&headers)?;
+    Ok(secret_session(
+        crate::push::register(&app, &actor, &hash, body(input)?).await?,
+    ))
+}
+async fn unregister_push(State(app): State<App>, headers: HeaderMap) -> Result<StatusCode> {
+    let actor = account(&app, &headers).await?;
+    crate::push::unregister(&app, &actor, &auth::bearer(&headers)?).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn push_content(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::All).await?;
+    let value = crate::push::content(&app, &actor, &hash, &id).await?;
+    proof.push_json(&app, &hash, &value).await
 }
 
 async fn login(

@@ -11,6 +11,7 @@ axum = { version = "0.8.9", features = ["ws"] }
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
 futures-util = "0.3"
+gcp_auth = { version = "0.12.7", default-features = false, features = ["ring"] }
 data-encoding = "2"
 hmac = "0.12"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "webp"] }

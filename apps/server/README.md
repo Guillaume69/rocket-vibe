@@ -36,12 +36,16 @@ reprise des défis de connexion / réauthentification. Le mobile propose ces dé
 dans ses écrans existants. Les parcours bureau, l'inscription du facteur et la
 récupération e-mail sont raccordés aux trois clients. Présence, fils, recherche,
 profils, réglages et avatars protégés utilisent leurs écrans existants.
+Les [notifications Android](../../docs/protocol/PUSH.md) utilisent une file durable,
+FCM HTTP v1 et la récupération privée du contenu dans le plugin mobile existant.
+Le compte de service opérateur se configure avec `RV_FCM_CONFIG_FILE` ; sans ce
+fichier, le push reste désactivé. Qualification Firebase / téléphone encore ouverte.
 L'[administration opérateur](../../docs/protocol/ADMINISTRATION.md) fournit
 comptes / droits / désactivation, salons / membres / réglages, reçus de commande,
 audit transactionnel et diagnostic (`health`). Le [cycle de fichiers](../../docs/protocol/FILES.md)
 propose préparation, transfert streamé, confirmation idempotente et téléchargement
-protégé / Range. Les SDK sont disponibles ; outboxes et lecteurs clients restent
-à raccorder. Push, appels,
+protégé / Range. Outboxes et lecteurs sont raccordés aux clients existants.
+Notifications bureau, appels,
 chiffrement et parité complète restent au backlog. Les limites sont explicites dans
 le [contrat du pilote](../../docs/protocol/README.md).
 

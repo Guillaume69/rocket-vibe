@@ -219,6 +219,25 @@ impl ReadProof {
         Ok(leased_json(bytes, lease))
     }
 
+    pub async fn push_json(
+        &self,
+        app: &App,
+        session: &str,
+        value: &rv_protocol::push::PushContent,
+    ) -> Result<Response> {
+        let bytes = Bytes::from(serde_json::to_vec(value).map_err(|_| Error::internal())?);
+        let mut lease = self
+            .lock(
+                app,
+                session,
+                &crate::quotes::delivery_rooms(std::slice::from_ref(&value.message)),
+                None,
+            )
+            .await?;
+        crate::push::lock_content(&mut lease, session, value).await?;
+        Ok(leased_json(bytes, lease))
+    }
+
     /// Roster and metadata changes use a separate version. Retain a SHARE
     /// lease so none can change after this check until body submission.
     pub async fn versioned_room_json(

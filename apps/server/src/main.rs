@@ -11,6 +11,9 @@ struct Args {
     auth_key_file: Option<std::path::PathBuf>,
     #[arg(long, env = "RV_SMTP_CONFIG_FILE", hide_env_values = true)]
     smtp_config_file: Option<std::path::PathBuf>,
+    /// Firebase HTTP v1 service-account JSON, kept outside the repository.
+    #[arg(long, env = "RV_FCM_CONFIG_FILE", hide_env_values = true)]
+    fcm_config_file: Option<std::path::PathBuf>,
     /// Durable volume; include it with PostgreSQL in backups.
     #[arg(long, env = "RV_OBJECTS_DIR", default_value = "data/objects")]
     objects_dir: std::path::PathBuf,
@@ -206,7 +209,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .transpose()?;
     let app = App::connect_with_auth_key(&args.database_url, auth_key)
         .await?
-        .with_mail(mail);
+        .with_mail(mail)
+        .with_push(
+            args.fcm_config_file
+                .as_deref()
+                .map(rv_server::push::Sender::from_file)
+                .transpose()?,
+        );
     match args.command {
         Command::Emoji { command } => match command {
             EmojiCommand::List => operator_output(rv_server::custom_emojis::catalog(&app).await)?,
@@ -266,6 +275,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 }
             });
             let maintenance = app.clone();
+            let push_app = app.clone();
+            let push_worker = tokio::spawn(async move {
+                let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
+                loop {
+                    tick.tick().await;
+                    if let Err(error) = rv_server::push::drain(&push_app).await {
+                        tracing::error!(code = error.code, "push delivery iteration failed");
+                    }
+                }
+            });
             let preview_app = app.clone();
             let preview_worker = tokio::spawn(async move {
                 let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
@@ -300,6 +319,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             cleanup.abort();
             mail_worker.abort();
             preview_worker.abort();
+            push_worker.abort();
         }
         Command::CreateUser { username, admin } => {
             let password = std::env::var("RV_USER_PASSWORD")

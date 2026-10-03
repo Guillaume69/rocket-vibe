@@ -59,7 +59,7 @@ export function creerFournisseurRV(session: Session, client: ClientRest, generer
       return {_id:p.user.id,username:p.user.username,name:p.user.display_name,status:p.status??'online',statusText:p.status_text,bio:p.bio,avatarETag:p.avatar_file_id??'sans-photo'};
     },
     rechercherMessages:async(rid,texte)=>(await chat.searchMessages(rid,texte)).map(m=>localMessage(m,session.userId)),
-    native:{chat,store}, ordreMessages:'sequence', get capacites() { return capacitesEffectives(chat.capabilities,{...CAPACITES_ROCKETVIBE,fichiers:filesConnected}); }, listener,
+    native:{chat,store}, ordreMessages:'sequence', get capacites() { return capacitesEffectives(chat.capabilities,{...CAPACITES_ROCKETVIBE,fichiers:filesConnected,push:options.pushAndroid===true}); }, listener,
     traducteur:{
       traduireEvenement:() => ({sorte:'silence'}),
       versMessage:brut => localMessage(decodeNative('Message',brut),session.userId),

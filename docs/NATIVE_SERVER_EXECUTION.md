@@ -319,6 +319,23 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P17 / J3, push serveur et raccord Android (3 octobre 2026) : registre lié à
+  la famille de session, capture atomique des tâches, leases / retries bornés,
+  OAuth FCM HTTP v1 et payload d'identifiants uniquement. La lecture privée
+  conserve les barrières de droits jusqu'à livraison. Le plugin Kotlin actuel
+  récupère le contenu via WorkManager et garde les notifications de conversation,
+  avec réponse native idempotente, déduplication et liens épinglés au compte.
+  La rotation FCM reprend aussi en arrière-plan les familles natives déjà
+  inscrites, sans bearer dans la file WorkManager. Six tests serveur PostgreSQL
+  / HTTP, neuf tests du contrat et 29 contrôles mobiles ciblés passent, ainsi que
+  typage / lint, Clippy, export Android / Hermes et compilation réelle du plugin
+  Kotlin dans l'app Android. Le cache Gradle créé pour ce chantier a été déplacé
+  sur D: après saturation de C: ; la dépendance Guava expose maintenant le
+  `ListenableFuture` utilisé pour acquitter l'inscription durable d'une réponse.
+  Les CI serveur, bureau Linux / Windows et macOS du lot cartes `6c85995` sont
+  vertes. Firebase réel et Android physique app arrêtée restent ouverts.
+  Notifications bureau : prochain lot P17. [Contrat](protocol/PUSH.md).
+
 - P15 / J3, cartes d'intégration et activation (3 octobre 2026) : contrat
   `SendMessage.cards` / `Message.cards`, trois pièces et 16 Kio au total,
   texte / liens / champs bornés et propriétés inconnues refusées. Même envoi,

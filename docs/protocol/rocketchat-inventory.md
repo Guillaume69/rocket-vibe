@@ -2,7 +2,7 @@
 
 Commande : `node scripts/inventory-rocketchat.mjs`. Contrôle : ajouter `--check`.
 
-356 fichiers de production parcourus ; 443 occurrences.
+358 fichiers de production parcourus ; 447 occurrences.
 Les appels à premier argument dynamique restent visibles : leur résolution est
 consignée dans [le contrat de parité](PARITY.md). Les lignes sont des repères de
 source au moment de la génération. Le JSON conserve le périmètre et tous les fichiers.
@@ -375,10 +375,10 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/mobile/lib/appel.ts:55](../../apps/mobile/lib/appel.ts#L55) | endpoint | video-conference.join |
 | [apps/mobile/lib/appel.ts:81](../../apps/mobile/lib/appel.ts#L81) | call:GET | 'video-conference.capabilities' |
 | [apps/mobile/lib/appel.ts:81](../../apps/mobile/lib/appel.ts#L81) | endpoint | video-conference.capabilities |
-| [apps/mobile/lib/auth.ts:87](../../apps/mobile/lib/auth.ts#L87) | call:POST | 'login' |
-| [apps/mobile/lib/auth.ts:101](../../apps/mobile/lib/auth.ts#L101) | call:POST | 'login' |
-| [apps/mobile/lib/auth.ts:147](../../apps/mobile/lib/auth.ts#L147) | call:POST | 'users.2fa.sendEmailCode' |
-| [apps/mobile/lib/auth.ts:169](../../apps/mobile/lib/auth.ts#L169) | call:POST | 'logout' |
+| [apps/mobile/lib/auth.ts:89](../../apps/mobile/lib/auth.ts#L89) | call:POST | 'login' |
+| [apps/mobile/lib/auth.ts:103](../../apps/mobile/lib/auth.ts#L103) | call:POST | 'login' |
+| [apps/mobile/lib/auth.ts:149](../../apps/mobile/lib/auth.ts#L149) | call:POST | 'users.2fa.sendEmailCode' |
+| [apps/mobile/lib/auth.ts:171](../../apps/mobile/lib/auth.ts#L171) | call:POST | 'logout' |
 | [apps/mobile/lib/deconnexionDifferee.ts:78](../../apps/mobile/lib/deconnexionDifferee.ts#L78) | call:POST | 'logout' |
 | [apps/mobile/lib/e2e/moteur.ts:105](../../apps/mobile/lib/e2e/moteur.ts#L105) | call:GET | 'e2e.fetchMyKeys' |
 | [apps/mobile/lib/e2e/moteur.ts:105](../../apps/mobile/lib/e2e/moteur.ts#L105) | endpoint | e2e.fetchMyKeys |
@@ -436,10 +436,14 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/mobile/lib/upload.ts:244](../../apps/mobile/lib/upload.ts#L244) | resource | /avatar/uid/{…} |
 | [apps/mobile/lib/upload.ts:246](../../apps/mobile/lib/upload.ts#L246) | resource | /avatar/room/{…} |
 | [apps/mobile/plugins/ios-notification-service/NotificationService.swift:163](../../apps/mobile/plugins/ios-notification-service/NotificationService.swift#L163) | url | /api/v1/push.get |
-| [apps/mobile/plugins/with-fcm-deeplink.js:1017](../../apps/mobile/plugins/with-fcm-deeplink.js#L1017) | url | /api/v1/chat.sendMessage |
-| [apps/mobile/plugins/with-fcm-deeplink.js:1030](../../apps/mobile/plugins/with-fcm-deeplink.js#L1030) | url | /api/v1/chat.sendMessage |
-| [apps/mobile/plugins/with-fcm-deeplink.js:1121](../../apps/mobile/plugins/with-fcm-deeplink.js#L1121) | url | /api/v1/push.get |
-| [apps/mobile/plugins/with-fcm-deeplink.js:1139](../../apps/mobile/plugins/with-fcm-deeplink.js#L1139) | url | /api/v1/push.get |
+| [apps/mobile/plugins/native-push-source.js:36](../../apps/mobile/plugins/native-push-source.js#L36) | url | /api/v1/me/push |
+| [apps/mobile/plugins/native-push-source.js:117](../../apps/mobile/plugins/native-push-source.js#L117) | url | /api/v1 |
+| [apps/mobile/plugins/native-push-source.js:163](../../apps/mobile/plugins/native-push-source.js#L163) | url | /api/v1/push/notifications |
+| [apps/mobile/plugins/native-push-source.js:222](../../apps/mobile/plugins/native-push-source.js#L222) | url | /api/v1/rooms |
+| [apps/mobile/plugins/with-fcm-deeplink.js:1054](../../apps/mobile/plugins/with-fcm-deeplink.js#L1054) | url | /api/v1/chat.sendMessage |
+| [apps/mobile/plugins/with-fcm-deeplink.js:1067](../../apps/mobile/plugins/with-fcm-deeplink.js#L1067) | url | /api/v1/chat.sendMessage |
+| [apps/mobile/plugins/with-fcm-deeplink.js:1161](../../apps/mobile/plugins/with-fcm-deeplink.js#L1161) | url | /api/v1/push.get |
+| [apps/mobile/plugins/with-fcm-deeplink.js:1179](../../apps/mobile/plugins/with-fcm-deeplink.js#L1179) | url | /api/v1/push.get |
 | [apps/mobile/ui/messages.ts:289](../../apps/mobile/ui/messages.ts#L289) | endpoint | e2e.titre |
 | [apps/mobile/ui/messages.ts:290](../../apps/mobile/ui/messages.ts#L290) | endpoint | e2e.explication |
 | [apps/mobile/ui/messages.ts:292](../../apps/mobile/ui/messages.ts#L292) | endpoint | e2e.champ |

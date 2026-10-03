@@ -289,6 +289,36 @@ impl NativeClient {
         self.update_token(token);
     }
 
+    pub async fn register_push(
+        &self,
+        token: &str,
+    ) -> Result<rv_protocol::push::PushRegistration, Error> {
+        self.request(
+            Method::PUT,
+            "/api/v1/me/push",
+            Some(&rv_protocol::push::RegisterPush {
+                token: token.into(),
+            }),
+            false,
+        )
+        .await
+    }
+    pub async fn unregister_push(&self) -> Result<(), Error> {
+        self.empty(Method::DELETE, "/api/v1/me/push", false).await
+    }
+    pub async fn push_content(&self, id: &str) -> Result<rv_protocol::push::PushContent, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.request(
+            Method::GET,
+            &format!("/api/v1/push/notifications/{id}"),
+            None::<&()>,
+            false,
+        )
+        .await
+    }
+
     /// Does not replace an active credential. The account coordinator must pin
     /// discovery and commit the resulting session to secure storage first.
     pub async fn start_login(

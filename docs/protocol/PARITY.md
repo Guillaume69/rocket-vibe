@@ -33,7 +33,7 @@ d'avatars restent cependant recensés.
 | Mobile `urlFichierProtege`, Rust `fetch_protected` / `MediaClient::fetch` | Ressources `title_link`, `image_url`, `audio_url`, `video_url` ; origine vérifiée avant credentials | P14 |
 | DDP `souscrire(nom, cle)` | `stream-room-messages`, `stream-notify-user`, `stream-notify-room`, `stream-notify-logged` ; clés fabriquées dans le driver | P06 / P12 / P16 |
 | DDP handshake | `connect`, `login` avec reprise, `sub`, `unsub`, ping/pong ; aucune méthode métier | P01 / P06 |
-| Push Android Kotlin | `GET push.get` et `POST chat.sendMessage`, session lue du SecureStore ; indépendant du JS | P17 |
+| Push Android Kotlin | Rocket.Chat : `push.get` / `chat.sendMessage`. RocketVibe : registre de famille, fetch privé, WorkManager et réponse idempotente dans le plugin existant ; Firebase / téléphone à qualifier | [P17](PUSH.md) |
 | Extension iOS actuelle | `GET push.get` ; conservée côté RC, iOS natif hors périmètre RFC | P17 |
 | Liens / citations | `channel`, `group`, `direct` avec `?msg=`, liens app `rocketvibe://salon/…` | P07 / P21 |
 

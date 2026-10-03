@@ -663,6 +663,7 @@ pub(crate) async fn send_in_tx(
         .execute(&mut **tx)
         .await?;
     crate::link_previews::enqueue(tx, &id, &input.text).await?;
+    crate::push::enqueue(tx, &id).await?;
     let query = format!("{MESSAGE_SELECT} WHERE m.id=$1");
     let message = sqlx::query_as::<_, MessageRow>(&query)
         .bind(&id)

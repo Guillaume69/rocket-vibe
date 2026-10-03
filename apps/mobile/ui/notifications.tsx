@@ -24,6 +24,7 @@ import { salons, abonnements } from '../db/schema.ts';
 import { estSalonChiffre, poserSalonsChiffres } from './etatNotifications.ts';
 import { identifiantNotifSalon } from '../lib/notificationId.ts';
 import { traduireCourant } from './i18n.ts';
+import {useSession} from './session.tsx';
 import { useSynchro } from './synchro.tsx';
 
 /** Le salon d'un push, et le serveur d'où il vient (multi-session). */
@@ -121,11 +122,12 @@ export function GestionNotifications() {
   }, [routeur]);
 
   if (synchro.phase !== 'pret') return null;
-  return <SuiviBadgeEtChiffre />;
+  return <SuiviBadgeEtChiffre key={JSON.stringify(synchro.fournisseur.identite)} />;
 }
 
 /** Vit seulement quand la base est prête : badge, retrait des lus, chiffré. */
 function SuiviBadgeEtChiffre() {
+  const session=useSession().etat;
   const synchro = useSynchro();
   const base = synchro.phase === 'pret' ? synchro.base : null;
 
@@ -150,8 +152,13 @@ function SuiviBadgeEtChiffre() {
   // notification en attente dans la barre. Retirer une notification absente est
   // un `NotificationManagerCompat.cancel` sur un id inconnu — sans effet.
   const retirees = useRef(new Set<string>());
+  const observedRooms=useRef(new Set<string>());
   useEffect(() => {
+    if(lignesAbonnements===undefined)return;
     const aRetirer: string[] = [];
+    const present=new Set(lignesAbonnements.map(a=>a.rid));
+    if(session.phase==='connecte'&&session.session.genre==='rocketvibe')for(const rid of observedRooms.current)if(!present.has(rid))aRetirer.push(rid);
+    observedRooms.current=present;
     for (const a of lignesAbonnements ?? []) {
       if (a.nonLus > 0) {
         retirees.current.delete(a.rid);
@@ -161,8 +168,8 @@ function SuiviBadgeEtChiffre() {
       retirees.current.add(a.rid);
       aRetirer.push(a.rid);
     }
-    if (aRetirer.length > 0) retirerNotifsSalons(aRetirer);
-  }, [lignesAbonnements]);
+    if (aRetirer.length > 0) retirerNotifsSalons(aRetirer,session.phase==='connecte'?session.session:undefined);
+  }, [lignesAbonnements,session]);
 
   useEffect(() => {
     poserSalonsChiffres((lignesSalons ?? []).filter((s) => s.chiffre).map((s) => s.rid));
@@ -176,10 +183,10 @@ function SuiviBadgeEtChiffre() {
  * push est sa propre notification, groupée par `threadIdentifier` ; on retrouve
  * celles du salon par le `rid` que l'extension a rangé dans `ejson`.
  */
-function retirerNotifsSalons(rids: string[]): void {
+function retirerNotifsSalons(rids: string[],scope?:import('../lib/auth.ts').Session): void {
   if (Platform.OS !== 'ios') {
     for (const rid of rids) {
-      Notifications.dismissNotificationAsync(identifiantNotifSalon(rid)).catch(() => {});
+      Notifications.dismissNotificationAsync(identifiantNotifSalon(rid,scope)).catch(() => {});
     }
     return;
   }

@@ -67,6 +67,7 @@ export class NativeChat {
 
   constructor(session: Session, store: NativeStore, id: () => string, options: {
     transport?: NativeTransport; socket?: (url:string) => WebSocket; revoke?: (token:string) => void;
+    pushAndroid?: boolean;
     credentials?:(session:Session)=>Promise<Session>;
   } = {}) {
     this.session = session; this.store = store; this.id = id;

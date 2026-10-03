@@ -33,7 +33,7 @@ const {
   SERVICE_CLASS,
 } = plugin.chirurgie;
 
-const DEPS = ['com.google.firebase:firebase-messaging:25.0.1', 'androidx.work:work-runtime:2.10.1'];
+const DEPS = ['com.google.firebase:firebase-messaging:25.0.1', 'androidx.work:work-runtime:2.10.1', 'com.google.guava:guava:33.3.1-android'];
 
 /** Un app/build.gradle réduit à ce qui compte : un bloc racine, un imbriqué. */
 const GRADLE = `apply plugin: "com.android.application"
@@ -71,7 +71,7 @@ describe('ajouterDependances', () => {
     }
   });
 
-  it('déclare chacun des deux artefacts exactement une fois', () => {
+  it('déclare chaque artefact exactement une fois', () => {
     const sortie = ajouterDependances(GRADLE, DEPS);
     for (const dep of DEPS) {
       assert.equal(sortie.split(`implementation("${dep}")`).length - 1, 1);

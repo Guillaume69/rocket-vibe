@@ -145,5 +145,8 @@
       "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "media_type": "image/gif", "bytes": "42", "revision": "3"
     }]
-  }
+  },
+  "register_push": {"token":"fixture-fcm-registration-token"},
+  "push_registration": {"device_id":"fixture-device","instance_id":"fixture-instance","data_epoch":"fixture-epoch"},
+  "push_content": {"notification_id":"fixture-notification","device_id":"fixture-device","instance_id":"fixture-instance","data_epoch":"fixture-epoch","room":{"id":"room-id","name":"A room","kind":"private","revision":"9007199254740993"},"message":{"id":"message-id","room_id":"room-id","author":{"id":"alice-id","username":"alice","display_name":"Alice"},"text":"Bonjour 🚀","created_at":"2026-09-30T12:00:00+00:00","position":"9007199254740993","revision":"9007199254740993"}}
 }

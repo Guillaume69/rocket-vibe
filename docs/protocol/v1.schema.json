@@ -2889,6 +2889,56 @@
       ],
       "type": "object"
     },
+    "PushContent": {
+      "properties": {
+        "data_epoch": {
+          "type": "string"
+        },
+        "device_id": {
+          "type": "string"
+        },
+        "instance_id": {
+          "type": "string"
+        },
+        "message": {
+          "$ref": "#/$defs/Message"
+        },
+        "notification_id": {
+          "type": "string"
+        },
+        "room": {
+          "$ref": "#/$defs/Room"
+        }
+      },
+      "required": [
+        "notification_id",
+        "device_id",
+        "instance_id",
+        "data_epoch",
+        "room",
+        "message"
+      ],
+      "type": "object"
+    },
+    "PushRegistration": {
+      "properties": {
+        "data_epoch": {
+          "type": "string"
+        },
+        "device_id": {
+          "type": "string"
+        },
+        "instance_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_id",
+        "instance_id",
+        "data_epoch"
+      ],
+      "type": "object"
+    },
     "QuoteExcerpt": {
       "properties": {
         "author": {
@@ -3183,6 +3233,18 @@
       "required": [
         "factor_version",
         "operation_id"
+      ],
+      "type": "object"
+    },
+    "RegisterPush": {
+      "additionalProperties": false,
+      "properties": {
+        "token": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "token"
       ],
       "type": "object"
     },
@@ -4565,6 +4627,15 @@
     "public_room_page": {
       "$ref": "#/$defs/PublicRoomPage"
     },
+    "push_content": {
+      "$ref": "#/$defs/PushContent"
+    },
+    "push_registration": {
+      "$ref": "#/$defs/PushRegistration"
+    },
+    "register_push": {
+      "$ref": "#/$defs/RegisterPush"
+    },
     "room": {
       "$ref": "#/$defs/Room"
     },
@@ -4609,6 +4680,9 @@
     }
   },
   "required": [
+    "register_push",
+    "push_registration",
+    "push_content",
     "emoji_catalog",
     "own_profile",
     "update_profile",

@@ -252,6 +252,7 @@
     "apps/mobile/lib/messagesSysteme.ts",
     "apps/mobile/lib/monProfil.ts",
     "apps/mobile/lib/nativeAuthenticationStore.ts",
+    "apps/mobile/lib/nativePushNavigation.ts",
     "apps/mobile/lib/nativeSecurityStore.ts",
     "apps/mobile/lib/normaliser.ts",
     "apps/mobile/lib/notificationId.ts",
@@ -275,6 +276,7 @@
     "apps/mobile/lib/sync.ts",
     "apps/mobile/lib/upload.ts",
     "apps/mobile/plugins/ios-notification-service/NotificationService.swift",
+    "apps/mobile/plugins/native-push-source.js",
     "apps/mobile/plugins/with-architectures-cibles.js",
     "apps/mobile/plugins/with-fcm-deeplink.js",
     "apps/mobile/plugins/with-ios-push.js",
@@ -2566,25 +2568,25 @@
     },
     {
       "file": "apps/mobile/lib/auth.ts",
-      "line": 87,
+      "line": 89,
       "kind": "call:POST",
       "surface": "'login'"
     },
     {
       "file": "apps/mobile/lib/auth.ts",
-      "line": 101,
+      "line": 103,
       "kind": "call:POST",
       "surface": "'login'"
     },
     {
       "file": "apps/mobile/lib/auth.ts",
-      "line": 147,
+      "line": 149,
       "kind": "call:POST",
       "surface": "'users.2fa.sendEmailCode'"
     },
     {
       "file": "apps/mobile/lib/auth.ts",
-      "line": 169,
+      "line": 171,
       "kind": "call:POST",
       "surface": "'logout'"
     },
@@ -2931,26 +2933,50 @@
       "surface": "/api/v1/push.get"
     },
     {
+      "file": "apps/mobile/plugins/native-push-source.js",
+      "line": 36,
+      "kind": "url",
+      "surface": "/api/v1/me/push"
+    },
+    {
+      "file": "apps/mobile/plugins/native-push-source.js",
+      "line": 117,
+      "kind": "url",
+      "surface": "/api/v1"
+    },
+    {
+      "file": "apps/mobile/plugins/native-push-source.js",
+      "line": 163,
+      "kind": "url",
+      "surface": "/api/v1/push/notifications"
+    },
+    {
+      "file": "apps/mobile/plugins/native-push-source.js",
+      "line": 222,
+      "kind": "url",
+      "surface": "/api/v1/rooms"
+    },
+    {
       "file": "apps/mobile/plugins/with-fcm-deeplink.js",
-      "line": 1017,
+      "line": 1054,
       "kind": "url",
       "surface": "/api/v1/chat.sendMessage"
     },
     {
       "file": "apps/mobile/plugins/with-fcm-deeplink.js",
-      "line": 1030,
+      "line": 1067,
       "kind": "url",
       "surface": "/api/v1/chat.sendMessage"
     },
     {
       "file": "apps/mobile/plugins/with-fcm-deeplink.js",
-      "line": 1121,
+      "line": 1161,
       "kind": "url",
       "surface": "/api/v1/push.get"
     },
     {
       "file": "apps/mobile/plugins/with-fcm-deeplink.js",
-      "line": 1139,
+      "line": 1179,
       "kind": "url",
       "surface": "/api/v1/push.get"
     },

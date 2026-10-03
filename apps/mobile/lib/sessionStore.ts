@@ -59,6 +59,14 @@ const ACCES_EXTENSION_PUSH: SecureStore.SecureStoreOptions = {
 export async function enregistrerSession(session: Session): Promise<void> {
   return transactionSession(session.baseUrl,()=>ecrireSession(session));
 }
+
+export function retenirAppareilPushNatif(expected:Session,deviceId:string):Promise<void> {
+  return transactionSession(expected.baseUrl,async()=>{
+    const current=await lireSession(expected.baseUrl);
+    if(!current || current.genre!=='rocketvibe' || current.authToken!==expected.authToken || current.userId!==expected.userId || current.nativeInstanceId!==expected.nativeInstanceId || current.nativeDataEpoch!==expected.nativeDataEpoch)throw new NativeError(0,'session_closed');
+    await ecrireSession({...current,nativePushDeviceId:deviceId});
+  });
+}
 async function ecrireSession(session:Session):Promise<void> {
   await SecureStore.setItemAsync(await cle(session.baseUrl), JSON.stringify(session), ACCES_EXTENSION_PUSH);
 }

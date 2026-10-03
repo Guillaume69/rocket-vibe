@@ -123,6 +123,14 @@ export class NativeTransport {
   }
 
   restore(token: string): void { this.token = token; }
+
+  registerPush(token:string):Promise<import('./protocol.generated.ts').PushRegistration> {
+    return this.request('PushRegistration','/api/v1/me/push',{token},false,undefined,'PUT');
+  }
+  async unregisterPush():Promise<void> {await this.value('/api/v1/me/push',undefined,false,undefined,'DELETE');}
+  pushContent(id:string):Promise<import('./protocol.generated.ts').PushContent> {
+    return this.request('PushContent',`/api/v1/push/notifications/${encodeURIComponent(id)}`);
+  }
   // These anonymous steps never replace or revoke an already active account.
   // Persist the candidate in secure storage before finishFactor, then pin the
   // response identity before installing the completed session.

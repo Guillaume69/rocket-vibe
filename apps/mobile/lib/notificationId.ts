@@ -29,6 +29,7 @@ export function hashCodeJava(s: string): number {
 }
 
 /** L'identifiant expo de la notification de conversation d'un salon. */
-export function identifiantNotifSalon(rid: string): string {
-  return `expo-notifications://foreign_notifications?id=${hashCodeJava(rid)}`;
+export function identifiantNotifSalon(rid: string,scope?:{genre:string;userId:string;nativeInstanceId?:string;nativeDataEpoch?:string}): string {
+  const key=scope?.genre==='rocketvibe'?`rocketvibe:${scope.nativeInstanceId}:${scope.nativeDataEpoch}:${scope.userId}:${rid}`:rid;
+  return `expo-notifications://foreign_notifications?id=${hashCodeJava(key)}`;
 }

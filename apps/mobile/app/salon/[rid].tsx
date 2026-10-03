@@ -69,8 +69,9 @@ import { memeOrigine, origineDe } from '../../lib/origine.ts';
 import { MoteurSynchro } from '../../lib/sync.ts';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
 import { usePresence } from '../../ui/presence.ts';
-import { useT } from '../../ui/i18n.ts';
+import { useT,traduireCourant } from '../../ui/i18n.ts';
 import { useSession } from '../../ui/session.tsx';
+import {nativePushScope as decodeNativePushScope,nativePushMatches,nativePushServerUrl} from '../../lib/nativePushNavigation.ts';
 import { useSynchro } from '../../ui/synchro.tsx';
 import { ordreMessages } from '../../ui/ordreMessages.ts';
 import { type Couleurs, POLICES, useCouleurs } from '../../ui/theme.ts';
@@ -122,7 +123,7 @@ export default function EcranSalon() {
   // `host` vient du deep-link d'une notification (natif comme expo) : il dit de
   // QUEL serveur ce message parle. Absent pour toute navigation interne — le
   // comportement est alors exactement celui d'avant.
-  const { rid, host } = useLocalSearchParams<{ rid: string; host?: string }>();
+  const { rid, host, nativeScope } = useLocalSearchParams<{ rid: string; host?: string; nativeScope?:string }>();
   const { etat } = useSession();
   const synchro = useSynchro();
   const c = useCouleurs();
@@ -160,8 +161,14 @@ export default function EcranSalon() {
   // exactement celui d'avant plutôt que d'afficher au premier plan un texte
   // arbitraire de longueur arbitraire.
   const origineHote = typeof host === 'string' ? origineDe(host) : null;
+  const nativeHost=nativeScope!==undefined?nativePushServerUrl(host):null;
+  if(nativeHost && nativeHost!==nativePushServerUrl(etat.session.baseUrl))return <AutreServeur c={c} hote={nativeHost} rid={rid} nativeScope={nativeScope} />;
   if (origineHote !== null && !memeOrigine(host!, etat.session.baseUrl)) {
-    return <AutreServeur c={c} hote={origineHote} rid={rid} />;
+    return <AutreServeur c={c} hote={origineHote} rid={rid} nativeScope={nativeScope} />;
+  }
+  if(nativeScope!==undefined){
+    const scope=decodeNativePushScope(nativeScope);
+    if(!scope || !nativePushMatches(scope,etat.session) || host!==undefined&&!nativeHost)return <View style={[styles.centre,{backgroundColor:c.fond}]}><Text style={[styles.erreur,{color:c.texteErreur}]}>{traduireCourant('native.identityChanged')}</Text></View>;
   }
 
   const contenu = (membership?:string|null)=>(
@@ -194,7 +201,7 @@ export default function EcranSalon() {
  * notification ne doit pas emporter ça sans qu'on le demande. Geste explicite,
  * donc, et le libellé dit où l'on va.
  */
-function AutreServeur({ c, hote, rid }: { c: Couleurs; hote: string; rid: string }) {
+function AutreServeur({ c, hote, rid, nativeScope }: { c: Couleurs; hote: string; rid: string; nativeScope?:string }) {
   const t = useT();
   const routeur = useRouter();
   const { changerDeServeur } = useSession();
@@ -209,7 +216,7 @@ function AutreServeur({ c, hote, rid }: { c: Couleurs; hote: string; rid: string
         // Succès : `replace` retire le `host` de l'URL. Le laisser rejouerait ce
         // même écran si l'utilisateur repassait plus tard sur l'autre serveur.
         // Aucun `setState` sur ce chemin : l'écran est déjà en train de partir.
-        if (ok) routeur.replace({ pathname: '/salon/[rid]', params: { rid } });
+        if (ok) routeur.replace({ pathname: '/salon/[rid]', params: { rid,...(nativeScope?{nativeScope}:{}) } });
         else {
           setOccupe(false);
           setEchec(true);
@@ -220,7 +227,7 @@ function AutreServeur({ c, hote, rid }: { c: Couleurs; hote: string; rid: string
         setEchec(true);
       },
     );
-  }, [changerDeServeur, hote, rid, routeur]);
+  }, [changerDeServeur, hote, rid, routeur,nativeScope]);
 
   return (
     <View style={[styles.centre, { backgroundColor: c.fond }]}>

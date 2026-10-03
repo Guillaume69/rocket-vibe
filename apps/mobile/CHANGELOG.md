@@ -9,6 +9,11 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Android : inscriptions FCM liées au compte RocketVibe, contenu récupéré par
+  session privée, notifications de conversation et réponses différées idempotentes.
+  Les liens et le retrait des notifications respectent l'instance et le compte.
+  Le parcours Rocket.Chat reste disponible ; qualification Firebase / téléphone ouverte.
+
 - Les cartes d'intégration affichent auteur, titre, texte, couleur et champs
   dans les lignes de message actuelles, avec Rocket.Chat et RocketVibe.
   Les cartes natives suivent les droits du salon et la recherche des messages.

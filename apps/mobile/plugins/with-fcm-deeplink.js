@@ -7,12 +7,16 @@ const {
 } = require('expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
+const nativePushSource = require('./native-push-source.js');
 
 // Aligné sur la version qu'expo-notifications embarque (transitive, non exposée
 // au module app — d'où cette déclaration directe pour compiler la sous-classe).
 const FIREBASE_MESSAGING = 'com.google.firebase:firebase-messaging:25.0.1';
 // Rattrapage différé des push.get ratés (voir RattrapagePushWorker ci-dessous).
 const ANDROIDX_WORK = 'androidx.work:work-runtime:2.10.1';
+// Operation.result expose ListenableFuture. Firebase amène déjà Guava au
+// runtime, mais son artefact listenablefuture vide masque la classe à compile.
+const GUAVA = 'com.google.guava:guava:33.3.1-android';
 
 /**
  * Répare le deep-link au tap d'une notification push, et rend les pushes de
@@ -155,6 +159,10 @@ import javax.crypto.spec.GCMParameterSpec
  * android/ est gitignoré (CNG) et régénéré par \`expo prebuild\`.
  */
 class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
+  override fun onNewToken(token: String) {
+    super.onNewToken(token)
+    enregistrerRotationNative(this, token)
+  }
   override fun handleIntent(intent: Intent) {
     val extras = intent.extras
     if (extras != null) {
@@ -179,6 +187,10 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
         }
       }
       intent.replaceExtras(extras)
+      if (extras.getString("product") == "rocketvibe") {
+        recevoirPushNatif(this, extras)
+        return
+      }
       if (BuildConfig.DEBUG) {
         val dump = extras.keySet().joinToString(", ") { k -> k + "=" + extras.get(k) }
         Log.d(TAG, "handleIntent data: " + dump)
@@ -647,7 +659,8 @@ private fun afficherNotifSalon(
     texte = texte.substring(username.length + 2)
   }
 
-  val notifId = rid.hashCode()
+  val nativeScope = ejson.optJSONObject("nativeScope")
+  val notifId = (nativeScope?.let { cleNotifNative(it, rid) } ?: rid).hashCode()
   val manager = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
   // Ré-extraire le style de la notification active du même salon : les
@@ -681,6 +694,7 @@ private fun afficherNotifSalon(
     silencieux,
     reponse = ejson.optString("messageType") != "e2e",
     tmid = ejson.optString("tmid").ifEmpty { null },
+    nativeScope = nativeScope,
   )
   if (BuildConfig.DEBUG) {
     Log.d(TAG, "notif salon postée (rid=" + rid + ", id=" + notifId + ")")
@@ -702,8 +716,9 @@ private fun publierNotifSalon(
   reponse: Boolean,
   tmid: String?,
   sousTexte: String? = null,
+  nativeScope: JSONObject? = null,
 ) {
-  val notifId = rid.hashCode()
+  val notifId = (nativeScope?.let { cleNotifNative(it, rid) } ?: rid).hashCode()
   // Le tap ouvre le salon par deep-link expo-router. MainActivity est
   // \`singleTask\` : avec le SEUL flag NEW_TASK, un VIEW est délivré à l'Activity
   // vivante par onNewIntent (app en marche/fond, PAS de recréation), et démarre
@@ -728,6 +743,9 @@ private fun publierNotifSalon(
   // premier plan, il empêchait la navigation vers le salon (constaté sur l'AVD).
   val lien = StringBuilder("rocketvibe://salon/").append(Uri.encode(rid))
   if (host.isNotEmpty()) lien.append("?host=").append(Uri.encode(host))
+  if (nativeScope != null) lien.append("&nativeScope=").append(Uri.encode(JSONObject()
+    .put("instanceId", nativeScope.optString("instanceId")).put("dataEpoch", nativeScope.optString("dataEpoch"))
+    .put("userId", nativeScope.optString("userId")).toString()))
   val tap = Intent(Intent.ACTION_VIEW, Uri.parse(lien.toString()))
     .setPackage(ctx.packageName)
     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -749,7 +767,7 @@ private fun publierNotifSalon(
     .setCategory(NotificationCompat.CATEGORY_MESSAGE)
     .setSilent(silencieux)
   if (sousTexte != null) constructeur.setSubText(sousTexte)
-  if (reponse && host.isNotEmpty()) constructeur.addAction(actionRepondre(ctx, rid, host, tmid))
+  if (reponse && host.isNotEmpty()) constructeur.addAction(actionRepondre(ctx, rid, host, tmid, nativeScope))
   NotificationManagerCompat.from(ctx).notify(notifId, constructeur.build())
 }
 
@@ -764,15 +782,17 @@ private fun actionRepondre(
   rid: String,
   host: String,
   tmid: String?,
+  nativeScope: JSONObject? = null,
 ): NotificationCompat.Action {
   val libelle = chaine(ctx, R.string.rv_push_repondre, "Reply")
   val intent = Intent(ctx, ${RECEPTEUR_CLASS}::class.java)
     .putExtra(EXTRA_RID, rid)
     .putExtra(EXTRA_HOST, host)
   if (tmid != null) intent.putExtra(EXTRA_TMID, tmid)
+  if (nativeScope != null) intent.putExtra("nativeScope", nativeScope.toString())
   val pending = PendingIntent.getBroadcast(
     ctx,
-    rid.hashCode(),
+    (nativeScope?.let { cleNotifNative(it, rid) } ?: rid).hashCode(),
     intent,
     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
   )
@@ -925,6 +945,7 @@ private fun lireSession(ctx: Context, host: String): JSONObject? {
         continue
       }
       if (session.optString("authToken").isEmpty() || session.optString("userId").isEmpty()) continue
+      if (session.optString("genre") == "rocketvibe") continue
       if (origineDe(session.optString("baseUrl")) == attendue) return session
     }
     journal(ctx, "push: aucune session pour " + attendue)
@@ -997,6 +1018,22 @@ class ${RECEPTEUR_CLASS} : BroadcastReceiver() {
     val tmid = intent.getStringExtra(EXTRA_TMID)
     if (rid.isEmpty() || host.isEmpty()) return
     val appContext = ctx.applicationContext
+    val native = intent.getStringExtra("nativeScope")
+    if (native != null) {
+      val finNative = goAsync()
+      Thread {
+        try {
+          val scope = JSONObject(native)
+          val queued = try { planifierReponseNative(appContext, scope, texte) } catch (_: Exception) { false }
+          val sessionNative = lireSessionNative(appContext, scope)
+          if (!queued && sessionNative != null) reposerApresReponse(appContext, rid, sessionNative.optString("baseUrl"), tmid, texte, false, scope)
+          if (sessionNative == null) NotificationManagerCompat.from(appContext).cancel(cleNotifNative(scope, rid).hashCode())
+        } catch (_: Exception) {
+          journal(appContext, "native reply scheduling failed")
+        } finally { finNative.finish() }
+      }.start()
+      return
+    }
     val fin = goAsync()
     Thread {
       try {
@@ -1067,9 +1104,11 @@ private fun reposerApresReponse(
   tmid: String?,
   texte: String,
   envoye: Boolean,
+  nativeScope: JSONObject? = null,
 ) {
   val manager = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-  val active = manager.activeNotifications.firstOrNull { it.id == rid.hashCode() }
+  val nativeId = (nativeScope?.let { cleNotifNative(it, rid) } ?: rid).hashCode()
+  val active = manager.activeNotifications.firstOrNull { it.id == nativeId }
   val style = active?.let {
     NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(it.notification)
   } ?: NotificationCompat.MessagingStyle(
@@ -1085,6 +1124,7 @@ private fun reposerApresReponse(
     reponse = true,
     tmid = tmid,
     sousTexte = if (envoye) null else chaine(ctx, R.string.rv_push_reponse_echec, "Reply not sent"),
+    nativeScope = nativeScope,
   )
 }
 
@@ -1185,6 +1225,7 @@ private fun attenteApres429(conn: HttpURLConnection): Long {
 
 /** Retire les « / » finaux, comme le sansSlashFinal côté JS (sessionStore). */
 private fun sansSlashFinal(u: String): String = u.trimEnd('/')
+${nativePushSource()}
 `;
 }
 
@@ -1332,6 +1373,7 @@ function withNativeDeps(config) {
     config.modResults.contents = ajouterDependances(config.modResults.contents, [
       FIREBASE_MESSAGING,
       ANDROIDX_WORK,
+      GUAVA,
     ]);
     return config;
   });
@@ -1385,4 +1427,5 @@ module.exports.chirurgie = {
   echapperXml,
   stringsXml,
   CHAINES,
+  kotlinSource,
 };

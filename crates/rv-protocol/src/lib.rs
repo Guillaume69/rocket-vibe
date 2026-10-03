@@ -11,6 +11,7 @@ pub mod live;
 pub mod markdown;
 pub mod parity;
 pub mod profiles;
+pub mod push;
 pub mod search;
 pub mod system;
 
@@ -495,6 +496,9 @@ pub struct ApiError {
 /// Single schema root, also used by the TypeScript binding generator.
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct Contract {
+    pub register_push: push::RegisterPush,
+    pub push_registration: push::PushRegistration,
+    pub push_content: push::PushContent,
     pub emoji_catalog: custom_emojis::EmojiCatalog,
     pub own_profile: profiles::OwnProfile,
     pub update_profile: profiles::UpdateProfile,

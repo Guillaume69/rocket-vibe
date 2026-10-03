@@ -43,6 +43,7 @@
     "apps/desktop/crates/rv-core/src/native/link_previews.rs",
     "apps/desktop/crates/rv-core/src/native/live.rs",
     "apps/desktop/crates/rv-core/src/native/markdown.rs",
+    "apps/desktop/crates/rv-core/src/native/notifications.rs",
     "apps/desktop/crates/rv-core/src/native/profiles.rs",
     "apps/desktop/crates/rv-core/src/native/read_intents.rs",
     "apps/desktop/crates/rv-core/src/native/read_presentation.rs",
@@ -58,6 +59,7 @@
     "apps/desktop/crates/rv-core/src/native/store/files.rs",
     "apps/desktop/crates/rv-core/src/native/store/link_previews.rs",
     "apps/desktop/crates/rv-core/src/native/store/membership.rs",
+    "apps/desktop/crates/rv-core/src/native/store/notifications.rs",
     "apps/desktop/crates/rv-core/src/native/store/profiles.rs",
     "apps/desktop/crates/rv-core/src/native/store/quotes.rs",
     "apps/desktop/crates/rv-core/src/native/store/quotes/tests.rs",
@@ -2166,25 +2168,25 @@
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 301,
+      "line": 306,
       "kind": "endpoint",
       "surface": "e2e.wrong"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 302,
+      "line": 307,
       "kind": "endpoint",
       "surface": "e2e.no_keys"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 303,
+      "line": 308,
       "kind": "endpoint",
       "surface": "e2e.failed"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 306,
+      "line": 311,
       "kind": "endpoint",
       "surface": "e2e.failed"
     },

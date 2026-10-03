@@ -347,6 +347,10 @@ pub struct Message {
     /// Present only in account-scoped reads or a journal event for its owner.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub personal_star: Option<Box<PersonalStar>>,
+    /// Captured mention eligibility for this reader, including the original
+    /// recipients of @here. Never persisted in a shared journal payload.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub personal_mention: Option<bool>,
 }
 
 fn is_false(value: &bool) -> bool {

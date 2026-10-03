@@ -101,6 +101,7 @@ impl MessageRow {
             reactions: self.reactions.0,
             pinned: self.pinned,
             personal_star: None,
+            personal_mention: None,
             cards: if self.deleted {
                 Vec::new()
             } else {

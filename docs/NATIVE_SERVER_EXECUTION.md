@@ -319,6 +319,22 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P17 / J3, raccord des notifications bureau (3 octobre 2026) : créations live
+  capturées avec le curseur SQLite, histoire / rattrapage / éditions silencieux,
+  déduplication, préférences et barrières de lecture / adhésion. Le contrat
+  `Message.personal_mention` renseigne les lecteurs depuis la capture serveur,
+  sans propriété personnelle dans le journal partagé. GTK et SwiftUI conservent
+  leurs notifications, avec navigation vers le message / fil et réponse via la
+  file d'envoi normale ; les références OS sont épinglées au compte / époque.
+  Quatre tests du cœur, dont vrai WebSocket et réponses de fils, sept tests
+  PostgreSQL / HTTP et neuf tests du contrat passent. Clippy bureau / serveur et
+  typage mobile passent ; bindings / modèles Swift recompilés et six tests
+  locaux Swift passent. Les neuf tests d'intégration Swift sans serveur sont
+  explicitement ignorés, sans être comptés comme preuves. Compilation AppKit
+  à confirmer en CI macOS ; notifications système installées et actions au
+  démarrage à froid P21 restent ouvertes.
+  La CI du push Android `66b032b` est entièrement verte. [Contrat](protocol/PUSH.md).
+
 - P17 / J3, push serveur et raccord Android (3 octobre 2026) : registre lié à
   la famille de session, capture atomique des tâches, leases / retries bornés,
   OAuth FCM HTTP v1 et payload d'identifiants uniquement. La lecture privée

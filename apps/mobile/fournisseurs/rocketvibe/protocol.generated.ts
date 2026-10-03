@@ -51,7 +51,7 @@ export type LiveState = { "emoji_catalog_revision"?: string | null; "limited": b
 export type Login = { "password": string; "username": string; };
 export type MarkRead = { "reply_position": string; "root_position": string; };
 export type MarkThreadRead = { "position": string; };
-export type Message = { "author": User; "body"?: Document | null; "cards"?: (IntegrationCard)[]; "created_at": string; "deleted"?: boolean; "edited_at"?: string | null; "files"?: (FileDescriptor)[]; "id": string; "personal_star"?: PersonalStar | null; "pinned"?: boolean; "position": string; "previews"?: (LinkPreview)[]; "quotes"?: (MessageQuote)[]; "reactions"?: (MessageReaction)[]; "reply_to"?: string | null; "revision": string; "room_id": string; "system"?: SystemMessage | null; "text": string; "thread"?: ThreadSummary | null; };
+export type Message = { "author": User; "body"?: Document | null; "cards"?: (IntegrationCard)[]; "created_at": string; "deleted"?: boolean; "edited_at"?: string | null; "files"?: (FileDescriptor)[]; "id": string; "personal_mention"?: boolean | null; "personal_star"?: PersonalStar | null; "pinned"?: boolean; "position": string; "previews"?: (LinkPreview)[]; "quotes"?: (MessageQuote)[]; "reactions"?: (MessageReaction)[]; "reply_to"?: string | null; "revision": string; "room_id": string; "system"?: SystemMessage | null; "text": string; "thread"?: ThreadSummary | null; };
 export type MessageContent = { "files": (string)[]; "kind": "plain"; "markdown": string; "mentions": (string)[]; "quotes": (QuoteReference)[]; } | { "format": string; "key_version": string; "kind": "encrypted"; "payload": string; };
 export type MessagePage = { "has_more": boolean; "messages": (Message)[]; };
 export type MessagePermissions = { "delete": boolean; "edit": boolean; "edit_until"?: string | null; "message_id": string; "pin": boolean; "react": boolean; "revision": string; "star": boolean; };
@@ -1659,6 +1659,13 @@ export const nativeSchema = {
         },
         "id": {
           "type": "string"
+        },
+        "personal_mention": {
+          "description": "Captured mention eligibility for this reader, including the original\nrecipients of @here. Never persisted in a shared journal payload.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "personal_star": {
           "anyOf": [

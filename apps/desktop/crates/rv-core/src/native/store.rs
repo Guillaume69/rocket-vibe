@@ -3,6 +3,7 @@ mod custom_emojis;
 mod files;
 mod link_previews;
 mod membership;
+mod notifications;
 mod profiles;
 mod quotes;
 mod read_intents;
@@ -12,6 +13,7 @@ mod room_operations;
 mod threads;
 use super::Identity;
 pub use files::FileIntent;
+pub use notifications::Notification;
 pub use profiles::{AvatarUpload, DirectPeer, ProfileOperation, SavedProfileOperation};
 pub use quotes::QuoteSelection;
 pub use read_intents::{PendingRead, SavedFavorite};
@@ -638,6 +640,10 @@ impl NativeStore {
         })
     }
     pub fn batch(&self, batch: &SyncBatch) -> rusqlite::Result<()> {
+        self.batch_notifying(batch, None).map(|_| ())
+    }
+    /// Catch-up and snapshots stay quiet. Only the live receiver supplies a reader.
+    pub fn batch_notifying(&self, batch: &SyncBatch, reader: Option<&str>) -> rusqlite::Result<Vec<Notification>> {
         if batch.protocol_version != VERSION {
             return Err(rusqlite::Error::InvalidQuery);
         }
@@ -645,6 +651,7 @@ impl NativeStore {
             if !self.same(tx)? {
                 return Err(rusqlite::Error::InvalidQuery);
             }
+            let candidates = reader.map(|me| notifications::capture(tx, batch, me)).transpose()?.unwrap_or_default();
             let mut rotate = batch.changes.iter().any(|c| matches!(c, Change::RoomRemoved { .. }));
             for change in &batch.changes {
                 match change {
@@ -654,7 +661,15 @@ impl NativeStore {
                 }
             }
             self.cursor_in(tx, &batch.cursor)?;
-            Ok(((), rotate))
+            let candidates = candidates
+                .into_iter()
+                .filter_map(|n| match notifications::valid(tx, &n, true) {
+                    Ok(true) => Some(Ok(n)),
+                    Ok(false) => None,
+                    Err(e) => Some(Err(e)),
+                })
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok((candidates, rotate))
         })
     }
     pub fn ingest(&self, messages: &[Message]) -> rusqlite::Result<()> {

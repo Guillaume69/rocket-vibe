@@ -9,6 +9,11 @@ section here.
 
 ### Fixed
 
+- RocketVibe live messages use the existing GTK and SwiftUI desktop notifications,
+  account preferences, message navigation and durable replies. History, edits and
+  repeated deliveries stay quiet; read markers and membership changes retire
+  notifications, and callbacks are scoped to their original account and epoch.
+
 - Integration attachments carry author, title, text, color and fields into the
   existing GTK and SwiftUI cards with either provider. Native cards use normal
   room permissions, idempotent sends and searchable message history.

@@ -181,6 +181,7 @@ impl NativeSession {
             return Err(Error::Protocol("delivery_revalidate"));
         }
         self.cache_profile(&own.profile, generation, projection)?;
+        self.update_notification_preference(&own);
         Ok(own)
     }
     fn cache_profile(&self, profile: &UserProfile, generation: u64, projection: u64) -> Result<(), Error> {

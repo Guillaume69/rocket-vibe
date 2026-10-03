@@ -29,6 +29,7 @@ pub struct Response {
     /// Close the connection without answering: a network failure for the client.
     pub drop: bool,
     pub websocket: bool,
+    pub websocket_frames: Vec<serde_json::Value>,
 }
 
 pub fn respond(status: u16, body: &str) -> Response {
@@ -134,7 +135,16 @@ impl FakeHttp {
                                 None,
                             )
                             .await;
-                            use futures_util::StreamExt;
+                            use futures_util::{SinkExt, StreamExt};
+                            for frame in response.websocket_frames {
+                                if ws
+                                    .send(tokio_tungstenite::tungstenite::Message::Text(frame.to_string().into()))
+                                    .await
+                                    .is_err()
+                                {
+                                    return;
+                                }
+                            }
                             while ws.next().await.is_some() {}
                             return;
                         }

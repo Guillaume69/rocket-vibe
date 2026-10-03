@@ -42,6 +42,7 @@ public final class AppModel {
     @ObservationIgnored var selectionId = UUID()
 
     public var onIncoming: ((Incoming) -> Void)?
+    public var onWithdraw: ((String) -> Void)?
     /// The dock badge: mentions and direct messages.
     public var onAttention: ((Int64) -> Void)?
 
@@ -161,6 +162,7 @@ public final class AppModel {
         case let .changed(rooms, rids):
             later(rooms: rooms, rids: rids)
         case .resync:
+            for key in native?.withdrawnNotifications() ?? [] { onWithdraw?(key) }
             later(everything: true)
         case let .connection(state):
             let wasOnline = connection == .online
@@ -256,13 +258,16 @@ public final class AppModel {
         }
     }
 
-    public func openThread(_ rootId: String) {
+    public func openThread(_ rootId: String, message: String? = nil) {
         guard let provider, let room else { return }
         if let native = provider.native, !native.supportedFeatures().contains("threads") { return }
         let model = RoomModel(provider: provider, room: room.room, threadId: rootId)
         thread?.deactivate()
         thread = model
-        Task { await model.load() }
+        Task {
+            await model.load()
+            if let message { _ = await model.jump(to: message) }
+        }
     }
 
     public func closeThread() {

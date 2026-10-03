@@ -118,6 +118,11 @@ pub struct NativeStatus {
     pub retry_after: Option<u64>,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+pub struct NativeNotificationTarget {
+    pub rid: String,
+    pub root: Option<String>,
+}
+#[derive(Clone, Debug, uniffi::Record)]
 pub struct NativeRoomReadState {
     pub membership: String,
     pub root_position: String,
@@ -327,7 +332,8 @@ impl NativeChat {
     }
     /// Shared UI events; callbacks cease when this provider is shut down.
     pub fn set_listener(&self, listener: Arc<dyn Listener>) {
-        let (mut changes, mut events) = (self.session.store.changes(), self.session.events());
+        let (mut changes, mut events, mut incoming) =
+            (self.session.store.changes(), self.session.events(), self.session.incoming());
         let session = Arc::downgrade(&self.session);
         let task = runtime().spawn(async move {
             let mut profiles = String::new();
@@ -341,7 +347,19 @@ impl NativeChat {
                 listener.on_event(Event::Connection { state: crate::state(s.status().connection) });
                 listener.on_event(Event::Resync);
                 drop(s);
-                let next = tokio::select! { c = changes.recv() => c, e = events.recv() => e };
+                let next = tokio::select! {
+                    c = changes.recv() => c, e = events.recv() => e,
+                    n = incoming.recv() => {
+                        match n {
+                            Ok(n) => if let Some(s)=session.upgrade() && s.notification_current(&n) {
+                                listener.on_event(crate::event(rv_core::session::SessionEvent::Incoming(Box::new(n))));
+                            },
+                            Err(RecvError::Closed)=>return,
+                            Err(RecvError::Lagged(_))=>{},
+                        }
+                        continue;
+                    }
+                };
                 if matches!(next, Err(RecvError::Closed)) {
                     return;
                 }
@@ -371,6 +389,19 @@ impl NativeChat {
             })
             .collect())
     }
+    pub fn notification_key(&self, rid: String) -> String {
+        self.session.notification_key(&rid)
+    }
+    pub fn notification_target(&self, key: String, message: String) -> Option<NativeNotificationTarget> {
+        self.session.notification_target(&key, &message).map(|(rid, root)| NativeNotificationTarget { rid, root })
+    }
+    pub fn reply_notification(&self, key: String, message: String, text: String) -> Result<String, RvError> {
+        self.session.reply_notification(&key, &message, &text).map_err(native_error)
+    }
+    pub fn withdrawn_notifications(&self) -> Vec<String> {
+        self.session.withdrawn_notifications()
+    }
+
     /// Preserve journal sequence order, then apply the existing grouping and Markdown renderer.
     pub fn message_items(&self, room: String, limit: u32) -> Result<Vec<MessageItem>, RvError> {
         let rows = self.session.store.messages(&room, limit.clamp(1, 10_000) as usize).map_err(RvError::local)?;

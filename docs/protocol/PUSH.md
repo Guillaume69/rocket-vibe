@@ -41,6 +41,11 @@ Références primaires : [FCM HTTP v1](https://firebase.google.com/docs/cloud-me
   room,message}` avec les règles de lecture normales des citations / fichiers.
   Un autre appareil du même utilisateur ne peut pas lire cette notification.
 
+Les lectures personnelles de `Message` ajoutent `personal_mention`, un booléen
+optionnel calculé depuis les destinataires capturés à l'envoi. Le journal partagé
+ne le conserve jamais. Une édition n'ajoute pas de destinataire ; les lecteurs
+bureau ne déduisent donc pas une mention depuis un pseudo changé ou `@here`.
+
 FCM reçoit uniquement `product`, `instanceId`, `dataEpoch`, `userId`, `deviceId`,
 `notificationId`, `rid`, `messageId`, et éventuellement `tmid`. Aucun bloc
 `notification`, contenu, mot de passe, bearer ou URL de serveur n'est envoyé.
@@ -103,6 +108,33 @@ pour respecter les 10 KiB de `Data` Android ; un dépassement affiche l'échec d
 la notification. Les écrans d'envoi conservent leur limite habituelle.
 La famille, l'époque et l'utilisateur sont revérifiés à chaque reprise.
 
+## Bureau existant
+
+Seuls les lots reçus sur le WebSocket connecté produisent des candidats, dans
+la transaction SQLite qui applique leur curseur. Snapshot, rattrapage HTTP,
+histoire déjà chargée, auteur courant, éditions, suppressions et activités
+système restent silencieux. Une création exige `position == revision` et une
+adhésion déjà connue. Après projection, lectures de salon / fil, suppression et
+durée de l'adhésion sont revérifiées avant toute alerte.
+
+Les préférences bureau sont chargées au raccord, actualisées par les réglages
+locaux et relues toutes les 60 secondes. Une préférence initiale indisponible
+garde les notifications silencieuses ; elle ne coupe pas la messagerie.
+`all`, `nothing` et DM / mentions réutilisent la règle du client existant.
+Un salon déjà visible dans la fenêtre active ne produit pas de notification.
+
+GTK réutilise D-Bus, les toasts Windows et le repli GLib ; SwiftUI conserve
+`UNUserNotificationCenter`. Les références OS portent une clé calculée depuis
+serveur / compte / instance / époque / salon, sans credential. Un clic ou une
+réponse vérifie l'adhésion d'origine et la présence du message. La réponse prend
+le chemin d'envoi persistant habituel, avec la racine du fil si nécessaire.
+Lectures, retrait du salon et préférence désactivée retirent les notifications.
+
+Les références d'action sont bornées à 256 et vivent pendant la session bureau.
+Le démarrage à froid et la sélection d'un autre compte depuis une ancienne
+notification restent à couvrir avec P21 ; les parcours système installés restent
+à qualifier sur Linux, Windows et macOS.
+
 ## Preuves et qualification encore ouverte
 
 Tests PostgreSQL / HTTP : capture atomique, rejeu, concurrence, récupération de
@@ -116,5 +148,8 @@ API privée, navigation et identifiants de notification par compte.
 Le passage par Firebase réel et le parcours sur **Android physique app arrêtée**
 restent ouverts : réception, réveil WorkManager, langue, tap, réponse après perte
 de confirmation, refus de permission et révocation. Une compilation ou un banc
-HTTP simulé ne ferme pas ce critère. Les notifications bureau via le flux natif
-restent le lot suivant de P17. P17 / J3 ne sont pas déclarés terminés.
+HTTP simulé ne ferme pas ce critère. Les bancs bureau vérifient les créations sur
+un vrai WebSocket, le rejeu, la transaction / rollback, les lectures, les préférences,
+les réponses de fils, la suppression et la réadhésion. Ils ne prouvent pas les
+interactions avec les notifications système installées. P17 / J3 ne sont pas
+déclarés terminés.

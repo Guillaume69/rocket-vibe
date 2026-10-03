@@ -880,7 +880,7 @@ impl ChatPage {
         self.on_toast.replace(Some(Rc::new(f)));
     }
 
-    fn toast(&self, text: String) {
+    pub(crate) fn toast(&self, text: String) {
         if let Some(toast) = self.on_toast.borrow().clone() {
             toast(text);
         }

@@ -37,7 +37,7 @@ fn session_bus() -> Option<gio::DBusConnection> {
 }
 
 type OnOpen = Rc<dyn Fn(String, String)>;
-type OnReply = Rc<dyn Fn(String, String)>;
+type OnReply = Rc<dyn Fn(String, String, String)>;
 
 thread_local! {
     static CURRENT: RefCell<std::rc::Weak<Notifier>> = RefCell::default();
@@ -54,7 +54,7 @@ fn native_event(event: rv_native::Event) {
     let Some((open, reply)) = NATIVE.with_borrow(Clone::clone) else { return };
     match event {
         rv_native::Event::Open { room, message } => open(room, message),
-        rv_native::Event::Reply { room, text, .. } => reply(room, text),
+        rv_native::Event::Reply { room, message, text } => reply(room, message, text),
     }
 }
 
@@ -78,7 +78,7 @@ impl Notifier {
     pub fn new(
         app: &impl IsA<gio::Application>,
         open: impl Fn(String, String) + 'static,
-        reply: impl Fn(String, String) + 'static,
+        reply: impl Fn(String, String, String) + 'static,
     ) -> Rc<Self> {
         let (open, reply): (OnOpen, OnReply) = (Rc::new(open), Rc::new(reply));
         let app = app.clone().upcast::<gio::Application>();
@@ -150,8 +150,8 @@ impl Notifier {
                 let Some((id, text)) = signal.parameters.get::<(u32, String)>() else { return };
                 let Some(this) = weak.upgrade() else { return };
                 let target = this.shown.borrow().get(&id).cloned();
-                if let Some((rid, _)) = target {
-                    reply(rid, text);
+                if let Some((rid, message)) = target {
+                    reply(rid, message, text);
                 }
             },
         );

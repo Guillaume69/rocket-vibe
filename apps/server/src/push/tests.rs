@@ -4,6 +4,56 @@ use rv_protocol::{CreateRoom, SendMessage, parity::RenewSession};
 use sqlx::PgPool;
 
 const PASSWORD: &str = "disposable-push-test-password";
+#[sqlx::test]
+async fn push_reader_mentions_are_captured_privately_and_never_in_the_shared_message(pool: PgPool) {
+    let (app, owner, recipient, _, room) = setup(pool).await;
+    let here = store::send(
+        &app,
+        &owner,
+        &room,
+        input("@here offline readers do not gain a ping"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(here.personal_mention, None);
+    assert_eq!(
+        crate::message_actions::read(&app, &recipient, &here.id)
+            .await
+            .unwrap()
+            .personal_mention,
+        Some(false)
+    );
+    let direct = store::send(&app, &owner, &room, input("@push-recipient exact ping"))
+        .await
+        .unwrap();
+    assert_eq!(direct.personal_mention, None);
+    assert_eq!(
+        crate::message_actions::read(&app, &recipient, &direct.id)
+            .await
+            .unwrap()
+            .personal_mention,
+        Some(true)
+    );
+    assert_eq!(
+        crate::message_actions::read(&app, &owner, &direct.id)
+            .await
+            .unwrap()
+            .personal_mention,
+        Some(false)
+    );
+    sqlx::query("DELETE FROM message_mentions WHERE message_id=$1")
+        .bind(&direct.id)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        crate::message_actions::read(&app, &recipient, &direct.id)
+            .await
+            .unwrap()
+            .personal_mention,
+        Some(false)
+    );
+}
 async fn account(app: &App, name: &str) -> (Account, String) {
     auth::create_user(app, name, PASSWORD.into(), false)
         .await

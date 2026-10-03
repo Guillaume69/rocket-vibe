@@ -23,6 +23,10 @@ enum UiEvent {
     Resync,
     Session(SessionEvent),
 }
+enum NativeUiEvent {
+    Changed,
+    Incoming(rv_core::notify::Incoming),
+}
 
 struct PendingLogin {
     server: url::Url,
@@ -238,12 +242,37 @@ impl AppWindow {
             app,
             move |rid, message| {
                 if let Some(this) = w1.upgrade() {
+                    if let Some(native) = this.chat.native_session() {
+                        let Some((room, root)) = native.notification_target(&rid, &message) else { return };
+                        this.window.present();
+                        this.chat.open_message(&room, root.as_deref().unwrap_or(&message));
+                        if let Some(root) = root {
+                            this.chat.open_thread_of(&root);
+                            if let Some(thread) = this.chat.thread() {
+                                thread.list.reveal(&message);
+                            }
+                        }
+                        return;
+                    }
+                    if rid.starts_with("rv-native:") {
+                        return;
+                    }
                     this.window.present();
                     this.chat.open_message(&rid, &message);
                 }
             },
-            move |rid, text| {
-                if let Some(session) = w2.upgrade().and_then(|this| this.session.borrow().clone()) {
+            move |rid, message, text| {
+                let Some(this) = w2.upgrade() else { return };
+                if let Some(native) = this.chat.native_session() {
+                    if native.reply_notification(&rid, &message, &text).is_err() {
+                        this.chat.toast(t("native.error").to_owned());
+                    }
+                    return;
+                }
+                if rid.starts_with("rv-native:") {
+                    return;
+                }
+                if let Some(session) = this.session.borrow().clone() {
                     runtime().spawn(async move { session.send(&rid, &text).await });
                 }
             },
@@ -251,7 +280,12 @@ impl AppWindow {
         let weak = Rc::downgrade(&this);
         this.chat.connect_room_opened(move |rid| {
             if let Some(notifier) = weak.upgrade().and_then(|this| this.notifier.borrow().clone()) {
-                notifier.withdraw(&rid);
+                let key = weak
+                    .upgrade()
+                    .and_then(|this| this.chat.native_session())
+                    .map(|s| s.notification_key(&rid))
+                    .unwrap_or(rid);
+                notifier.withdraw(&key);
             }
         });
         this.notifier.replace(Some(notifier));
@@ -618,6 +652,42 @@ impl AppWindow {
             match started {
                 Ok(session) => {
                     self.db_path.replace(Some(path));
+                    let (tx, rx) = async_channel::bounded(64);
+                    let (mut incoming, mut changes, mut events) =
+                        (session.incoming(), session.store.changes(), session.events());
+                    self.forward.replace(Some(runtime().spawn(async move {
+                        loop {
+                            let event=tokio::select! {
+                                n=incoming.recv()=>match n {Ok(n)=>NativeUiEvent::Incoming(n),Err(RecvError::Closed)=>return,Err(RecvError::Lagged(_))=>continue},
+                                c=changes.recv()=>if matches!(c,Err(RecvError::Closed)){return}else{NativeUiEvent::Changed},
+                                e=events.recv()=>if matches!(e,Err(RecvError::Closed)){return}else{NativeUiEvent::Changed},
+                            };
+                            if tx.send(event).await.is_err(){return}
+                        }
+                    })));
+                    let (weak, visible) = (Rc::downgrade(self), session.clone());
+                    glib::spawn_future_local(async move {
+                        while let Ok(event) = rx.recv().await {
+                            let Some(this) = weak.upgrade() else { return };
+                            if this.chat.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &visible)) {
+                                return;
+                            }
+                            match event {
+                                NativeUiEvent::Incoming(n) => {
+                                    if visible.notification_current(&n) {
+                                        this.notify(&n)
+                                    }
+                                }
+                                NativeUiEvent::Changed => {
+                                    if let Some(notifier) = this.notifier.borrow().as_ref() {
+                                        for key in visible.withdrawn_notifications() {
+                                            notifier.withdraw(&key);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
                     self.chat.set_native_session(session);
                     self.stack.set_visible_child_name("chat");
                 }
@@ -720,7 +790,11 @@ impl AppWindow {
             && self.chat.shows_room()
             && self.chat.current_rid().as_deref() == Some(incoming.rid.as_str());
         if !watching && let Some(notifier) = self.notifier.borrow().as_ref() {
-            notifier.show(incoming);
+            let scoped = self
+                .chat
+                .native_session()
+                .map(|s| rv_core::notify::Incoming { rid: s.notification_key(&incoming.rid), ..incoming.clone() });
+            notifier.show(scoped.as_ref().unwrap_or(incoming));
         }
     }
 

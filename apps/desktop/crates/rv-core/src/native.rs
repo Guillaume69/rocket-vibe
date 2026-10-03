@@ -10,6 +10,7 @@ pub mod files;
 pub(crate) mod link_previews;
 mod live;
 pub mod markdown;
+mod notifications;
 pub mod profiles;
 mod read_intents;
 pub mod read_presentation;
@@ -257,6 +258,9 @@ pub struct NativeSession {
     status: Mutex<Status>,
     capabilities: Mutex<Option<rv_protocol::Capabilities>>,
     events: broadcast::Sender<()>,
+    incoming: broadcast::Sender<crate::notify::Incoming>,
+    notifications: Mutex<std::collections::VecDeque<store::Notification>>,
+    notification_preference: Mutex<String>,
     control: watch::Sender<u64>,
     wake: Notify,
     paused: AtomicBool,
@@ -298,6 +302,7 @@ impl NativeSession {
         let mut client = NativeClient::new(&info.base_url)?;
         client.restore(info.auth_token.clone());
         let (events, _) = broadcast::channel(32);
+        let (incoming, _) = broadcast::channel(256);
         let (control, mut changed) = watch::channel(0);
         let files = files::Files::new(path, &info);
         let session = Arc::new(Self {
@@ -312,6 +317,9 @@ impl NativeSession {
             }),
             capabilities: Mutex::new(None),
             events,
+            incoming,
+            notifications: Mutex::new(std::collections::VecDeque::new()),
+            notification_preference: Mutex::new("nothing".into()),
             control,
             wake: Notify::new(),
             paused: AtomicBool::new(false),
@@ -631,6 +639,12 @@ impl NativeSession {
             self.snapshot().await?;
         }
         self.verified.store(true, Ordering::SeqCst);
+        let has_profiles = self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.profiles);
+        if has_profiles {
+            self.refresh_notification_settings().await?;
+        } else {
+            *self.notification_preference.lock().unwrap() = "default".into();
+        }
         self.refresh_emojis().await?;
         self.file_wake.notify_one();
         self.flush().await?;
@@ -652,6 +666,8 @@ impl NativeSession {
         live_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut presence_due = tokio::time::Instant::now();
         let mut last = tokio::time::Instant::now();
+        let mut settings_tick = tokio::time::interval(Duration::from_secs(60));
+        settings_tick.tick().await;
         let credential_check = tokio::time::Instant::now() + Duration::from_secs(24 * 60 * 60);
         loop {
             let state_retry = self.state_retry_deadline();
@@ -666,7 +682,9 @@ impl NativeSession {
                                 if state.rooms.iter().any(|r|self.store.read_state(&r.room_id).ok().flatten().and_then(|s|s.membership_version).as_deref()!=Some(&r.membership_version)) {self.clear_live();}
                                 else {self.apply_live_profiles(&state)?;if self.live.lock().unwrap().apply(state,std::time::Instant::now()){let _=self.events.send(());}}
                             } else {
-                                let batch=serde_json::from_value(value).map_err(|_|Error::Protocol("invalid_batch"))?;self.store.batch(&batch)?;
+                                let batch=serde_json::from_value(value).map_err(|_|Error::Protocol("invalid_batch"))?;
+                                let notifications=self.store.batch_notifying(&batch,Some(&self.info.user_id))?;
+                                self.publish_notifications(notifications);
                                 let invalid=self.live.lock().unwrap().state.as_ref().is_some_and(|s|s.rooms.iter().any(|r|self.store.read_state(&r.room_id).ok().flatten().and_then(|s|s.membership_version).as_deref()!=Some(&r.membership_version)));
                                 if invalid {self.clear_live();}
                             }
@@ -677,6 +695,7 @@ impl NativeSession {
                     }
                 }
                 _=self.wake.notified()=>self.flush().await?,
+                _=settings_tick.tick(),if has_profiles=>self.refresh_notification_settings().await?,
                 _=live_tick.tick(),if use_live=>{
                     if self.live.lock().unwrap().expire(std::time::Instant::now()){let _=self.events.send(());}
                     if tokio::time::Instant::now()>=presence_due && self.capabilities.lock().unwrap().as_ref().is_some_and(|c|c.presence) {

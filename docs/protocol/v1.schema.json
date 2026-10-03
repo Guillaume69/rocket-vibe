@@ -1524,6 +1524,13 @@
         "id": {
           "type": "string"
         },
+        "personal_mention": {
+          "description": "Captured mention eligibility for this reader, including the original\nrecipients of @here. Never persisted in a shared journal payload.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "personal_star": {
           "anyOf": [
             {

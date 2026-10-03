@@ -3,8 +3,9 @@
 Le serveur et les transports Rust / TypeScript disposent du cycle de fichiers
 clairs. `uploads` est annoncée quand le volume d'objets est présent. Les clients
 croisent cette annonce avec leurs propres capacités : outboxes, caches protégés,
-pièces jointes et lecteurs des trois interfaces existantes restent à raccorder
-avant d'activer leurs boutons natifs de fichiers.
+pièces jointes et lecteurs. Le mobile utilise désormais sa file et ses composants
+existants ; son bouton exige aussi le module natif de transfert. GTK / SwiftUI
+restent à raccorder. La qualification sur appareils reste ouverte.
 
 ## Réservation, octets et message
 
@@ -90,6 +91,33 @@ politique de rétention J5, y compris après suppression du message.
 
 ## Validation et suite
 
+### Mobile dans l'interface existante
+
+La migration SQLite 0030 conserve le fichier privé d'origine, son empreinte,
+l'adhésion et les identifiants distincts de préparation / confirmation avec la
+ligne `televersements` existante. Les retries et la progression utilisent les
+contrôles actuels. Un abandon hors ligne est persisté puis prouvé côté serveur :
+une confirmation déjà exécutée est récupérée, sans prétendre l'annuler.
+
+Le module Expo `transfert-fichier` transmet les octets depuis le disque sous
+Android / iOS, avec progression, annulation, deadline et redirections désactivées.
+Il nécessite une reconstruction native de l'app ; son absence désactive le bouton.
+Le download Expo reçoit les chunks dans un `.part` privé, contrôle taille / SHA-256,
+puis publie le fichier local. Les lecteurs et la feuille de partage reçoivent ce
+chemin, sans jeton dans leurs URLs. La réutilisation du cache exige un Range
+authentifié ; fermeture, changement d'adhésion / génération et tombstone retirent
+les accès. Les résultats de recherche peuvent ouvrir un fichier sans devenir de
+l'historique confirmé. Les copies d'envoi sont séparées par compte / génération.
+Le nettoyage retire les générations antérieures et les copies abandonnées.
+
+Le vrai moteur mobile / HTTP / PostgreSQL / SQLite est rouvert après perte de
+chacune des trois réponses : une seule confirmation visible à chaque fois.
+L'abandon hors ligne est aussi repris sans message. Tests ciblés : 103 scénarios
+TypeScript, incluant projection, citations, refus d'intégrité et contrôle d'origine.
+Typecheck / lint et export Android réussis ; autolinking du module vérifié.
+Cet export n'est pas un APK et ne valide pas la compilation Kotlin / iOS ni les
+lecteurs sur appareils. Ces qualifications restent explicitement ouvertes.
+
 Sept scénarios PostgreSQL couvrent concurrence, perte de réponse dans le vrai
 transport TypeScript, streaming du SDK Rust, taille / intégrité / type, transfert
 incomplet, abandon en cours, expiration, quotas, génération / réadhésion,
@@ -98,6 +126,6 @@ Les messages, profils / avatars, contrats et compatibilité du cœur bureau rest
 vérifiés. Les tests SDK TypeScript contrôlent headers, redirections et troncature.
 
 La sortie de P14 exige encore intentions persistées, progression / reprise /
-abandon, lecteurs / partage des interfaces mobile, GTK et SwiftUI, fichiers
-cités et qualification installée. J4 complète les fichiers chiffrés ; J5 ajoute
+abandon et lecteurs / partage GTK / SwiftUI, fichiers cités et qualification
+installée des trois interfaces. J4 complète les fichiers chiffrés ; J5 ajoute
 configuration, rétention, sauvegarde / restauration du volume et capacité.

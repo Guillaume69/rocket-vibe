@@ -84,6 +84,7 @@ import { chiffrerFichierLocal, empreinteNom } from './chiffrementFichier.ts';
 import { supprimerSiTemporaire } from './fichiersTemporaires.ts';
 import { transportExpo } from './transportUpload.ts';
 import { NativeStore } from '../fournisseurs/rocketvibe/store.ts';
+import {creerFichiersNatifsIO,monterFichiersNatifs} from './fichiersNatifs.ts';
 import { signaler } from './toast.tsx';
 
 export type EtatSynchro =
@@ -191,7 +192,11 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           },
         });
         const chat = fournisseur.native!.chat;
+        const nativeFiles=await creerFichiersNatifsIO(fournisseur);
+        if(!alive){chat.stop();return;}
         const unprofile=monterProfilsFournisseur(client,fournisseur);
+        const unfiles=monterFichiersNatifs(client,fournisseur);
+        const fichiers=fournisseur.creerTeleversement(creerDepotTeleversements(brute,fileEcritures),transportExpo,async()=>{},{nativeFiles});
         runner = chat;
         const moteur = new MoteurSynchro(creerDepot(brute,fileEcritures),fournisseur.traducteur);
         const envoi = fournisseur.creerEnvoi(creerDepotEnvoi(brute,fileEcritures),async () => {});
@@ -214,10 +219,10 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           }
           lastError = chat.status.error;
         });
-        stop = () => { unlisten();unlive();unprofile();presence.invalider();chat.stop(); };
+        stop = () => { unlisten();unlive();unprofile();unfiles();fichiers.fermer?.();presence.invalider();chat.stop(); };
         setSynchro({
           phase:'pret',base,brouillons:store.drafts(),moteur,envoi,
-          fichiers:fournisseur.creerTeleversement(creerDepotTeleversements(brute,fileEcritures),transportExpo,async () => {}),
+          fichiers,
           ddp:fournisseur.listener,fournisseur,actions:fournisseur.actions,capacites:fournisseur.capacites,
           declarerSalonOuvert:salonsOuverts.declarer,presence,activite,e2e,
           deverrouillerE2E:async () => { throw new Error('Unsupported native feature'); },verrouillerE2E:async () => {},generation:0,

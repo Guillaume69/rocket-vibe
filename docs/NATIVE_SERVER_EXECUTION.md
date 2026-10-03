@@ -319,6 +319,21 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P14 / J3, raccordement mobile (3 octobre 2026) : file `televersements`, progression,
+  retry / abandon et lecteurs / partage actuels raccordés. Intention SQLite 0030
+  atomique avec fichier privé d'origine, empreinte, adhésion et deux IDs stables.
+  Reprise réelle HTTP / PostgreSQL / SQLite après réponses de préparation,
+  transfert et confirmation perdues : un message par intention. Abandon hors ligne
+  prouvé après redémarrage, sans message. Cache privé streamé et vérifié avant
+  renommage, URLs de lecteurs sans credentials, revalidation des lectures / Range,
+  retrait des caches au changement de génération et fichiers de recherche temporaires.
+  Le module Expo Android / iOS transmet depuis le disque sans redirection ; absent,
+  le bouton reste désactivé. 103 tests ciblés passent en 5,8 s ; typecheck / lint,
+  autolinking Android et export Hermes réussis. La compilation native du nouveau
+  module et les lecteurs installés ne sont pas validés par cet export : reconstruction
+  APK / iOS et appareils restent à qualifier. GTK / SwiftUI et fichiers cités sont
+  les raccordements suivants, J4 conserve la responsabilité du chiffré.
+
 - P14 / J3, fichiers côté serveur et transports (3 octobre 2026) : réservation
   liée à l'adhésion / génération, streaming sur le volume, taille / SHA-256 /
   signature vérifiés, leases de transfert et confirmation atomique du message.

@@ -1,0 +1,1 @@
+{"platforms":["android","apple"],"android":{"modules":["com.rocketvibe.transfertfichier.TransfertFichierModule"]},"apple":{"modules":["TransfertFichierModule"]}}

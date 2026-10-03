@@ -14,6 +14,8 @@ import {nativeSystemMessage} from './systemMessages.ts';
 import {NativeQuoteCache,type NativeQuoteSelection} from './quotes.ts';
 import {NativeThreadCache,type PendingThreadRead} from './threads.ts';
 import {NativeProfileOperations} from './profileOperations.ts';
+import {NativeUploadIntents} from './uploadIntents.ts';
+import {nativeAttachments,fileDescriptor} from './fileDescriptors.ts';
 
 // Native revisions, checked below as exact decimal strings, order projection.
 // The shared RC statement's wall-clock condition would discard a valid edit
@@ -61,7 +63,7 @@ export function localMessage(message: Message, selfId?: string): MessageLocal {
     id: message.id, rid: message.room_id, texte: system?.param??message.text, horodatage: time,
     auteurId: message.author.id, auteurNom: message.author.username, typeSysteme: system?.type??null,
     filId: message.reply_to??null, filReponses: Number(replies>2147483647n?2147483647n:replies), filDernier: last, filAffiche: false, modifieLe: edited,
-    md: message.deleted||system?null:nativeMarkdown(message.body), piecesJointes: null, reactions: nativeReactions(message.reactions), urls: null, appelId: null,
+    md: message.deleted||system?null:nativeMarkdown(message.body), piecesJointes: nativeAttachments(message), reactions: nativeReactions(message.reactions), urls: null, appelId: null,
     chiffreBrut: null, epingle: message.pinned ?? false,
     etoiles: message.personal_star?.present && selfId ? JSON.stringify([selfId]) : null, misAJourLe: time,
   };
@@ -69,6 +71,7 @@ export function localMessage(message: Message, selfId?: string): MessageLocal {
 
 export class NativeStore {
   readonly profileOperations:NativeProfileOperations;
+  readonly uploads:NativeUploadIntents;
   private readonly db: NativeDatabase;
   private readonly queue: FileEcritures;
   private readonly session: AppSession;
@@ -76,8 +79,10 @@ export class NativeStore {
   private readonly threads:NativeThreadCache;
   private projection=0;
   private searchRevision=0;
+  private fileViews=new Map<string,{file:import('./protocol.generated.ts').FileDescriptor;membership:string;stamp:string}>();
   constructor(db: NativeDatabase, queue: FileEcritures, session: AppSession) {
     this.profileOperations=new NativeProfileOperations(db,fn=>this.atomic(fn),()=>this.sameGeneration());
+    this.uploads=new NativeUploadIntents(db,fn=>this.atomic(fn),(rid,membership)=>this.membershipMatches(rid,membership),message=>this.message(message));
     this.db = db; this.queue = queue; this.session = session;this.quotes=new NativeQuoteCache(db,{instance_id:session.nativeInstanceId??'',data_epoch:session.nativeDataEpoch??''});this.threads=new NativeThreadCache(db);
   }
   private atomic<T>(fn: () => Promise<T>, rotate:boolean|(()=>boolean)=false): Promise<T> {
@@ -90,6 +95,32 @@ export class NativeStore {
   }
   projectionToken(): number { return this.projection; }
   searchToken():number {return this.searchRevision;}
+  /** A file is readable locally only while its live message and grant still exist. */
+  fileAccess(id:string):Promise<{file:import('./protocol.generated.ts').FileDescriptor;membership:string}|null>{
+    return this.queue(async()=>{
+      if(!await this.sameGeneration())return null;
+      const row=await this.db.getFirstAsync<{rid:string;file:string}>(`SELECT m.rid,json_extract(j.value,'$.native_file') AS file
+        FROM messages m JOIN json_each(m.pieces_jointes) j WHERE json_extract(j.value,'$.fileId')=? LIMIT 1`,[id]);
+      if(!row){
+        const view=this.fileViews.get(id);
+        return view&&view.stamp===`${this.projection}:${this.searchRevision}`&&(await this.readStateIn(view.file.room_id))?.membership_version===view.membership?{file:view.file,membership:view.membership}:null;
+      }
+      const membership=(await this.readStateIn(row.rid))?.membership_version;
+      return membership?{file:fileDescriptor(JSON.parse(row.file),row.rid),membership}:null;
+    });
+  }
+  /** Temporary search results can open files without enlarging confirmed history. */
+  cacheFileViews(messages:Message[],room:string,membership:string,valid:()=>boolean):Promise<void>{
+    return this.queue(async()=>{
+      if(!valid()||!await this.membershipMatches(room,membership))throw new Error('file_scope_closed');
+      const files=messages.flatMap(message=>(message.files??[]).map(file=>fileDescriptor(file,room)));
+      if(!valid())throw new Error('file_scope_closed');
+      for(const file of files){
+        this.fileViews.set(file.id,{file,membership,stamp:`${this.projection}:${this.searchRevision}`});
+        while(this.fileViews.size>256)this.fileViews.delete(this.fileViews.keys().next().value!);
+      }
+    });
+  }
   /** Public identity metadata only; profile bodies and emails stay out of history. */
   profileIdentities(profiles:readonly ProfileStamp[],valid:()=>boolean,peers:readonly LiveRoom[]=[]):Promise<void> {
     return this.atomic(async()=>{
@@ -117,7 +148,7 @@ export class NativeStore {
   prepare(): Promise<void> {
     return this.atomic(async () => {
       if (await this.sameGeneration()) return;
-      for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs','native_room_creations','native_commands','native_star_states','native_room_operations','native_profile_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+      for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs','native_room_creations','native_commands','native_star_states','native_room_operations','native_profile_operations','native_upload_intents','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
     });
   }
   private async membershipMatches(rid:string,membership:string|null):Promise<boolean> {
@@ -229,7 +260,7 @@ export class NativeStore {
     await this.preview(message.room_id);
   }
   private async remove(rid: string,keepMetadata=false): Promise<void> {
-    for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'native_positions','native_commands','native_star_states','native_room_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) {
+    for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'native_positions','native_commands','native_star_states','native_room_operations','native_upload_intents','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) {
       if(keepMetadata && table==='salons')continue;
       await this.db.runAsync(`DELETE FROM ${table} WHERE rid=?`, [rid]);
     }
@@ -243,7 +274,7 @@ export class NativeStore {
       const old = await this.db.getFirstAsync<NativeState>('SELECT instance_id,data_epoch,cursor FROM native_sync_state WHERE singleton=1', []);
       if (!old || old.instance_id !== this.session.nativeInstanceId || old.data_epoch !== this.session.nativeDataEpoch) {
         // A fresh login to a different generation must never replay its predecessor's outbox.
-        for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'brouillons', 'native_positions', 'etat_synchro', 'utilisateurs', 'native_room_creations','native_commands','native_star_states','native_room_operations','native_profile_operations','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+        for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'brouillons', 'native_positions', 'etat_synchro', 'utilisateurs', 'native_room_creations','native_commands','native_star_states','native_room_operations','native_profile_operations','native_upload_intents','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
       } else {
         const live = new Set(snapshot.rooms.map(room => room.id));
         const known = await this.db.getAllAsync<{rid:string}>('SELECT rid FROM salons', []);

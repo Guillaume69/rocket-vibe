@@ -350,6 +350,14 @@ export const nativeProfileOperations = sqliteTable('native_profile_operations', 
   error: text('error'),
 }, (t) => [uniqueIndex('idx_native_profile_operation_slot').on(t.slot)]);
 
+/** Immutable bytes, original membership and both operation IDs survive restart. */
+export const nativeUploadIntents = sqliteTable('native_upload_intents', {
+  id: text('id').primaryKey(),
+  rid: text('rid').notNull(),
+  payload: text('payload').notNull(),
+  phase: text('phase').notNull().default('pending'),
+});
+
 /** Room version is persisted even before its effective actor rights are read. */
 export const nativeRoomAccess = sqliteTable('native_room_access', {
   rid: text('rid').primaryKey(),

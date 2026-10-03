@@ -231,6 +231,26 @@ export class NativeTransport {
   }
   completeUpload(id:string,input:NativeTypes['CompleteUpload']):Promise<Message>{return this.request('Message',`/api/v1/uploads/${encodeURIComponent(id)}/complete`,input);}
   cancelUpload(id:string):Promise<NativeTypes['Upload']>{return this.request('Upload',`/api/v1/uploads/${encodeURIComponent(id)}`,undefined,false,undefined,'DELETE');}
+  async uploadLocal(id:string,uri:string,send:import('./uploads.ts').NativeFileSender,signal:AbortSignal,progress:(fraction:number)=>void):Promise<NativeTypes['Upload']>{
+    const sent=this.token;if(!sent)throw new NativeError(401,'session_rejected');
+    const response=await send(`${this.baseUrl}/api/v1/uploads/${encodeURIComponent(id)}/bytes`,{authorization:`Bearer ${sent}`,'content-type':'application/octet-stream'},uri,signal,progress);
+    if(response.status>=300&&response.status<400)throw new NativeError(502,'file_redirect_refused');
+    let body:unknown;try{body=JSON.parse(response.body);}catch{throw new NativeError(502,'invalid_upload');}
+    if(response.status!==200){const error=decodeNative('ApiError',body);if(response.status===401&&error.code==='session_rejected')this.surJetonRefuse?.(sent);throw new NativeError(response.status,error.code,undefined,error.request_id);}
+    return decodeNative('Upload',body);
+  }
+  /** Keep authentication and the deadline around the entire streaming consumer. */
+  async downloadFile<T>(file:NativeTypes['FileDescriptor'],fetcher:typeof fetch,consume:(response:Response)=>Promise<T>,signal?:AbortSignal,probe=false):Promise<T>{
+    const sent=this.token;if(!sent)throw new NativeError(401,'session_rejected');
+    const controller=new AbortController(),relay=()=>controller.abort();signal?.addEventListener('abort',relay);if(signal?.aborted)controller.abort();
+    const timeout=setTimeout(relay,150_000);
+    try{
+      const response=await fetcher(`${this.baseUrl}/api/v1/files/${encodeURIComponent(file.id)}`,{headers:{authorization:`Bearer ${sent}`,...(probe?{range:'bytes=0-0'}:{})},redirect:'error',signal:controller.signal});
+      if(!response.ok){const error=decodeNative('ApiError',await response.json());if(response.status===401&&error.code==='session_rejected')this.surJetonRefuse?.(sent);throw new NativeError(response.status,error.code,undefined,error.request_id);}
+      if(response.status!==(probe?206:200)||response.headers.get('content-type')!==file.media_type||response.headers.get('content-length')!==(probe?'1':file.bytes)||probe&&response.headers.get('content-range')!==`bytes 0-0/${file.bytes}`)throw new NativeError(502,'invalid_file');
+      return await consume(response);
+    }finally{controller.abort();clearTimeout(timeout);signal?.removeEventListener('abort',relay);}
+  }
   async fileBytes(file:NativeTypes['FileDescriptor'],signal?:AbortSignal):Promise<Uint8Array>{
     if(!/^[1-9]\d*$/.test(file.bytes) || Number(file.bytes)>100*1024*1024 || file.encrypted)throw new NativeError(0,'invalid_file');
     return await this.value(`/api/v1/files/${encodeURIComponent(file.id)}`,undefined,false,signal,'GET',{file:{bytes:Number(file.bytes),mime:file.media_type},timeout:150_000}) as Uint8Array;

@@ -40,6 +40,7 @@ import { ApercusLien } from './carteLien.tsx';
 import { proposerTelechargerOuPartager } from './actionsJointe.ts';
 import { BarreTransfert } from './barreTransfert.tsx';
 import { fichierDechiffre } from './fichierJoint.ts';
+import {abonnerFichierNatif} from '../lib/fichiersNatifs.ts';
 import { useEtagsAvatars, useIdentites } from './identites.tsx';
 import { useHeure, useT } from './i18n.ts';
 import { TuileAvatar } from './kit.tsx';
@@ -719,6 +720,9 @@ function PiecesJointes({
             />
           );
         }
+        if(client.genre==='rocketvibe'&&typeof jointe.title_link==='string'){
+          return <JointeNative key={i} c={c} jointe={jointe} client={client} largeurMax={dispoLargeur} surAppuiLong={surAppuiLong}/>;
+        }
         if (typeof jointe?.image_url === 'string') {
           return (
             <ImageJointe
@@ -792,6 +796,32 @@ function PiecesJointes({
  * processus : elle était remise à \`Linking.openURL\`, donc à Chrome, à son
  * historique et à sa synchronisation, et un \`rc_token\` vaut le compte entier.
  */
+/** Resolve a private local file, then use exactly the existing media components. */
+function JointeNative({c,jointe,client,largeurMax,surAppuiLong}:{c:Couleurs;jointe:PieceJointe;client:ClientRest;largeurMax:number;surAppuiLong:(()=>void)|undefined}){
+  const source=jointe.title_link!,genre=jointe.image_url?'image':jointe.audio_url?'audio':jointe.video_url?'video':null;
+  const url=urlFichierProtege(client,source);
+  const [loaded,setLoaded]=useState<{url:string;local:string|null;failed:boolean}|null>(null);
+  const local=loaded?.url===url?loaded.local:null,failed=loaded?.url===url&&loaded.failed;
+  useEffect(()=>{
+    if(!genre)return;
+    let active=true;
+    let attempt=0;
+    const load=()=>{
+      const current=++attempt;
+      fichierDechiffre({url,titre:jointe.title,type:jointe.image_type??jointe.audio_type??jointe.video_type,taille:jointe.size})
+        .then(value=>{if(active&&current===attempt)setLoaded({url,local:value,failed:false});},()=>{if(active&&current===attempt)setLoaded({url,local:null,failed:true});});
+    };
+    load();
+    const stop=abonnerFichierNatif(url,()=>{setLoaded({url,local:null,failed:false});load();});
+    return()=>{active=false;stop();};
+  },[genre,url,jointe.title,jointe.image_type,jointe.audio_type,jointe.video_type,jointe.size]);
+  if(!genre||failed)return <JointeFichier c={c} client={client} chemin={source} titre={jointe.title??null} taille={jointe.size??null} surAppuiLong={surAppuiLong}/>;
+  if(!local)return <ActivityIndicator color={c.accent}/>;
+  if(genre==='image')return <ImageJointe jointe={jointe} client={client} local={local} largeurMin={120} largeurMax={largeurMax} hauteurMin={0} hauteurMax={400} style={styles.imageJointe} surAppuiLong={surAppuiLong}/>;
+  if(genre==='audio')return <LecteurAudio c={c} url={local} titre={jointe.title??null} surAppuiLong={surAppuiLong}/>;
+  return <LecteurVideo c={c} url={local} titre={jointe.title??null} surAppuiLong={surAppuiLong}/>;
+}
+
 function JointeFichier({
   c,
   client,

@@ -22,6 +22,7 @@ import * as Sharing from 'expo-sharing';
 import { dechiffrerFichier, type ChiffrementFichier } from '../lib/e2e/crypto.ts';
 import { fractionTelechargee, telechargerFichierJoint, versGalerie } from '../lib/fichierJoint.ts';
 import { Telechargements } from '../modules/telechargements/index.ts';
+import {chargerFichierNatif} from '../lib/fichiersNatifs.ts';
 import type { Progression } from './transferts.ts';
 
 /** Levée quand rien ne peut ouvrir le fichier : l'appelant en informe l'écran. */
@@ -49,6 +50,7 @@ type OptionsJointe = {
  * COMPLET. Partager après avoir enregistré ne retélécharge rien.
  */
 async function versLeCache(options: OptionsJointe): Promise<string> {
+  if(options.url.startsWith('rv-file:'))return chargerFichierNatif(options.url,options.surProgression);
   const dossier = FileSystem.cacheDirectory;
   if (dossier === null) {
     throw new ErreurOuvertureFichier('Aucun dossier de cache disponible.');

@@ -71,6 +71,17 @@ export class NativeChat {
     this.reconnect = new Reconnecteur({connecter: () => this.connect()});
   }
   subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
+  get filesActive():boolean {return !this.stopped&&this.verified&&this.capabilities?.uploads===true;}
+  async fileScope(room:string,membership:string):Promise<{alive:()=>boolean;check:()=>Promise<void>}>{
+    this.ready();if(!this.capabilities?.uploads)throw new NativeError(501,'unsupported_feature');
+    const generation=this.generation,alive=()=>!this.stopped&&this.verified&&this.generation===generation;
+    const check=async()=>{
+      if(!alive())throw new NativeError(0,'session_closed');
+      checkIdentity(this.session,await this.transport.discover());
+      if(!alive()||(await this.store.readState(room))?.membership_version!==membership)throw new NativeError(403,'room_access_denied');
+    };
+    await check();return {alive,check};
+  }
   get searchVersion():string {return `${this.generation}:${this.store.projectionToken()}:${this.store.searchToken()}`;}
   get profileVersion():string {return `${this.generation}:${this.store.projectionToken()}:${this.profileChanges}`;}
   profileVersionFor(id:string|null):string {return `${this.generation}:${this.store.projectionToken()}:${id?this.profileHeads.get(id)??'unobserved':this.profileChanges}`;}
@@ -608,6 +619,7 @@ export class NativeChat {
       ids.add(message.id);previous=position;
     }
     // Search hits never enlarge the history window or acknowledge a cursor.
+    await this.store.cacheFileViews(page.messages,rid,membership,()=>version===this.searchVersion&&!this.stopped);
     return page.messages;
   }
   async marked(rid:string,starred:boolean):Promise<import('./protocol.generated.ts').Message[]> {

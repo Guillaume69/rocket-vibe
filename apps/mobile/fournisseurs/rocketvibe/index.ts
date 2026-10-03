@@ -8,12 +8,13 @@ import { decodeNative } from './validation.ts';
 import { NativeError } from './transport.ts';
 import { decrireErreurFournisseur } from '../../lib/erreurFournisseur.ts';
 import type { Capabilities } from './protocol.generated.ts';
+import {NativeFileOutbox} from './uploads.ts';
 
 export const CAPACITES_ROCKETVIBE: Capacites = {
   edition:true, suppression:true,
   typing:true, presence:true, push:false, e2ee:false, emojisCustom:false,
   appelVideo:false, recherche:true, modeleFil:'root_id',
-  fichiers:false, fils:true, reactions:true, marques:true, profil:true, infosSalon:true, favorisSalon:true, citations:true,
+  fichiers:true, fils:true, reactions:true, marques:true, profil:true, infosSalon:true, favorisSalon:true, citations:true,
   reglagesSalon:true,rolesSalon:true,quitterSalon:true,lecturesSalon:true,
 };
 const unsupported = async (): Promise<never> => { throw new NativeError(501,'unsupported_feature'); };
@@ -38,6 +39,7 @@ export function capacitesEffectives(annonce: Capabilities | null, client: Capaci
 }
 
 export function creerFournisseurRV(session: Session, client: ClientRest, genererId: () => string, store: NativeStore, options: ConstructorParameters<typeof NativeChat>[3] = {}): Fournisseur {
+  let filesConnected=false;
   const chat = new NativeChat(session,store,genererId,{revoke: token => client.surJetonRefuse?.(token),...options});
   const listener: Listener = {
     get etat() { return chat.status.online ? 'authentifie' : 'ferme'; },
@@ -57,7 +59,7 @@ export function creerFournisseurRV(session: Session, client: ClientRest, generer
       return {_id:p.user.id,username:p.user.username,name:p.user.display_name,status:p.status??'online',statusText:p.status_text,bio:p.bio,avatarETag:p.avatar_file_id??'sans-photo'};
     },
     rechercherMessages:async(rid,texte)=>(await chat.searchMessages(rid,texte)).map(m=>localMessage(m,session.userId)),
-    native:{chat,store}, ordreMessages:'sequence', get capacites() { return capacitesEffectives(chat.capabilities); }, listener,
+    native:{chat,store}, ordreMessages:'sequence', get capacites() { return capacitesEffectives(chat.capabilities,{...CAPACITES_ROCKETVIBE,fichiers:filesConnected}); }, listener,
     traducteur:{
       traduireEvenement:() => ({sorte:'silence'}),
       versMessage:brut => localMessage(decodeNative('Message',brut),session.userId),
@@ -134,7 +136,10 @@ export function creerFournisseurRV(session: Session, client: ClientRest, generer
       reessayer:id => chat.retry(id),
       abandonner:id => chat.abandon(id),
     }),
-    creerTeleversement:() => fichiers,
+    creerTeleversement:(_depot,_transport,_ingerer,hooks) => {
+      filesConnected=!!hooks?.nativeFiles&&hooks.nativeFiles.available!==false;
+      return filesConnected?new NativeFileOutbox(chat,hooks!.nativeFiles!,genererId):fichiers;
+    },
     rattraperGlobal:async () => {}, rattraperSalon:async () => {}, reconcilier:async () => {},
   };
 }

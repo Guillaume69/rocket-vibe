@@ -17,7 +17,15 @@ use tower::ServiceExt;
 #[sqlx::test]
 async fn portable_mobile_transport_recovers_lost_byte_and_message_acknowledgements(pool: PgPool) {
     let bench = Bench::new(pool).await;
-    bench.user("mobile", false).await;
+    for user in [
+        "mobile",
+        "mobile-prepare",
+        "mobile-bytes",
+        "mobile-complete",
+        "mobile-cancel",
+    ] {
+        bench.user(user, false).await;
+    }
     let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../scripts/native-files-smoke.ts");
     let output = tokio::process::Command::new("node")
@@ -36,7 +44,7 @@ async fn portable_mobile_transport_recovers_lost_byte_and_message_acknowledgemen
         .fetch_one(&bench.app.pool)
         .await
         .unwrap();
-    assert_eq!(count, 1);
+    assert_eq!(count, 4);
 }
 
 struct Bench {

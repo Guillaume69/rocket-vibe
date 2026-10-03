@@ -272,6 +272,7 @@ export interface Outbox {
 
 /** File d'envoi de fichiers persistée. `progression` : 0..1 par id, pour l'UI. */
 export interface OutboxFichiers {
+  fermer?():void;
   readonly progression: Map<string, number>;
   /** S'abonner aux changements de `progression` — rend le désabonnement. */
   abonner(auditeur: () => void): () => void;
@@ -355,6 +356,7 @@ export interface Fournisseur {
      * possible sur un `mediaConfirm` perdu).
      */
     crochets?: {
+      nativeFiles?:import('../fournisseurs/rocketvibe/uploads.ts').NativeFileIO;
       supprimerFichierLocal?: (uri: string) => Promise<void>;
       rafraichirSalon?: (rid: string) => Promise<void>;
       /** Envoi dans un salon chiffré : sans lui, un fichier y attend indéfiniment. */

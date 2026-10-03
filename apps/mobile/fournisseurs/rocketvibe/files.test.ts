@@ -31,3 +31,25 @@ test('file bytes reject a changed media type, truncation and oversized replies w
  await assert.rejects(transport.fileBytes({...file,bytes:'104857601'}),/invalid_file/);
  await assert.rejects(transport.fileBytes({...file,encrypted:true}),/invalid_file/);
 });
+
+test('native OS upload and streamed reads pin the origin, reject redirects and keep the deadline until consumed',async()=>{
+ const transport=new NativeTransport('https://native.example');transport.restore('token');
+ const signal=new AbortController().signal;
+ await transport.uploadLocal('file','file:///private/source',async(url,headers)=>{
+  assert.equal(url,'https://native.example/api/v1/uploads/file/bytes');assert.equal(headers.authorization,'Bearer token');
+  return {status:200,body:JSON.stringify(upload)};
+ },signal,()=>{});
+ await assert.rejects(transport.uploadLocal('file','file:///private/source',async()=>({status:302,body:''}),signal,()=>{}),/file_redirect_refused/);
+ let deadline:AbortSignal|undefined;
+ const fetcher:typeof fetch=async(input,options)=>{
+  assert.equal(String(input),'https://native.example/api/v1/files/'+file.id);assert.equal(options!.redirect,'error');
+  assert.equal((options!.headers as Record<string,string>).authorization,'Bearer token');deadline=options!.signal!;
+  return new Response(new Uint8Array([1,2,3]),{headers:{'content-type':file.media_type,'content-length':'3'}});
+ };
+ const result=await transport.downloadFile(file,fetcher,async response=>{assert.equal(deadline!.aborted,false);return new Uint8Array(await response.arrayBuffer());});
+ assert.deepEqual(result,new Uint8Array([1,2,3]));assert.equal(deadline!.aborted,true);
+ await transport.downloadFile(file,async(_input,options)=>{
+  assert.equal((options!.headers as Record<string,string>).range,'bytes=0-0');
+  return new Response(new Uint8Array([1]),{status:206,headers:{'content-type':file.media_type,'content-length':'1','content-range':'bytes 0-0/3'}});
+ },async response=>{assert.equal((await response.arrayBuffer()).byteLength,1);},undefined,true);
+});

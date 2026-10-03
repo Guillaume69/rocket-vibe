@@ -16,6 +16,7 @@
 import { memeOrigine } from './origine.ts';
 import type { ClientRest } from './rest.ts';
 import {uriAvatarNatif} from './avatarsNatifs.ts';
+import {uriFichierNatif} from './fichiersNatifs.ts';
 
 export type FichierAEnvoyer = {
   uri: string;
@@ -183,6 +184,7 @@ export async function definirAvatar(options: {
  * ne s'affichera pas s'il était protégé, ce qui est le bon échec.
  */
 export function urlFichierProtege(client: ClientRest, chemin: string): string {
+  if(client.genre==='rocketvibe')return uriFichierNatif(client,chemin);
   const absolu = chemin.startsWith('http') ? chemin : `${client.baseUrl}${chemin}`;
   if (client.identifiants === null) return absolu;
   if (!memeOrigine(absolu, client.baseUrl)) return absolu;

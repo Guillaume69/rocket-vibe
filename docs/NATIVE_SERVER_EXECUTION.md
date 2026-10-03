@@ -319,6 +319,27 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P19 / J4, checkpoint et trousseau système (3 octobre 2026) : coordinateur Rust
+  `protected::Manager`, verrou OS possédé jusqu'au terme de l'écriture plateforme,
+  vérification du prédécesseur / confirmation protégée avant résultat réseau / UI.
+  Répertoire canonique lié à l'entrée pour refuser une base copiée sous un autre
+  verrou, genèse authentifiée vide reprise après checkpoint initial perdu,
+  tombstone sans clé avant purge SQLite et refus d'une incarnation retirée.
+  Backend keyring 3.6.3 avec features natives explicites Linux / macOS / Windows ;
+  aucun repli mock. Quatorze tests Linux passent, avec erreurs / ambiguïtés du
+  trousseau, copie locale, retrait, worker abandonné et descripteur hérité.
+  Le pilote du vrai Secret Service Linux passe : concurrent refusé, processus
+  tué avant checkpoint, nouveau bus / daemon, reprise de l'outbox et retrait.
+  Clippy avec backend et exemple, formatage, syntaxe et vérification du périmètre
+  CI sur vrais commits jetables passent. Une matrice crypto Linux / Windows /
+  macOS garde ses checks propres ; les longs pilotes clients restent requis
+  dès qu'un client / serveur / workflow change ou consomme la crate.
+  Le coffre précédent `fdaaf33` a ses quatre jobs CI verts (`37138503102`), dont
+  tests disque / arrêts forcés Windows. Pont Android, raccordement aux apps,
+  trousseaux installés / ACL Windows / coupure électrique, destruction des
+  anciennes clés, identités / livraison / archive et revue restent ouverts.
+  E2EE reste désactivé. [Contrat du coffre](../crates/rv-crypto/README.md).
+
 - P19 / J4, coffre privé transactionnel (3 octobre 2026) : crate Rust isolée
   [`rv-crypto`](../crates/rv-crypto/README.md), clé / nonce OS, XChaCha20Poly1305,
   portée authentifiée et fournisseur OpenMLS / enregistrements privés dans un

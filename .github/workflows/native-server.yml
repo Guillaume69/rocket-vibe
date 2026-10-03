@@ -41,6 +41,81 @@ permissions:
   contents: read
 
 jobs:
+  scope:
+    runs-on: ubuntu-24.04
+    outputs:
+      clients: ${{ steps.changed.outputs.clients }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+      - id: changed
+        env:
+          BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # Manual/unknown bases run every client. Only disconnected crypto and
+          # documentation changes can skip the long installed-provider pilots.
+          base="${PR_BASE:-$BEFORE}"
+          if [[ ! "$base" =~ ^[a-f0-9]{40}$ ]] || [[ "$base" = 0000000000000000000000000000000000000000 ]]; then
+            echo 'clients=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            if ! git fetch --no-tags --depth=1 origin "$base"; then
+              echo 'clients=true' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          changed=$(mktemp)
+          trap 'rm -f "$changed"' EXIT
+          git diff --name-only "$base" HEAD -- > "$changed"
+          clients=false
+          if grep -Evq '^(crates/(rv-crypto|rv-crypto-spike)/|docs/.*\.md$|[^/]+\.md$)' "$changed"; then
+            clients=true
+          fi
+          # Once the shared engine is consumed by an app, its changes require
+          # that app's full regression paths as well as the crypto matrix.
+          if grep -Eq '^crates/rv-crypto/' "$changed" && git grep -q 'rv-crypto' -- 'apps/**/Cargo.toml'; then
+            clients=true
+          fi
+          echo "clients=$clients" >> "$GITHUB_OUTPUT"
+
+  native-crypto:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/native-crypto
+          key: native-crypto-${{ runner.os }}-${{ hashFiles('crates/rv-crypto/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            native-crypto-${{ runner.os }}-${{ hashFiles('crates/rv-crypto/Cargo.lock') }}-
+            native-crypto-${{ runner.os }}-
+      - run: cargo fmt --manifest-path crates/rv-crypto/Cargo.toml -- --check
+      - run: cargo clippy --locked --manifest-path crates/rv-crypto/Cargo.toml --features system-keystore --target-dir target/native-crypto --all-targets -- -D warnings
+      - run: cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --features system-keystore --target-dir target/native-crypto
+      - run: cargo build --locked --manifest-path crates/rv-crypto/Cargo.toml --features system-keystore --target-dir target/native-crypto --example protected_smoke
+      - name: Real Linux Secret Service, restart and forced process termination
+        if: runner.os == 'Linux'
+        env:
+          RV_CRYPTO_SMOKE_BINARY: ${{ github.workspace }}/target/native-crypto/debug/examples/protected_smoke
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends gnome-keyring dbus-daemon
+          bash crates/rv-crypto/scripts/keystore-smoke.sh
+
   verify:
     runs-on: ubuntu-24.04
     services:
@@ -89,6 +164,8 @@ jobs:
         run: npx expo export --platform android --output-dir ../../artifacts/native-mobile-android
 
   native-desktop:
+    needs: scope
+    if: needs.scope.outputs.clients == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -211,6 +288,8 @@ jobs:
           if-no-files-found: error
 
   native-desktop-core-windows:
+    needs: scope
+    if: needs.scope.outputs.clients == 'true'
     runs-on: windows-2025
     defaults:
       run:
@@ -232,13 +311,10 @@ jobs:
         run: |
           cargo clippy --locked -p rv-native --all-targets -- -D warnings
           cargo test --locked -p rv-native
-      - name: Encrypted MLS storage and real process crashes on Windows
-        run: |
-          cargo fmt --manifest-path ../../crates/rv-crypto/Cargo.toml -- --check
-          cargo clippy --locked --manifest-path ../../crates/rv-crypto/Cargo.toml --target-dir target --all-targets -- -D warnings
-          cargo test --locked --manifest-path ../../crates/rv-crypto/Cargo.toml --target-dir target
 
   native-swift-models:
+    needs: scope
+    if: needs.scope.outputs.clients == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:

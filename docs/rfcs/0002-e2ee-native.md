@@ -137,8 +137,24 @@ seul le successeur exactement une révision plus loin peut être repris : son
 document authentifié doit contenir le checkpoint protégé précédent. La reprise
 reste bloquée jusqu'à protection du nouveau marqueur. Tête antérieure, autre
 portée, prédécesseur altéré ou fichier incomplet n'autorisent ni envoi ni
-recréation silencieuse. Initialisation interrompue, purge et adaptateurs de
-trousseau restent ouverts ; les tests utilisent un checkpoint de fixture.
+recréation silencieuse.
+
+Le coordinateur `protected::Manager` implémente ce verrou sur le worker possédé,
+la vérification du prédécesseur et la relecture du checkpoint après écriture.
+L'entrée protégée est liée au répertoire canonique ; une copie de la base sous
+un autre verrou ne peut pas bifurquer l'état d'envoi du même appareil.
+L'initialisation explicite sauvegarde la clé d'abord ; sa reprise avant marqueur
+n'accepte qu'une genèse authentifiée vide. Un fichier incomplet exige retrait
+explicite puis nouvelle incarnation. Le retrait sauvegarde un tombstone sans
+clé avant de retirer les fichiers, et ne réactive jamais l'ancienne incarnation.
+
+L'adaptateur optionnel keyring 3.6.3 a des backends natifs explicitement choisis
+pour Linux / macOS / Windows, dans un service distinct des sessions existantes.
+[API et features du trousseau](https://docs.rs/keyring/3.6.3/keyring/).
+Le vrai Secret Service Linux est vérifié avec nouveaux processus et bus,
+verrou concurrent, arrêt forcé après commit / avant checkpoint, reprise et
+retrait. Android / Keystore, raccordement aux comptes / widgets, sauvegardes
+du trousseau, Windows / macOS installés et coupure électrique restent ouverts.
 
 Le coffre durable ne revendique pas encore la forward secrecy du stockage :
 une ancienne copie chiffrée dans le WAL / backup reste déchiffrable avec la clé
@@ -146,8 +162,9 @@ durable compromise. La détection de restauration empêche sa réutilisation,
 sans l'effacer. Rotation / destruction des clés de stockage et politique des
 copies constituent une condition de J4, distincte de l'archive récupérable.
 
-Six tests Linux, dont échange MLS après réouverture disque et deux processus
-tués avant / après commit, vérifient cette fondation. Elle reste hors des apps,
+Quatorze tests Linux, dont échange MLS après réouverture disque et deux processus
+tués avant / après commit, plus le vrai pilote de trousseau vérifient cette
+fondation. Elle reste hors des apps,
 sans identité certifiée ni livraison réseau ; E2EE demeure désactivé.
 
 ### Archive et récupération
@@ -194,8 +211,9 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    appareil, retrait et attente d'un commit préparé. Ni API publique ni capacité.
 2. Stockage privé transactionnel : redémarrage disque, crash à chaque frontière,
    réservation d'envoi, état obsolète / restauration et purge de compte.
-   Fondation SQLite chiffrée livrée ; adaptateurs, clés de stockage, purge et
-   initialisation interrompue encore ouverts.
+   Fondation SQLite chiffrée, coordinateur de checkpoint / verrou, retrait et
+   genèse interrompue livrés ; pont Android, raccordement aux apps, politique des
+   clés de stockage et qualifications restantes encore ouverts.
 3. Identités, délégations et récupération : substitution, changement de racine,
    certification d'appareil, vérification et révocation testées.
 4. Livraison PostgreSQL : reçus, commits concurrents, Welcome atomique,

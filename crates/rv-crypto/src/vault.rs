@@ -38,6 +38,12 @@ pub enum Error {
     Scope,
     #[error("crypto_checkpoint_pending")]
     Pending,
+    #[error("crypto_storage_busy")]
+    Busy,
+    #[error("crypto_not_initialized")]
+    NotInitialized,
+    #[error("crypto_device_retired")]
+    Retired,
 }
 
 /// The platform keystore owns this secret. It is never printable or cloned.
@@ -57,7 +63,8 @@ impl Key {
     }
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Scope {
     pub instance: String,
     pub data_epoch: String,
@@ -66,7 +73,7 @@ pub struct Scope {
     pub incarnation: String,
 }
 impl Scope {
-    fn valid(&self) -> bool {
+    pub(crate) fn valid(&self) -> bool {
         [
             &self.instance,
             &self.data_epoch,
@@ -390,6 +397,30 @@ impl Vault {
     }
     pub fn checkpoint(&self) -> Checkpoint {
         self.checkpoint
+    }
+    /// Recover only a pristine genesis while the protected key is still marked
+    /// initializing. No MLS identity, message or private record may exist yet.
+    pub(crate) fn recover_initial(path: &Path, scope: Scope, key: Key) -> Result<Self, Error> {
+        if !scope.valid() {
+            return Err(Error::Scope);
+        }
+        let db = connection(path)?;
+        let row = read(&db)?;
+        if row.revision != 0 {
+            return Err(Error::Stale);
+        }
+        let document = decode(&scope, &key, &row)?;
+        if !document.mls.is_empty() || !document.records.is_empty() {
+            return Err(Error::Integrity);
+        }
+        let checkpoint = checkpoint(&scope, &row)?;
+        Ok(Self {
+            db,
+            scope,
+            key,
+            checkpoint,
+            pending: true,
+        })
     }
     /// Invoke only after the platform has durably saved this exact checkpoint.
     pub fn checkpoint_persisted(&mut self, checkpoint: Checkpoint) -> Result<(), Error> {

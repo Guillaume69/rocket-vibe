@@ -61,8 +61,31 @@ transaction, écriture et vérification du checkpoint. Des écritures de trousse
 hors ordre pourraient restaurer un ancien marqueur. Une lecture indisponible ne
 vaut jamais absence ; fichier incomplet, clé absente ou tête incompatible exigent
 un arrêt explicite, jamais une recréation silencieuse du même état d'envoi.
-Initialisation interrompue, retrait / purge de compte et contrat de verrou sont
-des travaux d'intégration encore ouverts.
+
+`protected::Manager` enveloppe ce cycle dans un worker synchrone possédé : verrou
+OS, lecture du trousseau, commit, écriture conditionnée au prédécesseur, relecture
+de confirmation, puis retour du résultat. Si l'appelant abandonne le worker,
+l'opération OS conserve le verrou jusqu'à son terme. Le verrou est explicitement
+libéré à la fin, même si un lancement de processus a brièvement hérité du descripteur.
+Une concurrence retourne `crypto_storage_busy`, sans seconde opération crypto.
+La portée et le répertoire canonique sont liés à l'entrée protégée : une copie
+de la base sous un autre répertoire / verrou ne peut pas forker le même appareil.
+
+L'initialisation est explicite et sauvegarde d'abord la clé. Un crash avant le
+checkpoint initial ne permet de reprendre qu'une genèse authentifiée vide de
+clés MLS / enregistrements. Un fichier incomplet est refusé ; le rétablissement
+exige retrait explicite et nouvelle incarnation, sans remplacement implicite.
+`retire` sauvegarde un tombstone **sans clé**, puis retire uniquement les fichiers
+SQLite de cette portée. Tombstone et fichier de verrou restent en place :
+restaurer une ancienne copie ne réactive pas l'incarnation retirée.
+
+Le backend optionnel `system-keystore` utilise keyring 3.6.3 avec les features
+explicites Secret Service synchrone / transfert chiffré Linux, Keychain macOS et
+Credential Store Windows, dans le service `me.barrut.RocketVibe.crypto.v1`, hors
+des sessions Rocket.Chat. [Contrat de la bibliothèque](https://docs.rs/keyring/3.6.3/keyring/).
+Les plateformes non prises en charge n'obtiennent pas un backend mock de repli.
+Android exigera son propre pont Keystore. Les widgets, retrait de compte et
+verrouillage des apps ne sont pas encore reliés à ce coordinateur.
 
 ## Limite de confidentialité des anciennes copies
 
@@ -76,7 +99,8 @@ J4. [Exigences du stockage OpenMLS](https://book.openmls.tech/user_manual/persis
 
 MLS n'est pas l'archive récupérable demandée par la RFC. Cette crate ne fournit
 encore ni identité certifiée, ni politique d'admission, ni livraison serveur,
-ni archive / fichiers, ni pont Android, ni adaptateur réel de trousseau.
+ni archive / fichiers, ni pont Android. Trousseaux Windows / macOS, ACL Windows,
+restauration des sauvegardes du trousseau et coupure électrique sont à qualifier.
 
 ## Vérifications
 
@@ -84,9 +108,10 @@ ni archive / fichiers, ni pont Android, ni adaptateur réel de trousseau.
 cargo fmt --manifest-path crates/rv-crypto/Cargo.toml -- --check
 cargo clippy --locked --manifest-path crates/rv-crypto/Cargo.toml --target-dir target --all-targets -- -D warnings
 cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --target-dir target
+cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --features system-keystore --target-dir target
 ```
 
-Six scénarios Linux passent, dont l'échange OpenMLS entre deux véritables bases
+Quatorze scénarios Linux passent, dont l'échange OpenMLS entre deux véritables bases
 rouvertes : consommation / ciphertext original conservés, réception altérée
 annulée puis original accepté, et rejeu refusé. Les autres preuves couvrent AEAD,
 portées, tête ancienne restaurée, auteur concurrent, échec SQL, limites, fichier
@@ -95,7 +120,23 @@ le commit SQLite : avant commit, état original ; après commit, reprise du seul
 successeur authentifié. Le test enfant marqué `ignored` est exécuté par ce test
 parent et tué à la frontière ; ce n'est pas un scénario omis.
 
-Clés connues et BasicCredentials sont des fixtures publiques non certifiées.
-Le checkpoint est simulé par le pilote de test ; ces preuves ne qualifient pas
-un trousseau réel ni le comportement après coupure électrique. Le script serveur
-exécute ces contrôles en CI. J4 reste ouvert jusqu'à l'intégration et la revue.
+Les preuves du coordinateur couvrent aussi erreurs / réponses perdues du stockage
+protégé, checkpoint initial interrompu, purge répétable, base copiée, permissions
+du parent et verrou conservé pendant une écriture retardée. Clés connues et
+BasicCredentials sont des fixtures publiques non certifiées.
+
+[`scripts/keystore-smoke.sh`](scripts/keystore-smoke.sh) utilise un **vrai Secret
+Service Linux**, ses répertoires XDG jetables et plusieurs processus CLI. Un
+processus est tué après commit SQLite, avant l'écriture protégée ; un concurrent
+est refusé pendant le verrou. Un nouveau bus / daemon retrouve la clé, confirme
+le successeur et les octets d'outbox originaux, puis retire l'incarnation.
+Ce banc passe sous Fedora dans le conteneur existant, avec `--cap-add IPC_LOCK`.
+Aucun profil utilisateur de l'hôte n'est connecté.
+
+La CI a une matrice crypto Linux / Windows / macOS : formatage, Clippy, tests et
+compilation du backend natif ; Linux exécute aussi le vrai banc de trousseau.
+Les longs pilotes clients restent obligatoires pour changements clients / serveur,
+workflow, base inconnue, ou moteur crypto consommé par une app. Seuls les lots
+crypto encore isolés et Markdown peuvent les éviter. Les tests ne qualifient pas
+la coupure électrique, les trousseaux installés ou une revue crypto indépendante.
+J4 reste ouvert jusqu'à l'intégration et la revue.

@@ -16,6 +16,7 @@ mod marks;
 mod mentions;
 mod message_actions;
 pub mod objects;
+pub mod operator;
 mod permissions;
 mod profiles;
 mod quotes;

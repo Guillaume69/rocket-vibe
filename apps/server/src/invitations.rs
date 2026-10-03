@@ -46,9 +46,16 @@ pub async fn issue(app: &App, hours: u32) -> Result<IssuedInvitation> {
     if count >= 1000 {
         return Err(Error::throttled("invitation_limit", 60));
     }
-    let invitation = sqlx::query_as("INSERT INTO account_invitations(id,token_hash,data_epoch,expires_at) VALUES($1,$2,$3,now()+make_interval(hours => $4)) RETURNING id,created_at,expires_at,consumed_at,revoked_at")
+    let invitation: Invitation = sqlx::query_as("INSERT INTO account_invitations(id,token_hash,data_epoch,expires_at) VALUES($1,$2,$3,now()+make_interval(hours => $4)) RETURNING id,created_at,expires_at,consumed_at,revoked_at")
         .bind(auth::random_token()[..24].to_owned()).bind(auth::hash_token(&token))
         .bind(epoch).bind(hours as i32).fetch_one(&mut *tx).await?;
+    crate::operator::record(
+        &mut tx,
+        "invitation.issued",
+        &invitation.id,
+        serde_json::json!({"expires_at":invitation.expires_at}),
+    )
+    .await?;
     tx.commit().await?;
     Ok(IssuedInvitation { invitation, token })
 }
@@ -62,15 +69,25 @@ pub async fn revoke(app: &App, id: &str) -> Result<()> {
     if !auth::identifier(id) {
         return Err(Error::invalid());
     }
-    let changed = sqlx::query(
-        "UPDATE account_invitations SET revoked_at=COALESCE(revoked_at,now()) WHERE id=$1",
-    )
+    let mut tx = app.pool.begin().await?;
+    auth::mutation_deadlines(&mut tx).await?;
+    let changed = sqlx::query("UPDATE account_invitations SET revoked_at=clock_timestamp() WHERE id=$1 AND revoked_at IS NULL")
     .bind(id)
-    .execute(&app.pool)
+    .execute(&mut *tx)
     .await?;
-    if changed.rows_affected() == 0 {
-        return Err(Error::missing());
+    if changed.rows_affected() > 0 {
+        crate::operator::record(&mut tx, "invitation.revoked", id, serde_json::json!({})).await?;
+    } else {
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_invitations WHERE id=$1)")
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await?;
+        if !exists {
+            return Err(Error::missing());
+        }
     }
+    tx.commit().await?;
     Ok(())
 }
 

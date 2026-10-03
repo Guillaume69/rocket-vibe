@@ -1,4 +1,4 @@
-# Serveur RocketVibe natif — chantier J0/J1
+# Serveur RocketVibe natif — chantier RFC 0001
 
 Serveur Rust expérimental, développé sur `feature/rocketvibe-server`. Le socle est
 indépendant de Rocket.Chat : Axum / Tokio, PostgreSQL, contrats `rv-protocol` et
@@ -33,8 +33,12 @@ sont raccordés. Le retrait conditionnel du contact est disponible côté serveu
 et SDK, même sans SMTP ; les trois clients sont raccordés. Le second facteur
 e-mail dispose de routes serveur et SDK pour inscription, retrait, livraison et
 reprise des défis de connexion / réauthentification. Le mobile propose ces défis
-dans ses écrans existants. Leurs parcours bureau, l'inscription du facteur dans
-les trois clients et la récupération e-mail restent à livrer. Fichiers, push, appels,
+dans ses écrans existants. Les parcours bureau, l'inscription du facteur et la
+récupération e-mail sont raccordés aux trois clients. Présence, fils, recherche,
+profils, réglages et avatars protégés utilisent leurs écrans existants.
+L'[administration opérateur](../../docs/protocol/ADMINISTRATION.md) fournit
+comptes / droits / désactivation, salons / membres / réglages, reçus de commande,
+audit transactionnel et diagnostic (`health`). Fichiers, push, appels,
 chiffrement et parité complète restent au backlog. Les limites sont explicites dans
 le [contrat du pilote](../../docs/protocol/README.md).
 

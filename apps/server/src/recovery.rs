@@ -45,9 +45,16 @@ pub async fn issue(app: &App, username: &str, hours: u32) -> Result<IssuedRecove
     if total >= 1000 || account >= 3 {
         return Err(Error::throttled("recovery_limit", 60));
     }
-    let recovery=sqlx::query_as("INSERT INTO account_recovery_codes(id,token_hash,user_id,data_epoch,activation_version,expires_at) VALUES($1,$2,$3,$4,$5,now()+make_interval(hours => $6)) RETURNING id,user_id,created_at,expires_at,consumed_at,revoked_at")
+    let recovery:RecoveryCode=sqlx::query_as("INSERT INTO account_recovery_codes(id,token_hash,user_id,data_epoch,activation_version,expires_at) VALUES($1,$2,$3,$4,$5,now()+make_interval(hours => $6)) RETURNING id,user_id,created_at,expires_at,consumed_at,revoked_at")
         .bind(auth::random_token()[..24].to_owned()).bind(auth::hash_token(&token)).bind(id).bind(epoch).bind(version).bind(hours as i32)
         .fetch_one(&mut *tx).await?;
+    crate::operator::record(
+        &mut tx,
+        "recovery.issued",
+        &recovery.id,
+        serde_json::json!({"user_id":recovery.user_id,"expires_at":recovery.expires_at}),
+    )
+    .await?;
     tx.commit().await?;
     Ok(IssuedRecoveryCode { recovery, token })
 }
@@ -59,15 +66,25 @@ pub async fn revoke(app: &App, id: &str) -> Result<()> {
     if !auth::identifier(id) {
         return Err(Error::invalid());
     }
-    let result = sqlx::query(
-        "UPDATE account_recovery_codes SET revoked_at=COALESCE(revoked_at,now()) WHERE id=$1",
-    )
+    let mut tx = app.pool.begin().await?;
+    auth::mutation_deadlines(&mut tx).await?;
+    let result = sqlx::query("UPDATE account_recovery_codes SET revoked_at=clock_timestamp() WHERE id=$1 AND revoked_at IS NULL")
     .bind(id)
-    .execute(&app.pool)
+    .execute(&mut *tx)
     .await?;
-    if result.rows_affected() == 0 {
-        return Err(Error::missing());
+    if result.rows_affected() > 0 {
+        crate::operator::record(&mut tx, "recovery.revoked", id, serde_json::json!({})).await?;
+    } else {
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_recovery_codes WHERE id=$1)")
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await?;
+        if !exists {
+            return Err(Error::missing());
+        }
     }
+    tx.commit().await?;
     Ok(())
 }
 

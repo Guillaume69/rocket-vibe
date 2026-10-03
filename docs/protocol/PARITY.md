@@ -208,14 +208,14 @@ ouverte tant que serveur, clients concernés et scénario de parité manquent.
 | P13 Recherche | J2 / J4 | Recherche PG autorisée, pages bornées, édition / suppression et résultats temporaires raccordés aux écrans existants ; [contrat](SEARCH.md). Index local du chiffré et purge au verrouillage encore ouverts avec J4 ; qualification installée ouverte |
 | P14 Photos / documents / vidéos / vocaux | J3 | Objets protégés, upload / retry / confirmation idempotente ; partage et lecteurs |
 | P15 Liens / cartes | J3 | DTO, métadonnées bornées et refus SSRF ; lecteurs existants |
-| P16 Profils / réglages | J2–J3 | API, volume durable, reçus, fiches publiques et formulaires personnels des trois interfaces existantes raccordés ; statut, bio, langue, notifications, avatars protégés, intentions persistantes, preuve / abandon et DM par UID ; noms / photos des listes et en-têtes bureau raccordés ; [contrat](PROFILES.md). Compilation macOS suivie par CI et qualification installée à compléter |
+| P16 Profils / réglages | J2–J3 | API, volume durable, reçus, fiches publiques et formulaires personnels des trois interfaces existantes raccordés ; statut, bio, langue, notifications, avatars protégés, intentions persistantes, preuve / abandon et DM par UID ; noms / photos des listes et en-têtes bureau raccordés ; [contrat](PROFILES.md). Compilation macOS validée en CI ; qualification installée à compléter |
 | P17 Push / notifications | J3 | Tâches durables, FCM et Kotlin, navigation / réponse idempotente ; téléphone app arrêtée |
 | P18 E2EE existant | J4–J5 | Import opaque / paramètres historiques, lecture / envoi depuis cache vierge |
 | P19 E2EE autonome | J4 | Spécification / revue, identités, sauvegardes / nouveaux appareils, rotation / clé perdue |
 | P20 Jitsi | J4 | Réunions autorisées, JWT courts, démarrer / rejoindre ; essai service / révocation |
 | P21 Partage / liens profonds | J3 / J5 | Instance / compte explicites, résolution import, pas de session choisie par un lien tiers |
 | P22 Langues / ergonomie / mises à jour | Transversal | UI conservée ; traductions des nouveaux codes et non-régression des 3 plateformes |
-| P23 Administration | J2 / J5 | Bootstrap livré ; invitations, désactivation, audit, CLI et création dans les apps |
+| P23 Administration | J2 / J5 | Bootstrap, invitations / récupération, CLI de comptes / droits / désactivation, salons / membres / réglages, reçus, audit et diagnostic raccordés ; création / adhésion dans les apps P04 ; [contrat](ADMINISTRATION.md). Import / restauration et exploitation J5, qualification installée ouverts |
 
 Ordre d'exécution : garanties restantes J1, puis P01/P02/P04/P05/P09–P13/P16/P23
 pour J2, J3, J4, J5. Les validations exigeant une ressource externe sont consignées

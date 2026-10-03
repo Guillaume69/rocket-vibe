@@ -54,6 +54,7 @@ final class NativeProviderTests: XCTestCase {
         await peer.submitLogin()
         try await until { peer.connection == .online }
         let direct = try await native.direct(username: "mobile")
+        try await until { native.status().state == .online }
         try await until { peer.rooms.contains { $0.rid == direct && $0.name == fields.name && $0.avatar == withAvatar.me.avatar } }
         peer.open(direct)
         let directModel = try XCTUnwrap(peer.room)

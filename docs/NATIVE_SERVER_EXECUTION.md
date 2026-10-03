@@ -319,6 +319,24 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P23, administration opérateur (3 octobre 2026) : CLI de comptes / droits /
+  désactivation, salons / membres / réglages, listes paginées, audit et diagnostic.
+  Les commandes rendent des reçus persistants ; un ancien reçu ne réapplique pas
+  son état après une réactivation et un même ID concurrent ne crée qu'un salon.
+  Révocation des appareils sous le verrou de remise, conservation des comptes /
+  mots de passe / facteurs / conversations et propagation par le journal existant.
+  L'audit transactionnel exclut secrets et messages ; le rôle opérateur reste
+  distinct des droits d'application. Vérifications : Clippy serveur et 14 tests
+  PostgreSQL (5 administration, 4 invitations, 5 récupération), dont un scénario
+  du vrai binaire CLI et une attente du verrou de remise. Neuf scénarios Swift
+  connectés à PostgreSQL / Secret Service passent en 31,3 s après correction de
+  l'attente de reconnexion du test de profil ; compilation incrémentale 12,4 s.
+  Le scénario GTK attend aussi la connexion du compte pair avant son profil :
+  Clippy, compilation Fedora et 44 contrôles du vrai binaire passent.
+  La compilation des vues macOS du lot précédent est verte dans la CI 37093755876.
+  Contrat dans [ADMINISTRATION.md](protocol/ADMINISTRATION.md). Qualification
+  installée, import / restauration et exploitation J5 restent ouverts ; suite J3.
+
 - P16, identités des DM bureau (3 octobre 2026) : listes et en-têtes GTK / SwiftUI
   existants affichent le nom et la photo protégée courants de leur interlocuteur.
   Projection commune du cœur, lien SQLite par UID et adhésion, reprise hors ligne,

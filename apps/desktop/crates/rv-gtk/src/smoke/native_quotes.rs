@@ -533,6 +533,17 @@ async fn live_controls(window: &Rc<AppWindow>, session: &std::sync::Arc<rv_core:
         })
         .await
         .unwrap();
+    for _ in 0..200 {
+        if peer.status().connection == rv_core::session::Connection::Online {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    check(
+        "native GTK DM peer is online before editing its profile",
+        peer.status().connection == rv_core::session::Connection::Online,
+        (),
+    );
     let png = gtk::gdk_pixbuf::Pixbuf::new(gtk::gdk_pixbuf::Colorspace::Rgb, true, 8, 4, 4).unwrap();
     png.fill(0xff5fa2ff);
     let bytes = png.save_to_bufferv("png", &[]).unwrap();

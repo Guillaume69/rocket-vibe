@@ -3,7 +3,7 @@ use rv_server::App;
 use std::net::SocketAddr;
 
 #[derive(Parser)]
-#[command(about = "RocketVibe native server — experimental J1 foundation")]
+#[command(about = "RocketVibe native server and operator CLI")]
 struct Args {
     #[arg(long, env = "DATABASE_URL", hide_env_values = true)]
     database_url: String,
@@ -51,6 +51,111 @@ enum Command {
     RevokeRecoveryCode {
         id: String,
     },
+    /// Public account metadata only; no email, password, factor or bearer.
+    ListUsers {
+        #[arg(long)]
+        after: Option<String>,
+        #[arg(long, default_value_t = 50)]
+        limit: u32,
+    },
+    /// Change account policy by stable UID; changes revoke its device sessions.
+    SetUser {
+        id: String,
+        #[arg(long)]
+        revision: Option<String>,
+        #[arg(long)]
+        disabled: Option<bool>,
+        #[arg(long)]
+        admin: Option<bool>,
+        #[arg(long)]
+        create_public_room: Option<bool>,
+        #[arg(long)]
+        create_private_room: Option<bool>,
+        #[arg(long)]
+        operation_id: Option<String>,
+    },
+    /// Room metadata only; never reads chat content or encryption keys.
+    ListRooms {
+        #[arg(long)]
+        after: Option<String>,
+        #[arg(long, default_value_t = 50)]
+        limit: u32,
+    },
+    CreateRoom {
+        owner_id: String,
+        name: String,
+        #[arg(long)]
+        private: bool,
+        #[arg(long)]
+        operation_id: Option<String>,
+    },
+    SetRoom {
+        id: String,
+        #[arg(long)]
+        revision: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        private: Option<bool>,
+        #[arg(long)]
+        read_only: Option<bool>,
+        #[arg(long)]
+        topic: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        announcement: Option<String>,
+        #[arg(long)]
+        operation_id: Option<String>,
+    },
+    ListMembers {
+        room: String,
+        #[arg(long)]
+        after: Option<String>,
+        #[arg(long, default_value_t = 50)]
+        limit: u32,
+    },
+    /// Add/change a role or remove a member, using the room's current revision.
+    SetMember {
+        room: String,
+        user_id: String,
+        #[arg(long, value_parser=["owner","moderator","member"], required_unless_present="remove", conflicts_with="remove")]
+        role: Option<String>,
+        #[arg(long)]
+        remove: bool,
+        #[arg(long)]
+        revision: String,
+        #[arg(long)]
+        operation_id: Option<String>,
+    },
+    Audit {
+        #[arg(long)]
+        after: Option<String>,
+        #[arg(long, default_value_t = 50)]
+        limit: u32,
+    },
+    /// Database, epoch, migration and counts; no connection string or secret.
+    Health,
+}
+
+type CliResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
+fn output(value: impl serde::Serialize) -> CliResult {
+    println!("{}", serde_json::to_string(&value)?);
+    Ok(())
+}
+fn operator_output(value: Result<impl serde::Serialize, impl std::fmt::Debug>) -> CliResult {
+    output(value.map_err(|e| format!("Operator read failed: {e:?}"))?)
+}
+async fn apply_operator(
+    app: &App,
+    operation: Option<String>,
+    command: rv_server::operator::Command,
+) -> CliResult {
+    let operation = operation.unwrap_or_else(rv_server::auth::random_token);
+    let receipt = rv_server::operator::apply(app, &operation, command)
+        .await
+        .map_err(|e| format!("Operator command failed: {}", e.code))?;
+    output(receipt)
 }
 
 #[tokio::main]
@@ -158,6 +263,110 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .map_err(|e| format!("Cannot revoke recovery code: {}", e.code))?;
             println!("Recovery code revoked");
         }
+        Command::ListUsers { after, limit } => {
+            operator_output(rv_server::operator::users(&app, after.as_deref(), limit).await)?
+        }
+        Command::SetUser {
+            id,
+            revision,
+            disabled,
+            admin,
+            create_public_room,
+            create_private_room,
+            operation_id,
+        } => {
+            apply_operator(
+                &app,
+                operation_id,
+                rv_server::operator::Command::User {
+                    id,
+                    expected: revision,
+                    changes: rv_server::operator::UserChanges {
+                        disabled,
+                        admin,
+                        create_public_room,
+                        create_private_room,
+                    },
+                },
+            )
+            .await?;
+        }
+        Command::ListRooms { after, limit } => {
+            operator_output(rv_server::operator::rooms(&app, after.as_deref(), limit).await)?
+        }
+        Command::CreateRoom {
+            owner_id,
+            name,
+            private,
+            operation_id,
+        } => {
+            apply_operator(
+                &app,
+                operation_id,
+                rv_server::operator::Command::CreateRoom {
+                    owner: owner_id,
+                    name,
+                    private,
+                },
+            )
+            .await?
+        }
+        Command::SetRoom {
+            id,
+            revision,
+            name,
+            private,
+            read_only,
+            topic,
+            description,
+            announcement,
+            operation_id,
+        } => {
+            apply_operator(
+                &app,
+                operation_id,
+                rv_server::operator::Command::Room {
+                    id,
+                    expected: revision,
+                    changes: rv_server::operator::RoomChanges {
+                        name,
+                        private,
+                        read_only,
+                        topic,
+                        description,
+                        announcement,
+                    },
+                },
+            )
+            .await?;
+        }
+        Command::ListMembers { room, after, limit } => operator_output(
+            rv_server::operator::members(&app, &room, after.as_deref(), limit).await,
+        )?,
+        Command::SetMember {
+            room,
+            user_id,
+            revision,
+            role,
+            remove: _,
+            operation_id,
+        } => {
+            apply_operator(
+                &app,
+                operation_id,
+                rv_server::operator::Command::Member {
+                    room,
+                    user: user_id,
+                    expected: revision,
+                    role,
+                },
+            )
+            .await?
+        }
+        Command::Audit { after, limit } => {
+            operator_output(rv_server::operator::audit(&app, after.as_deref(), limit).await)?
+        }
+        Command::Health => operator_output(rv_server::operator::health(&app).await)?,
     }
     Ok(())
 }

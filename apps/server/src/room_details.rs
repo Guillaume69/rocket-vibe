@@ -365,7 +365,7 @@ pub async fn apply(
         applied_revision: revision,
     })
 }
-async fn require_other_owner(
+pub(crate) async fn require_other_owner(
     tx: &mut Transaction<'_, Postgres>,
     room: &str,
     target: &str,

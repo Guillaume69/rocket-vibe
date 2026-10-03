@@ -139,6 +139,8 @@ pub async fn create_user(app: &App, username: &str, password: String, admin: boo
         username: username.into(),
         display_name: username.into(),
     };
+    let mut tx = app.pool.begin().await?;
+    mutation_deadlines(&mut tx).await?;
     let result = sqlx::query(
         "INSERT INTO users(id,username,display_name,password_hash,admin) VALUES($1,$2,$3,$4,$5)",
     )
@@ -147,12 +149,22 @@ pub async fn create_user(app: &App, username: &str, password: String, admin: boo
     .bind(&user.display_name)
     .bind(password_hash)
     .bind(admin)
-    .execute(&app.pool)
+    .execute(&mut *tx)
     .await;
     match result {
         Err(sqlx::Error::Database(e)) if e.is_unique_violation() => Err(Error::conflict()),
         Err(e) => Err(e.into()),
-        Ok(_) => Ok(user),
+        Ok(_) => {
+            crate::operator::record(
+                &mut tx,
+                "user.created",
+                &user.id,
+                serde_json::json!({"user":user,"admin":admin}),
+            )
+            .await?;
+            tx.commit().await?;
+            Ok(user)
+        }
     }
 }
 

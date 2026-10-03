@@ -9,12 +9,19 @@ import type { Capabilities } from './protocol.generated.ts';
 import type {RoomOperation,SavedRoomOperation} from './roomOperations.ts';
 import type {PendingRead,SavedFavorite} from './readIntents.ts';
 import { canonicalEmoji } from './emojis.ts';
+import {NativeLive} from './live.ts';
 import type {FactorRemote} from './factorVault.ts';
 import type {EmailRemote} from './emailVault.ts';
 import {checkSecurityScope,type SecurityScope} from './reauthenticationVault.ts';
 
 export type NativeStatus = { online: boolean; error: string | null };
 export class NativeChat {
+  readonly live=new NativeLive();
+  private presenceTimer:ReturnType<typeof setInterval>|null=null;
+  private presenceCommands:Promise<void>=Promise.resolve();
+  private typingDesired:{room:string;input:import('./protocol.generated.ts').SetTyping;generation:number}|null=null;
+  private typingRunning=false;
+  private typingLast:{key:string;at:number}|null=null;
   readonly store: NativeStore;
   readonly transport: NativeTransport;
   private session: Session;
@@ -60,6 +67,9 @@ export class NativeChat {
   private notify(): void { for (const listener of this.listeners) listener(); }
   start(): void { this.reconnect.declencher(); }
   private disconnect(): void {
+    if(this.verified && this.capabilities?.presence)this.emitPresence('offline');
+    if(this.presenceTimer!==null)clearInterval(this.presenceTimer);
+    this.presenceTimer=null;this.typingDesired=null;this.typingLast=null;this.live.clear();
     this.generation++;
     this.verified = false;
     if (this.retryTimer!==null) clearTimeout(this.retryTimer);
@@ -141,11 +151,12 @@ export class NativeChat {
       await this.flush();
       if (!alive()) return;
       const cursor = (await this.store.state())!.cursor;
-      const url = await this.transport.socketUrl(cursor);
+      const url = await this.transport.socketUrl(cursor,!!(this.capabilities?.typing || this.capabilities?.presence));
       if (!alive()) return;
       await this.open(url,generation);
       if (!alive()) return;
       this.status = {online:true,error:null}; this.notify();
+      if(this.capabilities?.presence){this.emitPresence('online');this.presenceTimer=setInterval(()=>this.emitPresence('online'),20_000);}
       this.lastFrame = Date.now();
       this.watchdog = setInterval(() => {
         if(this.credentials && Date.now()>=this.credentialCheckAt){this.refresh();return;}
@@ -173,14 +184,27 @@ export class NativeChat {
       socket.onmessage = event => {
         if (this.socket !== socket || generation !== this.generation) return;
         this.lastFrame = Date.now();
+        const receivedAt=performance.now();
         // Slow SQLite never creates an unbounded queue. Reconnect replays from the last commit.
         if (this.queued >= 4) { this.lost(); return; }
         this.queued++;
         this.frames = this.frames.then(async () => {
           if (generation !== this.generation || this.stopped) return;
-          const batch = decodeNative('SyncBatch',JSON.parse(String(event.data)));
+          const value:unknown=JSON.parse(String(event.data));
+          if(value && typeof value==='object' && 'type' in value && value.type==='live'){
+            const frame=decodeNative('LiveFrame',value);
+            for(const room of frame.data.rooms){
+              const grant=await this.store.readState(room.room_id);
+              if(generation!==this.generation)return;
+              if(grant?.membership_version!==room.membership_version){this.live.clear();return;}
+            }
+            if(generation===this.generation)this.live.apply(frame.data,Math.max(0,performance.now()-receivedAt));
+            return;
+          }
+          const batch = decodeNative('SyncBatch',value);
           if (batch.protocol_version !== 1) throw new Error('Unsupported batch version');
           await this.store.applyBatch(batch);
+          for(const room of this.live.state?.rooms??[])if((await this.store.readState(room.room_id))?.membership_version!==room.membership_version){this.live.clear();break;}
           if (generation === this.generation) this.notify();
         }).catch(() => { if (generation === this.generation) this.lost(); }).finally(() => { this.queued--; });
       };
@@ -189,6 +213,33 @@ export class NativeChat {
   private ready(): void {
     if (this.stopped) throw new NativeError(0,'session_closed');
     if (!this.verified) throw new NativeError(0,'offline');
+  }
+  private emitPresence(status:import('./protocol.generated.ts').PresenceStatus):void {
+    const generation=this.generation;
+    this.presenceCommands=this.presenceCommands.then(async()=>{
+      if(status!=='offline' && (generation!==this.generation || this.stopped || !this.status.online))return;
+      await this.transport.setPresence(status);
+    }).catch(()=>{});
+  }
+  async setTyping(room:string,active:boolean,rootId?:string,membership?:string):Promise<void>{
+    if(!this.status.online || !this.capabilities?.typing || this.stopped)return;
+    const generation=this.generation,grant=await this.store.readState(room);
+    if(generation!==this.generation || !grant?.membership_version || membership && membership!==grant.membership_version)return;
+    const key=`${room}:${rootId??''}:${grant.membership_version}`;
+    if(active && this.typingLast?.key===key && performance.now()-this.typingLast.at<3000)return;
+    this.typingLast=active?{key,at:performance.now()}:null;
+    this.typingDesired={room,input:{active,membership_version:grant.membership_version,...(rootId?{root_id:rootId}:{})},generation};
+    if(this.typingRunning)return;
+    this.typingRunning=true;
+    try {
+      while(this.typingDesired){
+        const desired=this.typingDesired;this.typingDesired=null;
+        if(desired.generation!==this.generation || !this.status.online)continue;
+        if((await this.store.readState(desired.room))?.membership_version!==desired.input.membership_version)continue;
+        if(desired.generation!==this.generation || !this.status.online)continue;
+        await this.transport.setTyping(desired.room,desired.input).catch(()=>{});
+      }
+    } finally {this.typingRunning=false;}
   }
   async roomMembers(room:string,after?:string,revision?:string):Promise<import('./protocol.generated.ts').RoomMemberPage> {
     this.ready();

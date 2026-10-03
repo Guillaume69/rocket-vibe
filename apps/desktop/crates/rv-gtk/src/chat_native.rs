@@ -56,6 +56,10 @@ impl ChatPage {
                 this.set_connection(status.connection);
                 this.native_features(&session);
                 this.reload_rooms();
+                this.refresh_room_header();
+                if let Some(rid) = this.current_rid() {
+                    this.on_typing(&rid);
+                }
                 let changed_membership = this.native_membership.borrow().as_ref().is_some_and(|(rid, previous)| {
                     !this.has_room(rid)
                         || session.store.read_state(rid).ok().flatten().and_then(|s| s.membership_version) != *previous

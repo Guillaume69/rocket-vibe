@@ -319,6 +319,26 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P12, présence / saisie (3 octobre 2026) : baux PostgreSQL UNLOGGED par appareil,
+  présence de 60 s et saisie de 10 s ; renouvellement actif, arrêt et émission
+  limitée côté clients. Photos WebSocket négociées séparément du journal,
+  expiration locale de 8 s, identité réelle du correspondant d'un DM et jetons
+  d'adhésion vérifiés ; retrait / réadhésion, session révoquée et restauration
+  ne réaniment pas une ancienne saisie. Les composeurs et indicateurs GTK /
+  SwiftUI / mobile existants sont raccordés. `@here` capture seulement les
+  membres online / busy au premier envoi ; édition et connexion ultérieure
+  n'ajoutent aucun ping. Aucun état temporaire n'entre dans l'outbox ou SQLite.
+  Vérifications : 209 tests Rust racine, Clippy, contrats générés ; 349 tests
+  cœur / bindings desktop, 6 tests GTK et Clippy workspace ; 1 191 tests mobiles, types et
+  lint, puis 3 tests ciblés de l'horloge monotone. Deux fournisseurs mobiles
+  réels PostgreSQL / WebSocket / SQLite vérifient la saisie via le moteur
+  existant, le correspondant du DM, arrêt / suspension et purge d'adhésion.
+  GTK passe 33 contrôles de widgets / composeurs sous Xvfb et Secret Service,
+  dont 6 nouveaux contrôles présence / saisie, sans screenshot. Deux parcours
+  Swift connectés passent avec le trousseau réel, dont présence / émission /
+  arrêt / suspension. La CI du précédent lot `33a7084` est entièrement verte.
+  Qualification des applications installées ouverte. [Contrat P12](protocol/LIVE.md).
+
 - P11, fils (3 octobre 2026) : racines / réponses séparées, compteurs et dernière
   réponse, pages de fil et lectures monotones par fil livrés côté Rust / transports.
   Même écran mobile et mêmes panneaux GTK / SwiftUI : réponse durable gardant

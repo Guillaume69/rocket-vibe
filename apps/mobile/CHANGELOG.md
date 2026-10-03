@@ -9,6 +9,10 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Présence dans les DM et saisie dans les composeurs existants, avec expiration
+  après une coupure et arrêt à la suspension. Les mentions @here ciblent les
+  membres présents au moment de l'envoi.
+
 - Fils natifs dans l'écran existant : compteur de réponses, citations dans un
   fil, brouillon séparé et réponse durable après une coupure. Lire un fil laisse
   les autres non lus ; supprimer sa racine conserve le brouillon et bloque

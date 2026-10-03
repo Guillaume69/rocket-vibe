@@ -120,6 +120,12 @@
       "unread": "2"
     }
   },
+  "live_frame": {
+    "type":"live",
+    "data":{"ttl_ms":8000,"limited":false,"presence":[],"rooms":[]}
+  },
+  "set_presence":{"status":"online"},
+  "set_typing":{"active":true,"membership_version":"current-grant"},
   "mark_thread_read": {
     "position": "9007199254740995"
   }

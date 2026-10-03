@@ -232,12 +232,16 @@ export class NativeTransport {
   }
   changes(cursor: string): Promise<SyncBatch> { return this.request('SyncBatch', `/api/v1/sync/changes?cursor=${encodeURIComponent(cursor)}`); }
 
-  async socketUrl(cursor: string): Promise<string> {
+  async socketUrl(cursor: string, live=false): Promise<string> {
     const ticket: SocketTicket = await this.request('SocketTicket', '/api/v1/sync/ticket', {});
     const url = new URL(`${this.baseUrl}/api/v1/sync/socket`);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
     url.searchParams.set('ticket', ticket.ticket);
     url.searchParams.set('cursor', cursor);
+    if(live)url.searchParams.set('live','true');
     return url.toString();
   }
+  async setPresence(status:NativeTypes['PresenceStatus']):Promise<void>{await this.value('/api/v1/me/presence',{status},false,undefined,'PUT');}
+  async setTyping(room:string,input:NativeTypes['SetTyping']):Promise<void>{await this.value(`/api/v1/rooms/${encodeURIComponent(room)}/typing`,input,false,undefined,'PUT');}
+  liveState():Promise<NativeTypes['LiveFrame']>{return this.request('LiveFrame','/api/v1/live');}
 }

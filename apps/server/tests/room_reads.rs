@@ -14,6 +14,311 @@ struct Bench {
     task: tokio::task::JoinHandle<()>,
 }
 
+#[sqlx::test(migrations = "./migrations")]
+async fn live_leases_expire_follow_membership_and_freeze_here_recipients(pool: PgPool) {
+    use futures_util::StreamExt;
+    use rv_protocol::live::{LiveFrame, PresenceStatus, SetTyping};
+    let b = Bench::start(pool).await;
+    let (owner, _, token) = b.user("live-owner", false).await;
+    let (reader, uid, reader_token) = b.user("live-reader", false).await;
+    let (outsider, _, _) = b.user("live-outsider", true).await;
+    let room = b.room(&owner, &token, &uid).await;
+    let grant = reader
+        .room_read_state(&room)
+        .await
+        .unwrap()
+        .membership_version
+        .unwrap();
+    let high: i64 = sqlx::query_scalar("SELECT position FROM instance")
+        .fetch_one(&b.app.pool)
+        .await
+        .unwrap();
+    reader.set_presence(PresenceStatus::Online).await.unwrap();
+    reader
+        .set_typing(
+            &room,
+            &SetTyping {
+                active: true,
+                membership_version: grant.clone(),
+                root_id: None,
+            },
+        )
+        .await
+        .unwrap();
+    let LiveFrame::Live(state) = owner.live_state().await.unwrap();
+    assert!(
+        state
+            .presence
+            .iter()
+            .any(|p| p.user.id == uid && p.status == PresenceStatus::Online)
+    );
+    assert!(
+        state
+            .rooms
+            .iter()
+            .any(|r| r.room_id == room && r.typing.iter().any(|t| t.user.id == uid))
+    );
+    let LiveFrame::Live(state) = outsider.live_state().await.unwrap();
+    assert!(state.presence.is_empty() && state.rooms.is_empty());
+    let after: i64 = sqlx::query_scalar("SELECT position FROM instance")
+        .fetch_one(&b.app.pool)
+        .await
+        .unwrap();
+    assert_eq!(high, after, "leases never append to the journal");
+    let snapshot = owner.snapshot().await.unwrap();
+    let (mut socket, _) = tokio_tungstenite::connect_async(
+        owner
+            .live_socket_url(&snapshot.cursor)
+            .await
+            .unwrap()
+            .as_str(),
+    )
+    .await
+    .unwrap();
+    let frame = tokio::time::timeout(std::time::Duration::from_secs(4), socket.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let LiveFrame::Live(state) = serde_json::from_str(frame.to_text().unwrap()).unwrap();
+    assert!(
+        state
+            .rooms
+            .iter()
+            .any(|r| r.typing.iter().any(|t| t.user.id == uid))
+    );
+    let here = thread_send(&owner, &room, None, "here-first", "@here hello").await;
+    assert_eq!(
+        reader.room_read_state(&room).await.unwrap().group_mentions,
+        "1"
+    );
+    sqlx::query("UPDATE presence_leases SET expires_at=clock_timestamp()-interval '1 second'")
+        .execute(&b.app.pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE typing_leases SET expires_at=clock_timestamp()-interval '1 second'")
+        .execute(&b.app.pool)
+        .await
+        .unwrap();
+    let LiveFrame::Live(state) = owner.live_state().await.unwrap();
+    assert!(state.presence.is_empty() && state.rooms.iter().all(|r| r.typing.is_empty()));
+    thread_send(&owner, &room, None, "here-expired", "@here offline").await;
+    assert_eq!(
+        reader.room_read_state(&room).await.unwrap().group_mentions,
+        "1"
+    );
+    reader.set_presence(PresenceStatus::Away).await.unwrap();
+    thread_send(&owner, &room, None, "here-away", "@here away").await;
+    assert_eq!(
+        reader.room_read_state(&room).await.unwrap().group_mentions,
+        "1"
+    );
+    reader.set_presence(PresenceStatus::Busy).await.unwrap();
+    thread_send(&owner, &room, None, "here-busy", "@here busy").await;
+    assert_eq!(
+        reader.room_read_state(&room).await.unwrap().group_mentions,
+        "2"
+    );
+    assert_eq!(
+        reader
+            .set_typing(
+                &room,
+                &SetTyping {
+                    active: true,
+                    membership_version: "old-grant".into(),
+                    root_id: None
+                }
+            )
+            .await
+            .unwrap_err()
+            .to_string(),
+        "server refused request (409): membership_changed"
+    );
+    reader
+        .set_typing(
+            &room,
+            &SetTyping {
+                active: true,
+                membership_version: grant.clone(),
+                root_id: Some(here.id.clone()),
+            },
+        )
+        .await
+        .unwrap();
+    let LiveFrame::Live(state) = owner.live_state().await.unwrap();
+    assert!(state.rooms.iter().any(|r| {
+        r.typing
+            .iter()
+            .any(|t| t.root_id.as_deref() == Some(&here.id))
+    }));
+    assert_eq!(
+        b.request(
+            Method::DELETE,
+            &token,
+            &format!("/api/v1/rooms/{room}/members/{uid}"),
+            json!({})
+        )
+        .await
+        .status(),
+        StatusCode::NO_CONTENT
+    );
+    let LiveFrame::Live(state) = owner.live_state().await.unwrap();
+    assert!(state.presence.is_empty() && state.rooms.iter().all(|r| r.typing.is_empty()));
+    assert_eq!(
+        b.request(
+            Method::POST,
+            &token,
+            &format!("/api/v1/rooms/{room}/members/{uid}"),
+            json!({})
+        )
+        .await
+        .status(),
+        StatusCode::NO_CONTENT
+    );
+    let fresh = reader
+        .room_read_state(&room)
+        .await
+        .unwrap()
+        .membership_version
+        .unwrap();
+    assert_ne!(fresh, grant);
+    let LiveFrame::Live(state) = owner.live_state().await.unwrap();
+    assert!(
+        state.rooms.iter().all(|r| r.typing.is_empty()),
+        "old composer cannot return after rejoin"
+    );
+    assert!(
+        reader
+            .set_typing(
+                &room,
+                &SetTyping {
+                    active: true,
+                    membership_version: grant,
+                    root_id: None
+                }
+            )
+            .await
+            .is_err()
+    );
+    reader
+        .set_typing(
+            &room,
+            &SetTyping {
+                active: true,
+                membership_version: fresh,
+                root_id: None,
+            },
+        )
+        .await
+        .unwrap();
+    reader.set_presence(PresenceStatus::Offline).await.unwrap();
+    let LiveFrame::Live(state) = owner.live_state().await.unwrap();
+    assert!(state.presence.is_empty() && state.rooms.iter().all(|r| r.typing.is_empty()));
+    assert_eq!(
+        b.request(
+            Method::PUT,
+            &reader_token,
+            "/api/v1/me/presence",
+            json!({"status":"invalid"})
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    b.task.abort();
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn live_aggregation_rechecks_session_epoch_and_applies_a_separate_budget(pool: PgPool) {
+    use rv_protocol::live::{LiveFrame, PresenceStatus};
+    let b = Bench::start(pool).await;
+    let (owner, _, token) = b.user("device-owner", false).await;
+    let (reader, uid, reader_token) = b.user("device-reader", false).await;
+    let room = b.room(&owner, &token, &uid).await;
+    let mut second = NativeClient::new(&b.base).unwrap();
+    second
+        .login("device-reader", "read-test-password-2026")
+        .await
+        .unwrap();
+    reader.set_presence(PresenceStatus::Busy).await.unwrap();
+    second.set_presence(PresenceStatus::Online).await.unwrap();
+    let LiveFrame::Live(state) = owner.live_state().await.unwrap();
+    assert_eq!(
+        state
+            .presence
+            .iter()
+            .find(|p| p.user.id == uid)
+            .unwrap()
+            .status,
+        PresenceStatus::Busy
+    );
+    reader.set_presence(PresenceStatus::Offline).await.unwrap();
+    let LiveFrame::Live(state) = owner.live_state().await.unwrap();
+    assert_eq!(
+        state
+            .presence
+            .iter()
+            .find(|p| p.user.id == uid)
+            .unwrap()
+            .status,
+        PresenceStatus::Online
+    );
+    reader.set_presence(PresenceStatus::Busy).await.unwrap();
+    sqlx::query("DELETE FROM sessions WHERE token_hash=$1")
+        .bind(auth::hash_token(&reader_token))
+        .execute(&b.app.pool)
+        .await
+        .unwrap();
+    let LiveFrame::Live(state) = owner.live_state().await.unwrap();
+    assert_eq!(
+        state
+            .presence
+            .iter()
+            .find(|p| p.user.id == uid)
+            .unwrap()
+            .status,
+        PresenceStatus::Online,
+        "revoked device is ignored immediately"
+    );
+    sqlx::query("UPDATE presence_leases SET data_epoch='old-epoch'")
+        .execute(&b.app.pool)
+        .await
+        .unwrap();
+    let LiveFrame::Live(state) = owner.live_state().await.unwrap();
+    assert!(state.presence.is_empty());
+    for _ in 0..59 {
+        second.set_presence(PresenceStatus::Online).await.unwrap();
+    }
+    let err = second
+        .set_presence(PresenceStatus::Online)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err,rv_client::Error::Server{status:429,ref code,..} if code=="live_rate_limited")
+    );
+    // The volatile budget never starves durable sends/reads.
+    thread_send(
+        &second,
+        &room,
+        None,
+        "budget-independent",
+        "still able to chat",
+    )
+    .await;
+    assert_eq!(
+        owner
+            .history(&room, None)
+            .await
+            .unwrap()
+            .messages
+            .iter()
+            .filter(|m| m.system.is_none())
+            .count(),
+        1
+    );
+    b.task.abort();
+}
+
 async fn thread_send(
     client: &NativeClient,
     room: &str,

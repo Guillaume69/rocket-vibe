@@ -19,7 +19,8 @@ test('J0 parity fixture is understood by the same runtime decoder as native resp
 test('a server flag alone cannot expose a feature absent from the installed app', () => {
   const announced = {...fixture.discovery.capabilities,typing:true,uploads:true,search:true};
   assert.equal(capacitesEffectives(announced).fichiers,false);
-  assert.equal(capacitesEffectives(announced).typing,false);
+  assert.equal(capacitesEffectives(announced).typing,true);
+  assert.equal(capacitesEffectives(announced,{...CAPACITES_ROCKETVIBE,typing:false}).typing,false);
   assert.equal(capacitesEffectives(announced,CAPACITES_ROCKETCHAT).typing,true);
   assert.equal(capacitesEffectives(null,CAPACITES_ROCKETCHAT).typing,false);
   assert.equal(capacitesEffectives(fixture.discovery.capabilities,{...CAPACITES_ROCKETVIBE,typing:true}).typing,false);

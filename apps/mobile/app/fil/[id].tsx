@@ -336,6 +336,7 @@ function Fil({
   // Brouillon du fil (8.7), clé `rid:tmid` : isolé du brouillon du salon.
   // `null` tant que le rid n'est pas connu — le composer attend.
   const native=fournisseur.native;
+  const surSaisie=useCallback((active:boolean)=>{if(rid)void native?.chat.setTyping(rid,active,filId,membership??undefined);},[native,rid,filId,membership]);
   const depot=useMemo(()=>native?native.store.drafts({room:rid??'',membership:membership??null}):brouillons,[native,brouillons,rid,membership]);
   const persistance = useBrouillon(depot, rid === undefined ? null : `${rid}:${filId}`);
   const envoiLie=useMemo<Outbox>(()=>native?{...envoi,envoyer:(room,text,root,_jointes,quotes)=>native.chat.send(room,text,{membership:membership??null},quotes,root)}:envoi,[native,envoi,membership]);
@@ -415,6 +416,7 @@ function Fil({
           apresEnvoi={apresEnvoi}
           brouillonInitial={persistance.initial}
           sauverBrouillon={persistance.sauver}
+          surSaisie={surSaisie}
           effacerBrouillon={persistance.effacer}
         />
       )}

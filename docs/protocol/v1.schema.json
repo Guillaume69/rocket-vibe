@@ -1135,6 +1135,91 @@
       ],
       "type": "object"
     },
+    "LiveFrame": {
+      "oneOf": [
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/LiveState"
+            },
+            "type": {
+              "const": "live",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "LiveRoom": {
+      "properties": {
+        "direct_peer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/User"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "membership_version": {
+          "type": "string"
+        },
+        "room_id": {
+          "type": "string"
+        },
+        "typing": {
+          "items": {
+            "$ref": "#/$defs/Typist"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "room_id",
+        "membership_version",
+        "typing"
+      ],
+      "type": "object"
+    },
+    "LiveState": {
+      "properties": {
+        "limited": {
+          "description": "Above the bounded pilot capacity, forget observations rather than truncate them.",
+          "type": "boolean"
+        },
+        "presence": {
+          "items": {
+            "$ref": "#/$defs/PresenceEntry"
+          },
+          "type": "array"
+        },
+        "rooms": {
+          "items": {
+            "$ref": "#/$defs/LiveRoom"
+          },
+          "type": "array"
+        },
+        "ttl_ms": {
+          "description": "Receiver-relative lifetime; no client wall clock participates in leases.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "ttl_ms",
+        "limited",
+        "presence",
+        "rooms"
+      ],
+      "type": "object"
+    },
     "Login": {
       "additionalProperties": false,
       "properties": {
@@ -2369,6 +2454,30 @@
       ],
       "type": "object"
     },
+    "PresenceEntry": {
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/PresenceStatus"
+        },
+        "user": {
+          "$ref": "#/$defs/User"
+        }
+      },
+      "required": [
+        "user",
+        "status"
+      ],
+      "type": "object"
+    },
+    "PresenceStatus": {
+      "enum": [
+        "online",
+        "away",
+        "busy",
+        "offline"
+      ],
+      "type": "string"
+    },
     "PublicDeviceKey": {
       "properties": {
         "device_id": {
@@ -3247,6 +3356,17 @@
       ],
       "type": "object"
     },
+    "SetPresence": {
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/PresenceStatus"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "type": "object"
+    },
     "SetReaction": {
       "additionalProperties": false,
       "properties": {
@@ -3284,6 +3404,27 @@
         "operation_id",
         "expected_revision",
         "present"
+      ],
+      "type": "object"
+    },
+    "SetTyping": {
+      "properties": {
+        "active": {
+          "type": "boolean"
+        },
+        "membership_version": {
+          "type": "string"
+        },
+        "root_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "active",
+        "membership_version"
       ],
       "type": "object"
     },
@@ -3696,6 +3837,23 @@
       ],
       "type": "object"
     },
+    "Typist": {
+      "properties": {
+        "root_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "user": {
+          "$ref": "#/$defs/User"
+        }
+      },
+      "required": [
+        "user"
+      ],
+      "type": "object"
+    },
     "UpdateRoom": {
       "additionalProperties": false,
       "properties": {
@@ -3848,6 +4006,9 @@
     "error": {
       "$ref": "#/$defs/ApiError"
     },
+    "live_frame": {
+      "$ref": "#/$defs/LiveFrame"
+    },
     "login": {
       "$ref": "#/$defs/Login"
     },
@@ -3875,6 +4036,12 @@
     "session": {
       "$ref": "#/$defs/Session"
     },
+    "set_presence": {
+      "$ref": "#/$defs/SetPresence"
+    },
+    "set_typing": {
+      "$ref": "#/$defs/SetTyping"
+    },
     "snapshot": {
       "$ref": "#/$defs/Snapshot"
     },
@@ -3892,6 +4059,9 @@
     }
   },
   "required": [
+    "live_frame",
+    "set_presence",
+    "set_typing",
     "discovery",
     "login",
     "session",

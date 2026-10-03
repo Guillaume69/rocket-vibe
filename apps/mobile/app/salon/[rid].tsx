@@ -349,7 +349,7 @@ function Salon({
   const insets = useSafeAreaInsets();
   // Sous-titre d'en-tête HONNÊTE : le nombre de membres en ligne n'est pas dans
   // le schéma, mais la présence du correspondant d'un DM, si — sinon, rien.
-  const statutDM = usePresence(salon?.dmAutreUid ?? null);
+  const statutDM = usePresence(salon?.dmAutreUid ?? null,salon?.type==='d'?rid:undefined);
 
   const { data: brutes } = useRequeteVive(
     base
@@ -591,8 +591,8 @@ function Salon({
     };
   }, [ddp, fournisseur, rid, declarerSalonOuvert]);
 
-  // Indicateur de saisie (8.6) : volatil, propre à l'écran — écoute seule,
-  // voir lib/saisie.ts pour l'écart consigné sur l'émission.
+  const surSaisie=useCallback((active:boolean)=>{void fournisseur.native?.chat.setTyping(rid,active,undefined,membership??undefined);},[fournisseur,rid,membership]);
+  // The existing indicator consumes provider events; RC emission remains unchanged.
   const saisie = useMemo(() => new MoteurSaisie({ rid, moi }), [rid, moi]);
   useEffect(() => {
     const detacher = ddp.surEvenement((evenement) => saisie.appliquer(evenement));
@@ -1091,6 +1091,7 @@ function Salon({
             placeholder={t('salon.messagePlaceholder')}
             brouillonInitial={persistance.initial}
             sauverBrouillon={persistance.sauver}
+            surSaisie={surSaisie}
             effacerBrouillon={persistance.effacer}
           />
         )}

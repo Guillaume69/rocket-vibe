@@ -233,7 +233,7 @@ function LigneSalon({
   // Pastille de présence (8.4), DM à deux seulement (`dm_autre_uid` est null
   // ailleurs). Statut inconnu, ou diffusion coupée côté serveur
   // (Presence_broadcast_disabled) : rien — l'UI n'en dépend jamais.
-  const statut = usePresence(salon.dmAutreUid);
+  const statut = usePresence(salon.dmAutreUid,salon.type==='d'?salon.rid:undefined);
   const nom = salon.nomAffiche ?? salon.nom ?? salon.rid;
   const nonLus = abonnement?.nonLus ?? 0;
   const enAlerte = abonnement?.alerte === true || nonLus > 0;

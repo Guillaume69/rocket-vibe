@@ -94,6 +94,7 @@ export function Composer({
   brouillonInitial,
   sauverBrouillon,
   effacerBrouillon,
+  surSaisie,
 }: {
   c: Couleurs;
   rid: string;
@@ -116,8 +117,10 @@ export function Composer({
   brouillonInitial: string;
   sauverBrouillon: (texte: string) => void;
   effacerBrouillon: () => void;
+  surSaisie?: (active:boolean)=>void;
 }) {
   const synchro = useSynchro();
+  useEffect(()=>()=>surSaisie?.(false),[surSaisie]);
   const deverrouille = useE2EDeverrouille(synchro.phase === 'pret' ? synchro.e2e : null);
   const [brouillon, setBrouillon] = useState(brouillonInitial);
   // Le texte COURANT, lisible depuis une continuation asynchrone. Un
@@ -246,8 +249,9 @@ export function Composer({
     (texte: string) => {
       setBrouillon(texte);
       sauverBrouillon(texte);
+      surSaisie?.(texte.trim().length>0);
     },
-    [sauverBrouillon],
+    [sauverBrouillon,surSaisie],
   );
 
   const envoyer = useCallback(() => {
@@ -258,6 +262,7 @@ export function Composer({
     if (client.genre === 'rocketvibe') {
       if (envoiNatif || legende === '' && !reponse?.native) return;
       setEnvoiNatif(true);
+      surSaisie?.(false);
       setErreurFichier(null);
       void envoi.envoyer(rid,texteAEnvoyer,filId,null,reponse?.native?[reponse.native]:[]).then(idMessage => {
         if (demonte.current) return;
@@ -372,6 +377,7 @@ export function Composer({
     cleReponse,
     apresEnvoi,
     effacerBrouillon,
+    surSaisie,
     reinitialiser,
     t,
   ]);
@@ -670,6 +676,7 @@ export function Composer({
           onSelectionChange={surSelection}
           // Toucher le champ referme le panneau : le clavier reprend sa place.
           onFocus={emoji.surFocus}
+          onBlur={()=>surSaisie?.(false)}
           placeholder={enAttente.length > 0 ? t('salon.ajouterLegende') : placeholder}
           placeholderTextColor={c.texteTertiaire}
           multiline

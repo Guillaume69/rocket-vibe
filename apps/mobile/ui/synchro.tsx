@@ -197,6 +197,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         const e2e = new MoteurE2E({client,uid:session.userId,stockage:{lire:async () => null,enregistrer:async () => {},effacer:async () => {}}});
         const activite = new MoteurActivite();
         const presence = new MoteurPresence();
+        const unlive=chat.live.subscribe(()=>presence.remplacer(chat.live.state?.presence??null));
         const salonsOuverts = creerPileSalonsOuverts();
         let online = false;
         let lastError: string | null = null;
@@ -209,7 +210,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           }
           lastError = chat.status.error;
         });
-        stop = () => { unlisten(); chat.stop(); };
+        stop = () => { unlisten();unlive();presence.invalider();chat.stop(); };
         setSynchro({
           phase:'pret',base,brouillons:store.drafts(),moteur,envoi,
           fichiers:fournisseur.creerTeleversement(creerDepotTeleversements(brute,fileEcritures),transportExpo,async () => {}),

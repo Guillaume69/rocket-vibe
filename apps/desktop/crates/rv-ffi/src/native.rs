@@ -263,6 +263,23 @@ impl Client {
 }
 #[uniffi::export]
 impl NativeChat {
+    pub fn typing(&self, room: String, root: Option<String>) -> Vec<String> {
+        self.session.typing(&room, root.as_deref())
+    }
+    pub async fn set_typing(
+        &self,
+        room: String,
+        root: Option<String>,
+        active: bool,
+        membership: Option<String>,
+    ) -> Result<(), RvError> {
+        let session = self.session.clone();
+        on_tokio(async move {
+            session.set_typing_from_membership(&room, root.as_deref(), active, membership.as_deref()).await
+        })
+        .await
+        .map_err(native_error)
+    }
     pub async fn room_details(&self, room: String) -> Result<crate::people::RoomDetails, RvError> {
         let session = self.session.clone();
         Ok(on_tokio(async move { session.room_info(&room).await }).await.map_err(native_error)?.into())
@@ -379,7 +396,8 @@ impl NativeChat {
                 rooms: rows
                     .into_iter()
                     .map(|row| {
-                        let mut room = model::room(row, None, None);
+                        let presence = self.session.room_presence(&row.rid).map(crate::Presence::from);
+                        let mut room = model::room(row, None, presence);
                         room.avatar = None;
                         room
                     })

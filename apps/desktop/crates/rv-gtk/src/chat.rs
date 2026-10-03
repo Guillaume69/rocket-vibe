@@ -12,7 +12,7 @@ use rv_core::sync::HISTORY_PAGE;
 use crate::composer::Composer;
 use crate::i18n::{t, tf};
 use crate::message_list::MessageList;
-use crate::rows::{RowEvent, label, room_avatar_path, room_tile, room_widget, with_photo};
+use crate::rows::{RowEvent, label, room_avatar_path, room_tile, with_photo};
 use crate::runtime;
 use crate::thread::ThreadPage;
 use crate::widgets::Handler;
@@ -203,7 +203,8 @@ impl ChatPage {
                 RoomItem::Room(room) => {
                     item.set_selectable(true);
                     item.set_activatable(true);
-                    let widget = room_widget(room, shared.borrow().as_ref());
+                    let presence = native_shared.borrow().as_ref().and_then(|s| s.room_presence(&room.rid));
+                    let widget = crate::rows::room_widget_with_presence(room, shared.borrow().as_ref(), presence);
                     if let Some(session) = shared.borrow().clone() {
                         favorite_menu(&widget, session, &room.rid, room.favorite);
                     } else if let Some(session) = native_shared.borrow().clone() {
@@ -1487,8 +1488,13 @@ impl ChatPage {
         if self.current_rid().as_deref() != Some(rid) {
             return;
         }
-        let Some(session) = self.session.borrow().clone() else { return };
-        let names = session.typing(rid);
+        let names = if let Some(session) = self.native_session() {
+            session.typing(rid, None)
+        } else if let Some(session) = self.session.borrow().clone() {
+            session.typing(rid)
+        } else {
+            return;
+        };
         let text = match names.as_slice() {
             [] => String::new(),
             [a] => tf("typing.one", &[("a", a)]),
@@ -1614,8 +1620,12 @@ impl ChatPage {
         let title = label(&open.name, &["room-title"]);
         title.set_ellipsize(gtk::pango::EllipsizeMode::End);
         names.append(&title);
-        let presence =
-            open.dm_other_uid.as_deref().zip(self.session.borrow().clone()).and_then(|(uid, s)| s.presence(uid));
+        let presence = open
+            .dm_other_uid
+            .as_deref()
+            .zip(self.session.borrow().clone())
+            .and_then(|(uid, s)| s.presence(uid))
+            .or_else(|| self.native_session().and_then(|s| s.room_presence(&open.rid)));
         if let Some(p) = presence {
             let line = gtk::Box::builder().spacing(5).build();
             let dot = crate::rows::presence_dot(p, &[]);
@@ -2020,6 +2030,9 @@ impl ChatPage {
 
     pub fn header_presence(&self) -> Option<String> {
         let open = self.current.borrow().clone()?;
+        if let Some(session) = self.native_session() {
+            return session.room_presence(&open.rid).map(|p| p.as_str().to_owned());
+        }
         let session = self.session.borrow().clone()?;
         session.presence(open.dm_other_uid.as_deref()?).map(|p| p.as_str().to_owned())
     }

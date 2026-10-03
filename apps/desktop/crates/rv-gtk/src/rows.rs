@@ -281,7 +281,11 @@ pub fn image_widget(session: &Arc<Session>, image: &ImageAttachment) -> gtk::Wid
     column.upcast()
 }
 
-pub fn room_widget(r: &RoomRow, session: Option<&Arc<Session>>) -> gtk::Widget {
+pub fn room_widget_with_presence(
+    r: &RoomRow,
+    session: Option<&Arc<Session>>,
+    native_presence: Option<rv_core::live::Presence>,
+) -> gtk::Widget {
     let unread = r.unread > 0 || r.alert;
     let name = label(&r.name, &["room-name"]);
     name.set_hexpand(true);
@@ -326,7 +330,8 @@ pub fn room_widget(r: &RoomRow, session: Option<&Arc<Session>>) -> gtk::Widget {
 
     let row = gtk::Box::builder().spacing(12).margin_top(9).margin_bottom(9).margin_start(10).margin_end(10).build();
     let tile = with_photo(room_tile(&r.name, &r.kind, r.encrypted, TileSize::Room), session, room_avatar_path(r));
-    let presence = r.dm_other_uid.as_deref().zip(session).and_then(|(uid, s)| s.presence(uid));
+    let presence =
+        native_presence.or_else(|| r.dm_other_uid.as_deref().zip(session).and_then(|(uid, s)| s.presence(uid)));
     let tile = match presence {
         Some(p) => {
             let holder = gtk::Overlay::builder().child(&tile).build();

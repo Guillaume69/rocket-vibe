@@ -207,8 +207,8 @@ public final class AppModel {
             let pending = self.pending
             self.pending = Pending()
             if pending.reloadsRooms { self.reloadRooms() }
-            if pending.reloads(self.room?.rid) { self.room?.reload() }
-            if pending.reloads(self.thread?.rid) { self.thread?.reload() }
+            if pending.reloads(self.room?.rid) { self.room?.reload();self.room?.refreshTyping() }
+            if pending.reloads(self.thread?.rid) { self.thread?.reload();self.thread?.refreshTyping() }
         }
     }
 

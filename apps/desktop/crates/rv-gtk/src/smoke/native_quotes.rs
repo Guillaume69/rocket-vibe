@@ -374,5 +374,101 @@ async fn run(window: Rc<AppWindow>) {
             == "GTK thread draft survives root deletion",
         (),
     );
+    live_controls(&window, &session).await;
     std::process::exit(i32::from(super::FAILED.load(std::sync::atomic::Ordering::SeqCst)));
+}
+
+async fn live_controls(window: &Rc<AppWindow>, session: &std::sync::Arc<rv_core::native::NativeSession>) {
+    let current = session.clone();
+    let peer = crate::runtime()
+        .spawn(async move {
+            let url = url::Url::parse(&current.info.base_url).unwrap();
+            let discovery = rv_core::native::probe(&url).await.unwrap().unwrap();
+            let info = rv_core::native::login(&url, &discovery, "mobile", "native-pilot-test-password").await.unwrap();
+            rv_core::native::NativeSession::start(info, std::path::Path::new(":memory:")).unwrap()
+        })
+        .await
+        .unwrap();
+    let current = session.clone();
+    let dm = crate::runtime().spawn(async move { current.direct("mobile").await.unwrap() }).await.unwrap();
+    for _ in 0..300 {
+        if session.store.rooms().unwrap().iter().any(|r| r.id == dm) && peer.store.read_state(&dm).unwrap().is_some() {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    window.chat.open_room(&dm);
+    for _ in 0..200 {
+        if window.chat.header_presence().as_deref() == Some("online") {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    check(
+        "native presence uses existing GTK DM header",
+        window.chat.header_presence().as_deref() == Some("online"),
+        (),
+    );
+    let grant = peer.store.read_state(&dm).unwrap().unwrap().membership_version;
+    let (p, r, g) = (peer.clone(), dm.clone(), grant.clone());
+    crate::runtime()
+        .spawn(async move {
+            p.set_typing_from_membership(&r, None, true, g.as_deref()).await.unwrap();
+        })
+        .await
+        .unwrap();
+    for _ in 0..120 {
+        if window.chat.typing_text().is_some_and(|text| text.contains("mobile")) {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    check(
+        "native typing uses existing GTK label",
+        window.chat.typing_text().is_some_and(|text| text.contains("mobile")),
+        (),
+    );
+    window.chat.composer().set_text("GTK emits native typing");
+    for _ in 0..120 {
+        if peer.typing(&dm, None).iter().any(|u| u == "desktop") {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    check("existing GTK composer emits native typing", peer.typing(&dm, None).iter().any(|u| u == "desktop"), ());
+    window.chat.composer().set_text("");
+    for _ in 0..120 {
+        if peer.typing(&dm, None).is_empty() {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    check("empty GTK composer emits stop", peer.typing(&dm, None).is_empty(), ());
+    let (p, r, g) = (peer.clone(), dm.clone(), grant);
+    crate::runtime()
+        .spawn(async move {
+            p.set_typing_from_membership(&r, None, false, g.as_deref()).await.unwrap();
+        })
+        .await
+        .unwrap();
+    for _ in 0..120 {
+        if window.chat.typing_text().is_none() {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    check("native GTK typing clears on stop", window.chat.typing_text().is_none(), ());
+    session.suspend();
+    for _ in 0..120 {
+        if window.chat.header_presence().is_none() && window.chat.typing_text().is_none() {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    check(
+        "GTK loses ephemeral observations when suspended",
+        window.chat.header_presence().is_none() && window.chat.typing_text().is_none(),
+        (),
+    );
+    peer.shutdown();
 }

@@ -9,6 +9,10 @@ section here.
 
 ### Fixed
 
+- Native presence and typing use the existing GTK / SwiftUI indicators and
+  composers, expire after disconnection, and clear on suspension. Native @here
+  mentions capture the members present when the message is sent.
+
 - Native threads use the existing GTK and SwiftUI panels, menus and composers.
   Replies retain their root across offline retries; thread drafts and observed
   reads stay separate. Quotes work inside threads, and a deleted root preserves

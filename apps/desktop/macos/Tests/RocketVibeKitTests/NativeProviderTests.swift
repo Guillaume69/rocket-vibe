@@ -9,6 +9,51 @@ import XCTest
 /// Runs with a disposable native server and a real Secret Service / macOS Keychain.
 final class NativeProviderTests: XCTestCase {
     @MainActor
+    func testExistingModelsPresenceAndTyping() async throws {
+        guard let server=ProcessInfo.processInfo.environment["RV_NATIVE_TEST_SERVER"],let password=ProcessInfo.processInfo.environment["RV_NATIVE_TEST_PASSWORD"] else {throw XCTSkip("Native integration server unset")}
+        let home=FileManager.default.temporaryDirectory.appendingPathComponent("rv-live-kit-\(UUID())").path
+        defer {try? FileManager.default.removeItem(atPath:home)}
+        let app=AppModel(home:home);defer{app.end()}
+        app.login.server=server;app.login.user="desktop";app.login.password=password
+        await app.submitLogin();let native=try XCTUnwrap(app.native)
+        try await until{app.connection == .online}
+        let peer=try await makeExtraDevice(server:server,password:password,username:"mobile")
+        let rid=try await native.direct(username:"mobile")
+        try await until{app.rooms.contains{$0.rid==rid}}
+        app.open(rid);let room=try XCTUnwrap(app.room)
+        _=try await liveRequest(server:server,token:peer.token,path:"/api/v1/me/presence",method:"PUT",body:["status":"online"])
+        try await until{room.room.presence == .online}
+        let read=try await liveRequest(server:server,token:peer.token,path:"/api/v1/rooms/\(rid)/read")
+        let membership=try XCTUnwrap(read["membership_version"] as? String)
+        _=try await liveRequest(server:server,token:peer.token,path:"/api/v1/rooms/\(rid)/typing",method:"PUT",body:["active":true,"membership_version":membership])
+        try await until{room.typing == ["mobile"]}
+        room.draft="Swift emits native typing"
+        var seen=false
+        for _ in 0..<60 {
+            let frame=try await liveRequest(server:server,token:peer.token,path:"/api/v1/live")
+            let rooms=(frame["data"] as? [String:Any])?["rooms"] as? [[String:Any]] ?? []
+            let typists=rooms.first{$0["room_id"] as? String==rid}?["typing"] as? [[String:Any]] ?? []
+            if typists.contains(where:{($0["user"] as? [String:Any])?["username"] as? String=="desktop"}) {seen=true;break}
+            try await Task.sleep(nanoseconds:100_000_000)
+        }
+        XCTAssertTrue(seen,"The existing Swift draft emits typing")
+        _=try await liveRequest(server:server,token:peer.token,path:"/api/v1/rooms/\(rid)/typing",method:"PUT",body:["active":false,"membership_version":membership])
+        try await until{room.typing.isEmpty}
+        _=try await liveRequest(server:server,token:peer.token,path:"/api/v1/me/presence",method:"PUT",body:["status":"offline"])
+        try await until{room.room.presence == .offline}
+        native.suspend()
+        try await until{room.room.presence == nil && room.typing.isEmpty}
+    }
+    @MainActor
+    private func liveRequest(server:String,token:String,path:String,method:String="GET",body:[String:Any]?=nil) async throws->[String:Any] {
+        var request=URLRequest(url:URL(string:server+path)!);request.httpMethod=method
+        request.setValue("Bearer "+token,forHTTPHeaderField:"Authorization")
+        if let body {request.setValue("application/json",forHTTPHeaderField:"Content-Type");request.httpBody=try JSONSerialization.data(withJSONObject:body)}
+        let (data,response)=try await URLSession.shared.data(for:request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode,200)
+        return (try JSONSerialization.jsonObject(with:data,options:.fragmentsAllowed)) as? [String:Any] ?? [:]
+    }
+    @MainActor
     func testExistingModelsLoginSendOfflineResumeDraftAndLogout() async throws {
         guard let server = ProcessInfo.processInfo.environment["RV_NATIVE_TEST_SERVER"],
               let password = ProcessInfo.processInfo.environment["RV_NATIVE_TEST_PASSWORD"] else {

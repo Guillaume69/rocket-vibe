@@ -18,6 +18,10 @@ reste un lot distinct avant l'annonce de la capacité.
 
 ## Transport et identité
 
+Le [contrat temporaire de présence et saisie](LIVE.md) définit les deux routes
+PUT, `GET /api/v1/live` et les photos WebSocket négociées avec `live=true`.
+Ces photos ne modifient ni le journal ni le curseur de reprise.
+
 - Découverte : `GET /.well-known/rocketvibe`, produit `rocketvibe`, protocole `1`,
   identité et génération persistantes, capacités effectives.
 - Base HTTP : `/api/v1`, JSON UTF-8, credentials `Authorization: Bearer <token>`.

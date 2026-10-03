@@ -12,12 +12,16 @@ pub(crate) async fn capture(
 ) -> Result<()> {
     let mut names = tokens(text);
     let all = names.remove("all");
-    // @here depends on the online lease introduced by P12. It never means @all.
-    names.remove("here");
+    let here = names.remove("here");
     sqlx::query("INSERT INTO message_mentions(message_id,user_id,kind,token) SELECT $1,u.id,'direct',u.username FROM users u JOIN members m ON m.user_id=u.id WHERE m.room_id=$2 AND u.id<>$3 AND NOT u.disabled AND u.username=ANY($4) ON CONFLICT DO NOTHING")
         .bind(message).bind(room).bind(author).bind(names.into_iter().collect::<Vec<_>>()).execute(&mut **tx).await?;
     if all {
         sqlx::query("INSERT INTO message_mentions(message_id,user_id,kind,token) SELECT $1,u.id,'all','all' FROM users u JOIN members m ON m.user_id=u.id WHERE m.room_id=$2 AND u.id<>$3 AND NOT u.disabled ON CONFLICT DO NOTHING")
+            .bind(message).bind(room).bind(author).execute(&mut **tx).await?;
+    }
+    if here {
+        // Freeze recipients at send; a later login or edit never adds a ping.
+        sqlx::query("INSERT INTO message_mentions(message_id,user_id,kind,token) SELECT $1,u.id,'here','here' FROM users u JOIN members m ON m.user_id=u.id CROSS JOIN instance i WHERE m.room_id=$2 AND u.id<>$3 AND NOT u.disabled AND EXISTS(SELECT 1 FROM presence_leases p WHERE p.user_id=u.id AND p.data_epoch=i.data_epoch AND p.expires_at>clock_timestamp() AND p.status IN ('online','busy') AND EXISTS(SELECT 1 FROM sessions s WHERE s.device_id=p.device_id AND s.expires_at>clock_timestamp())) ON CONFLICT DO NOTHING")
             .bind(message).bind(room).bind(author).execute(&mut **tx).await?;
     }
     Ok(())

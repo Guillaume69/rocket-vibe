@@ -11,7 +11,7 @@ import type { Capabilities } from './protocol.generated.ts';
 
 export const CAPACITES_ROCKETVIBE: Capacites = {
   edition:true, suppression:true,
-  typing:false, presence:false, push:false, e2ee:false, emojisCustom:false,
+  typing:true, presence:true, push:false, e2ee:false, emojisCustom:false,
   appelVideo:false, recherche:false, modeleFil:'root_id',
   fichiers:false, fils:true, reactions:true, marques:true, profil:false, infosSalon:true, favorisSalon:true, citations:true,
   reglagesSalon:true,rolesSalon:true,quitterSalon:true,lecturesSalon:true,
@@ -42,7 +42,7 @@ export function creerFournisseurRV(session: Session, client: ClientRest, generer
   const listener: Listener = {
     get etat() { return chat.status.online ? 'authentifie' : 'ferme'; },
     connecter: () => chat.connect(), fermer: () => chat.stop(), verifierVie: async () => chat.status.online,
-    souscrire:noSubscription, surEvenement:noSubscription, surPerte:noSubscription,
+    souscrire:noSubscription, surEvenement:fn=>chat.live.surEvenement(fn), surPerte:fn=>chat.live.surPerte(fn),
     souscriptionsArmees:async () => {}, reinitialiser:() => {},
   };
   const fichiers: OutboxFichiers = {

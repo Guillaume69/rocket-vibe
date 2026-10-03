@@ -6,7 +6,7 @@ use axum::{
     },
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use chrono::{DateTime, Utc};
 use futures_util::SinkExt;
@@ -27,6 +27,9 @@ use crate::{
 pub fn router(app: App) -> Router {
     Router::new()
         .route("/.well-known/rocketvibe", get(discovery))
+        .route("/api/v1/me/presence", put(set_presence))
+        .route("/api/v1/rooms/{room}/typing", put(set_typing))
+        .route("/api/v1/live", get(live_state))
         .route("/health/live", get(|| async { StatusCode::NO_CONTENT }))
         .route("/health/ready", get(ready))
         .route("/api/v1/auth/login", post(login))
@@ -256,6 +259,8 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             stars: true,
             quotes: true,
             threads: true,
+            presence: true,
+            typing: true,
             session_rotation: true,
             device_sessions: true,
             account_invitations: true,
@@ -1278,6 +1283,8 @@ async fn ticket(State(app): State<App>, headers: HeaderMap) -> Result<Json<Socke
 struct Socket {
     ticket: String,
     cursor: String,
+    #[serde(default)]
+    live: bool,
 }
 async fn socket(
     State(app): State<App>,
@@ -1298,7 +1305,7 @@ async fn socket(
     Ok(upgrade
         .max_message_size(1024)
         .max_frame_size(1024)
-        .on_upgrade(move |ws| stream(app, ws, session_hash, input.cursor, slot))
+        .on_upgrade(move |ws| stream(app, ws, session_hash, input.cursor, slot, input.live))
         .into_response())
 }
 
@@ -1308,10 +1315,12 @@ async fn stream(
     session_hash: String,
     mut cursor: String,
     _slot: limits::SocketSlot,
+    live: bool,
 ) {
     let mut interval = tokio::time::interval(Duration::from_millis(250));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut last_sent = tokio::time::Instant::now();
+    let mut last_live = tokio::time::Instant::now() - Duration::from_secs(2);
     // The database journal is the queue. No unbounded in-memory broadcast channel.
     loop {
         tokio::select! {
@@ -1324,6 +1333,16 @@ async fn stream(
                 let account = match auth::authenticate(&app, &session_hash).await { Ok(a) => a, Err(_) => break };
                 let proof = match ReadProof::capture(&app,&account,Scope::All).await { Ok(p) => p, Err(_) => break };
                 let batch = match sync::changes(&app, &account, &cursor, 100).await { Ok(b) => b, Err(_) => break };
+                if live && last_live.elapsed()>=Duration::from_secs(2) {
+                    let state = match crate::live::state(&app,&account).await {Ok(s)=>s,Err(_)=>break};
+                    let rooms=state.rooms.iter().map(|r|r.room_id.clone()).collect::<Vec<_>>();
+                    let Ok(text)=serde_json::to_string(&rv_protocol::live::LiveFrame::Live(state)) else {break};
+                    let _lease=match proof.lock(&app,&session_hash,&rooms,None).await {
+                        Ok(lease)=>lease,Err(error) if error.code=="delivery_revalidate"=>continue,Err(_)=>break,
+                    };
+                    if !matches!(tokio::time::timeout(Duration::from_secs(5),ws.send(WsMessage::Text(text.into()))).await,Ok(Ok(()))) {break;}
+                    last_live=tokio::time::Instant::now();
+                }
                 // Send empty batches too when their cursor advanced over private events.
                 // An idle batch is also a heartbeat. Clients can detect a half-open
                 // socket without advancing their durable cursor or sending a token.
@@ -1341,4 +1360,40 @@ async fn stream(
         }
     }
     let _ = tokio::time::timeout(Duration::from_secs(5), ws.close()).await;
+}
+
+async fn set_presence(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::live::SetPresence>,
+) -> Result<Json<()>> {
+    crate::live::presence(&app, &account(&app, &headers).await?, body(input)?).await?;
+    Ok(Json(()))
+}
+async fn set_typing(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+    input: Input<rv_protocol::live::SetTyping>,
+) -> Result<Json<()>> {
+    crate::live::typing(&app, &account(&app, &headers).await?, &room, body(input)?).await?;
+    Ok(Json(()))
+}
+async fn live_state(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::All).await?;
+    let state = crate::live::state(&app, &actor).await?;
+    let rooms = state
+        .rooms
+        .iter()
+        .map(|r| r.room_id.clone())
+        .collect::<Vec<_>>();
+    proof
+        .json(
+            &app,
+            &hash,
+            &rv_protocol::live::LiveFrame::Live(state),
+            &rooms,
+            None,
+        )
+        .await
 }

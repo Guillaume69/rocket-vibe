@@ -90,6 +90,16 @@ export class MoteurPresence {
     this.sequences.clear();
     if (avaitQuelqueChose) this.notifier();
   }
+  /** Provider photo already authenticated and fenced, with a receiver-relative expiry. */
+  remplacer(photo:ReadonlyArray<{user:{id:string};status:StatutPresence}>|null):void {
+    if(photo===null){this.invalider();return;}
+    this.epoque++;
+    const previous=this.statuts;
+    const next=new Map<string,StatutPresence>(photo.map(p=>[p.user.id,p.status]));
+    for(const uid of previous.keys())if(!next.has(uid))next.set(uid,'offline');
+    if(next.size===previous.size && [...next].every(([id,status])=>previous.get(id)===status))return;
+    this.statuts=next;this.sequences.clear();this.notifier();
+  }
 
   /** Route un événement DDP. Tout ce qui n'est pas de la présence est ignoré. */
   appliquer(evenement: Evenement): void {

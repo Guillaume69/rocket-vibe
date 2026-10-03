@@ -1004,6 +1004,42 @@ impl NativeClient {
             .append_pair("cursor", cursor);
         Ok(url)
     }
+    pub async fn live_socket_url(&self, cursor: &str) -> Result<Url, Error> {
+        let mut url = self.socket_url(cursor).await?;
+        url.query_pairs_mut().append_pair("live", "true");
+        Ok(url)
+    }
+    pub async fn live_state(&self) -> Result<rv_protocol::live::LiveFrame, Error> {
+        self.get("/api/v1/live").await
+    }
+    pub async fn set_presence(
+        &self,
+        status: rv_protocol::live::PresenceStatus,
+    ) -> Result<(), Error> {
+        self.request(
+            Method::PUT,
+            "/api/v1/me/presence",
+            Some(&rv_protocol::live::SetPresence { status }),
+            false,
+        )
+        .await
+    }
+    pub async fn set_typing(
+        &self,
+        room: &str,
+        input: &rv_protocol::live::SetTyping,
+    ) -> Result<(), Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        self.request(
+            Method::PUT,
+            &format!("/api/v1/rooms/{room}/typing"),
+            Some(input),
+            false,
+        )
+        .await
+    }
 }
 
 fn path_segment(value: &str) -> bool {

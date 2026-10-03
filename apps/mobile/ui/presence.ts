@@ -38,9 +38,10 @@ export const CLES_PRESENCE: Record<StatutPresence, CleTraduction> = {
  * RIEN (dégradation : au-delà d'~200 connexions le serveur cesse de
  * diffuser, et l'UI ne doit jamais en dépendre).
  */
-export function usePresence(uid: string | null): StatutPresence | null {
+export function usePresence(uid: string | null,roomId?:string): StatutPresence | null {
   const synchro = useSynchro();
   const presence = synchro.phase === 'pret' ? synchro.presence : null;
+  const native=synchro.phase==='pret'?synchro.fournisseur.native?.chat.live:undefined;
 
   // Identités STABLES : un `subscribe` recréé à chaque rendu ferait
   // désabonner/réabonner chaque ligne à chaque re-rendu de la liste. Et une
@@ -48,12 +49,18 @@ export function usePresence(uid: string | null): StatutPresence | null {
   // de présence réveillerait toutes les lignes visibles.
   const abonner = useCallback(
     (relire: () => void) =>
-      presence === null || uid === null ? RIEN : presence.surChangement(relire),
-    [presence, uid],
+      native && roomId?native.subscribe(relire):presence === null || uid === null ? RIEN : presence.surChangement(relire),
+    [presence, uid,native,roomId],
   );
   const lire = useCallback(
-    () => (uid === null || presence === null ? null : presence.statutDe(uid)),
-    [presence, uid],
+    () => {
+      if(native && roomId){
+        const state=native.state,peer=state?.rooms.find(r=>r.room_id===roomId)?.direct_peer;
+        return peer?state?.presence.find(p=>p.user.id===peer.id)?.status??'offline':null;
+      }
+      return uid === null || presence === null ? null : presence.statutDe(uid);
+    },
+    [presence, uid,native,roomId],
   );
   return useSyncExternalStore(abonner, lire);
 }

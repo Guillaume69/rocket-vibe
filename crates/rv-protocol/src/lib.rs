@@ -4,6 +4,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub mod emojis;
+pub mod live;
 pub mod markdown;
 pub mod parity;
 pub mod system;
@@ -464,6 +465,9 @@ pub struct ApiError {
 /// Single schema root, also used by the TypeScript binding generator.
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct Contract {
+    pub live_frame: live::LiveFrame,
+    pub set_presence: live::SetPresence,
+    pub set_typing: live::SetTyping,
     pub discovery: Discovery,
     pub login: Login,
     pub session: Session,

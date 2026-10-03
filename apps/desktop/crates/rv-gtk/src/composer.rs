@@ -574,9 +574,15 @@ impl Composer {
         self.mentions.replace(None);
         self.custom_emoji.replace(None);
         self.custom_names.replace(None);
-        let (store, rid) = (session.store.clone(), rid.to_owned());
+        let (store, rid, session) = (session.store.clone(), rid.to_owned(), session.clone());
         self.connect_changed(move |text| {
             let _ = store.set_draft_from_membership(&rid, &text, membership.as_deref());
+            let (session, rid, membership) = (session.clone(), rid.clone(), membership.clone());
+            crate::runtime().spawn(async move {
+                let _ = session
+                    .set_typing_from_membership(&rid, None, !text.trim().is_empty(), membership.as_deref())
+                    .await;
+            });
         });
     }
     pub fn unbind_native(&self) {
@@ -597,9 +603,15 @@ impl Composer {
         self.set_text(
             &session.store.thread_draft_from_membership(rid, root, membership.as_deref()).unwrap_or_default(),
         );
-        let (store, rid, root) = (session.store.clone(), rid.to_owned(), root.to_owned());
+        let (store, rid, root, session) = (session.store.clone(), rid.to_owned(), root.to_owned(), session.clone());
         self.connect_changed(move |text| {
             let _ = store.set_thread_draft_from_membership(&rid, &root, &text, membership.as_deref());
+            let (session, rid, root, membership) = (session.clone(), rid.clone(), root.clone(), membership.clone());
+            crate::runtime().spawn(async move {
+                let _ = session
+                    .set_typing_from_membership(&rid, Some(&root), !text.trim().is_empty(), membership.as_deref())
+                    .await;
+            });
         });
     }
 

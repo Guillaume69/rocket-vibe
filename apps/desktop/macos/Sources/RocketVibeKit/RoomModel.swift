@@ -137,6 +137,9 @@ public final class RoomModel {
         didSet {
             guard active else { return }
             let (provider, rid, thread, text, membership) = (provider, room.rid, threadId, draft, nativeMembership)
+            if let native=provider.native {
+                Task { try? await native.setTyping(room:rid,root:thread,active:!text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty,membership:membership) }
+            }
             draftSave?.cancel()
             draftSave = Task {
                 try? await Task.sleep(nanoseconds: 400_000_000)
@@ -175,6 +178,10 @@ public final class RoomModel {
     /// Flush before leaving; a delayed save must not outlive this visible room.
     func deactivate() {
         guard active else { return }
+        if let native=provider.native {
+            let (rid,root,membership)=(room.rid,threadId,nativeMembership)
+            Task {try? await native.setTyping(room:rid,root:root,active:false,membership:membership)}
+        }
         draftSave?.cancel()
         roomAccessTask?.cancel()
         try? saveDraft(draft)
@@ -244,7 +251,7 @@ public final class RoomModel {
     }
 
     func refreshTyping() {
-        let fresh = threadId == nil ? (chat?.typing(rid: room.rid) ?? []) : []
+        let fresh = provider.native?.typing(room:room.rid,root:threadId) ?? (threadId == nil ? (chat?.typing(rid:room.rid) ?? []) : [])
         if fresh != typing { typing = fresh }
     }
 

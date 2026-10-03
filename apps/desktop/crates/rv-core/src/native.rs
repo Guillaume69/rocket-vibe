@@ -4,6 +4,7 @@ pub mod authentication_vault;
 pub mod credentials;
 pub mod email_recovery;
 pub mod factor_email;
+mod live;
 pub mod markdown;
 mod read_intents;
 pub mod read_presentation;
@@ -263,6 +264,11 @@ pub struct NativeSession {
     state_intent_lock: tokio::sync::Mutex<()>,
     read_retry: Mutex<Option<tokio::time::Instant>>,
     favorite_retry: Mutex<Option<tokio::time::Instant>>,
+    live: Mutex<live::LiveCache>,
+    typing_request: tokio::sync::Mutex<()>,
+    typing_last: Mutex<Option<(String, std::time::Instant)>>,
+    runtime_handle: tokio::runtime::Handle,
+    presence_request: Arc<tokio::sync::Mutex<()>>,
 }
 impl NativeSession {
     pub fn start(info: SessionInfo, path: &Path) -> Result<Arc<Self>, Error> {
@@ -304,6 +310,11 @@ impl NativeSession {
             state_intent_lock: tokio::sync::Mutex::new(()),
             read_retry: Mutex::new(None),
             favorite_retry: Mutex::new(None),
+            live: Mutex::new(live::LiveCache::default()),
+            typing_request: tokio::sync::Mutex::new(()),
+            typing_last: Mutex::new(None),
+            runtime_handle: tokio::runtime::Handle::current(),
+            presence_request: Arc::new(tokio::sync::Mutex::new(())),
         });
         let weak = Arc::downgrade(&session);
         let task = tokio::spawn(async move {
@@ -320,6 +331,7 @@ impl NativeSession {
                 let result = tokio::select! {result=s.cycle()=>Some(result), _=changed.changed()=>None};
                 s.security_generation.fetch_add(1, Ordering::SeqCst);
                 s.verified.store(false, Ordering::SeqCst);
+                s.clear_live();
                 if let Some(Err(error)) = result {
                     let terminal = error.terminal();
                     s.set_failure(&error);
@@ -343,6 +355,94 @@ impl NativeSession {
     }
     pub fn events(&self) -> broadcast::Receiver<()> {
         self.events.subscribe()
+    }
+    fn clear_live(&self) {
+        *self.typing_last.lock().unwrap() = None;
+        if self.live.lock().unwrap().clear() {
+            let _ = self.events.send(());
+        }
+    }
+    fn stop_presence(&self) {
+        if !self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.presence) {
+            return;
+        }
+        let (client, lock) = (self.client.clone(), self.presence_request.clone());
+        self.runtime_handle.spawn(async move {
+            let _guard = lock.lock().await;
+            let _ = tokio::time::timeout(
+                Duration::from_secs(3),
+                client.set_presence(rv_protocol::live::PresenceStatus::Offline),
+            )
+            .await;
+        });
+    }
+    pub fn typing(&self, room: &str, root: Option<&str>) -> Vec<String> {
+        let cache = self.live.lock().unwrap();
+        let valid = cache.state.as_ref().and_then(|s| s.rooms.iter().find(|r| r.room_id == room)).is_some_and(|r| {
+            self.store.read_state(room).ok().flatten().and_then(|s| s.membership_version).as_deref()
+                == Some(&r.membership_version)
+        });
+        if !valid {
+            return vec![];
+        }
+        cache.typing(room, root, &self.info.user_id, std::time::Instant::now())
+    }
+    pub fn room_presence(&self, room: &str) -> Option<crate::live::Presence> {
+        let cache = self.live.lock().unwrap();
+        let live = cache.state.as_ref()?.rooms.iter().find(|r| r.room_id == room)?;
+        if self.store.read_state(room).ok().flatten().and_then(|s| s.membership_version).as_deref()
+            != Some(&live.membership_version)
+        {
+            return None;
+        }
+        cache.presence(&live.direct_peer.as_ref()?.id, std::time::Instant::now())
+    }
+    pub async fn set_typing_from_membership(
+        &self,
+        room: &str,
+        root: Option<&str>,
+        active: bool,
+        membership: Option<&str>,
+    ) -> Result<(), Error> {
+        if self.status().connection != Connection::Online
+            || !self.verified.load(Ordering::SeqCst)
+            || self.closed.load(Ordering::SeqCst)
+        {
+            return Ok(());
+        }
+        if !self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.typing) {
+            return Ok(());
+        }
+        let Some(membership) = membership else {
+            return Ok(());
+        };
+        let generation = self.security_generation.load(Ordering::SeqCst);
+        let key = format!("{room}:{}:{membership}", root.unwrap_or(""));
+        {
+            let mut last = self.typing_last.lock().unwrap();
+            if active && last.as_ref().is_some_and(|(k, at)| k == &key && at.elapsed() < Duration::from_secs(3)) {
+                return Ok(());
+            }
+            *last = active.then(|| (key, std::time::Instant::now()));
+        }
+        let _lock = self.typing_request.lock().await;
+        if generation != self.security_generation.load(Ordering::SeqCst)
+            || self.status().connection != Connection::Online
+            || self.store.read_state(room)?.and_then(|s| s.membership_version).as_deref() != Some(membership)
+        {
+            return Ok(());
+        }
+        self.client
+            .set_typing(
+                room,
+                &rv_protocol::live::SetTyping {
+                    active,
+                    membership_version: membership.into(),
+                    root_id: root.map(str::to_owned),
+                },
+            )
+            .await?;
+        Ok(())
     }
     pub fn status(&self) -> Status {
         self.status.lock().unwrap().clone()
@@ -368,12 +468,15 @@ impl NativeSession {
         self.control.send_modify(|n| *n = n.wrapping_add(1));
     }
     pub fn suspend(&self) {
+        self.stop_presence();
+        self.clear_live();
         self.security_generation.fetch_add(1, Ordering::SeqCst);
         self.paused.store(true, Ordering::SeqCst);
         self.verified.store(false, Ordering::SeqCst);
         self.signal();
     }
     pub fn reconnect(&self) {
+        self.clear_live();
         self.security_generation.fetch_add(1, Ordering::SeqCst);
         if self.closed.load(Ordering::SeqCst) {
             return;
@@ -387,6 +490,8 @@ impl NativeSession {
         self.signal();
     }
     pub fn shutdown(&self) {
+        self.stop_presence();
+        self.clear_live();
         self.security_generation.fetch_add(1, Ordering::SeqCst);
         self.closed.store(true, Ordering::SeqCst);
         self.paused.store(true, Ordering::SeqCst);
@@ -427,6 +532,8 @@ impl NativeSession {
                     stars: true,
                     quotes: true,
                     threads: true,
+                    typing: true,
+                    presence: true,
                     fine_permissions: true,
                     session_rotation: self.credentials.is_some(),
                     device_sessions: true,
@@ -491,13 +598,22 @@ impl NativeSession {
         }
         self.verified.store(true, Ordering::SeqCst);
         self.flush().await?;
-        let url = self.client.socket_url(&self.store.cursor()?.unwrap()).await?;
+        let use_live = self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.typing || c.presence);
+        let cursor = self.store.cursor()?.unwrap();
+        let url = if use_live {
+            self.client.live_socket_url(&cursor).await?
+        } else {
+            self.client.socket_url(&cursor).await?
+        };
         let (mut socket, _) =
             tokio::time::timeout(Duration::from_secs(15), tokio_tungstenite::connect_async(url.as_str()))
                 .await
                 .map_err(|_| Error::Protocol("socket_timeout"))?
                 .map_err(|_| Error::Protocol("socket_closed"))?;
         self.set_status(Connection::Online, None);
+        let mut live_tick = tokio::time::interval(Duration::from_secs(1));
+        live_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut presence_due = tokio::time::Instant::now();
         let mut last = tokio::time::Instant::now();
         let credential_check = tokio::time::Instant::now() + Duration::from_secs(24 * 60 * 60);
         loop {
@@ -505,12 +621,34 @@ impl NativeSession {
             tokio::select! {
                 frame=socket.next()=>{
                     match frame {
-                        Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text)))=>{let batch=serde_json::from_str(&text).map_err(|_| Error::Protocol("invalid_batch"))?;self.store.batch(&batch)?;last=tokio::time::Instant::now();}
+                        Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text)))=>{
+                            let value:Value=serde_json::from_str(&text).map_err(|_|Error::Protocol("invalid_batch"))?;
+                            if value.get("type").and_then(Value::as_str)==Some("live") {
+                                let rv_protocol::live::LiveFrame::Live(state)=serde_json::from_value(value).map_err(|_|Error::Protocol("invalid_live_frame"))?;
+                                if state.rooms.iter().any(|r|self.store.read_state(&r.room_id).ok().flatten().and_then(|s|s.membership_version).as_deref()!=Some(&r.membership_version)) {self.clear_live();}
+                                else if self.live.lock().unwrap().apply(state,std::time::Instant::now()){let _=self.events.send(());}
+                            } else {
+                                let batch=serde_json::from_value(value).map_err(|_|Error::Protocol("invalid_batch"))?;self.store.batch(&batch)?;
+                                let invalid=self.live.lock().unwrap().state.as_ref().is_some_and(|s|s.rooms.iter().any(|r|self.store.read_state(&r.room_id).ok().flatten().and_then(|s|s.membership_version).as_deref()!=Some(&r.membership_version)));
+                                if invalid {self.clear_live();}
+                            }
+                            last=tokio::time::Instant::now();
+                        }
                         Some(Ok(tokio_tungstenite::tungstenite::Message::Ping(_)|tokio_tungstenite::tungstenite::Message::Pong(_)))=>{},
                         _=>return Err(Error::Protocol("socket_closed")),
                     }
                 }
                 _=self.wake.notified()=>self.flush().await?,
+                _=live_tick.tick(),if use_live=>{
+                    if self.live.lock().unwrap().expire(std::time::Instant::now()){let _=self.events.send(());}
+                    if tokio::time::Instant::now()>=presence_due && self.capabilities.lock().unwrap().as_ref().is_some_and(|c|c.presence) {
+                        presence_due=tokio::time::Instant::now()+Duration::from_secs(20);
+                        let _guard=self.presence_request.lock().await;
+                        if !self.closed.load(Ordering::SeqCst) && !self.paused.load(Ordering::SeqCst) {
+                            let _=tokio::time::timeout(Duration::from_secs(3),self.client.set_presence(rv_protocol::live::PresenceStatus::Online)).await;
+                        }
+                    }
+                },
                 _=tokio::time::sleep_until(state_retry.unwrap_or(credential_check)), if state_retry.is_some()=>self.flush_state_intents().await?,
                 _=tokio::time::sleep_until(credential_check), if self.credentials.is_some()=>return Ok(()),
                 _=tokio::time::sleep_until(last+Duration::from_secs(45))=>return Err(Error::Protocol("socket_timeout")),

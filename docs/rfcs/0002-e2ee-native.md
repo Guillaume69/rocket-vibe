@@ -66,8 +66,12 @@ implémentés dans le moteur isolé : clé / incarnation neuves, preuve de posse
 confirmation opaque, Grant lié à la demande et reçu privé rejouable. Onze tests
 couvrent refus / réouverture / checkpoint perdu, expiration / retour d'horloge,
 substitutions / limites et vrai KeyPackage ; le vecteur de demande / Grant passe
-Rust et Node / OpenSSL. Cérémonie UI, livraison, délégation de contrôle,
-récupération et liste de salon restent à intégrer ; un `BasicCredential` MLS seul
+Rust et Node / OpenSSL. La [récupération de racine](../../crates/rv-crypto/RECOVERY.md)
+par code aléatoire de 256 bits, paquet XChaCha20Poly1305 et restauration dans
+un coffre neuf est implémentée. Un reçu exact permet la reprise sans effacer
+une feuille créée depuis ; huit tests couvrent refus / altération / réouverture.
+Cérémonie UI, livraison, délégation de contrôle,
+récupération d'archive et liste de salon restent à intégrer ; un `BasicCredential` MLS seul
 ne les fournit pas. Si la
 racine privée est compromise, révoquer une seule feuille ne suffit pas : la
 racine doit être remplacée avec nouvelle vérification hors bande.
@@ -181,7 +185,7 @@ copies constituent une condition de J4, distincte de l'archive récupérable.
 Quatorze tests du coffre, dont échange MLS après réouverture disque et deux processus
 tués avant / après commit, plus le vrai pilote de trousseau vérifient cette
 fondation ; neuf tests supplémentaires couvrent les identités certifiées et
-onze l'ajout d'appareil, soit 34 scénarios au total.
+onze l'ajout d'appareil et huit la récupération de racine, soit 42 scénarios au total.
 L'ensemble reste hors des apps et sans livraison réseau ; E2EE demeure désactivé.
 
 ### Archive et récupération
@@ -199,8 +203,14 @@ réadmet un appareil neuf ; elle ne restaure pas un ancien état MLS pour envoye
 Nouveau membre, appareil neuf et ancien membre ne sont pas des destinataires
 équivalents ; les règles d'historique sont figées avant l'implémentation.
 
-Le format d'archive / sauvegarde, son AEAD, son authentification d'auteur et le
-secret de récupération restent à spécifier et revoir. Ce sont des conditions
+Le format d'archive / sauvegarde de ses clés, son AEAD et son authentification
+d'auteur restent à spécifier et revoir. La sauvegarde de **racine de compte**
+est implémentée séparément : code OS aléatoire, AAD lié à la racine / ID de backup,
+graine privée chiffrée et restauration neuve avec reçu de rejeu exact. Elle ne
+récupère aucun ratchet, clé d'archive, pin ou fichier historique. Un code ancien
+et une ancienne copie conservent l'accès à la racine ; changer le code ne la
+révoque pas. Compromission de racine exige remplacement et vérification.
+Cérémonie UI / réseau et revue restent ouvertes. Ce sont des conditions
 bloquantes du parcours complet, pas des fonctionnalités promises par le prototype.
 Sans secret ni appareil autorisé, l'historique perdu demeure irrécupérable.
 
@@ -235,8 +245,9 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    certification d'appareil, vérification et révocation testées.
    Racines / certificats / pins / confirmations et révocations implémentés dans
    la crate isolée ; demande signée / preuve de possession, confirmation et
-   reçu durable ajoutés. Cérémonie UI / réseau, délégation de contrôle et
-   récupération encore ouvertes.
+   reçu durable ajoutés. Sauvegarde / restauration de racine par code distinct
+   et reçu exact livrées ; cérémonie UI / réseau, délégation de contrôle et
+   récupération d'archive encore ouvertes.
 4. Livraison PostgreSQL : reçus, commits concurrents, Welcome atomique,
    destinataires / droits, retrait en vol et suspension sans appareil disponible.
 5. Pont mobile et intégration aux fournisseurs actuels ; archive / fichiers,

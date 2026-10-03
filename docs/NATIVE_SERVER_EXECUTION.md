@@ -319,6 +319,27 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P19 / J4, sauvegarde et récupération de racine (3 octobre 2026) : code OS
+  aléatoire 256 bits distinct du mot de passe / session, représentation bornée
+  avec checksum de saisie, paquet XChaCha20Poly1305 lié à la racine / backup / date
+  et nonce de 24 bytes. Seule la graine racine est exportée chiffrée ; pas de
+  ratchet, feuille, pin, révocation ou historique. Première restauration dans
+  un coffre / fournisseur vierge, clé publique dérivée vérifiée et transaction
+  annulable. Reçu du paquet exact sauvegardé avec la racine : checkpoint perdu
+  puis rejeu ne remettent pas à zéro une nouvelle feuille / demande.
+  Huit tests dédiés passent : mauvais code / altération / portée / limites,
+  clair incohérent, refus de coffre actif, réouverture / refus transactionnel /
+  checkpoint perdu, soit 42 crypto Linux plus l'enfant réellement tué. Formatage,
+  Clippy sans avertissement et les vecteurs identité / ajout indépendants passent.
+  Le lot précédent `6d30d7e` a sa CI `37145272953` verte : serveur / mobile et
+  trois plateformes crypto ; clients longs évités car crate isolée.
+  La sauvegarde récupérable
+  ne revendique pas de forward secrecy ; un ancien code et paquet restent
+  utilisables tant que la racine n'est pas remplacée. Cérémonie et outbox de
+  sauvegarde dans les apps existantes, délégation de contrôle, service de
+  livraison, archive / fichiers / pont Android et revue restent ouverts.
+  E2EE demeure désactivé. [Format et invariants](../crates/rv-crypto/RECOVERY.md).
+
 - P19 / J4, ajout d'appareil et reçu privé durable (3 octobre 2026) : clé de
   feuille / incarnation neuves, demande signée liée à la racine attendue,
   preuve de possession et fenêtre de 10 minutes. Confirmation locale opaque

@@ -83,8 +83,9 @@ cargo run --locked --manifest-path crates/rv-crypto/Cargo.toml --target-dir targ
 Un Grant installé n'ajoute **ni pin de correspondant ni feuille de salon**.
 `Pins` et la politique de groupe exigent leurs approbations / commits propres.
 La racine privée reste sur le contrôleur ; elle n'est pas transmise au nouvel
-appareil par ce format. Délégation de contrôle et récupération E2EE restent à
-spécifier / implémenter, avec secret distinct du mot de passe HTTP. Révoquer une
+appareil par ce format. La [récupération de racine](RECOVERY.md) emploie un code
+aléatoire distinct du mot de passe HTTP et crée un nouveau parcours de feuille.
+Délégation de contrôle et cérémonie / livraison restent à intégrer. Révoquer une
 feuille ne retire pas une racine privée déjà compromise.
 
 Le service de livraison des demandes / Grants, les contrôles des appareils

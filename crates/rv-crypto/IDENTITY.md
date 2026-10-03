@@ -85,8 +85,10 @@ Une transaction refusée ne sauvegarde ni certificat ni changement de confiance.
 ## Conditions encore ouvertes
 
 La [demande signée / preuve de possession](ENROLLMENT.md), son accord exact et
-ses reçus durables sont implémentés dans le moteur isolé. La cérémonie UI /
-livraison de nouvel appareil et la récupération E2EE restent à intégrer.
+ses reçus durables sont implémentés dans le moteur isolé, ainsi que la
+[sauvegarde / restauration de racine](RECOVERY.md) par code distinct. La cérémonie
+UI / livraison de nouvel appareil, délégation de contrôle et récupération
+d'archive restent à intégrer.
 L'API interne `certify` ne doit pas être exposée directement à une réponse du serveur.
 La liste signée des destinataires, les commits de salon, la consommation unique
 des KeyPackages et la livraison réseau restent à intégrer.

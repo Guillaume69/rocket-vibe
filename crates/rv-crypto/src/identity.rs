@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use zeroize::{Zeroize, Zeroizing};
 
 pub mod enrollment;
+pub mod recovery;
 
 const ROOT_RECORD: &str = "crypto-root-v1";
 const TRUST_RECORD: &str = "crypto-trust-v1";
@@ -43,6 +44,8 @@ pub enum Error {
     Limit,
     #[error("crypto_identity_unavailable")]
     Unavailable,
+    #[error("crypto_recovery_failed")]
+    Recovery,
 }
 
 pub type Fingerprint = [u8; 32];

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod cards;
 pub mod custom_emojis;
+pub mod e2ee;
 pub mod emojis;
 pub mod link_previews;
 pub mod live;

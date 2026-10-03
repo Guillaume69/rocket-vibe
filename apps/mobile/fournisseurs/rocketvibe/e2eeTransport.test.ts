@@ -1,0 +1,56 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {test} from 'node:test';
+import {NativeError,NativeTransport} from './transport.ts';
+import {decodeNative} from './validation.ts';
+
+const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
+const registration=decodeNative('RegisterDevice',fixture.parity.e2ee_register_device);
+const receipt=decodeNative('OperationReceipt',fixture.parity.e2ee_operation_receipt);
+const directory=decodeNative('Directory',fixture.parity.e2ee_directory);
+
+test('E2EE transport replays the original public intent after lost acknowledgement',async()=>{
+  const requests:{url:string;options?:RequestInit}[]=[];
+  let lost=true;
+  const transport=new NativeTransport('https://example.org',async(url,options)=>{
+    requests.push({url:String(url),options});
+    if(String(url).includes('/users/'))return Response.json(directory);
+    if(String(url).includes('/operations/'))return Response.json(receipt);
+    if(lost){lost=false;throw new TypeError('Lost acknowledgement');}
+    return Response.json(receipt);
+  });
+  transport.restore('saved-token');
+  await assert.rejects(transport.registerCryptoDevice(registration));
+  assert.deepEqual(await transport.registerCryptoDevice(registration),receipt);
+  assert.equal(requests[0].options?.body,requests[1].options?.body);
+  assert.deepEqual(JSON.parse(requests[0].options?.body as string),registration);
+  assert.equal((await transport.cryptoDirectory('fixture-user','9007199254740993')).devices[0].revision,'9007199254740993');
+  assert.deepEqual(await transport.cryptoOperation(receipt.operation_id),receipt);
+  assert.equal(new URL(requests[2].url).searchParams.get('after'),'9007199254740993');
+  for(const request of requests){
+    assert.equal(request.options?.redirect,'error');
+    assert.equal(new Headers(request.options?.headers).get('authorization'),'Bearer saved-token');
+  }
+  assert.throws(()=>decodeNative('RegisterDevice',{...registration,private_key:'secret'}));
+  assert.throws(()=>decodeNative('Directory',{...directory,devices:[{...directory.devices[0],revision:9007199254740992}]}));
+});
+
+test('crypto throttling leaves receipt reads available and identity conflicts keep the HTTP session',async()=>{
+  let calls=0;let identityConflict=false;let revoked=false;
+  const transport=new NativeTransport('https://example.org',async(url)=>{
+    calls++;
+    if(String(url).includes('/operations/'))return Response.json(receipt);
+    if(identityConflict)return Response.json({code:'crypto_identity_changed',request_id:'conflict'},{status:409});
+    return Response.json({code:'crypto_busy',request_id:'busy'},{status:429,headers:{'retry-after':'2'}});
+  });
+  transport.restore('saved-token');transport.surJetonRefuse=()=>{revoked=true;};
+  await assert.rejects(transport.registerCryptoDevice(registration),e=>e instanceof NativeError&&e.status===429&&e.retryAfter===2);
+  await assert.rejects(transport.publishKeyPackages({scope:registration.scope,operation_id:'packages',device_revision:'1',packages:['AA']}),e=>e instanceof NativeError&&e.status===429);
+  assert.equal(calls,1);
+  assert.deepEqual(await transport.cryptoOperation(receipt.operation_id),receipt);
+  identityConflict=true;
+  const second=new NativeTransport('https://example.org',async()=>Response.json({code:'crypto_identity_changed',request_id:'conflict'},{status:409}));
+  second.restore('saved-token');second.surJetonRefuse=()=>{revoked=true;};
+  await assert.rejects(second.registerCryptoDevice(registration),e=>e instanceof NativeError&&e.status===409);
+  assert.equal(revoked,false);
+});

@@ -109,6 +109,13 @@ pub fn router(app: App) -> Router {
         .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/auth/renew", post(renew_session))
         .route("/api/v1/me/sessions", get(device_sessions))
+        .route("/api/v1/e2ee/devices", post(register_crypto_device))
+        .route(
+            "/api/v1/e2ee/key-packages",
+            post(publish_crypto_packages).layer(DefaultBodyLimit::max(256 * 1024)),
+        )
+        .route("/api/v1/e2ee/users/{user}", get(crypto_directory))
+        .route("/api/v1/e2ee/operations/{operation}", get(crypto_operation))
         .route(
             "/api/v1/me/sessions/{device}",
             axum::routing::patch(rename_device).delete(revoke_device),
@@ -199,12 +206,12 @@ pub fn router(app: App) -> Router {
         .route("/api/v1/sync/ticket", post(ticket))
         .route("/api/v1/sync/socket", get(socket))
         .fallback(|| async { Error::missing() })
-        .layer(axum::middleware::from_fn(factor_email_no_store))
+        .layer(axum::middleware::from_fn(private_metadata_no_store))
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(app)
 }
 
-async fn factor_email_no_store(
+async fn private_metadata_no_store(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
@@ -216,7 +223,7 @@ async fn factor_email_no_store(
             | "/api/v1/me/reauth/email/resume"
             | "/api/v1/me/factors/email/enable"
             | "/api/v1/me/factors/email/disable"
-    );
+    ) || request.uri().path().starts_with("/api/v1/e2ee/");
     let mut response = next.run(request).await;
     // Rejections, including malformed input, have the same cache policy as
     // successful private receipts and delivery status.
@@ -232,6 +239,16 @@ async fn factor_email_no_store(
 type Input<T> = std::result::Result<Json<T>, axum::extract::rejection::JsonRejection>;
 fn body<T>(input: Input<T>) -> Result<T> {
     input.map(|Json(v)| v).map_err(|_| Error::invalid())
+}
+
+fn crypto_body<T>(input: Input<T>) -> Result<T> {
+    input.map(|Json(v)| v).map_err(|error| {
+        if error.status() == StatusCode::PAYLOAD_TOO_LARGE {
+            Error::new(StatusCode::PAYLOAD_TOO_LARGE, "crypto_body_too_large")
+        } else {
+            Error::invalid()
+        }
+    })
 }
 
 async fn account(app: &App, headers: &HeaderMap) -> Result<auth::Account> {
@@ -774,6 +791,50 @@ async fn device_sessions(State(app): State<App>, headers: HeaderMap) -> Result<R
     let (account, hash, proof) = read_access(&app, &headers, Scope::None).await?;
     let devices = sessions::list(&app, &account).await?;
     proof.json(&app, &hash, &devices, &[], None).await
+}
+async fn register_crypto_device(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::e2ee::RegisterDevice>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::e2ee::register(&app, &actor, crypto_body(input)?).await?,
+    ))
+}
+async fn publish_crypto_packages(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::e2ee::PublishKeyPackages>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::e2ee::publish(&app, &actor, crypto_body(input)?).await?,
+    ))
+}
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CryptoDirectoryQuery {
+    after: Option<String>,
+}
+async fn crypto_directory(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(user): Path<String>,
+    Query(query): Query<CryptoDirectoryQuery>,
+) -> Result<Response> {
+    let (_actor, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    let directory = crate::e2ee::directory(&app, &user, query.after.as_deref()).await?;
+    proof.json(&app, &hash, &directory, &[], None).await
+}
+async fn crypto_operation(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(operation): Path<String>,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    let receipt = crate::e2ee::operation(&app, &actor, &operation).await?;
+    proof.json(&app, &hash, &receipt, &[], None).await
 }
 async fn rename_device(
     State(app): State<App>,

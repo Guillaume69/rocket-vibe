@@ -676,6 +676,34 @@
       ],
       "type": "string"
     },
+    "Device": {
+      "additionalProperties": false,
+      "properties": {
+        "certificate": {
+          "type": "string"
+        },
+        "device_id": {
+          "type": "string"
+        },
+        "expires_at": {
+          "type": "string"
+        },
+        "incarnation": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_id",
+        "incarnation",
+        "certificate",
+        "revision",
+        "expires_at"
+      ],
+      "type": "object"
+    },
     "DeviceSession": {
       "properties": {
         "created_at": {
@@ -716,6 +744,48 @@
       },
       "required": [
         "user_id"
+      ],
+      "type": "object"
+    },
+    "Directory": {
+      "additionalProperties": false,
+      "properties": {
+        "devices": {
+          "items": {
+            "$ref": "#/$defs/Device"
+          },
+          "type": "array"
+        },
+        "identity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Identity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "next_revocation": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revocations": {
+          "items": {
+            "$ref": "#/$defs/Revocation"
+          },
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "devices",
+        "revocations"
       ],
       "type": "object"
     },
@@ -1236,6 +1306,30 @@
         "native1"
       ],
       "type": "string"
+    },
+    "Identity": {
+      "additionalProperties": false,
+      "properties": {
+        "fingerprint": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "user_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id",
+        "root",
+        "fingerprint",
+        "revision"
+      ],
+      "type": "object"
     },
     "IntegrationCard": {
       "additionalProperties": false,
@@ -2184,6 +2278,49 @@
         }
       ]
     },
+    "OperationReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "device_id": {
+          "type": "string"
+        },
+        "device_revision": {
+          "type": "string"
+        },
+        "incarnation": {
+          "type": "string"
+        },
+        "key_package_refs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "root_fingerprint": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "operation_id",
+        "kind",
+        "device_id",
+        "incarnation",
+        "device_revision",
+        "root_fingerprint",
+        "key_package_refs"
+      ],
+      "type": "object"
+    },
     "OwnProfile": {
       "properties": {
         "email": {
@@ -2315,6 +2452,46 @@
           "anyOf": [
             {
               "$ref": "#/$defs/DisableFactor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_directory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Directory"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_operation_receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OperationReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_publish_key_packages": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PublishKeyPackages"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_register_device": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RegisterDevice"
             },
             {
               "type": "null"
@@ -2962,6 +3139,33 @@
       ],
       "type": "object"
     },
+    "PublishKeyPackages": {
+      "additionalProperties": false,
+      "properties": {
+        "device_revision": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "packages": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "operation_id",
+        "device_revision",
+        "packages"
+      ],
+      "type": "object"
+    },
     "PushContent": {
       "properties": {
         "data_epoch": {
@@ -3309,6 +3513,49 @@
       ],
       "type": "object"
     },
+    "RegisterDevice": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_device_revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expected_root_fingerprint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "grant": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "request": {
+          "type": "string"
+        },
+        "revoke_previous": {
+          "description": "Root-signed revocation of the previous incarnation, on replacement only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "operation_id",
+        "request",
+        "grant"
+      ],
+      "type": "object"
+    },
     "RegisterPush": {
       "additionalProperties": false,
       "properties": {
@@ -3525,6 +3772,22 @@
       "required": [
         "context",
         "proof_version"
+      ],
+      "type": "object"
+    },
+    "Revocation": {
+      "additionalProperties": false,
+      "properties": {
+        "position": {
+          "type": "string"
+        },
+        "signed": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "position",
+        "signed"
       ],
       "type": "object"
     },
@@ -3771,6 +4034,22 @@
         "member"
       ],
       "type": "string"
+    },
+    "Scope": {
+      "additionalProperties": false,
+      "properties": {
+        "data_epoch": {
+          "type": "string"
+        },
+        "instance_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "instance_id",
+        "data_epoch"
+      ],
+      "type": "object"
     },
     "SearchMessages": {
       "additionalProperties": false,

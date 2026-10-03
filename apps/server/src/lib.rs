@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod custom_emojis;
 mod delivery;
+pub mod e2ee;
 mod email;
 pub mod email_delivery;
 pub mod email_recovery;
@@ -54,6 +55,7 @@ pub struct App {
     file_slots: Arc<tokio::sync::Semaphore>,
     preview_slots: Arc<tokio::sync::Semaphore>,
     password_slots: Arc<tokio::sync::Semaphore>,
+    crypto_slots: Arc<tokio::sync::Semaphore>,
     dummy_password_hash: String,
     socket_slots: Arc<limits::SocketSlots>,
     auth_key: Option<Arc<factor_crypto::AuthKey>>,
@@ -108,6 +110,7 @@ impl App {
             file_slots: Arc::new(tokio::sync::Semaphore::new(4)),
             preview_slots: Arc::new(tokio::sync::Semaphore::new(4)),
             password_slots: Arc::new(tokio::sync::Semaphore::new(4)),
+            crypto_slots: Arc::new(tokio::sync::Semaphore::new(4)),
             dummy_password_hash,
             socket_slots: Arc::default(),
             auth_key: auth_key.map(Arc::new),

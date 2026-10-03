@@ -27,6 +27,19 @@ export class NativeError extends Error {
 }
 
 export class NativeTransport {
+  registerCryptoDevice(input:NativeTypes['RegisterDevice']):Promise<NativeTypes['OperationReceipt']> {
+    return this.request('OperationReceipt','/api/v1/e2ee/devices',input);
+  }
+  publishKeyPackages(input:NativeTypes['PublishKeyPackages']):Promise<NativeTypes['OperationReceipt']> {
+    return this.request('OperationReceipt','/api/v1/e2ee/key-packages',input);
+  }
+  /** Transport only: the Rust engine checks signatures, scope, pins and consent. */
+  cryptoDirectory(user:string,after?:string):Promise<NativeTypes['Directory']> {
+    return this.request('Directory',`/api/v1/e2ee/users/${encodeURIComponent(user)}${after===undefined?'':`?after=${encodeURIComponent(after)}`}`);
+  }
+  cryptoOperation(operation:string):Promise<NativeTypes['OperationReceipt']> {
+    return this.request('OperationReceipt',`/api/v1/e2ee/operations/${encodeURIComponent(operation)}`);
+  }
   async startMeeting(room:string,input:StartMeeting):Promise<Meeting> {
     return this.request('Meeting',`/api/v1/rooms/${encodeURIComponent(room)}/meetings`,input);
   }
@@ -58,7 +71,7 @@ export class NativeTransport {
     const sent = anonymous ? null : this.token;
     const verb=method??(input===undefined?'GET':'POST');
     const budget = path.endsWith('/messages/search') && verb==='GET' ? 'search' : ['/api/v1/auth/login','/api/v1/auth/start','/api/v1/auth/factors/verify','/api/v1/auth/invitations/accept','/api/v1/auth/recovery','/api/v1/me/reauth/start','/api/v1/me/reauth/finish'].includes(path) ? 'login' : ['/api/v1/me/email/verification/start','/api/v1/auth/factors/email/start','/api/v1/me/reauth/email/start'].includes(path) ? 'email_delivery' : path === '/api/v1/auth/recovery/email/start' ? 'email_recovery' : path === '/api/v1/auth/renew' ? 'session_rotation' : path === '/api/v1/sync/ticket' ? 'ticket' : path === '/api/v1/sync/snapshots' ? 'snapshot' : path.startsWith('/api/v1/messages/') && ['PATCH','DELETE','PUT'].includes(verb)?'message_action':path.startsWith('/api/v1/rooms/') && verb==='POST' && path.endsWith('/read')?'room_read':path.startsWith('/api/v1/rooms/') && (verb==='PATCH' || verb==='PUT' && (path.endsWith('/role') || path.endsWith('/favorite')) || verb==='POST' && path.endsWith('/leave'))?'room_command':null;
-    const effectiveBudget = (path==='/api/v1/me' || path==='/api/v1/me/preferences' || path.startsWith('/api/v1/me/avatar?')) && ['PATCH','PUT','DELETE'].includes(verb)?'profile':budget;
+    const effectiveBudget = (path==='/api/v1/me' || path==='/api/v1/me/preferences' || path.startsWith('/api/v1/me/avatar?')) && ['PATCH','PUT','DELETE'].includes(verb)?'profile':path.startsWith('/api/v1/e2ee/') && verb==='POST'?'crypto':budget;
     const cooldown = effectiveBudget === null ? undefined : this.cooldowns.get(effectiveBudget);
     if (cooldown && cooldown.until > Date.now()) throw new NativeError(429,cooldown.code,Math.ceil((cooldown.until-Date.now())/1000),cooldown.requestId);
     const controller = new AbortController();

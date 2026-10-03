@@ -2237,12 +2237,25 @@ dependencies = [
  "openmls_traits",
  "rusqlite",
  "rustix",
+ "rv-crypto-public",
  "serde",
  "serde_json",
  "sha2 0.11.0",
  "tempfile",
  "thiserror",
  "zeroize",
+]
+
+[[package]]
+name = "rv-crypto-public"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "openmls",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "thiserror",
 ]
 
 [[package]]

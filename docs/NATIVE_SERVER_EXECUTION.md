@@ -319,6 +319,21 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P19 / J4, premier raccordement serveur de l'annuaire public (3 octobre 2026) :
+  formats / vérificateurs communs extraits dans `rv-crypto-public`, sans coffre
+  privé dans les dépendances serveur. Enregistrement lié à la session courante,
+  preuve de possession / grant signé, racine immuable, renouvellement conditionnel,
+  remplacement avec révocation signée persistante ; vérification OpenMLS réelle
+  des KeyPackages, références retirées conservées et lots atomiques. Reçus exacts
+  retrouvés après réponse perdue, limite crypto et quotas, annuaire privé / no-store,
+  SDK Rust et TypeScript sans changement d'interface. Huit tests PostgreSQL / HTTP
+  ciblés et les 42 tests crypto vérifient ces chemins ; schéma et fixtures publics
+  couvrent les révisions exactes. Vingt tests TypeScript ciblés, typage / lint,
+  Clippy sans avertissement et vecteurs Node indépendants passent. L'admission, consommation unique / Welcome,
+  groupes / outbox MLS et intégration aux apps restent ouverts. E2EE reste faux.
+  Le lot précédent `9cc6fd6` a tous ses jobs CI `37146743934` verts.
+  [Contrat et limites](protocol/E2EE_DIRECTORY.md).
+
 - P19 / J4, sauvegarde et récupération de racine (3 octobre 2026) : code OS
   aléatoire 256 bits distinct du mot de passe / session, représentation bornée
   avec checksum de saisie, paquet XChaCha20Poly1305 lié à la racine / backup / date

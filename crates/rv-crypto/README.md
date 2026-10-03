@@ -2,7 +2,9 @@
 
 Fondation Rust de [RFC 0002](../../docs/rfcs/0002-e2ee-native.md), distincte du
 [prototype MLS](../rv-crypto-spike/README.md). Workspace et lock propres : aucun
-serveur ni client ne dépend encore de cette crate. Aucune capacité E2EE activée.
+serveur ni client ne dépend du coffre. Les formats / vérificateurs publics sont
+partagés via [`rv-crypto-public`](../rv-crypto-public/README.md), consommé par le
+serveur et réexporté ici sans changement de format. Aucune capacité E2EE activée.
 
 ## Format et transaction
 

@@ -69,6 +69,45 @@ fn retry_after(response: &reqwest::Response) -> Option<u64> {
 }
 
 impl NativeClient {
+    pub async fn register_crypto_device(
+        &self,
+        input: &rv_protocol::e2ee::RegisterDevice,
+    ) -> Result<rv_protocol::e2ee::OperationReceipt, Error> {
+        self.post("/api/v1/e2ee/devices", input).await
+    }
+    pub async fn publish_key_packages(
+        &self,
+        input: &rv_protocol::e2ee::PublishKeyPackages,
+    ) -> Result<rv_protocol::e2ee::OperationReceipt, Error> {
+        self.post("/api/v1/e2ee/key-packages", input).await
+    }
+    /// Transport only. Verify signatures, scope, pins and explicit consent in the engine.
+    pub async fn crypto_directory(
+        &self,
+        user: &str,
+        after: Option<&str>,
+    ) -> Result<rv_protocol::e2ee::Directory, Error> {
+        if !path_segment(user)
+            || after.is_some_and(|v| v.is_empty() || !v.bytes().all(|b| b.is_ascii_digit()))
+        {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!(
+            "/api/v1/e2ee/users/{user}{}",
+            after.map(|v| format!("?after={v}")).unwrap_or_default()
+        ))
+        .await
+    }
+    pub async fn crypto_operation(
+        &self,
+        operation: &str,
+    ) -> Result<rv_protocol::e2ee::OperationReceipt, Error> {
+        if !path_segment(operation) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!("/api/v1/e2ee/operations/{operation}"))
+            .await
+    }
     pub async fn start_meeting(
         &self,
         room: &str,
@@ -254,6 +293,9 @@ impl NativeClient {
             "/api/v1/auth/renew" => Some("session_rotation"),
             "/api/v1/sync/ticket" => Some("ticket"),
             "/api/v1/sync/snapshots" => Some("snapshot"),
+            "/api/v1/e2ee/devices" | "/api/v1/e2ee/key-packages" if *method == Method::POST => {
+                Some("crypto")
+            }
             _ if path.starts_with("/api/v1/messages/")
                 && matches!(*method, Method::PATCH | Method::DELETE | Method::PUT) =>
             {

@@ -14,6 +14,7 @@ name = "protected_smoke"
 required-features = ["system-keystore"]
 
 [dependencies]
+rv-crypto-public = { path = "../rv-crypto-public" }
 chacha20poly1305 = "=0.10.1"
 ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["std", "fast", "zeroize"] }
 getrandom = "0.4"

@@ -2,6 +2,7 @@ use super::Error;
 use super::*;
 use crate::protected::{Manager, Storage};
 use crate::vault::{Error as VaultError, Scope};
+use openmls::prelude::BasicCredential;
 use openmls::prelude::{
     Ciphersuite, CredentialWithKey, KeyPackageIn, OpenMlsProvider, ProtocolVersion,
     tls_codec::{Deserialize as _, Serialize as _},

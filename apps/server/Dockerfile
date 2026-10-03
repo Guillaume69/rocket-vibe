@@ -4,6 +4,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY apps/server apps/server
 COPY crates/rv-protocol crates/rv-protocol
 COPY crates/rv-client crates/rv-client
+COPY crates/rv-crypto-public crates/rv-crypto-public
 RUN cargo build --locked --release --manifest-path apps/server/Cargo.toml
 
 FROM debian:bookworm-slim

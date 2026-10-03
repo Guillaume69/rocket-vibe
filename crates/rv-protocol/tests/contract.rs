@@ -1,6 +1,27 @@
 use rv_protocol::{Contract, SendMessage};
 
 #[test]
+fn public_crypto_metadata_preserves_exact_revisions_and_rejects_private_fields() {
+    let contract: Contract =
+        serde_json::from_str(include_str!("../../../docs/protocol/v1.fixture.json")).unwrap();
+    let directory = contract.parity.e2ee_directory.unwrap();
+    assert_eq!(directory.identity.unwrap().revision, "9007199254740993");
+    assert_eq!(directory.devices[0].revision, "9007199254740993");
+    let registration = contract.parity.e2ee_register_device.unwrap();
+    let mut value = serde_json::to_value(registration).unwrap();
+    value["private_key"] = "must-never-enter-server-protocol".into();
+    assert!(serde_json::from_value::<rv_protocol::e2ee::RegisterDevice>(value).is_err());
+    assert_eq!(
+        contract
+            .parity
+            .e2ee_operation_receipt
+            .unwrap()
+            .device_revision,
+        "9007199254740993"
+    );
+}
+
+#[test]
 fn shared_fixture_preserves_positions_above_javascript_integer_limit() {
     let fixture = include_str!("../../../docs/protocol/v1.fixture.json");
     let contract: Contract = serde_json::from_str(fixture).unwrap();

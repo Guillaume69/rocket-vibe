@@ -14,6 +14,7 @@ GoogleService-Info.plist
 # Système
 .DS_Store
 /target/
+/crates/rv-crypto/target/
 /artifacts/
 /.cache/
 /native-mobile-tests.log

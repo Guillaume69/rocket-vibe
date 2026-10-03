@@ -3,7 +3,7 @@
 | Métadonnée | Valeur |
 |---|---|
 | Date | 3 octobre 2026 |
-| Statut | Spécification de travail J4 ; prototype MLS et stockage privé isolé, aucune capacité activée |
+| Statut | Spécification de travail J4 ; coffre client isolé et annuaire public serveur, aucune capacité activée |
 | Référence | RFC 0001 §13, P18 / P19 |
 | Clients | Fournisseurs des apps mobile, GTK et SwiftUI actuelles |
 
@@ -186,7 +186,10 @@ Quatorze tests du coffre, dont échange MLS après réouverture disque et deux p
 tués avant / après commit, plus le vrai pilote de trousseau vérifient cette
 fondation ; neuf tests supplémentaires couvrent les identités certifiées et
 onze l'ajout d'appareil et huit la récupération de racine, soit 42 scénarios au total.
-L'ensemble reste hors des apps et sans livraison réseau ; E2EE demeure désactivé.
+Le coffre reste hors des apps. L'[annuaire public serveur](../protocol/E2EE_DIRECTORY.md)
+consomme les vérificateurs extraits sans clés privées : certificats / demandes /
+grants, publication de vrais KeyPackages et reçus persistants sont disponibles.
+Admission aux groupes et livraison MLS restent ouvertes ; E2EE demeure désactivé.
 
 ### Archive et récupération
 

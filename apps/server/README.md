@@ -46,7 +46,9 @@ audit transactionnel et diagnostic (`health`). Le [cycle de fichiers](../../docs
 propose préparation, transfert streamé, confirmation idempotente et téléchargement
 protégé / Range. Outboxes et lecteurs sont raccordés aux clients existants.
 Notifications bureau, appels,
-chiffrement et parité complète restent au backlog. Les limites sont explicites dans
+chiffrement et parité complète restent au backlog. L'[annuaire crypto public](../../docs/protocol/E2EE_DIRECTORY.md)
+vérifie désormais appareils certifiés et publication de KeyPackages ; il ne
+rend pas encore disponibles les conversations chiffrées. Les limites sont explicites dans
 le [contrat du pilote](../../docs/protocol/README.md).
 
 ## Démarrage local

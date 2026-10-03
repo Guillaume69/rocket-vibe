@@ -315,6 +315,30 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- Qualification bureau, banc de reprise des fichiers (4 octobre 2026) : la CI
+  du roster `37161366000` valide serveur / mobile, Swift et crypto sur les trois
+  OS, mais son test Windows d'ACK d'upload perdu observe parfois la file après
+  un retry déjà terminé. Le mock garde désormais chaque réponse perdue jusqu'à
+  arrêt effectif de sa session, puis ouvre séparément préparation et ACK du
+  processus suivant. Les deux tests de fichiers et Clippy ciblé passent dans
+  le banc Fedora existant ; confirmation Windows attendue dans la CI suivante.
+  Aucun code de production ni interface n'est modifié par cette correction.
+
+- P19 / J4, publication cliente protégée (4 octobre 2026) : vrais KeyPackages
+  générés dans le coffre avec la demande HTTP exacte et références MLS, avant
+  remise après checkpoint. DTOs `rv-protocol` utilisés directement ; ID neuf
+  généré en transaction, lot original retrouvé après coupure / redémarrage.
+  ACK comparé champ par champ et conservé, reprise historique après perte de
+  checkpoint / expiration, aucune nouvelle autorisation implicite. Lookup
+  limité à portée / ID, refus de renvoi après consommation réelle par Welcome.
+  Révocation locale observée bloquant aussi les préparations de groupe.
+  Borne de 64 bundles, libération après vraie admission sans destruction fondée
+  sur le temps seul. Neuf nouveaux tests passent, 68 scénarios du coffre au
+  total et enfant de crash exécuté par son parent ; Clippy strict backend
+  système passe. Réconciliation réseau des refus / expirés, commits suivants,
+  messages, ponts et apps, archive / fichiers / import et revue restent ouverts.
+  E2EE demeure désactivé. [Contrat du lot](../crates/rv-crypto/PACKAGES.md).
+
 - P19 / J4, observation autorisée du roster (4 octobre 2026) : route / SDK Rust
   et TypeScript exposant politique, versions d'adhésion / activation de chaque
   membre actif et métadonnées publiques de tête. Même vue SQL que la validation

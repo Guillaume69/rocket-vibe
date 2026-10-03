@@ -452,6 +452,25 @@ impl Pins {
             now,
         )
     }
+    /// Local installation already binds its own key; it needs no peer approval.
+    /// An observed root substitution or signed revocation still forbids use.
+    pub(crate) fn check_local(&self, certificate: &Certificate, now: u64) -> Result<(), Error> {
+        certificate.verify(now)?;
+        let device = &certificate.device;
+        self.check_root(&device.root)?;
+        if let Some(pin) = self.peers.get(&device.root.user) {
+            if pin.root != device.root {
+                return Err(Error::Changed);
+            }
+            if pin
+                .revoked
+                .contains(&(device.device.clone(), device.incarnation))
+            {
+                return Err(Error::Revoked);
+            }
+        }
+        Ok(())
+    }
     /// Used for credentials from an MLS-validated tree or message. This checks
     /// root/device consent and key binding; it does not itself validate MLS.
     pub fn authorize_credential(

@@ -382,6 +382,7 @@ impl Coordinator {
         let credential = local.credential(now)?;
         let certificate = Certificate::from_credential(&credential.credential)?;
         let pins = Pins::load(records, &self.root.instance)?;
+        pins.check_local(&certificate, now)?;
         let pins_fingerprint = fingerprint("rocketvibe-local-group-pins-v1", &pins)?;
         Ok(Context {
             local,

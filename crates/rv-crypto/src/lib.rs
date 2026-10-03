@@ -3,5 +3,6 @@
 
 pub mod groups;
 pub mod identity;
+pub mod packages;
 pub mod protected;
 pub mod vault;

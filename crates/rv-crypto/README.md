@@ -148,6 +148,15 @@ désactivé. Voir le [contrat de livraison](../../docs/protocol/E2EE_GROUPS.md).
 
 ## Vérifications
 
+Le [coordinateur de publication](PACKAGES.md) conserve aussi les véritables
+KeyPackages privés avec leur demande HTTP publique exacte avant émission.
+Réouverture / checkpoint perdu reprennent le lot original ; ACK substitué,
+expiration, révocation et package déjà consommé sont refusés. Un reçu passé
+peut être réconcilié sans autoriser de nouvel envoi. Les packages sont retirés
+de l'index seulement après consommation MLS, avec une borne de rétention de 64.
+Le module utilise les DTOs partagés ; transport / abandon confirmé / nettoyage
+des expirés et raccordement aux apps restent à intégrer.
+
 ```sh
 cargo fmt --manifest-path crates/rv-crypto/Cargo.toml -- --check
 cargo clippy --locked --manifest-path crates/rv-crypto/Cargo.toml --target-dir target --all-targets -- -D warnings
@@ -156,7 +165,7 @@ cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --features syste
 node crates/rv-crypto/scripts/verify-identity-vector.mjs
 ```
 
-Cinquante-neuf scénarios Linux passent, dont l'échange OpenMLS entre deux véritables bases
+Soixante-huit scénarios Linux passent, dont l'échange OpenMLS entre deux véritables bases
 rouvertes : consommation / ciphertext original conservés, réception altérée
 annulée puis original accepté, et rejeu refusé. Les autres preuves couvrent AEAD,
 portées, tête ancienne restaurée, auteur concurrent, échec SQL, limites, fichier
@@ -189,6 +198,10 @@ persistant / mêmes secrets, package à usage unique, métadonnées valablement
 signées mais fausses, auteur MLS différent, Welcome corrompu, adhésions / époque
 de salon, approbation de chaque destinataire, refus applicatif après crypto et
 reprise historique après checkpoint perdu.
+Neuf scénarios de publication vérifient le DTO HTTP, références / dates réelles,
+chaînes décimales exactes, chaque champ du reçu, reprise de checkpoint,
+interdiction de renvoyer après consommation / révocation, jointure avec le
+package retrouvé et libération de la borne de rétention après vraie admission.
 
 [`scripts/keystore-smoke.sh`](scripts/keystore-smoke.sh) utilise un **vrai Secret
 Service Linux**, ses répertoires XDG jetables et plusieurs processus CLI. Un

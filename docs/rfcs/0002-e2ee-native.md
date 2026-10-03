@@ -262,6 +262,10 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    consommation atomique et retry exact livrée.
    Observation autorisée des versions de salon / adhésions / activations
    exposée aux SDK et utilisée pour signer un vrai plan par HTTP.
+   Publication cliente conservant les KeyPackages privés et le DTO HTTP exact
+   avant émission, retry original et réconciliation du reçu exact livrés ;
+   consommation réelle par Welcome interdisant le renvoi puis libérant l'index.
+   Réconciliation réseau des refus / expirés et raccordement aux apps ouverts.
    Transitions suivantes, réception de commits et livraison des messages
    chiffrés restent ouvertes ;
    aucune capacité activée.

@@ -13,10 +13,10 @@
  */
 
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
-import { appelDisponibleMemo, demarrerConference, sonderAppelDisponible } from '../lib/appel.ts';
+import { appelDisponibleMemo, contexteAppel, demarrerConference, sonderAppelDisponible } from '../lib/appel.ts';
 import type { StatutPresence } from '../lib/presence.ts';
 import { chargerProfil,lireProfilPrecharge, type ErreurProfil } from '../lib/profilPreload.ts';
 import type { ClientRest } from '../lib/rest.ts';
@@ -139,11 +139,22 @@ export default function EcranProfil() {
       ? texteErreurProfil(precharge.erreur)
       : null,
   );
-  const [appelDispo, setAppelDispo] = useState(() =>
-    client !== null ? appelDisponibleMemo(client) : false,
-  );
-  const [occupe, setOccupe] = useState(false);
-  const enVol = useRef(false);
+  const porteeAction=useMemo(()=>({client,cibleProfil}),[client,cibleProfil]);
+  const [disponibilite,setDisponibilite]=useState(()=>({portee:porteeAction,disponible:client!==null&&appelDisponibleMemo(client)}));
+  const appelsPermis=synchro.phase==='pret'&&synchro.capacites.appelVideo!==false;
+  const appelDispo=appelsPermis&&disponibilite.portee===porteeAction&&disponibilite.disponible;
+  const visible=useRef<typeof porteeAction|null>(porteeAction);
+  useEffect(()=>{visible.current=porteeAction;return()=>{if(visible.current===porteeAction)visible.current=null;};},[porteeAction]);
+  const [actionEnVol,setActionEnVol]=useState<typeof porteeAction|null>(null);
+  const occupe=actionEnVol===porteeAction;
+  const enVol = useRef<typeof porteeAction|null>(null);
+
+  useEffect(()=>{
+    if(client===null||!appelsPermis)return;
+    let vivant=true;
+    void sonderAppelDisponible(client).then(disponible=>{if(vivant)setDisponibilite({portee:porteeAction,disponible});});
+    return()=>{vivant=false;};
+  },[client,appelsPermis,porteeAction]);
 
   useEffect(() => {
     // Déjà préchargé : ne rien recharger — un second rendu rebougerait la hauteur.
@@ -167,9 +178,6 @@ export default function EcranProfil() {
       .catch((e: unknown) => {
         if (vivant){setProfil(null);setErreur(client.genre==='rocketvibe'?traduireCourant('native.error'):e instanceof Error ? e.message : traduireCourant('profil.profilIntrouvable'));}
       });
-    void sonderAppelDisponible(client).then((ok) => {
-      if (vivant) setAppelDispo(ok);
-    });
     return () => {
       vivant = false;
     };
@@ -195,21 +203,25 @@ export default function EcranProfil() {
   /** Ouvre (ou crée) le DM, puis y va — la sheet est REMPLACÉE par le salon. */
   const ouvrirDm = useCallback(
     async (versAppel: boolean) => {
-      if (client === null || actions === null || profil === null || enVol.current) return;
-      enVol.current = true;
-      setOccupe(true);
+      if (client === null || actions === null || profil === null || enVol.current===porteeAction) return;
+      const compte=contexteAppel(client),alive=()=>visible.current===porteeAction&&contexteAppel(client)===compte;
+      enVol.current = porteeAction;
+      setActionEnVol(porteeAction);
       setErreur(null);
       try {
         const { rid, salonBrut } = await actions.ouvrirOuCreerDm(profil.username,profil.uid);
+        if(!alive())return;
         if (moteur !== null) await moteur.ingererSalons([salonBrut]);
+        if(!alive())return;
         if (versAppel) {
           // `start` crée la conférence et poste le message d'appel dans le DM ;
           // l'écran d'appel fait le `join`. Au retour (back), on retombe là où
           // la fiche avait été ouverte.
-          const callId = await demarrerConference(client, rid);
+          const callId = await demarrerConference(client, rid,{alive});
+          if(!alive())return;
           routeur.replace({
             pathname: '/appel/[callId]',
-            params: { callId, titre: profil.nom ?? profil.username },
+            params: { callId, titre: profil.nom ?? profil.username,rid,compte },
           });
         } else {
           // `im.create` est idempotent : ouverte depuis un DM, la fiche rend le
@@ -240,13 +252,14 @@ export default function EcranProfil() {
           else routeur.replace({ pathname: '/salon/[rid]', params: { rid } });
         }
       } catch (e) {
+        if(!alive())return;
         setErreur(e instanceof Error ? e.message : t('profil.actionImpossible'));
-        enVol.current = false;
-        setOccupe(false);
+        enVol.current = null;
+        setActionEnVol(null);
       }
       // Succès : on a navigué, l'écran se démonte — ne pas re-setter l'état.
     },
-    [client, actions, profil, moteur, routeur, navigation, t],
+    [client, actions, profil, moteur, routeur, navigation, t,porteeAction],
   );
 
   // Ce qu'on sait DÈS le tap (avatar + @username, ou uid pour un DM) : on rend

@@ -332,6 +332,13 @@ export const nativeMessageCommands = sqliteTable('native_commands', {
   error: text('error'),
 }, (t) => [uniqueIndex('idx_native_command_message').on(t.messageId)]);
 
+/** One meeting start keeps its original membership and operation until acknowledged. */
+export const nativeMeetingIntents = sqliteTable('native_meeting_intents', {
+  id: text('id').primaryKey(),
+  rid: text('rid').notNull(),
+  payload: text('payload').notNull(),
+}, (t) => [uniqueIndex('idx_native_meeting_intent_room').on(t.rid)]);
+
 /** One unresolved room form keeps its original nonce and version until acknowledged. */
 export const nativeRoomOperations = sqliteTable('native_room_operations', {
   id: text('id').primaryKey(),

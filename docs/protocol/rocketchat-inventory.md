@@ -2,7 +2,7 @@
 
 Commande : `node scripts/inventory-rocketchat.mjs`. Contrôle : ajouter `--check`.
 
-368 fichiers de production parcourus ; 450 occurrences.
+369 fichiers de production parcourus ; 450 occurrences.
 Les appels à premier argument dynamique restent visibles : leur résolution est
 consignée dans [le contrat de parité](PARITY.md). Les lignes sont des repères de
 source au moment de la génération. Le JSON conserve le périmètre et tous les fichiers.
@@ -372,12 +372,12 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/mobile/fournisseurs/rocketchat/index.ts:52](../../apps/mobile/fournisseurs/rocketchat/index.ts#L52) | endpoint | chat.search |
 | [apps/mobile/lib/actionsMessage.ts:163](../../apps/mobile/lib/actionsMessage.ts#L163) | call:GET | 'chat.getMessage' |
 | [apps/mobile/lib/actionsMessage.ts:163](../../apps/mobile/lib/actionsMessage.ts#L163) | endpoint | chat.getMessage |
-| [apps/mobile/lib/appel.ts:39](../../apps/mobile/lib/appel.ts#L39) | call:POST | 'video-conference.start' |
-| [apps/mobile/lib/appel.ts:39](../../apps/mobile/lib/appel.ts#L39) | endpoint | video-conference.start |
-| [apps/mobile/lib/appel.ts:55](../../apps/mobile/lib/appel.ts#L55) | call:POST | 'video-conference.join' |
-| [apps/mobile/lib/appel.ts:55](../../apps/mobile/lib/appel.ts#L55) | endpoint | video-conference.join |
-| [apps/mobile/lib/appel.ts:81](../../apps/mobile/lib/appel.ts#L81) | call:GET | 'video-conference.capabilities' |
-| [apps/mobile/lib/appel.ts:81](../../apps/mobile/lib/appel.ts#L81) | endpoint | video-conference.capabilities |
+| [apps/mobile/lib/appel.ts:76](../../apps/mobile/lib/appel.ts#L76) | call:POST | 'video-conference.start' |
+| [apps/mobile/lib/appel.ts:76](../../apps/mobile/lib/appel.ts#L76) | endpoint | video-conference.start |
+| [apps/mobile/lib/appel.ts:99](../../apps/mobile/lib/appel.ts#L99) | call:POST | 'video-conference.join' |
+| [apps/mobile/lib/appel.ts:99](../../apps/mobile/lib/appel.ts#L99) | endpoint | video-conference.join |
+| [apps/mobile/lib/appel.ts:129](../../apps/mobile/lib/appel.ts#L129) | call:GET | 'video-conference.capabilities' |
+| [apps/mobile/lib/appel.ts:129](../../apps/mobile/lib/appel.ts#L129) | endpoint | video-conference.capabilities |
 | [apps/mobile/lib/auth.ts:89](../../apps/mobile/lib/auth.ts#L89) | call:POST | 'login' |
 | [apps/mobile/lib/auth.ts:103](../../apps/mobile/lib/auth.ts#L103) | call:POST | 'login' |
 | [apps/mobile/lib/auth.ts:149](../../apps/mobile/lib/auth.ts#L149) | call:POST | 'users.2fa.sendEmailCode' |

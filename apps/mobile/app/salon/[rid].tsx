@@ -963,6 +963,7 @@ function Salon({
         rid={rid}
         salon={salon}
         client={client}
+        membership={membership}
         statutDM={statutDM}
         insetTop={insets.top}
         // Repli si le salon est la RACINE (deep-link à froid) : `back()` n'a

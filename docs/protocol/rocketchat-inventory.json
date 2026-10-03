@@ -229,6 +229,7 @@
     "apps/mobile/lib/apercuLien.ts",
     "apps/mobile/lib/apercusNatifs.ts",
     "apps/mobile/lib/appel.ts",
+    "apps/mobile/lib/appelsFournisseur.ts",
     "apps/mobile/lib/auth.ts",
     "apps/mobile/lib/avatarsNatifs.ts",
     "apps/mobile/lib/cartesIntegration.ts",
@@ -2560,37 +2561,37 @@
     },
     {
       "file": "apps/mobile/lib/appel.ts",
-      "line": 39,
+      "line": 76,
       "kind": "call:POST",
       "surface": "'video-conference.start'"
     },
     {
       "file": "apps/mobile/lib/appel.ts",
-      "line": 39,
+      "line": 76,
       "kind": "endpoint",
       "surface": "video-conference.start"
     },
     {
       "file": "apps/mobile/lib/appel.ts",
-      "line": 55,
+      "line": 99,
       "kind": "call:POST",
       "surface": "'video-conference.join'"
     },
     {
       "file": "apps/mobile/lib/appel.ts",
-      "line": 55,
+      "line": 99,
       "kind": "endpoint",
       "surface": "video-conference.join"
     },
     {
       "file": "apps/mobile/lib/appel.ts",
-      "line": 81,
+      "line": 129,
       "kind": "call:GET",
       "surface": "'video-conference.capabilities'"
     },
     {
       "file": "apps/mobile/lib/appel.ts",
-      "line": 81,
+      "line": 129,
       "kind": "endpoint",
       "surface": "video-conference.capabilities"
     },

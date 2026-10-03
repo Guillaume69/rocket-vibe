@@ -12,17 +12,18 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 
-import { rejoindreConference } from '../../lib/appel.ts';
+import { contexteAppel, rejoindreConference } from '../../lib/appel.ts';
 import { memeOrigine, origineDe } from '../../lib/origine.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 import { useT } from '../../ui/i18n.ts';
 import { useSession } from '../../ui/session.tsx';
+import {useSynchro} from '../../ui/synchro.tsx';
 import { type Couleurs, POLICES, useCouleurs } from '../../ui/theme.ts';
 
 /**
  * Écran d'appel : la conférence Jitsi dans une WebView plein écran.
  *
- * Jitsi est une web-app — on charge l'URL rendue par `video-conference.join`
+ * Jitsi est une web-app — on charge l'URL privée rendue par le fournisseur
  * (JWT inclus) plutôt que d'embarquer le SDK natif (peer RN ~0.79 vs 0.86, New
  * Arch fragile). La WebView reste STRICTEMENT cantonnée à l'appel : ailleurs,
  * elle est interdite (ROADMAP §4.2) et l'app rend tout en natif.
@@ -91,23 +92,30 @@ const UA_MOBILE =
 export default function EcranAppel() {
   const c = useCouleurs();
   const { etat } = useSession();
-  const { callId, titre } = useLocalSearchParams<{ callId: string; titre?: string }>();
+  useSynchro();
+  const { callId, titre,rid,adhesion,compte } = useLocalSearchParams<{ callId: string; titre?: string;rid?:string;adhesion?:string;compte?:string }>();
   const t = useT();
   // Atteint depuis un salon connecté ; un état déconnecté (session expirée)
   // renvoie au login plutôt que de crasher sur `client`.
   if (etat.phase !== 'connecte') return <Redirect href="/connexion" />;
-  return <Appel c={c} client={etat.client} callId={callId} titre={titre ?? t('appel.appelVideo')} />;
+  const courant=contexteAppel(etat.client);
+  if(compte!==undefined&&compte!==courant)return <Redirect href="/" />;
+  return <Appel key={`${courant}#${callId}#${rid??''}#${adhesion??''}`} c={c} client={etat.client} callId={callId} rid={rid} membership={adhesion} titre={titre ?? t('appel.appelVideo')} />;
 }
 
 function Appel({
   c,
   client,
   callId,
+  rid,
+  membership,
   titre,
 }: {
   c: Couleurs;
   client: ClientRest;
   callId: string;
+  rid?:string;
+  membership?:string;
   titre: string;
 }) {
   const routeur = useRouter();
@@ -127,7 +135,7 @@ function Appel({
     void (async () => {
       try {
         await demanderCameraMicro();
-        const u = await rejoindreConference(client, callId);
+        const u = await rejoindreConference(client, callId,undefined,{room:rid,membership,alive:()=>vivant});
         // Une URL de conférence sans origine lisible (schéma exotique, réponse
         // tronquée) ne donnerait pas de verrou à poser sur la WebView : on
         // refuse plutôt que de charger sans garde.
@@ -142,7 +150,7 @@ function Appel({
     return () => {
       vivant = false;
     };
-  }, [client, callId, essai, t]);
+  }, [client, callId, rid,membership,essai, t]);
 
   // Handler (hors effet) : y remettre l'état à zéro est légitime.
   const reessayer = useCallback(() => {

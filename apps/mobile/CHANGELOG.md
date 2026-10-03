@@ -9,9 +9,11 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
-- Préparation des appels natifs : transport de réunions avec démarrage idempotent,
-  lien partageable sans jeton et entrée autorisée par le serveur. Les activités
-  d'appel sont reconnues ; le raccordement aux boutons et à l'écran existants suit.
+- Appels RocketVibe raccordés aux boutons de salon / profil, à la carte d'appel
+  et à l'écran Jitsi existants. Une tentative interrompue reprend le même appel
+  au prochain clic, même après redémarrage ; changement de compte / adhésion et
+  réponses tardives sont contrôlés. Le parcours Rocket.Chat reste disponible.
+  Qualification des médias sur Jitsi et téléphone encore ouverte.
 
 - Liens natifs par instance et époque, chemins de proxy conservés et vérification
   du compte enregistré avant une bascule explicite. Les menus existants peuvent

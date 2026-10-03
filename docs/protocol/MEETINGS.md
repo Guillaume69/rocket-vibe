@@ -86,7 +86,7 @@ des messages ne constitue aucune garantie de chiffrement des médias d'appel.
 
 ## Preuves et sortie encore ouverte
 
-Le cœur bureau sauvegarde une intention de démarrage par salon avant HTTP ;
+Les stockages bureau et mobile sauvegardent une intention de démarrage par salon avant HTTP ;
 le prochain clic réutilise le même ID après une réponse perdue ou un redémarrage.
 Aucun appel n'est lancé automatiquement au retour de l'application. Confirmation
 et refus définitif retirent seulement l'intention concernée. Retrait, réadhésion,
@@ -115,5 +115,17 @@ les reçus ; une session révoquée ne peut plus recevoir de JWT.
 Le transport mobile réel s'authentifie contre le même serveur et rejoue son
 démarrage. Un vérificateur Node indépendant contrôle la signature HS256, les
 claims de portée et la durée des JWT Rust ; aucun jeton n'est imprimé.
+Le même banc monte le fournisseur mobile et la liaison utilisée par les écrans
+actuels : il reçoit l'activité dans `messages.appel_id`, perd une confirmation,
+rouvre le SQLite disque et reprend le même ID au clic suivant. Une reconnexion
+ne lance pas d'appel. Le helper refuse une URL remise après démontage du compte ;
+une session native détachée ne tente jamais les endpoints Rocket.Chat.
+Les boutons de salon / profil, la carte et la WebView existants suivent cette
+liaison, avec gardes de vue / adhésion et origine WebView conservée. Le nouveau
+DM d'un profil attend son adhésion issue du journal. Les réglages caméra / micro
+utilisent les options [Jitsi officielles](https://github.com/jitsi/jitsi-meet/blob/master/react/features/base/config/configWhitelist.ts).
+Les tests ciblés couvrent double tap, quota, refus permanent, configuration
+retirée, époque changée et fermeture pendant l'entrée. Les sondes Rocket.Chat
+restent mémorisées par client de compte ; une panne / un quota restent retentables.
 Ces bancs ne prouvent pas encore l'acceptation / le refus par Prosody, le média,
 la modération, ni les parcours dans les applications installées. P20 / J4 restent ouverts.

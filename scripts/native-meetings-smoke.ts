@@ -1,7 +1,17 @@
 // Real native HTTP transport, with an independent Node HS256 verifier.
 import assert from 'node:assert/strict';
 import {createHmac,timingSafeEqual} from 'node:crypto';
+import {mkdtempSync,unlinkSync,rmdirSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {NativeTransport} from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
+import {NativeStore} from '../apps/mobile/fournisseurs/rocketvibe/store.ts';
+import {nativeTestDatabase} from '../apps/mobile/fournisseurs/rocketvibe/testDatabase.ts';
+import {creerFournisseurRV} from '../apps/mobile/fournisseurs/rocketvibe/index.ts';
+import {creerFileEcritures} from '../apps/mobile/db/fileEcritures.ts';
+import {ClientRest} from '../apps/mobile/lib/rest.ts';
+import {monterAppelsFournisseur} from '../apps/mobile/lib/appelsFournisseur.ts';
+import {appelDisponibleMemo,contexteAppel,demarrerConference,rejoindreConference,sonderAppelDisponible} from '../apps/mobile/lib/appel.ts';
 const env=process.env;
 assert(env.RV_MEETINGS_SERVER && env.RV_MEETINGS_ROOM && env.RV_MEETINGS_PASSWORD && env.RV_MEETINGS_SECRET);
 const c=new NativeTransport(env.RV_MEETINGS_SERVER);
@@ -39,4 +49,55 @@ assert(claims.exp>now && claims.exp<=now+120 && claims.exp-claims.iat<=120);
 assert.equal(claims.exp,Math.floor(Date.parse(joined.expires_at)/1000));
 const second=await c.joinMeeting(meeting.id,scope);
 assert.notEqual(second.url,joined.url);
-console.log('Mobile meeting transport and independent HS256 verification passed.');
+// Same provider binding as ui/synchro.tsx, real account SQLite and HTTP journal.
+const directory=mkdtempSync(join(tmpdir(),'rv-mobile-meeting-')),filename=join(directory,'account.sqlite');
+const account={baseUrl:env.RV_MEETINGS_SERVER,authToken:session.token,userId:session.user.id,username:session.user.username,genre:'rocketvibe' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+const operations:string[]=[];
+let loseAck=false,holdJoin=false,joinedRequest:()=>void=()=>{},releaseJoin:()=>void=()=>{};
+const reader=new NativeTransport(account.baseUrl,async(input,options)=>{
+  const path=new URL(String(input)).pathname;
+  if(path.endsWith('/meetings')&&options?.method==='POST')operations.push(String(options.body));
+  const response=await fetch(input,options);
+  if(loseAck&&path.endsWith('/meetings')&&options?.method==='POST'&&response.ok){loseAck=false;await response.arrayBuffer();throw new TypeError('Lost meeting confirmation after server commit');}
+  if(holdJoin&&path.endsWith('/join')&&response.ok){holdJoin=false;joinedRequest();await new Promise<void>(resolve=>{releaseJoin=resolve;});}
+  return response;
+});
+reader.restore(session.token);
+let harness=nativeTestDatabase(filename),store=new NativeStore(harness.adapter,creerFileEcritures(),account),serial=0;
+const client=new ClientRest(account.baseUrl,{fetch:async()=>{throw new Error('Unexpected Rocket.Chat request');}});
+let provider=creerFournisseurRV(account,client,()=>`mobile-meeting-${++serial}`,store,{transport:reader});
+let detach=monterAppelsFournisseur(client,provider);
+async function until(check:()=>boolean|Promise<boolean>){const deadline=Date.now()+15000;while(!await check()){assert(Date.now()<deadline,'Mobile meeting provider timed out');await new Promise(resolve=>setTimeout(resolve,25));}}
+try{
+  await provider.native!.chat.connect();assert(provider.native!.chat.status.online);
+  assert(provider.capacites.appelVideo);assert(appelDisponibleMemo(client));
+  const membership=(await store.readState(room))!.membership_version!;
+  assert.equal(await sonderAppelDisponible(client,room,membership),true);
+  assert.equal(await sonderAppelDisponible(client,room,'obsolete'),false);
+  await until(()=>harness.db.prepare('SELECT appel_id FROM messages WHERE appel_id=?').get(meeting.id)?.appel_id===meeting.id);
+  const row=harness.db.prepare('SELECT type_systeme,appel_id FROM messages WHERE appel_id=?').get(meeting.id)!;
+  assert.equal(row.type_systeme,'videoconf');
+  loseAck=true;await assert.rejects(demarrerConference(client,room,{membership}));
+  const pending=harness.db.prepare('SELECT id,payload FROM native_meeting_intents').get()!;
+  assert(pending.id);assert.equal(String(pending.payload).includes('jwt'),false);
+  detach();provider.native!.chat.stop();await store.state();harness.db.close();
+  harness=nativeTestDatabase(filename,false);store=new NativeStore(harness.adapter,creerFileEcritures(),account);
+  provider=creerFournisseurRV(account,client,()=>`mobile-meeting-${++serial}`,store,{transport:reader});detach=monterAppelsFournisseur(client,provider);
+  await provider.native!.chat.connect();assert.equal(operations.length,1,'Reconnect must never launch an automatic call');
+  const current=(await store.readState(room))!.membership_version!;
+  const recovered=await demarrerConference(client,room,{membership:current});assert.equal(recovered,meeting.id);
+  assert.equal(operations.length,2);assert.equal(operations[0],operations[1]);
+  assert.equal(harness.db.prepare('SELECT count(*) n FROM native_meeting_intents').get()?.n,0);
+  const entered=await rejoindreConference(client,meeting.id,{cam:false,mic:true},{room,membership:current});
+  assert.equal(new URL(entered).origin,url.origin);assert.equal(new URL(entered).pathname,url.pathname);
+  assert.equal(new URL(entered).hash,'#config.startWithVideoMuted=true&config.startWithAudioMuted=false');
+  const shared=await provider.native!.chat.callLink(meeting.id,room,current);assert.equal(shared,meeting.public_url);assert.equal(shared.includes('jwt'),false);
+  holdJoin=true;const arrived=new Promise<void>(resolve=>{joinedRequest=resolve;});
+  const late=rejoindreConference(client,meeting.id,undefined,{room,membership:current});await arrived;
+  const before=contexteAppel(client);detach();assert.notEqual(contexteAppel(client),before);releaseJoin();
+  await assert.rejects(late,/session_closed|call_scope_closed/);assert.equal(await sonderAppelDisponible(client,room,current),false);
+  await assert.rejects(demarrerConference(client,room),/call_provider_unavailable/);
+  console.log('Mobile existing call helpers, native provider, real HTTP/WebSocket/SQLite, lost-confirmation restart, activity ID, private URL scope and independent HS256 verification passed.');
+}finally{
+  releaseJoin();detach();provider.native!.chat.stop();await store.state();harness.db.close();unlinkSync(filename);rmdirSync(directory);
+}

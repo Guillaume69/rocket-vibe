@@ -22,6 +22,7 @@
 import * as Crypto from 'expo-crypto';
 import {NativeError} from '../fournisseurs/rocketvibe/transport.ts';
 import {monterProfilsFournisseur} from '../lib/profilsFournisseur.ts';
+import {monterAppelsFournisseur} from '../lib/appelsFournisseur.ts';
 import {monterEmojisFournisseur} from '../lib/emojisFournisseur.ts';
 import {monterApercusNatifs} from '../lib/apercusNatifs.ts';
 import { createContext, useContext, useEffect, useState } from 'react';
@@ -200,6 +201,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         const nativeFiles=await creerFichiersNatifsIO(fournisseur);
         if(!alive){chat.stop();return;}
         const unprofile=monterProfilsFournisseur(client,fournisseur);
+        const uncalls=monterAppelsFournisseur(client,fournisseur);
         const unemojis=monterEmojisFournisseur(client,fournisseur);
         const unpreviews=monterApercusNatifs(client,fournisseur);
         const unfiles=monterFichiersNatifs(client,fournisseur);
@@ -238,7 +240,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           }
           lastError = chat.status.error;
         });
-        stop = () => { unlisten();unpush();unlive();unprofile();unemojis();unpreviews();unfiles();fichiers.fermer?.();presence.invalider();chat.stop(); };
+        stop = () => { unlisten();unpush();unlive();unprofile();uncalls();unemojis();unpreviews();unfiles();fichiers.fermer?.();presence.invalider();chat.stop(); };
         setSynchro({
           phase:'pret',base,brouillons:store.drafts(),moteur,envoi,
           fichiers,
@@ -256,6 +258,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       idDepuisOctets(Crypto.getRandomBytes(12)),
     );
     const unprofile=monterProfilsFournisseur(client,fournisseur);
+    const uncalls=monterAppelsFournisseur(client,fournisseur);
     const ddp = fournisseur.listener;
     let reconnecteur: Reconnecteur | null = null;
     let surAbandon: (() => void) | null = null;
@@ -698,6 +701,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       oublierEtatNotifications();
       oublierFichesProfil();
       unprofile();
+      uncalls();
       ddp.fermer();
       ddp.reinitialiser();
     };

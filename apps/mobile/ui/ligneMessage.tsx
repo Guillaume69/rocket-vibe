@@ -7,6 +7,8 @@
  */
 
 import { useRouter } from 'expo-router';
+import {contexteAppel} from '../lib/appel.ts';
+import {useSession} from './session.tsx';
 import { memo, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -332,7 +334,7 @@ function ContenuMessage({ c, message }: { c: Couleurs; message: LigneDeMessage }
     return <Substitut c={c} texte={t('ligneMessage.chiffre')} />;
   }
   if (message.typeSysteme === 'videoconf') {
-    return <CarteAppel c={c} callId={message.appelId} />;
+    return <CarteAppel c={c} callId={message.appelId} rid={message.rid} />;
   }
   if (message.typeSysteme !== null && !chiffreDechiffre) {
     // La phrase suit le nom de l'auteur affiché juste au-dessus : « bob a
@@ -621,15 +623,16 @@ function ImageJointe({
  * message d'avant la persistance du bloc, ou bloc illisible — on n'offre pas de
  * jonction, juste l'étiquette : mieux qu'un bouton qui ne saurait où aller.
  */
-function CarteAppel({ c, callId }: { c: Couleurs; callId: string | null }) {
+function CarteAppel({ c, callId,rid }: { c: Couleurs; callId: string | null;rid:string }) {
   const routeur = useRouter();
   const t = useT();
+  const {etat}=useSession();
   return (
     <View style={[styles.carteAppel, { backgroundColor: c.carte, borderColor: c.bordure }]}>
       <Text style={[styles.carteAppelTitre, { color: c.texte }]}>{t('ligneMessage.appelVideo')}</Text>
       {callId !== null && (
         <Appuyable
-          onPress={() => routeur.push({ pathname: '/appel/[callId]', params: { callId } })}
+          onPress={() => {if(etat.phase==='connecte')routeur.push({ pathname: '/appel/[callId]', params: { callId,rid,compte:contexteAppel(etat.client) } });}}
           android_ripple={{ color: c.ondulation }}
           unstable_pressDelay={DELAI_PRESSION_LISTE}
           accessibilityRole="button"

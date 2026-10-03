@@ -319,6 +319,22 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P20 / J4, raccordement mobile aux appels existants (3 octobre 2026) : boutons
+  du salon / profil, carte d'activité et même écran WebView dirigés vers le
+  fournisseur du compte. Migration SQLite 0032 : une intention de démarrage par
+  salon, ID conservé après réponse perdue / redémarrage, aucun départ automatique
+  à la reconnexion. Purge à retrait / réadhésion / restauration, acquittement exact,
+  sondes de disponibilité par compte et gardes de vue / session / adhésion.
+  Dix tests ciblés passent, plus les migrations et régressions des caches / runner.
+  Le banc PostgreSQL existant monte la vraie liaison mobile avec HTTP / WebSocket
+  et SQLite disque : activité projetée dans la carte, confirmation perdue, reprise
+  du même ID après réouverture, entrée caméra / micro et URL tardive refusée après
+  démontage. Typage, lint et export Android / Hermes passent ; inventaire à
+  369 fichiers / 450 occurrences. Le lot bureau `1e957ae` est confirmé par les
+  quatre jobs du workflow natif `37131483850` et macOS `37131483848`, tous verts.
+  Le service Jitsi réel, les médias / modération et les apps sur appareils restent
+  à qualifier ; P20 / J4 restent ouverts. [Contrat](protocol/MEETINGS.md).
+
 - P20 / J4, raccordement bureau aux appels existants (3 octobre 2026) : boutons
   du salon et du profil, carte rejoindre / infos et fenêtres GTK / SwiftUI
   dirigés vers le fournisseur du compte. L'activité native conserve l'ID de

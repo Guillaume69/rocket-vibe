@@ -8,11 +8,11 @@
  */
 
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { salons } from '../db/schema.ts';
-import { demarrerConference, sonderAppelDisponible } from '../lib/appel.ts';
+import { contexteAppel, demarrerConference, sonderAppelDisponible } from '../lib/appel.ts';
 import type { StatutPresence } from '../lib/presence.ts';
 import { ouvrirFicheProfil } from '../lib/profilPreload.ts';
 import type { ClientRest } from '../lib/rest.ts';
@@ -33,6 +33,7 @@ export function EnTeteSalon({
   rid,
   salon,
   client,
+  membership,
   statutDM,
   insetTop,
   onRetour,
@@ -43,6 +44,7 @@ export function EnTeteSalon({
   rid: string;
   salon: LigneDeSalon | undefined;
   client: ClientRest;
+  membership?:string|null;
   statutDM: StatutPresence | null;
   insetTop: number;
   onRetour: () => void;
@@ -63,35 +65,41 @@ export function EnTeteSalon({
 
   // Disponibilité de la visioconférence : masque le bouton là où aucun
   // fournisseur n'est configuré (Docker local), l'affiche sur la cible (Jitsi).
-  const [appelDispo, setAppelDispo] = useState(false);
-  const [demarrage, setDemarrage] = useState(false);
+  const portee=useMemo(()=>({client,rid,membership}),[client,rid,membership]);
+  const [disponibilite,setDisponibilite]=useState<{portee:typeof portee;disponible:boolean}|null>(null);
+  const appelDispo=capacites?.appelVideo!==false && disponibilite?.portee===portee && disponibilite.disponible;
+  const visible=useRef<typeof portee|null>(portee);
+  useEffect(()=>{visible.current=portee;return()=>{if(visible.current===portee)visible.current=null;};},[portee]);
+  const [appelEnVol,setAppelEnVol]=useState<typeof portee|null>(null);
+  const demarrage=appelEnVol===portee;
   useEffect(() => {
-    if (capacites?.appelVideo === false) { setAppelDispo(false); return; }
+    if (capacites?.appelVideo === false) return;
     let vivant = true;
-    void sonderAppelDisponible(client).then((ok) => {
-      if (vivant) setAppelDispo(ok);
+    void sonderAppelDisponible(client,rid,membership).then((ok) => {
+      if (vivant) setDisponibilite({portee,disponible:ok});
     });
     return () => {
       vivant = false;
     };
-  }, [client,capacites?.appelVideo]);
+  }, [client,rid,membership,salon?.lectureSeule,capacites?.appelVideo,portee]);
 
   const demarrerAppel = useCallback(() => {
     if (demarrage) return;
-    setDemarrage(true);
+    const alive=()=>visible.current===portee;
+    setAppelEnVol(portee);
     void (async () => {
       try {
         // `start` crée la conférence, poste le message d'appel dans le salon,
         // et renvoie le callId — l'écran d'appel s'occupe de `join` + WebView.
-        const callId = await demarrerConference(client, rid);
-        routeur.push({ pathname: '/appel/[callId]', params: { callId, titre: nom } });
+        const callId = await demarrerConference(client, rid,{membership,alive});
+        if(alive())routeur.push({ pathname: '/appel/[callId]', params: { callId, titre: nom,rid,compte:contexteAppel(client),...(membership==null?{}:{adhesion:membership}) } });
       } catch {
-        Alert.alert(t('salon.appelTitre'), t('salon.appelImpossibleDemarrer'));
+        if(alive())Alert.alert(t('salon.appelTitre'), t('salon.appelImpossibleDemarrer'));
       } finally {
-        setDemarrage(false);
+        if(alive())setAppelEnVol(null);
       }
     })();
-  }, [demarrage, client, rid, routeur, nom, t]);
+  }, [demarrage, client, rid, routeur, nom, t,membership,portee]);
 
   return (
     <View style={[styles.entete, { paddingTop: insetTop + 6, borderBottomColor: c.bordureDouce }]}>

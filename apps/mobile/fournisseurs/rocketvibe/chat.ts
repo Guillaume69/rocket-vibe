@@ -19,6 +19,9 @@ import type {FactorRemote} from './factorVault.ts';
 import type {EmailRemote} from './emailVault.ts';
 import {checkSecurityScope,type SecurityScope} from './reauthenticationVault.ts';
 import {previewImageIdentity} from './linkPreviews.ts';
+import {publicMeetingUrl,privateMeetingUrl} from './meetings.ts';
+
+type MeetingScope={room:string;membership:string;generation:number;projection:number;alive:()=>boolean};
 
 export type NativeStatus = { online: boolean; error: string | null };
 export class NativeChat {
@@ -47,6 +50,7 @@ export class NativeChat {
   private cancelOpening: (() => void) | null = null;
   private flushing: Promise<void> | null = null;
   private commands: Promise<void> = Promise.resolve();
+  private meetingStarts=new Map<string,Promise<string>>();
   private roomAccessReads = new Map<string,Promise<void>>();
   private profileHeads=new Map<string,string>();
   private livePeers=new Map<string,string>();
@@ -78,6 +82,107 @@ export class NativeChat {
     this.reconnect = new Reconnecteur({connecter: () => this.connect()});
   }
   subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
+  get callsActive():boolean {return !this.stopped&&this.verified&&this.capabilities?.calls===true;}
+  async callAvailable(room?:string,membership?:string|null):Promise<boolean> {
+    if(!this.callsActive)return false;
+    try {
+      if(room===undefined){
+        const generation=this.generation,discovery=await this.transport.discover();
+        checkIdentity(this.session,discovery);this.roomOperationGeneration(generation);
+        return discovery.capabilities.calls===true;
+      }
+      const scope=await this.meetingScope(room,membership);
+      await this.refreshRoomAccess(room);await this.checkMeetingScope(scope);
+      const access=await this.store.roomAccess(room);
+      await this.stateGeneration(scope.generation,scope.projection,scope.room,scope.membership);
+      return access?.can_send!=null && access.read_only!=null && access.role!=null
+        && (access.read_only===0 || access.role==='owner' || access.role==='moderator');
+    } catch {return false;}
+  }
+  private async waitCallRoom(room:string,alive:()=>boolean):Promise<string> {
+    let wake:()=>void=()=>{};
+    const unsubscribe=this.subscribe(()=>wake());
+    let timer:ReturnType<typeof setTimeout>|undefined;
+    const deadline=new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new NativeError(409,'delivery_revalidate')),15000);});
+    void deadline.catch(()=>{});
+    try {
+      for(;;){
+        const changed=new Promise<void>(resolve=>{wake=resolve;});
+        if(this.stopped || !alive())throw new NativeError(0,'session_closed');
+        if(this.callsActive){
+          const membership=(await this.store.readState(room))?.membership_version;
+          if(membership)return membership;
+        }
+        await Promise.race([changed,deadline]);
+      }
+    } finally {if(timer!==undefined)clearTimeout(timer);unsubscribe();}
+  }
+  private async meetingScope(room:string,expected?:string|null,alive:()=>boolean=()=>true):Promise<MeetingScope> {
+    this.ready();if(!this.capabilities?.calls)throw new NativeError(501,'unsupported_feature');
+    const generation=this.generation,projection=this.store.projectionToken();
+    const membership=(await this.store.readState(room))?.membership_version;
+    if(!membership || expected!==undefined && expected!==membership)throw new NativeError(409,'delivery_revalidate');
+    const scope={room,membership,generation,projection,alive};
+    await this.stateGeneration(generation,projection,room,membership);
+    if(!alive())throw new NativeError(0,'session_closed');
+    return scope;
+  }
+  private async checkMeetingScope(scope:MeetingScope):Promise<void> {
+    if(!scope.alive())throw new NativeError(0,'session_closed');
+    const discovery=await this.transport.discover();checkIdentity(this.session,discovery);
+    await this.stateGeneration(scope.generation,scope.projection,scope.room,scope.membership);
+    if(!scope.alive())throw new NativeError(0,'session_closed');
+    if(!discovery.capabilities.calls)throw new NativeError(501,'unsupported_feature');
+  }
+  startCall(room:string,expected?:string|null,alive:()=>boolean=()=>true):Promise<string> {
+    if(this.stopped || !alive())return Promise.reject(new NativeError(0,'session_closed'));
+    if(!this.capabilities?.calls)return Promise.reject(new NativeError(501,'unsupported_feature'));
+    const key=`${room}:${expected??'observed'}`,pending=this.meetingStarts.get(key);
+    if(pending)return pending;
+    const request=(async()=>{
+      // A new profile DM has not reached the journal yet. Its RPC result is
+      // not a local grant; only this explicit action waits for verified catch-up.
+      const membership=expected===undefined?await this.waitCallRoom(room,alive):expected;
+      const scope=await this.meetingScope(room,membership,alive);
+      await this.checkMeetingScope(scope);
+      const input=await this.store.meetings.stage(room,{operation_id:this.id(),membership_version:scope.membership,data_epoch:this.session.nativeDataEpoch!});
+      await this.checkMeetingScope(scope);
+      let meeting:import('./protocol.generated.ts').Meeting;
+      try {meeting=await this.transport.startMeeting(room,input);}
+      catch(error){if(permanentCommandError(error))await this.store.meetings.acknowledge(room,input);throw error;}
+      await this.checkMeetingScope(scope);
+      publicMeetingUrl(meeting,room,meeting.id);
+      if(!await this.store.meetings.acknowledge(room,input))throw new NativeError(409,'delivery_revalidate');
+      await this.stateGeneration(scope.generation,scope.projection,room,scope.membership);
+      if(!alive())throw new NativeError(0,'session_closed');
+      return meeting.id;
+    })();
+    this.meetingStarts.set(key,request);
+    void request.finally(()=>{if(this.meetingStarts.get(key)===request)this.meetingStarts.delete(key);}).catch(()=>{});
+    return request;
+  }
+  async joinCall(id:string,room?:string,membership?:string|null,alive:()=>boolean=()=>true):Promise<string> {
+    this.ready();if(!this.capabilities?.calls)throw new NativeError(501,'unsupported_feature');
+    const generation=this.generation;
+    let scope=room===undefined?null:await this.meetingScope(room,membership,alive);
+    if(!alive())throw new NativeError(0,'session_closed');
+    checkIdentity(this.session,await this.transport.discover());this.roomOperationGeneration(generation);
+    const meeting=await this.transport.meeting(id);
+    this.roomOperationGeneration(generation);
+    publicMeetingUrl(meeting,room??meeting.room_id,id);
+    scope??=await this.meetingScope(meeting.room_id,membership,alive);
+    await this.checkMeetingScope(scope);
+    const joined=await this.transport.joinMeeting(id,{membership_version:scope.membership,data_epoch:this.session.nativeDataEpoch!});
+    await this.checkMeetingScope(scope);
+    return privateMeetingUrl(joined,scope.room,id);
+  }
+  async callLink(id:string,room:string,membership?:string|null,alive:()=>boolean=()=>true):Promise<string> {
+    const scope=await this.meetingScope(room,membership,alive);
+    await this.checkMeetingScope(scope);
+    const meeting=await this.transport.meeting(id);
+    await this.checkMeetingScope(scope);
+    return publicMeetingUrl(meeting,room,id);
+  }
   get filesActive():boolean {return !this.stopped&&this.verified&&this.capabilities?.uploads===true;}
   async fileScope(room:string,membership:string):Promise<{alive:()=>boolean;check:()=>Promise<void>}>{
     this.ready();if(!this.capabilities?.uploads)throw new NativeError(501,'unsupported_feature');

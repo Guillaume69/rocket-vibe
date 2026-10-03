@@ -13,7 +13,7 @@ mod room_operations;
 mod threads;
 use super::Identity;
 pub use files::FileIntent;
-pub use notifications::Notification;
+pub use notifications::{Notification, NotificationReply};
 pub use profiles::{AvatarUpload, DirectPeer, ProfileOperation, SavedProfileOperation};
 pub use quotes::QuoteSelection;
 pub use read_intents::{PendingRead, SavedFavorite};
@@ -238,6 +238,7 @@ impl NativeStore {
                 "native_state",
                 "native_notifications",
                 "native_notification_replies",
+                "native_notification_actions",
                 "native_file_intents",
                 "native_users",
                 "native_direct_peers",
@@ -289,8 +290,18 @@ impl NativeStore {
         &self,
         fnc: impl FnOnce(&Transaction) -> rusqlite::Result<(T, bool)>,
     ) -> rusqlite::Result<T> {
+        self.atomic_transaction(rusqlite::TransactionBehavior::Deferred, fnc)
+    }
+    fn atomic_immediate<T>(&self, fnc: impl FnOnce(&Transaction) -> rusqlite::Result<T>) -> rusqlite::Result<T> {
+        self.atomic_transaction(rusqlite::TransactionBehavior::Immediate, |tx| Ok((fnc(tx)?, false)))
+    }
+    fn atomic_transaction<T>(
+        &self,
+        behavior: rusqlite::TransactionBehavior,
+        fnc: impl FnOnce(&Transaction) -> rusqlite::Result<(T, bool)>,
+    ) -> rusqlite::Result<T> {
         let mut conn = self.conn.lock().unwrap();
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(behavior)?;
         let (result, rotate) = fnc(&tx)?;
         tx.commit()?;
         if rotate {
@@ -534,6 +545,7 @@ impl NativeStore {
             params![message.id, super::link_previews::urls(message).map_err(|_| rusqlite::Error::InvalidQuery)?],
         )?;
         tx.execute("DELETE FROM native_outbox WHERE id=?1", [&message.id])?;
+        tx.execute("DELETE FROM native_notification_actions WHERE id=?1", [&message.id])?;
         tx.execute("UPDATE native_messages SET pinned=?2 WHERE id=?1", params![message.id, message.pinned])?;
         quotes::project(tx, message, true)?;
         Self::personal(tx, message)?;
@@ -564,6 +576,7 @@ impl NativeStore {
     }
     fn remove_content(tx: &Transaction, rid: &str) -> rusqlite::Result<()> {
         for table in [
+            "native_notification_actions",
             "native_file_intents",
             "native_direct_peers",
             "native_messages",
@@ -594,6 +607,7 @@ impl NativeStore {
                 for table in [
                     "native_notifications",
                     "native_notification_replies",
+                    "native_notification_actions",
                     "native_file_intents",
                     "native_users",
                     "native_direct_peers",
@@ -826,11 +840,15 @@ impl NativeStore {
         username: &str,
         selections: &[QuoteSelection],
     ) -> rusqlite::Result<()> {
-        let (id, rid, text) = (&pending.id, &pending.room_id, &pending.text);
+        let rid = &pending.room_id;
         quotes::enqueue(tx, &self.identity, pending, selections)?;
         if let Some(root) = pending.reply_to.as_deref() {
             threads::require_root(tx, rid, root)?;
         }
+        self.insert_pending_in(tx, pending, username)
+    }
+    fn insert_pending_in(&self, tx: &Transaction, pending: &Pending, username: &str) -> rusqlite::Result<()> {
+        let (id, rid, text) = (&pending.id, &pending.room_id, &pending.text);
         tx.execute(
             "INSERT INTO native_messages(id,rid,text,author,ts,reply_to) VALUES(?1,?2,?3,?4,?5,?6)",
             params![id, rid, text, username, chrono::Utc::now().timestamp_millis(), pending.reply_to],
@@ -847,7 +865,7 @@ impl NativeStore {
             return Ok(vec![]);
         }
         conn.prepare(
-            "SELECT id,rid,text,quotes,reply_to FROM native_outbox WHERE status='pending' ORDER BY created,id",
+            "SELECT id,rid,text,quotes,reply_to FROM native_outbox WHERE status='pending' AND id NOT IN (SELECT id FROM native_notification_actions) ORDER BY created,id",
         )?
         .query_map([], |r| {
             let raw: String = r.get(3)?;
@@ -878,6 +896,7 @@ impl NativeStore {
             tx.execute("DELETE FROM native_quote_references WHERE message_id=?1 AND EXISTS(SELECT 1 FROM native_outbox WHERE id=?1)",[id])?;
             tx.execute("DELETE FROM native_messages WHERE id=?1 AND position IS NULL", [id])?;
             tx.execute("DELETE FROM native_outbox WHERE id=?1", [id])?;
+            tx.execute("DELETE FROM native_notification_actions WHERE id=?1", [id])?;
             Ok(())
         })
     }

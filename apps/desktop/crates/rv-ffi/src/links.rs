@@ -20,6 +20,25 @@ pub fn parse_room_link(url: String) -> Option<RoomLink> {
 
 #[uniffi::export]
 impl Client {
+    /// A cold OS response is saved before account resume or network validation.
+    pub async fn queue_notification_reply(
+        &self,
+        key: String,
+        message: String,
+        text: String,
+    ) -> Result<Account, RvError> {
+        let dirs = self.dirs.clone();
+        blocking(move || {
+            let infos = accounts::load_all(&dirs);
+            let index = rv_core::native::notifications::notification_account(&key, &infos)
+                .ok_or_else(|| RvError::local("delivery_revalidate"))?;
+            let info = &infos[index];
+            rv_core::native::notifications::save_notification_reply(info, &dirs.database(info), &key, &message, &text)
+                .map_err(RvError::local)?;
+            Ok(account(info))
+        })
+        .await
+    }
     pub async fn notification_accounts(&self, key: String) -> Vec<Account> {
         let dirs = self.dirs.clone();
         let infos = blocking(move || accounts::load_all(&dirs)).await;

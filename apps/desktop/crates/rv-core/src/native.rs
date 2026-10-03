@@ -716,35 +716,9 @@ impl NativeSession {
     }
     async fn flush(&self) -> Result<(), Error> {
         for pending in self.store.pending()? {
-            let projection = self.store.projection_token();
-            match self
-                .client
-                .send(
-                    &pending.room_id,
-                    &rv_protocol::SendMessage {
-                        cards: Vec::new(),
-                        reply_to: pending.reply_to.clone(),
-                        quotes: pending.quotes,
-                        operation_id: pending.id.clone(),
-                        text: pending.text,
-                    },
-                )
-                .await
-            {
-                Ok(message) => {
-                    if !self.store.ingest_at(&[message], projection)? {
-                        return Err(Error::Protocol("delivery_revalidate"));
-                    }
-                }
-                Err(error @ rv_client::Error::Server { status: 401, .. }) => return Err(error.into()),
-                Err(rv_client::Error::Server { status, code, .. })
-                    if (400..500).contains(&status) && status != 429 && code != "delivery_revalidate" =>
-                {
-                    self.store.fail(&pending.id, &code)?
-                }
-                Err(error) => return Err(error.into()),
-            }
+            self.deliver_pending(pending).await?;
         }
+        self.flush_notification_replies().await?;
         for command in self.store.pending_commands()? {
             match self.apply_command(&command).await {
                 Ok(()) => (),
@@ -769,6 +743,37 @@ impl NativeSession {
             }
         }
         self.flush_state_intents().await?;
+        Ok(())
+    }
+    async fn deliver_pending(&self, pending: store::Pending) -> Result<(), Error> {
+        let projection = self.store.projection_token();
+        match self
+            .client
+            .send(
+                &pending.room_id,
+                &rv_protocol::SendMessage {
+                    cards: Vec::new(),
+                    reply_to: pending.reply_to.clone(),
+                    quotes: pending.quotes,
+                    operation_id: pending.id.clone(),
+                    text: pending.text,
+                },
+            )
+            .await
+        {
+            Ok(message) => {
+                if !self.store.ingest_at(&[message], projection)? {
+                    return Err(Error::Protocol("delivery_revalidate"));
+                }
+            }
+            Err(error @ rv_client::Error::Server { status: 401, .. }) => return Err(error.into()),
+            Err(rv_client::Error::Server { status, code, .. })
+                if (400..500).contains(&status) && status != 429 && code != "delivery_revalidate" =>
+            {
+                self.store.fail(&pending.id, &code)?
+            }
+            Err(error) => return Err(error.into()),
+        }
         Ok(())
     }
     pub fn send(&self, rid: &str, text: &str) -> Result<String, Error> {

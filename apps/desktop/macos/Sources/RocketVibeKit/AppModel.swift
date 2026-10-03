@@ -277,6 +277,22 @@ public final class AppModel {
         roomLinkRequest = request
         pendingRoomLink = nil
         pendingNotification = (key,message,text)
+        if let text {
+            do {
+                if let native, native.acceptsNotification(key:key) {
+                    _ = try native.replyNotification(key:key,message:message,text:text)
+                    pendingNotification = nil
+                    return
+                }
+                let account = try await client.queueNotificationReply(key:key,message:message,text:text)
+                guard roomLinkRequest == request else { return }
+                pendingNotification = nil
+                if !(await resume(account)) { notice = L("links.choose_account") }
+            } catch {
+                if roomLinkRequest == request { pendingNotification = nil; notice = L("links.unavailable") }
+            }
+            return
+        }
         if native?.acceptsNotification(key:key) == true { followNotification(); return }
         let matches = await client.notificationAccounts(key:key)
         guard roomLinkRequest == request else { return }
@@ -287,7 +303,7 @@ public final class AppModel {
     }
 
     private func followNotification(roomsLoaded: Bool = false) {
-        guard let action = pendingNotification, let native,
+        guard let action = pendingNotification, action.text == nil, let native,
               native.acceptsNotification(key:action.key), connection == .online else { return }
         guard rooms.contains(where: { native.notificationKey(rid:$0.rid) == action.key }) else {
             if roomsLoaded { pendingNotification = nil; notice = L("links.unavailable") }
@@ -300,13 +316,9 @@ public final class AppModel {
             do {
                 let target = try await native.resolveNotification(key:action.key,message:action.message)
                 guard expected == sessionId, request == roomLinkRequest else { return }
-                if let text = action.text {
-                    _ = try native.replyNotification(key:action.key,message:action.message,text:text)
-                } else {
-                    await open(target.rid,message:target.root ?? action.message)
-                    guard expected == sessionId, request == roomLinkRequest else { return }
-                    if let root = target.root { openThread(root,message:action.message) }
-                }
+                await open(target.rid,message:target.root ?? action.message)
+                guard expected == sessionId, request == roomLinkRequest else { return }
+                if let root = target.root { openThread(root,message:action.message) }
             } catch {
                 if expected == sessionId, request == roomLinkRequest { notice = L("links.unavailable") }
             }

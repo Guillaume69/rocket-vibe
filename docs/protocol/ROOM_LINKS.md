@@ -70,8 +70,10 @@ attente de connexion, validation privée et réponse idempotente passent par les
 modèles existants. GNOME enregistre l'action au startup, Windows utilise le
 protocole app pour le clic, SwiftUI attend le compte destinataire. La réponse
 Windows possède son activateur COM natif et un test entre vrais processus.
+Les réponses sont conservées avant le réseau dans l'outbox, avec destination
+capturée, validation privée et preuve d'un envoi dont la confirmation est perdue.
 Le parcours Windows installé à processus arrêté, la remise à froid KDE et la
-persistance d'une action attendant encore le réseau restent ouverts : [détails](PUSH.md).
+persistance de la navigation par clic attendant encore le réseau restent ouverts : [détails](PUSH.md).
 Les anciens permaliens HTTP
 Rocket.Chat importés attendent la table de correspondance et le résolveur J5.
 P21 et J3 ne sont pas déclarés terminés.

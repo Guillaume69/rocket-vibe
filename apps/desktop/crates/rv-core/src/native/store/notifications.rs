@@ -11,9 +11,17 @@ pub struct Notification {
     position: String,
 }
 
+#[derive(Clone, Debug)]
+pub struct NotificationReply {
+    pub pending: Pending,
+    pub target: Notification,
+    pub attempted: bool,
+}
+
 pub(super) fn initialize(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch("CREATE TABLE IF NOT EXISTS native_notifications(id TEXT PRIMARY KEY,rid TEXT NOT NULL,root TEXT,membership TEXT NOT NULL,position TEXT NOT NULL,direct INTEGER NOT NULL,mentioned INTEGER NOT NULL);
-        CREATE TABLE IF NOT EXISTS native_notification_replies(notification TEXT NOT NULL,text_hash TEXT NOT NULL,id TEXT NOT NULL,PRIMARY KEY(notification,text_hash));")
+        CREATE TABLE IF NOT EXISTS native_notification_replies(notification TEXT NOT NULL,text_hash TEXT NOT NULL,id TEXT NOT NULL,PRIMARY KEY(notification,text_hash));
+        CREATE TABLE IF NOT EXISTS native_notification_actions(id TEXT PRIMARY KEY,notification TEXT NOT NULL,rid TEXT NOT NULL,root TEXT,membership TEXT NOT NULL,position TEXT NOT NULL,attempted INTEGER NOT NULL DEFAULT 0);")
 }
 fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Notification> {
     Ok(Notification {
@@ -163,8 +171,13 @@ impl NativeStore {
     ) -> rusqlite::Result<Option<String>> {
         use sha2::{Digest, Sha256};
         let hash = Sha256::digest(text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect::<String>();
-        self.atomic(|tx| {
-            if !self.same(tx)? || !valid(tx, n, false)? {
+        // Cold callbacks can open independent connections before account
+        // startup. Acquire the writer before reading the receipt to dedupe them.
+        self.atomic_immediate(|tx| {
+            let membership = read_states::state_in(tx,&n.incoming.rid)?.and_then(|s|s.membership_version);
+            let cached = tx.query_row("SELECT deleted,system_type FROM native_messages WHERE id=?1 AND rid=?2",params![n.incoming.id,n.incoming.rid],|r|Ok((r.get::<_,bool>(0)?,r.get::<_,Option<String>>(1)?))).optional()?;
+            if !self.same(tx)? || membership.as_deref()!=Some(&n.membership)
+                || cached.is_some_and(|(deleted,system)|deleted || system.is_some()) {
                 return Ok(None);
             }
             if tx
@@ -188,6 +201,8 @@ impl NativeStore {
             {
                 return Ok(Some(id));
             }
+            let count: u32 = tx.query_row("SELECT COUNT(*) FROM native_notification_actions", [], |r| r.get(0))?;
+            if count >= 256 { return Ok(None) }
             let pending = Pending {
                 id: format!("{:032x}", fastrand::u128(..)),
                 room_id: n.incoming.rid.clone(),
@@ -195,7 +210,10 @@ impl NativeStore {
                 quotes: vec![],
                 reply_to: n.reply_to.clone(),
             };
-            self.enqueue_in(tx, &pending, username, &[])?;
+            // The root may not be cached while offline. The replay loop must
+            // resolve it privately before this intention can reach HTTP send.
+            self.insert_pending_in(tx, &pending, username)?;
+            tx.execute("INSERT INTO native_notification_actions(id,notification,rid,root,membership,position) VALUES(?1,?2,?3,?4,?5,?6)",params![pending.id,n.incoming.id,n.incoming.rid,n.reply_to,n.membership,n.position])?;
             tx.execute(
                 "INSERT INTO native_notification_replies VALUES(?1,?2,?3)",
                 params![n.incoming.id, hash, pending.id],
@@ -206,5 +224,31 @@ impl NativeStore {
     pub fn notification_valid(&self, n: &Notification, unread: bool) -> rusqlite::Result<bool> {
         let conn = self.conn.lock().unwrap();
         Ok(self.same(&conn)? && valid(&conn, n, unread)?)
+    }
+
+    pub fn pending_notification_replies(&self) -> rusqlite::Result<Vec<NotificationReply>> {
+        let conn = self.conn.lock().unwrap();
+        if !self.same(&conn)? {
+            return Ok(vec![]);
+        }
+        conn.prepare("SELECT a.notification,a.rid,a.root,a.membership,a.position,0,0,o.id,o.text,a.attempted FROM native_notification_actions a JOIN native_outbox o ON o.id=a.id WHERE o.status='pending' ORDER BY o.created,o.id")?
+            .query_map([],|r| Ok(NotificationReply {target:row(r)?,pending:Pending {id:r.get(7)?,room_id:r.get(1)?,text:r.get(8)?,quotes:vec![],reply_to:r.get(2)?},attempted:r.get(9)?}))?.collect()
+    }
+
+    /// Check the durable action, not the OS ledger: a read / preference change
+    /// can withdraw a toast after its explicit response has already been queued.
+    pub fn notification_reply_current(
+        &self,
+        reply: &NotificationReply,
+        projection: u64,
+        attempt: bool,
+    ) -> rusqlite::Result<bool> {
+        self.atomic(|tx| {
+            if projection != self.projection_token() || !self.same(tx)?
+                || read_states::state_in(tx,&reply.pending.room_id)?.and_then(|s|s.membership_version).as_deref()!=Some(&reply.target.membership) { return Ok(false) }
+            let current = tx.query_row("SELECT 1 FROM native_notification_actions a JOIN native_outbox o ON o.id=a.id WHERE a.id=?1 AND a.notification=?2 AND a.membership=?3 AND o.status='pending'",params![reply.pending.id,reply.target.incoming.id,reply.target.membership],|_|Ok(())).optional()?.is_some();
+            if current && attempt { tx.execute("UPDATE native_notification_actions SET attempted=1 WHERE id=?1",[&reply.pending.id])?; }
+            Ok(current)
+        })
     }
 }

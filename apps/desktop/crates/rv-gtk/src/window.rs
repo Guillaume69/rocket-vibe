@@ -941,6 +941,13 @@ impl AppWindow {
         if self.chat.native_session().is_some_and(|s| {
             rv_core::native::notifications::notification_account(&action.key, std::slice::from_ref(&s.info)).is_some()
         }) {
+            if let Some(text) = &action.text {
+                self.pending_notification.take();
+                if self.chat.native_session().unwrap().reply_notification(&action.key, &action.message, text).is_err() {
+                    self.chat.toast(t("links.unavailable").to_owned());
+                }
+                return;
+            }
             self.follow_notification(false);
             return;
         }
@@ -951,7 +958,22 @@ impl AppWindow {
                 return;
             }
             if let Some(index) = rv_core::native::notifications::notification_account(&action.key, &accounts) {
-                this.switch_to(accounts[index].clone());
+                let info = accounts[index].clone();
+                if let Some(text) = &action.text {
+                    let result = rv_core::native::notifications::save_notification_reply(
+                        &info,
+                        &database_path(&info),
+                        &action.key,
+                        &action.message,
+                        text,
+                    );
+                    this.pending_notification.take();
+                    if result.is_err() {
+                        this.chat.toast(t("links.unavailable").to_owned());
+                        return;
+                    }
+                }
+                this.switch_to(info);
             } else {
                 this.pending_notification.take();
                 this.chat.toast(t("links.unavailable").to_owned());
@@ -961,6 +983,11 @@ impl AppWindow {
 
     fn follow_notification(self: &Rc<Self>, rooms_loaded: bool) {
         let Some(action) = self.pending_notification.borrow().clone() else { return };
+        // Reply capture owns this action while credentials are loading. A
+        // connection event must not turn it into navigation in the meantime.
+        if action.text.is_some() {
+            return;
+        }
         let Some(native) = self.chat.native_session() else { return };
         if native.status().connection != rv_core::session::Connection::Online
             || rv_core::native::notifications::notification_account(&action.key, std::slice::from_ref(&native.info))
@@ -990,14 +1017,8 @@ impl AppWindow {
             }
             match target {
                 Ok(link) => {
-                    if let Some(text) = action.text {
-                        if native.reply_notification(&action.key, &action.message, &text).is_err() {
-                            this.chat.toast(t("links.unavailable").to_owned());
-                        }
-                    } else {
-                        this.window.present();
-                        this.show_room_link(&link);
-                    }
+                    this.window.present();
+                    this.show_room_link(&link);
                 }
                 Err(_) => this.chat.toast(t("links.unavailable").to_owned()),
             }

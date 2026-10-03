@@ -308,10 +308,10 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:48](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L48) | endpoint | e2e.locked |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:48](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L48) | endpoint | e2e.unlocked |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:51](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L51) | endpoint | e2e.lock |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:413](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L413) | endpoint | e2e.wrong |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:414](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L414) | endpoint | e2e.no_keys |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:415](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L415) | endpoint | e2e.failed |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:418](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L418) | endpoint | e2e.failed |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:425](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L425) | endpoint | e2e.wrong |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:426](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L426) | endpoint | e2e.no_keys |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:427](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L427) | endpoint | e2e.failed |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:430](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L430) | endpoint | e2e.failed |
 | [apps/mobile/app/actions-message.tsx:79](../../apps/mobile/app/actions-message.tsx#L79) | call:GET | 'settings.public' |
 | [apps/mobile/app/actions-message.tsx:80](../../apps/mobile/app/actions-message.tsx#L80) | endpoint | settings.public |
 | [apps/mobile/app/connexion.tsx:407](../../apps/mobile/app/connexion.tsx#L407) | endpoint | chat.exemple.fr |

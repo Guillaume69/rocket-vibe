@@ -9,6 +9,11 @@ section here.
 
 ### Fixed
 
+- Native notification responses are saved before network validation, even with
+  an uncached thread root. Restart and concurrent callbacks retain one send ID;
+  private revalidation gates retries, and a lost confirmation is recovered from
+  the sent message. Rejected responses remain in the existing failed-message UI.
+
 - Windows inline notification replies register a native COM activator so the
   system can start the app and deliver its input after the original process exits.
   A running app uses this same callback without a second WinRT reply submission.

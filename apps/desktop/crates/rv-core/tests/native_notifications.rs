@@ -1,9 +1,13 @@
 mod common;
 use common::{FakeHttp, Response, respond};
-use rv_core::native::{Identity, NativeSession, store::NativeStore};
+use rv_core::native::{Identity, NativeSession, notifications, store::NativeStore};
 use rv_protocol::{Change, Message, Room, Snapshot, SyncBatch};
 use serde_json::{Value, json};
-use std::{path::Path, time::Duration};
+use std::{
+    path::Path,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 fn fixture() -> Value {
     serde_json::from_str(include_str!("../../../../../docs/protocol/v1.fixture.json")).unwrap()
@@ -167,11 +171,265 @@ async fn actual_live_socket_emits_once_and_scopes_persisted_notification_replies
     assert!(s.notification_target(&key, &n.id).is_some());
     assert!(s.notification_target("rv-native:foreign:room-id", &n.id).is_none());
     let operation = s.reply_notification(&key, &n.id, "exact response").unwrap();
-    let pending = s.store.pending().unwrap();
-    assert_eq!(pending[0].id, operation);
-    assert_eq!(pending[0].text, "exact response");
+    assert!(s.store.pending().unwrap().is_empty());
+    let pending = s.store.pending_notification_replies().unwrap();
+    assert_eq!(pending[0].pending.id, operation);
+    assert_eq!(pending[0].pending.text, "exact response");
     s.shutdown();
     assert!(s.reply_notification(&key, &n.id, "late").is_err());
+    common::close_native(s).await;
+    std::fs::remove_file(path).unwrap();
+}
+
+fn offline_reply(info: &rv_core::session::SessionInfo, path: &Path) -> String {
+    let cache = NativeStore::open(path, info.native.clone().unwrap()).unwrap();
+    cache
+        .snapshot(&Snapshot { protocol_version: 1, rooms: vec![room()], messages: vec![], cursor: "initial".into() })
+        .unwrap();
+    let mut target = message("offline-target", "2");
+    target.reply_to = Some("offline-root".into());
+    let notices = cache.batch_notifying(&batch(vec![target]), Some("bob")).unwrap();
+    assert!(cache.remember_notification(&notices[0]).unwrap());
+    let key = notifications::notification_key(info, &room().id);
+    drop(cache);
+    let id =
+        notifications::save_notification_reply(info, path, &key, "offline-target", "  offline exact reply  ").unwrap();
+    assert_eq!(
+        notifications::save_notification_reply(info, path, &key, "offline-target", "offline exact reply").unwrap(),
+        id
+    );
+    let cache = NativeStore::open(path, info.native.clone().unwrap()).unwrap();
+    assert!(cache.pending().unwrap().is_empty());
+    assert_eq!(cache.pending_notification_replies().unwrap().len(), 1);
+    assert!(cache.selected_messages(&["offline-root".into()]).unwrap().is_empty());
+    cache.retry(&id).unwrap();
+    assert!(cache.pending().unwrap().is_empty(), "manual retry must not bypass private validation");
+    // Reading or disabling the alert can remove the OS ledger independently
+    // of an explicit response that was already accepted durably.
+    cache.forget_notification("offline-target").unwrap();
+    assert_eq!(cache.pending_notification_replies().unwrap().len(), 1);
+    id
+}
+
+fn reply_info(server: &FakeHttp) -> rv_core::session::SessionInfo {
+    rv_core::session::SessionInfo {
+        base_url: server.url.to_string(),
+        user_id: "bob".into(),
+        username: "bob".into(),
+        auth_token: "fixture-token".into(),
+        native: Some(Identity { instance_id: "fixture-instance".into(), data_epoch: "fixture-epoch".into() }),
+    }
+}
+
+#[test]
+fn concurrent_cold_notification_replies_keep_one_durable_id() {
+    let info = rv_core::session::SessionInfo {
+        base_url: "http://127.0.0.1:9".into(),
+        user_id: "bob".into(),
+        username: "bob".into(),
+        auth_token: "fixture-token".into(),
+        native: Some(Identity { instance_id: "fixture-instance".into(), data_epoch: "fixture-epoch".into() }),
+    };
+    let path = std::env::temp_dir().join(format!("rv-notification-concurrent-{:032x}.sqlite", fastrand::u128(..)));
+    let cache = NativeStore::open(&path, info.native.clone().unwrap()).unwrap();
+    cache
+        .snapshot(&Snapshot { protocol_version: 1, rooms: vec![room()], messages: vec![], cursor: "initial".into() })
+        .unwrap();
+    let notices = cache.batch_notifying(&batch(vec![message("target", "1")]), Some("bob")).unwrap();
+    assert!(cache.remember_notification(&notices[0]).unwrap());
+    let key = notifications::notification_key(&info, &room().id);
+    let barrier = std::sync::Barrier::new(3);
+    let ids = std::thread::scope(|scope| {
+        let first = scope.spawn(|| {
+            barrier.wait();
+            notifications::save_notification_reply(&info, &path, &key, "target", "same response").unwrap()
+        });
+        let second = scope.spawn(|| {
+            barrier.wait();
+            notifications::save_notification_reply(&info, &path, &key, "target", "same response").unwrap()
+        });
+        barrier.wait();
+        (first.join().unwrap(), second.join().unwrap())
+    });
+    assert_eq!(ids.0, ids.1);
+    assert_eq!(cache.pending_notification_replies().unwrap().len(), 1);
+    assert!(cache.pending().unwrap().is_empty());
+    cache.abandon(&ids.0).unwrap();
+    assert!(cache.pending_notification_replies().unwrap().is_empty());
+    drop(cache);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[tokio::test]
+async fn offline_notification_reply_reopens_with_uncached_root_and_refuses_deleted_or_replaced_targets() {
+    for scenario in ["normal", "deleted", "root-deleted", "rejoined", "restored"] {
+        let f = fixture();
+        let endpoint = format!("/api/v1/rooms/{}/messages", room().id);
+        let server = FakeHttp::start(move |req| match req.path() {
+            "/.well-known/rocketvibe" => {
+                let mut discovery = f["discovery"].clone();
+                if scenario == "restored" {
+                    discovery["data_epoch"] = json!("restored");
+                }
+                respond(200, &discovery.to_string())
+            }
+            "/api/v1/me" => respond(200, &json!({"id":"bob","username":"bob","display_name":"Bob"}).to_string()),
+            "/api/v1/sync/changes" => {
+                let mut r = room();
+                r.read_state.as_mut().unwrap().membership_version = Some("replacement".into());
+                r.read_state.as_mut().unwrap().revision = "10".into();
+                let changes = if scenario == "rejoined" { vec![Change::RoomUpsert(r)] } else { vec![] };
+                respond(
+                    200,
+                    &json!({"protocol_version":1,"changes":changes,"cursor":"next","has_more":false}).to_string(),
+                )
+            }
+            "/api/v1/sync/ticket" => respond(200, &f["socket_ticket"].to_string()),
+            "/api/v1/sync/socket" => Response { websocket: true, ..Default::default() },
+            "/api/v1/messages/offline-target" => {
+                assert_eq!(req.headers.get("authorization").map(String::as_str), Some("Bearer fixture-token"));
+                let mut target = message("offline-target", "2");
+                target.reply_to = Some("offline-root".into());
+                if scenario == "deleted" {
+                    target.deleted = true;
+                    target.text.clear();
+                    target.body = None;
+                }
+                respond(200, &serde_json::to_string(&target).unwrap())
+            }
+            "/api/v1/messages/offline-root" => {
+                let mut root = message("offline-root", "1");
+                if scenario == "root-deleted" {
+                    root.deleted = true;
+                    root.text.clear();
+                    root.body = None;
+                }
+                respond(200, &serde_json::to_string(&root).unwrap())
+            }
+            path if path == endpoint => {
+                assert_eq!(scenario, "normal", "no forbidden notification reply may reach send");
+                let send: rv_protocol::SendMessage = serde_json::from_str(&req.body).unwrap();
+                assert_eq!(send.text, "offline exact reply");
+                assert_eq!(send.reply_to.as_deref(), Some("offline-root"));
+                let mut echo = message(&send.operation_id, "3");
+                echo.text = send.text;
+                echo.reply_to = send.reply_to;
+                echo.body = None;
+                echo.author.id = "bob".into();
+                echo.author.username = "bob".into();
+                respond(200, &serde_json::to_string(&echo).unwrap())
+            }
+            _ => respond(404, r#"{"code":"not_found"}"#),
+        })
+        .await;
+        let info = reply_info(&server);
+        let path = std::env::temp_dir().join(format!("rv-offline-notification-{:032x}.sqlite", fastrand::u128(..)));
+        let id = offline_reply(&info, &path);
+        assert!(server.requests().is_empty(), "accepting an offline response must not need HTTP");
+        let s = NativeSession::start(info, &path).unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !s.is_closed() && s.status().connection != rv_core::session::Connection::Online {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        if scenario == "restored" {
+            assert!(s.is_closed());
+            assert_eq!(s.status().error.as_deref(), Some("server_identity_changed"));
+        } else if scenario == "rejoined" {
+            assert!(s.store.selected_messages(std::slice::from_ref(&id)).unwrap().is_empty());
+        } else {
+            let rows = s.store.selected_messages(std::slice::from_ref(&id)).unwrap();
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].text, "offline exact reply");
+            assert_eq!(rows[0].status.as_deref(), (scenario != "normal").then_some("failed"));
+            assert!(s.store.pending_notification_replies().unwrap().is_empty());
+            if scenario != "normal" {
+                s.retry(&id).unwrap();
+                assert!(s.store.pending().unwrap().is_empty());
+            }
+        }
+        let sends = server.requests().iter().filter(|r| r.method == "POST" && r.path().ends_with("/messages")).count();
+        assert_eq!(sends, usize::from(scenario == "normal"), "{scenario}");
+        common::close_native(s).await;
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn offline_notification_reply_confirms_lost_send_after_restart_even_when_original_was_deleted() {
+    let f = fixture();
+    let committed: Arc<Mutex<Option<Message>>> = Arc::new(Mutex::new(None));
+    let delivered = committed.clone();
+    let endpoint = format!("/api/v1/rooms/{}/messages", room().id);
+    let server = FakeHttp::start(move |req| match req.path() {
+        "/.well-known/rocketvibe" => respond(200, &f["discovery"].to_string()),
+        "/api/v1/me" => respond(200, &json!({"id":"bob","username":"bob","display_name":"Bob"}).to_string()),
+        "/api/v1/sync/changes" => {
+            respond(200, &json!({"protocol_version":1,"changes":[],"cursor":"next","has_more":false}).to_string())
+        }
+        "/api/v1/sync/ticket" => respond(200, &f["socket_ticket"].to_string()),
+        "/api/v1/sync/socket" => Response { websocket: true, ..Default::default() },
+        "/api/v1/messages/offline-target" => {
+            let mut target = message("offline-target", "2");
+            target.reply_to = Some("offline-root".into());
+            if delivered.lock().unwrap().is_some() {
+                target.deleted = true;
+                target.text.clear();
+                target.body = None;
+            }
+            respond(200, &serde_json::to_string(&target).unwrap())
+        }
+        "/api/v1/messages/offline-root" => respond(200, &serde_json::to_string(&message("offline-root", "1")).unwrap()),
+        path if path == endpoint => {
+            let send: rv_protocol::SendMessage = serde_json::from_str(&req.body).unwrap();
+            assert!(delivered.lock().unwrap().is_none(), "the lost response must not create a second send");
+            let mut echo = message(&send.operation_id, "3");
+            echo.text = send.text;
+            echo.reply_to = send.reply_to;
+            echo.body = None;
+            echo.author.id = "bob".into();
+            echo.author.username = "bob".into();
+            *delivered.lock().unwrap() = Some(echo);
+            common::dropped()
+        }
+        path if path.starts_with("/api/v1/messages/") => {
+            let message = delivered.lock().unwrap();
+            let echo = message.as_ref().unwrap();
+            assert_eq!(path, format!("/api/v1/messages/{}", echo.id));
+            assert_eq!(req.headers.get("authorization").map(String::as_str), Some("Bearer fixture-token"));
+            respond(200, &serde_json::to_string(echo).unwrap())
+        }
+        _ => respond(404, r#"{"code":"not_found"}"#),
+    })
+    .await;
+    let info = reply_info(&server);
+    let path = std::env::temp_dir().join(format!("rv-offline-notification-lost-{:032x}.sqlite", fastrand::u128(..)));
+    let id = offline_reply(&info, &path);
+    let s = NativeSession::start(info.clone(), &path).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while committed.lock().unwrap().is_none() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    common::close_native(s).await;
+    let s = NativeSession::start(info, &path).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while s.status().connection != rv_core::session::Connection::Online {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let rows = s.store.selected_messages(std::slice::from_ref(&id)).unwrap();
+    assert_eq!(rows[0].status, None);
+    assert_eq!(rows[0].text, "offline exact reply");
+    assert!(s.store.pending_notification_replies().unwrap().is_empty());
+    assert_eq!(server.requests().iter().filter(|r| r.method == "POST" && r.path().ends_with("/messages")).count(), 1);
+    assert_eq!(server.requests().iter().filter(|r| r.path() == "/api/v1/messages/offline-target").count(), 1);
     common::close_native(s).await;
     std::fs::remove_file(path).unwrap();
 }

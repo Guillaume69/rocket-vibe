@@ -319,6 +319,28 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P21 / J3, réponses hors ligne avant validation réseau (3 octobre 2026) : GTK
+  et SwiftUI inscrivent la réponse et son reçu dans l'outbox du compte exact avant
+  reprise / HTTP, même si la racine du fil n'est pas en cache. Métadonnées de la
+  destination et marqueur de tentative sont durables, sans copie de texte ou
+  bearer ; transactions `IMMEDIATE` pour deux captures concurrentes, plafond de
+  256 réponses non résolues sans éviction. Le flusher ordinaire et un retry manuel
+  ne peuvent contourner le contrôle privé du message / racine / adhésion / époque.
+  Refus permanents et texte restent dans les états d'échec habituels ; purge du
+  salon / compte et restauration retirent les intentions. Le retrait d'un toast
+  après lecture ne perd pas une réponse déjà acceptée. Après une confirmation
+  perdue, le message de l'ID d'envoi est relu sous les mêmes gardes avant tout
+  nouveau POST, même si la cible de notification est supprimée depuis.
+  Vérifications : 62 tests Rust ciblés (notifications, liens, transactions de
+  projection), dont capture sans HTTP, réouverture disque, racine absente,
+  concurrence de connexions, retrait / réadhésion, génération changée, suppression
+  et perte de réponse après commit ; huit tests Swift et compilation des modèles
+  avec les bindings régénérés ; Clippy cœur / FFI / GTK sans avertissement.
+  La CI `37121052414` du lot COM `bf4cf8f` est entièrement verte, y compris son
+  nouveau test Windows entre processus. Le clic de navigation encore en attente
+  hors ligne reste en mémoire ; KDE à froid, parcours installés et liens importés
+  J5 restent ouverts. [Contrat](protocol/PUSH.md).
+
 - P21 / J3, activateur de réponse Windows (3 octobre 2026) : serveur COM local
   `INotificationActivationCallback`, CLSID stable et enregistrement HKCU / raccourcis
   Inno Setup, nettoyage à la désinstallation. Le switch de lancement COM est retiré

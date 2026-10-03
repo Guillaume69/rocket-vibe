@@ -61,6 +61,40 @@ pub fn parse_notification_url(value: &str) -> Option<(String, String)> {
     Some((key, message))
 }
 
+/// Persist a cold response before resuming its account or making HTTP calls.
+/// The SQLite cache contains the captured target; no bearer enters this queue.
+pub fn save_notification_reply(
+    info: &SessionInfo,
+    path: &std::path::Path,
+    key: &str,
+    message: &str,
+    text: &str,
+) -> Result<String, Error> {
+    let identity = info.native.clone().ok_or(Error::Protocol("delivery_revalidate"))?;
+    if !path.exists() {
+        return Err(Error::Protocol("delivery_revalidate"));
+    }
+    enqueue_reply(&store::NativeStore::open(path, identity)?, info, key, message, text)
+}
+
+fn enqueue_reply(
+    store: &store::NativeStore,
+    info: &SessionInfo,
+    key: &str,
+    message: &str,
+    text: &str,
+) -> Result<String, Error> {
+    let text = text.trim();
+    if text.is_empty() || text.len() > 32768 {
+        return Err(Error::Protocol("invalid_message"));
+    }
+    let n = store.remembered_notification(message)?.ok_or(Error::Protocol("delivery_revalidate"))?;
+    if notification_key(info, &n.incoming.rid) != key {
+        return Err(Error::Protocol("delivery_revalidate"));
+    }
+    store.enqueue_notification_reply(&n, text, &info.username)?.ok_or(Error::Protocol("delivery_revalidate"))
+}
+
 impl NativeSession {
     pub fn incoming(&self) -> broadcast::Receiver<Incoming> {
         self.incoming.subscribe()
@@ -128,11 +162,15 @@ impl NativeSession {
     /// Cold callbacks wait for catch-up, then revalidate against the server. A
     /// replaced membership cannot be converted into a fresh public permalink.
     pub async fn resolve_notification(&self, key: &str, id: &str) -> Result<crate::links::RoomLink, Error> {
-        self.ready()?;
         let n = self.store.remembered_notification(id)?.ok_or(Error::Protocol("delivery_revalidate"))?;
-        if self.notification_key(&n.incoming.rid) != key
-            || self.store.read_state(&n.incoming.rid)?.and_then(|s| s.membership_version).as_deref()
-                != Some(&n.membership)
+        if self.notification_key(&n.incoming.rid) != key {
+            return Err(Error::Protocol("delivery_revalidate"));
+        }
+        self.resolve_notification_record(&n).await
+    }
+    async fn resolve_notification_record(&self, n: &store::Notification) -> Result<crate::links::RoomLink, Error> {
+        self.ready()?;
+        if self.store.read_state(&n.incoming.rid)?.and_then(|s| s.membership_version).as_deref() != Some(&n.membership)
         {
             return Err(Error::Protocol("delivery_revalidate"));
         }
@@ -142,7 +180,7 @@ impl NativeSession {
             host: crate::links::service_url(&self.info.base_url),
             native: self.info.native.clone(),
             user_id: Some(self.info.user_id.clone()),
-            message: Some(id.into()),
+            message: Some(n.incoming.id.clone()),
             root: n.reply_to.clone(),
         };
         let link = self.resolve_room_link(link).await?;
@@ -159,29 +197,75 @@ impl NativeSession {
                 return Err(Error::Protocol("delivery_revalidate"));
             }
         }
-        if !self.store.notification_valid(&n, false)? || projection != self.store.projection_token() {
+        if !self.store.notification_valid(n, false)? || projection != self.store.projection_token() {
             return Err(Error::Protocol("delivery_revalidate"));
         }
         Ok(link)
     }
     pub fn reply_notification(&self, key: &str, id: &str, text: &str) -> Result<String, Error> {
-        let text = text.trim();
-        if text.is_empty() || text.len() > 32768 {
-            return Err(Error::Protocol("invalid_message"));
-        }
-        let n = self.store.remembered_notification(id)?.ok_or(Error::Protocol("delivery_revalidate"))?;
-        if self.is_closed()
-            || self.status().error.as_deref() == Some("server_identity_changed")
-            || self.notification_key(&n.incoming.rid) != key
-        {
+        if self.is_closed() || self.status().error.as_deref() == Some("server_identity_changed") {
             return Err(Error::Protocol("delivery_revalidate"));
         }
-        let id = self
-            .store
-            .enqueue_notification_reply(&n, text, &self.info.username)?
-            .ok_or(Error::Protocol("delivery_revalidate"))?;
+        let id = enqueue_reply(&self.store, &self.info, key, id, text)?;
         self.wake.notify_one();
         Ok(id)
+    }
+
+    pub(super) async fn flush_notification_replies(&self) -> Result<(), Error> {
+        for reply in self.store.pending_notification_replies()? {
+            let projection = self.store.projection_token();
+            let result = self.deliver_notification_reply(&reply, projection).await;
+            if let Err(error) = result {
+                let permanent = super::permanent_command_error(&error)
+                    || matches!(&error, Error::Protocol("message_deleted" | "invalid_link" | "invalid_message"))
+                    || matches!(&error, Error::Protocol("delivery_revalidate"))
+                        && projection == self.store.projection_token();
+                if permanent {
+                    self.store.fail(&reply.pending.id, error.code())?;
+                } else {
+                    return Err(error);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn deliver_notification_reply(&self, reply: &store::NotificationReply, projection: u64) -> Result<(), Error> {
+        self.ready()?;
+        if !self.store.notification_reply_current(reply, projection, false)? {
+            return Err(Error::Protocol("delivery_revalidate"));
+        }
+        // A response lost after commit can be confirmed without trying to reply
+        // again to a notification target that has since been deleted.
+        if reply.attempted {
+            match self.client.message(&reply.pending.id).await {
+                Ok(message) => {
+                    if message.id != reply.pending.id
+                        || message.room_id != reply.pending.room_id
+                        || message.author.id != self.info.user_id
+                        || message.reply_to != reply.pending.reply_to
+                    {
+                        return Err(Error::Protocol("invalid_message"));
+                    }
+                    self.identity().await?;
+                    self.ready()?;
+                    if !self.store.notification_reply_current(reply, projection, false)?
+                        || !self.store.ingest_at(&[message], projection)?
+                    {
+                        return Err(Error::Protocol("delivery_revalidate"));
+                    }
+                    return Ok(());
+                }
+                Err(rv_client::Error::Server { status: 404, .. }) => (),
+                Err(error) => return Err(error.into()),
+            }
+        }
+        self.resolve_notification_record(&reply.target).await?;
+        self.ready()?;
+        if self.store.notification_reply_current(reply, projection, true)? {
+            self.deliver_pending(reply.pending.clone()).await?;
+        }
+        Ok(())
     }
     /// Clear delivered notifications when reads, withdrawal or preference changes
     /// make them obsolete. Later clicks also revalidate their original membership.
@@ -266,13 +350,17 @@ mod tests {
         let sent = s.reply_notification(&key, &reply.id, "  same response  ").unwrap();
         s.shutdown();
         drop(s);
+        assert_eq!(save_notification_reply(&info, &path, &key, &reply.id, "same response").unwrap(), sent);
         let s = NativeSession::start(info.clone(), &path).unwrap();
         s.suspend();
         // Unknown startup preferences do not erase persisted OS actions.
         assert!(s.withdrawn_notifications().is_empty());
         assert_eq!(s.notification_target(&key, &reply.id), Some((room.id.clone(), Some("cold-root".into()))));
         assert_eq!(s.reply_notification(&key, &reply.id, "same response").unwrap(), sent);
-        assert_eq!(s.store.pending().unwrap().len(), 1);
+        assert!(s.store.pending().unwrap().is_empty());
+        assert_eq!(s.store.pending_notification_replies().unwrap().len(), 1);
+        s.retry(&sent).unwrap();
+        assert!(s.store.pending().unwrap().is_empty());
         let metadata = s.store.remembered_notifications().unwrap();
         assert!(metadata.iter().all(|n| n.incoming.body.is_none() && n.incoming.author.is_empty()));
         let mut wrong = info.clone();
@@ -374,7 +462,7 @@ mod tests {
         let key = s.notification_key(&room.id);
         assert_eq!(s.notification_target(&key, &reply.id).unwrap().1.as_deref(), Some("root"));
         s.reply_notification(&key, &reply.id, "persisted thread response").unwrap();
-        assert_eq!(s.store.pending().unwrap()[0].reply_to.as_deref(), Some("root"));
+        assert_eq!(s.store.pending_notification_replies().unwrap()[0].pending.reply_to.as_deref(), Some("root"));
         let mut other = s.info.clone();
         other.native.as_mut().unwrap().data_epoch = "restored".into();
         let other = NativeSession::start(other, Path::new(":memory:")).unwrap();

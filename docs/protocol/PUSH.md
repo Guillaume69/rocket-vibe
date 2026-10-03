@@ -137,12 +137,32 @@ Le registre ne duplique aucun texte, nom, credential ou corps de notification.
 Une préférence encore inconnue au démarrage ne l'efface pas. Une nouvelle époque
 le purge avec la projection ; une adhésion remplacée invalide ses callbacks.
 
-Les modèles GTK / SwiftUI retrouvent le seul compte correspondant à la clé OS,
-attendent connexion et salons, puis relisent message et racine par HTTP privé.
-Le contrôle conserve l'adhésion capturée avant fermeture, avec gardes de compte,
-requête, génération et réponses tardives. La réponse validée entre dans la même
-transaction que son ID d'envoi et son reçu local par notification / empreinte de
-texte ; un callback identique après réouverture ne crée pas une seconde outbox.
+Les modèles GTK / SwiftUI retrouvent le seul compte correspondant à la clé OS.
+Un clic attend connexion et salons, puis relit message et racine par HTTP privé,
+avec gardes de compte, requête, génération et réponses tardives.
+
+Une réponse entre dans l'outbox avant reprise du compte ou appel HTTP : texte,
+ID d'envoi, reçu par notification / empreinte de texte et destination capturée
+sont inscrits ensemble. Les captures à froid utilisent une transaction SQLite
+`IMMEDIATE` pour sérialiser des connexions indépendantes ; deux callbacks
+concurrents ou rejoués retrouvent le même ID. Le texte utilise le stockage normal
+des messages en attente, sans nouvelle copie ni bearer. Au plus 256 réponses
+non résolues sont acceptées ; le dépassement est refusé, sans éviction silencieuse.
+
+Le rejeu ordinaire exclut ces réponses, y compris après « Réessayer ». Le moteur
+rattrape le journal, vérifie l'époque et l'adhésion d'origine, puis relit message
+et vraie racine avec les credentials actuels avant envoi. Une racine non encore
+en cache n'empêche pas la capture hors ligne. Un refus permanent conserve le
+texte dans le message en échec existant ; retry / abandon gardent leur parcours.
+Une lecture ou préférence retire le toast sans perdre une réponse déjà capturée ;
+retrait / réadhésion, déconnexion avec purge et nouvelle époque effacent ses données
+avec le reste de la projection.
+
+Avant soumission HTTP, un marqueur de tentative est persisté. Après perte de la
+confirmation, la lecture privée de l'ID d'envoi peut confirmer le message du même
+compte / salon / fil sans répondre de nouveau à une notification entre-temps
+supprimée. Les gardes de projection et d'adhésion restent appliquées autour de
+ce fetch. GTK et SwiftUI délèguent cette reprise au même cœur et aux écrans actuels.
 
 GNOME dispose de l'action `(clé, message)` dès le startup GApplication. Les
 installations Linux créent aussi le service D-Bus du même ID et l'entrée desktop
@@ -165,8 +185,9 @@ L'enregistrement suit le [serveur COM de référence Microsoft](https://github.c
 et l'[ABI du callback](https://learn.microsoft.com/en-us/windows/win32/api/notificationactivationcallback/nf-notificationactivationcallback-inotificationactivationcallback-activate) ;
 les raccourcis utilisent le [CLSID prévu par Inno Setup](https://jrsoftware.org/ishelp/topic_iconssection.htm).
 La remise des anciens callbacks KDE à un nouveau processus reste ouverte.
-Un callback reçu hors ligne attend encore en mémoire sa validation réseau avant
-création de l'outbox. Les parcours système installés restent à qualifier sur Linux,
+Une navigation par clic reçue hors ligne attend encore en mémoire sa validation
+réseau ; le texte d'une réponse est désormais durable avant cette validation.
+Les parcours système installés restent à qualifier sur Linux,
 Windows et macOS ; P21 reste ouvert pour ces chemins et les anciens liens importés.
 Les permaliens natifs et leur routage au démarrage utilisent le [contrat P21](ROOM_LINKS.md).
 
@@ -194,6 +215,16 @@ compte, et ne prouve donc ni un clic sur un toast réel ni la navigation privée
 Ils ne prouvent pas les
 interactions avec les notifications système installées. P17 / J3 ne sont pas
 déclarés terminés.
+
+Les réponses hors ligne sont exercées sur SQLite disque fermé puis rouvert et
+véritables échanges HTTP : zéro requête à la capture, racine absente du cache,
+deux connexions concurrentes, retrait du registre OS après capture, retry gardé,
+cible / racine supprimée, adhésion remplacée, époque restaurée et réponse HTTP
+perdue après commit. La confirmation privée au redémarrage produit un seul POST,
+même si la cible originale a été supprimée. Les tests vérifient aussi la purge
+des intentions retirées et la conservation du texte des refus permanents.
+Les modèles Swift compilent avec leurs bindings régénérés ; les notifications
+OS installées et le clic hors ligne persistant restent des validations distinctes.
 
 Le pont Windows passe neuf tests, dont un callback COM réellement invoqué depuis
 un second processus avec le texte saisi ; la classe du banc est temporaire et

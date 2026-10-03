@@ -7,7 +7,7 @@ isolée : aucune UI ni capacité E2EE n'est activée par ce lot.
 ## Racine et certificat
 
 `Issuer::generate` crée une graine Ed25519 avec l'aléa OS. La racine publique lie
-l'identifiant immutable d'instance, l'UID et une génération aléatoire de 16
+l'identifiant immuable d'instance, l'UID et une génération aléatoire de 16
 octets. Un nom affiché, un bearer ou le mot de passe HTTP ne remplace pas cette
 identité. `Issuer` n'a ni `Debug`, ni `Clone`, ni export public de la clé privée.
 `save` / `load` utilisent `crypto-root-v1` dans les enregistrements **chiffrés du
@@ -84,9 +84,10 @@ Une transaction refusée ne sauvegarde ni certificat ni changement de confiance.
 
 ## Conditions encore ouvertes
 
-La demande signée / preuve de possession, la cérémonie d'approbation d'un nouvel
-appareil et la récupération E2EE ne sont pas encore implémentées. L'API interne
-`certify` ne doit pas être exposée directement à une réponse du serveur.
+La [demande signée / preuve de possession](ENROLLMENT.md), son accord exact et
+ses reçus durables sont implémentés dans le moteur isolé. La cérémonie UI /
+livraison de nouvel appareil et la récupération E2EE restent à intégrer.
+L'API interne `certify` ne doit pas être exposée directement à une réponse du serveur.
 La liste signée des destinataires, les commits de salon, la consommation unique
 des KeyPackages et la livraison réseau restent à intégrer.
 

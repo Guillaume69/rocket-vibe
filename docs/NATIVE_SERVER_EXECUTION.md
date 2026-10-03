@@ -319,6 +319,25 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P19 / J4, ajout d'appareil et reçu privé durable (3 octobre 2026) : clé de
+  feuille / incarnation neuves, demande signée liée à la racine attendue,
+  preuve de possession et fenêtre de 10 minutes. Confirmation locale opaque
+  liée à la demande / racine / registre et expiration ; accord de racine lié
+  au certificat exact. Rejeu rendant le Grant original, refus d'un aperçu
+  ancien, ID substitué, Grant d'une autre demande / clé et écriture d'objet
+  local périmé. Registre borné, purge des reçus expirés et marqueur d'horloge
+  monotone ; refus avant réouverture d'une ancienne fenêtre. Onze tests dédiés,
+  soit 34 crypto Linux plus l'enfant réellement tué, passent ; vrai KeyPackage
+  signé par la nouvelle clé, coffre disque réouvert, refus transactionnel et
+  Grant retrouvé après échec de checkpoint. Clippy / formatage passent, vecteur
+  public Rust et indépendant Node / OpenSSL également. Le lot identités
+  `654d5ac` a sa CI `37143957558` verte : serveur / mobile et matrice crypto
+  Linux / Windows / macOS ; pilotes clients longs évités car crate isolée.
+  Livraison / cérémonie dans les apps actuelles, délégation de contrôle,
+  récupération, politique de salon / archive / fichiers / pont Android et
+  revue restent ouverts. E2EE demeure désactivé.
+  [Parcours et format](../crates/rv-crypto/ENROLLMENT.md).
+
 - P19 / J4, identités certifiées et approbation locale (3 octobre 2026) : racine
   Ed25519 cliente, certificat lié à l'instance / UID / appareil / incarnation /
   clé MLS, pins explicites et vérification hors bande. La signature seule ne

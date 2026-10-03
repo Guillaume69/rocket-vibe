@@ -8,6 +8,8 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use zeroize::{Zeroize, Zeroizing};
 
+pub mod enrollment;
+
 const ROOT_RECORD: &str = "crypto-root-v1";
 const TRUST_RECORD: &str = "crypto-trust-v1";
 const WIRE_LIMIT: usize = 4096;

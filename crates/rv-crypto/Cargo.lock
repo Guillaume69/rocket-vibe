@@ -2234,6 +2234,7 @@ dependencies = [
  "openmls",
  "openmls_basic_credential",
  "openmls_rust_crypto",
+ "openmls_traits",
  "rusqlite",
  "rustix",
  "serde",

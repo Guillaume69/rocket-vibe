@@ -61,8 +61,14 @@ ancienne ne peut pas rétablir une autre incarnation ; une racine changée exige
 les empreintes précédente et nouvelle confirmées et efface les approbations.
 Neuf tests couvrent substitution / expiration / révocation / persistance,
 dont un vecteur public également vérifié indépendamment sous Node / OpenSSL.
-Demande signée, cérémonie de nouvel appareil, récupération et liste de salon
-restent à intégrer ; un `BasicCredential` MLS seul ne les fournit pas. Si la
+[Demande signée et accord exact](../../crates/rv-crypto/ENROLLMENT.md) sont
+implémentés dans le moteur isolé : clé / incarnation neuves, preuve de possession,
+confirmation opaque, Grant lié à la demande et reçu privé rejouable. Onze tests
+couvrent refus / réouverture / checkpoint perdu, expiration / retour d'horloge,
+substitutions / limites et vrai KeyPackage ; le vecteur de demande / Grant passe
+Rust et Node / OpenSSL. Cérémonie UI, livraison, délégation de contrôle,
+récupération et liste de salon restent à intégrer ; un `BasicCredential` MLS seul
+ne les fournit pas. Si la
 racine privée est compromise, révoquer une seule feuille ne suffit pas : la
 racine doit être remplacée avec nouvelle vérification hors bande.
 
@@ -174,7 +180,8 @@ copies constituent une condition de J4, distincte de l'archive récupérable.
 
 Quatorze tests du coffre, dont échange MLS après réouverture disque et deux processus
 tués avant / après commit, plus le vrai pilote de trousseau vérifient cette
-fondation ; neuf tests supplémentaires couvrent les identités certifiées.
+fondation ; neuf tests supplémentaires couvrent les identités certifiées et
+onze l'ajout d'appareil, soit 34 scénarios au total.
 L'ensemble reste hors des apps et sans livraison réseau ; E2EE demeure désactivé.
 
 ### Archive et récupération
@@ -227,7 +234,9 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
 3. Identités, délégations et récupération : substitution, changement de racine,
    certification d'appareil, vérification et révocation testées.
    Racines / certificats / pins / confirmations et révocations implémentés dans
-   la crate isolée ; demande signée, cérémonie et récupération encore ouvertes.
+   la crate isolée ; demande signée / preuve de possession, confirmation et
+   reçu durable ajoutés. Cérémonie UI / réseau, délégation de contrôle et
+   récupération encore ouvertes.
 4. Livraison PostgreSQL : reçus, commits concurrents, Welcome atomique,
    destinataires / droits, retrait en vol et suspension sans appareil disponible.
 5. Pont mobile et intégration aux fournisseurs actuels ; archive / fichiers,

@@ -101,7 +101,9 @@ MLS n'est pas l'archive récupérable demandée par la RFC. Cette crate ne fourn
 encore ni livraison serveur, ni archive / fichiers, ni pont Android. Le module
 [`identity`](IDENTITY.md) fournit racines Ed25519, certificats, pins / confirmations
 explicites et révocations ; la cérémonie de nouvel appareil, la récupération
-et la politique d'admission de salon restent à intégrer. Trousseaux Windows / macOS, ACL Windows,
+et la politique d'admission de salon restent à intégrer. Le parcours interne
+[`enrollment`](ENROLLMENT.md) persiste la demande signée et son Grant exact,
+avec confirmation opaque et rejeu durable. Trousseaux Windows / macOS, ACL Windows,
 restauration des sauvegardes du trousseau et coupure électrique sont à qualifier.
 
 ## Vérifications
@@ -114,7 +116,7 @@ cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --features syste
 node crates/rv-crypto/scripts/verify-identity-vector.mjs
 ```
 
-Vingt-trois scénarios Linux passent, dont l'échange OpenMLS entre deux véritables bases
+Trente-quatre scénarios Linux passent, dont l'échange OpenMLS entre deux véritables bases
 rouvertes : consommation / ciphertext original conservés, réception altérée
 annulée puis original accepté, et rejeu refusé. Les autres preuves couvrent AEAD,
 portées, tête ancienne restaurée, auteur concurrent, échec SQL, limites, fichier
@@ -130,7 +132,11 @@ coffre utilisent des BasicCredentials non certifiés. Neuf tests d'identité
 supplémentaires vérifient les vrais KeyPackages / certificats, substitution de
 clé / racine, expiration / portée, refus sans approbation, confirmation ancienne,
 révocation persistante et racine sauvegardée dans le coffre. Le vecteur signé
-public passe aussi le vérificateur indépendant Node.
+public passe aussi le vérificateur indépendant Node. Onze scénarios d'ajout
+d'appareil couvrent la preuve de possession, limites / expiration / retour
+d'horloge, confirmation ancienne, Grant substitué, KeyPackage réel, refus
+transactionnel et reçu original retrouvé après checkpoint perdu. Le vecteur
+public de demande / Grant est également vérifié sous Node / OpenSSL.
 
 [`scripts/keystore-smoke.sh`](scripts/keystore-smoke.sh) utilise un **vrai Secret
 Service Linux**, ses répertoires XDG jetables et plusieurs processus CLI. Un

@@ -626,11 +626,17 @@ impl MessageList {
 
     /// Empties the list and pins it to the bottom again.
     pub fn clear(&self) {
+        self.stop_players();
         self.span.replace(None);
         self.seen.borrow_mut().clear();
         self.rows.replace(Vec::new());
         self.store.remove_all();
         self.pinned.set(true);
+    }
+
+    fn stop_players(&self) {
+        let rows = self.rows.borrow();
+        crate::cards::stop_players(&rows.iter().map(|d| d.row.id.as_str()).collect());
     }
 
     pub fn scroll_to_bottom(&self) {
@@ -830,5 +836,11 @@ impl MessageList {
     /// What each row reads as, encrypted ones in clear when unlocked.
     pub fn texts(&self) -> Vec<String> {
         self.rows.borrow().iter().map(|d| d.row.text.clone().unwrap_or_default()).collect()
+    }
+}
+
+impl Drop for MessageList {
+    fn drop(&mut self) {
+        self.stop_players();
     }
 }

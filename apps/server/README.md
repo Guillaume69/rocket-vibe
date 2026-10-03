@@ -38,7 +38,10 @@ récupération e-mail sont raccordés aux trois clients. Présence, fils, recher
 profils, réglages et avatars protégés utilisent leurs écrans existants.
 L'[administration opérateur](../../docs/protocol/ADMINISTRATION.md) fournit
 comptes / droits / désactivation, salons / membres / réglages, reçus de commande,
-audit transactionnel et diagnostic (`health`). Fichiers, push, appels,
+audit transactionnel et diagnostic (`health`). Le [cycle de fichiers](../../docs/protocol/FILES.md)
+propose préparation, transfert streamé, confirmation idempotente et téléchargement
+protégé / Range. Les SDK sont disponibles ; outboxes et lecteurs clients restent
+à raccorder. Push, appels,
 chiffrement et parité complète restent au backlog. Les limites sont explicites dans
 le [contrat du pilote](../../docs/protocol/README.md).
 

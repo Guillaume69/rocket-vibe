@@ -3,12 +3,15 @@ use crate::{
     auth,
     error::{Error, Result},
 };
+use futures_util::StreamExt;
+use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
     time::Duration,
 };
+use tokio::io::AsyncWriteExt;
 
 #[derive(Clone)]
 pub struct LocalObjects {
@@ -34,6 +37,86 @@ impl LocalObjects {
             return Err(Error::invalid());
         }
         Ok(self.root.join(id))
+    }
+
+    pub(crate) async fn open_reader(&self, id: &str) -> Result<tokio::fs::File> {
+        tokio::fs::File::open(self.path(id)?)
+            .await
+            .map_err(|_| Error::missing())
+    }
+
+    pub(crate) async fn put_stream(
+        &self,
+        body: axum::body::Body,
+        expected: u64,
+        hash: &str,
+        mime: &str,
+    ) -> Result<String> {
+        let write = async {
+            let id = auth::random_token();
+            let temporary = self.root.join(format!(".tmp-{id}"));
+            let guard = TemporaryObject(temporary.clone());
+            let mut file = tokio::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temporary)
+                .await
+                .map_err(|_| Error::internal())?;
+            let mut stream = body.into_data_stream();
+            let mut bytes = 0u64;
+            let mut digest = Sha256::new();
+            let mut prefix = Vec::new();
+            while let Some(chunk) = tokio::time::timeout(Duration::from_secs(10), stream.next())
+                .await
+                .map_err(|_| {
+                    Error::new(axum::http::StatusCode::REQUEST_TIMEOUT, "upload_timeout")
+                })?
+            {
+                let chunk = chunk.map_err(|_| Error::invalid())?;
+                bytes = bytes
+                    .checked_add(chunk.len() as u64)
+                    .ok_or_else(Error::invalid)?;
+                if bytes > expected {
+                    return Err(Error::new(
+                        axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+                        "file_too_large",
+                    ));
+                }
+                let take = (256 - prefix.len()).min(chunk.len());
+                prefix.extend_from_slice(&chunk[..take]);
+                digest.update(&chunk);
+                file.write_all(&chunk)
+                    .await
+                    .map_err(|_| Error::internal())?;
+            }
+            if bytes != expected
+                || format!("{:x}", digest.finalize()) != hash
+                || !crate::files::valid_header(&prefix, mime)
+            {
+                return Err(Error::new(
+                    axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                    "invalid_file",
+                ));
+            }
+            file.sync_all().await.map_err(|_| Error::internal())?;
+            drop(file);
+            tokio::fs::rename(&temporary, self.root.join(&id))
+                .await
+                .map_err(|_| Error::internal())?;
+            drop(guard);
+            #[cfg(unix)]
+            {
+                let root = self.root.clone();
+                tokio::task::spawn_blocking(move || File::open(root)?.sync_all())
+                    .await
+                    .map_err(|_| Error::internal())?
+                    .map_err(|_| Error::internal())?;
+            }
+            Ok(id)
+        };
+        tokio::time::timeout(Duration::from_secs(120), write)
+            .await
+            .map_err(|_| Error::new(axum::http::StatusCode::REQUEST_TIMEOUT, "upload_timeout"))?
     }
 
     pub(crate) async fn put(&self, bytes: Vec<u8>) -> Result<String> {
@@ -146,7 +229,7 @@ impl LocalObjects {
         for (name, temporary) in candidates {
             if !temporary {
                 let used: bool = sqlx::query_scalar(
-                    "SELECT EXISTS(SELECT 1 FROM users WHERE avatar_file_id=$1)",
+                    "SELECT EXISTS(SELECT 1 FROM users WHERE avatar_file_id=$1) OR EXISTS(SELECT 1 FROM uploads WHERE object_id=$1 AND (state='completed' OR state='ready' AND expires_at>clock_timestamp()))",
                 )
                 .bind(&name)
                 .fetch_one(pool)
@@ -162,5 +245,12 @@ impl LocalObjects {
             }
         }
         Ok(())
+    }
+}
+
+struct TemporaryObject(PathBuf);
+impl Drop for TemporaryObject {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
     }
 }

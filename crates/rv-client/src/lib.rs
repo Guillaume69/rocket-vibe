@@ -1,6 +1,8 @@
 //! Native HTTP transport, ready to be integrated into the desktop provider.
 //! No GTK, SQLite, account keychain, or Rocket.Chat dependencies.
 
+/// Construct a streamed upload without coupling providers to our HTTP version.
+pub use reqwest::Body as UploadBody;
 use reqwest::Method;
 use rv_protocol::{
     ApiError, CreateRoom, DirectMessage, Discovery, Login, Message, MessagePage, Room, SendMessage,
@@ -549,6 +551,71 @@ impl NativeClient {
 
     pub async fn own_profile(&self) -> Result<rv_protocol::profiles::OwnProfile, Error> {
         self.get("/api/v1/me/profile").await
+    }
+    pub async fn prepare_upload(
+        &self,
+        input: &rv_protocol::parity::PrepareUpload,
+    ) -> Result<rv_protocol::parity::Upload, Error> {
+        self.post("/api/v1/uploads", input).await
+    }
+    pub async fn upload_status(&self, id: &str) -> Result<rv_protocol::parity::Upload, Error> {
+        self.get(&format!("/api/v1/uploads/{}", encode(id))).await
+    }
+    /// Body can be a stream; the account token is sent only to the pinned server.
+    pub async fn upload_bytes(
+        &self,
+        id: &str,
+        body: reqwest::Body,
+    ) -> Result<rv_protocol::parity::Upload, Error> {
+        let sent = self.saved_token().ok_or(Error::SessionMissing)?;
+        let response = self
+            .http
+            .put(format!("{}/api/v1/uploads/{}/bytes", self.base, encode(id)))
+            .timeout(Duration::from_secs(150))
+            .bearer_auth(&sent)
+            .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+            .body(body)
+            .send()
+            .await?;
+        Ok(self
+            .accepted(response, None, Some(sent))
+            .await?
+            .json()
+            .await?)
+    }
+    pub async fn complete_upload(
+        &self,
+        id: &str,
+        input: &rv_protocol::parity::CompleteUpload,
+    ) -> Result<Message, Error> {
+        self.post(&format!("/api/v1/uploads/{}/complete", encode(id)), input)
+            .await
+    }
+    pub async fn cancel_upload(&self, id: &str) -> Result<rv_protocol::parity::Upload, Error> {
+        self.request(
+            Method::DELETE,
+            &format!("/api/v1/uploads/{}", encode(id)),
+            None::<&()>,
+            false,
+        )
+        .await
+    }
+    /// Consume chunks into private local storage, rather than buffering a file.
+    pub async fn file_response(
+        &self,
+        id: &str,
+        range: Option<&str>,
+    ) -> Result<reqwest::Response, Error> {
+        let sent = self.saved_token().ok_or(Error::SessionMissing)?;
+        let mut request = self
+            .http
+            .get(format!("{}/api/v1/files/{}", self.base, encode(id)))
+            .timeout(Duration::from_secs(150))
+            .bearer_auth(&sent);
+        if let Some(range) = range {
+            request = request.header(reqwest::header::RANGE, range);
+        }
+        self.accepted(request.send().await?, None, Some(sent)).await
     }
     pub async fn user_profile(&self, id: &str) -> Result<rv_protocol::parity::UserProfile, Error> {
         self.get(&format!("/api/v1/users/{}", encode(id))).await

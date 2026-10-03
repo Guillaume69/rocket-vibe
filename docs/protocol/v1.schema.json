@@ -1328,6 +1328,12 @@
             "null"
           ]
         },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/FileDescriptor"
+          },
+          "type": "array"
+        },
         "id": {
           "type": "string"
         },
@@ -2431,6 +2437,9 @@
             }
           ]
         },
+        "upload": {
+          "$ref": "#/$defs/Upload"
+        },
         "verify_factor": {
           "$ref": "#/$defs/VerifyFactor"
         }
@@ -2452,6 +2461,7 @@
         "file",
         "prepare_upload",
         "complete_upload",
+        "upload",
         "public_device_key",
         "key_backup",
         "room_key_envelope"
@@ -4114,6 +4124,45 @@
         "read_only"
       ],
       "type": "object"
+    },
+    "Upload": {
+      "properties": {
+        "expires_at": {
+          "type": "string"
+        },
+        "file": {
+          "$ref": "#/$defs/FileDescriptor"
+        },
+        "id": {
+          "type": "string"
+        },
+        "message_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "$ref": "#/$defs/UploadState"
+        }
+      },
+      "required": [
+        "id",
+        "file",
+        "state",
+        "expires_at"
+      ],
+      "type": "object"
+    },
+    "UploadState": {
+      "enum": [
+        "prepared",
+        "ready",
+        "completed",
+        "cancelled",
+        "expired"
+      ],
+      "type": "string"
     },
     "User": {
       "properties": {

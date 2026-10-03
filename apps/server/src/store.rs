@@ -52,6 +52,7 @@ pub(crate) struct MessageRow {
     pub reactions: Json<Vec<rv_protocol::MessageReaction>>,
     pub pinned: bool,
     pub quote_references: Json<Vec<rv_protocol::parity::QuoteReference>>,
+    pub files: Json<Vec<rv_protocol::parity::FileDescriptor>>,
 }
 
 impl MessageRow {
@@ -98,11 +99,16 @@ impl MessageRow {
             reactions: self.reactions.0,
             pinned: self.pinned,
             personal_star: None,
+            files: if self.deleted {
+                Vec::new()
+            } else {
+                self.files.0
+            },
         }
     }
 }
 
-pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,m.text,m.reply_to,(SELECT count(*) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_replies,(SELECT max(r.created_at) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_last_reply,m.system,m.created_at,m.position,m.revision,m.deleted,m.edited_at,m.pinned,m.quote_references,COALESCE((SELECT jsonb_agg(jsonb_build_object('emoji',g.emoji,'users',g.users) ORDER BY g.emoji) FROM (SELECT e.emoji,jsonb_agg(jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name) ORDER BY a.id) AS users FROM message_reactions e JOIN users a ON a.id=e.user_id WHERE e.message_id=m.id GROUP BY e.emoji) g),'[]'::jsonb) AS reactions FROM messages m JOIN users u ON u.id=m.author_id";
+pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,m.text,m.reply_to,(SELECT count(*) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_replies,(SELECT max(r.created_at) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_last_reply,m.system,m.created_at,m.position,m.revision,m.deleted,m.edited_at,m.pinned,m.quote_references,m.files,COALESCE((SELECT jsonb_agg(jsonb_build_object('emoji',g.emoji,'users',g.users) ORDER BY g.emoji) FROM (SELECT e.emoji,jsonb_agg(jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name) ORDER BY a.id) AS users FROM message_reactions e JOIN users a ON a.id=e.user_id WHERE e.message_id=m.id GROUP BY e.emoji) g),'[]'::jsonb) AS reactions FROM messages m JOIN users u ON u.id=m.author_id";
 
 pub(crate) fn send_fingerprint(room: &str, text: &str) -> String {
     crate::auth::hash_token(&serde_json::json!([room, text]).to_string())
@@ -527,29 +533,49 @@ pub async fn send(
     room_id: &str,
     input: SendMessage,
 ) -> Result<Message> {
+    let mut tx = app.pool.begin().await?;
+    let message = send_in_tx(&mut tx, account, room_id, input, &[], None).await?;
+    tx.commit().await?;
+    Ok(message)
+}
+pub(crate) async fn send_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    account: &Account,
+    room_id: &str,
+    input: SendMessage,
+    files: &[rv_protocol::parity::FileDescriptor],
+    fingerprint: Option<&str>,
+) -> Result<Message> {
     if !identifier(&input.operation_id)
         || input
             .reply_to
             .as_ref()
             .is_some_and(|root| !identifier(root) || root == &input.operation_id)
-        || (input.text.trim().is_empty() && input.quotes.is_empty())
+        || (input.text.trim().is_empty() && input.quotes.is_empty() && files.is_empty())
         || input.text.len() > 32_768
         || !crate::quotes::valid_references(&input.quotes, &input.operation_id)
     {
         return Err(Error::invalid());
     }
-    let mut tx = app.pool.begin().await?;
+    let expected_fingerprint = fingerprint.map(str::to_owned).unwrap_or_else(|| {
+        crate::threads::send_fingerprint(
+            room_id,
+            &input.text,
+            &input.quotes,
+            input.reply_to.as_deref(),
+        )
+    });
     // All sends by a user serialize before room / journal locks. This also protects
     // operation IDs across rooms, including malicious cross-room replays.
-    lock_active(&mut tx, account).await?;
-    crate::quotes::lock_rooms(&mut tx, room_id, &input.quotes).await?;
-    require_member(&mut tx, room_id, &account.id).await?;
+    lock_active(tx, account).await?;
+    crate::quotes::lock_rooms(tx, room_id, &input.quotes).await?;
+    require_member(tx, room_id, &account.id).await?;
     let used: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM room_creation_requests WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM message_actions WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM room_commands WHERE user_id=$1 AND operation_id=$2)",
+        "SELECT EXISTS(SELECT 1 FROM room_creation_requests WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM message_actions WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM room_commands WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM uploads WHERE user_id=$1 AND operation_id=$2)",
     )
     .bind(&account.id)
     .bind(&input.operation_id)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await?;
     if used {
         return Err(Error::conflict());
@@ -558,76 +584,69 @@ pub async fn send(
     if let Some(existing) = sqlx::query_as::<_, MessageRow>(&query)
         .bind(&account.id)
         .bind(&input.operation_id)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await?
     {
         let fingerprint: Option<String> =
             sqlx::query_scalar("SELECT send_fingerprint FROM messages WHERE id=$1")
                 .bind(&existing.id)
-                .fetch_one(&mut *tx)
+                .fetch_one(&mut **tx)
                 .await?;
         let matches = fingerprint.map_or_else(
             || {
                 existing.text == input.text
                     && existing.quote_references.0 == input.quotes
                     && existing.reply_to == input.reply_to
+                    && existing.files.0 == files
             },
-            |value| {
-                value
-                    == crate::threads::send_fingerprint(
-                        room_id,
-                        &input.text,
-                        &input.quotes,
-                        input.reply_to.as_deref(),
-                    )
-            },
+            |value| value == expected_fingerprint,
         );
         if existing.room_id != room_id || !matches {
             return Err(Error::conflict());
         }
-        tx.commit().await?;
         return Ok(existing.wire());
     }
-    crate::permissions::require_send(&mut tx, room_id, &account.id).await?;
+    crate::permissions::require_send(tx, room_id, &account.id).await?;
     if let Some(root) = &input.reply_to {
-        crate::threads::validate_root(&mut tx, room_id, root).await?;
+        crate::threads::validate_root(tx, room_id, root).await?;
     }
-    crate::quotes::validate(&mut tx, &account.id, &input.quotes, &[]).await?;
+    crate::quotes::validate(tx, &account.id, &input.quotes, &[]).await?;
     let id = input.operation_id;
     // Client message IDs are globally unique. A collision belonging to another user
     // is a conflict, never a response exposing that user's message.
     let result = sqlx::query(
-        "INSERT INTO messages(id,room_id,author_id,operation_id,text,send_fingerprint,quote_references,reply_to) VALUES($1,$2,$3,$1,$4,$5,$6,$7)",
+        "INSERT INTO messages(id,room_id,author_id,operation_id,text,send_fingerprint,quote_references,reply_to,files) VALUES($1,$2,$3,$1,$4,$5,$6,$7,$8)",
     )
     .bind(&id)
     .bind(room_id)
     .bind(&account.id)
     .bind(&input.text)
-    .bind(crate::threads::send_fingerprint(room_id,&input.text,&input.quotes,input.reply_to.as_deref()))
+    .bind(expected_fingerprint)
     .bind(Json(&input.quotes))
     .bind(&input.reply_to)
-    .execute(&mut *tx)
+    .bind(Json(files))
+    .execute(&mut **tx)
     .await;
     match result {
         Err(sqlx::Error::Database(e)) if e.is_unique_violation() => return Err(Error::conflict()),
         Err(e) => return Err(e.into()),
         Ok(_) => (),
     }
-    crate::mentions::capture(&mut tx, &id, room_id, &account.id, &input.text).await?;
-    let position = next_position(&mut tx).await?;
+    crate::mentions::capture(tx, &id, room_id, &account.id, &input.text).await?;
+    let position = next_position(tx).await?;
     sqlx::query("UPDATE messages SET position=$2,revision=$2 WHERE id=$1")
         .bind(&id)
         .bind(position)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
     let query = format!("{MESSAGE_SELECT} WHERE m.id=$1");
     let message = sqlx::query_as::<_, MessageRow>(&query)
         .bind(&id)
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut **tx)
         .await?
         .wire();
     event(
-        &mut tx,
+        tx,
         position,
         room_id,
         None,
@@ -635,10 +654,9 @@ pub async fn send(
     )
     .await?;
     if let Some(root) = &input.reply_to {
-        crate::threads::refresh(&mut tx, room_id, root).await?;
+        crate::threads::refresh(tx, room_id, root).await?;
     }
-    crate::room_reads::message_changed(&mut tx, room_id).await?;
-    tx.commit().await?;
+    crate::room_reads::message_changed(tx, room_id).await?;
     Ok(message)
 }
 

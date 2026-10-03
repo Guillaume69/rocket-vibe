@@ -315,6 +315,8 @@ pub struct Message {
     /// by an author or persisted in a shared journal event.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub quotes: Vec<MessageQuote>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<parity::FileDescriptor>,
     pub created_at: String,
     pub position: String,
     pub revision: String,
@@ -420,6 +422,8 @@ pub struct ThreadPage {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
+// Keep value semantics for the existing provider caches; wire batches are bounded.
+#[allow(clippy::large_enum_variant)]
 pub enum Change {
     RoomUpsert(Room),
     MessageUpsert(Message),

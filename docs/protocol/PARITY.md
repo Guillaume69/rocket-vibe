@@ -141,8 +141,9 @@ et type ; aucun URL tiers à authentifier. Le nom d'un fichier chiffré est abse
 
 Préparation et confirmation d'upload portent une identité persistante. La même
 confirmation donne le même message ; un résultat perdu se consulte. Les octets
-sont finalisés avant commit SQL, puis réconciliés avec les orphelins. Les DTO
-déclarés aujourd'hui n'activent pas encore l'upload dans les apps.
+sont finalisés avant commit SQL, puis réconciliés avec les orphelins. Le
+[cycle clair](FILES.md) est livré côté serveur / SDK ; outboxes et lecteurs
+des apps restent à raccorder avant leur activation.
 
 Les contrats de clés ne contiennent que clés publiques, sauvegardes chiffrées et
 enveloppes pour destinataires nommés. Leur `format` est opaque en J0. Le sel /
@@ -206,7 +207,7 @@ ouverte tant que serveur, clients concernés et scénario de parité manquent.
 | P11 Fils | J2 | API, racines / réponses séparées, compteurs, lectures par fil et brouillons / outbox durables raccordés aux écrans de fil GTK / SwiftUI / mobile existants ; citations dans un fil, rejeu après suppression de racine et purge d'adhésion couverts ; [contrat](THREADS.md), qualification installée ouverte |
 | P12 Présence / saisie | J2 | Baux par appareil, photos WebSocket séparées du journal, expiration et émission / écoute raccordées aux composeurs et indicateurs existants ; @here résolu à l'envoi ; [contrat](LIVE.md), qualification installée ouverte |
 | P13 Recherche | J2 / J4 | Recherche PG autorisée, pages bornées, édition / suppression et résultats temporaires raccordés aux écrans existants ; [contrat](SEARCH.md). Index local du chiffré et purge au verrouillage encore ouverts avec J4 ; qualification installée ouverte |
-| P14 Photos / documents / vidéos / vocaux | J3 | Objets protégés, upload / retry / confirmation idempotente ; partage et lecteurs |
+| P14 Photos / documents / vidéos / vocaux | J3 | Réservation, streaming, intégrité, quotas, confirmation atomique et téléchargement protégé / Range livrés côté serveur et SDK ; [contrat](FILES.md). Outboxes persistantes, caches protégés, partage / lecteurs et fichiers cités des trois interfaces à raccorder ; qualification installée ouverte, chiffré J4 |
 | P15 Liens / cartes | J3 | DTO, métadonnées bornées et refus SSRF ; lecteurs existants |
 | P16 Profils / réglages | J2–J3 | API, volume durable, reçus, fiches publiques et formulaires personnels des trois interfaces existantes raccordés ; statut, bio, langue, notifications, avatars protégés, intentions persistantes, preuve / abandon et DM par UID ; noms / photos des listes et en-têtes bureau raccordés ; [contrat](PROFILES.md). Compilation macOS validée en CI ; qualification installée à compléter |
 | P17 Push / notifications | J3 | Tâches durables, FCM et Kotlin, navigation / réponse idempotente ; téléphone app arrêtée |

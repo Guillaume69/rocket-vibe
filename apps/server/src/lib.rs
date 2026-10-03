@@ -6,6 +6,7 @@ pub mod email_recovery;
 mod error;
 pub mod factor_crypto;
 mod factors;
+mod files;
 mod http;
 pub mod invitations;
 mod limits;
@@ -44,6 +45,7 @@ pub struct App {
     pub mail: Option<Arc<mail::Sender>>,
     pub(crate) objects: Option<objects::LocalObjects>,
     image_slots: Arc<tokio::sync::Semaphore>,
+    file_slots: Arc<tokio::sync::Semaphore>,
     password_slots: Arc<tokio::sync::Semaphore>,
     dummy_password_hash: String,
     socket_slots: Arc<limits::SocketSlots>,
@@ -94,6 +96,7 @@ impl App {
             mail: None,
             objects: None,
             image_slots: Arc::new(tokio::sync::Semaphore::new(2)),
+            file_slots: Arc::new(tokio::sync::Semaphore::new(4)),
             password_slots: Arc::new(tokio::sync::Semaphore::new(4)),
             dummy_password_hash,
             socket_slots: Arc::default(),
@@ -115,6 +118,8 @@ impl App {
 
     /// Startup and periodic maintenance only touches expired ephemeral records.
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE uploads SET state='expired',object_id=NULL,lease_id=NULL,lease_expires_at=NULL WHERE id IN (SELECT id FROM uploads WHERE state IN ('prepared','ready') AND expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)")
+            .execute(&self.pool).await?;
         sqlx::query("DELETE FROM profile_windows WHERE expires_at<=clock_timestamp()")
             .execute(&self.pool)
             .await?;

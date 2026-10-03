@@ -319,6 +319,25 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P14 / J3, fichiers côté serveur et transports (3 octobre 2026) : réservation
+  liée à l'adhésion / génération, streaming sur le volume, taille / SHA-256 /
+  signature vérifiés, leases de transfert et confirmation atomique du message.
+  Quotas logiques, annulation / expiration, reprise sans second message et
+  téléchargement protégé avec Range et revalidation par trame. Descripteurs dans
+  historique / snapshots / journal, tombstones sans fichiers ; légende vide et
+  conservation du fichier après édition. Sept tests PostgreSQL dédiés passent
+  en 3,1 s, incluant le transport TypeScript réel avec deux réponses perdues,
+  annulation en cours et retrait du lecteur entre deux trames. Streaming Rust
+  explicitement exercé ; 28 tests serveur, 7 transports, 6 profils / avatars et
+  9 contrats passés, ainsi que Clippy ; contrôle d'édition répété après adaptation
+  de la légende. 21 tests SDK TypeScript, typecheck / lint et 9 contrôles du cœur
+  bureau passent. Les verrous de dépendances incluent le streaming du SDK sans
+  changer les versions HTTP des drivers. Contrat : [FILES.md](protocol/FILES.md).
+  Les outboxes, pièces jointes / lecteurs des trois interfaces existantes sont
+  la suite immédiate ; qualification installée, fichiers cités et chiffrés restent
+  ouverts. Les deux CI du lot d'administration `ff4a75f` sont entièrement vertes.
+  Aucun nouveau client n'est créé.
+
 - P23, administration opérateur (3 octobre 2026) : CLI de comptes / droits /
   désactivation, salons / membres / réglages, listes paginées, audit et diagnostic.
   Les commandes rendent des reçus persistants ; un ancien reçu ne réapplique pas

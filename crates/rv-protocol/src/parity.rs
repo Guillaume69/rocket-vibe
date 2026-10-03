@@ -487,6 +487,25 @@ pub struct PrepareUpload {
     pub encrypted: bool,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum UploadState {
+    Prepared,
+    Ready,
+    Completed,
+    Cancelled,
+    Expired,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct Upload {
+    pub id: String,
+    pub file: FileDescriptor,
+    pub state: UploadState,
+    pub expires_at: String,
+    pub message_id: Option<String>,
+}
+
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CompleteUpload {
@@ -635,6 +654,7 @@ pub struct ParityContract {
     pub file: FileDescriptor,
     pub prepare_upload: PrepareUpload,
     pub complete_upload: CompleteUpload,
+    pub upload: Upload,
     pub public_device_key: PublicDeviceKey,
     pub key_backup: EncryptedKeyBackup,
     pub room_key_envelope: RoomKeyEnvelope,

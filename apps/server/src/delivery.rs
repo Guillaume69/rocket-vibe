@@ -266,13 +266,13 @@ pub(crate) fn leased_bytes(
 /// The task owns the transaction so an unpolled body cannot retain locks
 /// indefinitely. The body is one frame: after its lease expires it cannot submit
 /// any further payload, even if Hyper resumes polling it later.
-struct LeasedBody {
+pub(crate) struct LeasedBody {
     bytes: Option<Bytes>,
     release: Option<oneshot::Sender<()>>,
     active: Arc<AtomicBool>,
 }
 impl LeasedBody {
-    fn new(bytes: Bytes, lease: Transaction<'static, Postgres>) -> Self {
+    pub(crate) fn new(bytes: Bytes, lease: Transaction<'static, Postgres>) -> Self {
         let (release, completed) = oneshot::channel();
         let active = Arc::new(AtomicBool::new(true));
         let live = active.clone();

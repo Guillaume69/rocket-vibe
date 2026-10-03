@@ -532,6 +532,6 @@ async fn installed_cli_parses_policy_flags_and_emits_only_operator_metadata(pool
     assert!(!audit.contains("operator-test-password"));
     let health: serde_json::Value =
         serde_json::from_str(&cli(url, &["health"], true).await).unwrap();
-    assert_eq!(health["migration_version"], "31");
+    assert_eq!(health["migration_version"], "32");
     cli(url, &["list-users", "--limit", "101"], false).await;
 }

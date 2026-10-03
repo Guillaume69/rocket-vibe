@@ -60,10 +60,7 @@ pub async fn apply(app: &App, account: &Account, id: &str, command: Command) -> 
                     "unsupported_feature",
                 ));
             }
-            if (markdown.trim().is_empty() && quotes.is_empty())
-                || markdown.len() > 32_768
-                || !crate::quotes::valid_references(quotes, id)
-            {
+            if markdown.len() > 32_768 || !crate::quotes::valid_references(quotes, id) {
                 return Err(Error::invalid());
             }
             (
@@ -152,6 +149,12 @@ pub async fn apply(app: &App, account: &Account, id: &str, command: Command) -> 
     }
     if message.revision.to_string() != *expected {
         return Err(Error::new(StatusCode::CONFLICT, "revision_conflict"));
+    }
+    if text.is_some_and(|text| text.trim().is_empty())
+        && quotes.is_empty()
+        && message.files.0.is_empty()
+    {
+        return Err(Error::invalid());
     }
     crate::quotes::validate(&mut tx, &account.id, quotes, &message.quote_references.0).await?;
     crate::limits::message_action(&mut tx, &account.id).await?;

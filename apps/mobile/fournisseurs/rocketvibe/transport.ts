@@ -38,7 +38,7 @@ export class NativeTransport {
     this.fetcher = fetcher;
   }
 
-  private async value(path: string, input?: unknown, anonymous = false, signal?: AbortSignal, method?: string, binary?:{body?:ArrayBuffer;mime?:string;read?:boolean}): Promise<unknown> {
+  private async value(path: string, input?: unknown, anonymous = false, signal?: AbortSignal, method?: string, binary?:{body?:ArrayBuffer;mime?:string;read?:boolean;file?:{bytes:number;mime:string};timeout?:number}): Promise<unknown> {
     if (!anonymous && this.token === null) throw new NativeError(401, 'session_rejected');
     const sent = anonymous ? null : this.token;
     const verb=method??(input===undefined?'GET':'POST');
@@ -50,7 +50,7 @@ export class NativeTransport {
     const relay = () => controller.abort();
     signal?.addEventListener('abort', relay);
     if (signal?.aborted) controller.abort();
-    const timer = setTimeout(() => controller.abort(), 15_000);
+    const timer = setTimeout(() => controller.abort(), binary?.timeout ?? 15_000);
     try {
       const response = await this.fetcher(`${this.baseUrl}${path}`, {
       method: verb,
@@ -79,11 +79,14 @@ export class NativeTransport {
         if (utf8Bytes(text)>1024*1024) throw new NativeError(0,'invalid_snapshot');
         return JSON.parse(text);
       }
-      if(binary?.read){
+      if(binary?.read || binary?.file){
+        const max=binary.file?.bytes ?? 2*1024*1024;
+        const mime=binary.file?.mime ?? 'image/png';
+        const invalid=binary.file?'invalid_file':'invalid_avatar';
         const length=response.headers.get('content-length');
-        if(response.headers.get('content-type')!=='image/png' || length!==null && (!/^\d+$/.test(length) || Number(length)>2*1024*1024))throw new NativeError(502,'invalid_avatar');
+        if(response.headers.get('content-type')!==mime || length!==null && (!/^\d+$/.test(length) || Number(length)>max))throw new NativeError(502,invalid);
         const bytes=new Uint8Array(await response.arrayBuffer());
-        if(bytes.length>2*1024*1024)throw new NativeError(502,'invalid_avatar');
+        if(bytes.length>max || binary.file && bytes.length!==max)throw new NativeError(502,invalid);
         return bytes;
       }
       return response.status === 204 ? undefined : await response.json();
@@ -220,6 +223,18 @@ export class NativeTransport {
   direct(input: DirectMessage): Promise<Room> { return this.request('Room', '/api/v1/direct-messages', input); }
   async addMember(room: string, user: string): Promise<void> { await this.value(`/api/v1/rooms/${encodeURIComponent(room)}/members/${encodeURIComponent(user)}`, {}); }
   send(room: string, input: SendMessage): Promise<Message> { return this.request('Message', `/api/v1/rooms/${encodeURIComponent(room)}/messages`, input); }
+  prepareUpload(input:NativeTypes['PrepareUpload']):Promise<NativeTypes['Upload']>{return this.request('Upload','/api/v1/uploads',input);}
+  uploadStatus(id:string):Promise<NativeTypes['Upload']>{return this.request('Upload',`/api/v1/uploads/${encodeURIComponent(id)}`);}
+  async uploadBytes(id:string,bytes:ArrayBuffer,signal?:AbortSignal):Promise<NativeTypes['Upload']>{
+    if(bytes.byteLength>100*1024*1024)throw new NativeError(0,'file_too_large');
+    return decodeNative('Upload',await this.value(`/api/v1/uploads/${encodeURIComponent(id)}/bytes`,undefined,false,signal,'PUT',{body:bytes,mime:'application/octet-stream',timeout:150_000}));
+  }
+  completeUpload(id:string,input:NativeTypes['CompleteUpload']):Promise<Message>{return this.request('Message',`/api/v1/uploads/${encodeURIComponent(id)}/complete`,input);}
+  cancelUpload(id:string):Promise<NativeTypes['Upload']>{return this.request('Upload',`/api/v1/uploads/${encodeURIComponent(id)}`,undefined,false,undefined,'DELETE');}
+  async fileBytes(file:NativeTypes['FileDescriptor'],signal?:AbortSignal):Promise<Uint8Array>{
+    if(!/^[1-9]\d*$/.test(file.bytes) || Number(file.bytes)>100*1024*1024 || file.encrypted)throw new NativeError(0,'invalid_file');
+    return await this.value(`/api/v1/files/${encodeURIComponent(file.id)}`,undefined,false,signal,'GET',{file:{bytes:Number(file.bytes),mime:file.media_type},timeout:150_000}) as Uint8Array;
+  }
   history(room: string, before?: string): Promise<MessagePage> { return this.request('MessagePage', `/api/v1/rooms/${encodeURIComponent(room)}/messages${before === undefined ? '' : '?before=' + encodeURIComponent(before)}`); }
   thread(root:string,before?:string):Promise<NativeTypes['ThreadPage']>{return this.request('ThreadPage',`/api/v1/messages/${encodeURIComponent(root)}/thread${before===undefined?'':'?before='+encodeURIComponent(before)}`);}
   markThreadRead(root:string,position:string):Promise<NativeTypes['ThreadReadState']>{return this.request('ThreadReadState',`/api/v1/messages/${encodeURIComponent(root)}/thread/read`,{position});}

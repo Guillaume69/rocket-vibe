@@ -26,6 +26,17 @@ use crate::{
 
 pub fn router(app: App) -> Router {
     Router::new()
+        .route("/api/v1/uploads", post(prepare_upload))
+        .route(
+            "/api/v1/uploads/{id}",
+            get(upload_status).delete(cancel_upload),
+        )
+        .route(
+            "/api/v1/uploads/{id}/bytes",
+            put(upload_bytes).layer(DefaultBodyLimit::max(crate::files::MAX_BYTES as usize)),
+        )
+        .route("/api/v1/uploads/{id}/complete", post(complete_upload))
+        .route("/api/v1/files/{id}", get(file_download))
         .route("/.well-known/rocketvibe", get(discovery))
         .route("/api/v1/me/presence", put(set_presence))
         .route("/api/v1/rooms/{room}/typing", put(set_typing))
@@ -279,6 +290,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             search: true,
             profiles: true,
             profile_avatars: app.objects.is_some(),
+            uploads: app.objects.is_some(),
             session_rotation: true,
             device_sessions: true,
             account_invitations: true,
@@ -1215,6 +1227,120 @@ async fn send(
             None,
         )
         .await
+}
+
+async fn prepare_upload(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::parity::PrepareUpload>,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::All).await?;
+    let upload = crate::files::prepare(&app, &actor, body(input)?).await?;
+    proof
+        .json(
+            &app,
+            &hash,
+            &upload,
+            std::slice::from_ref(&upload.file.room_id),
+            None,
+        )
+        .await
+}
+async fn upload_status(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::All).await?;
+    let upload = crate::files::status(&app, &actor, &id).await?;
+    proof
+        .json(
+            &app,
+            &hash,
+            &upload,
+            std::slice::from_ref(&upload.file.room_id),
+            None,
+        )
+        .await
+}
+async fn upload_bytes(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    body: axum::body::Body,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::All).await?;
+    let upload = crate::files::bytes(&app, &actor, &id, body).await?;
+    proof
+        .json(
+            &app,
+            &hash,
+            &upload,
+            std::slice::from_ref(&upload.file.room_id),
+            None,
+        )
+        .await
+}
+async fn cancel_upload(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::All).await?;
+    let upload = crate::files::cancel(&app, &actor, &id).await?;
+    proof
+        .json(
+            &app,
+            &hash,
+            &upload,
+            std::slice::from_ref(&upload.file.room_id),
+            None,
+        )
+        .await
+}
+async fn complete_upload(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    input: Input<rv_protocol::parity::CompleteUpload>,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::All).await?;
+    let mut message = crate::files::complete(&app, &actor, &id, body(input)?).await?;
+    let mut connection = app.pool.acquire().await?;
+    marks::personalize(
+        &mut connection,
+        &actor.id,
+        std::slice::from_mut(&mut message),
+    )
+    .await?;
+    crate::quotes::personalize(
+        &mut connection,
+        &actor.id,
+        std::slice::from_mut(&mut message),
+    )
+    .await?;
+    drop(connection);
+    proof
+        .json(
+            &app,
+            &hash,
+            &message,
+            &crate::quotes::delivery_rooms(std::slice::from_ref(&message)),
+            None,
+        )
+        .await
+}
+async fn file_download(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    let range = headers
+        .get(axum::http::header::RANGE)
+        .map(|h| h.to_str().map_err(|_| Error::invalid()))
+        .transpose()?;
+    crate::files::download(&app, &actor, &id, range).await
 }
 
 #[derive(Deserialize)]

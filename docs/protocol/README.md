@@ -12,7 +12,11 @@ La [recherche native en salon](SEARCH.md) utilise PostgreSQL, des résultats
 temporaires et les écrans existants ; son index local chiffré reste lié à J4.
 
 Les [profils et préférences](PROFILES.md) disposent d'API versionnées et d'un
-stockage local d'avatars protégés ; leur raccordement aux écrans existants est en cours.
+stockage local d'avatars protégés, raccordés aux écrans existants.
+
+Le [cycle des fichiers natifs](FILES.md) fournit réservation, transfert streamé,
+confirmation idempotente et téléchargement protégé. Les SDK sont disponibles ;
+outboxes et lecteurs des trois clients restent à raccorder.
 
 Les [documents Markdown natifs](MARKDOWN.md) sont traduits vers les renderers
 existants aux frontières des fournisseurs. Le texte source reste présent ;
@@ -79,6 +83,11 @@ présence ne déclare pas les endpoints correspondants disponibles.
 | GET | `/rooms/{room}/commands/{operation}` | Reçu privé de l'auteur, également après départ |
 | GET | `/rooms/{room}/messages?before=…&limit=…` | Racines par position décroissante, keyset, limite 1–100 |
 | POST | `/rooms/{room}/messages` | `{ operation_id, text, quotes?, reply_to? }` → message committé |
+| POST | `/uploads` | Réservation privée avec opération persistante |
+| GET / DELETE | `/uploads/{id}` | État privé ; abandon avant confirmation |
+| PUT | `/uploads/{id}/bytes` | Octets streamés, taille / SHA-256 vérifiés |
+| POST | `/uploads/{id}/complete` | Message et descripteur confirmés atomiquement |
+| GET | `/files/{id}` | Corps protégé streamé ; plages `Range` simples |
 | GET | `/messages/{root}/thread?before=…&limit=…` | Racine et réponses paginées avec état personnel |
 | GET / POST | `/messages/{root}/replies` | Route réservée de parité : même page de fil ; envoi avec racine implicite |
 | POST | `/messages/{root}/thread/read` | Position observée, lecture monotone de ce seul fil |

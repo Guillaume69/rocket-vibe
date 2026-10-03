@@ -47,6 +47,9 @@ fn attach(frame: &gtk::Overlay, _url: &str, html: &str) -> bool {
     if let Some(settings) = WebViewExt::settings(&web) {
         settings.set_media_playback_requires_user_gesture(false);
         settings.set_enable_developer_extras(false);
+        if crate::gst_stream::video_on_cpu() {
+            settings.set_hardware_acceleration_policy(webkit6::HardwareAccelerationPolicy::Never);
+        }
     }
     web.connect_enter_fullscreen(|_| true);
     web.connect_decide_policy(|web, decision, kind| {

@@ -257,8 +257,18 @@ fn hand_over(sample: &gst::Sample, incoming: &Arc<Mutex<Option<gdk::Texture>>>, 
     });
 }
 
+/// Video drawn from CPU frames, not the GPU's: under NVIDIA's own driver,
+/// whose GL driver crashed in GTK's renderer while drawing the GPU frames of
+/// GTK's media backend, and under which WebKit's GPU path drew its video
+/// black. `RV_SOFTWARE_VIDEO=1` asks for it anywhere.
+pub fn video_on_cpu() -> bool {
+    std::env::var("RV_SOFTWARE_VIDEO").as_deref() == Ok("1")
+        || (cfg!(target_os = "linux") && Path::new("/proc/driver/nvidia/version").exists())
+}
+
 thread_local! {
     static GTK_HAS_MEDIA: bool = std::env::var("RV_MEDIA_BACKEND").as_deref() != Ok("gstreamer")
+        && !video_on_cpu()
         && gtk::MediaFile::new().type_().name() != "GtkNoMediaFile";
 }
 

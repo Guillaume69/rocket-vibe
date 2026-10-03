@@ -33,10 +33,14 @@ impl Provider {
             return;
         }
         let (weak, provider, path) = (widget.as_ref().downgrade(), self.clone(), path.to_owned());
+        let key = provider.key(&path);
         let mut expired = Some(expired);
         glib::timeout_add_local(Duration::from_millis(500), move || {
             let Some(widget) = weak.upgrade() else { return glib::ControlFlow::Break };
-            if !provider.current(&path) {
+            if !provider.current(&path) || path.starts_with("rv-preview:") && provider.key(&path) != key {
+                if path.starts_with("rv-preview:") {
+                    PREVIEW_TEXTURES.with_borrow_mut(|entries| entries.retain(|(stored, _)| stored != &key));
+                }
                 expired.take().unwrap()(&widget);
                 return glib::ControlFlow::Break;
             }
@@ -46,6 +50,9 @@ impl Provider {
     fn key(&self, path: &str) -> String {
         match self {
             Self::RocketChat(_) => path.into(),
+            Self::RocketVibe(s) if path.starts_with("rv-preview:") => {
+                format!("{}:{}:{}:{path}", s.info.base_url, s.info.user_id, s.preview_scope(path).unwrap_or_default())
+            }
             Self::RocketVibe(s) => format!(
                 "{}:{}:{:?}:{}:{}:{}:{path}",
                 s.info.base_url,
@@ -61,7 +68,9 @@ impl Provider {
         match self {
             Self::RocketChat(_) => true,
             Self::RocketVibe(s) => {
-                if path.starts_with("rv-emoji:") {
+                if path.starts_with("rv-preview:") {
+                    s.preview_current(path)
+                } else if path.starts_with("rv-emoji:") {
                     s.emoji_current(path)
                 } else {
                     s.file_current(path)
@@ -73,7 +82,9 @@ impl Provider {
         match self {
             Self::RocketChat(s) => s.media.fetch(path).await.ok(),
             Self::RocketVibe(s) => {
-                if path.starts_with("rv-emoji:") {
+                if path.starts_with("rv-preview:") {
+                    s.preview_media(path).await.ok().map(Arc::new)
+                } else if path.starts_with("rv-emoji:") {
                     s.emoji_media(path).await.ok().map(Arc::new)
                 } else {
                     s.file_media(path).await.ok().map(Arc::new)
@@ -84,7 +95,13 @@ impl Provider {
     pub async fn download(&self, path: &str, dest: &std::path::Path) -> bool {
         match self {
             Self::RocketChat(s) => s.download_to(path, dest).await.is_ok(),
-            Self::RocketVibe(s) => s.download_file(path, dest).await.is_ok(),
+            Self::RocketVibe(s) => {
+                if path.starts_with("rv-preview:") {
+                    s.download_preview(path, dest).await.is_ok()
+                } else {
+                    s.download_file(path, dest).await.is_ok()
+                }
+            }
         }
     }
     pub async fn local(&self, file: &rv_core::content::FileAttachment) -> Option<std::path::PathBuf> {
@@ -108,6 +125,7 @@ const ANIMATIONS_KEPT: usize = 8;
 thread_local! {
     /// `None`: known to have no usable image (placeholder SVG, 404, undecodable).
     static TEXTURES: RefCell<HashMap<String, Option<gdk::Texture>>> = RefCell::default();
+    static PREVIEW_TEXTURES: RefCell<Vec<(String,gdk::Texture)>> = RefCell::default();
     static WAITING: RefCell<HashMap<String, Vec<Waiter>>> = RefCell::default();
     static ANIMATIONS: RefCell<Vec<(String, Frames)>> = RefCell::default();
 }
@@ -134,7 +152,17 @@ pub fn load_provider(session: Provider, path: &str, ready: impl FnOnce(&gdk::Tex
         return;
     }
     let cache_key = session.key(path);
-    let cached = if matches!(session, Provider::RocketVibe(_)) {
+    let private_preview = matches!(session, Provider::RocketVibe(_)) && path.starts_with("rv-preview:");
+    let cached = if private_preview {
+        PREVIEW_TEXTURES.with_borrow_mut(|entries| {
+            entries.iter().position(|(key, _)| key == &cache_key).map(|index| {
+                let entry = entries.remove(index);
+                let texture = entry.1.clone();
+                entries.push(entry);
+                Some(texture)
+            })
+        })
+    } else if matches!(session, Provider::RocketVibe(_)) {
         None
     } else {
         TEXTURES.with_borrow(|t| t.get(&cache_key).cloned())
@@ -183,13 +211,31 @@ pub fn load_provider(session: Provider, path: &str, ready: impl FnOnce(&gdk::Tex
                 a.push((key.clone(), Rc::new(frames)));
             });
         }
-        let texture = texture.filter(|_| authority.current(&source));
-        TEXTURES.with_borrow_mut(|t| {
-            if t.len() >= 400 {
-                t.clear();
-            }
-            t.insert(key.clone(), texture.clone())
+        let texture = texture.filter(|_| {
+            authority.current(&source) && (!source.starts_with("rv-preview:") || authority.key(&source) == key)
         });
+        if private_preview {
+            if let Some(texture) = &texture {
+                PREVIEW_TEXTURES.with_borrow_mut(|entries| {
+                    let cost = |texture: &gdk::Texture| texture.width() as usize * texture.height() as usize * 4;
+                    let mut bytes: usize = entries.iter().map(|(_, t)| cost(t)).sum();
+                    while entries.len() >= 128 || bytes + cost(texture) > 32 * 1024 * 1024 {
+                        if entries.is_empty() {
+                            return;
+                        }
+                        bytes -= cost(&entries.remove(0).1);
+                    }
+                    entries.push((key.clone(), texture.clone()));
+                });
+            }
+        } else {
+            TEXTURES.with_borrow_mut(|t| {
+                if t.len() >= 400 {
+                    t.clear();
+                }
+                t.insert(key.clone(), texture.clone())
+            });
+        }
         let waiters = WAITING.with_borrow_mut(|w| w.remove(&key)).unwrap_or_default();
         if let Some(texture) = texture {
             for waiter in waiters {
@@ -230,5 +276,6 @@ pub fn play(picture: &gtk::Picture, frames: Frames) {
 /// Forgets everything: a new session may see different files.
 pub fn clear() {
     TEXTURES.with_borrow_mut(HashMap::clear);
+    PREVIEW_TEXTURES.with_borrow_mut(Vec::clear);
     ANIMATIONS.with_borrow_mut(Vec::clear);
 }

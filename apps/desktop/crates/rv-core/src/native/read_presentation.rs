@@ -59,6 +59,7 @@ mod tests {
             body: None,
             system_type: None,
             attachments: None,
+            urls: None,
         };
         let rows = vec![
             row("read", Some("9007199254740992"), 5000, "other", None),

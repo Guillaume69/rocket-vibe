@@ -27,6 +27,7 @@ pub(super) fn present(page: SearchPage, room: &str, membership: &str) -> Result<
         let ts = chrono::DateTime::parse_from_rfc3339(&m.created_at)
             .map_err(|_| Error::Protocol("invalid_search_page"))?
             .timestamp_millis();
+        let urls = super::link_previews::urls(&m)?;
         let document = m.body.map(|d| *d).unwrap_or_else(|| rv_protocol::markdown::parse(&m.text));
         super::files::validate_descriptors(&m.files, room)?;
         let files = super::files::attachments(&m.files)?;
@@ -38,6 +39,7 @@ pub(super) fn present(page: SearchPage, room: &str, membership: &str) -> Result<
             author_id: m.author.id.clone(),
             author_name: Some(m.author.username.clone()),
             thread_id: m.reply_to,
+            urls,
             md: Some(
                 serde_json::to_string(&markdown::tree(&document))
                     .map_err(|_| Error::Protocol("invalid_search_page"))?,

@@ -10,6 +10,7 @@ enum Pictures {
     static let cache: NSCache<NSString, NSImage> = {
         let cache = NSCache<NSString, NSImage>()
         cache.countLimit = 800
+        cache.totalCostLimit = 64 * 1024 * 1024
         return cache
     }()
 
@@ -18,21 +19,22 @@ enum Pictures {
     }
 
     static func cached(_ path: String, pixels: Int) -> NSImage? {
-        if path.hasPrefix("rv-file:"){return nil}
+        if path.hasPrefix("rv-file:")||path.hasPrefix("rv-preview:"){return nil}
         return cache.object(forKey: key(path, pixels))
     }
 
     /// `pixels`: the longest side drawn, in pixels; 0 keeps the original size.
     static func load(_ path: String, pixels: Int, media: MediaStore) async -> NSImage? {
+        let scope=media.scope(path)
         guard media.current(path) else{return nil}
         if let hit = cached(path, pixels: pixels) { return hit }
         guard let data = await media.load(path), !data.placeholder else { return nil }
         let bytes = data.bytes
         guard let decoded = await Task.detached(priority: .userInitiated, operation: { decode(bytes, pixels: pixels) }).value
         else { return nil }
-        guard media.current(path),!Task.isCancelled else{return nil}
+        guard media.current(path),scope==media.scope(path),!Task.isCancelled else{return nil}
         let image = NSImage(cgImage: decoded, size: NSSize(width: decoded.width / 2, height: decoded.height / 2))
-        cache.setObject(image, forKey: key(path, pixels))
+        cache.setObject(image, forKey: key(path, pixels), cost: decoded.width * decoded.height * 4)
         return image
     }
 

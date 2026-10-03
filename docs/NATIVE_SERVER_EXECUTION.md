@@ -319,6 +319,25 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P15 / J3, raccordement desktop des aperçus (3 octobre 2026) : projection
+  SQLite et résultats temporaires de recherche dans les cartes d'article,
+  d'image et de vidéo GTK / SwiftUI existantes. Les chemins privés ne portent
+  ni origine ni credentials ; le lecteur partagé contrôle l'image et le
+  message courant après HTTP, puis l'adhésion et la génération après décodage.
+  Cache borné, réutilisation après réaction, retrait après édition / révocation
+  et nouvelle preuve après réadhésion, même pour un chemin opaque identique.
+  Les images directes utilisent les visionneuses existantes ; l'enregistrement
+  revalide l'accès avant publication du fichier. Deux nouveaux tests du cœur
+  avec HTTP / WebSocket / SQLite passent, parmi 361 régressions cœur / UniFFI.
+  Le vrai widget GTK sous Xvfb affiche la texture, réutilise le cache puis la
+  retire et la recharge après changement d'adhésion ; ce parcours rejoint la CI.
+  Clippy cœur / FFI / GTK sans avertissement, formatage, bindings et six tests
+  locaux Swift passent ; seize parcours Swift connectés restent conditionnés
+  à leurs bancs et ne sont pas exécutés dans ce contrôle. La compilation
+  AppKit / SwiftUI doit passer la CI macOS du commit. La capacité serveur reste
+  désactivée dans ce lot. Intégrations structurées, activation et qualification
+  d'applications installées restent ouvertes ; P15 n'est pas fermé globalement.
+
 - P15 / J3, raccordement mobile des aperçus (3 octobre 2026) : les cartes
   d'article, d'image et de vidéo existantes lisent la projection SQLite native.
   Les références privées sont liées au message / descripteur / adhésion et au

@@ -144,7 +144,7 @@ pub fn room_tile(name: &str, kind: &str, encrypted: bool, size: TileSize) -> gtk
 pub fn open_viewer(parent: &gtk::Widget, texture: &gdk::Texture, title: &str, frames: Option<media::Frames>) {
     open_viewer_provider(parent, texture, title, frames, None)
 }
-fn open_viewer_provider(
+pub(crate) fn open_viewer_provider(
     parent: &gtk::Widget,
     texture: &gdk::Texture,
     title: &str,
@@ -671,6 +671,12 @@ fn message_from_provider(
         }
         for file in content::files(row.attachments.as_deref()) {
             column.append(&cards::file_provider(provider.clone(), &file));
+        }
+        for video in content::video_links(row.text.as_deref().unwrap_or_default(), row.urls.as_deref(), 3) {
+            column.append(&cards::video_link_provider(provider.clone(), &video));
+        }
+        for preview in content::link_previews(row.urls.as_deref(), 3) {
+            column.append(&cards::link_preview_provider(provider.clone(), &preview));
         }
     }
     if is_call {

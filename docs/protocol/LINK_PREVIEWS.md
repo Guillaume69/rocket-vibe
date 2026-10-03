@@ -87,7 +87,23 @@ l'activation produit attend les clients bureau. Il utilise une image publiée
 par le collecteur de test ; ce banc ne remplace pas les tests du réseau public
 ni la qualification d'une app Android installée.
 
-P15 reste ouvert : raccordement GTK / SwiftUI, cartes structurées d'intégration
-et qualification des applications installées. La capacité `link_previews` reste désactivée
-tant que ces raccordements ne sont pas livrés. Aucun nouveau client ni renderer
-n'est introduit. Les aperçus E2EE seront construits côté client après déchiffrement.
+Le cœur bureau projette les aperçus dans les mêmes cartes GTK / SwiftUI, y
+compris pour les résultats temporaires de recherche. Le lecteur privé partagé
+revalide le message après la lecture et lie chaque entrée de cache au compte,
+à l'instance, au message, à l'image et à l'adhésion. Les réactions conservent
+les pixels ; une nouvelle adhésion retire le cache de l'ancienne, même si le
+chemin opaque est identique. Les caches de pixels GTK et Swift sont bornés.
+Les images directes s'ouvrent dans la visionneuse existante, dont l'enregistrement
+revalide aussi l'accès. Aucun bearer n'est transmis au lien externe d'une carte.
+
+Le test GTK sous Xvfb affiche une vraie texture dans la carte existante,
+réutilise le cache puis retire les pixels et recharge après changement
+d'adhésion. Les tests du cœur utilisent HTTP / WebSocket et SQLite réels.
+Les bindings et modèles Swift compilent ; la compilation de l'interface
+AppKit / SwiftUI est contrôlée séparément par la CI macOS.
+
+P15 reste ouvert : cartes structurées d'intégration, activation serveur après
+validation du lot bureau et qualification des applications installées. La
+capacité `link_previews` reste désactivée dans cette livraison. Aucun nouveau
+client ni renderer n'est introduit. Les aperçus E2EE seront construits côté
+client après déchiffrement.

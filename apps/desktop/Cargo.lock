@@ -2970,6 +2970,7 @@ version = "0.5.0"
 dependencies = [
  "async-channel",
  "chrono",
+ "futures-util",
  "gdk4-win32",
  "gstreamer",
  "gstreamer-app",
@@ -2985,6 +2986,7 @@ dependencies = [
  "sha2 0.11.0",
  "spellbook",
  "tokio",
+ "tokio-tungstenite",
  "url",
  "winresource",
 ]

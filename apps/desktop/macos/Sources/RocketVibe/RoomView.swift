@@ -763,10 +763,12 @@ struct Playing: Identifiable {
 struct LinkCard: View {
     @Environment(\.openURL) var openURL
     let card: Card
+    @State private var viewing=false
 
     var body: some View {
         Button {
-            if let url = URL(string: card.url) { openURL(url) }
+            if card.url.hasPrefix("rv-preview:"){viewing=true}
+            else if let url = URL(string: card.url) { openURL(url) }
         } label: {
             HStack(alignment: .top, spacing: 10) {
                 if let image = card.image {
@@ -793,6 +795,7 @@ struct LinkCard: View {
             .vibeCard()
         }
         .buttonStyle(.plain)
+        .sheet(isPresented:$viewing){ImageViewer(path:card.url,title:card.title)}
     }
 }
 

@@ -257,10 +257,11 @@ pub fn file_provider(session: media::Provider, f: &FileAttachment) -> gtk::Widge
     card.upcast()
 }
 
-fn external_image(session: &Arc<Session>, url: &str, width: i32, height: i32) -> gtk::Overlay {
+fn external_image(provider: media::Provider, url: &str, width: i32, height: i32) -> gtk::Overlay {
     let frame = widgets::media_frame(width, height, &["preview-image"]);
     let weak = frame.downgrade();
-    media::load(session, url, move |texture| {
+    let (watch, source) = (provider.clone(), url.to_owned());
+    media::load_provider(provider, url, move |texture| {
         if let Some(frame) = weak.upgrade() {
             let picture =
                 gtk::Picture::builder().paintable(texture).content_fit(gtk::ContentFit::Cover).can_shrink(true).build();
@@ -270,6 +271,11 @@ fn external_image(session: &Arc<Session>, url: &str, width: i32, height: i32) ->
                 .filter(|w| Some(w) != frame.child().as_ref())
                 .collect();
             frame.add_overlay(&picture);
+            watch.watch(&picture, &source, |widget| {
+                if let Some(picture) = widget.downcast_ref::<gtk::Picture>() {
+                    picture.set_paintable(None::<&gdk::Texture>);
+                }
+            });
             for widget in above {
                 frame.remove_overlay(&widget);
                 frame.add_overlay(&widget);
@@ -282,13 +288,25 @@ fn external_image(session: &Arc<Session>, url: &str, width: i32, height: i32) ->
 /// A link the server fetched: an image shown as such, or a card with the
 /// page's title, description and picture.
 pub fn link_preview(session: &Arc<Session>, preview: &LinkPreview) -> gtk::Widget {
+    link_preview_provider(media::Provider::RocketChat(session.clone()), preview)
+}
+pub fn link_preview_provider(provider: media::Provider, preview: &LinkPreview) -> gtk::Widget {
     match preview {
         LinkPreview::Image { url } => {
-            let image = external_image(session, url, 280, 180);
+            let image = external_image(provider.clone(), url, 280, 180);
             image.set_halign(gtk::Align::Start);
             image.set_margin_top(4);
             let url = url.clone();
-            on_click(&image, move |w| open_uri(w, &url));
+            on_click(&image, move |w| {
+                if url.starts_with("rv-preview:") {
+                    let (widget, authority) = (w.clone(), (provider.clone(), url.clone()));
+                    media::load_provider(provider.clone(), &url, move |texture| {
+                        crate::rows::open_viewer_provider(&widget, texture, t("message.image"), None, Some(authority))
+                    });
+                } else {
+                    open_uri(w, &url);
+                }
+            });
             image.upcast()
         }
         LinkPreview::Card { url, title, description, image, site } => {
@@ -311,7 +329,7 @@ pub fn link_preview(session: &Arc<Session>, preview: &LinkPreview) -> gtk::Widge
                 card.append(&text);
             }
             if let Some(image) = image {
-                let picture = external_image(session, image, 300, 160);
+                let picture = external_image(provider.clone(), image, 300, 160);
                 picture.set_margin_top(4);
                 card.append(&picture);
             }
@@ -325,6 +343,9 @@ pub fn link_preview(session: &Arc<Session>, preview: &LinkPreview) -> gtk::Widge
 
 /// A YouTube, Dailymotion or Vimeo link: thumbnail and title, opened in the browser.
 pub fn video_link(session: &Arc<Session>, video: &VideoLink) -> gtk::Widget {
+    video_link_provider(media::Provider::RocketChat(session.clone()), video)
+}
+pub fn video_link_provider(provider: media::Provider, video: &VideoLink) -> gtk::Widget {
     let card = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(3)
@@ -339,7 +360,7 @@ pub fn video_link(session: &Arc<Session>, video: &VideoLink) -> gtk::Widget {
         card.append(&label(author, &["link-description"]));
     }
     let frame = match &video.thumbnail {
-        Some(thumbnail) => external_image(session, thumbnail, 300, 169),
+        Some(thumbnail) => external_image(provider, thumbnail, 300, 169),
         None => widgets::media_frame(300, 169, &["preview-image"]),
     };
     frame.add_overlay(&widgets::play_badge(56));
@@ -458,3 +479,7 @@ fn color_class(color: &str) -> Option<String> {
     }
     Some(class)
 }
+
+#[cfg(test)]
+#[path = "tests/link_previews.rs"]
+mod preview_tests;

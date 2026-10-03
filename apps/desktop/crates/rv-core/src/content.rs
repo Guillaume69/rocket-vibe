@@ -245,7 +245,20 @@ pub fn link_previews(urls: Option<&str>, max: usize) -> Vec<LinkPreview> {
         if seen.iter().any(|s| s == url) || video_id(url).is_some() {
             continue;
         }
-        let preview = if is_image(&entry, url) {
+        let preview = if entry.get("native_preview").is_some() {
+            crate::native::link_previews::from_entry(&entry).and_then(|(p, image)| match p.kind {
+                rv_protocol::link_previews::PreviewKind::Image => {
+                    (!image.is_empty()).then_some(LinkPreview::Image { url: image })
+                }
+                rv_protocol::link_previews::PreviewKind::Page => Some(LinkPreview::Card {
+                    url: p.url,
+                    title: p.title,
+                    description: p.description,
+                    image: (!image.is_empty()).then_some(image),
+                    site: p.site,
+                }),
+            })
+        } else if is_image(&entry, url) {
             Some(LinkPreview::Image { url: url.to_owned() })
         } else if let Some(meta) = entry.get("meta").and_then(Value::as_object) {
             let title = first(meta, &["ogTitle", "oembedTitle", "twitterTitle", "pageTitle"]);
@@ -314,10 +327,16 @@ fn video_id(link: &str) -> Option<(&'static str, String)> {
 
 /// Video links in the text, in order, titled from the server's `urls` when it has them.
 pub fn video_links(text: &str, urls: Option<&str>, max: usize) -> Vec<VideoLink> {
-    let titles: Vec<(String, Option<String>, Option<String>)> = list(urls)
+    let entries = list(urls);
+    let native = entries.iter().any(|e| e.get("native_message").is_some());
+    let titles: Vec<(String, Option<String>, Option<String>)> = entries
         .iter()
         .filter_map(|e| {
             let (_, id) = video_id(e.get("url")?.as_str()?)?;
+            if e.get("native_preview").is_some() {
+                let (preview, _) = crate::native::link_previews::from_entry(e)?;
+                return Some((id, preview.title, preview.site));
+            }
             let meta = e.get("meta")?.as_object()?;
             Some((
                 id,
@@ -348,6 +367,18 @@ pub fn video_links(text: &str, urls: Option<&str>, max: usize) -> Vec<VideoLink>
         };
         let (title, author) =
             titles.iter().find(|(i, _, _)| *i == id).map(|(_, t, a)| (t.clone(), a.clone())).unwrap_or_default();
+        let thumbnail = if native {
+            entries.iter().find_map(|e| {
+                let (_, found) = video_id(e.get("url")?.as_str()?)?;
+                if found != id {
+                    return None;
+                }
+                let (_, image) = crate::native::link_previews::from_entry(e)?;
+                (!image.is_empty()).then_some(image)
+            })
+        } else {
+            thumbnail
+        };
         out.push(VideoLink { provider, id, url, thumbnail, title, author });
     }
     out

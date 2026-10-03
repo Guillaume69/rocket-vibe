@@ -6,6 +6,7 @@ mod custom_emojis;
 pub mod email_recovery;
 pub mod factor_email;
 pub mod files;
+pub(crate) mod link_previews;
 mod live;
 pub mod markdown;
 pub mod profiles;
@@ -275,6 +276,7 @@ pub struct NativeSession {
     presence_request: Arc<tokio::sync::Mutex<()>>,
     avatars: Mutex<profiles::AvatarCache>,
     emojis: Mutex<profiles::AvatarCache>,
+    previews: link_previews::Previews,
     emoji_refresh: tokio::sync::Mutex<()>,
     avatar_slots: tokio::sync::Semaphore,
     files: files::Files,
@@ -329,6 +331,7 @@ impl NativeSession {
             presence_request: Arc::new(tokio::sync::Mutex::new(())),
             avatars: Mutex::new(profiles::AvatarCache::default()),
             emojis: Mutex::new(profiles::AvatarCache::default()),
+            previews: link_previews::Previews::default(),
             emoji_refresh: tokio::sync::Mutex::new(()),
             avatar_slots: tokio::sync::Semaphore::new(4),
             files,
@@ -562,6 +565,7 @@ impl NativeSession {
                     profile_avatars: true,
                     uploads: true,
                     custom_emojis: true,
+                    link_previews: true,
                     fine_permissions: true,
                     session_rotation: self.credentials.is_some(),
                     device_sessions: true,
@@ -992,6 +996,7 @@ impl NativeSession {
         }
         let hits = search::present(page.clone(), rid, &membership)?;
         self.cache_search_files(&page, &version, &membership)?;
+        self.cache_search_previews(&page, &version, &membership)?;
         Ok(hits)
     }
     pub async fn marked(&self, rid: &str, starred: bool) -> Result<Vec<rv_protocol::Message>, Error> {

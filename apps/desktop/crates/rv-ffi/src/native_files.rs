@@ -6,6 +6,24 @@ fn error(e: native::Error) -> RvError {
 }
 #[uniffi::export]
 impl NativeChat {
+    pub fn preview_current(&self, path: String) -> bool {
+        self.session.preview_current(&path)
+    }
+    pub fn preview_scope(&self, path: String) -> Option<String> {
+        self.session.preview_scope(&path)
+    }
+    pub async fn preview_media(&self, path: String) -> Result<MediaData, RvError> {
+        let s = self.session.clone();
+        on_tokio(async move {
+            s.preview_media(&path).await.map(|m| MediaData {
+                bytes: m.bytes,
+                content_type: m.content_type,
+                placeholder: false,
+            })
+        })
+        .await
+        .map_err(error)
+    }
     pub fn file_current(&self, path: String) -> bool {
         self.session.file_current(&path)
     }
@@ -23,7 +41,15 @@ impl NativeChat {
     }
     pub async fn download(&self, path: String, destination: String) -> Result<(), RvError> {
         let s = self.session.clone();
-        on_tokio(async move { s.download_file(&path, std::path::Path::new(&destination)).await }).await.map_err(error)
+        on_tokio(async move {
+            if path.starts_with("rv-preview:") {
+                s.download_preview(&path, std::path::Path::new(&destination)).await
+            } else {
+                s.download_file(&path, std::path::Path::new(&destination)).await
+            }
+        })
+        .await
+        .map_err(error)
     }
     pub async fn local_file(&self, path: String) -> Result<String, RvError> {
         let s = self.session.clone();

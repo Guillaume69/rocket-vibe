@@ -1,6 +1,7 @@
 //! Fallible transactions: a failed projection never acknowledges its cursor or outbox echo.
 mod custom_emojis;
 mod files;
+mod link_previews;
 mod membership;
 mod profiles;
 mod quotes;
@@ -92,6 +93,7 @@ pub struct MessageRow {
     pub body: Option<String>,
     pub system_type: Option<String>,
     pub attachments: Option<String>,
+    pub urls: Option<String>,
     pub author_id: String,
     pub ts: i64,
     pub status: Option<String>,
@@ -112,6 +114,7 @@ impl MessageRow {
             edited: self.edited,
             reactions: self.reactions,
             attachments: self.attachments,
+            urls: self.urls,
             pinned: self.pinned,
             starred: self.starred.then(|| uid.into()),
             thread_id: self.reply_to,
@@ -208,6 +211,7 @@ impl NativeStore {
             ("reply_to", "TEXT"),
             ("thread_replies", "INTEGER NOT NULL DEFAULT 0"),
             ("files", "TEXT"),
+            ("urls", "TEXT"),
         ] {
             if !columns.iter().any(|c| c == name) {
                 conn.execute_batch(&format!("ALTER TABLE native_messages ADD COLUMN {name} {declaration}"))?;
@@ -513,6 +517,10 @@ impl NativeStore {
         }
         tx.execute("INSERT INTO native_messages(id,rid,position,revision,text,author,author_id,ts,deleted,edited,reactions,body,system_type,reply_to,thread_replies) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15) ON CONFLICT(id) DO UPDATE SET position=excluded.position,revision=excluded.revision,text=excluded.text,author=excluded.author,author_id=excluded.author_id,ts=excluded.ts,deleted=excluded.deleted,edited=excluded.edited,reactions=excluded.reactions,body=excluded.body,system_type=excluded.system_type,reply_to=excluded.reply_to,thread_replies=excluded.thread_replies",params![message.id,message.room_id,message.position,message.revision,text,message.author.username,message.author.id,ts,message.deleted,message.edited_at.is_some(),reactions,body,system_type,message.reply_to,replies])?;
         tx.execute("UPDATE native_messages SET files=?2 WHERE id=?1", params![message.id, json(&message.files)?])?;
+        tx.execute(
+            "UPDATE native_messages SET urls=?2 WHERE id=?1",
+            params![message.id, super::link_previews::urls(message).map_err(|_| rusqlite::Error::InvalidQuery)?],
+        )?;
         tx.execute("DELETE FROM native_outbox WHERE id=?1", [&message.id])?;
         tx.execute("UPDATE native_messages SET pinned=?2 WHERE id=?1", params![message.id, message.pinned])?;
         quotes::project(tx, message, true)?;

@@ -53,6 +53,7 @@ struct RemoteImage: View {
     var height: CGFloat? = nil
     @State var image: NSImage?
     @State var failed = false
+    @State var authority:String?
 
     var pixels: Int {
         guard width != nil || height != nil else { return 0 }
@@ -61,7 +62,7 @@ struct RemoteImage: View {
 
     var body: some View {
         Group {
-            if app.media?.current(path) != false, let shown = image ?? Pictures.cached(path, pixels: pixels) {
+            if app.media?.current(path) != false,(!path.hasPrefix("rv-preview:")||authority==app.media?.scope(path)), let shown = image ?? Pictures.cached(path, pixels: pixels) {
                 Image(nsImage: shown).resizable().scaledToFill()
             } else if failed {
                 Image(systemName: "photo").foregroundStyle(.secondary)
@@ -72,10 +73,14 @@ struct RemoteImage: View {
         .frame(width: width, height: height)
         .background(Vibe.card)
         .clipShape(RoundedRectangle(cornerRadius: 12))
-        .task(id: "\(path)#\(app.imagesVersion)") {
+        .task(id: "\(path)#\(app.imagesVersion)#\(app.media?.scope(path) ?? "")") {
             guard let media = app.media else { return }
+            let scope=media.scope(path)
             if let loaded = await Pictures.load(path, pixels: pixels, media: media) {
+                guard scope==media.scope(path),!Task.isCancelled else{return}
+                authority=scope
                 image = loaded
+                failed=false
             } else {
                 failed = true
             }

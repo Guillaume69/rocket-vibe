@@ -18,23 +18,26 @@ public final class MediaStore {
     init(native:NativeChat){self.chat=nil;self.native=native}
 
     public func cached(_ path: String) -> MediaData? {
-        if native != nil && (path.hasPrefix("rv-file:")||path.hasPrefix("rv-emoji:")){return nil}
+        if native != nil && (path.hasPrefix("rv-file:")||path.hasPrefix("rv-emoji:")||path.hasPrefix("rv-preview:")){return nil}
         return current(path) ? done[path] : nil
     }
-    public func current(_ path:String)->Bool{guard let native else{return true};if path.hasPrefix("rv-file:"){return native.fileCurrent(path:path)};if path.hasPrefix("rv-emoji:"){return native.emojiCurrent(path:path)};guard path.hasPrefix("rv-avatar:")else{return false};return native.profileAvatarCurrent(id:String(path.dropFirst("rv-avatar:".count)))}
+    public func current(_ path:String)->Bool{guard let native else{return true};if path.hasPrefix("rv-preview:"){return native.previewCurrent(path:path)};if path.hasPrefix("rv-file:"){return native.fileCurrent(path:path)};if path.hasPrefix("rv-emoji:"){return native.emojiCurrent(path:path)};guard path.hasPrefix("rv-avatar:")else{return false};return native.profileAvatarCurrent(id:String(path.dropFirst("rv-avatar:".count)))}
+    public func scope(_ path:String)->String?{path.hasPrefix("rv-preview:") ? native?.previewScope(path:path) : nil}
 
     public func load(_ path: String) async -> MediaData? {
+        let authority=scope(path)
         guard current(path) else{return nil}
-        if let hit = done[path], native == nil || (!path.hasPrefix("rv-file:") && !path.hasPrefix("rv-emoji:")) { return hit }
+        if let hit = done[path], native == nil || (!path.hasPrefix("rv-file:") && !path.hasPrefix("rv-emoji:") && !path.hasPrefix("rv-preview:")) { return hit }
         if let task = coming[path] {
             let version=generation
             let media=await task.value
-            return version==generation && current(path) ? media : nil
+            return version==generation && current(path) && authority==scope(path) ? media : nil
         }
         let (chat,native,version) = (chat,self.native,generation)
         let task = Task<MediaData?, Never> {
             if let native {
                 if path.hasPrefix("rv-file:"){return try? await native.media(path:path)}
+                if path.hasPrefix("rv-preview:"){return try? await native.previewMedia(path:path)}
                 if path.hasPrefix("rv-emoji:"){return try? await native.emojiMedia(path:path)}
                 guard path.hasPrefix("rv-avatar:") else{return nil}
                 return try? await native.profileAvatar(id:String(path.dropFirst("rv-avatar:".count)))
@@ -44,7 +47,7 @@ public final class MediaStore {
         coming[path] = task
         let media = await task.value
         if version == generation { coming[path] = nil }
-        guard version==generation,current(path) else{return nil}
+        guard version==generation,current(path),authority==scope(path) else{return nil}
         if let media {
             let byteCount=done.values.reduce(0){$0+$1.bytes.count}
             if done.count > (native == nil ? 400 : 127)||native != nil&&byteCount+media.bytes.count>32*1024*1024 { done.removeAll() }

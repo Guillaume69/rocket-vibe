@@ -40,3 +40,7 @@ keyring = { version = "3.6", features = ["apple-native", "windows-native"] }
 
 [build-dependencies]
 winresource = "0.1.31"
+
+[dev-dependencies]
+futures-util = "0.3.34"
+tokio-tungstenite = "0.30.0"

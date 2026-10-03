@@ -143,6 +143,7 @@ jobs:
               cargo fmt --all -- --check
               cargo clippy --locked --workspace --all-targets -- -D warnings
               cargo test --locked --workspace
+              xvfb-run -a cargo test --locked -p rocket-vibe-gtk native_link_previews_paint -- --ignored --test-threads=1
               cargo build --locked -p rv-core --example native-smoke --example native-files-smoke
               cargo build --locked -p rocket-vibe-gtk
             '

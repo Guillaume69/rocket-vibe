@@ -33,7 +33,7 @@ pub(super) fn validate_message(message: &Message) -> rusqlite::Result<i64> {
     }
     Ok(0)
 }
-pub(super) const MESSAGE_SELECT: &str = "SELECT m.id,m.text,coalesce(json_extract(u.payload,'$.user.username'),m.author),o.status,m.author_id,m.ts,m.edited,m.reactions,m.pinned,m.starred,m.position,m.body,m.system_type,m.reply_to,m.thread_replies FROM native_messages m LEFT JOIN native_outbox o ON o.id=m.id LEFT JOIN native_users u ON u.uid=m.author_id";
+pub(super) const MESSAGE_SELECT: &str = "SELECT m.id,m.text,coalesce(json_extract(u.payload,'$.user.username'),m.author),o.status,m.author_id,m.ts,m.edited,m.reactions,m.pinned,m.starred,m.position,m.body,m.system_type,m.reply_to,m.thread_replies,m.urls FROM native_messages m LEFT JOIN native_outbox o ON o.id=m.id LEFT JOIN native_users u ON u.uid=m.author_id";
 pub(super) fn message_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<MessageRow> {
     Ok(MessageRow {
         id: r.get(0)?,
@@ -52,6 +52,7 @@ pub(super) fn message_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<MessageRow>
         reply_to: r.get(13)?,
         thread_replies: r.get(14)?,
         attachments: None,
+        urls: r.get(15)?,
     })
 }
 pub(super) fn require_root(conn: &Connection, rid: &str, root: &str) -> rusqlite::Result<()> {

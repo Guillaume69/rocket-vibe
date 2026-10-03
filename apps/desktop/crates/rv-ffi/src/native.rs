@@ -861,6 +861,7 @@ mod tests {
             body: None,
             system_type: None,
             attachments: None,
+            urls: None,
             author: "alice".into(),
             author_id: "alice-id".into(),
             ts,

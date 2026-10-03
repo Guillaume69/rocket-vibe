@@ -9,6 +9,11 @@ section here.
 
 ### Fixed
 
+- Native link previews use the existing GTK and SwiftUI article, image and video
+  cards, search results and image viewer. Protected readers check the current
+  message and membership; edits, removal or a new membership retire old images.
+  Unchanged previews keep a bounded cache across reactions.
+
 - Native custom emojis use the existing GTK and SwiftUI pickers, completion,
   message rendering and reaction controls. The catalogue refreshes after operator
   changes; protected image readers discard retired entries and account state.

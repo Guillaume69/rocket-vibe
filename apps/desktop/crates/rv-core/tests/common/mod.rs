@@ -24,6 +24,7 @@ impl Request {
 pub struct Response {
     pub status: u16,
     pub body: String,
+    pub binary: Option<Vec<u8>>,
     pub headers: Vec<(String, String)>,
     /// Close the connection without answering: a network failure for the client.
     pub drop: bool,
@@ -147,7 +148,7 @@ impl FakeHttp {
                             "HTTP/1.1 {} X\r\nContent-Type: {}\r\nContent-Length: {}\r\n",
                             response.status,
                             content_type,
-                            response.body.len()
+                            response.binary.as_ref().map_or(response.body.len(), Vec::len)
                         );
                         for (k, v) in &response.headers {
                             if !k.eq_ignore_ascii_case("content-type") {
@@ -155,8 +156,9 @@ impl FakeHttp {
                             }
                         }
                         out.push_str("\r\n");
-                        out.push_str(&response.body);
-                        if socket.write_all(out.as_bytes()).await.is_err() {
+                        let mut bytes = out.into_bytes();
+                        bytes.extend(response.binary.as_deref().unwrap_or(response.body.as_bytes()));
+                        if socket.write_all(&bytes).await.is_err() {
                             return;
                         }
                     }

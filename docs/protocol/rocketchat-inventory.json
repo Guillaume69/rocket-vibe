@@ -44,6 +44,7 @@
     "apps/desktop/crates/rv-core/src/native/links.rs",
     "apps/desktop/crates/rv-core/src/native/live.rs",
     "apps/desktop/crates/rv-core/src/native/markdown.rs",
+    "apps/desktop/crates/rv-core/src/native/meetings.rs",
     "apps/desktop/crates/rv-core/src/native/notification_navigation.rs",
     "apps/desktop/crates/rv-core/src/native/notifications.rs",
     "apps/desktop/crates/rv-core/src/native/profiles.rs",
@@ -60,6 +61,7 @@
     "apps/desktop/crates/rv-core/src/native/store/custom_emojis.rs",
     "apps/desktop/crates/rv-core/src/native/store/files.rs",
     "apps/desktop/crates/rv-core/src/native/store/link_previews.rs",
+    "apps/desktop/crates/rv-core/src/native/store/meetings.rs",
     "apps/desktop/crates/rv-core/src/native/store/membership.rs",
     "apps/desktop/crates/rv-core/src/native/store/notifications.rs",
     "apps/desktop/crates/rv-core/src/native/store/profiles.rs",
@@ -1364,7 +1366,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat_native.rs",
-      "line": 717,
+      "line": 769,
       "kind": "endpoint",
       "surface": "rooms.new"
     },
@@ -1418,49 +1420,49 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1183,
+      "line": 1187,
       "kind": "endpoint",
       "surface": "rooms.online"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1184,
+      "line": 1188,
       "kind": "endpoint",
       "surface": "rooms.connecting"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1185,
+      "line": 1189,
       "kind": "endpoint",
       "surface": "rooms.offline"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1635,
+      "line": 1660,
       "kind": "endpoint",
       "surface": "rooms.section_unread"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1636,
+      "line": 1661,
       "kind": "endpoint",
       "surface": "rooms.section_favorites"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1637,
+      "line": 1662,
       "kind": "endpoint",
       "surface": "rooms.section_channels"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1638,
+      "line": 1663,
       "kind": "endpoint",
       "surface": "rooms.section_direct"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1752,
+      "line": 1777,
       "kind": "endpoint",
       "surface": "e2e.read_only"
     },

@@ -246,7 +246,7 @@ pub fn native_room_info(
 /// What the profile's buttons do.
 pub struct ProfileActions {
     pub message: Box<dyn Fn(rv_core::rooms::Found)>,
-    pub call: Box<dyn Fn(String)>,
+    pub call: Box<dyn Fn(rv_core::rooms::Found)>,
 }
 
 /// A person, from `users.info`: by username, or by id when `by_id`.
@@ -435,13 +435,20 @@ fn fill_profile(
             d.close();
             (a.message)(found.clone());
         });
-        let (a, d, username) = (actions, dialog.clone(), p.username.clone());
+        let (a, d, found) = (
+            actions,
+            dialog.clone(),
+            rv_core::rooms::Found::User { id: p.id.clone(), username: p.username.clone(), name: p.name.clone() },
+        );
         call.connect_clicked(move |_| {
             d.close();
-            (a.call)(username.clone());
+            (a.call)(found.clone());
         });
         buttons.append(&message);
-        if matches!(session, ProfileSource::Legacy(_)) {
+        if match session {
+            ProfileSource::Legacy(_) => true,
+            ProfileSource::Native(session) => session.supported_features().iter().any(|f| f == "calls"),
+        } {
             buttons.append(&call);
         }
         content.append(&buttons);

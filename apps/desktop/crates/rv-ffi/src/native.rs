@@ -268,6 +268,26 @@ impl Client {
 }
 #[uniffi::export]
 impl NativeChat {
+    pub async fn start_direct_call(&self, user_id: String) -> Result<String, RvError> {
+        let session = self.session.clone();
+        on_tokio(async move { session.start_direct_call(&user_id).await }).await.map_err(native_error)
+    }
+    pub async fn call_available(&self, room: String, membership: String) -> bool {
+        let session = self.session.clone();
+        on_tokio(async move { session.call_available(&room, &membership).await }).await
+    }
+    pub async fn start_call(&self, room: String, membership: String) -> Result<String, RvError> {
+        let session = self.session.clone();
+        on_tokio(async move { session.start_call(&room, &membership).await }).await.map_err(native_error)
+    }
+    pub async fn join_call(&self, room: String, call_id: String, membership: String) -> Result<String, RvError> {
+        let session = self.session.clone();
+        on_tokio(async move { session.join_call(&room, &call_id, &membership).await }).await.map_err(native_error)
+    }
+    pub async fn call_link(&self, room: String, call_id: String, membership: String) -> Result<String, RvError> {
+        let session = self.session.clone();
+        on_tokio(async move { session.call_link(&room, &call_id, &membership).await }).await.map_err(native_error)
+    }
     pub fn typing(&self, room: String, root: Option<String>) -> Vec<String> {
         self.session.typing(&room, root.as_deref())
     }

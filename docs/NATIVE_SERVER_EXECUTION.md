@@ -319,6 +319,27 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P20 / J4, raccordement bureau aux appels existants (3 octobre 2026) : boutons
+  du salon et du profil, carte rejoindre / infos et fenêtres GTK / SwiftUI
+  dirigés vers le fournisseur du compte. L'activité native conserve l'ID de
+  réunion jusqu'aux cartes existantes. Le cœur SQLite conserve le démarrage
+  avant HTTP ; le prochain clic reprend le même ID après coupure / redémarrage,
+  sans lancement automatique. Purge à la réadhésion / restauration et acquittement
+  limité à l'intention originale ; URL privées transitoires, liens partagés sans
+  JWT, vérification HTTPS / origine / conférence / expiration et gardes de compte,
+  navigation et adhésion. Un appel de profil attend la projection du nouveau DM
+  par le journal avant d'utiliser son adhésion. Capacité bureau activée seulement
+  avec un serveur configuré ; capacité mobile encore désactivée.
+  Quatre tests de stockage / URL, trois scénarios HTTP (rejeu après réouverture,
+  mauvaise portée / révocation / restauration, DM créé depuis un profil), la
+  vraie carte GTK sous Xvfb et huit tests Swift avec bindings régénérés passent.
+  Clippy cœur / FFI / GTK, formatage, 17 tests du protocole, générateur et inventaire
+  (368 fichiers, 450 occurrences) passent. Le workflow serveur Jitsi `9a1c884`,
+  `37129062962`, est entièrement vert (quatre jobs). La compilation macOS de
+  l'interface de ce nouveau lot reste à confirmer en CI ; mobile, service Jitsi
+  réel / médias / modération et applications installées restent ouverts.
+  [Contrat](protocol/MEETINGS.md) ; P20 / J4 ne sont pas déclarés terminés.
+
 - P20 / J4, serveur et transports Jitsi (3 octobre 2026) : configuration HTTPS
   privée opérateur, HS256 limité à une conférence / domaine / audience / application,
   durée ≤ 120 s ; lien partagé sans jeton. Démarrage lié à l'adhésion / époque,

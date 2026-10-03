@@ -16,6 +16,31 @@ public final class RoomModel {
     public var supportsFiles: Bool { provider.supportsFiles }
     public var supportsEditing: Bool { provider.supportsEditing }
     public var supportsRoomInfo: Bool { active && provider.supportsRoomInfo }
+    public var supportsCalls: Bool { active && membershipIsCurrent && provider.supportsCalls }
+    public func callAvailable() async -> Bool {
+        guard active, membershipIsCurrent, !Task.isCancelled else { return false }
+        if provider.legacy != nil && room.readOnly { return false }
+        let available = await provider.callAvailable(rid:rid,membership:nativeMembership)
+        return available && active && membershipIsCurrent && !Task.isCancelled
+    }
+    public func startCall() async throws -> String {
+        guard active, membershipIsCurrent, !Task.isCancelled else { throw CancellationError() }
+        let link = try await provider.startCall(rid:rid,membership:nativeMembership)
+        guard active, membershipIsCurrent, !Task.isCancelled else { throw CancellationError() }
+        return link
+    }
+    public func joinCall(callId:String) async throws -> String {
+        guard active, membershipIsCurrent, !Task.isCancelled else { throw CancellationError() }
+        let link = try await provider.joinCall(rid:rid,callId:callId,membership:nativeMembership)
+        guard active, membershipIsCurrent, !Task.isCancelled else { throw CancellationError() }
+        return link
+    }
+    public func callLink(callId:String) async throws -> String {
+        guard active, membershipIsCurrent, !Task.isCancelled else { throw CancellationError() }
+        let link = try await provider.callLink(rid:rid,callId:callId,membership:nativeMembership)
+        guard active, membershipIsCurrent, !Task.isCancelled else { throw CancellationError() }
+        return link
+    }
     public var directPeerId: String? {
         guard active, provider.supportsProfiles, room.kind == "d", membershipIsCurrent, let native = provider.native else { return nil }
         return try? native.directPeerId(room: room.rid)

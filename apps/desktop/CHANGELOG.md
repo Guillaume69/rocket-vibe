@@ -135,6 +135,10 @@ section here.
 
 ### Added
 
+- Native server calls use the existing room and profile buttons, call cards,
+  and call windows. Interrupted starts can be retried after reopening the app;
+  shared meeting links contain no participant token.
+
 - Native quoted messages reuse the existing GTK / SwiftUI quote cards. Source
   edits and deletions refresh cached excerpts across rooms; withdrawal or a new
   membership removes private excerpts and rejects delayed responses. Quote

@@ -1,8 +1,8 @@
 # Réunions natives Jitsi — P20 / J4
 
-Le serveur et les transports Rust / TypeScript sont disponibles. Le raccordement
-aux boutons, cartes et fenêtres d'appel GTK / SwiftUI / mobile existants suit ce
-lot ; leurs capacités clientes restent désactivées tant que ce parcours manque.
+Le serveur et les transports Rust / TypeScript sont disponibles. GTK et SwiftUI
+raccordent les boutons de salon / profil, cartes et fenêtres d'appel existants.
+Le mobile reste à raccorder ; sa capacité cliente d'appel native reste désactivée.
 La qualification d'un vrai service Jitsi et des applications installées reste ouverte.
 
 ## Configuration opérateur
@@ -85,6 +85,23 @@ l'expiration restent à qualifier contre un vrai service. Le chiffrement E2EE
 des messages ne constitue aucune garantie de chiffrement des médias d'appel.
 
 ## Preuves et sortie encore ouverte
+
+Le cœur bureau sauvegarde une intention de démarrage par salon avant HTTP ;
+le prochain clic réutilise le même ID après une réponse perdue ou un redémarrage.
+Aucun appel n'est lancé automatiquement au retour de l'application. Confirmation
+et refus définitif retirent seulement l'intention concernée. Retrait, réadhésion,
+changement d'époque et fermeture de compte purgent les intentions.
+Les URL privées restent temporaires. Portée du salon, conférence, origine HTTPS,
+expiration courte et absence de redirection / credentials sont vérifiées avant
+remise à la fenêtre d'appel. Les liens partagés ne peuvent contenir de JWT.
+Une réponse tardive après changement de compte, navigation ou adhésion est refusée.
+
+Les tests HTTP du cœur couvrent réponse perdue, réouverture réelle du SQLite,
+rejeu du même démarrage, réunion d'un autre salon, retrait et restauration.
+Les tests du stockage couvrent réadhésion et acquittement tardif ; ceux des URL
+refusent conférence / origine différentes, query ajoutée et expiration excessive.
+Le widget GTK reçoit l'activité native et produit les événements rejoindre / infos
+avec l'ID de réunion dans ses boutons existants. Ces bancs ne valident pas les médias.
 
 Les tests PostgreSQL / HTTP réels exercent concurrence, reçus après redémarrage,
 absence de bypass admin, lecture seule, retrait / réadhésion, changement d'époque,

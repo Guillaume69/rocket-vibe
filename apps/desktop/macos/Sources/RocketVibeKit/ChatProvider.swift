@@ -18,6 +18,47 @@ public enum ChatProvider {
     public var supportsEditing: Bool { legacy != nil || native?.supportedFeatures().contains("editing") == true }
     public var supportsRoomInfo: Bool { legacy != nil || native?.supportedFeatures().contains("room_info") == true }
     public var supportsProfiles: Bool { legacy != nil || native?.profilesAvailable() == true }
+    public var supportsCalls: Bool { legacy != nil || native?.supportedFeatures().contains("calls") == true }
+    public func startPersonCall(username:String,userId:String) async throws -> String {
+        switch self {
+        case let .rocketChat(chat):
+            let rid = try await chat.openDm(username:username)
+            return try await chat.startCall(rid:rid)
+        case let .rocketVibe(chat): return try await chat.startDirectCall(userId:userId)
+        }
+    }
+    public func callAvailable(rid:String, membership:String? = nil) async -> Bool {
+        switch self {
+        case let .rocketChat(chat): return await chat.callAvailable()
+        case let .rocketVibe(chat):
+            guard let membership else { return false }
+            return await chat.callAvailable(room:rid,membership:membership)
+        }
+    }
+    public func startCall(rid:String, membership:String? = nil) async throws -> String {
+        switch self {
+        case let .rocketChat(chat): return try await chat.startCall(rid:rid)
+        case let .rocketVibe(chat):
+            guard let membership else { throw CancellationError() }
+            return try await chat.startCall(room:rid,membership:membership)
+        }
+    }
+    func joinCall(rid:String,callId:String,membership:String?) async throws -> String {
+        switch self {
+        case let .rocketChat(chat): return try await chat.joinCall(callId:callId)
+        case let .rocketVibe(chat):
+            guard let membership else { throw CancellationError() }
+            return try await chat.joinCall(room:rid,callId:callId,membership:membership)
+        }
+    }
+    func callLink(rid:String,callId:String,membership:String?) async throws -> String {
+        switch self {
+        case let .rocketChat(chat): return try await chat.callLink(callId:callId)
+        case let .rocketVibe(chat):
+            guard let membership else { throw CancellationError() }
+            return try await chat.callLink(room:rid,callId:callId,membership:membership)
+        }
+    }
     public func person(key:String,byId:Bool) async throws -> Person {
         switch self {case let .rocketChat(chat):return try await chat.person(key:key,byId:byId)
         case let .rocketVibe(chat):return try await chat.person(key:key,byId:byId)}

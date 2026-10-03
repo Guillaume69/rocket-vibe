@@ -144,6 +144,7 @@ jobs:
               cargo clippy --locked --workspace --all-targets -- -D warnings
               cargo test --locked --workspace
               xvfb-run -a cargo test --locked -p rocket-vibe-gtk native_link_previews_paint -- --ignored --test-threads=1
+              xvfb-run -a cargo test --locked -p rocket-vibe-gtk native_activity_uses_existing_join_and_info_buttons -- --ignored --test-threads=1
               cargo build --locked -p rv-core --example native-smoke --example native-files-smoke
               cargo build --locked -p rocket-vibe-gtk
               timeout 30s bash scripts/check-notification-activation.sh

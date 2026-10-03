@@ -733,6 +733,10 @@ impl ChatPage {
         let w = weak.clone();
         self.call_button.connect_clicked(move |_| {
             let Some(this) = w.upgrade() else { return };
+            if this.native_session().is_some() {
+                this.native_call(None);
+                return;
+            }
             let (Some(session), Some(rid)) = (this.session(), this.current_rid()) else { return };
             let room = this.current_name();
             let weak = Rc::downgrade(&this);
@@ -1302,8 +1306,29 @@ impl ChatPage {
                     this.go_to(found);
                 }
             }),
-            call: Box::new(move |username| {
+            call: Box::new(move |found| {
                 let Some(this) = w2.upgrade() else { return };
+                let rv_core::rooms::Found::User { id, username, .. } = found else { return };
+                if let Some(session) = this.native_session() {
+                    let (weak, expected, navigation) =
+                        (Rc::downgrade(&this), session.clone(), this.read_generation.get());
+                    glib::spawn_future_local(async move {
+                        let room = username.clone();
+                        let result = on_tokio(async move { session.start_direct_call(&id).await }).await;
+                        let Some(this) = weak.upgrade() else { return };
+                        if this.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &expected))
+                            || this.read_generation.get() != navigation
+                            || expected.is_closed()
+                        {
+                            return;
+                        }
+                        match result {
+                            Ok(link) => this.open_call(&link, &room),
+                            Err(_) => this.toast(t("call.failed").to_owned()),
+                        }
+                    });
+                    return;
+                }
                 let Some(session) = this.session() else { return };
                 let weak = Rc::downgrade(&this);
                 glib::spawn_future_local(async move {

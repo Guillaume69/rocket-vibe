@@ -75,10 +75,8 @@ struct RoomView: View {
         .task(id: model.rid) {
             callable = false
             let expected = app.account?.key
-            if !model.room.readOnly, let chat = app.chat {
-                let available = await chat.callAvailable()
-                if !Task.isCancelled, expected == app.account?.key { callable = available }
-            }
+            let available = await model.callAvailable()
+            if !Task.isCancelled, expected == app.account?.key { callable = available }
         }
     }
 
@@ -95,8 +93,10 @@ struct RoomView: View {
 
     func call() {
         Task {
-            guard let chat = app.chat else { return }
-            if let link = try? await chat.startCall(rid: model.rid), let url = URL(string: link) {
+            let expected = app.sessionId
+            let link = try? await model.startCall()
+            guard !Task.isCancelled, app.sessionId == expected, model.membershipIsCurrent else { return }
+            if let link, let url = URL(string: link) {
                 CallWindow.show(url, title: L("call.window_title", ["room": model.room.name]))
             } else {
                 app.notice = L("call.failed")
@@ -434,7 +434,7 @@ struct MessageRow: View, Equatable {
     @ViewBuilder var content: some View {
         if let system = message.system {
             if let callId = message.callId {
-                CallCard(callId: callId)
+                CallCard(callId: callId, model: model)
             } else {
                 Text("\(message.author) \(systemMessage(kind: system, param: message.param))")
                     .italic()
@@ -837,6 +837,7 @@ struct CallCard: View {
     @Environment(AppModel.self) var app
     @Environment(\.openURL) var openURL
     let callId: String
+    let model: RoomModel?
     @State var link: String?
 
     var body: some View {
@@ -845,8 +846,11 @@ struct CallCard: View {
             Text(L("message.call")).font(.vibe(13.5, .bold))
             Button(L("message.join")) {
                 Task {
-                    guard let chat = app.chat else { return }
-                    if let link = try? await chat.joinCall(callId: callId), let url = URL(string: link) {
+                    guard let model else { return }
+                    let expected = app.sessionId
+                    let link = try? await model.joinCall(callId:callId)
+                    guard !Task.isCancelled, expected == app.sessionId, model.membershipIsCurrent else { return }
+                    if let link, let url = URL(string: link) {
                         CallWindow.show(url, title: L("message.call"))
                     } else {
                         app.notice = L("call.failed")
@@ -856,8 +860,11 @@ struct CallCard: View {
             .buttonStyle(VibeButtonStyle())
             Button {
                 Task {
-                    guard let chat = app.chat else { return }
-                    if let found = try? await chat.callLink(callId: callId) {
+                    guard let model else { return }
+                    let expected = app.sessionId
+                    let found = try? await model.callLink(callId:callId)
+                    guard !Task.isCancelled, expected == app.sessionId, model.membershipIsCurrent else { return }
+                    if let found {
                         link = found
                     } else {
                         app.notice = L("call.failed")

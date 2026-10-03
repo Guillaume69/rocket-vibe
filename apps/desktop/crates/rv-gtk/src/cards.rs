@@ -483,3 +483,7 @@ fn color_class(color: &str) -> Option<String> {
 #[cfg(test)]
 #[path = "tests/link_previews.rs"]
 mod preview_tests;
+
+#[cfg(test)]
+#[path = "tests/meetings.rs"]
+mod meeting_tests;

@@ -153,7 +153,7 @@ struct ProfileView: View {
                                 dismiss()
                                 Task { await app.go(to: .user(id: p.id, username: p.username, name: p.name)) }
                             }
-                            if app.chat != nil {Button(L("info.call")) {
+                            if app.provider?.supportsCalls == true {Button(L("info.call")) {
                                 dismiss()
                                 Task { await call(p) }
                             }}
@@ -180,11 +180,11 @@ struct ProfileView: View {
     }
 
     func call(_ p: Person) async {
-        guard let chat = app.chat, let rid = try? await chat.openDm(username: p.username) else {
-            app.notice = L("call.failed")
-            return
-        }
-        if let link = try? await chat.startCall(rid: rid), let url = URL(string: link) {
+        guard let provider = app.provider else { return }
+        let expected = app.sessionId
+        let link = try? await provider.startPersonCall(username:p.username,userId:p.id)
+        guard expected == app.sessionId, !Task.isCancelled else { return }
+        if let link, let url = URL(string: link) {
             CallWindow.show(url, title: L("call.window_title", ["room": p.username]))
         } else {
             app.notice = L("call.failed")

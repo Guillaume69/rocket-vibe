@@ -11,6 +11,7 @@ pub(crate) mod link_previews;
 mod links;
 mod live;
 pub mod markdown;
+mod meetings;
 pub mod notification_navigation;
 pub mod notifications;
 pub mod profiles;
@@ -578,6 +579,7 @@ impl NativeSession {
                     custom_emojis: true,
                     link_previews: true,
                     structured_cards: true,
+                    calls: true,
                     fine_permissions: true,
                     session_rotation: self.credentials.is_some(),
                     device_sessions: true,

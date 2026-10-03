@@ -4,6 +4,53 @@ use rv_core::native::NativeSession;
 use tokio::sync::broadcast::error::RecvError;
 
 impl ChatPage {
+    pub(super) fn refresh_native_call(&self) {
+        let available = self.native_session().is_some_and(|session| {
+            self.native_membership.borrow().as_ref().is_some_and(|(room, membership)| {
+                self.current_rid().as_deref() == Some(room)
+                    && membership.as_ref().is_some_and(|m| session.store.meeting_membership(room, m).unwrap_or(false))
+                    && session.can_start_call(room)
+            })
+        });
+        self.call_button.set_visible(available);
+    }
+    /// None starts a meeting; a card supplies its ID and whether to display the public link.
+    pub(super) fn native_call(self: &Rc<Self>, action: Option<(String, bool)>) {
+        let Some(session) = self.native_session() else { return };
+        let Some((rid, Some(membership))) = self.native_membership.borrow().clone() else { return };
+        if self.current_rid().as_deref() != Some(&rid) {
+            return;
+        }
+        let (weak, expected, room, navigation) =
+            (Rc::downgrade(self), session.clone(), self.current_name(), self.read_generation.get());
+        glib::spawn_future_local(async move {
+            let info = action.as_ref().is_some_and(|(_, info)| *info);
+            let (r, m) = (rid.clone(), membership.clone());
+            let result = on_tokio(async move {
+                match action {
+                    None => session.start_call(&r, &m).await,
+                    Some((id, false)) => session.join_call(&r, &id, &m).await,
+                    Some((id, true)) => session.call_link(&r, &id, &m).await,
+                }
+            })
+            .await;
+            let Some(this) = weak.upgrade() else { return };
+            if this.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &expected))
+                || this.current_rid().as_deref() != Some(&rid)
+                || this.read_generation.get() != navigation
+                || this.native_membership.borrow().as_ref() != Some(&(rid.clone(), Some(membership.clone())))
+                || !expected.store.meeting_membership(&rid, &membership).unwrap_or(false)
+                || expected.is_closed()
+            {
+                return;
+            }
+            match result {
+                Ok(link) if info => crate::call_window::info(&this.split, &link),
+                Ok(link) => this.open_call(&link, &room),
+                Err(_) => this.toast(t("call.failed").to_owned()),
+            }
+        });
+    }
     pub fn native_session(&self) -> Option<Arc<NativeSession>> {
         self.native.borrow().clone()
     }
@@ -59,6 +106,7 @@ impl ChatPage {
                 this.reload_rooms();
                 this.refresh_uploads();
                 this.refresh_room_header();
+                this.refresh_native_call();
                 if let Some(rid) = this.current_rid() {
                     this.on_typing(&rid);
                 }
@@ -98,6 +146,7 @@ impl ChatPage {
     }
 
     pub(super) fn invalidate_native_room(&self) {
+        self.call_button.set_visible(false);
         self.native_unread_after.replace(None);
         self.native_read_pending.set(false);
         self.native_read_last.replace(None);
@@ -178,6 +227,7 @@ impl ChatPage {
         self.set_loading(false);
         self.composer.clear_reply();
         self.composer.bind_native(&session, rid);
+        self.refresh_native_call();
         let (access_session, access_room) = (session.clone(), rid.to_owned());
         runtime().spawn(async move {
             let _ = access_session.refresh_room_access(&access_room).await;
@@ -395,6 +445,8 @@ impl ChatPage {
 
     pub(super) fn native_row_event(self: &Rc<Self>, event: RowEvent, in_thread: bool) {
         match event {
+            RowEvent::JoinCall(id) => self.native_call(Some((id, false))),
+            RowEvent::CallInfo(id) => self.native_call(Some((id, true))),
             RowEvent::Retry(id) => self.retry(id),
             RowEvent::React { id, shortcode, add } => self.native_react(id, shortcode, add),
             RowEvent::OpenThread(root) => self.open_thread(&root),

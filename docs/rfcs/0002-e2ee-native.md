@@ -257,6 +257,9 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    récupération d'archive encore ouvertes.
 4. Livraison PostgreSQL : reçus, commits concurrents, Welcome atomique,
    destinataires / droits, retrait en vol et suspension sans appareil disponible.
+   Livraison serveur et genèse cliente protégée / retry original / reçu exact
+   livrés. Jointure et transitions suivantes dans le coordinateur, réception et
+   livraison des messages chiffrés restent ouvertes ; aucune capacité activée.
 5. Pont mobile et intégration aux fournisseurs actuels ; archive / fichiers,
    historique autorisé et corpus d'import RC depuis cache vierge.
 6. Revue indépendante du protocole applicatif / stockage et qualification des

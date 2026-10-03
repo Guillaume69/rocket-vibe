@@ -129,6 +129,26 @@ le commit, pour éviter un cycle avec la désactivation d'un compte qui attend s
 verrou d'incarnation. Les expirations des participants et packages sont revérifiées
 avant commit, après la publication transactionnelle du fanout.
 
+## Coordinateur client : genèse persistante
+
+Le module privé `rv-crypto::groups` prépare une genèse réelle dans le coffre
+protégé. La confirmation locale lie la liste, les nonces, la politique, les
+packages, les pins, le certificat auteur et la portée. L'arbre et les indices
+proviennent d'un `PublicGroup` validé sur le véritable GroupInfo et l'arbre
+préparé. L'appareil local est lié à l'incarnation du coffre.
+
+État MLS préparé et demande originale sont committés ensemble avant émission.
+Le commit privé reste en attente jusqu'à un reçu exactement lié à la preuve.
+Un checkpoint échoué ne remet aucun octet ; une réouverture récupère la demande
+originale. Une modification de confiance / expiration bloque son retry, mais
+la recherche du reçu permet de réconcilier une acceptation déjà survenue.
+Finaliser ce reçu historique ne vaut pas permission d'un nouvel envoi.
+
+La jointure et réception dans ce coordinateur, les transitions suivantes et
+le raccordement HTTP / fournisseurs sont encore ouverts. Le test de Welcome
+utilise directement OpenMLS dans un second coffre protégé ; ce n'est pas encore
+un parcours utilisateur connecté. Aucune capacité E2EE n'est activée.
+
 ## Limites et preuves exécutées
 
 Les limites se cumulent : 128 membres, 256 appareils, index MLS ≤ 4 095,
@@ -146,8 +166,8 @@ autre appareil du même compte, attente de révocation et expiration du corps.
 Les routes HTTP sont exercées par le vrai SDK Rust ; fixtures / transport TS
 préservent des révisions supérieures à la précision entière de JavaScript.
 
-Restent ouverts : coordinateur de groupe dans le coffre, consentements et
-politique vérifiés par les clients, outbox / réception persistantes, journal et
+Restent ouverts : suite du coordinateur de groupe dans le coffre, cérémonie de
+consentement et politique vérifiées dans les apps, outbox de messages / réception persistantes, journal et
 livraison des messages chiffrés, pont Android, écrans existants, archives /
 fichiers / historique importé et revue crypto indépendante. Ce lot ne ferme
 pas J4 et n'autorise pas la bascule J5.

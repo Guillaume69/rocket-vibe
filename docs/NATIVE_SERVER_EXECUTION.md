@@ -315,6 +315,22 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P19 / J4, genèse cliente protégée (4 octobre 2026) : vrai groupe MLS préparé
+  dans le coffre, indices issus de l'arbre validé, confirmation opaque liée aux
+  pins / certificat / politique / nonces / packages et portée. Incarnation de
+  feuille explicitement liée à celle du coffre ; état MLS et demande signée
+  sauvegardés avant émission. Commit gardé en attente jusqu'au reçu exact,
+  reprise des mêmes octets après arrêt / checkpoint perdu, reçu substitué refusé
+  avant fusion. Changement de confiance / expiration bloque le retry sans
+  supprimer la recherche du reçu accepté. Neuf tests ciblés passent, avec vraie
+  jointure dans un second coffre et mêmes secrets d'époque, soit 51 scénarios
+  crypto vérifiés ; formatage et Clippy strict avec backend natif passent.
+  Le lot serveur `0dce551` a sa CI `37155993042` entièrement verte, y compris
+  les clients existants et la matrice crypto Linux / Windows / macOS.
+  [Contrat et suite ouverte](protocol/E2EE_GROUPS.md). Réception / transitions
+  suivantes, outbox de messages, raccordement HTTP / apps et pont Android,
+  archives / fichiers / import et revue restent ouverts. Capacité non activée.
+
 - P19 / J4, transitions de groupes serveur (3 octobre 2026) : preuve signée
   liée au contexte / arbre / commit / destinataires, parent / révision / époque,
   politique et nonces d'adhésion / activation. Références MLS consommées avec

@@ -76,6 +76,11 @@ pub struct Manager {
     storage: Arc<dyn Storage>,
 }
 impl Manager {
+    /// Public account/device scope, including the incarnation bound by the
+    /// protected record. It contains no key or checkpoint state.
+    pub fn scope(&self) -> &Scope {
+        &self.scope
+    }
     pub fn new(directory: PathBuf, scope: Scope, storage: Arc<dyn Storage>) -> Result<Self, Error> {
         if !scope.valid() || !directory.is_absolute() {
             return Err(Error::Scope);

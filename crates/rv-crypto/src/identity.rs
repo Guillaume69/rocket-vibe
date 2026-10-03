@@ -1,7 +1,7 @@
 //! Client-owned root signing, private storage and explicit persistent pins.
 use crate::vault::Records;
 use ed25519_dalek::{Signer, SigningKey};
-use openmls::prelude::KeyPackage;
+use openmls::prelude::{Credential, KeyPackage};
 use rv_crypto_public::{
     CERT_DOMAIN, MAX_LIFETIME, WIRE_LIMIT, label, signing_bytes, verifying_key,
 };
@@ -443,12 +443,28 @@ impl Pins {
         now: u64,
     ) -> Result<AuthorizedDevice, Error> {
         let certificate = Certificate::from_credential(package.leaf_node().credential())?;
+        if package.ciphersuite() as u16 != certificate.device.suite {
+            return Err(Error::Signature);
+        }
+        self.authorize_credential(
+            package.leaf_node().credential(),
+            package.leaf_node().signature_key().as_slice(),
+            now,
+        )
+    }
+    /// Used for credentials from an MLS-validated tree or message. This checks
+    /// root/device consent and key binding; it does not itself validate MLS.
+    pub fn authorize_credential(
+        &self,
+        credential: &Credential,
+        signature_key: &[u8],
+        now: u64,
+    ) -> Result<AuthorizedDevice, Error> {
+        let certificate = Certificate::from_credential(credential)?;
         certificate.verify(now)?;
         self.check_root(&certificate.device.root)?;
         let device = certificate.device;
-        if package.ciphersuite() as u16 != device.suite
-            || package.leaf_node().signature_key().as_slice() != device.signature_key
-        {
+        if signature_key != device.signature_key {
             return Err(Error::Signature);
         }
         let pin = self.peers.get(&device.root.user).ok_or(Error::Untrusted)?;

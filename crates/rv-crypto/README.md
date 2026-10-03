@@ -100,7 +100,7 @@ effacer les copies d'un SSD, du WAL ou d'une sauvegarde. La politique de clés
 J4. [Exigences du stockage OpenMLS](https://book.openmls.tech/user_manual/persistence.html).
 
 MLS n'est pas l'archive récupérable demandée par la RFC. Cette crate ne fournit
-encore ni livraison serveur, ni archive / fichiers, ni pont Android. Le module
+encore ni raccordement HTTP, ni archive / fichiers, ni pont Android. Le module
 [`identity`](IDENTITY.md) fournit racines Ed25519, certificats, pins / confirmations
 explicites et révocations ; la cérémonie de nouvel appareil, la récupération
 et la politique d'admission de salon restent à intégrer. Le parcours interne
@@ -110,6 +110,30 @@ fournit une sauvegarde AEAD par code aléatoire distinct et une restauration
 transactionnelle neuve / reçu exact, sans importer l'ancien état MLS.
 Trousseaux Windows / macOS, ACL Windows,
 restauration des sauvegardes du trousseau et coupure électrique sont à qualifier.
+
+## Préparation de groupe et reçu
+
+`groups::Coordinator` prépare la genèse dans le coffre protégé. Le preview lie
+portée / incarnation du salon, politique, nonces d'adhésion, packages, pins et
+certificat local à une confirmation opaque valable cinq minutes au maximum.
+Chaque appareil distant exige une racine observée et une approbation persistante.
+`LocalDevice::create_bound` lie aussi l'incarnation de la feuille au coffre choisi
+avant sa création ; les clés privées restent générées dans la transaction.
+
+Le vrai commit MLS reste **en attente** jusqu'au reçu exact : portée, opération,
+révision, époque et empreinte de transition doivent toutes correspondre. L'arbre
+signé utilise les indices réels de feuilles d'un `PublicGroup` validé, sans
+fusionner prématurément le commit. Commit, Welcome, preuve et état MLS sont
+persistés ensemble ; aucun octet n'est remis au transport avant confirmation
+du checkpoint protégé. Après arrêt ou réponse perdue, `retry` retrouve les
+octets d'origine, sans générer une nouvelle genèse.
+
+Un changement de pins ou une expiration interdit la retransmission. La recherche
+du reçu reste disponible : un reçu déjà accepté peut finaliser l'état historique,
+sans réautoriser un nouvel envoi. `ready_epoch` est uniquement un diagnostic.
+Jointure / réception dans le coordinateur, transitions suivantes, politique de
+chaque envoi, transport et ponts vers les apps restent ouverts ; E2EE demeure
+désactivé. Voir le [contrat de livraison](../../docs/protocol/E2EE_GROUPS.md).
 
 ## Vérifications
 
@@ -121,7 +145,7 @@ cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --features syste
 node crates/rv-crypto/scripts/verify-identity-vector.mjs
 ```
 
-Quarante-deux scénarios Linux passent, dont l'échange OpenMLS entre deux véritables bases
+Cinquante et un scénarios Linux passent, dont l'échange OpenMLS entre deux véritables bases
 rouvertes : consommation / ciphertext original conservés, réception altérée
 annulée puis original accepté, et rejeu refusé. Les autres preuves couvrent AEAD,
 portées, tête ancienne restaurée, auteur concurrent, échec SQL, limites, fichier
@@ -145,6 +169,10 @@ public de demande / Grant est également vérifié sous Node / OpenSSL.
 Huit scénarios de récupération vérifient code / checksum, AEAD / portée / bornes,
 clé privée cohérente, refus de coffre actif, refus transactionnel, réouverture et
 rejeu après checkpoint perdu sans effacer la nouvelle feuille.
+Neuf scénarios de groupe vérifient vraie jointure par Welcome et mêmes secrets
+d'époque, commit non fusionné avant reçu, réouverture / retry identique, chaque
+champ du reçu altéré, checkpoint perdu, consentement périmé, pins / révocation,
+certificat expiré, portée / incarnation, genèse solitaire et bornes d'observation.
 
 [`scripts/keystore-smoke.sh`](scripts/keystore-smoke.sh) utilise un **vrai Secret
 Service Linux**, ses répertoires XDG jetables et plusieurs processus CLI. Un

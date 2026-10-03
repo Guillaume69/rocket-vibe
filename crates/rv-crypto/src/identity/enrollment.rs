@@ -44,8 +44,18 @@ pub struct LocalDevice {
 impl LocalDevice {
     /// Explicit fresh incarnation. Existing state is never overwritten.
     pub fn create(root: &Root, device: &str, records: &mut Records) -> Result<Self, Error> {
+        Self::create_bound(root, device, random()?, records)
+    }
+    /// Bind a fresh leaf to the incarnation selected before creating its
+    /// protected vault. The key itself is generated inside this transaction.
+    pub fn create_bound(
+        root: &Root,
+        device: &str,
+        incarnation: [u8; 16],
+        records: &mut Records,
+    ) -> Result<Self, Error> {
         root.validate()?;
-        if !label(device) {
+        if !label(device) || incarnation == [0; 16] {
             return Err(Error::Scope);
         }
         if records.contains_key(DEVICE_RECORD) {
@@ -56,7 +66,7 @@ impl LocalDevice {
             version: 1,
             root: root.clone(),
             device: device.into(),
-            incarnation: random()?,
+            incarnation,
             seed: *seed,
             pending: None,
             grant: None,

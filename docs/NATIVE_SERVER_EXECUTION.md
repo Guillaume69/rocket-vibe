@@ -315,6 +315,26 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P19 / J4, transitions de groupes serveur (3 octobre 2026) : preuve signée
+  liée au contexte / arbre / commit / destinataires, parent / révision / époque,
+  politique et nonces d'adhésion / activation. Références MLS consommées avec
+  tête / événement / Welcomes ciblés et reçu durable, dans une seule transaction.
+  Verrous par incarnation couvrant aussi le créateur sans package, refus des
+  nouvelles écritures claires après genèse et d'une conversion avec historique /
+  upload clair actif. Lectures liées à la session / incarnation / adhésion,
+  avec échéance monotone conservée pendant sérialisation et corps HTTP.
+  Routes / SDK Rust / TypeScript, fixtures exactes et vecteur Node indépendant.
+  Vrai commit d'ajout / jointure / contexte / arbre, ciphertext local, retrait,
+  rejeu / restart, package déjà consommé, départ / retour, mutation concurrente,
+  autre appareil et réponse expirée vérifiés contre PostgreSQL.
+  Vérifications : 18 scénarios serveur E2EE / échéances, 3 tests de preuve de
+  groupe publique, tests protocol / SDK Rust, 21 tests transport / parité TS,
+  typecheck et lint ciblé passent ; Clippy sans avertissement et vérificateur
+  Node/OpenSSL passent ; les régressions serveur de livraison et de fichiers
+  passent aussi. [Contrat](protocol/E2EE_GROUPS.md). Moteur de groupe / vérification client,
+  outbox / livraison des messages, pont Android, interfaces existantes,
+  archives / fichiers / import et revue encore ouverts ; capacité non activée.
+
 Les entrées relatent les lots livrés du plus récent au plus ancien. La matrice de
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.

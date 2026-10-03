@@ -130,6 +130,38 @@
         }
       ]
     },
+    "AvailableKeyPackage": {
+      "additionalProperties": false,
+      "properties": {
+        "device_id": {
+          "type": "string"
+        },
+        "incarnation": {
+          "type": "string"
+        },
+        "reference": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "user_id": {
+          "type": "string"
+        },
+        "wire": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "user_id",
+        "device_id",
+        "incarnation",
+        "reference",
+        "wire"
+      ],
+      "type": "object"
+    },
     "AvatarCommand": {
       "additionalProperties": false,
       "description": "Query accompanying the raw PNG/JPEG body, or DELETE. No user-supplied file path.",
@@ -1307,6 +1339,181 @@
       ],
       "type": "string"
     },
+    "GroupEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "receipt": {
+          "$ref": "#/$defs/GroupReceipt"
+        },
+        "transition": {
+          "type": "string"
+        },
+        "welcome": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GroupWelcome"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Present only for this device's incarnation and current membership grant."
+        }
+      },
+      "required": [
+        "receipt",
+        "transition"
+      ],
+      "type": "object"
+    },
+    "GroupEventPage": {
+      "additionalProperties": false,
+      "properties": {
+        "events": {
+          "items": {
+            "$ref": "#/$defs/GroupEvent"
+          },
+          "type": "array"
+        },
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "events"
+      ],
+      "type": "object"
+    },
+    "GroupReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "epoch": {
+          "type": "string"
+        },
+        "fingerprint": {
+          "type": "string"
+        },
+        "incarnation": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "room_id": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "room_id",
+        "incarnation",
+        "operation_id",
+        "revision",
+        "epoch",
+        "fingerprint"
+      ],
+      "type": "object"
+    },
+    "GroupState": {
+      "additionalProperties": false,
+      "properties": {
+        "needs_rekey": {
+          "type": "boolean"
+        },
+        "receipt": {
+          "$ref": "#/$defs/GroupReceipt"
+        },
+        "transition": {
+          "type": "string"
+        },
+        "tree": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "receipt",
+        "needs_rekey",
+        "transition",
+        "tree"
+      ],
+      "type": "object"
+    },
+    "GroupSubmission": {
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "transition": {
+          "type": "string"
+        },
+        "tree": {
+          "type": "string"
+        },
+        "welcomes": {
+          "items": {
+            "$ref": "#/$defs/GroupWelcome"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "scope",
+        "operation_id",
+        "transition",
+        "tree",
+        "welcomes"
+      ],
+      "type": "object"
+    },
+    "GroupWelcome": {
+      "additionalProperties": false,
+      "properties": {
+        "device_id": {
+          "type": "string"
+        },
+        "incarnation": {
+          "type": "string"
+        },
+        "key_package_ref": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_id",
+        "incarnation",
+        "key_package_ref",
+        "payload"
+      ],
+      "type": "object"
+    },
     "Identity": {
       "additionalProperties": false,
       "properties": {
@@ -2458,10 +2665,50 @@
             }
           ]
         },
+        "e2ee_available_key_package": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AvailableKeyPackage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "e2ee_directory": {
           "anyOf": [
             {
               "$ref": "#/$defs/Directory"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_group_events": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GroupEventPage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_group_state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GroupState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_group_submission": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GroupSubmission"
             },
             {
               "type": "null"

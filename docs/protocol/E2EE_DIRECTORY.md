@@ -46,8 +46,9 @@ refusée explicitement. Rotation de racine et révocation indépendante restent
 OpenMLS valide effectivement TLS, signatures et durée de vie ; le serveur
 vérifie en plus le certificat et la clé de feuille, l'appareil actif, sa révision
 et sa racine. Une référence est le `KeyPackageRef` RFC 9420, et un SHA-256 TLS
-distinct garde l'intégrité de la publication. Aucun endpoint de consommation
-ou d'admission au groupe n'est encore exposé.
+distinct garde l'intégrité de la publication. Le protocole expérimental de
+[groupes](E2EE_GROUPS.md) consomme ensuite les références avec leur transition,
+sans réservation par une simple lecture.
 
 Une opération identique retrouve son reçu avant une nouvelle vérification
 crypto, même si le certificat a expiré depuis. Ce reçu décrit l'opération passée
@@ -68,8 +69,9 @@ les SDK laissent consulter les reçus pendant le délai. Les lectures sont priv�
 
 ## Suite du lot
 
-Liste de destinataires / adhésions signée, admission explicite, consommation
-unique liée au commit de groupe, ordre / CAS de groupe et retrait atomique restent
-à implémenter. Ensuite : outbox crypto durable, pont Android, raccordement aux
+Liste de destinataires / adhésions signée, consommation unique liée au commit,
+ordre / CAS et Welcomes ciblés sont implémentés dans le lot [groupes](E2EE_GROUPS.md).
+Leur vérification et l'admission locale restent à raccorder aux clients.
+Ensuite : outbox crypto durable, pont Android, raccordement aux
 écrans actuels, historique récupérable et revue dédiée. Les clés privées et le
 secret de récupération ne doivent jamais entrer dans ce protocole serveur.

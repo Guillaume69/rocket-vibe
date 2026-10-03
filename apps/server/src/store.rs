@@ -630,6 +630,7 @@ pub(crate) async fn send_in_tx(
         return Ok(existing.wire());
     }
     crate::permissions::require_send(tx, room_id, &account.id).await?;
+    crate::e2ee::groups::require_plaintext(tx, room_id).await?;
     if let Some(root) = &input.reply_to {
         crate::threads::validate_root(tx, room_id, root).await?;
     }

@@ -9,6 +9,37 @@ const registration=decodeNative('RegisterDevice',fixture.parity.e2ee_register_de
 const receipt=decodeNative('OperationReceipt',fixture.parity.e2ee_operation_receipt);
 const directory=decodeNative('Directory',fixture.parity.e2ee_directory);
 
+test('signed group transport preserves large revisions, targeted Welcome and original retry',async()=>{
+  const input=decodeNative('GroupSubmission',fixture.parity.e2ee_group_submission);
+  const state=decodeNative('GroupState',fixture.parity.e2ee_group_state);
+  const events=decodeNative('GroupEventPage',fixture.parity.e2ee_group_events);
+  const available=decodeNative('AvailableKeyPackage',fixture.parity.e2ee_available_key_package);
+  const requests:{url:string;options?:RequestInit}[]=[];
+  let lost=true;
+  const transport=new NativeTransport('https://example.org',async(url,options)=>{
+    requests.push({url:String(url),options});
+    const path=new URL(String(url)).pathname;
+    if(path.endsWith('/state'))return Response.json(state);
+    if(path.endsWith('/events'))return Response.json(events);
+    if(path.includes('/key-packages/'))return Response.json(available);
+    if(path.includes('/operations/'))return Response.json(state.receipt);
+    if(lost){lost=false;throw new TypeError('Lost group receipt');}
+    return Response.json(state.receipt);
+  });
+  transport.restore('saved-token');
+  await assert.rejects(transport.submitCryptoGroup('fixture-room',input));
+  assert.deepEqual(await transport.submitCryptoGroup('fixture-room',input),state.receipt);
+  assert.equal(requests[0].options?.body,requests[1].options?.body);
+  assert.deepEqual(await transport.cryptoGroupState('fixture-room'),state);
+  assert.deepEqual(await transport.cryptoGroupEvents('fixture-room','9007199254740992'),events);
+  assert.equal(new URL(requests[3].url).searchParams.get('after'),'9007199254740992');
+  assert.equal(events.events[0].receipt.revision,'9007199254740993');
+  assert.deepEqual(await transport.cryptoGroupOperation('fixture-room',input.operation_id),state.receipt);
+  assert.deepEqual(await transport.availableCryptoKeyPackage('fixture-room','fixture-user','fixture-device'),available);
+  assert.throws(()=>decodeNative('GroupState',{...state,receipt:{...state.receipt,epoch:9007199254740992}}));
+  assert.throws(()=>decodeNative('GroupEventPage',{...events,events:[{...events.events[0],private_key:'forbidden'}]}));
+});
+
 test('E2EE transport replays the original public intent after lost acknowledgement',async()=>{
   const requests:{url:string;options?:RequestInit}[]=[];
   let lost=true;

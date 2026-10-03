@@ -215,6 +215,7 @@ pub async fn prepare(app: &App, actor: &Account, input: PrepareUpload) -> Result
         return Err(Error::conflict());
     }
     crate::permissions::require_send(&mut tx, &input.room_id, &actor.id).await?;
+    crate::e2ee::groups::require_plaintext(&mut tx, &input.room_id).await?;
     let (pending,recent):(i64,i64)=sqlx::query_as("SELECT count(*) FILTER(WHERE state IN ('prepared','ready') AND expires_at>clock_timestamp()),count(*) FILTER(WHERE created_at>clock_timestamp()-interval '60 seconds') FROM uploads WHERE user_id=$1")
  .bind(&actor.id).fetch_one(&mut *tx).await?;
     if pending >= 10 || recent >= 30 {

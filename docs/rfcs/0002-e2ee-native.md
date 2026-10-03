@@ -3,7 +3,7 @@
 | Métadonnée | Valeur |
 |---|---|
 | Date | 3 octobre 2026 |
-| Statut | Spécification de travail J4 ; coffre client isolé et annuaire public serveur, aucune capacité activée |
+| Statut | Spécification de travail J4 ; coffre client isolé, annuaire et transitions de groupe serveur, aucune capacité activée |
 | Référence | RFC 0001 §13, P18 / P19 |
 | Clients | Fournisseurs des apps mobile, GTK et SwiftUI actuelles |
 
@@ -189,7 +189,11 @@ onze l'ajout d'appareil et huit la récupération de racine, soit 42 scénarios 
 Le coffre reste hors des apps. L'[annuaire public serveur](../protocol/E2EE_DIRECTORY.md)
 consomme les vérificateurs extraits sans clés privées : certificats / demandes /
 grants, publication de vrais KeyPackages et reçus persistants sont disponibles.
-Admission aux groupes et livraison MLS restent ouvertes ; E2EE demeure désactivé.
+Le [lot groupes serveur](../protocol/E2EE_GROUPS.md) ajoute liste signée, CAS de
+révision / époque / parent, consommation atomique des packages et Welcomes
+ciblés, avec vrai ajout / jointure / retrait MLS testés contre PostgreSQL.
+Vérification et admission locales, coordinateur de coffre / outbox et livraison
+des messages restent ouverts ; E2EE demeure désactivé.
 
 ### Archive et récupération
 

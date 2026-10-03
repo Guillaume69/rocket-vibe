@@ -294,8 +294,19 @@ pub(crate) fn leased_bytes(
     lease: Transaction<'static, Postgres>,
     media_type: &'static str,
 ) -> Response {
+    leased_bytes_for(bytes, lease, media_type, DEADLINE)
+}
+
+pub(crate) fn leased_bytes_for(
+    bytes: Bytes,
+    lease: Transaction<'static, Postgres>,
+    media_type: &'static str,
+    remaining: Duration,
+) -> Response {
     let length = bytes.len();
-    let mut response = Response::new(Body::from_stream(LeasedBody::new(bytes, lease)));
+    let mut response = Response::new(Body::from_stream(LeasedBody::new_for(
+        bytes, lease, remaining,
+    )));
     response
         .headers_mut()
         .insert(header::CONTENT_TYPE, media_type.parse().unwrap());
@@ -312,14 +323,20 @@ pub(crate) struct LeasedBody {
     bytes: Option<Bytes>,
     release: Option<oneshot::Sender<()>>,
     active: Arc<AtomicBool>,
+    expires: std::time::Instant,
 }
 impl LeasedBody {
     pub(crate) fn new(bytes: Bytes, lease: Transaction<'static, Postgres>) -> Self {
+        Self::new_for(bytes, lease, DEADLINE)
+    }
+    fn new_for(bytes: Bytes, lease: Transaction<'static, Postgres>, remaining: Duration) -> Self {
+        let duration = std::cmp::min(DEADLINE, remaining);
+        let expires = std::time::Instant::now() + duration;
         let (release, completed) = oneshot::channel();
         let active = Arc::new(AtomicBool::new(true));
         let live = active.clone();
         tokio::spawn(async move {
-            tokio::select! { _ = completed => (), _ = tokio::time::sleep(DEADLINE) => () }
+            tokio::select! { _ = completed => (), _ = tokio::time::sleep(duration) => () }
             live.store(false, Ordering::SeqCst);
             let _ = lease.rollback().await;
         });
@@ -327,6 +344,7 @@ impl LeasedBody {
             bytes: Some(bytes),
             release: Some(release),
             active,
+            expires,
         }
     }
 }
@@ -338,7 +356,7 @@ impl Stream for LeasedBody {
             this.release.take();
             return Poll::Ready(None);
         };
-        if !this.active.load(Ordering::SeqCst) {
+        if !this.active.load(Ordering::SeqCst) || std::time::Instant::now() >= this.expires {
             return Poll::Ready(Some(Err(io::Error::new(
                 io::ErrorKind::TimedOut,
                 "delivery lease expired",
@@ -356,6 +374,21 @@ mod tests {
     use rv_protocol::{Change, CreateRoom, Room, SendMessage};
     use sqlx::PgPool;
     use tower::ServiceExt;
+
+    #[sqlx::test]
+    async fn body_checks_monotonic_expiry_even_when_release_worker_cannot_run(pool: PgPool) {
+        let lease = pool.begin().await.unwrap();
+        let response = leased_bytes_for(
+            Bytes::from_static(b"must never be flushed"),
+            lease,
+            "application/octet-stream",
+            Duration::from_millis(1),
+        );
+        // This deliberately blocks the current runtime so correctness cannot
+        // depend on the expiry task having been scheduled before poll_next.
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(to_bytes(response.into_body(), 128).await.is_err());
+    }
 
     struct Fixture {
         app: App,

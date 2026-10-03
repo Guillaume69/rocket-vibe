@@ -4,6 +4,7 @@ cd "$(dirname "$0")/../../.."
 cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
+node crates/rv-crypto-public/scripts/verify-group-vector.mjs
 cargo fmt --manifest-path crates/rv-crypto-spike/Cargo.toml -- --check
 cargo clippy --locked --manifest-path crates/rv-crypto-spike/Cargo.toml --target-dir target --all-targets -- -D warnings
 cargo test --locked --manifest-path crates/rv-crypto-spike/Cargo.toml --target-dir target

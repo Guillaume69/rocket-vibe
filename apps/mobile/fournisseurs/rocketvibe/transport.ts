@@ -27,6 +27,21 @@ export class NativeError extends Error {
 }
 
 export class NativeTransport {
+  submitCryptoGroup(room:string,input:NativeTypes['GroupSubmission']):Promise<NativeTypes['GroupReceipt']> {
+    return this.request('GroupReceipt',`/api/v1/e2ee/rooms/${encodeURIComponent(room)}/transitions`,input);
+  }
+  cryptoGroupState(room:string):Promise<NativeTypes['GroupState']> {
+    return this.request('GroupState',`/api/v1/e2ee/rooms/${encodeURIComponent(room)}/state`);
+  }
+  cryptoGroupEvents(room:string,after:string):Promise<NativeTypes['GroupEventPage']> {
+    return this.request('GroupEventPage',`/api/v1/e2ee/rooms/${encodeURIComponent(room)}/events?after=${encodeURIComponent(after)}`);
+  }
+  cryptoGroupOperation(room:string,operation:string):Promise<NativeTypes['GroupReceipt']> {
+    return this.request('GroupReceipt',`/api/v1/e2ee/rooms/${encodeURIComponent(room)}/operations/${encodeURIComponent(operation)}`);
+  }
+  availableCryptoKeyPackage(room:string,user:string,device:string):Promise<NativeTypes['AvailableKeyPackage']> {
+    return this.request('AvailableKeyPackage',`/api/v1/e2ee/rooms/${encodeURIComponent(room)}/key-packages/${encodeURIComponent(user)}/${encodeURIComponent(device)}`);
+  }
   registerCryptoDevice(input:NativeTypes['RegisterDevice']):Promise<NativeTypes['OperationReceipt']> {
     return this.request('OperationReceipt','/api/v1/e2ee/devices',input);
   }

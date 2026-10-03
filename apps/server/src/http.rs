@@ -111,6 +111,20 @@ pub fn router(app: App) -> Router {
         .route("/api/v1/me/sessions", get(device_sessions))
         .route("/api/v1/e2ee/devices", post(register_crypto_device))
         .route(
+            "/api/v1/e2ee/rooms/{room}/transitions",
+            post(submit_crypto_group).layer(DefaultBodyLimit::max(4 * 1024 * 1024)),
+        )
+        .route("/api/v1/e2ee/rooms/{room}/state", get(crypto_group_state))
+        .route("/api/v1/e2ee/rooms/{room}/events", get(crypto_group_events))
+        .route(
+            "/api/v1/e2ee/rooms/{room}/operations/{operation}",
+            get(crypto_group_operation),
+        )
+        .route(
+            "/api/v1/e2ee/rooms/{room}/key-packages/{user}/{device}",
+            get(crypto_available_package),
+        )
+        .route(
             "/api/v1/e2ee/key-packages",
             post(publish_crypto_packages).layer(DefaultBodyLimit::max(256 * 1024)),
         )
@@ -791,6 +805,50 @@ async fn device_sessions(State(app): State<App>, headers: HeaderMap) -> Result<R
     let (account, hash, proof) = read_access(&app, &headers, Scope::None).await?;
     let devices = sessions::list(&app, &account).await?;
     proof.json(&app, &hash, &devices, &[], None).await
+}
+async fn submit_crypto_group(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+    input: Input<rv_protocol::e2ee::GroupSubmission>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::e2ee::groups::submit(&app, &actor, &room, crypto_body(input)?).await?,
+    ))
+}
+async fn crypto_group_state(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    crate::e2ee::groups::state(&app, &actor, &room).await
+}
+async fn crypto_group_events(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+    Query(query): Query<CryptoDirectoryQuery>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    crate::e2ee::groups::events(&app, &actor, &room, query.after.as_deref()).await
+}
+async fn crypto_group_operation(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path((room, operation)): Path<(String, String)>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    crate::e2ee::groups::operation(&app, &actor, &room, &operation).await
+}
+async fn crypto_available_package(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path((room, user, device)): Path<(String, String, String)>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    crate::e2ee::groups::available(&app, &actor, &room, &user, &device).await
 }
 async fn register_crypto_device(
     State(app): State<App>,

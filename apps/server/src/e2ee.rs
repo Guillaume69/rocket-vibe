@@ -25,6 +25,7 @@ const PACKAGE_BYTES: usize = 16 * 1024;
 const PACKAGE_BATCH: usize = 8;
 const LIVE_PACKAGES: i64 = 64;
 const DAILY_OPERATIONS: i64 = 256;
+pub mod groups;
 
 fn changed() -> Error {
     Error::new(StatusCode::CONFLICT, "crypto_identity_changed")

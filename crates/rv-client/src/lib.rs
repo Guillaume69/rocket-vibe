@@ -69,6 +69,63 @@ fn retry_after(response: &reqwest::Response) -> Option<u64> {
 }
 
 impl NativeClient {
+    pub async fn submit_crypto_group(
+        &self,
+        room: &str,
+        input: &rv_protocol::e2ee::GroupSubmission,
+    ) -> Result<rv_protocol::e2ee::GroupReceipt, Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        self.post(&format!("/api/v1/e2ee/rooms/{room}/transitions"), input)
+            .await
+    }
+    pub async fn crypto_group_state(
+        &self,
+        room: &str,
+    ) -> Result<rv_protocol::e2ee::GroupState, Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!("/api/v1/e2ee/rooms/{room}/state")).await
+    }
+    pub async fn crypto_group_events(
+        &self,
+        room: &str,
+        after: &str,
+    ) -> Result<rv_protocol::e2ee::GroupEventPage, Error> {
+        if !path_segment(room) || after.is_empty() || !after.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!("/api/v1/e2ee/rooms/{room}/events?after={after}"))
+            .await
+    }
+    pub async fn crypto_group_operation(
+        &self,
+        room: &str,
+        operation: &str,
+    ) -> Result<rv_protocol::e2ee::GroupReceipt, Error> {
+        if !path_segment(room) || !path_segment(operation) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!("/api/v1/e2ee/rooms/{room}/operations/{operation}"))
+            .await
+    }
+    /// Observation only: the package is claimed with the accepted group transition.
+    pub async fn available_crypto_key_package(
+        &self,
+        room: &str,
+        user: &str,
+        device: &str,
+    ) -> Result<rv_protocol::e2ee::AvailableKeyPackage, Error> {
+        if !path_segment(room) || !path_segment(user) || !path_segment(device) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!(
+            "/api/v1/e2ee/rooms/{room}/key-packages/{user}/{device}"
+        ))
+        .await
+    }
     pub async fn register_crypto_device(
         &self,
         input: &rv_protocol::e2ee::RegisterDevice,

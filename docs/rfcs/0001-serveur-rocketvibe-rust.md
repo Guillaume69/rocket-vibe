@@ -2,7 +2,7 @@
 
 | Métadonnée | Valeur |
 |---|---|
-| Statut | Socle J0/J1 engagé à la demande de l'utilisateur ; décisions ouvertes au §18 |
+| Statut | Serveur et fournisseurs natifs en développement ; E2EE J4 en cours, qualification et migration / exploitation J5 ouvertes |
 | Date | 30 septembre 2026 |
 | Périmètre | Serveur, protocole, clients Android / GTK / SwiftUI, migration Rocket.Chat |
 | État du dépôt étudié | `master`, commit `39b513a` ; Android `0.4.0`, bureau `0.5.0` |

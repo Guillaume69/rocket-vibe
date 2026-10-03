@@ -73,3 +73,66 @@ pub struct OperationReceipt {
     pub root_fingerprint: String,
     pub key_package_refs: Vec<String>,
 }
+
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GroupWelcome {
+    pub device_id: String,
+    pub incarnation: String,
+    pub key_package_ref: String,
+    pub payload: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GroupSubmission {
+    pub scope: Scope,
+    pub operation_id: String,
+    pub transition: String,
+    pub commit: Option<String>,
+    pub tree: String,
+    pub welcomes: Vec<GroupWelcome>,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GroupReceipt {
+    pub scope: Scope,
+    pub room_id: String,
+    pub incarnation: String,
+    pub operation_id: String,
+    pub revision: String,
+    pub epoch: String,
+    pub fingerprint: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GroupState {
+    pub receipt: GroupReceipt,
+    pub needs_rekey: bool,
+    pub transition: String,
+    pub tree: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GroupEvent {
+    pub receipt: GroupReceipt,
+    pub transition: String,
+    pub commit: Option<String>,
+    /// Present only for this device's incarnation and current membership grant.
+    pub welcome: Option<GroupWelcome>,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GroupEventPage {
+    pub events: Vec<GroupEvent>,
+    pub next: Option<String>,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AvailableKeyPackage {
+    pub scope: Scope,
+    pub user_id: String,
+    pub device_id: String,
+    pub incarnation: String,
+    pub reference: String,
+    pub wire: String,
+}

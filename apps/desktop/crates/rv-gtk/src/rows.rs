@@ -26,6 +26,8 @@ pub enum RowEvent {
         anchor: gtk::Widget,
         x: f64,
         y: f64,
+        /// The link right-clicked in the text, if any.
+        link: Option<String>,
     },
     JoinCall(String),
     /// The meeting link of a call, by call id.
@@ -639,13 +641,30 @@ pub fn message_widget(
         more.connect_clicked(move |button| {
             let (w, h) = (button.width() as f64, button.height() as f64);
             let anchor = button.clone().upcast();
-            on_menu(RowEvent::Menu { row: Box::new(menu_row.clone()), anchor, x: w / 2.0, y: h });
+            on_menu(RowEvent::Menu { row: Box::new(menu_row.clone()), anchor, x: w / 2.0, y: h, link: None });
         });
+        // On the text, taken before it: its own menu (cut, paste, delete) never shows.
+        let on_text = gtk::GestureClick::builder()
+            .button(gdk::BUTTON_SECONDARY)
+            .propagation_phase(gtk::PropagationPhase::Capture)
+            .build();
+        let (on_menu, menu_row, target) = (on_event.clone(), row.clone(), outer.clone());
+        on_text.connect_pressed(move |gesture, _, x, y| {
+            let anchor: gtk::Widget = target.clone().upcast();
+            if !markdown_view::is_text_at(&anchor, x, y) {
+                return;
+            }
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+            let link = markdown_view::link_at_point(&anchor, x, y);
+            on_menu(RowEvent::Menu { row: Box::new(menu_row.clone()), anchor, x, y, link });
+        });
+        outer.add_controller(on_text);
         let right_click = gtk::GestureClick::builder().button(gdk::BUTTON_SECONDARY).build();
         let (on_menu, menu_row, target) = (on_event, row.clone(), outer.clone());
         right_click.connect_pressed(move |gesture, _, x, y| {
             gesture.set_state(gtk::EventSequenceState::Claimed);
-            on_menu(RowEvent::Menu { row: Box::new(menu_row.clone()), anchor: target.clone().upcast(), x, y });
+            let anchor = target.clone().upcast();
+            on_menu(RowEvent::Menu { row: Box::new(menu_row.clone()), anchor, x, y, link: None });
         });
         outer.add_controller(right_click);
     } else {

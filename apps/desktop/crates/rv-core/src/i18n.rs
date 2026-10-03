@@ -119,6 +119,9 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "The server refuses {type} files ({name})",
     ),
     ("upload.waiting", "En attente", "Waiting"),
+    ("text.open_link", "Ouvrir le lien", "Open link"),
+    ("text.copy_link", "Copier l'adresse du lien", "Copy link address"),
+    ("upload.retrying", "Connexion perdue, nouvel essai…", "Connection lost, retrying…"),
     ("upload.failed", "Échec de l'envoi", "Upload failed"),
     ("upload.retry", "Réessayer", "Retry"),
     ("upload.discard", "Abandonner", "Discard"),
@@ -318,6 +321,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("file.play", "Lire", "Play"),
     ("file.loading", "Téléchargement…", "Downloading…"),
     ("file.failed", "Échec du téléchargement", "Download failed"),
+    ("file.downloading", "Téléchargement… {percent} %", "Downloading… {percent}%"),
     ("file.no_app", "Aucune application pour ouvrir ce fichier", "No application to open this file"),
     ("video.fullscreen", "Plein écran", "Fullscreen"),
     (

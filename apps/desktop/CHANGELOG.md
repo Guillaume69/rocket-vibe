@@ -7,6 +7,22 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- A large video (tens of MB) plays: its download no longer stops after 15 seconds, leaving the
+  card black. Video and file cards show the download's progress; a video already downloaded
+  shows its first image, whatever its size.
+- The update card's Restart brings the app back on Linux sessions where it only closed it
+  (seen on Omarchy).
+- A file whose upload the network cut is sent again by itself within seconds, instead of
+  staying "Waiting" until the app reconnects; meanwhile it reads "Connection lost, retrying…".
+- A right click on a message's text copies the selection, or opens and copies a link, instead
+  of GTK's editing menu where Copy stayed greyed out; elsewhere on the text it opens the
+  message's actions.
+- A click on a search result goes to that message in the room, loading older history if it
+  has to; a reply in a thread opens the thread.
+- On Linux, the call window shows the app's icon instead of a generic one.
+
 ## [0.6.0] - 2026-10-01
 
 ### Added

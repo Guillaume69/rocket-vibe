@@ -312,12 +312,31 @@ pub async fn install(
     }
 }
 
-/// Starts the freshly installed binary once this one is gone: a single
-/// instance would otherwise hand the launch back to the process quitting.
+static RELAUNCH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Asks for the freshly installed binary to replace this process once the
+/// app has quit (`exec_if_relaunching`). A child started to relaunch it raced
+/// the single instance still quitting, and some sessions kill what a quitting
+/// app leaves behind.
 pub fn relaunch() -> bool {
-    let Ok(file) = running_file() else { return false };
-    std::process::Command::new("sh").arg("-c").arg("sleep 1; exec \"$0\"").arg(file).spawn().is_ok()
+    running_file().is_ok() && !RELAUNCH.swap(true, std::sync::atomic::Ordering::SeqCst)
 }
+
+/// After the app quit: the new binary in place of this process, if asked.
+#[cfg(unix)]
+pub fn exec_if_relaunching() {
+    use std::os::unix::process::CommandExt as _;
+    if !RELAUNCH.load(std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    match running_file() {
+        Ok(file) => eprintln!("Relaunch failed: {}", std::process::Command::new(file).exec()),
+        Err(e) => eprintln!("Relaunch failed: {e}"),
+    }
+}
+
+#[cfg(not(unix))]
+pub fn exec_if_relaunching() {}
 
 /// The card offering `release`. `quit` closes the app for a restart or the installer.
 pub fn card(release: Release, quit: Rc<dyn Fn()>, close: Rc<dyn Fn()>) -> gtk::Widget {

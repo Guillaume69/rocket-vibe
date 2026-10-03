@@ -199,8 +199,14 @@ fn fill_profile(
     }
 }
 
-/// `chat.search` in the open room, as you type.
-pub fn search(parent: &impl IsA<gtk::Widget>, session: Arc<Session>, rid: &str) {
+/// `chat.search` in the open room, as you type. A result picked closes the
+/// dialog and goes to it: `go(message id, thread root)`.
+pub fn search(
+    parent: &impl IsA<gtk::Widget>,
+    session: Arc<Session>,
+    rid: &str,
+    go: impl Fn(String, Option<String>) + 'static,
+) {
     let entry = gtk::SearchEntry::builder().placeholder_text(t("search.placeholder")).build();
     let results = gtk::Box::builder().orientation(gtk::Orientation::Vertical).build();
     let status = gtk::Label::builder().css_classes(["details-sub"]).visible(false).margin_top(10).build();
@@ -211,14 +217,21 @@ pub fn search(parent: &impl IsA<gtk::Widget>, session: Arc<Session>, rid: &str) 
     let dialog = dialog(t("search.title"), content.upcast_ref(), 560);
     dialog.present(Some(parent));
     entry.grab_focus();
+    let weak = dialog.downgrade();
+    let go: Rc<dyn Fn(String, Option<String>)> = Rc::new(move |id, thread| {
+        if let Some(dialog) = weak.upgrade() {
+            dialog.close();
+        }
+        go(id, thread);
+    });
     let generation = Rc::new(Cell::new(0u64));
     let rid = rid.to_owned();
     entry.connect_search_changed(move |entry| {
         let query = entry.text().trim().to_owned();
         let current = generation.get() + 1;
         generation.set(current);
-        let (session, generation, results, status, rid) =
-            (session.clone(), generation.clone(), results.clone(), status.clone(), rid.clone());
+        let (session, generation, results, status, rid, go) =
+            (session.clone(), generation.clone(), results.clone(), status.clone(), rid.clone(), go.clone());
         glib::timeout_add_local_once(std::time::Duration::from_millis(350), move || {
             if generation.get() != current {
                 return;
@@ -253,6 +266,11 @@ pub fn search(parent: &impl IsA<gtk::Widget>, session: Arc<Session>, rid: &str) 
                             let blocks =
                                 markdown::render(m.md.as_deref(), m.text.as_deref(), &markdown::Context { me: &me });
                             hit.append(&markdown_view::view(&blocks, &[]));
+                            hit.set_cursor(gtk::gdk::Cursor::from_name("pointer", None).as_ref());
+                            let click = gtk::GestureClick::new();
+                            let (go, id, thread) = (go.clone(), m.id.clone(), m.thread_id.clone());
+                            click.connect_released(move |_, _, _, _| go(id.clone(), thread.clone()));
+                            hit.add_controller(click);
                             results.append(&hit);
                         }
                     }

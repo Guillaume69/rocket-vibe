@@ -255,6 +255,8 @@ button.edit-button.save { background: linear-gradient(135deg, #FF5FA2, #A78BFA);
 .completion row:selected { background: #2C2946; }
 .completion-item { font-size: 14px; }
 .player-frame, .player-holder { background: #000; }
+.video-progress trough { min-height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.25); }
+.video-progress progress { min-height: 6px; border-radius: 3px; background: linear-gradient(90deg, #FF5FA2, #A78BFA); }
 .command-choice { padding: 2px 0; }
 .command-description { color: #8F89AB; font-size: 12.5px; }
 .private-note { border-left-color: #34E1D0; }

@@ -891,11 +891,32 @@ impl Session {
     /// Writes a server file to `dest`, through a temporary name so a failed
     /// transfer never leaves a truncated file where a complete one is expected.
     pub async fn download_to(&self, path_or_url: &str, dest: &std::path::Path) -> Result<(), RestError> {
-        let (bytes, _) = self.rest.fetch_protected(path_or_url).await?;
-        let bytes = self.media.open(path_or_url, bytes)?;
+        self.download_with_progress(path_or_url, dest, |_| {}).await
+    }
+
+    /// The file streamed to disk, reporting the bytes received; a file of an
+    /// encrypted room is deciphered once whole.
+    pub async fn download_with_progress(
+        &self,
+        path_or_url: &str,
+        dest: &std::path::Path,
+        progress: impl Fn(u64) + Send,
+    ) -> Result<(), RestError> {
         let partial = dest.with_extension("part");
-        let written = std::fs::write(&partial, &bytes).and_then(|()| std::fs::rename(&partial, dest));
-        written.map_err(|e| RestError::incomplete(&format!("{}: {e}", dest.display())))
+        let written = |e: std::io::Error| RestError::incomplete(&format!("{}: {e}", dest.display()));
+        let result = async {
+            self.rest.download_protected(path_or_url, &partial, progress).await?;
+            if self.media.encrypted(path_or_url) {
+                let bytes = self.media.open(path_or_url, std::fs::read(&partial).map_err(written)?)?;
+                std::fs::write(&partial, bytes).map_err(written)?;
+            }
+            std::fs::rename(&partial, dest).map_err(written)
+        }
+        .await;
+        if result.is_err() {
+            let _ = std::fs::remove_file(&partial);
+        }
+        result
     }
 
     pub async fn start_call(&self, rid: &str) -> Result<String, RestError> {

@@ -143,5 +143,6 @@ fn main() -> glib::ExitCode {
     }
     background::take_flag(&mut args);
     let code = app.run_with_args(&args);
+    updater::exec_if_relaunching();
     if smoke::failed() { glib::ExitCode::FAILURE } else { code }
 }

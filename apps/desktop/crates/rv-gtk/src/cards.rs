@@ -67,7 +67,7 @@ pub fn quote(session: &Arc<Session>, q: &Quote, me: &str) -> gtk::Widget {
 }
 
 /// Where a server file is kept once fetched, so it opens again without a download.
-fn cache_path(file: &FileAttachment) -> PathBuf {
+pub fn cache_path(file: &FileAttachment) -> PathBuf {
     let dir = glib::user_cache_dir().join("rocket-vibe-rs").join("files");
     let _ = std::fs::create_dir_all(&dir);
     let digest: String = Sha256::digest(file.url.as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect();
@@ -77,13 +77,48 @@ fn cache_path(file: &FileAttachment) -> PathBuf {
 
 /// The file on disk, fetched the first time.
 pub async fn local_copy(session: Arc<Session>, file: FileAttachment) -> Option<PathBuf> {
+    local_copy_with(session, file, |_| {}).await
+}
+
+/// `local_copy`, with `progress` told the bytes received (on the main thread)
+/// as the file comes in.
+pub async fn local_copy_with(
+    session: Arc<Session>,
+    file: FileAttachment,
+    progress: impl Fn(u64) + 'static,
+) -> Option<PathBuf> {
+    const STEP: u64 = 256 * 1024;
     let path = cache_path(&file);
     if path.exists() {
         return Some(path);
     }
+    let (sender, receiver) = async_channel::unbounded::<u64>();
+    glib::spawn_future_local(async move {
+        while let Ok(received) = receiver.recv().await {
+            progress(received);
+        }
+    });
     let dest = path.clone();
-    on_tokio(async move { session.download_to(&file.url, &dest).await.ok() }).await?;
+    let reported = std::sync::atomic::AtomicU64::new(0);
+    let report = move |received: u64| {
+        if received >= reported.load(std::sync::atomic::Ordering::Relaxed) + STEP {
+            reported.store(received, std::sync::atomic::Ordering::Relaxed);
+            let _ = sender.try_send(received);
+        }
+    };
+    on_tokio(async move { session.download_with_progress(&file.url, &dest, report).await.ok() }).await?;
     Some(path)
+}
+
+/// How far a download of `size` bytes has come.
+pub fn progress_text(received: u64, size: Option<i64>) -> String {
+    match size.filter(|s| *s > 0) {
+        Some(size) => {
+            let percent = (received.saturating_mul(100) / size as u64).min(100).to_string();
+            tf("file.downloading", &[("percent", &percent)])
+        }
+        None => format!("{} {}", t("file.loading"), human_size(received as i64)),
+    }
 }
 
 /// A free name for `name` in the Downloads folder: `n-name` when taken.
@@ -102,9 +137,8 @@ pub fn download_path(name: &str) -> PathBuf {
 /// The server file `link` saved to Downloads as `name`.
 pub async fn save_to_downloads(session: Arc<Session>, link: String, name: String) -> Option<PathBuf> {
     on_tokio(async move {
-        let media = session.media.fetch(&link).await.ok()?;
         let path = download_path(&name);
-        std::fs::write(&path, &media.bytes).ok()?;
+        session.download_to(&link, &path).await.ok()?;
         Some(path)
     })
     .await
@@ -192,7 +226,8 @@ pub fn file(session: &Arc<Session>, f: &FileAttachment) -> gtk::Widget {
         let (s, file, button, status) = (s.clone(), file.clone(), button.clone(), status_.clone());
         glib::spawn_future_local(async move {
             let name = file.title.clone();
-            let saved = match local_copy(s, file).await {
+            let (shown, size) = (status.clone(), file.size);
+            let saved = match local_copy_with(s, file, move |n| shown.set_label(&progress_text(n, size))).await {
                 Some(cached) => {
                     on_tokio(async move {
                         let path = download_path(&name);
@@ -221,7 +256,8 @@ pub fn file(session: &Arc<Session>, f: &FileAttachment) -> gtk::Widget {
             (session.clone(), f.clone(), button.clone(), status.clone(), detail.clone(), weak.clone());
         glib::spawn_future_local(async move {
             let kind = f.kind;
-            let path = local_copy(session, f).await;
+            let (shown, size) = (status.clone(), f.size);
+            let path = local_copy_with(session, f, move |n| shown.set_label(&progress_text(n, size))).await;
             button.set_sensitive(true);
             let Some(path) = path else {
                 status.set_label(t("file.failed"));

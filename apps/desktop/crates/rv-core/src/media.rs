@@ -173,6 +173,11 @@ impl MediaCache {
     }
 
     /// Downloaded bytes in clear: decrypted when the path is an encrypted file's.
+    /// Whether the server holds only this file's ciphertext.
+    pub fn encrypted(&self, path_or_url: &str) -> bool {
+        self.keys.lock().unwrap().contains_key(path_or_url)
+    }
+
     pub fn open(&self, path_or_url: &str, bytes: Vec<u8>) -> Result<Vec<u8>, RestError> {
         let Some(encryption) = self.keys.lock().unwrap().get(path_or_url).cloned() else { return Ok(bytes) };
         crate::e2e::decrypt_file(&bytes, &encryption)

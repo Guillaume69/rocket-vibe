@@ -454,7 +454,14 @@ impl ChatPage {
         search_button.connect_clicked(move |_| {
             let Some(this) = weak.upgrade() else { return };
             if let (Some(session), Some(rid)) = (this.session(), this.current_rid()) {
-                crate::details::search(&this.split, session, &rid);
+                let target = Rc::downgrade(&this);
+                crate::details::search(&this.split, session, &rid, move |id, thread| {
+                    let Some(this) = target.upgrade() else { return };
+                    match thread {
+                        Some(root) => this.open_thread_of(&root),
+                        None => this.jump_to(&id),
+                    }
+                });
             }
         });
         let weak = Rc::downgrade(&this);
@@ -865,7 +872,15 @@ impl ChatPage {
                     }
                 });
             }
-            RowEvent::Menu { row, anchor, x, y } => {
+            RowEvent::Menu { row, anchor, x, y, link } => {
+                let selection = self
+                    .list
+                    .selection_text()
+                    .or_else(|| self.thread.borrow().as_ref().and_then(|t| t.list.selection_text()))
+                    .or_else(crate::markdown_view::selected_text);
+                if crate::markdown_view::text_menu(&anchor, x, y, selection, link) {
+                    return;
+                }
                 let Some(open) = self.current.borrow().clone() else { return };
                 let room = actions_menu::RoomContext {
                     rid: open.rid.clone(),
@@ -1277,7 +1292,12 @@ impl ChatPage {
             match session.uploads.progress(&upload.id) {
                 Some(fraction) => column.append(&gtk::ProgressBar::builder().fraction(fraction).build()),
                 None => {
-                    column.append(&label(t(if failed { "upload.failed" } else { "upload.waiting" }), &["file-detail"]))
+                    let state = match (failed, session.uploads.reconnecting()) {
+                        (true, _) => "upload.failed",
+                        (false, true) => "upload.retrying",
+                        (false, false) => "upload.waiting",
+                    };
+                    column.append(&label(t(state), &["file-detail"]))
                 }
             }
             row.append(&column);

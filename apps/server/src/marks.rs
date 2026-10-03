@@ -8,6 +8,28 @@ use crate::{
 use axum::http::StatusCode;
 use rv_protocol::{Change, Message, MessagePage, PersonalStar, parity::SetMark};
 
+pub(crate) async fn personalize_mentions(
+    conn: &mut sqlx::PgConnection,
+    user: &str,
+    messages: &mut [Message],
+) -> Result<()> {
+    let ids: Vec<_> = messages
+        .iter()
+        .filter(|m| !m.deleted)
+        .map(|m| m.id.clone())
+        .collect();
+    let mentions: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT message_id FROM message_mentions WHERE user_id=$1 AND message_id=ANY($2)",
+    )
+    .bind(user)
+    .bind(&ids)
+    .fetch_all(conn)
+    .await?;
+    for message in messages {
+        message.personal_mention = Some(!message.deleted && mentions.contains(&message.id));
+    }
+    Ok(())
+}
 pub(crate) async fn personalize(
     conn: &mut sqlx::PgConnection,
     user: &str,
@@ -20,15 +42,8 @@ pub(crate) async fn personalize(
         .collect();
     let rows: Vec<(String,bool,i64)> = sqlx::query_as("SELECT message_id,present,revision FROM message_stars WHERE user_id=$1 AND message_id=ANY($2)")
         .bind(user).bind(&ids).fetch_all(&mut *conn).await?;
-    let mentions: Vec<String> = sqlx::query_scalar(
-        "SELECT DISTINCT message_id FROM message_mentions WHERE user_id=$1 AND message_id=ANY($2)",
-    )
-    .bind(user)
-    .bind(&ids)
-    .fetch_all(conn)
-    .await?;
+    personalize_mentions(conn, user, messages).await?;
     for message in messages {
-        message.personal_mention = Some(!message.deleted && mentions.contains(&message.id));
         message.personal_star = Some(Box::new(
             rows.iter()
                 .find(|r| r.0 == message.id)

@@ -2310,9 +2310,11 @@ async fn exchange_replay_restart_and_privacy(pool: PgPool) {
     let batch = server
         .changes(&bob_session.token, &bob_initial.cursor)
         .await;
-    // Public journal messages carry no recipient's private star state.
+    // Reader batches carry captured mention eligibility, while stars keep their
+    // own journal events and shared stored messages carry neither annotation.
     let mut public_first = first.clone();
     public_first.personal_star = None;
+    public_first.personal_mention = Some(false);
     assert!(
         batch
             .changes

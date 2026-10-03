@@ -7,6 +7,11 @@ const PASSWORD: &str = "disposable-push-test-password";
 #[sqlx::test]
 async fn push_reader_mentions_are_captured_privately_and_never_in_the_shared_message(pool: PgPool) {
     let (app, owner, recipient, _, room) = setup(pool).await;
+    let recipient_cursor = crate::sync::snapshot(&app, &recipient)
+        .await
+        .unwrap()
+        .cursor;
+    let owner_cursor = crate::sync::snapshot(&app, &owner).await.unwrap().cursor;
     let here = store::send(
         &app,
         &owner,
@@ -27,6 +32,16 @@ async fn push_reader_mentions_are_captured_privately_and_never_in_the_shared_mes
         .await
         .unwrap();
     assert_eq!(direct.personal_mention, None);
+    for (reader, cursor, mentioned) in [
+        (&recipient, &recipient_cursor, true),
+        (&owner, &owner_cursor, false),
+    ] {
+        let batch = crate::sync::changes(&app, reader, cursor, 100)
+            .await
+            .unwrap();
+        assert!(batch.changes.iter().any(|c|matches!(c,rv_protocol::Change::MessageUpsert(m) if m.id==direct.id&&m.personal_mention==Some(mentioned))));
+        assert!(batch.changes.iter().any(|c|matches!(c,rv_protocol::Change::MessageUpsert(m) if m.id==here.id&&m.personal_mention==Some(false))));
+    }
     assert_eq!(
         crate::message_actions::read(&app, &recipient, &direct.id)
             .await

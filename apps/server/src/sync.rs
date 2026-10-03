@@ -186,6 +186,12 @@ pub async fn changes(app: &App, account: &Account, token: &str, limit: i64) -> R
         .await?;
         if allowed {
             if let Change::MessageUpsert(message) = &mut change.0 {
+                crate::marks::personalize_mentions(
+                    &mut tx,
+                    &account.id,
+                    std::slice::from_mut(message),
+                )
+                .await?;
                 crate::quotes::personalize(&mut tx, &account.id, std::slice::from_mut(message))
                     .await?;
             }

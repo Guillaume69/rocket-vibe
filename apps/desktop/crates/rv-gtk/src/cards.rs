@@ -380,6 +380,11 @@ pub fn players_shown() -> usize {
     LIVE.with_borrow(HashMap::len)
 }
 
+/// How many of them are on screen.
+pub fn players_mapped() -> usize {
+    LIVE.with_borrow(|live| live.values().filter(|l| l.player.is_mapped()).count())
+}
+
 /// Stops the videos playing in these messages' cards.
 pub fn stop_players(message_ids: &HashSet<&str>) {
     let stopped: Vec<Live> = LIVE.with_borrow_mut(|live| {

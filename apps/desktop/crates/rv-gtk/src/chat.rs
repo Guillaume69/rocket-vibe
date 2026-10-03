@@ -1697,6 +1697,14 @@ impl ChatPage {
         self.rooms.borrow().iter().any(|r| r.rid == rid)
     }
 
+    pub fn scroll_list_to_top(&self) {
+        self.list.scroll_to_top();
+    }
+
+    pub fn scroll_list_to_bottom(&self) {
+        self.list.scroll_to_bottom();
+    }
+
     pub fn room_named(&self, name: &str) -> Option<String> {
         self.rooms.borrow().iter().find(|r| r.name == name).map(|r| r.rid.clone())
     }

@@ -7,6 +7,8 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+## [0.5.0] - 2026-10-03
+
 ### Ajouté
 
 - Les commandes slash : un `/` en tête de message propose les commandes du serveur que tu
@@ -112,7 +114,8 @@ Première version publiée : Android, pour Rocket.Chat 8 ou plus récent.
 - Profils, informations de salon, mon profil (statut, photo, informations).
 - Interface en français et en anglais.
 
-[Non publié]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.4.0...HEAD
+[Non publié]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.5.0...HEAD
+[0.5.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.4.0...mobile-v0.5.0
 [0.4.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.3.1...mobile-v0.4.0
 [0.3.1]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.3.0...mobile-v0.3.1
 [0.3.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.2.0...mobile-v0.3.0

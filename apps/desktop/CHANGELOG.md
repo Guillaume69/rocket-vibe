@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-03
+
 ### Fixed
 
 - A large video (tens of MB) plays: its download no longer stops after 15 seconds, leaving the
@@ -308,7 +310,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.6.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.6.1...HEAD
+[0.6.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.6.0...desktop-v0.6.1
 [0.6.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.5.0...desktop-v0.6.0
 [0.5.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.4.1...desktop-v0.5.0
 [0.4.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.4.0...desktop-v0.4.1

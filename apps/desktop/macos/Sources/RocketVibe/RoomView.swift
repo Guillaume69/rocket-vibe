@@ -65,7 +65,10 @@ struct RoomView: View {
                 Button { panel = .search } label: { Image(systemName: "magnifyingglass") }.help(L("search.title"))
                     .keyboardShortcut("f", modifiers: .command)
                     .disabled(!model.supportsSearch)
-                Button { panel = .info } label: { Image(systemName: "info.circle") }.help(L("info.room"))
+                Button {
+                    if let uid = model.directPeerId { panel = .profileId(uid) }
+                    else { panel = .info }
+                } label: { Image(systemName: "info.circle") }.help(L("info.room"))
                     .disabled(!model.supportsRoomInfo)
             }
         }

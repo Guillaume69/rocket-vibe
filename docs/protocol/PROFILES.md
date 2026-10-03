@@ -157,10 +157,19 @@ attente, demandent la preuve récente existante, puis proposent reprise / abando
 Une préférence ou une photo indépendante ne donne pas à un brouillon de profil
 le droit d'écraser silencieusement une modification concurrente.
 
-Vérification : 12 tests ciblés Rust / clippy ; 39 contrôles du vrai binaire GTK
-incluant la fiche publique et l'enregistrement personnel ; modèle Swift personnel
-contre PostgreSQL et Secret Service (1,4 s), conflit, abandon, préférences et
-photos protégées. Les notifications de profil conservent les téléchargements
-d'avatars courants, dont les IDs sont immuables. Compilation des vues macOS suivie
-par la CI. Restent les métadonnées / photos de la liste de DM bureau à compléter
-et les qualifications sur applications installées ; P16 reste ouvert.
+Les listes et en-têtes de DM bureau utilisent une projection commune du cœur,
+avec l'UID de l'interlocuteur reçu dans le live et son identité publique courante.
+Le lien SQLite est conservé hors ligne pour la même adhésion, effacé lors d'un
+retrait / changement d'adhésion ou d'autorité ; une ancienne photo live ne peut
+le rétablir. Seuls nom / UID / référence de photo sont persistés, sans présence,
+saisie, email ni préférences. Le bouton d'information réutilise la fiche publique
+par UID, même après un renommage. Retrait et remplacement de photo actualisent
+les tuiles existantes ; aucun chemin d'avatar Rocket.Chat ne reçoit un bearer natif.
+
+Vérification : 13 tests ciblés Rust / clippy ; 43 contrôles du vrai binaire GTK
+incluant les fiches, l'enregistrement personnel, le nom et la photo du DM,
+l'information par UID et le retrait de photo. Les notifications de profil
+conservent les téléchargements d'avatars courants, dont les IDs sont immuables.
+Les modèles Swift et le scénario connecté de profil sont vérifiés avec le serveur
+PostgreSQL et Secret Service ; compilation des vues macOS suivie par la CI.
+Les qualifications sur applications installées restent ouvertes dans P16.

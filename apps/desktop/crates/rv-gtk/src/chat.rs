@@ -203,8 +203,10 @@ impl ChatPage {
                 RoomItem::Room(room) => {
                     item.set_selectable(true);
                     item.set_activatable(true);
-                    let presence = native_shared.borrow().as_ref().and_then(|s| s.room_presence(&room.rid));
-                    let widget = crate::rows::room_widget_with_presence(room, shared.borrow().as_ref(), presence);
+                    let widget = match native_shared.borrow().as_ref() {
+                        Some(session) => crate::rows::native_room_widget(room, session),
+                        None => crate::rows::room_widget_with_presence(room, shared.borrow().as_ref(), None),
+                    };
                     if let Some(session) = shared.borrow().clone() {
                         favorite_menu(&widget, session, &room.rid, room.favorite);
                     } else if let Some(session) = native_shared.borrow().clone() {
@@ -1222,6 +1224,12 @@ impl ChatPage {
     pub fn show_room_info(self: &Rc<Self>) {
         if let Some(session) = self.native_session() {
             let Some(rid) = self.current_rid() else { return };
+            if session.profiles_available()
+                && let Ok(Some(peer)) = session.store.direct_peer(&rid)
+            {
+                self.show_profile(&peer.user.id, true);
+                return;
+            }
             if !session.supported_features().iter().any(|f| f == "room_info") {
                 return;
             }
@@ -1579,7 +1587,12 @@ impl ChatPage {
             {
                 open.name = r.name.clone();
                 open.read_only = r.read_only;
-                open.avatar = room_avatar_path(r);
+                open.dm_other_uid = r.dm_other_uid.clone();
+                open.avatar = if self.native_session().is_some() {
+                    r.avatar_etag.as_ref().map(|id| format!("rv-avatar:{id}"))
+                } else {
+                    room_avatar_path(r)
+                };
             }
             self.rooms.replace(rows);
             self.select_current(!(self.split.is_collapsed() && !self.split.shows_content()));
@@ -1626,7 +1639,15 @@ impl ChatPage {
             self.room_title.remove(&child);
         }
         let tile = room_tile(&open.name, &open.kind, open.encrypted, TileSize::Header);
-        self.room_title.append(&with_photo(tile, self.session.borrow().as_ref(), open.avatar.clone()));
+        let tile = match self.native_session() {
+            Some(session) => crate::rows::with_native_photo(
+                tile,
+                &session,
+                open.avatar.as_deref().and_then(|path| path.strip_prefix("rv-avatar:")).map(str::to_owned),
+            ),
+            None => with_photo(tile, self.session.borrow().as_ref(), open.avatar.clone()),
+        };
+        self.room_title.append(&tile);
         let names = gtk::Box::builder().orientation(gtk::Orientation::Vertical).valign(gtk::Align::Center).build();
         let title = label(&open.name, &["room-title"]);
         title.set_ellipsize(gtk::pango::EllipsizeMode::End);

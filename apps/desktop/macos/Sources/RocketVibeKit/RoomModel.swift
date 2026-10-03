@@ -16,6 +16,10 @@ public final class RoomModel {
     public var supportsFiles: Bool { provider.supportsFiles }
     public var supportsEditing: Bool { provider.supportsEditing }
     public var supportsRoomInfo: Bool { active && provider.supportsRoomInfo }
+    public var directPeerId: String? {
+        guard active, provider.supportsProfiles, room.kind == "d", membershipIsCurrent, let native = provider.native else { return nil }
+        return try? native.directPeerId(room: room.rid)
+    }
     public var supportsRoomManagement: Bool { active && provider.native != nil && provider.supportsRoomInfo }
     public var supportsRoomFavorite: Bool { active && provider.native?.supportedFeatures().contains("favorites") == true }
     public func readState() throws -> NativeRoomReadState? {

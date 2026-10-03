@@ -309,6 +309,17 @@ pub fn room_widget_with_presence(
     session: Option<&Arc<Session>>,
     native_presence: Option<rv_core::live::Presence>,
 ) -> gtk::Widget {
+    room_widget(r, session, native_presence, None)
+}
+pub fn native_room_widget(r: &RoomRow, session: &Arc<rv_core::native::NativeSession>) -> gtk::Widget {
+    room_widget(r, None, session.room_presence(&r.rid), Some(session))
+}
+fn room_widget(
+    r: &RoomRow,
+    session: Option<&Arc<Session>>,
+    native_presence: Option<rv_core::live::Presence>,
+    native: Option<&Arc<rv_core::native::NativeSession>>,
+) -> gtk::Widget {
     let unread = r.unread > 0 || r.alert;
     let name = label(&r.name, &["room-name"]);
     name.set_hexpand(true);
@@ -352,7 +363,11 @@ pub fn room_widget_with_presence(
     column.append(&bottom);
 
     let row = gtk::Box::builder().spacing(12).margin_top(9).margin_bottom(9).margin_start(10).margin_end(10).build();
-    let tile = with_photo(room_tile(&r.name, &r.kind, r.encrypted, TileSize::Room), session, room_avatar_path(r));
+    let tile = room_tile(&r.name, &r.kind, r.encrypted, TileSize::Room);
+    let tile = match native {
+        Some(native) => with_native_photo(tile, native, r.avatar_etag.clone()),
+        None => with_photo(tile, session, room_avatar_path(r)),
+    };
     let presence =
         native_presence.or_else(|| r.dm_other_uid.as_deref().zip(session).and_then(|(uid, s)| s.presence(uid)));
     let tile = match presence {

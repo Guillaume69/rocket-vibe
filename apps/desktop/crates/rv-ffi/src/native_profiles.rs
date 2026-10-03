@@ -83,6 +83,12 @@ fn own(value: OwnProfile) -> NativeOwnProfile {
 }
 #[uniffi::export]
 impl NativeChat {
+    pub fn direct_peer_id(&self, room: String) -> Result<Option<String>, RvError> {
+        if self.session.is_closed() {
+            return Ok(None);
+        }
+        self.session.store.direct_peer(&room).map(|p| p.map(|p| p.user.id)).map_err(RvError::local)
+    }
     pub async fn direct_user(&self, user_id: String) -> Result<String, RvError> {
         let s = self.session.clone();
         on_tokio(async move { s.direct_user(&user_id).await }).await.map_err(error)

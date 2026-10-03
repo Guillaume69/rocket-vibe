@@ -9,6 +9,12 @@ section here.
 
 ### Fixed
 
+- Native direct conversations now show the peer's current name and protected
+  photo in the existing GTK and SwiftUI lists and headers. Their information
+  button opens the existing profile by stable user ID. Retired photos disappear,
+  and the peer identity survives restart within the same room membership.
+  The SwiftUI personal profile loader now belongs to its settings view.
+
 - Personal profiles, status, photos, language and notification preferences now
   use the existing GTK and SwiftUI settings with either server. Native changes
   survive retries; rejected changes can be resumed or discarded, and verified

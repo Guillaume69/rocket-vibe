@@ -8,7 +8,7 @@ mod room_access;
 mod room_operations;
 mod threads;
 use super::Identity;
-pub use profiles::{AvatarUpload, ProfileOperation, SavedProfileOperation};
+pub use profiles::{AvatarUpload, DirectPeer, ProfileOperation, SavedProfileOperation};
 pub use quotes::QuoteSelection;
 pub use read_intents::{PendingRead, SavedFavorite};
 pub use room_access::RoomAccess;
@@ -223,6 +223,7 @@ impl NativeStore {
             for table in [
                 "native_state",
                 "native_users",
+                "native_direct_peers",
                 "native_profile_operations",
                 "native_rooms",
                 "native_messages",
@@ -529,6 +530,7 @@ impl NativeStore {
     }
     fn remove_content(tx: &Transaction, rid: &str) -> rusqlite::Result<()> {
         for table in [
+            "native_direct_peers",
             "native_messages",
             "native_outbox",
             "native_drafts",
@@ -556,6 +558,7 @@ impl NativeStore {
             if !self.same(tx)? {
                 for table in [
                     "native_users",
+                    "native_direct_peers",
                     "native_profile_operations",
                     "native_rooms",
                     "native_messages",

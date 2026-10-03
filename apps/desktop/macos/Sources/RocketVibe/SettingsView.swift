@@ -87,6 +87,12 @@ struct SettingsView: View {
             language = (try? String(contentsOfFile: app.client.configDir() + "/language", encoding: .utf8))?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? "auto"
         }
+        .task(id: app.sessionId) {
+            profile?.close()
+            let fresh = MyProfileModel(app: app); profile = fresh
+            await fresh.load()
+        }
+        .onDisappear { profile?.close() }
     }
 }
 
@@ -119,12 +125,6 @@ struct DevicesSection: View {
                 Button(L("devices.refresh")) { Task { await model.load() } }.disabled(model.busy)
             }
         }
-        .task(id: app.sessionId) {
-            profile?.close()
-            let fresh = MyProfileModel(app: app); profile = fresh
-            await fresh.load()
-        }
-        .onDisappear { profile?.close() }
         .task(id: app.native.map(ObjectIdentifier.init)) {
             selected = nil; selectedModel = nil
             let fresh = DevicesModel(app: app); model = fresh; await fresh.load()

@@ -79,6 +79,19 @@ fn occurrences(root: &gtk::Widget, text: &str) -> usize {
     }
     count
 }
+fn has_photo(root: &gtk::Widget) -> bool {
+    if root.downcast_ref::<gtk::Picture>().and_then(|p| p.paintable()).is_some() {
+        return true;
+    }
+    let mut child = root.first_child();
+    while let Some(widget) = child {
+        if has_photo(&widget) {
+            return true;
+        }
+        child = widget.next_sibling();
+    }
+    false
+}
 
 fn has_quote(root: &gtk::Widget, text: &str) -> bool {
     if root.has_css_class("quote-card") && occurrences(root, text) > 0 {
@@ -520,6 +533,38 @@ async fn live_controls(window: &Rc<AppWindow>, session: &std::sync::Arc<rv_core:
         })
         .await
         .unwrap();
+    let png = gtk::gdk_pixbuf::Pixbuf::new(gtk::gdk_pixbuf::Colorspace::Rgb, true, 8, 4, 4).unwrap();
+    png.fill(0xff5fa2ff);
+    let bytes = png.save_to_bufferv("png", &[]).unwrap();
+    let current = peer.clone();
+    let own = crate::on_tokio(async move {
+        let own = current.own_profile().await.unwrap();
+        let updated = current
+            .change_profile(rv_core::native::store::ProfileOperation::Profile {
+                input: rv_core::native::profiles::UpdateProfile {
+                    operation_id: rv_core::native::room_operation_id(),
+                    expected_revision: own.profile.revision,
+                    username: own.profile.user.username,
+                    display_name: "GTK current DM peer".into(),
+                    bio: "GTK DM peer public bio".into(),
+                    status: own.profile.status,
+                    status_text: own.profile.status_text,
+                },
+            })
+            .await
+            .unwrap();
+        current
+            .change_profile(rv_core::native::store::ProfileOperation::Avatar {
+                input: rv_core::native::profiles::AvatarCommand {
+                    operation_id: rv_core::native::room_operation_id(),
+                    expected_revision: updated.profile.revision,
+                },
+                upload: Some(rv_core::native::store::AvatarUpload::from_bytes("image/png".into(), &bytes)),
+            })
+            .await
+            .unwrap()
+    })
+    .await;
     let current = session.clone();
     let dm = crate::runtime().spawn(async move { current.direct("mobile").await.unwrap() }).await.unwrap();
     for _ in 0..300 {
@@ -538,6 +583,61 @@ async fn live_controls(window: &Rc<AppWindow>, session: &std::sync::Arc<rv_core:
     check(
         "native presence uses existing GTK DM header",
         window.chat.header_presence().as_deref() == Some("online"),
+        (),
+    );
+    for _ in 0..100 {
+        if occurrences(window.window.upcast_ref(), "GTK current DM peer") >= 2
+            && super::find_by_class(window.window.upcast_ref(), "tile-header").is_some_and(|tile| has_photo(&tile))
+        {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    check(
+        "native current DM name uses existing GTK list and header",
+        occurrences(window.window.upcast_ref(), "GTK current DM peer") >= 2,
+        (),
+    );
+    check(
+        "native protected DM photo uses existing GTK header",
+        super::find_by_class(window.window.upcast_ref(), "tile-header").is_some_and(|tile| has_photo(&tile)),
+        (),
+    );
+    window.chat.show_room_info();
+    for _ in 0..100 {
+        if super::find_by_class(window.window.upcast_ref(), "user-profile-dialog")
+            .is_some_and(|p| contains(&p, "GTK DM peer public bio"))
+        {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    let profile = super::find_by_class(window.window.upcast_ref(), "user-profile-dialog").unwrap();
+    check("native DM information opens existing profile by UID", contains(&profile, "GTK DM peer public bio"), ());
+    profile.downcast::<adw::Dialog>().unwrap().close();
+    let current = peer.clone();
+    crate::on_tokio(async move {
+        current
+            .change_profile(rv_core::native::store::ProfileOperation::Avatar {
+                input: rv_core::native::profiles::AvatarCommand {
+                    operation_id: rv_core::native::room_operation_id(),
+                    expected_revision: own.profile.revision,
+                },
+                upload: None,
+            })
+            .await
+            .unwrap()
+    })
+    .await;
+    for _ in 0..100 {
+        if super::find_by_class(window.window.upcast_ref(), "tile-header").is_some_and(|tile| !has_photo(&tile)) {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    check(
+        "native retired DM photo leaves existing GTK header",
+        super::find_by_class(window.window.upcast_ref(), "tile-header").is_some_and(|tile| !has_photo(&tile)),
         (),
     );
     let grant = peer.store.read_state(&dm).unwrap().unwrap().membership_version;

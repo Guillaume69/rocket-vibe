@@ -9,6 +9,7 @@ enum Panel: Identifiable, Equatable {
     case search
     case marked
     case profile(String)
+    case profileId(String)
 
     var id: String {
         switch self {
@@ -16,6 +17,7 @@ enum Panel: Identifiable, Equatable {
         case .search: return "search"
         case .marked: return "marked"
         case let .profile(username): return "profile:\(username)"
+        case let .profileId(uid): return "profile-id:\(uid)"
         }
     }
 }
@@ -30,6 +32,7 @@ struct PanelView: View {
         case .search: SearchView(model: model)
         case .marked: MarkedView(model: model)
         case let .profile(username): ProfileView(username: username)
+        case let .profileId(uid): ProfileView(username: uid, byId: true)
         }
     }
 }
@@ -121,6 +124,7 @@ struct ProfileView: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.openURL) var openURL
     let username: String
+    var byId = false
     @State var person: Person?
     @State var failed = false
     @State var shownAccount:UUID?
@@ -168,7 +172,7 @@ struct ProfileView: View {
             let account=app.sessionId
             do {
                 let previous=shownAccount==account ? person : nil
-                let loaded=try await provider.person(key:previous?.id ?? username,byId:previous != nil)
+                let loaded=try await provider.person(key:previous?.id ?? username,byId:previous != nil || byId)
                 guard app.sessionId==account,!Task.isCancelled else{return}
                 person=loaded;shownAccount=account;failed=false
             } catch {if app.sessionId==account,!Task.isCancelled{person=nil;failed=true}}

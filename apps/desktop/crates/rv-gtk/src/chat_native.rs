@@ -1,6 +1,6 @@
 //! Native provider binding for the existing ChatPage, MessageList and Composer.
 use super::*;
-use rv_core::native::{NativeSession, RoomKind};
+use rv_core::native::NativeSession;
 use tokio::sync::broadcast::error::RecvError;
 
 impl ChatPage {
@@ -128,46 +128,7 @@ impl ChatPage {
         let Some(session) = self.native_session() else {
             return vec![];
         };
-        session
-            .store
-            .rooms()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|room| {
-                let (unread, mentions, alert) = if session.supported_features().iter().any(|f| f == "read_markers") {
-                    rv_core::native::read_presentation::badges(room.read_state.as_deref())
-                } else {
-                    (0, 0, false)
-                };
-                let read_only = !session.can_send_to_room(&room.id);
-                let last = session.store.messages(&room.id, 1).ok().and_then(|mut r| r.pop());
-                let last_type = last.as_ref().and_then(|r| r.system_type.clone());
-                RoomRow {
-                    rid: room.id,
-                    kind: match room.kind {
-                        RoomKind::Direct => "d",
-                        RoomKind::Private => "p",
-                        RoomKind::Public => "c",
-                    }
-                    .into(),
-                    name: room.name,
-                    last_message: last.as_ref().map(|r| r.text.clone()),
-                    last_ts: last.as_ref().map_or(0, |r| r.ts),
-                    unread,
-                    mentions,
-                    alert,
-                    favorite: room.read_state.as_ref().is_some_and(|s| s.favorite),
-                    encrypted: false,
-                    read_only,
-                    dm_other_uid: None,
-                    avatar_etag: None,
-                    slug: None,
-                    last_type,
-                    last_author: last.map(|r| r.author),
-                    last_encrypted: None,
-                }
-            })
-            .collect()
+        session.room_rows().unwrap_or_default()
     }
 
     pub(super) fn open_native_room(self: &Rc<Self>, rid: &str) {
@@ -197,9 +158,9 @@ impl ChatPage {
             name: room.name.clone(),
             read_only: room.read_only,
             encrypted: false,
-            avatar: None,
+            avatar: room.avatar_etag.map(|id| format!("rv-avatar:{id}")),
             slug: None,
-            dm_other_uid: None,
+            dm_other_uid: room.dm_other_uid,
         }));
         self.typing_label.set_visible(false);
         self.call_button.set_visible(false);

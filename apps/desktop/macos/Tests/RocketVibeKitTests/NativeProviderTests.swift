@@ -30,6 +30,7 @@ final class NativeProviderTests: XCTestCase {
         XCTAssertFalse(person.id.isEmpty)
         var fields = original.me
         fields.bio = "Swift existing profile \(UUID())"
+        fields.name = "Swift current DM peer"
         let updated = try await native.updateOwnProfile(revision: original.revision, after: fields)
         XCTAssertEqual(updated.me.bio, fields.bio)
         let byId = try await provider.person(key: person.id, byId: true)
@@ -46,7 +47,26 @@ final class NativeProviderTests: XCTestCase {
         let photo = await media.load(withAvatar.me.avatar)
         XCTAssertEqual(photo?.contentType, "image/png")
         XCTAssertFalse(photo?.bytes.isEmpty ?? true)
-        let cleared = try await native.changeAvatar(revision: withAvatar.revision, mime: nil, bytes: Data())
+        let peerHome = home + "-peer"
+        defer { try? FileManager.default.removeItem(atPath: peerHome) }
+        let peer = AppModel(home: peerHome); defer { peer.end() }
+        peer.login.server = server; peer.login.user = "mobile"; peer.login.password = password
+        await peer.submitLogin()
+        try await until { peer.connection == .online }
+        let direct = try await native.direct(username: "mobile")
+        try await until { peer.rooms.contains { $0.rid == direct && $0.name == fields.name && $0.avatar == withAvatar.me.avatar } }
+        peer.open(direct)
+        let directModel = try XCTUnwrap(peer.room)
+        XCTAssertEqual(directModel.directPeerId, person.id)
+        let peerPhoto = await peer.media?.load(directModel.room.avatar ?? "")
+        XCTAssertEqual(peerPhoto?.contentType, "image/png")
+        var renamed = withAvatar.me
+        renamed.name = "Swift renamed DM peer"
+        let changed = try await native.updateOwnProfile(revision: withAvatar.revision, after: renamed)
+        try await until { directModel.room.name == renamed.name }
+        XCTAssertEqual(directModel.directPeerId, person.id)
+        let cleared = try await native.changeAvatar(revision: changed.revision, mime: nil, bytes: Data())
+        try await until { directModel.room.avatar == nil }
         XCTAssertTrue(cleared.me.avatar.isEmpty)
         XCTAssertFalse(media.current(withAvatar.me.avatar))
         XCTAssertNil(media.cached(withAvatar.me.avatar))

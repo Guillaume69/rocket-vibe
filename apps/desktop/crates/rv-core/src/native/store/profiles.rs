@@ -2,6 +2,7 @@ use super::{NativeStore, json};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use rusqlite::{OptionalExtension, params};
 use rv_protocol::profiles::{AvatarCommand, ProfileReceipt, ProfileStamp, UpdatePreferences, UpdateProfile};
+use rv_protocol::{User, live::LiveState};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -90,6 +91,11 @@ pub struct SavedProfileOperation {
     pub phase: String,
     pub error: Option<String>,
 }
+#[derive(Clone, Debug)]
+pub struct DirectPeer {
+    pub user: User,
+    pub avatar_file_id: Option<String>,
+}
 fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<SavedProfileOperation> {
     let id: String = r.get(0)?;
     let slot: String = r.get(1)?;
@@ -102,9 +108,66 @@ fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<SavedProfileOperation> {
 }
 pub(super) fn initialize(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
     conn.execute_batch("CREATE TABLE IF NOT EXISTS native_profile_operations(id TEXT PRIMARY KEY,slot TEXT NOT NULL UNIQUE,payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','proof','failed')),error TEXT);
-        CREATE TABLE IF NOT EXISTS native_users(uid TEXT PRIMARY KEY,payload TEXT NOT NULL,seen INTEGER NOT NULL);")
+        CREATE TABLE IF NOT EXISTS native_users(uid TEXT PRIMARY KEY,payload TEXT NOT NULL,seen INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS native_direct_peers(rid TEXT PRIMARY KEY,membership TEXT NOT NULL,uid TEXT NOT NULL,payload TEXT NOT NULL);")
+}
+fn save_identities(tx: &rusqlite::Transaction<'_>, profiles: &[ProfileStamp]) -> rusqlite::Result<()> {
+    if profiles.len() > 512 {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    for profile in profiles {
+        let payload = json(profile)?;
+        let old: Option<String> = tx
+            .query_row("SELECT payload FROM native_users WHERE uid=?1", [&profile.user.id], |r| r.get(0))
+            .optional()?;
+        if old.as_deref() == Some(&payload) {
+            continue;
+        }
+        tx.execute("INSERT INTO native_users VALUES(?1,?2,(SELECT coalesce(max(seen),0)+1 FROM native_users)) ON CONFLICT(uid) DO UPDATE SET payload=excluded.payload,seen=excluded.seen", params![profile.user.id,payload])?;
+    }
+    tx.execute(
+        "DELETE FROM native_users WHERE uid IN(SELECT uid FROM native_users ORDER BY seen DESC LIMIT -1 OFFSET 512)",
+        [],
+    )?;
+    Ok(())
 }
 impl NativeStore {
+    /// Persist public DM identities, but never the expiring presence/typing observation.
+    pub fn live_profiles(&self, state: &LiveState, alive: impl Fn() -> bool) -> rusqlite::Result<()> {
+        if state.limited || state.ttl_ms == 0 || state.ttl_ms > 8000 {
+            return Ok(());
+        }
+        self.atomic(|tx| {
+            if !alive() || !self.same(tx)? { return Err(rusqlite::Error::InvalidQuery); }
+            for room in &state.rooms {
+                let current = super::read_states::state_in(tx, &room.room_id)?;
+                if current.and_then(|s| s.membership_version).as_deref() != Some(room.membership_version.as_str()) {
+                    return Err(rusqlite::Error::InvalidQuery);
+                }
+                let direct: bool = tx.query_row("SELECT json_extract(payload,'$.kind')='direct' FROM native_rooms WHERE id=?1", [&room.room_id], |r| r.get(0)).optional()?.unwrap_or(false);
+                match room.direct_peer.as_ref().filter(|_| direct) {
+                    Some(user) => {
+                        tx.execute("INSERT INTO native_direct_peers VALUES(?1,?2,?3,?4) ON CONFLICT(rid) DO UPDATE SET membership=excluded.membership,uid=excluded.uid,payload=excluded.payload",params![room.room_id,room.membership_version,user.id,json(user)?])?;
+                    }
+                    None => { tx.execute("DELETE FROM native_direct_peers WHERE rid=?1", [&room.room_id])?; }
+                }
+            }
+            save_identities(tx, &state.profiles)?;
+            if !alive() { return Err(rusqlite::Error::InvalidQuery); }
+            Ok(())
+        })
+    }
+    pub fn direct_peer(&self, rid: &str) -> rusqlite::Result<Option<DirectPeer>> {
+        let conn = self.conn.lock().unwrap();
+        if !self.same(&conn)? {
+            return Ok(None);
+        }
+        conn.query_row("SELECT coalesce(json_extract(u.payload,'$.user'),p.payload),json_extract(u.payload,'$.avatar_file_id') FROM native_direct_peers p JOIN native_rooms r ON r.id=p.rid JOIN native_read_states s ON s.rid=p.rid LEFT JOIN native_users u ON u.uid=p.uid WHERE p.rid=?1 AND p.membership=json_extract(s.payload,'$.membership_version') AND json_extract(r.payload,'$.kind')='direct'",[rid],|r| {
+            let payload: String = r.get(0)?;
+            let user = serde_json::from_str(&payload).map_err(|_| rusqlite::Error::InvalidQuery)?;
+            Ok(DirectPeer { user, avatar_file_id:r.get(1)? })
+        }).optional()
+    }
     pub fn profile_avatar_path(&self, username: &str) -> rusqlite::Result<Option<String>> {
         let conn = self.conn.lock().unwrap();
         if !self.same(&conn)? {
@@ -127,16 +190,15 @@ impl NativeStore {
         if profiles.len() > 512 {
             return Err(rusqlite::Error::InvalidQuery);
         }
-        self.atomic(|tx|{
-            if !alive()||!self.same(tx)?{return Err(rusqlite::Error::InvalidQuery);}
-            for profile in profiles {
-                let payload=json(profile)?;
-                let old:Option<String>=tx.query_row("SELECT payload FROM native_users WHERE uid=?1",[&profile.user.id],|r|r.get(0)).optional()?;
-                if old.as_deref()==Some(&payload){continue;}
-                tx.execute("INSERT INTO native_users VALUES(?1,?2,(SELECT coalesce(max(seen),0)+1 FROM native_users)) ON CONFLICT(uid) DO UPDATE SET payload=excluded.payload,seen=excluded.seen",params![profile.user.id,json(profile)?])?;
+        self.atomic(|tx| {
+            if !alive() || !self.same(tx)? {
+                return Err(rusqlite::Error::InvalidQuery);
             }
-            tx.execute("DELETE FROM native_users WHERE uid IN(SELECT uid FROM native_users ORDER BY seen DESC LIMIT -1 OFFSET 512)",[])?;
-            if !alive(){return Err(rusqlite::Error::InvalidQuery);}Ok(())
+            save_identities(tx, profiles)?;
+            if !alive() {
+                return Err(rusqlite::Error::InvalidQuery);
+            }
+            Ok(())
         })
     }
     pub fn profile_operation(&self, slot: &str) -> rusqlite::Result<Option<SavedProfileOperation>> {

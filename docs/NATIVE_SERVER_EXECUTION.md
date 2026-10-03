@@ -319,6 +319,21 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P16, identités des DM bureau (3 octobre 2026) : listes et en-têtes GTK / SwiftUI
+  existants affichent le nom et la photo protégée courants de leur interlocuteur.
+  Projection commune du cœur, lien SQLite par UID et adhésion, reprise hors ligne,
+  purge après retrait / changement d'adhésion ou d'autorité et refus d'une photo
+  live antérieure à cette adhésion. Le bouton d'information ouvre la même fiche
+  publique par UID. Retrait de photo efface les pixels du DM. La CI macOS a relevé
+  le chargement du profil attaché à la section Appareils ; il appartient maintenant
+  à la vue Réglages qui possède ce modèle. Vérifications : 13 tests ciblés Rust
+  et clippy ; 43 contrôles du vrai binaire GTK, incluant nom / photo dans le DM,
+  fiche par UID et retrait. Bindings et modèles Swift compilés ; parcours connecté
+  contre PostgreSQL / Secret Service réussi en 6,7 s (compilation incrémentale
+  14,3 s), avec renommage et retrait d'avatar dans le DM de l'autre compte.
+  Compilation des vues macOS à confirmer par
+  CI et qualifications installées encore ouvertes ; suite indépendante : P23.
+
 - P16, formulaires personnels bureau (3 octobre 2026) : GTK réutilise son éditeur
   et SwiftUI son formulaire, derrière le fournisseur du compte. Profil / statut,
   photo PNG de 512 pixels, langue et notifications passent par les intentions

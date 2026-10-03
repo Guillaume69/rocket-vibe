@@ -208,7 +208,7 @@ ouverte tant que serveur, clients concernés et scénario de parité manquent.
 | P13 Recherche | J2 / J4 | Recherche PG autorisée, pages bornées, édition / suppression et résultats temporaires raccordés aux écrans existants ; [contrat](SEARCH.md). Index local du chiffré et purge au verrouillage encore ouverts avec J4 ; qualification installée ouverte |
 | P14 Photos / documents / vidéos / vocaux | J3 | Objets protégés, upload / retry / confirmation idempotente ; partage et lecteurs |
 | P15 Liens / cartes | J3 | DTO, métadonnées bornées et refus SSRF ; lecteurs existants |
-| P16 Profils / réglages | J2–J3 | API, volume durable, reçus, fiches publiques et formulaires personnels des trois interfaces existantes raccordés ; statut, bio, langue, notifications, avatars protégés, intentions persistantes, preuve / abandon et DM par UID ; [contrat](PROFILES.md). Métadonnées / photos de liste DM bureau et qualification installée à compléter |
+| P16 Profils / réglages | J2–J3 | API, volume durable, reçus, fiches publiques et formulaires personnels des trois interfaces existantes raccordés ; statut, bio, langue, notifications, avatars protégés, intentions persistantes, preuve / abandon et DM par UID ; noms / photos des listes et en-têtes bureau raccordés ; [contrat](PROFILES.md). Compilation macOS suivie par CI et qualification installée à compléter |
 | P17 Push / notifications | J3 | Tâches durables, FCM et Kotlin, navigation / réponse idempotente ; téléphone app arrêtée |
 | P18 E2EE existant | J4–J5 | Import opaque / paramètres historiques, lecture / envoi depuis cache vierge |
 | P19 E2EE autonome | J4 | Spécification / revue, identités, sauvegardes / nouveaux appareils, rotation / clé perdue |

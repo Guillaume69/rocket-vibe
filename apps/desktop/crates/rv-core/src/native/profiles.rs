@@ -63,8 +63,59 @@ impl NativeSession {
         if state.profiles.len() > 512 || state.profiles.iter().any(|p| !ids.insert(&p.user.id)) {
             return Err(Error::Protocol("invalid_profile_stamps"));
         }
-        self.store.profile_identities(&state.profiles, || !self.is_closed())?;
+        self.store.live_profiles(state, || !self.is_closed())?;
         Ok(())
+    }
+    /// Both desktop interfaces reuse these existing sidebar records.
+    pub fn room_rows(&self) -> Result<Vec<crate::store::RoomRow>, Error> {
+        if self.is_closed() {
+            return Ok(vec![]);
+        }
+        let reads = self.supported_features().iter().any(|f| f == "read_markers");
+        self.store
+            .rooms()?
+            .into_iter()
+            .map(|room| {
+                let peer = self.store.direct_peer(&room.id)?;
+                let (unread, mentions, alert) =
+                    if reads { super::read_presentation::badges(room.read_state.as_deref()) } else { (0, 0, false) };
+                let read_only = !self.can_send_to_room(&room.id);
+                let last = self.store.messages(&room.id, 1)?.pop();
+                Ok(crate::store::RoomRow {
+                    rid: room.id,
+                    kind: match room.kind {
+                        rv_protocol::RoomKind::Direct => "d",
+                        rv_protocol::RoomKind::Private => "p",
+                        rv_protocol::RoomKind::Public => "c",
+                    }
+                    .into(),
+                    name: peer
+                        .as_ref()
+                        .map(|p| {
+                            if p.user.display_name.is_empty() {
+                                p.user.username.clone()
+                            } else {
+                                p.user.display_name.clone()
+                            }
+                        })
+                        .unwrap_or(room.name),
+                    dm_other_uid: peer.as_ref().map(|p| p.user.id.clone()),
+                    avatar_etag: peer.and_then(|p| p.avatar_file_id),
+                    last_message: last.as_ref().map(|m| m.text.clone()),
+                    last_ts: last.as_ref().map_or(0, |m| m.ts),
+                    last_type: last.as_ref().and_then(|m| m.system_type.clone()),
+                    last_author: last.map(|m| m.author),
+                    unread,
+                    mentions,
+                    alert,
+                    favorite: room.read_state.as_ref().is_some_and(|s| s.favorite),
+                    encrypted: false,
+                    read_only,
+                    slug: None,
+                    last_encrypted: None,
+                })
+            })
+            .collect()
     }
     fn profiles_supported(&self, avatar: bool) -> bool {
         self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.profiles && (!avatar || c.profile_avatars))

@@ -353,48 +353,7 @@ impl NativeChat {
     }
     /// The existing sidebar consumes the same grouped rows for both providers.
     pub fn room_groups(&self) -> Result<Vec<RoomGroup>, RvError> {
-        let rows = self
-            .session
-            .store
-            .rooms()
-            .map_err(RvError::local)?
-            .into_iter()
-            .map(|room| {
-                let (unread, mentions, alert) = if self.session.supported_features().iter().any(|f| f == "read_markers")
-                {
-                    rv_core::native::read_presentation::badges(room.read_state.as_deref())
-                } else {
-                    (0, 0, false)
-                };
-                let read_only = !self.session.can_send_to_room(&room.id);
-                let last = self.session.store.messages(&room.id, 1).ok().and_then(|mut rows| rows.pop());
-                let last_type = last.as_ref().and_then(|m| m.system_type.clone());
-                rv_core::store::RoomRow {
-                    rid: room.id,
-                    kind: match room.kind {
-                        rv_core::native::RoomKind::Direct => "d",
-                        rv_core::native::RoomKind::Private => "p",
-                        rv_core::native::RoomKind::Public => "c",
-                    }
-                    .into(),
-                    name: room.name,
-                    last_message: last.as_ref().map(|m| m.text.clone()),
-                    last_ts: last.as_ref().map_or(0, |m| m.ts),
-                    last_author: last.map(|m| m.author),
-                    unread,
-                    mentions,
-                    alert,
-                    favorite: room.read_state.as_ref().is_some_and(|s| s.favorite),
-                    encrypted: false,
-                    read_only,
-                    dm_other_uid: None,
-                    avatar_etag: None,
-                    slug: None,
-                    last_type,
-                    last_encrypted: None,
-                }
-            })
-            .collect::<Vec<_>>();
+        let rows = self.session.room_rows().map_err(native_error)?;
         Ok(rv_core::rooms::sections(&rows)
             .into_iter()
             .map(|(section, rows)| RoomGroup {
@@ -403,8 +362,9 @@ impl NativeChat {
                     .into_iter()
                     .map(|row| {
                         let presence = self.session.room_presence(&row.rid).map(crate::Presence::from);
+                        let avatar = row.avatar_etag.clone().map(|id| format!("rv-avatar:{id}"));
                         let mut room = model::room(row, None, presence);
-                        room.avatar = None;
+                        room.avatar = avatar;
                         room
                     })
                     .collect(),

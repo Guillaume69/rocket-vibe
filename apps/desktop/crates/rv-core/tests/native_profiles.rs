@@ -120,6 +120,76 @@ fn public_identity_changes_refresh_names_without_mutating_journal_positions_or_r
     );
     assert!(store.profile_operation("profile").unwrap().is_some());
 }
+#[test]
+fn direct_peer_identity_survives_offline_and_tracks_profile_changes_only_for_current_membership() {
+    let path = std::env::temp_dir().join(format!("rv-direct-peer-{:032x}.sqlite", fastrand::u128(..)));
+    let store = NativeStore::open(&path, identity()).unwrap();
+    let f = fixture();
+    let mut room: rv_protocol::Room = serde_json::from_value(f["room"].clone()).unwrap();
+    room.kind = rv_protocol::RoomKind::Direct;
+    let mut read: rv_protocol::parity::ReadState = serde_json::from_value(f["parity"]["read_state"].clone()).unwrap();
+    read.membership_version = Some("first-grant".into());
+    room.read_state = Some(Box::new(read));
+    let mut snap =
+        Snapshot { protocol_version: 1, rooms: vec![room.clone()], messages: vec![], cursor: "original".into() };
+    store.snapshot(&snap).unwrap();
+    let mut stamp: ProfileStamp = serde_json::from_value(f["own_profile"]["profile"].clone()).unwrap();
+    stamp.avatar_file_id = Some("a".repeat(64));
+    let frame = rv_protocol::live::LiveState {
+        profiles: vec![stamp.clone()],
+        ttl_ms: 8000,
+        limited: false,
+        presence: vec![],
+        rooms: vec![rv_protocol::live::LiveRoom {
+            room_id: room.id.clone(),
+            membership_version: "first-grant".into(),
+            direct_peer: Some(stamp.user.clone()),
+            typing: vec![],
+        }],
+    };
+    // A response cancelled during the transaction cannot partially publish a peer or avatar.
+    let alive = AtomicUsize::new(0);
+    assert!(store.live_profiles(&frame, || alive.fetch_add(1, Ordering::SeqCst) == 0).is_err());
+    assert!(store.direct_peer(&room.id).unwrap().is_none());
+    assert!(!store.avatar_current(&"a".repeat(64)).unwrap());
+    store.live_profiles(&frame, || true).unwrap();
+    let peer = store.direct_peer(&room.id).unwrap().unwrap();
+    assert_eq!(peer.user.id, stamp.user.id);
+    assert_eq!(peer.avatar_file_id, stamp.avatar_file_id);
+    drop(store);
+    let store = NativeStore::open(&path, identity()).unwrap();
+    store.snapshot(&snap).unwrap();
+    assert_eq!(store.direct_peer(&room.id).unwrap().unwrap().user.id, stamp.user.id);
+    stamp.user.username = "renamed".into();
+    stamp.user.display_name = "New display name".into();
+    stamp.revision = "new-profile".into();
+    stamp.avatar_file_id = None;
+    store.profile_identities(&[stamp.clone()], || true).unwrap();
+    let peer = store.direct_peer(&room.id).unwrap().unwrap();
+    assert_eq!(peer.user.username, "renamed");
+    assert_eq!(peer.user.display_name, "New display name");
+    assert!(peer.avatar_file_id.is_none());
+    assert!(!store.avatar_current(&"a".repeat(64)).unwrap());
+    assert_eq!(store.read_state(&room.id).unwrap(), room.read_state.as_deref().cloned());
+    assert_eq!(store.cursor().unwrap().as_deref(), Some("original"));
+    let next = snap.rooms[0].read_state.as_mut().unwrap();
+    next.membership_version = Some("second-grant".into());
+    next.revision = "9007199254740994".into();
+    store.snapshot(&snap).unwrap();
+    assert!(store.direct_peer(&room.id).unwrap().is_none());
+    assert!(store.live_profiles(&frame, || true).is_err());
+    assert!(store.direct_peer(&room.id).unwrap().is_none());
+    let mut new_frame = frame;
+    new_frame.rooms[0].membership_version = "second-grant".into();
+    store.live_profiles(&new_frame, || true).unwrap();
+    drop(store);
+    let store = NativeStore::open(&path, Identity { data_epoch: "other-authority".into(), ..identity() }).unwrap();
+    assert!(store.direct_peer(&room.id).unwrap().is_none());
+    store.snapshot(&snap).unwrap();
+    assert!(store.direct_peer(&room.id).unwrap().is_none());
+    drop(store);
+    std::fs::remove_file(path).unwrap();
+}
 #[tokio::test]
 async fn native_profile_replay_retains_the_original_form_and_reads_current_private_data() {
     let f = fixture();

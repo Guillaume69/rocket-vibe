@@ -319,6 +319,25 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P19 / J4, identités certifiées et approbation locale (3 octobre 2026) : racine
+  Ed25519 cliente, certificat lié à l'instance / UID / appareil / incarnation /
+  clé MLS, pins explicites et vérification hors bande. La signature seule ne
+  donne aucun accès : un vrai KeyPackage validé par OpenMLS doit présenter la
+  clé certifiée et l'appareil approuvé. Racine changée suspendue, remplacement
+  confirmé effaçant les anciennes approbations, révocations additives après
+  réouverture, refus d'une confirmation ancienne et d'une nouvelle clé sous la
+  même incarnation. Racine privée et décisions sauvegardées dans le coffre
+  transactionnel ; aucune API d'export privé. Neuf tests dédiés passent, soit
+  23 tests crypto Linux plus l'enfant réellement tué ; Clippy avec trousseau et
+  tous les targets sans avertissement. Vecteur public accepté par Rust et par
+  un vérificateur indépendant Node / OpenSSL. Le lot précédent `845ef86` est
+  confirmé par tous les jobs verts du workflow `37140904530`, dont les trois
+  plateformes crypto et les régressions serveur / mobile / bureau / Swift.
+  Demande signée / preuve de possession, cérémonie de nouvel appareil,
+  récupération, politique de salon et livraison restent ouvertes, avec archive,
+  fichiers, pont Android et revue. Aucune capacité E2EE activée ; J4 reste ouvert.
+  [Format et règles](../crates/rv-crypto/IDENTITY.md).
+
 - P19 / J4, checkpoint et trousseau système (3 octobre 2026) : coordinateur Rust
   `protected::Manager`, verrou OS possédé jusqu'au terme de l'écriture plateforme,
   vérification du prédécesseur / confirmation protégée avant résultat réseau / UI.

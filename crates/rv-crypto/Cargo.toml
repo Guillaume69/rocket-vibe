@@ -15,6 +15,7 @@ required-features = ["system-keystore"]
 
 [dependencies]
 chacha20poly1305 = "=0.10.1"
+ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["std", "fast", "zeroize"] }
 getrandom = "0.4"
 openmls = { version = "=0.9.0", default-features = false }
 openmls_rust_crypto = "=0.6.0"

@@ -98,8 +98,10 @@ effacer les copies d'un SSD, du WAL ou d'une sauvegarde. La politique de clés
 J4. [Exigences du stockage OpenMLS](https://book.openmls.tech/user_manual/persistence.html).
 
 MLS n'est pas l'archive récupérable demandée par la RFC. Cette crate ne fournit
-encore ni identité certifiée, ni politique d'admission, ni livraison serveur,
-ni archive / fichiers, ni pont Android. Trousseaux Windows / macOS, ACL Windows,
+encore ni livraison serveur, ni archive / fichiers, ni pont Android. Le module
+[`identity`](IDENTITY.md) fournit racines Ed25519, certificats, pins / confirmations
+explicites et révocations ; la cérémonie de nouvel appareil, la récupération
+et la politique d'admission de salon restent à intégrer. Trousseaux Windows / macOS, ACL Windows,
 restauration des sauvegardes du trousseau et coupure électrique sont à qualifier.
 
 ## Vérifications
@@ -109,9 +111,10 @@ cargo fmt --manifest-path crates/rv-crypto/Cargo.toml -- --check
 cargo clippy --locked --manifest-path crates/rv-crypto/Cargo.toml --target-dir target --all-targets -- -D warnings
 cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --target-dir target
 cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --features system-keystore --target-dir target
+node crates/rv-crypto/scripts/verify-identity-vector.mjs
 ```
 
-Quatorze scénarios Linux passent, dont l'échange OpenMLS entre deux véritables bases
+Vingt-trois scénarios Linux passent, dont l'échange OpenMLS entre deux véritables bases
 rouvertes : consommation / ciphertext original conservés, réception altérée
 annulée puis original accepté, et rejeu refusé. Les autres preuves couvrent AEAD,
 portées, tête ancienne restaurée, auteur concurrent, échec SQL, limites, fichier
@@ -122,8 +125,12 @@ parent et tué à la frontière ; ce n'est pas un scénario omis.
 
 Les preuves du coordinateur couvrent aussi erreurs / réponses perdues du stockage
 protégé, checkpoint initial interrompu, purge répétable, base copiée, permissions
-du parent et verrou conservé pendant une écriture retardée. Clés connues et
-BasicCredentials sont des fixtures publiques non certifiées.
+du parent et verrou conservé pendant une écriture retardée. Les fixtures MLS du
+coffre utilisent des BasicCredentials non certifiés. Neuf tests d'identité
+supplémentaires vérifient les vrais KeyPackages / certificats, substitution de
+clé / racine, expiration / portée, refus sans approbation, confirmation ancienne,
+révocation persistante et racine sauvegardée dans le coffre. Le vecteur signé
+public passe aussi le vérificateur indépendant Node.
 
 [`scripts/keystore-smoke.sh`](scripts/keystore-smoke.sh) utilise un **vrai Secret
 Service Linux**, ses répertoires XDG jetables et plusieurs processus CLI. Un

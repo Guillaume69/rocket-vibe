@@ -53,8 +53,18 @@ L'ajout d'un utilisateur au groupe exige une action d'un membre autorisé, avec
 identité et liste de destinataires présentées avant signature. Les nouveaux
 appareils d'un membre doivent présenter sa délégation valide. Les notifications
 du serveur ne déclenchent pas seules l'admission d'une nouvelle racine E2EE.
-Les décisions de confiance / révocation et leur encodage signé restent un lot
-distinct à tester ; un `BasicCredential` MLS seul ne les fournit pas.
+Le module isolé [`identity`](../../crates/rv-crypto/IDENTITY.md) implémente racines
+Ed25519, certificats bornés, pins explicites, comparaison hors bande et
+révocations monotones. L'admission d'un KeyPackage validé par OpenMLS exige la
+clé de feuille certifiée et son approbation locale exacte. Une confirmation
+ancienne ne peut pas rétablir une autre incarnation ; une racine changée exige
+les empreintes précédente et nouvelle confirmées et efface les approbations.
+Neuf tests couvrent substitution / expiration / révocation / persistance,
+dont un vecteur public également vérifié indépendamment sous Node / OpenSSL.
+Demande signée, cérémonie de nouvel appareil, récupération et liste de salon
+restent à intégrer ; un `BasicCredential` MLS seul ne les fournit pas. Si la
+racine privée est compromise, révoquer une seule feuille ne suffit pas : la
+racine doit être remplacée avec nouvelle vérification hors bande.
 
 ## Groupe, ordre et retraits
 
@@ -162,10 +172,10 @@ durable compromise. La détection de restauration empêche sa réutilisation,
 sans l'effacer. Rotation / destruction des clés de stockage et politique des
 copies constituent une condition de J4, distincte de l'archive récupérable.
 
-Quatorze tests Linux, dont échange MLS après réouverture disque et deux processus
+Quatorze tests du coffre, dont échange MLS après réouverture disque et deux processus
 tués avant / après commit, plus le vrai pilote de trousseau vérifient cette
-fondation. Elle reste hors des apps,
-sans identité certifiée ni livraison réseau ; E2EE demeure désactivé.
+fondation ; neuf tests supplémentaires couvrent les identités certifiées.
+L'ensemble reste hors des apps et sans livraison réseau ; E2EE demeure désactivé.
 
 ### Archive et récupération
 
@@ -216,6 +226,8 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    clés de stockage et qualifications restantes encore ouverts.
 3. Identités, délégations et récupération : substitution, changement de racine,
    certification d'appareil, vérification et révocation testées.
+   Racines / certificats / pins / confirmations et révocations implémentés dans
+   la crate isolée ; demande signée, cérémonie et récupération encore ouvertes.
 4. Livraison PostgreSQL : reçus, commits concurrents, Welcome atomique,
    destinataires / droits, retrait en vol et suspension sans appareil disponible.
 5. Pont mobile et intégration aux fournisseurs actuels ; archive / fichiers,

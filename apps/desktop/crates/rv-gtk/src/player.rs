@@ -83,6 +83,10 @@ fn attach(frame: &gtk::Overlay, _url: &str, html: &str) -> bool {
             println!("player: loaded {}", web.uri().unwrap_or_default());
         }
     });
+    web.connect_unmap(|web| {
+        web.load_uri("about:blank");
+        println!("player: closed");
+    });
     web.load_html(html, Some(&format!("{}/", rv_core::player::ORIGIN)));
     frame.add_overlay(&web);
     true

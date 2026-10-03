@@ -403,15 +403,20 @@ pub fn video_link(session: &Arc<Session>, video: &VideoLink) -> gtk::Widget {
     let playing: std::rc::Rc<std::cell::RefCell<Option<(gtk::Overlay, gtk::Overlay)>>> = std::rc::Rc::default();
     let (weak_card, weak_stop) = (card.downgrade(), stop.downgrade());
     let shown = playing.clone();
-    stop.connect_clicked(move |stop| {
+    let halt: std::rc::Rc<dyn Fn()> = std::rc::Rc::new(move || {
         let (Some(card), Some((player, thumbnail))) = (weak_card.upgrade(), shown.take()) else { return };
         card.insert_child_after(&thumbnail, Some(&player));
         card.remove(&player);
-        stop.set_visible(false);
+        if let Some(stop) = weak_stop.upgrade() {
+            stop.set_visible(false);
+        }
         if let Some(clamp) = card.parent().and_downcast::<adw::Clamp>() {
             refit(&clamp);
         }
     });
+    let h = halt.clone();
+    stop.connect_clicked(move |_| h());
+    let weak_stop = stop.downgrade();
     let (weak_card, weak_frame) = (card.downgrade(), frame.downgrade());
     let (provider, id, url) = (video.provider, video.id.clone(), video.url.clone());
     let play: std::rc::Rc<dyn Fn() -> bool> = std::rc::Rc::new(move || {
@@ -431,6 +436,12 @@ pub fn video_link(session: &Arc<Session>, video: &VideoLink) -> gtk::Widget {
             if let Some(stop) = weak_stop.upgrade() {
                 stop.set_visible(true);
             }
+            // Off screen, a room left or a row recycled, it would play on unseen.
+            let h = halt.clone();
+            player.connect_unmap(move |_| {
+                let h = h.clone();
+                glib::idle_add_local_once(move || h());
+            });
             playing.replace(Some((player, thumbnail)));
             return true;
         }

@@ -319,6 +319,27 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P16 / J2–J3, socle profils (3 octobre 2026) : API publiques sans email,
+  profil personnel avec adresse vérifiée privée, commandes de nom / bio / statut
+  et préférences versionnées séparément. Changement de pseudo protégé par preuve
+  récente ; reçus personnels idempotents, conflits et budget partagé de 20/minute.
+  Avatars PNG / JPEG sur volume local : décodage borné, réencodage sans métadonnées,
+  finalisation durable avant référence SQL, téléchargements authentifiés et
+  invalidation immédiate des anciennes URLs. Nettoyage des orphelins après crash,
+  contrôle de remise et statuts conservés entre appareils. DTO / schéma commun et
+  transports Rust / TypeScript disponibles ; stamps publics de profil dans les
+  photos live, sans changement du journal. Les masques clients restent fermés :
+  intentions persistantes et raccordement aux fiches / réglages / caches existants
+  mobile, GTK et SwiftUI sont la prochaine étape, avant de déclarer P16 livré.
+  Vérifications ciblées : 5 tests API PostgreSQL, 2 régressions live, 7 tests du
+  transport natif, 14 tests du protocole ; Clippy de toutes les cibles des trois
+  crates racine. 19 tests des transports mobiles, typage / lint, schéma généré
+  et inventaire conformes. Le cache live bureau passe son test ciblé.
+  La CI garde tous ses contrôles ; images Fedora / Swift / serveur / check
+  désormais mises en cache via Buildx, caches Cargo enregistrés par commit avec
+  reprise depuis les dépendances correspondantes. L'efficacité de ces caches
+  reste à mesurer sur les prochains runs ; aucune durée gagnée n'est revendiquée.
+
 - P13 / J2, recherche (3 octobre 2026) : index textuel PostgreSQL du texte écrit,
   accès limité aux membres actuels, racines / réponses paginées par position
   exacte et réponse plafonnée à 50 messages / 512 Kio. Édition / suppression

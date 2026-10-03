@@ -7,6 +7,7 @@ pub mod emojis;
 pub mod live;
 pub mod markdown;
 pub mod parity;
+pub mod profiles;
 pub mod search;
 pub mod system;
 
@@ -41,6 +42,8 @@ pub struct Capabilities {
     pub search: bool,
     #[serde(default)]
     pub profiles: bool,
+    #[serde(default)]
+    pub profile_avatars: bool,
     #[serde(default)]
     pub room_info: bool,
     #[serde(default)]
@@ -112,6 +115,7 @@ impl Default for Capabilities {
             read_markers: false,
             search: false,
             profiles: false,
+            profile_avatars: false,
             room_info: false,
             room_settings: false,
             room_roles: false,
@@ -169,6 +173,7 @@ impl Capabilities {
             read_markers,
             search,
             profiles,
+            profile_avatars,
             room_info,
             room_settings,
             room_roles,
@@ -466,6 +471,11 @@ pub struct ApiError {
 /// Single schema root, also used by the TypeScript binding generator.
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct Contract {
+    pub own_profile: profiles::OwnProfile,
+    pub update_profile: profiles::UpdateProfile,
+    pub update_preferences: profiles::UpdatePreferences,
+    pub avatar_command: profiles::AvatarCommand,
+    pub profile_receipt: profiles::ProfileReceipt,
     pub search_messages: search::SearchMessages,
     pub search_page: search::SearchPage,
     pub live_frame: live::LiveFrame,

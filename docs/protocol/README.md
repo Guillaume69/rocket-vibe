@@ -11,6 +11,9 @@ sont versionnés et vérifiés sans diff en CI.
 La [recherche native en salon](SEARCH.md) utilise PostgreSQL, des résultats
 temporaires et les écrans existants ; son index local chiffré reste lié à J4.
 
+Les [profils et préférences](PROFILES.md) disposent d'API versionnées et d'un
+stockage local d'avatars protégés ; leur raccordement aux écrans existants est en cours.
+
 Les [documents Markdown natifs](MARKDOWN.md) sont traduits vers les renderers
 existants aux frontières des fournisseurs. Le texte source reste présent ;
 ce contrat ne transporte pas le format `md` Rocket.Chat.

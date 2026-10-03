@@ -40,7 +40,21 @@ async fn device(tx: &mut Transaction<'_, Postgres>, actor: &Account) -> Result<(
 pub(crate) async fn presence(app: &App, actor: &Account, input: SetPresence) -> Result<()> {
     let mut tx = app.pool.begin().await?;
     let (device, epoch) = device(&mut tx, actor).await?;
-    let status = match input.status {
+    let selected: String = sqlx::query_scalar("SELECT chosen_status FROM users WHERE id=$1")
+        .bind(&actor.id)
+        .fetch_one(&mut *tx)
+        .await?;
+    let effective = if input.status == PresenceStatus::Offline {
+        PresenceStatus::Offline
+    } else {
+        let selected = crate::profiles::status(&selected);
+        if selected == PresenceStatus::Online {
+            input.status
+        } else {
+            selected
+        }
+    };
+    let status = match effective {
         PresenceStatus::Online => "online",
         PresenceStatus::Away => "away",
         PresenceStatus::Busy => "busy",
@@ -128,6 +142,7 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
     .fetch_all(&mut *tx)
     .await?;
     let mut state = LiveState {
+        profiles: vec![],
         ttl_ms: 8000,
         limited: false,
         presence: vec![],
@@ -138,6 +153,29 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
         return Ok(state);
     }
     let ids: Vec<_> = grants.iter().map(|g| &g.room_id).collect();
+    let profiles:Vec<(String,String,String,String,Option<String>,String)>=sqlx::query_as("SELECT id,username,display_name,profile_version,avatar_file_id,status_text FROM users WHERE NOT disabled AND (id=$2 OR id IN (SELECT DISTINCT user_id FROM members WHERE room_id=ANY($1))) ORDER BY id LIMIT 513")
+        .bind(&ids).bind(&actor.id).fetch_all(&mut *tx).await?;
+    if profiles.len() > MAX_OBSERVATIONS {
+        state.limited = true;
+        return Ok(state);
+    }
+    state.profiles = profiles
+        .into_iter()
+        .map(
+            |(id, username, display_name, revision, avatar_file_id, status_text)| {
+                rv_protocol::profiles::ProfileStamp {
+                    user: User {
+                        id,
+                        username,
+                        display_name,
+                    },
+                    revision,
+                    avatar_file_id,
+                    status_text,
+                }
+            },
+        )
+        .collect();
     // Aggregate devices deterministically: busy, online, away, then offline (no lease).
     let people:Vec<(String,String,String,String)>=sqlx::query_as("WITH visible AS (SELECT DISTINCT user_id FROM members WHERE room_id=ANY($1)), leases AS (SELECT p.user_id,min(CASE p.status WHEN 'busy' THEN 0 WHEN 'online' THEN 1 ELSE 2 END) AS priority FROM presence_leases p JOIN visible v ON v.user_id=p.user_id CROSS JOIN instance i WHERE p.expires_at>clock_timestamp() AND p.data_epoch=i.data_epoch AND EXISTS(SELECT 1 FROM sessions s WHERE s.device_id=p.device_id AND s.expires_at>clock_timestamp()) GROUP BY p.user_id) SELECT u.id,u.username,u.display_name,CASE l.priority WHEN 0 THEN 'busy' WHEN 1 THEN 'online' ELSE 'away' END FROM leases l JOIN users u ON u.id=l.user_id WHERE NOT u.disabled ORDER BY u.id LIMIT 513")
         .bind(&ids).fetch_all(&mut *tx).await?;

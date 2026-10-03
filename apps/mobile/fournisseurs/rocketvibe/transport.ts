@@ -38,12 +38,13 @@ export class NativeTransport {
     this.fetcher = fetcher;
   }
 
-  private async value(path: string, input?: unknown, anonymous = false, signal?: AbortSignal, method?: string): Promise<unknown> {
+  private async value(path: string, input?: unknown, anonymous = false, signal?: AbortSignal, method?: string, binary?:{body?:ArrayBuffer;mime?:string;read?:boolean}): Promise<unknown> {
     if (!anonymous && this.token === null) throw new NativeError(401, 'session_rejected');
     const sent = anonymous ? null : this.token;
     const verb=method??(input===undefined?'GET':'POST');
     const budget = path.endsWith('/messages/search') && verb==='GET' ? 'search' : ['/api/v1/auth/login','/api/v1/auth/start','/api/v1/auth/factors/verify','/api/v1/auth/invitations/accept','/api/v1/auth/recovery','/api/v1/me/reauth/start','/api/v1/me/reauth/finish'].includes(path) ? 'login' : ['/api/v1/me/email/verification/start','/api/v1/auth/factors/email/start','/api/v1/me/reauth/email/start'].includes(path) ? 'email_delivery' : path === '/api/v1/auth/recovery/email/start' ? 'email_recovery' : path === '/api/v1/auth/renew' ? 'session_rotation' : path === '/api/v1/sync/ticket' ? 'ticket' : path === '/api/v1/sync/snapshots' ? 'snapshot' : path.startsWith('/api/v1/messages/') && ['PATCH','DELETE','PUT'].includes(verb)?'message_action':path.startsWith('/api/v1/rooms/') && verb==='POST' && path.endsWith('/read')?'room_read':path.startsWith('/api/v1/rooms/') && (verb==='PATCH' || verb==='PUT' && (path.endsWith('/role') || path.endsWith('/favorite')) || verb==='POST' && path.endsWith('/leave'))?'room_command':null;
-    const cooldown = budget === null ? undefined : this.cooldowns.get(budget);
+    const effectiveBudget = (path==='/api/v1/me' || path==='/api/v1/me/preferences' || path.startsWith('/api/v1/me/avatar?')) && ['PATCH','PUT','DELETE'].includes(verb)?'profile':budget;
+    const cooldown = effectiveBudget === null ? undefined : this.cooldowns.get(effectiveBudget);
     if (cooldown && cooldown.until > Date.now()) throw new NativeError(429,cooldown.code,Math.ceil((cooldown.until-Date.now())/1000),cooldown.requestId);
     const controller = new AbortController();
     const relay = () => controller.abort();
@@ -53,8 +54,8 @@ export class NativeTransport {
     try {
       const response = await this.fetcher(`${this.baseUrl}${path}`, {
       method: verb,
-      headers: { ...(input === undefined ? {} : { 'content-type': 'application/json' }), ...(anonymous ? {} : { authorization: `Bearer ${this.token}` }) },
-      body: input === undefined ? undefined : JSON.stringify(input),
+      headers: { ...(binary?.mime ? {'content-type':binary.mime} : input === undefined ? {} : { 'content-type': 'application/json' }), ...(anonymous ? {} : { authorization: `Bearer ${sent}` }) },
+      body: binary?.body ?? (input === undefined ? undefined : JSON.stringify(input)),
       redirect: 'error',
       signal: controller.signal,
     });
@@ -63,7 +64,7 @@ export class NativeTransport {
       if (response.status === 401 && error.code === 'session_rejected' && sent !== null) this.surJetonRefuse?.(sent);
       const header = response.headers.get('retry-after');
       const retry = Math.min(300,Math.max(1,header && /^\d+$/.test(header) ? Number(header) : 1));
-      if (response.status === 429 && budget !== null) this.cooldowns.set(budget,{until:Date.now()+retry*1000,code:error.code,requestId:error.request_id});
+      if (response.status === 429 && effectiveBudget !== null) this.cooldowns.set(effectiveBudget,{until:Date.now()+retry*1000,code:error.code,requestId:error.request_id});
       throw new NativeError(response.status, error.code, response.status === 429 ? retry : undefined, error.request_id);
     }
       if (path === '/api/v1/sync/snapshots' || path.startsWith('/api/v1/sync/snapshots/')) {
@@ -77,6 +78,13 @@ export class NativeTransport {
         const text = await response.text();
         if (utf8Bytes(text)>1024*1024) throw new NativeError(0,'invalid_snapshot');
         return JSON.parse(text);
+      }
+      if(binary?.read){
+        const length=response.headers.get('content-length');
+        if(response.headers.get('content-type')!=='image/png' || length!==null && (!/^\d+$/.test(length) || Number(length)>2*1024*1024))throw new NativeError(502,'invalid_avatar');
+        const bytes=new Uint8Array(await response.arrayBuffer());
+        if(bytes.length>2*1024*1024)throw new NativeError(502,'invalid_avatar');
+        return bytes;
       }
       return response.status === 204 ? undefined : await response.json();
     } catch (error) {
@@ -160,6 +168,18 @@ export class NativeTransport {
   async revokeDevice(id:string):Promise<void> { await this.value(`/api/v1/me/sessions/${encodeURIComponent(id)}`,undefined,false,undefined,'DELETE'); }
   async logout(): Promise<void> { try { await this.value('/api/v1/auth/logout', {}); } finally { this.token = null; } }
   me(): Promise<NativeTypes['User']> { return this.request('User', '/api/v1/me'); }
+  ownProfile():Promise<NativeTypes['OwnProfile']> {return this.request('OwnProfile','/api/v1/me/profile');}
+  userProfile(id:string):Promise<NativeTypes['UserProfile']> {return this.request('UserProfile',`/api/v1/users/${encodeURIComponent(id)}`);}
+  lookupProfile(username:string):Promise<NativeTypes['UserProfile']> {return this.request('UserProfile',`/api/v1/users/lookup?username=${encodeURIComponent(username)}`);}
+  updateProfile(input:NativeTypes['UpdateProfile']):Promise<NativeTypes['ProfileReceipt']> {return this.request('ProfileReceipt','/api/v1/me',input,false,undefined,'PATCH');}
+  updatePreferences(input:NativeTypes['UpdatePreferences']):Promise<NativeTypes['ProfileReceipt']> {return this.request('ProfileReceipt','/api/v1/me/preferences',input,false,undefined,'PATCH');}
+  async setAvatar(input:NativeTypes['AvatarCommand'],upload?:{mime:string;bytes:Uint8Array}):Promise<NativeTypes['ProfileReceipt']> {
+    if(upload && upload.bytes.length>2*1024*1024)throw new NativeError(413,'avatar_too_large');
+    const path=`/api/v1/me/avatar?operation_id=${encodeURIComponent(input.operation_id)}&expected_revision=${encodeURIComponent(input.expected_revision)}`;
+    const value=await this.value(path,undefined,false,undefined,upload?'PUT':'DELETE',upload?{mime:upload.mime,body:Uint8Array.from(upload.bytes).buffer}:undefined);
+    return decodeNative('ProfileReceipt',value);
+  }
+  async avatarBytes(id:string):Promise<Uint8Array> {return await this.value(`/api/v1/avatars/${encodeURIComponent(id)}`,undefined,false,undefined,'GET',{read:true}) as Uint8Array;}
   accountPermissions(): Promise<NativeTypes['AccountPermissions']> { return this.request('AccountPermissions','/api/v1/me/permissions'); }
   roomPermissions(room: string): Promise<NativeTypes['RoomPermissions']> { return this.request('RoomPermissions',`/api/v1/rooms/${encodeURIComponent(room)}/permissions`); }
   roomDetails(room:string):Promise<NativeTypes['RoomDetails']> { return this.request('RoomDetails',`/api/v1/rooms/${encodeURIComponent(room)}`); }

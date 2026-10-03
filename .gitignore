@@ -17,3 +17,5 @@ GoogleService-Info.plist
 /artifacts/
 /.cache/
 /native-mobile-tests.log
+/data/
+/apps/server/data/

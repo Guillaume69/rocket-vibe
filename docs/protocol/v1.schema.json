@@ -130,6 +130,23 @@
         }
       ]
     },
+    "AvatarCommand": {
+      "additionalProperties": false,
+      "description": "Query accompanying the raw PNG/JPEG body, or DELETE. No user-supplied file path.",
+      "properties": {
+        "expected_revision": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "expected_revision"
+      ],
+      "type": "object"
+    },
     "BeginEmailVerification": {
       "additionalProperties": false,
       "properties": {
@@ -288,6 +305,10 @@
           "type": "boolean"
         },
         "private_rooms": {
+          "type": "boolean"
+        },
+        "profile_avatars": {
+          "default": false,
           "type": "boolean"
         },
         "profiles": {
@@ -575,6 +596,15 @@
         "expected_revision"
       ],
       "type": "object"
+    },
+    "DesktopNotifications": {
+      "enum": [
+        "default",
+        "all",
+        "mention",
+        "nothing"
+      ],
+      "type": "string"
     },
     "DeviceSession": {
       "properties": {
@@ -1196,6 +1226,12 @@
         "presence": {
           "items": {
             "$ref": "#/$defs/PresenceEntry"
+          },
+          "type": "array"
+        },
+        "profiles": {
+          "items": {
+            "$ref": "#/$defs/ProfileStamp"
           },
           "type": "array"
         },
@@ -1876,6 +1912,28 @@
         }
       ]
     },
+    "OwnProfile": {
+      "properties": {
+        "email": {
+          "description": "Verified contact, visible only to its owner. Changes use the email proof flow.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "preferences": {
+          "$ref": "#/$defs/UserPreferences"
+        },
+        "profile": {
+          "$ref": "#/$defs/UserProfile"
+        }
+      },
+      "required": [
+        "profile",
+        "preferences"
+      ],
+      "type": "object"
+    },
     "ParityContract": {
       "description": "Export root for the J0 fixture. Crypto `format` is opaque until the dedicated\nspecification/review; these types make no algorithm or trust guarantee.",
       "properties": {
@@ -2477,6 +2535,48 @@
         "offline"
       ],
       "type": "string"
+    },
+    "ProfileReceipt": {
+      "description": "Replays return the original revision; clients refetch the current profile.",
+      "properties": {
+        "applied_revision": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "applied_revision"
+      ],
+      "type": "object"
+    },
+    "ProfileStamp": {
+      "description": "Bounded live invalidation; this never changes the durable room cursor.",
+      "properties": {
+        "avatar_file_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revision": {
+          "type": "string"
+        },
+        "status_text": {
+          "type": "string"
+        },
+        "user": {
+          "$ref": "#/$defs/User"
+        }
+      },
+      "required": [
+        "user",
+        "revision",
+        "status_text"
+      ],
+      "type": "object"
     },
     "PublicDeviceKey": {
       "properties": {
@@ -3903,6 +4003,78 @@
       ],
       "type": "object"
     },
+    "UpdatePreferences": {
+      "additionalProperties": false,
+      "properties": {
+        "clock_24h": {
+          "type": "boolean"
+        },
+        "desktop_notifications": {
+          "$ref": "#/$defs/DesktopNotifications"
+        },
+        "expected_revision": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "push_enabled": {
+          "type": "boolean"
+        },
+        "push_mentions_only": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "operation_id",
+        "expected_revision",
+        "language",
+        "clock_24h",
+        "push_enabled",
+        "push_mentions_only",
+        "desktop_notifications"
+      ],
+      "type": "object"
+    },
+    "UpdateProfile": {
+      "additionalProperties": false,
+      "properties": {
+        "bio": {
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "expected_revision": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/PresenceStatus"
+        },
+        "status_text": {
+          "type": "string"
+        },
+        "username": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "expected_revision",
+        "username",
+        "display_name",
+        "bio",
+        "status",
+        "status_text"
+      ],
+      "type": "object"
+    },
     "UpdateRoom": {
       "additionalProperties": false,
       "properties": {
@@ -3967,6 +4139,10 @@
         "clock_24h": {
           "type": "boolean"
         },
+        "desktop_notifications": {
+          "$ref": "#/$defs/DesktopNotifications",
+          "default": "default"
+        },
         "language": {
           "type": "string"
         },
@@ -4003,6 +4179,10 @@
         },
         "revision": {
           "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/PresenceStatus",
+          "default": "online"
         },
         "status_text": {
           "type": "string"
@@ -4043,6 +4223,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "Single schema root, also used by the TypeScript binding generator.",
   "properties": {
+    "avatar_command": {
+      "$ref": "#/$defs/AvatarCommand"
+    },
     "create_room": {
       "$ref": "#/$defs/CreateRoom"
     },
@@ -4070,8 +4253,14 @@
     "message_page": {
       "$ref": "#/$defs/MessagePage"
     },
+    "own_profile": {
+      "$ref": "#/$defs/OwnProfile"
+    },
     "parity": {
       "$ref": "#/$defs/ParityContract"
+    },
+    "profile_receipt": {
+      "$ref": "#/$defs/ProfileReceipt"
     },
     "public_room_page": {
       "$ref": "#/$defs/PublicRoomPage"
@@ -4111,9 +4300,20 @@
     },
     "thread_page": {
       "$ref": "#/$defs/ThreadPage"
+    },
+    "update_preferences": {
+      "$ref": "#/$defs/UpdatePreferences"
+    },
+    "update_profile": {
+      "$ref": "#/$defs/UpdateProfile"
     }
   },
   "required": [
+    "own_profile",
+    "update_profile",
+    "update_preferences",
+    "avatar_command",
+    "profile_receipt",
     "search_messages",
     "search_page",
     "live_frame",

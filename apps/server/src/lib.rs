@@ -15,7 +15,9 @@ mod mail_admission;
 mod marks;
 mod mentions;
 mod message_actions;
+pub mod objects;
 mod permissions;
+mod profiles;
 mod quotes;
 mod reactions;
 mod reauthentication;
@@ -39,6 +41,8 @@ use std::sync::Arc;
 pub struct App {
     pub pool: PgPool,
     pub mail: Option<Arc<mail::Sender>>,
+    pub(crate) objects: Option<objects::LocalObjects>,
+    image_slots: Arc<tokio::sync::Semaphore>,
     password_slots: Arc<tokio::sync::Semaphore>,
     dummy_password_hash: String,
     socket_slots: Arc<limits::SocketSlots>,
@@ -87,6 +91,8 @@ impl App {
         let app = Self {
             pool,
             mail: None,
+            objects: None,
+            image_slots: Arc::new(tokio::sync::Semaphore::new(2)),
             password_slots: Arc::new(tokio::sync::Semaphore::new(4)),
             dummy_password_hash,
             socket_slots: Arc::default(),
@@ -101,8 +107,21 @@ impl App {
         self
     }
 
+    pub fn with_objects(mut self, objects: objects::LocalObjects) -> Self {
+        self.objects = Some(objects);
+        self
+    }
+
     /// Startup and periodic maintenance only touches expired ephemeral records.
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
+        sqlx::query("DELETE FROM profile_windows WHERE expires_at<=clock_timestamp()")
+            .execute(&self.pool)
+            .await?;
+        if let Some(objects) = &self.objects
+            && let Err(error) = objects.collect(&self.pool).await
+        {
+            tracing::warn!(code = error.code, "object garbage collection failed");
+        }
         for query in [
             "DELETE FROM presence_leases WHERE device_id IN (SELECT device_id FROM presence_leases WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM typing_leases WHERE (device_id,room_id,root_key) IN (SELECT device_id,room_id,root_key FROM typing_leases WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",

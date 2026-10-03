@@ -87,9 +87,23 @@ pub fn router(app: App) -> Router {
             "/api/v1/me/sessions/{device}",
             axum::routing::patch(rename_device).delete(revoke_device),
         )
-        .route("/api/v1/me", get(me))
+        .route("/api/v1/me", get(me).patch(update_profile))
+        .route("/api/v1/me/profile", get(own_profile))
+        .route(
+            "/api/v1/me/preferences",
+            axum::routing::patch(update_preferences),
+        )
+        .route(
+            "/api/v1/me/avatar",
+            put(update_avatar)
+                .delete(reset_avatar)
+                .layer(DefaultBodyLimit::max(crate::profiles::AVATAR_BYTES)),
+        )
+        .route("/api/v1/avatars/{id}", get(avatar))
         .route("/api/v1/me/permissions", get(account_permissions))
         .route("/api/v1/users", get(users))
+        .route("/api/v1/users/lookup", get(lookup_profile))
+        .route("/api/v1/users/{id}", get(user_profile))
         .route("/api/v1/rooms", get(rooms).post(create_room))
         .route("/api/v1/rooms/public", get(public_rooms))
         .route("/api/v1/rooms/discover", get(public_rooms))
@@ -263,6 +277,8 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             presence: true,
             typing: true,
             search: true,
+            profiles: true,
+            profile_avatars: app.objects.is_some(),
             session_rotation: true,
             device_sessions: true,
             account_invitations: true,
@@ -684,6 +700,102 @@ async fn revoke_device(
 async fn me(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
     let (account, hash, proof) = read_access(&app, &headers, Scope::None).await?;
     proof.json(&app, &hash, &account.user(), &[], None).await
+}
+
+async fn own_profile(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    let (account, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    let value = crate::profiles::own(&app, &account).await?;
+    crate::profiles::response(
+        &app,
+        &hash,
+        &proof,
+        &value.profile,
+        &value,
+        Some(&value.preferences.revision),
+    )
+    .await
+}
+async fn user_profile(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response> {
+    let (_, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    let profile = crate::profiles::public(&app, &id).await?;
+    crate::profiles::response(&app, &hash, &proof, &profile, &profile, None).await
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProfileQuery {
+    username: String,
+}
+async fn lookup_profile(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(input): Query<ProfileQuery>,
+) -> Result<Response> {
+    let (_, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    let profile = crate::profiles::lookup(&app, &input.username).await?;
+    crate::profiles::response(&app, &hash, &proof, &profile, &profile, None).await
+}
+async fn update_profile(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::profiles::UpdateProfile>,
+) -> Result<Response> {
+    let hash = auth::bearer(&headers)?;
+    let account = auth::authenticate(&app, &hash).await?;
+    Ok(secret_session(
+        crate::profiles::update(&app, &account, body(input)?).await?,
+    ))
+}
+async fn update_preferences(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::profiles::UpdatePreferences>,
+) -> Result<Response> {
+    let hash = auth::bearer(&headers)?;
+    let account = auth::authenticate(&app, &hash).await?;
+    Ok(secret_session(
+        crate::profiles::preferences(&app, &account, body(input)?).await?,
+    ))
+}
+async fn update_avatar(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(input): Query<rv_protocol::profiles::AvatarCommand>,
+    bytes: std::result::Result<axum::body::Bytes, axum::extract::rejection::BytesRejection>,
+) -> Result<Response> {
+    let hash = auth::bearer(&headers)?;
+    let account = auth::authenticate(&app, &hash).await?;
+    let mime = headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(Error::invalid)?
+        .to_string();
+    let bytes = bytes.map_err(|_| Error::new(StatusCode::PAYLOAD_TOO_LARGE, "avatar_too_large"))?;
+    Ok(secret_session(
+        crate::profiles::avatar(&app, &account, input, Some((mime, bytes))).await?,
+    ))
+}
+async fn reset_avatar(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(input): Query<rv_protocol::profiles::AvatarCommand>,
+) -> Result<Response> {
+    let hash = auth::bearer(&headers)?;
+    let account = auth::authenticate(&app, &hash).await?;
+    Ok(secret_session(
+        crate::profiles::avatar(&app, &account, input, None).await?,
+    ))
+}
+async fn avatar(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response> {
+    let (_, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    crate::profiles::avatar_response(&app, &hash, &proof, &id).await
 }
 
 async fn users(State(app): State<App>, headers: HeaderMap) -> Result<Response> {

@@ -49,6 +49,8 @@ pub struct LiveRoom {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct LiveState {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub profiles: Vec<crate::profiles::ProfileStamp>,
     /// Receiver-relative lifetime; no client wall clock participates in leases.
     pub ttl_ms: u32,
     /// Above the bounded pilot capacity, forget observations rather than truncate them.

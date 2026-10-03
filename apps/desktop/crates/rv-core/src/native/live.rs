@@ -73,6 +73,7 @@ mod tests {
         let mut cache = LiveCache::default();
         let user = User { id: "other".into(), username: "bob".into(), display_name: "Bob".into() };
         let mut state = LiveState {
+            profiles: vec![],
             ttl_ms: 8000,
             limited: false,
             presence: vec![PresenceEntry { user: user.clone(), status: PresenceStatus::Busy }],

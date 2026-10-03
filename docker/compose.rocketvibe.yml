@@ -21,6 +21,9 @@ services:
     environment:
       DATABASE_URL: postgres://rocketvibe:${RV_DATABASE_PASSWORD}@postgres/rocketvibe
       RV_BIND: 0.0.0.0:3400
+      RV_OBJECTS_DIR: /var/lib/rocketvibe/objects
+    volumes:
+      - native-objects:/var/lib/rocketvibe/objects
     ports:
       - "127.0.0.1:3400:3400"
     depends_on:
@@ -42,5 +45,6 @@ services:
       postgres:
         condition: service_healthy
 volumes:
+  native-objects:
   native-postgres:
   native-cargo:

@@ -208,7 +208,7 @@ ouverte tant que serveur, clients concernés et scénario de parité manquent.
 | P13 Recherche | J2 / J4 | Recherche PG autorisée, pages bornées, édition / suppression et résultats temporaires raccordés aux écrans existants ; [contrat](SEARCH.md). Index local du chiffré et purge au verrouillage encore ouverts avec J4 ; qualification installée ouverte |
 | P14 Photos / documents / vidéos / vocaux | J3 | Objets protégés, upload / retry / confirmation idempotente ; partage et lecteurs |
 | P15 Liens / cartes | J3 | DTO, métadonnées bornées et refus SSRF ; lecteurs existants |
-| P16 Profils / réglages | J2–J3 | Fiches, bio / statut / préférences, avatars protégés et invalidation du cache |
+| P16 Profils / réglages | J2–J3 | API de profils / statut / préférences et volume durable d'avatars protégés, reçus et transports livrés ; [contrat](PROFILES.md). Raccordement aux fiches / réglages existants, intentions clientes, invalidation des caches et qualification installée en cours |
 | P17 Push / notifications | J3 | Tâches durables, FCM et Kotlin, navigation / réponse idempotente ; téléphone app arrêtée |
 | P18 E2EE existant | J4–J5 | Import opaque / paramètres historiques, lecture / envoi depuis cache vierge |
 | P19 E2EE autonome | J4 | Spécification / revue, identités, sauvegardes / nouveaux appareils, rotation / clé perdue |

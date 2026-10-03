@@ -11,6 +11,9 @@ struct Args {
     auth_key_file: Option<std::path::PathBuf>,
     #[arg(long, env = "RV_SMTP_CONFIG_FILE", hide_env_values = true)]
     smtp_config_file: Option<std::path::PathBuf>,
+    /// Durable volume; include it with PostgreSQL in backups.
+    #[arg(long, env = "RV_OBJECTS_DIR", default_value = "data/objects")]
+    objects_dir: std::path::PathBuf,
     #[command(subcommand)]
     command: Command,
 }
@@ -74,6 +77,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .with_mail(mail);
     match args.command {
         Command::Serve { bind } => {
+            let app = app.with_objects(rv_server::objects::LocalObjects::open(&args.objects_dir)?);
+            app.cleanup().await?;
             let delivery_app = app.clone();
             let mail_worker = tokio::spawn(async move {
                 let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));

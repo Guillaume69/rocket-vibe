@@ -441,8 +441,14 @@ pub struct UserProfile {
     pub revision: String,
     pub bio: String,
     pub status_text: String,
+    #[serde(default = "default_profile_status")]
+    pub status: crate::live::PresenceStatus,
     /// Protected resource ID, never an arbitrary URL carrying credentials.
     pub avatar_file_id: Option<String>,
+}
+
+fn default_profile_status() -> crate::live::PresenceStatus {
+    crate::live::PresenceStatus::Online
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -452,6 +458,8 @@ pub struct UserPreferences {
     pub clock_24h: bool,
     pub push_enabled: bool,
     pub push_mentions_only: bool,
+    #[serde(default)]
+    pub desktop_notifications: crate::profiles::DesktopNotifications,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]

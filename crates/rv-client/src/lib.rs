@@ -22,6 +22,8 @@ pub enum Error {
     UnsupportedProtocol,
     #[error("invalid or oversized native snapshot")]
     InvalidSnapshot,
+    #[error("invalid or oversized native avatar")]
+    InvalidAvatar,
     #[error("session missing")]
     SessionMissing,
     #[error("server refused request ({status}): {code}")]
@@ -105,7 +107,32 @@ impl NativeClient {
         if let Some(input) = input {
             request = request.json(input);
         }
-        let mut response = request.send().await?;
+        let response = request.send().await?;
+        let mut response = self.accepted(response, budget, sent).await?;
+        if path == "/api/v1/sync/snapshots" || path.starts_with("/api/v1/sync/snapshots/") {
+            // Bound page bodies before parsing, including chunked responses.
+            const MAX: usize = 1024 * 1024;
+            if response.content_length().is_some_and(|n| n > MAX as u64) {
+                return Err(Error::InvalidSnapshot);
+            }
+            let mut bytes = Vec::new();
+            while let Some(chunk) = response.chunk().await? {
+                if bytes.len() + chunk.len() > MAX {
+                    return Err(Error::InvalidSnapshot);
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            return serde_json::from_slice(&bytes).map_err(|_| Error::InvalidSnapshot);
+        }
+        Ok(response.json().await?)
+    }
+
+    async fn accepted(
+        &self,
+        response: reqwest::Response,
+        budget: Option<&'static str>,
+        sent: Option<String>,
+    ) -> Result<reqwest::Response, Error> {
         if !response.status().is_success() {
             let status = response.status().as_u16();
             let retry = retry_after(&response);
@@ -141,27 +168,12 @@ impl NativeClient {
                 retry_after: retry,
             });
         }
-        if path == "/api/v1/sync/snapshots" || path.starts_with("/api/v1/sync/snapshots/") {
-            // Refuse oversized wire bodies before allocating/decoding a page,
-            // including whitespace and chunked responses without Content-Length.
-            const MAX: usize = 1024 * 1024;
-            if response.content_length().is_some_and(|n| n > MAX as u64) {
-                return Err(Error::InvalidSnapshot);
-            }
-            let mut bytes = Vec::new();
-            while let Some(chunk) = response.chunk().await? {
-                if bytes.len() + chunk.len() > MAX {
-                    return Err(Error::InvalidSnapshot);
-                }
-                bytes.extend_from_slice(&chunk);
-            }
-            return serde_json::from_slice(&bytes).map_err(|_| Error::InvalidSnapshot);
-        }
-        Ok(response.json().await?)
+        Ok(response)
     }
 
     fn budget(path: &str, method: &Method) -> Option<&'static str> {
         match path {
+            "/api/v1/me" | "/api/v1/me/preferences" if *method == Method::PATCH => Some("profile"),
             "/api/v1/auth/login"
             | "/api/v1/auth/start"
             | "/api/v1/auth/factors/verify"
@@ -533,6 +545,100 @@ impl NativeClient {
 
     pub async fn me(&self) -> Result<User, Error> {
         self.get("/api/v1/me").await
+    }
+
+    pub async fn own_profile(&self) -> Result<rv_protocol::profiles::OwnProfile, Error> {
+        self.get("/api/v1/me/profile").await
+    }
+    pub async fn user_profile(&self, id: &str) -> Result<rv_protocol::parity::UserProfile, Error> {
+        self.get(&format!("/api/v1/users/{}", encode(id))).await
+    }
+    pub async fn lookup_profile(
+        &self,
+        username: &str,
+    ) -> Result<rv_protocol::parity::UserProfile, Error> {
+        self.get(&format!(
+            "/api/v1/users/lookup?username={}",
+            encode(username)
+        ))
+        .await
+    }
+    pub async fn update_profile(
+        &self,
+        input: &rv_protocol::profiles::UpdateProfile,
+    ) -> Result<rv_protocol::profiles::ProfileReceipt, Error> {
+        self.request(Method::PATCH, "/api/v1/me", Some(input), false)
+            .await
+    }
+    pub async fn update_preferences(
+        &self,
+        input: &rv_protocol::profiles::UpdatePreferences,
+    ) -> Result<rv_protocol::profiles::ProfileReceipt, Error> {
+        self.request(Method::PATCH, "/api/v1/me/preferences", Some(input), false)
+            .await
+    }
+    pub async fn set_avatar(
+        &self,
+        input: &rv_protocol::profiles::AvatarCommand,
+        upload: Option<(&str, Vec<u8>)>,
+    ) -> Result<rv_protocol::profiles::ProfileReceipt, Error> {
+        self.check_cooldown(Some("profile"))?;
+        let sent = self.saved_token().ok_or(Error::SessionMissing)?;
+        let path = format!(
+            "/api/v1/me/avatar?operation_id={}&expected_revision={}",
+            encode(&input.operation_id),
+            encode(&input.expected_revision)
+        );
+        let method = if upload.is_some() {
+            Method::PUT
+        } else {
+            Method::DELETE
+        };
+        let mut request = self
+            .http
+            .request(method, format!("{}{path}", self.base))
+            .bearer_auth(&sent);
+        if let Some((mime, bytes)) = upload {
+            if bytes.len() > 2 * 1024 * 1024 {
+                return Err(Error::InvalidAvatar);
+            }
+            request = request
+                .header(reqwest::header::CONTENT_TYPE, mime)
+                .body(bytes);
+        }
+        let response = self
+            .accepted(request.send().await?, Some("profile"), Some(sent))
+            .await?;
+        Ok(response.json().await?)
+    }
+    pub async fn avatar_bytes(&self, id: &str) -> Result<Vec<u8>, Error> {
+        let sent = self.saved_token().ok_or(Error::SessionMissing)?;
+        let response = self
+            .http
+            .get(format!("{}/api/v1/avatars/{}", self.base, encode(id)))
+            .bearer_auth(&sent)
+            .send()
+            .await?;
+        let mut response = self.accepted(response, None, Some(sent)).await?;
+        if response
+            .content_length()
+            .is_some_and(|n| n > 2 * 1024 * 1024)
+            || response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                != Some("image/png")
+        {
+            return Err(Error::InvalidAvatar);
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            if bytes.len() + chunk.len() > 2 * 1024 * 1024 {
+                return Err(Error::InvalidAvatar);
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        Ok(bytes)
     }
     pub async fn users(&self) -> Result<Vec<User>, Error> {
         self.get("/api/v1/users").await
@@ -1061,6 +1167,10 @@ impl NativeClient {
         )
         .await
     }
+}
+
+fn encode(value: &str) -> String {
+    url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
 }
 
 fn path_segment(value: &str) -> bool {

@@ -244,11 +244,19 @@ impl ReadProof {
 }
 
 fn leased_json(bytes: Bytes, lease: Transaction<'static, Postgres>) -> Response {
+    leased_bytes(bytes, lease, "application/json")
+}
+
+pub(crate) fn leased_bytes(
+    bytes: Bytes,
+    lease: Transaction<'static, Postgres>,
+    media_type: &'static str,
+) -> Response {
     let length = bytes.len();
     let mut response = Response::new(Body::from_stream(LeasedBody::new(bytes, lease)));
     response
         .headers_mut()
-        .insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
+        .insert(header::CONTENT_TYPE, media_type.parse().unwrap());
     response
         .headers_mut()
         .insert(header::CONTENT_LENGTH, length.into());

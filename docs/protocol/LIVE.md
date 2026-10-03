@@ -33,6 +33,11 @@ Une suspension / fermeture oublie immédiatement la photo locale et tente un
 
 ## Lecture et temps réel
 
+Le lot [profils P16](PROFILES.md) ajoute des `profiles` optionnels à la photo :
+identité, révision, version d'avatar et texte de statut de soi et des membres
+de salons partagés. Ils respectent la même limite et expiration ; ils ne
+contiennent ni email ni préférences et n'ajoutent aucun événement durable.
+
 `GET /api/v1/live` renvoie une photo autorisée. La même photo est envoyée toutes
 les **2 secondes** par la socket de synchronisation négociée avec `live=true` :
 

@@ -727,7 +727,9 @@ async fn file_stream_revalidates_membership_before_each_next_chunk(pool: PgPool)
         .bearer_auth(owner.saved_token().unwrap());
     let remove =
         tokio::spawn(async move { request.send().await.unwrap().error_for_status().unwrap() });
-    tokio::time::timeout(Duration::from_secs(2),async{loop{let waiting:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock')").fetch_one(&bench.app.pool).await.unwrap();if waiting{break;}tokio::task::yield_now().await;}}).await.unwrap();
+    // Wait for this revocation's room lock, rather than an unrelated response
+    // lease that is still being released on another connection.
+    tokio::time::timeout(Duration::from_secs(2),async{loop{let waiting:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query='SELECT kind FROM rooms WHERE id=$1 FOR UPDATE')").fetch_one(&bench.app.pool).await.unwrap();if waiting{break;}tokio::task::yield_now().await;}}).await.unwrap();
     let (next, removed) = tokio::join!(stream.next(), remove);
     removed.unwrap();
     assert!(next.is_none() || next.unwrap().is_err());

@@ -296,6 +296,10 @@
           "default": false,
           "type": "boolean"
         },
+        "link_previews": {
+          "default": false,
+          "type": "boolean"
+        },
         "pins": {
           "default": false,
           "type": "boolean"

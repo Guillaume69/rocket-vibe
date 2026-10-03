@@ -248,10 +248,10 @@ export const LigneMessage = memo(function LigneMessage({
         ))}
         <ContenuMessage c={c} message={message} />
         {message.typeSysteme === null && (
-          <LiensEmbed c={c} texte={message.texte} urls={message.urls} surAppuiLong={appuiLong} />
+            <LiensEmbed c={c} client={client} texte={message.texte} urls={message.urls} surAppuiLong={appuiLong} />
         )}
         {message.typeSysteme === null && (
-          <ApercusLien c={c} urls={message.urls} surAppuiLong={appuiLong} />
+          <ApercusLien c={c} client={client} urls={message.urls} surAppuiLong={appuiLong} />
         )}
         {fichiersJoints.length > 0 && (
           <PiecesJointes

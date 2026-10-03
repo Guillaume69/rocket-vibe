@@ -3,6 +3,7 @@ import type { CreateRoom, Discovery, DirectMessage, Message, MessagePage, Native
 import { decodeNative } from './validation.ts';
 import {createHash} from 'crypto';
 import {emojiCatalog} from './customEmojis.ts';
+import {previewImage} from './linkPreviews.ts';
 
 function utf8Bytes(text: string): number {
   let bytes = 0;
@@ -191,6 +192,14 @@ export class NativeTransport {
     emojiCatalog({revision:item.revision,items:[item]});
     const bytes=await this.value(`/api/v1/emoji/files/${item.file_id}`,undefined,false,undefined,'GET',{file:{bytes:Number(item.bytes),mime:item.media_type}}) as Uint8Array;
     if(createHash('sha256').update(bytes).digest('hex')!==item.sha256)throw new NativeError(502,'invalid_emoji_image');
+    return bytes;
+  }
+  async previewBytes(message:string,value:NativeTypes['PreviewImage']):Promise<Uint8Array> {
+    const image=previewImage(value),sent=this.token;
+    if(!/^[A-Za-z0-9_-]{1,128}$/.test(message))throw new NativeError(422,'invalid_preview');
+    const bytes=await this.value(`/api/v1/messages/${encodeURIComponent(message)}/previews/${image.file_id}`,undefined,false,undefined,'GET',{file:{bytes:Number(image.bytes),mime:'image/png'}}) as Uint8Array;
+    const png=[137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82];
+    if(this.token!==sent||bytes.length<33||!png.every((v,i)=>bytes[i]===v)||new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength).getUint32(16)!==image.width||new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength).getUint32(20)!==image.height||createHash('sha256').update(bytes).digest('hex')!==image.sha256)throw new NativeError(502,'invalid_preview_image');
     return bytes;
   }
   accountPermissions(): Promise<NativeTypes['AccountPermissions']> { return this.request('AccountPermissions','/api/v1/me/permissions'); }

@@ -17,6 +17,7 @@ import {NativeProfileOperations} from './profileOperations.ts';
 import {NativeUploadIntents} from './uploadIntents.ts';
 import {nativeAttachments,fileDescriptor} from './fileDescriptors.ts';
 import {emojiCatalog,emojiRevision} from './customEmojis.ts';
+import {nativeUrls,linkPreview,previewKey,previewImageIdentity,type PreviewAccess} from './linkPreviews.ts';
 
 // Native revisions, checked below as exact decimal strings, order projection.
 // The shared RC statement's wall-clock condition would discard a valid edit
@@ -64,7 +65,7 @@ export function localMessage(message: Message, selfId?: string): MessageLocal {
     id: message.id, rid: message.room_id, texte: system?.param??message.text, horodatage: time,
     auteurId: message.author.id, auteurNom: message.author.username, typeSysteme: system?.type??null,
     filId: message.reply_to??null, filReponses: Number(replies>2147483647n?2147483647n:replies), filDernier: last, filAffiche: false, modifieLe: edited,
-    md: message.deleted||system?null:nativeMarkdown(message.body), piecesJointes: nativeAttachments(message), reactions: nativeReactions(message.reactions), urls: null, appelId: null,
+    md: message.deleted||system?null:nativeMarkdown(message.body), piecesJointes: nativeAttachments(message), reactions: nativeReactions(message.reactions), urls: nativeUrls(message), appelId: null,
     chiffreBrut: null, epingle: message.pinned ?? false,
     etoiles: message.personal_star?.present && selfId ? JSON.stringify([selfId]) : null, misAJourLe: time,
   };
@@ -81,6 +82,7 @@ export class NativeStore {
   private projection=0;
   private searchRevision=0;
   private fileViews=new Map<string,{file:import('./protocol.generated.ts').FileDescriptor;membership:string;stamp:string}>();
+  private previewViews=new Map<string,{access:PreviewAccess;membership:string;stamp:string}>();
   constructor(db: NativeDatabase, queue: FileEcritures, session: AppSession) {
     this.profileOperations=new NativeProfileOperations(db,fn=>this.atomic(fn),()=>this.sameGeneration());
     this.uploads=new NativeUploadIntents(db,fn=>this.atomic(fn),(rid,membership)=>this.membershipMatches(rid,membership),message=>this.message(message));
@@ -96,6 +98,32 @@ export class NativeStore {
   }
   projectionToken(): number { return this.projection; }
   searchToken():number {return this.searchRevision;}
+  previewAccesses(keys:readonly string[]):Promise<Map<string,PreviewAccess>> {
+    if(keys.length>128)throw new Error('Preview cache limit');
+    return this.queue(async()=>{
+      const result=new Map<string,PreviewAccess>();
+      if(!keys.length||!await this.sameGeneration())return result;
+      const rows=await this.db.getAllAsync<{id:string;rid:string;revision:string;preview:string;state:string}>(`SELECT m.id,m.rid,p.revision,json_extract(j.value,'$.native_preview') AS preview,s.payload AS state
+        FROM messages m JOIN native_positions p ON p.id=m.id JOIN json_each(m.urls) j JOIN native_read_states s ON s.rid=m.rid
+        WHERE m.id||'/'||json_extract(j.value,'$.native_preview.image.file_id') IN (SELECT value FROM json_each(?)) LIMIT 129`,[JSON.stringify(keys)]);
+      if(rows.length>128)throw new Error('Preview cache limit');
+      for(const row of rows){
+        const image=linkPreview(JSON.parse(row.preview)).image,state=readState(JSON.parse(row.state),row.rid);
+        if(!image||!state.membership_version)continue;
+        const key=previewKey(row.id,image.file_id);
+        result.set(key,this.previewAccess(row.id,row.rid,state.membership_version,image));
+      }
+      for(const key of keys){
+        if(result.has(key))continue;
+        const view=this.previewViews.get(key);
+        if(view&&view.stamp===`${this.projection}:${this.searchRevision}`&&await this.membershipMatches(view.access.room,view.membership))result.set(key,view.access);
+      }
+      return result;
+    });
+  }
+  private previewAccess(message:string,room:string,membership:string,image:import('./protocol.generated.ts').PreviewImage):PreviewAccess {
+    return {message,room,image,scope:JSON.stringify([this.session.nativeInstanceId,this.session.nativeDataEpoch,room,membership,previewImageIdentity(image)])};
+  }
   /** A file is readable locally only while its live message and grant still exist. */
   fileAccess(id:string):Promise<{file:import('./protocol.generated.ts').FileDescriptor;membership:string}|null>{
     return this.queue(async()=>{
@@ -118,10 +146,20 @@ export class NativeStore {
     return this.queue(async()=>{
       if(!valid()||!await this.membershipMatches(room,membership))throw new Error('file_scope_closed');
       const files=messages.flatMap(message=>(message.files??[]).map(file=>fileDescriptor(file,room)));
+      const previews:PreviewAccess[]=[];
+      for(const message of messages){
+        if(message.room_id!==room)throw new Error('preview_scope_closed');
+        nativeUrls(message);
+        for(const preview of message.previews??[])if(preview.image)previews.push(this.previewAccess(message.id,room,membership,preview.image));
+      }
       if(!valid())throw new Error('file_scope_closed');
       for(const file of files){
         this.fileViews.set(file.id,{file,membership,stamp:`${this.projection}:${this.searchRevision}`});
         while(this.fileViews.size>256)this.fileViews.delete(this.fileViews.keys().next().value!);
+      }
+      for(const access of previews){
+        this.previewViews.set(previewKey(access.message,access.image.file_id),{access,membership,stamp:`${this.projection}:${this.searchRevision}`});
+        while(this.previewViews.size>128)this.previewViews.delete(this.previewViews.keys().next().value!);
       }
     });
   }

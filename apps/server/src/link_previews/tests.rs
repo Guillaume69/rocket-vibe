@@ -377,6 +377,21 @@ async fn rust_transport_fetches_authenticated_png_and_checks_hash_and_dimensions
         anonymous.preview_image(&message.id, image).await,
         Err(rv_client::Error::SessionMissing)
     ));
+    let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../scripts/native-link-previews-smoke.ts");
+    let output = tokio::process::Command::new("node")
+        .arg(script)
+        .env("RV_PREVIEW_TEST_SERVER", &base)
+        .env("RV_PREVIEW_TEST_MESSAGE", &message.id)
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     server.abort();
 }
 

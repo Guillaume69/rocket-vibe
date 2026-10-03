@@ -8,7 +8,7 @@ export type AvatarCommand = { "expected_revision": string; "operation_id": strin
 export type BeginEmailVerification = { "address": string; "context": ReauthenticationContext; "expected_version": string; "operation_id": string; "verification_id": string; "verification_version": string; };
 export type BeginFactorSetup = { "operation_id": string; };
 export type BeginReauthentication = { "challenge_id": string; "context"?: ReauthenticationContext | null; "operation_id": string; "password": string; "proof_version": string; };
-export type Capabilities = { "account_invitations"?: boolean; "account_recovery"?: boolean; "calls": boolean; "custom_emojis"?: boolean; "deletion"?: boolean; "device_sessions"?: boolean; "direct_messages": boolean; "durable_sync": boolean; "e2ee": boolean; "editing"?: boolean; "email_factor_delivery"?: boolean; "email_factors"?: boolean; "email_recovery"?: boolean; "email_removal"?: boolean; "email_verification"?: boolean; "favorites"?: boolean; "fine_permissions"?: boolean; "idempotent_room_creation"?: boolean; "pins"?: boolean; "presence"?: boolean; "private_rooms": boolean; "profile_avatars"?: boolean; "profiles"?: boolean; "push": boolean; "quotes"?: boolean; "reactions": boolean; "read_markers"?: boolean; "reauthentication"?: boolean; "reauthentication_retirement"?: boolean; "room_discovery"?: boolean; "room_info"?: boolean; "room_leave"?: boolean; "room_roles"?: boolean; "room_settings"?: boolean; "search"?: boolean; "second_factors"?: boolean; "session_rotation"?: boolean; "snapshot_paging"?: boolean; "stars"?: boolean; "text_messages": boolean; "threads": boolean; "typing"?: boolean; "uploads": boolean; };
+export type Capabilities = { "account_invitations"?: boolean; "account_recovery"?: boolean; "calls": boolean; "custom_emojis"?: boolean; "deletion"?: boolean; "device_sessions"?: boolean; "direct_messages": boolean; "durable_sync": boolean; "e2ee": boolean; "editing"?: boolean; "email_factor_delivery"?: boolean; "email_factors"?: boolean; "email_recovery"?: boolean; "email_removal"?: boolean; "email_verification"?: boolean; "favorites"?: boolean; "fine_permissions"?: boolean; "idempotent_room_creation"?: boolean; "link_previews"?: boolean; "pins"?: boolean; "presence"?: boolean; "private_rooms": boolean; "profile_avatars"?: boolean; "profiles"?: boolean; "push": boolean; "quotes"?: boolean; "reactions": boolean; "read_markers"?: boolean; "reauthentication"?: boolean; "reauthentication_retirement"?: boolean; "room_discovery"?: boolean; "room_info"?: boolean; "room_leave"?: boolean; "room_roles"?: boolean; "room_settings"?: boolean; "search"?: boolean; "second_factors"?: boolean; "session_rotation"?: boolean; "snapshot_paging"?: boolean; "stars"?: boolean; "text_messages": boolean; "threads": boolean; "typing"?: boolean; "uploads": boolean; };
 export type Change = { "data": Room; "type": "room_upsert"; } | { "data": Message; "type": "message_upsert"; } | { "data": { "room_id": string; }; "type": "room_removed"; };
 export type ChangeEmailFactor = { "context": ReauthenticationContext; "email_version": string; "factor_version"?: string | null; "operation_id": string; };
 export type ChangeRoomRole = { "expected_revision": string; "operation_id": string; "role": RoomRole; };
@@ -424,6 +424,10 @@ export const nativeSchema = {
           "type": "boolean"
         },
         "idempotent_room_creation": {
+          "default": false,
+          "type": "boolean"
+        },
+        "link_previews": {
           "default": false,
           "type": "boolean"
         },

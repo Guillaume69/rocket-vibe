@@ -29,6 +29,7 @@
 
 import { estLienWeb } from './lienExterne.ts';
 import { estLienVideo, idVideo } from './liensVideo.ts';
+import {linkPreview} from '../fournisseurs/rocketvibe/linkPreviews.ts';
 
 export type ApercuLien =
   | { type: 'image'; url: string }
@@ -44,6 +45,8 @@ export type ApercuLien =
     };
 
 type EntreeUrl = {
+  native_preview?:unknown;
+  native_message?:unknown;
   url?: unknown;
   meta?: Record<string, unknown>;
   headers?: { contentType?: unknown };
@@ -118,7 +121,7 @@ function carteDepuisMeta(url: string, meta: Record<string, unknown>): ApercuLien
 }
 
 /** Ce que le serveur sait d'une vidéo, pour la carte embed. */
-export type MetaVideo = { titre: string | null; auteur: string | null };
+export type MetaVideo = { titre: string | null; auteur: string | null; image?:string|null };
 
 /**
  * Les métas des liens VIDÉO de `urls`, indexées par identifiant de vidéo — le
@@ -127,7 +130,7 @@ export type MetaVideo = { titre: string | null; auteur: string | null };
  * serveur a déjà le titre : YouTube passe par oEmbed (`oembedTitle`,
  * `oembedAuthorName`), les autres par OpenGraph.
  */
-export function metasVideo(urlsJson: string | null | undefined): Map<string, MetaVideo> {
+export function metasVideo(urlsJson: string | null | undefined, native?: (message:string,image:string)=>string|null): Map<string, MetaVideo> {
   const parId = new Map<string, MetaVideo>();
   let brut: unknown;
   try {
@@ -142,6 +145,14 @@ export function metasVideo(urlsJson: string | null | undefined): Map<string, Met
     if (typeof entree?.url !== 'string') continue;
     const id = idVideo(entree.url);
     if (id === null || parId.has(id)) continue;
+    if(entree.native_preview!==undefined){
+      try{
+        const p=linkPreview(entree.native_preview);
+        if(!native||typeof entree.native_message!=='string'||p.url!==entree.url)continue;
+        parId.set(id,{titre:p.title??null,auteur:p.site??null,image:p.image?native(entree.native_message,p.image.file_id):null});
+      }catch{ /* Malformed native metadata cannot fall back to a public image. */ }
+      continue;
+    }
     const meta = entree.meta;
     if (!meta || typeof meta !== 'object') continue;
     const titre = premier(meta, ['oembedTitle', 'ogTitle', 'twitterTitle', 'pageTitle']);
@@ -157,7 +168,7 @@ export function metasVideo(urlsJson: string | null | undefined): Map<string, Met
  * Déduplique par URL, saute les liens vidéo (carte dédiée), et plafonne à `max`
  * pour qu'un message truffé de liens ne noie pas le fil.
  */
-export function apercusDeLien(urlsJson: string | null | undefined, max = 3): ApercuLien[] {
+export function apercusDeLien(urlsJson: string | null | undefined, max = 3, native?: (message:string,image:string)=>string|null): ApercuLien[] {
   if (urlsJson === null || urlsJson === undefined || urlsJson === '') return [];
   let brut: unknown;
   try {
@@ -181,6 +192,18 @@ export function apercusDeLien(urlsJson: string | null | undefined, max = 3): Ape
     const url = estLienWeb(brutUrl) ? brutUrl : null;
     if (url === null || vus.has(url)) continue;
     if (estLienVideo(url)) continue; // déjà rendu par la carte vidéo
+
+    if(entree.native_preview!==undefined){
+      try{
+        const p=linkPreview(entree.native_preview);
+        if(!native||typeof entree.native_message!=='string'||p.url!==url)continue;
+        const image=p.image?native(entree.native_message,p.image.file_id):null;
+        if(p.kind==='image'){if(image)apercus.push({type:'image',url:image});}
+        else apercus.push({type:'carte',url:p.url,titre:p.title??null,description:p.description??null,image,site:p.site??null});
+        vus.add(url);
+      }catch{ /* Reject a malformed native manifest without a public-image fallback. */ }
+      continue;
+    }
 
     let apercu: ApercuLien | null = null;
     if (estImage(entree, url)) {

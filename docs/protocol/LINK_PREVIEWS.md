@@ -68,8 +68,26 @@ sont implémentés. Les tests ciblés exercent les politiques réseau, DNS mixte
 redirections, limites de corps, parsing, normalisation, baux, reprises, éditions,
 suppression, changement d'epoch et lectures privées HTTP / SDK réelles.
 
-P15 reste ouvert : projection dans les cartes existantes mobile / GTK / SwiftUI,
-caches protégés et invalidation côté client, métadonnées des lecteurs vidéo et
-cartes structurées d'intégration. La capacité `link_previews` reste désactivée
+Le fournisseur mobile projette les métadonnées dans `messages.urls` et les cartes
+d'article, d'image et de vidéo existantes. Ses références `rv-preview:` ne
+contiennent ni origine ni jeton. Les lecteurs vérifient taille, PNG, dimensions,
+SHA-256, message courant et adhésion avant d'exposer les pixels. Le cache volatil
+est borné à 128 entrées, quatre lectures simultanées et 32 Mio de chaînes.
+Une mise à jour du journal masque les images avant de contrôler leurs droits ;
+une réaction conserve le cache si le descripteur et l'adhésion sont identiques.
+Les résultats de recherche disposent de droits temporaires sans agrandir
+l'historique confirmé. La visionneuse utilise la même référence révocable ;
+l'export explicite revalide le message, copie dans la galerie puis efface son
+fichier temporaire.
+
+Le banc PostgreSQL exerce le fournisseur mobile réel avec HTTP, WebSocket et
+SQLite : projection, image privée, réutilisation et retrait après édition.
+Il active seulement la capacité de découverte dans son transport de test, car
+l'activation produit attend les clients bureau. Il utilise une image publiée
+par le collecteur de test ; ce banc ne remplace pas les tests du réseau public
+ni la qualification d'une app Android installée.
+
+P15 reste ouvert : raccordement GTK / SwiftUI, cartes structurées d'intégration
+et qualification des applications installées. La capacité `link_previews` reste désactivée
 tant que ces raccordements ne sont pas livrés. Aucun nouveau client ni renderer
 n'est introduit. Les aperçus E2EE seront construits côté client après déchiffrement.

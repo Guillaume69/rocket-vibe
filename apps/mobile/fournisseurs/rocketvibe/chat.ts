@@ -17,6 +17,7 @@ import {NativeLive} from './live.ts';
 import type {FactorRemote} from './factorVault.ts';
 import type {EmailRemote} from './emailVault.ts';
 import {checkSecurityScope,type SecurityScope} from './reauthenticationVault.ts';
+import {previewImageIdentity} from './linkPreviews.ts';
 
 export type NativeStatus = { online: boolean; error: string | null };
 export class NativeChat {
@@ -89,6 +90,23 @@ export class NativeChat {
   get searchVersion():string {return `${this.generation}:${this.store.projectionToken()}:${this.store.searchToken()}`;}
   get profileVersion():string {return `${this.generation}:${this.store.projectionToken()}:${this.profileChanges}`;}
   get emojiVersion():string {return `${this.generation}:${this.emojiChanges}`;}
+  get previewsActive():boolean {return !this.stopped&&this.verified&&this.status.online&&this.capabilities?.link_previews===true;}
+  get previewVersion():string {return `${this.searchVersion}:${this.previewsActive}`;}
+  async previewAccesses(keys:readonly string[]):Promise<Map<string,import('./linkPreviews.ts').PreviewAccess>> {
+    return this.previewsActive?this.store.previewAccesses(keys):new Map();
+  }
+  async previewImage(key:string):Promise<{bytes:Uint8Array;scope:string}> {
+    this.ready();if(!this.previewsActive)throw new NativeError(501,'unsupported_feature');
+    const generation=this.generation,access=(await this.previewAccesses([key])).get(key);
+    if(!access)throw new NativeError(404,'preview_retired');
+    checkIdentity(this.session,await this.transport.discover());this.roomOperationGeneration(generation);
+    const bytes=await this.transport.previewBytes(access.message,access.image);
+    const current=await this.transport.message(access.message);
+    checkIdentity(this.session,await this.transport.discover());this.roomOperationGeneration(generation);
+    if(current.room_id!==access.room||current.deleted||current.system||!current.previews?.some(preview=>preview.image&&previewImageIdentity(preview.image)===previewImageIdentity(access.image)))throw new NativeError(409,'delivery_revalidate');
+    if((await this.previewAccesses([key])).get(key)?.scope!==access.scope)throw new NativeError(409,'delivery_revalidate');
+    return {bytes,scope:access.scope};
+  }
   get customEmojis():import('./protocol.generated.ts').EmojiCatalog {return this.emojiState;}
   async restoreEmojis():Promise<void> {
     const generation=this.generation,version=this.emojiChanges,catalog=await this.store.emojiCatalog();

@@ -2,11 +2,10 @@
  * Aperçus de lien dans le fil : image directe, ou carte « unfurl »
  * (titre/description/vignette/site) à partir des métadonnées serveur
  * (`lib/apercuLien.ts`). Aucune WebView, aucun scraping — on projette ce que
- * Rocket.Chat a déjà parsé dans `message.urls`.
+ * le fournisseur a déjà projeté dans `message.urls`.
  *
- * L'image d'un aperçu est une URL PUBLIQUE (og:image, vignette oEmbed, ou lien
- * image direct) : `Image` simple, sans `rc_uid`/`rc_token` — contrairement aux
- * pièces jointes, qui sont des fichiers protégés du serveur.
+ * Les images Rocket.Chat restent publiques ; les aperçus RocketVibe passent
+ * par le lecteur privé lié au message, y compris dans la visionneuse.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -21,6 +20,9 @@ import {
 } from 'react-native';
 
 import { apercusDeLien, type ApercuLien } from '../lib/apercuLien.ts';
+import type {ClientRest} from '../lib/rest.ts';
+import {uriApercuNatif} from '../lib/apercusNatifs.ts';
+import {useApercuNatif} from './apercuNatif.ts';
 import { useT } from './i18n.ts';
 import { ouvrirLienExterne } from './lienExterne.ts';
 import { type Couleurs, largeurDispoCorps, POLICES } from './theme.ts';
@@ -30,14 +32,16 @@ import { useVisionneuse } from './visionneuse.tsx';
 export function ApercusLien({
   c,
   urls,
+  client,
   surAppuiLong,
 }: {
   c: Couleurs;
   urls: string | null;
+  client?:ClientRest;
   surAppuiLong?: (() => void) | undefined;
 }) {
   const { width: largeurEcran } = useWindowDimensions();
-  const apercus = useMemo(() => apercusDeLien(urls), [urls]);
+  const apercus = useMemo(() => apercusDeLien(urls,3,client?.genre==='rocketvibe'?(message,image)=>uriApercuNatif(client,message,image):undefined), [urls,client]);
   if (apercus.length === 0) return null;
 
   // Même largeur disponible que les images jointes — voir `largeurDispoCorps`.
@@ -82,29 +86,30 @@ function ApercuImage({
 }) {
   const t = useT();
   const visionneuse = useVisionneuse();
-  const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
-  const [erreur, setErreur] = useState(false);
+  const [mesure, setMesure] = useState<{ uri:string; w: number; h: number } | null>(null);
+  const [erreur, setErreur] = useState<string|null>(null);
+  const local=useApercuNatif(url),native=url.startsWith('rv-preview:');
+  const dims=mesure?.uri===local?mesure:null;
 
   useEffect(() => {
     let vivant = true;
-    setDims(null);
-    setErreur(false);
+    if(!local)return()=>{vivant=false;};
     Image.getSize(
-      url,
+      local,
       (w, h) => {
-        if (vivant) setDims({ w, h });
+        if (vivant) setMesure({ uri:local,w, h });
       },
       () => {
-        if (vivant) setErreur(true);
+        if (vivant) setErreur(local);
       },
     );
     return () => {
       vivant = false;
     };
-  }, [url]);
+  }, [local]);
 
   // Un lien image cassé (404, hôte injoignable) ne laisse rien s'afficher.
-  if (erreur) return null;
+  if (erreur===local || native&&!local) return null;
 
   // Pas d'agrandissement au-delà de la taille native ; plancher pour rester
   // tapable. Ratio par défaut le temps de connaître les dimensions réelles.
@@ -115,7 +120,7 @@ function ApercuImage({
   return (
     <Pressable
       onPress={() =>
-        visionneuse.ouvrir({ uri: url, largeur: dims?.w ?? null, hauteur: dims?.h ?? null, titre: null })
+        local&&visionneuse.ouvrir({ uri: native?url:local, largeur: dims?.w ?? null, hauteur: dims?.h ?? null, titre: null,type:native?'image/png':null })
       }
       onLongPress={surAppuiLong}
       delayLongPress={350}
@@ -134,13 +139,13 @@ function ApercuImage({
         </View>
       ) : (
         <Image
-          source={{ uri: url }}
+          source={local?{ uri: local }:undefined}
           style={[
             styles.image,
             { width: largeur, height: hauteur, backgroundColor: c.fondImageAttente },
           ]}
           resizeMode="cover"
-          onError={() => setErreur(true)}
+          onError={() => setErreur(local??null)}
         />
       )}
     </Pressable>
@@ -160,8 +165,9 @@ function ApercuCarte({
   surAppuiLong: (() => void) | undefined;
 }) {
   const t = useT();
-  const [erreurImage, setErreurImage] = useState(false);
-  const montreBandeau = apercu.image !== null && !erreurImage;
+  const [erreurImage, setErreurImage] = useState<string|null>(null);
+  const local=useApercuNatif(apercu.image);
+  const montreBandeau = !!local && erreurImage!==local;
   const nomAccessible = apercu.titre ?? apercu.site ?? t('carteLien.lienDefaut');
 
   return (
@@ -175,10 +181,10 @@ function ApercuCarte({
     >
       {montreBandeau && (
         <Image
-          source={{ uri: apercu.image! }}
+          source={{ uri: local! }}
           style={[styles.bandeau, { backgroundColor: c.fondImageAttente }]}
           resizeMode="cover"
-          onError={() => setErreurImage(true)}
+            onError={() => setErreurImage(local??null)}
         />
       )}
       <View style={styles.texteCarte}>

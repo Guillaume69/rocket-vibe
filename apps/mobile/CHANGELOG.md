@@ -9,6 +9,12 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Les aperçus d'articles, d'images et de vidéos utilisent les cartes existantes,
+  avec des vignettes privées liées au message et à l'accès au salon. La
+  visionneuse conserve le zoom et l'enregistrement dans la galerie ; une édition,
+  un retrait d'accès ou un changement de compte retire les pixels en mémoire.
+  Activation serveur prévue après le raccordement des clients bureau.
+
 - Les emojis personnalisés du serveur apparaissent dans les sélecteurs, la
   complétion, les messages et les réactions existants. Les images protégées
   sont retirées après une mise à jour du catalogue ou un changement de compte.

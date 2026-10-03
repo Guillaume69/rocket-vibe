@@ -319,6 +319,26 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P15 / J3, raccordement mobile des aperçus (3 octobre 2026) : les cartes
+  d'article, d'image et de vidéo existantes lisent la projection SQLite native.
+  Les références privées sont liées au message / descripteur / adhésion et au
+  lecteur du compte ; cache borné, quatre lectures simultanées, recherche
+  temporaire et retrait des pixels après édition / suppression / révocation.
+  Une réaction sans changement d'image conserve le cache. La visionneuse
+  garde zoom et enregistrement ; l'export relit le message courant, contrôle
+  l'accès avant la copie et efface son fichier temporaire.
+  Vérifications : 48 tests ciblés finaux passent ; suite mobile générale
+  de 1 241 tests sans échec, typecheck, schéma / types générés, Clippy Rust et
+  export Android / Hermes réussis. Le banc PostgreSQL utilise HTTP, WebSocket
+  et SQLite réels pour lecture privée, cache et retrait après édition.
+  Lint ciblé réussi ; les règles React Compiler déjà en défaut dans la
+  visionneuse ont été désactivées uniquement pour son contrôle local, sans
+  modifier la configuration ni son code de gestes existant.
+  Le test CI des fichiers attend maintenant le verrou exact de la révocation,
+  évitant de confondre une libération de réponse précédente ; sa régression
+  PostgreSQL passe. GTK / SwiftUI, intégrations structurées, activation serveur
+  et qualification d'applications installées restent ouverts dans P15.
+
 - P15 / J3, collecte des aperçus (3 octobre 2026) : métadonnées natives bornées,
   tâches PostgreSQL avec génération de contenu, baux, retries et échéance ;
   le réseau tourne hors transaction. DNS public intégralement vérifié puis

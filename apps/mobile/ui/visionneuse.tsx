@@ -40,6 +40,7 @@ import { enregistrerEnFond } from './actionsJointe.ts';
 import { useT } from './i18n.ts';
 import { POLICES, useCouleurs } from './theme.ts';
 import { libelleProgression, useProgression } from './transferts.ts';
+import {useApercuNatif} from './apercuNatif.ts';
 
 export type CibleImage = {
   /** URL absolue déjà authentifiée (rc_uid/rc_token inclus). */
@@ -97,6 +98,7 @@ function serrer(valeur: number, min: number, max: number): number {
 }
 
 function ModaleImage({ cible, onFermer }: { cible: CibleImage | null; onFermer: () => void }) {
+  const imageUri=useApercuNatif(cible?.uri);
   const t = useT();
   const c = useCouleurs();
   const insets = useSafeAreaInsets();
@@ -228,7 +230,7 @@ function ModaleImage({ cible, onFermer }: { cible: CibleImage | null; onFermer: 
               <GestureDetector gesture={gestes}>
                 <Animated.View style={[styles.cadre, styleImage]}>
                   <Image
-                    source={{ uri: cible.uri }}
+                    source={imageUri?{ uri: imageUri }:undefined}
                     style={styles.image}
                     resizeMode="contain"
                     // Décodage pleine résolution puis mise à l'échelle GPU : le
@@ -257,7 +259,7 @@ function ModaleImage({ cible, onFermer }: { cible: CibleImage | null; onFermer: 
         {cible?.local !== true && (
           <Pressable
             onPress={enregistrer}
-            disabled={progression !== undefined}
+            disabled={progression !== undefined || !!cible?.uri.startsWith('rv-preview:')&&!imageUri}
             hitSlop={12}
             style={[styles.enregistrer, { top: insets.top + 8, backgroundColor: c.carte + 'D9' }]}
             accessibilityRole="button"

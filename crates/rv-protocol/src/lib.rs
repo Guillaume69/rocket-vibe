@@ -63,6 +63,8 @@ pub struct Capabilities {
     #[serde(default)]
     pub custom_emojis: bool,
     #[serde(default)]
+    pub link_previews: bool,
+    #[serde(default)]
     pub quotes: bool,
     #[serde(default)]
     pub snapshot_paging: bool,
@@ -126,6 +128,7 @@ impl Default for Capabilities {
             typing: false,
             presence: false,
             custom_emojis: false,
+            link_previews: false,
             quotes: false,
             snapshot_paging: false,
             idempotent_room_creation: false,
@@ -184,6 +187,7 @@ impl Capabilities {
             typing,
             presence,
             custom_emojis,
+            link_previews,
             quotes,
             session_rotation,
             device_sessions,

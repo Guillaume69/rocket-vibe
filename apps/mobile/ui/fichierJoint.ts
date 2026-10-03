@@ -23,6 +23,7 @@ import { dechiffrerFichier, type ChiffrementFichier } from '../lib/e2e/crypto.ts
 import { fractionTelechargee, telechargerFichierJoint, versGalerie } from '../lib/fichierJoint.ts';
 import { Telechargements } from '../modules/telechargements/index.ts';
 import {chargerFichierNatif} from '../lib/fichiersNatifs.ts';
+import {exporterApercuNatif} from '../lib/apercusNatifs.ts';
 import type { Progression } from './transferts.ts';
 
 /** Levée quand rien ne peut ouvrir le fichier : l'appelant en informe l'écran. */
@@ -141,6 +142,20 @@ export type LieuEnregistrement = 'galerie' | 'telechargements' | 'partage';
  * deux par MediaStore, sans permission depuis Android 10.
  */
 export async function enregistrerJointeProtegee(options: OptionsJointe): Promise<LieuEnregistrement> {
+  if(options.url.startsWith('rv-preview:'))return exporterApercuNatif(options.url,async(bytes,valid)=>{
+    const directory=FileSystem.cacheDirectory;if(!directory)throw new ErreurOuvertureFichier('Aucun dossier de cache disponible.');
+    const local=`${directory}preview-${options.url.slice(options.url.lastIndexOf('/')+1)}-${Date.now().toString(36)}.png`;
+    try{
+      await FileSystem.writeAsStringAsync(local,Buffer.from(bytes).toString('base64'),{encoding:FileSystem.EncodingType.Base64});
+      if(!await valid())throw new ErreurOuvertureFichier('Accès retiré.');
+      try{await Asset.create(local);}catch{
+        const permission=await requestPermissionsAsync(true);
+        if(!permission.granted||!await valid())throw new ErreurOuvertureFichier('Accès retiré.');
+        await Asset.create(local);
+      }
+      return 'galerie' as const;
+    }finally{await FileSystem.deleteAsync(local,{idempotent:true});}
+  });
   const local = await versLeCache(options);
   const nom = local.slice(local.lastIndexOf('/') + 1);
 

@@ -10,9 +10,9 @@
  * (YouTube/Dailymotion) ou le navigateur via `Linking`. Pas de WebView, pas de
  * flux à extraire.
  *
- * La vignette est une URL PUBLIQUE (pas un fichier protégé Rocket.Chat) : `Image`
- * simple, sans `rc_uid`/`rc_token`. Si elle manque (Vimeo, ou 404), on retombe
- * sur la bannière dégradée « aurore ».
+ * Les vignettes Rocket.Chat restent publiques. RocketVibe utilise l'image
+ * privée du message, via le même lecteur que les cartes d'article. Sans image
+ * disponible, la bannière dégradée « aurore » reste le repli existant.
  */
 
 import { LinearGradient } from 'expo-linear-gradient';
@@ -20,6 +20,9 @@ import { useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { metasVideo, type MetaVideo } from '../lib/apercuLien.ts';
+import type {ClientRest} from '../lib/rest.ts';
+import {uriApercuNatif} from '../lib/apercusNatifs.ts';
+import {useApercuNatif} from './apercuNatif.ts';
 import { detecterLiensVideo, type LienVideo } from '../lib/liensVideo.ts';
 import { useT } from './i18n.ts';
 import { ouvrirLienExterne } from './lienExterne.ts';
@@ -30,16 +33,18 @@ export function LiensEmbed({
   c,
   texte,
   urls,
+  client,
   surAppuiLong,
 }: {
   c: Couleurs;
   texte: string | null;
   /** `message.urls` : le titre de la vidéo s'y trouve, récolté par le serveur. */
   urls: string | null;
+  client?:ClientRest;
   surAppuiLong?: (() => void) | undefined;
 }) {
   const liens = useMemo(() => detecterLiensVideo(texte), [texte]);
-  const metas = useMemo(() => metasVideo(urls), [urls]);
+  const metas = useMemo(() => metasVideo(urls,client?.genre==='rocketvibe'?(message,image)=>uriApercuNatif(client,message,image):undefined), [urls,client]);
   if (liens.length === 0) return null;
   return (
     <View style={styles.liste}>
@@ -49,6 +54,7 @@ export function LiensEmbed({
           c={c}
           lien={lien}
           meta={metas.get(lien.id) ?? null}
+          native={client?.genre==='rocketvibe'}
           surAppuiLong={surAppuiLong}
         />
       ))}
@@ -60,17 +66,20 @@ function CarteEmbed({
   c,
   lien,
   meta,
+  native,
   surAppuiLong,
 }: {
   c: Couleurs;
   lien: LienVideo;
   /** `null` tant que le serveur n'a pas (encore) décrit le lien. */
   meta: MetaVideo | null;
+  native:boolean;
   surAppuiLong?: (() => void) | undefined;
 }) {
   const t = useT();
-  const [erreurVignette, setErreurVignette] = useState(false);
-  const montreVignette = lien.vignette !== null && !erreurVignette;
+  const [erreurVignette, setErreurVignette] = useState<string|null>(null);
+  const image=useApercuNatif(native?meta?.image??null:lien.vignette);
+  const montreVignette = !!image && erreurVignette!==image;
 
   const titre = meta?.titre ?? null;
 
@@ -86,10 +95,10 @@ function CarteEmbed({
       <View style={styles.media}>
       {montreVignette ? (
         <Image
-          source={{ uri: lien.vignette! }}
+          source={{ uri: image! }}
           style={StyleSheet.absoluteFill}
           resizeMode="cover"
-          onError={() => setErreurVignette(true)}
+          onError={() => setErreurVignette(image??null)}
         />
       ) : (
         <LinearGradient

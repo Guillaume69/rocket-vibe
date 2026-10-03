@@ -319,6 +319,21 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P18 / P19 / J4, spécification et prototype crypto (3 octobre 2026) :
+  [RFC 0002](rfcs/0002-e2ee-native.md) détaille identité / appareils, livraison
+  ordonnée, retraits, persistance, archive récupérable et compatibilité RC.
+  Le choix de travail MLS utilise OpenMLS 0.9.0 / RustCrypto 0.6.0, suite 0x0001,
+  dans une crate de faisabilité et un lock séparés, sans dépendance des apps.
+  Trois scénarios vérifient Welcome / échange, altération / rejeu, retrait et
+  appareil neuf sans historique automatique. Deux comportements imposent des
+  gardes applicatives : réception altérée consommant une clé avant refus, envoi
+  possible dans l'ancienne époque avec commit préparé. Restaurer les écritures
+  puis recharger le groupe permet de reprendre la réception dans le prototype.
+  Le stockage est en mémoire et la livraison simulée ; ce n'est pas un coffre
+  durable, un audit ou une qualification de l'app. Les trois tests, formatage,
+  Clippy sans avertissement, syntaxe du check CI et isolation du lock passent.
+  E2EE demeure désactivé.
+
 - P20 / J4, raccordement mobile aux appels existants (3 octobre 2026) : boutons
   du salon / profil, carte d'activité et même écran WebView dirigés vers le
   fournisseur du compte. Migration SQLite 0032 : une intention de démarrage par
@@ -332,6 +347,8 @@ sont conservées avec leurs résultats de vérification.
   démontage. Typage, lint et export Android / Hermes passent ; inventaire à
   369 fichiers / 450 occurrences. Le lot bureau `1e957ae` est confirmé par les
   quatre jobs du workflow natif `37131483850` et macOS `37131483848`, tous verts.
+  Le lot mobile `0444253` est confirmé par le workflow `37134341411`, avec ses
+  quatre jobs Linux / Windows / Swift, régressions mobiles et export Android verts.
   Le service Jitsi réel, les médias / modération et les apps sur appareils restent
   à qualifier ; P20 / J4 restent ouverts. [Contrat](protocol/MEETINGS.md).
 

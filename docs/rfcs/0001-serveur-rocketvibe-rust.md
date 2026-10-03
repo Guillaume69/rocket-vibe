@@ -519,6 +519,11 @@ Cette RFC ne revendique ni forward secrecy ni équivalence avec un protocole aud
 Le choix entre extension contrôlée du mécanisme actuel et protocole de groupe
 éprouvé est ouvert et bloque la sortie complète de J4.
 
+Le travail dédié est maintenant décrit dans [RFC 0002](0002-e2ee-native.md) :
+prototype MLS en Rust, identité / appareils et persistance privée à valider,
+avec archive récupérable distincte. Ce choix de travail n'active aucune capacité
+et ne lève pas les conditions de revue et de qualification de J4.
+
 Les caches locaux contiennent déjà du clair après déchiffrement. Une politique
 explicite de verrouillage / purge, incluant l'index de recherche, est nécessaire ;
 « verrouiller » ne doit pas être présenté comme un chiffrement du disque.

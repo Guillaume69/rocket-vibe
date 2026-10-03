@@ -4,6 +4,9 @@ cd "$(dirname "$0")/../../.."
 cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
+cargo fmt --manifest-path crates/rv-crypto-spike/Cargo.toml -- --check
+cargo clippy --locked --manifest-path crates/rv-crypto-spike/Cargo.toml --target-dir target --all-targets -- -D warnings
+cargo test --locked --manifest-path crates/rv-crypto-spike/Cargo.toml --target-dir target
 schema_output=$(mktemp)
 trap 'rm -f "$schema_output"' EXIT
 cargo run --locked -p rv-protocol --bin export-schema > "$schema_output"

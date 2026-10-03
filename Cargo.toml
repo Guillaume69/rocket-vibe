@@ -1,4 +1,4 @@
 [workspace]
 members = ["apps/server", "crates/rv-protocol", "crates/rv-client"]
-exclude = ["apps/desktop"]
+exclude = ["apps/desktop", "crates/rv-crypto-spike"]
 resolver = "3"

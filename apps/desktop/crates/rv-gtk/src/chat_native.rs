@@ -57,6 +57,7 @@ impl ChatPage {
                 this.set_connection(status.connection);
                 this.native_features(&session);
                 this.reload_rooms();
+                this.refresh_uploads();
                 this.refresh_room_header();
                 if let Some(rid) = this.current_rid() {
                     this.on_typing(&rid);

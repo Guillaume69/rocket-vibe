@@ -17,6 +17,74 @@ use crate::on_tokio;
 
 type Waiter = Box<dyn FnOnce(&gdk::Texture)>;
 
+#[derive(Clone)]
+pub enum Provider {
+    RocketChat(Arc<Session>),
+    RocketVibe(Arc<rv_core::native::NativeSession>),
+}
+impl From<Arc<Session>> for Provider {
+    fn from(s: Arc<Session>) -> Self {
+        Self::RocketChat(s)
+    }
+}
+impl Provider {
+    pub fn watch(&self, widget: &impl IsA<gtk::Widget>, path: &str, expired: impl FnOnce(&gtk::Widget) + 'static) {
+        if matches!(self, Self::RocketChat(_)) {
+            return;
+        }
+        let (weak, provider, path) = (widget.as_ref().downgrade(), self.clone(), path.to_owned());
+        let mut expired = Some(expired);
+        glib::timeout_add_local(Duration::from_millis(500), move || {
+            let Some(widget) = weak.upgrade() else { return glib::ControlFlow::Break };
+            if !provider.current(&path) {
+                expired.take().unwrap()(&widget);
+                return glib::ControlFlow::Break;
+            }
+            glib::ControlFlow::Continue
+        });
+    }
+    fn key(&self, path: &str) -> String {
+        match self {
+            Self::RocketChat(_) => path.into(),
+            Self::RocketVibe(s) => format!(
+                "{}:{}:{:?}:{}:{}:{path}",
+                s.info.base_url,
+                s.info.user_id,
+                s.info.native,
+                s.store.projection_token(),
+                s.store.search_token()
+            ),
+        }
+    }
+    pub fn current(&self, path: &str) -> bool {
+        match self {
+            Self::RocketChat(_) => true,
+            Self::RocketVibe(s) => s.file_current(path),
+        }
+    }
+    async fn fetch(&self, path: &str) -> Option<Arc<rv_core::media::Media>> {
+        match self {
+            Self::RocketChat(s) => s.media.fetch(path).await.ok(),
+            Self::RocketVibe(s) => s.file_media(path).await.ok().map(Arc::new),
+        }
+    }
+    pub async fn download(&self, path: &str, dest: &std::path::Path) -> bool {
+        match self {
+            Self::RocketChat(s) => s.download_to(path, dest).await.is_ok(),
+            Self::RocketVibe(s) => s.download_file(path, dest).await.is_ok(),
+        }
+    }
+    pub async fn local(&self, file: &rv_core::content::FileAttachment) -> Option<std::path::PathBuf> {
+        match self {
+            Self::RocketChat(s) => crate::cards::legacy_local_copy(s.clone(), file.clone()).await,
+            Self::RocketVibe(s) => {
+                let (s, path) = (s.clone(), file.url.clone());
+                on_tokio(async move { s.local_file(&path).await.ok() }).await
+            }
+        }
+    }
+}
+
 /// Each frame of an animation and how long it shows, in milliseconds.
 pub type Frames = Rc<Vec<(gdk::Texture, u32)>>;
 
@@ -46,14 +114,25 @@ fn texture(width: u32, height: u32, rgba: Vec<u8>) -> gdk::Texture {
 /// Calls `ready` with the texture (a GIF's first frame), now if it is cached,
 /// later once loaded. Never called when there is no image to show.
 pub fn load(session: &Arc<Session>, path: &str, ready: impl FnOnce(&gdk::Texture) + 'static) {
-    let cached = TEXTURES.with_borrow(|t| t.get(path).cloned());
+    load_provider(Provider::RocketChat(session.clone()), path, ready)
+}
+pub fn load_provider(session: Provider, path: &str, ready: impl FnOnce(&gdk::Texture) + 'static) {
+    if !session.current(path) {
+        return;
+    }
+    let cache_key = session.key(path);
+    let cached = if matches!(session, Provider::RocketVibe(_)) {
+        None
+    } else {
+        TEXTURES.with_borrow(|t| t.get(&cache_key).cloned())
+    };
     match cached {
         Some(Some(texture)) => return ready(&texture),
         Some(None) => return,
         None => {}
     }
     let first = WAITING.with_borrow_mut(|w| {
-        let waiters = w.entry(path.to_owned()).or_default();
+        let waiters = w.entry(cache_key.clone()).or_default();
         waiters.push(Box::new(ready));
         waiters.len() == 1
     });
@@ -62,9 +141,10 @@ pub fn load(session: &Arc<Session>, path: &str, ready: impl FnOnce(&gdk::Texture
     }
     let (session, path) = (session.clone(), path.to_owned());
     glib::spawn_future_local(async move {
-        let key = path.clone();
+        let key = cache_key;
+        let (authority, source) = (session.clone(), path.clone());
         let loaded = on_tokio(async move {
-            let media = session.media.fetch(&path).await.ok()?;
+            let media = session.fetch(&path).await?;
             if media.is_placeholder() {
                 return None;
             }
@@ -90,7 +170,13 @@ pub fn load(session: &Arc<Session>, path: &str, ready: impl FnOnce(&gdk::Texture
                 a.push((key.clone(), Rc::new(frames)));
             });
         }
-        TEXTURES.with_borrow_mut(|t| t.insert(key.clone(), texture.clone()));
+        let texture = texture.filter(|_| authority.current(&source));
+        TEXTURES.with_borrow_mut(|t| {
+            if t.len() >= 400 {
+                t.clear();
+            }
+            t.insert(key.clone(), texture.clone())
+        });
         let waiters = WAITING.with_borrow_mut(|w| w.remove(&key)).unwrap_or_default();
         if let Some(texture) = texture {
             for waiter in waiters {
@@ -103,6 +189,9 @@ pub fn load(session: &Arc<Session>, path: &str, ready: impl FnOnce(&gdk::Texture
 /// The frames of an animated GIF already loaded from `path`.
 pub fn frames(path: &str) -> Option<Frames> {
     ANIMATIONS.with_borrow(|a| a.iter().find(|(p, _)| p == path).map(|(_, f)| f.clone()))
+}
+pub fn provider_frames(provider: &Provider, path: &str) -> Option<Frames> {
+    frames(&provider.key(path))
 }
 
 /// Plays `frames` in `picture` for as long as it exists, only while it is on

@@ -106,7 +106,7 @@ impl NativeStore {
         }
         let mut rows=conn.prepare(&format!("{MESSAGE_SELECT} WHERE m.rid=?1 AND (m.id=?2 OR m.reply_to=?2) AND NOT m.deleted ORDER BY m.id<>?2,m.position IS NULL,length(m.position),m.position,o.created,m.id"))?.query_map(params![rid,root],message_row)?.collect::<rusqlite::Result<Vec<_>>>()?;
         for row in &mut rows {
-            row.attachments = quotes::attachments(&conn, &row.id)?;
+            row.attachments = files::attachments(&conn, &row.id)?;
         }
         Ok(rows)
     }

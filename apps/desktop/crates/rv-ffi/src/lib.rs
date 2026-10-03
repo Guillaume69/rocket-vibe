@@ -6,6 +6,7 @@ pub mod markup;
 pub mod model;
 mod native;
 mod native_auth;
+mod native_files;
 mod native_profiles;
 mod native_recovery;
 mod native_rooms;

@@ -143,7 +143,7 @@ jobs:
               cargo fmt --all -- --check
               cargo clippy --locked --workspace --all-targets -- -D warnings
               cargo test --locked --workspace
-              cargo build --locked -p rv-core --example native-smoke
+              cargo build --locked -p rv-core --example native-smoke --example native-files-smoke
               cargo build --locked -p rocket-vibe-gtk
             '
       - name: Actual mobile SQLite runner and GTK desktop against PostgreSQL
@@ -158,6 +158,11 @@ jobs:
         run: |
           docker compose -f docker/compose.native-pilot.yml run --rm --no-deps mobile node scripts/native-quotes-gtk-seed.ts
           docker compose -f docker/compose.native-pilot.yml run --rm --no-deps --user nobody desktop bash scripts/native-quotes-smoke.sh
+      - name: Native streamed files and existing GTK attachment controls
+        run: |
+          docker compose -f docker/compose.native-files-pilot.yml up -d postgres bootstrap server
+          docker compose -f docker/compose.native-files-pilot.yml run --rm --no-deps desktop
+          docker compose -f docker/compose.native-files-pilot.yml run --rm --no-deps gtk
       - name: Existing GTK security settings and private receipt after restart
         run: |
           docker compose -p rocketvibe-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml up -d factor-proxy
@@ -180,6 +185,8 @@ jobs:
       - name: Integration logs and cleanup
         if: always()
         run: |
+          docker compose -f docker/compose.native-files-pilot.yml logs --no-color > artifacts/native-files-pilot.log
+          docker compose -f docker/compose.native-files-pilot.yml down -v
           docker compose -f docker/compose.native-pilot.yml logs --no-color > artifacts/native-pilot.log
           docker compose -f docker/compose.native-pilot.yml down -v
           docker compose -p rocketvibe-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml logs --no-color > artifacts/native-security-pilot.log
@@ -284,6 +291,10 @@ jobs:
           docker compose -f docker/compose.native-pilot.yml run --rm --no-deps swift
           docker compose -f docker/compose.native-pilot.yml run --rm --no-deps -e 'PGOPTIONS=-c rocketvibe.pilot_factor_user=swift-factor' factor-check
           docker compose -f docker/compose.native-pilot.yml run --rm --no-deps session-check
+      - name: Native files in existing Swift room and media models
+        run: |
+          docker compose -f docker/compose.native-files-pilot.yml up -d postgres bootstrap server
+          docker compose -f docker/compose.native-files-pilot.yml run --rm --no-deps swift
       - name: Swift security settings and private receipt after process restart
         run: |
           docker compose -p rocketvibe-swift-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml up -d factor-proxy
@@ -304,6 +315,8 @@ jobs:
         if: always()
         run: |
           docker compose -f docker/compose.native-pilot.yml logs --no-color > artifacts/native-swift-pilot.log
+          docker compose -f docker/compose.native-files-pilot.yml logs --no-color > artifacts/native-swift-files-pilot.log
+          docker compose -f docker/compose.native-files-pilot.yml down -v
           docker compose -f docker/compose.native-pilot.yml down -v
           docker compose -p rocketvibe-swift-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml logs --no-color > artifacts/native-swift-security-pilot.log
           docker compose -p rocketvibe-swift-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml down -v

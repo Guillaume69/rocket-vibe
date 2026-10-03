@@ -61,7 +61,7 @@ struct RemoteImage: View {
 
     var body: some View {
         Group {
-            if let shown = image ?? Pictures.cached(path, pixels: pixels) {
+            if app.media?.current(path) != false, let shown = image ?? Pictures.cached(path, pixels: pixels) {
                 Image(nsImage: shown).resizable().scaledToFill()
             } else if failed {
                 Image(systemName: "photo").foregroundStyle(.secondary)
@@ -72,7 +72,7 @@ struct RemoteImage: View {
         .frame(width: width, height: height)
         .background(Vibe.card)
         .clipShape(RoundedRectangle(cornerRadius: 12))
-        .task(id: path) {
+        .task(id: "\(path)#\(app.imagesVersion)") {
             guard let media = app.media else { return }
             if let loaded = await Pictures.load(path, pixels: pixels, media: media) {
                 image = loaded
@@ -97,6 +97,7 @@ struct ImageViewer: View {
     let path: String
     let title: String?
     @Environment(\.dismiss) var dismiss
+    @Environment(AppModel.self) var app
 
     var body: some View {
         ZStack {
@@ -111,5 +112,6 @@ struct ImageViewer: View {
             if let title { Text(title).foregroundStyle(.white).padding() }
         }
         .onExitCommand { dismiss() }
+        .onChange(of:app.imagesVersion){if app.media?.current(path)==false{dismiss()}}
     }
 }

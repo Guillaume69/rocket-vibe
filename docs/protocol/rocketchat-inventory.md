@@ -2,7 +2,7 @@
 
 Commande : `node scripts/inventory-rocketchat.mjs`. Contrôle : ajouter `--check`.
 
-336 fichiers de production parcourus ; 443 occurrences.
+344 fichiers de production parcourus ; 443 occurrences.
 Les appels à premier argument dynamique restent visibles : leur résolution est
 consignée dans [le contrat de parité](PARITY.md). Les lignes sont des repères de
 source au moment de la génération. Le JSON conserve le périmètre et tous les fichiers.
@@ -173,7 +173,7 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/crates/rv-core/src/uploads.rs:352](../../apps/desktop/crates/rv-core/src/uploads.rs#L352) | endpoint | rooms.mediaConfirm/{…}/{…} |
 | [apps/desktop/crates/rv-core/src/uploads.rs:372](../../apps/desktop/crates/rv-core/src/uploads.rs#L372) | call:UPLOAD | &format!("rooms.media/{…}", task_row.rid), |
 | [apps/desktop/crates/rv-core/src/uploads.rs:374](../../apps/desktop/crates/rv-core/src/uploads.rs#L374) | endpoint | rooms.media/{…} |
-| [apps/desktop/crates/rv-gtk/src/chat_native.rs:703](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L703) | endpoint | rooms.new |
+| [apps/desktop/crates/rv-gtk/src/chat_native.rs:704](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L704) | endpoint | rooms.new |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:79](../../apps/desktop/crates/rv-gtk/src/chat.rs#L79) | endpoint | rooms.favorite_add |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:79](../../apps/desktop/crates/rv-gtk/src/chat.rs#L79) | endpoint | rooms.favorite_remove |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:228](../../apps/desktop/crates/rv-gtk/src/chat.rs#L228) | endpoint | rooms.offline |
@@ -182,14 +182,14 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/crates/rv-gtk/src/chat.rs:251](../../apps/desktop/crates/rv-gtk/src/chat.rs#L251) | endpoint | rooms.new |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:339](../../apps/desktop/crates/rv-gtk/src/chat.rs#L339) | endpoint | e2e.banner |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:341](../../apps/desktop/crates/rv-gtk/src/chat.rs#L341) | endpoint | e2e.unlock |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1149](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1149) | endpoint | rooms.online |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1150](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1150) | endpoint | rooms.connecting |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1151](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1151) | endpoint | rooms.offline |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1558](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1558) | endpoint | rooms.section_unread |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1559](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1559) | endpoint | rooms.section_favorites |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1560](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1560) | endpoint | rooms.section_channels |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1561](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1561) | endpoint | rooms.section_direct |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1675](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1675) | endpoint | e2e.read_only |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1166](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1166) | endpoint | rooms.online |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1167](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1167) | endpoint | rooms.connecting |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1168](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1168) | endpoint | rooms.offline |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1616](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1616) | endpoint | rooms.section_unread |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1617](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1617) | endpoint | rooms.section_favorites |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1618](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1618) | endpoint | rooms.section_channels |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1619](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1619) | endpoint | rooms.section_direct |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1733](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1733) | endpoint | e2e.read_only |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:19](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L19) | endpoint | rooms.favorite_add |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:19](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L19) | endpoint | rooms.favorite_remove |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:31](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L31) | endpoint | rooms.conflict |
@@ -229,7 +229,7 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:412](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L412) | endpoint | rooms.apply_role |
 | [apps/desktop/crates/rv-gtk/src/login.rs:113](../../apps/desktop/crates/rv-gtk/src/login.rs#L113) | endpoint | chat.example.com |
 | [apps/desktop/crates/rv-gtk/src/notifier.rs:259](../../apps/desktop/crates/rv-gtk/src/notifier.rs#L259) | endpoint | im.received |
-| [apps/desktop/crates/rv-gtk/src/rows.rs:338](../../apps/desktop/crates/rv-gtk/src/rows.rs#L338) | endpoint | rooms.encrypted |
+| [apps/desktop/crates/rv-gtk/src/rows.rs:374](../../apps/desktop/crates/rv-gtk/src/rows.rs#L374) | endpoint | rooms.encrypted |
 | [apps/desktop/crates/rv-gtk/src/settings.rs:60](../../apps/desktop/crates/rv-gtk/src/settings.rs#L60) | endpoint | rooms.sign_out |
 | [apps/desktop/crates/rv-gtk/src/settings.rs:329](../../apps/desktop/crates/rv-gtk/src/settings.rs#L329) | endpoint | e2e.status |
 | [apps/desktop/crates/rv-gtk/src/settings.rs:330](../../apps/desktop/crates/rv-gtk/src/settings.rs#L330) | endpoint | e2e.locked |
@@ -428,13 +428,13 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/mobile/lib/sync.ts:124](../../apps/mobile/lib/sync.ts#L124) | stream | stream-room-messages |
 | [apps/mobile/lib/sync.ts:125](../../apps/mobile/lib/sync.ts#L125) | stream | stream-notify-user |
 | [apps/mobile/lib/sync.ts:126](../../apps/mobile/lib/sync.ts#L126) | stream | stream-notify-room |
-| [apps/mobile/lib/upload.ts:88](../../apps/mobile/lib/upload.ts#L88) | url | /api/v1/rooms.media/{…} |
-| [apps/mobile/lib/upload.ts:126](../../apps/mobile/lib/upload.ts#L126) | call:POST | \`rooms.mediaConfirm/{…}/{…}\` |
-| [apps/mobile/lib/upload.ts:126](../../apps/mobile/lib/upload.ts#L126) | endpoint | rooms.mediaConfirm/{…}/{…} |
-| [apps/mobile/lib/upload.ts:156](../../apps/mobile/lib/upload.ts#L156) | url | /api/v1/users.setAvatar |
-| [apps/mobile/lib/upload.ts:240](../../apps/mobile/lib/upload.ts#L240) | resource | /avatar/{…} |
-| [apps/mobile/lib/upload.ts:242](../../apps/mobile/lib/upload.ts#L242) | resource | /avatar/uid/{…} |
-| [apps/mobile/lib/upload.ts:244](../../apps/mobile/lib/upload.ts#L244) | resource | /avatar/room/{…} |
+| [apps/mobile/lib/upload.ts:89](../../apps/mobile/lib/upload.ts#L89) | url | /api/v1/rooms.media/{…} |
+| [apps/mobile/lib/upload.ts:127](../../apps/mobile/lib/upload.ts#L127) | call:POST | \`rooms.mediaConfirm/{…}/{…}\` |
+| [apps/mobile/lib/upload.ts:127](../../apps/mobile/lib/upload.ts#L127) | endpoint | rooms.mediaConfirm/{…}/{…} |
+| [apps/mobile/lib/upload.ts:157](../../apps/mobile/lib/upload.ts#L157) | url | /api/v1/users.setAvatar |
+| [apps/mobile/lib/upload.ts:242](../../apps/mobile/lib/upload.ts#L242) | resource | /avatar/{…} |
+| [apps/mobile/lib/upload.ts:244](../../apps/mobile/lib/upload.ts#L244) | resource | /avatar/uid/{…} |
+| [apps/mobile/lib/upload.ts:246](../../apps/mobile/lib/upload.ts#L246) | resource | /avatar/room/{…} |
 | [apps/mobile/plugins/ios-notification-service/NotificationService.swift:163](../../apps/mobile/plugins/ios-notification-service/NotificationService.swift#L163) | url | /api/v1/push.get |
 | [apps/mobile/plugins/with-fcm-deeplink.js:1017](../../apps/mobile/plugins/with-fcm-deeplink.js#L1017) | url | /api/v1/chat.sendMessage |
 | [apps/mobile/plugins/with-fcm-deeplink.js:1030](../../apps/mobile/plugins/with-fcm-deeplink.js#L1030) | url | /api/v1/chat.sendMessage |

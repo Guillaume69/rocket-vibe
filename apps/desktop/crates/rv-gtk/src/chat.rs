@@ -735,6 +735,23 @@ impl ChatPage {
         let w = weak.clone();
         self.composer.connect_voice(move |path| {
             let Some(this) = w.upgrade() else { return };
+            if let Some(native) = this.native_session() {
+                let Some((rid, Some(membership))) = this.native_membership.borrow().clone() else { return };
+                let name = format!("{}-{}.ogg", t("voice.file_name"), chrono::Local::now().format("%Y%m%d-%H%M%S"));
+                let weak = Rc::downgrade(&this);
+                glib::spawn_future_local(async move {
+                    if on_tokio(async move {
+                        native.attach_file(&rid, &path, &name, "audio/ogg", None, true, &membership).await
+                    })
+                    .await
+                    .is_err()
+                        && let Some(this) = weak.upgrade()
+                    {
+                        this.toast(t("voice.refused").into());
+                    }
+                });
+                return;
+            }
             let (Some(session), Some(rid)) = (this.session(), this.current_rid()) else { return };
             let name = format!("{}-{}.ogg", t("voice.file_name"), chrono::Local::now().format("%Y%m%d-%H%M%S"));
             let weak = Rc::downgrade(&this);
@@ -1436,14 +1453,31 @@ impl ChatPage {
     }
 
     fn send_files(self: &Rc<Self>, outgoing: crate::composer::Outgoing) {
-        let (Some(session), Some(rid)) = (self.session(), self.current_rid()) else { return };
+        let Some(rid) = self.current_rid() else { return };
+        let provider = if let Some(s) = self.native_session() {
+            crate::media::Provider::RocketVibe(s)
+        } else if let Some(s) = self.session() {
+            crate::media::Provider::RocketChat(s)
+        } else {
+            return;
+        };
+        let membership =
+            self.native_membership.borrow().as_ref().filter(|(r, _)| r == &rid).and_then(|(_, m)| m.clone());
         let weak = Rc::downgrade(self);
         let toast: Rc<dyn Fn(String)> = Rc::new(move |text| {
             if let Some(this) = weak.upgrade() {
                 this.toast(text);
             }
         });
-        crate::attach::send_all(session, rid, outgoing.items, outgoing.caption, !outgoing.original, toast);
+        crate::attach::send_all_provider(
+            provider,
+            rid,
+            outgoing.items,
+            outgoing.caption,
+            !outgoing.original,
+            toast,
+            membership,
+        );
     }
 
     /// Uploads of the open room not settled yet: progress, or Retry and Discard.
@@ -1451,8 +1485,16 @@ impl ChatPage {
         while let Some(child) = self.upload_strip.first_child() {
             self.upload_strip.remove(&child);
         }
-        let (Some(session), Some(rid)) = (self.session(), self.current_rid()) else { return };
-        let uploads = session.store.uploads(&rid);
+        let Some(rid) = self.current_rid() else { return };
+        let native = self.native_session();
+        let legacy = self.session();
+        let uploads = if let Some(s) = &native {
+            s.file_uploads(&rid).unwrap_or_default()
+        } else if let Some(s) = &legacy {
+            s.store.uploads(&rid)
+        } else {
+            return;
+        };
         self.upload_strip.set_visible(!uploads.is_empty());
         for upload in uploads {
             let failed = upload.status == "failed";
@@ -1464,7 +1506,11 @@ impl ChatPage {
             let name = label(&upload.name, &["file-title"]);
             name.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
             column.append(&name);
-            match session.uploads.progress(&upload.id) {
+            match native
+                .as_ref()
+                .and_then(|s| s.upload_progress(&upload.id))
+                .or_else(|| legacy.as_ref().and_then(|s| s.uploads.progress(&upload.id)))
+            {
                 Some(fraction) => column.append(&gtk::ProgressBar::builder().fraction(fraction).build()),
                 None => {
                     column.append(&label(t(if failed { "upload.failed" } else { "upload.waiting" }), &["file-detail"]))
@@ -1477,10 +1523,16 @@ impl ChatPage {
                     .css_classes(["file-action"])
                     .valign(gtk::Align::Center)
                     .build();
-                let (s, id) = (session.clone(), upload.id.clone());
+                let (s, n, id) = (legacy.clone(), native.clone(), upload.id.clone());
                 retry.connect_clicked(move |_| {
-                    let (s, id) = (s.clone(), id.clone());
-                    crate::runtime().spawn(async move { s.uploads.retry(&id).await });
+                    let (s, n, id) = (s.clone(), n.clone(), id.clone());
+                    crate::runtime().spawn(async move {
+                        if let Some(s) = s {
+                            s.uploads.retry(&id).await;
+                        } else if let Some(n) = n {
+                            let _ = n.retry_file(&id);
+                        }
+                    });
                 });
                 row.append(&retry);
             }
@@ -1490,8 +1542,14 @@ impl ChatPage {
                 .css_classes(["flat", "circular"])
                 .valign(gtk::Align::Center)
                 .build();
-            let (s, id) = (session.clone(), upload.id.clone());
-            discard.connect_clicked(move |_| s.uploads.discard(&id));
+            let (s, n, id) = (legacy.clone(), native.clone(), upload.id.clone());
+            discard.connect_clicked(move |_| {
+                if let Some(s) = &s {
+                    s.uploads.discard(&id);
+                } else if let Some(n) = &n {
+                    let _ = n.discard_file(&id);
+                }
+            });
             row.append(&discard);
             self.upload_strip.append(&row);
         }

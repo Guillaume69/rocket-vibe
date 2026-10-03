@@ -273,7 +273,7 @@ public final class RoomModel {
     }
 
     func refreshUploads() {
-        let fresh = chat?.uploads(rid: room.rid) ?? []
+        let fresh = chat?.uploads(rid: room.rid) ?? (try? provider.native?.uploads(rid: room.rid)) ?? []
         if fresh != uploads { uploads = fresh }
     }
 
@@ -526,10 +526,13 @@ public final class RoomModel {
     }
 
     public func attach(path: String, name: String, mime: String, caption: String?, temporary: Bool) async -> String? {
-        guard active, let chat else { return L("native.error") }
+        guard active, membershipIsCurrent else { return L("native.error") }
         do {
-            try await chat.attach(
-                rid: room.rid, path: path, name: name, mime: mime, caption: caption, temporary: temporary)
+            if let chat {
+                try await chat.attach(rid: room.rid, path: path, name: name, mime: mime, caption: caption, temporary: temporary)
+            } else if let native=provider.native, let nativeMembership {
+                try await native.attach(rid: room.rid, path: path, name: name, mime: mime, caption: caption, temporary: temporary, membership: nativeMembership)
+            } else { return L("native.error") }
             refreshUploads()
             return nil
         } catch let RvError.Local(message) {
@@ -548,11 +551,13 @@ public final class RoomModel {
     public func retryUpload(_ id: String) async {
         guard active else { return }
         await chat?.retryUpload(id: id)
+        try? await provider.native?.retryUpload(id: id)
     }
 
     public func discardUpload(_ id: String) {
         guard active else { return }
         chat?.discardUpload(id: id)
+        try? provider.native?.discardUpload(id: id)
         refreshUploads()
     }
 }

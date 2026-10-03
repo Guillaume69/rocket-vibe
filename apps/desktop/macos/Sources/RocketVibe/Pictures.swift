@@ -18,7 +18,8 @@ enum Pictures {
     }
 
     static func cached(_ path: String, pixels: Int) -> NSImage? {
-        cache.object(forKey: key(path, pixels))
+        if path.hasPrefix("rv-file:"){return nil}
+        return cache.object(forKey: key(path, pixels))
     }
 
     /// `pixels`: the longest side drawn, in pixels; 0 keeps the original size.

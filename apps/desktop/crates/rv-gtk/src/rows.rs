@@ -142,6 +142,15 @@ pub fn room_tile(name: &str, kind: &str, encrypted: bool, size: TileSize) -> gtk
 }
 
 pub fn open_viewer(parent: &gtk::Widget, texture: &gdk::Texture, title: &str, frames: Option<media::Frames>) {
+    open_viewer_provider(parent, texture, title, frames, None)
+}
+fn open_viewer_provider(
+    parent: &gtk::Widget,
+    texture: &gdk::Texture,
+    title: &str,
+    frames: Option<media::Frames>,
+    authority: Option<(media::Provider, String)>,
+) {
     let picture = gtk::Picture::builder().paintable(texture).content_fit(gtk::ContentFit::Contain).build();
     if let Some(frames) = frames {
         media::play(&picture, frames);
@@ -168,6 +177,17 @@ pub fn open_viewer(parent: &gtk::Widget, texture: &gdk::Texture, title: &str, fr
     viewer_menu(&picture, texture, title);
     dialog.present(Some(parent));
     close_on_backdrop(&dialog);
+    if let Some((provider, path)) = authority {
+        let weak = dialog.downgrade();
+        provider.watch(&picture, &path, move |widget| {
+            if let Some(p) = widget.downcast_ref::<gtk::Picture>() {
+                p.set_paintable(None::<&gdk::Texture>);
+            }
+            if let Some(dialog) = weak.upgrade() {
+                dialog.close();
+            }
+        });
+    }
 }
 
 /// The dimmed backdrop around a dialog is a window handle: a click there
@@ -257,13 +277,17 @@ fn viewer_menu(picture: &gtk::Picture, texture: &gdk::Texture, title: &str) {
 }
 
 pub fn image_widget(session: &Arc<Session>, image: &ImageAttachment) -> gtk::Widget {
+    image_provider(media::Provider::RocketChat(session.clone()), image)
+}
+pub fn image_provider(session: media::Provider, image: &ImageAttachment) -> gtk::Widget {
     let (w, h) = display_size(image.width, image.height, 120, 360, 300);
     let frame = widgets::media_frame(w, h, &["image-attachment"]);
     frame.set_cursor(gdk::Cursor::from_name("pointer", None).as_ref());
     frame.set_margin_top(4);
     let weak = frame.downgrade();
     let (source, sized) = (image.source.clone(), image.width.is_some());
-    media::load(session, &image.source, move |texture| {
+    let animation_provider = session.clone();
+    media::load_provider(session.clone(), &image.source, move |texture| {
         let Some(frame) = weak.upgrade() else { return };
         if !sized && let Some(sizer) = frame.child().and_downcast::<crate::sizer::Sizer>() {
             let (w, h) = display_size(Some(texture.width().into()), Some(texture.height().into()), 120, 360, 300);
@@ -272,7 +296,13 @@ pub fn image_widget(session: &Arc<Session>, image: &ImageAttachment) -> gtk::Wid
         let picture =
             gtk::Picture::builder().paintable(texture).content_fit(gtk::ContentFit::Cover).can_shrink(true).build();
         frame.add_overlay(&picture);
-        if let Some(frames) = media::frames(&source) {
+        let weak = picture.downgrade();
+        animation_provider.watch(&frame, &source, move |_| {
+            if let Some(p) = weak.upgrade() {
+                p.set_paintable(None::<&gdk::Texture>);
+            }
+        });
+        if let Some(frames) = media::provider_frames(&animation_provider, &source) {
             media::play(&picture, frames);
         }
     });
@@ -285,8 +315,11 @@ pub fn image_widget(session: &Arc<Session>, image: &ImageAttachment) -> gtk::Wid
     click.connect_released(move |gesture, _, _, _| {
         let Some(widget) = gesture.widget() else { return };
         let title = title.clone();
-        let frames = media::frames(&source);
-        media::load(&session, &source, move |texture| open_viewer(&widget, texture, &title, frames));
+        let frames = media::provider_frames(&session, &source);
+        let authority = (session.clone(), source.clone());
+        media::load_provider(session.clone(), &source, move |texture| {
+            open_viewer_provider(&widget, texture, &title, frames, Some(authority))
+        });
     });
     frame.add_controller(click);
     let Some(link) = &image.link else { return frame.upcast() };
@@ -298,6 +331,9 @@ pub fn image_widget(session: &Arc<Session>, image: &ImageAttachment) -> gtk::Wid
         .ellipsize(pango::EllipsizeMode::End)
         .css_classes(["attachment-title"])
         .build();
+    if link.starts_with("rv-file:") {
+        title.connect_activate_link(|_, _| glib::Propagation::Stop);
+    }
     let column = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(2).margin_top(4).build();
     column.append(&title);
     column.append(&frame);
@@ -623,6 +659,15 @@ fn message_from_provider(
         }
         for preview in content::link_previews(row.urls.as_deref(), 3) {
             column.append(&cards::link_preview(session, &preview));
+        }
+    }
+    if let Some(native) = native {
+        let provider = media::Provider::RocketVibe(native.clone());
+        for image in image_attachments(row.attachments.as_deref()) {
+            column.append(&image_provider(provider.clone(), &image));
+        }
+        for file in content::files(row.attachments.as_deref()) {
+            column.append(&cards::file_provider(provider.clone(), &file));
         }
     }
     if is_call {

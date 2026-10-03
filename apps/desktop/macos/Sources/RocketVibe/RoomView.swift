@@ -730,6 +730,7 @@ struct FileCard: View {
         .sheet(item: Binding(get: { playing.map(Playing.init) }, set: { playing = $0?.url })) { p in
             PlayerView(url: p.url)
         }
+        .onChange(of:app.imagesVersion){if app.media?.current(file.url)==false{playing=nil}}
     }
 
     var icon: String {
@@ -745,15 +746,8 @@ struct FileCard: View {
         guard let media = app.media else { return }
         loading = true
         defer { loading = false }
-        let local = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "rv-\(abs(file.url.hashValue))-\(file.title)")
-        if !FileManager.default.fileExists(atPath: local.path) {
-            do { try await media.download(file.url, to: local.path) } catch {
-                app.notice = L("file.failed")
-                return
-            }
-        }
-        playing = local
+        do {playing=try await media.localCopy(file.url,name:file.title)}
+        catch{app.notice=L("file.failed")}
     }
 }
 

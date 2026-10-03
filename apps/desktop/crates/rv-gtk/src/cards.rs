@@ -82,7 +82,7 @@ fn cache_path(file: &FileAttachment) -> PathBuf {
 }
 
 /// The file on disk, fetched the first time.
-pub async fn local_copy(session: Arc<Session>, file: FileAttachment) -> Option<PathBuf> {
+pub async fn legacy_local_copy(session: Arc<Session>, file: FileAttachment) -> Option<PathBuf> {
     let path = cache_path(&file);
     if path.exists() {
         return Some(path);
@@ -90,6 +90,9 @@ pub async fn local_copy(session: Arc<Session>, file: FileAttachment) -> Option<P
     let dest = path.clone();
     on_tokio(async move { session.download_to(&file.url, &dest).await.ok() }).await?;
     Some(path)
+}
+pub async fn local_copy(session: impl Into<media::Provider>, file: FileAttachment) -> Option<PathBuf> {
+    session.into().local(&file).await
 }
 
 /// A free name for `name` in the Downloads folder: `n-name` when taken.
@@ -137,7 +140,7 @@ pub fn open_file(widget: &impl IsA<gtk::Widget>, path: &std::path::Path, failed:
     });
 }
 
-fn audio_player(path: &std::path::Path) -> gtk::Widget {
+fn audio_player(path: &std::path::Path, provider: &media::Provider, source: &str) -> gtk::Widget {
     let stream = crate::gst_stream::for_file(path);
     let player = gtk::Box::new(gtk::Orientation::Vertical, 4);
     player.append(&gtk::MediaControls::new(Some(&stream)));
@@ -146,14 +149,21 @@ fn audio_player(path: &std::path::Path) -> gtk::Widget {
     player.append(&failed);
     stream.connect_error_notify(move |s| failed.set_visible(s.error().is_some()));
     stream.play();
+    provider.watch(&player, source, move |widget| {
+        stream.pause();
+        widget.set_sensitive(false);
+    });
     player.upcast()
 }
 
 /// A file: its name and size, and what can be done with it. Audio and video
 /// play in place; anything else opens in the desktop's default application.
 pub fn file(session: &Arc<Session>, f: &FileAttachment) -> gtk::Widget {
+    file_provider(media::Provider::RocketChat(session.clone()), f)
+}
+pub fn file_provider(session: media::Provider, f: &FileAttachment) -> gtk::Widget {
     if f.kind == FileKind::Video {
-        return crate::video::card(session, f);
+        return crate::video::card_provider(session, f);
     }
     let card =
         gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(6).css_classes(["file-card"]).build();
@@ -197,17 +207,8 @@ pub fn file(session: &Arc<Session>, f: &FileAttachment) -> gtk::Widget {
         status_.set_label(t("file.loading"));
         let (s, file, button, status) = (s.clone(), file.clone(), button.clone(), status_.clone());
         glib::spawn_future_local(async move {
-            let name = file.title.clone();
-            let saved = match local_copy(s, file).await {
-                Some(cached) => {
-                    on_tokio(async move {
-                        let path = download_path(&name);
-                        std::fs::copy(&cached, &path).ok().map(|_| path)
-                    })
-                    .await
-                }
-                None => None,
-            };
+            let path = download_path(&file.title);
+            let saved = on_tokio(async move { s.download(&file.url, &path).await.then_some(path) }).await;
             button.set_sensitive(true);
             match saved {
                 Some(path) => {
@@ -227,7 +228,8 @@ pub fn file(session: &Arc<Session>, f: &FileAttachment) -> gtk::Widget {
             (session.clone(), f.clone(), button.clone(), status.clone(), detail.clone(), weak.clone());
         glib::spawn_future_local(async move {
             let kind = f.kind;
-            let path = local_copy(session, f).await;
+            let source = f.url.clone();
+            let path = local_copy(session.clone(), f).await;
             button.set_sensitive(true);
             let Some(path) = path else {
                 status.set_label(t("file.failed"));
@@ -238,7 +240,7 @@ pub fn file(session: &Arc<Session>, f: &FileAttachment) -> gtk::Widget {
                 (FileKind::Other, _) => open_file(&button, &path, move || status.set_label(t("file.no_app"))),
                 (_, Some(card)) => {
                     button.set_visible(false);
-                    card.append(&audio_player(&path));
+                    card.append(&audio_player(&path, &session, &source));
                 }
                 _ => {}
             }

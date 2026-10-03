@@ -184,7 +184,7 @@ Elle traverse le parseur / aperçu mobile, le renderer GTK et la projection UniF
 en runs stylés utilisée par SwiftUI. Un JSON `md` corrompu doit conserver le texte.
 L'aperçu de citation peut prendre la vignette ; la visionneuse prend le fichier
 image complet. Ces deux références sont explicitement testées dans la fixture.
-Les futurs fichiers natifs seront traduits vers ces modèles de présentation.
+Les manifests de fichiers natifs sont traduits vers ces modèles de présentation.
 Ces tests de rendu ne remplacent pas les essais visuels sur appareils (§17).
 
 ## Backlog complet
@@ -207,7 +207,7 @@ ouverte tant que serveur, clients concernés et scénario de parité manquent.
 | P11 Fils | J2 | API, racines / réponses séparées, compteurs, lectures par fil et brouillons / outbox durables raccordés aux écrans de fil GTK / SwiftUI / mobile existants ; citations dans un fil, rejeu après suppression de racine et purge d'adhésion couverts ; [contrat](THREADS.md), qualification installée ouverte |
 | P12 Présence / saisie | J2 | Baux par appareil, photos WebSocket séparées du journal, expiration et émission / écoute raccordées aux composeurs et indicateurs existants ; @here résolu à l'envoi ; [contrat](LIVE.md), qualification installée ouverte |
 | P13 Recherche | J2 / J4 | Recherche PG autorisée, pages bornées, édition / suppression et résultats temporaires raccordés aux écrans existants ; [contrat](SEARCH.md). Index local du chiffré et purge au verrouillage encore ouverts avec J4 ; qualification installée ouverte |
-| P14 Photos / documents / vidéos / vocaux | J3 | Cycle serveur / SDK livré ; outbox persistante, reprise / abandon, cache privé et composants mobile existants raccordés ; [contrat](FILES.md). Module natif de transfert à reconstruire / qualifier ; raccordements GTK / SwiftUI, fichiers cités et qualification installée ouverts, chiffré J4 |
+| P14 Photos / documents / vidéos / vocaux | J3 | Cycle serveur / SDK livré ; intentions persistantes, reprise / abandon, cache privé et composants mobile / GTK / SwiftUI existants raccordés ; [contrat](FILES.md). Banc du cœur et composeur GTK / modèles Swift contre PostgreSQL ; module mobile à reconstruire, fichiers cités, codecs et qualification installée ouverts, chiffré J4 |
 | P15 Liens / cartes | J3 | DTO, métadonnées bornées et refus SSRF ; lecteurs existants |
 | P16 Profils / réglages | J2–J3 | API, volume durable, reçus, fiches publiques et formulaires personnels des trois interfaces existantes raccordés ; statut, bio, langue, notifications, avatars protégés, intentions persistantes, preuve / abandon et DM par UID ; noms / photos des listes et en-têtes bureau raccordés ; [contrat](PROFILES.md). Compilation macOS validée en CI ; qualification installée à compléter |
 | P17 Push / notifications | J3 | Tâches durables, FCM et Kotlin, navigation / réponse idempotente ; téléphone app arrêtée |

@@ -91,6 +91,35 @@ politique de rétention J5, y compris après suppression du message.
 
 ## Validation et suite
 
+### Desktop dans les interfaces existantes
+
+GTK et SwiftUI utilisent les composeurs, la progression et les actions retry /
+abandon actuels. `native_file_intents` conserve une copie privée streamée,
+son empreinte, l'adhésion et les IDs de préparation / confirmation avant le réseau.
+Une réponse perdue reprend l'intention originale ; une confirmation rejouée
+projette le message courant, y compris après édition ou suppression. L'abandon
+est durable et ne masque pas une confirmation qui a déjà gagné la course.
+Une réservation prouvée expirée reste en échec ; Retry prépare une nouvelle
+réservation en conservant l'identité du message.
+
+Les manifests sont traduits vers les pièces jointes existantes. Les URI
+`rv-file:` sont des handles locaux sans jeton. Les downloads passent par le SDK,
+vers un `.part` privé vérifié par taille / SHA-256 avant publication. Chaque
+réutilisation exige un Range authentifié ; generation, adhésion et tombstone
+ferment l'accès. Les lecteurs Swift reçoivent le chemin privé du cœur, sans copie
+publique intermédiaire. Les lecteurs GTK et les modales Swift retirent leur
+contenu quand le droit local disparaît. Cache limité à 32 fichiers / 512 Mio,
+prévisualisation mémoire à 32 Mio et quatre downloads simultanés. Les résultats
+de recherche conservent des manifests temporaires bornés, sans ajouter d'historique.
+
+Les tests sur SQLite réouvrent l'outbox après deux réponses perdues et vérifient
+les frontières d'adhésion / génération. Le banc PostgreSQL réel vérifie un upload
+streamé, une source modifiée après sélection, redémarrage, abandon hors ligne,
+cache / sauvegarde, refus d'un autre compte et tombstone. Sous Xvfb, le composeur
+GTK existant produit sa carte et ouvre le fichier protégé. Les modèles Swift
+réels et leur Secret Service couvrent envoi, lecteurs et abandon. Ces bancs
+n'attestent pas les codecs audio / vidéo ni les applications installées.
+
 ### Mobile dans l'interface existante
 
 La migration SQLite 0030 conserve le fichier privé d'origine, son empreinte,
@@ -125,7 +154,7 @@ confidentialité, tombstones, légende vide et arrêt entre deux trames après r
 Les messages, profils / avatars, contrats et compatibilité du cœur bureau restent
 vérifiés. Les tests SDK TypeScript contrôlent headers, redirections et troncature.
 
-La sortie de P14 exige encore intentions persistées, progression / reprise /
-abandon et lecteurs / partage GTK / SwiftUI, fichiers cités et qualification
-installée des trois interfaces. J4 complète les fichiers chiffrés ; J5 ajoute
+La sortie de P14 exige encore fichiers cités et qualification installée des
+trois interfaces, dont les codecs et la compilation du module mobile. J4 complète
+les fichiers chiffrés ; J5 ajoute
 configuration, rétention, sauvegarde / restauration du volume et capacité.

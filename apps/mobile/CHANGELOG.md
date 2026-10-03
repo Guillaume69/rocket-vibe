@@ -9,6 +9,11 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Envoi de fichiers avec progression, reprise après redémarrage et abandon
+  depuis les contrôles existants. Les images, vocaux, vidéos et documents natifs
+  passent par un cache privé vérifié et les lecteurs actuels. Le transfert depuis
+  le disque nécessite la reconstruction de l'app avec le nouveau module natif.
+
 - Édition du profil personnel, du statut et de la photo dans « Mon profil » ;
   la langue se synchronise avec les préférences natives. Une sauvegarde dont
   la confirmation est perdue reprend après redémarrage sans écraser une

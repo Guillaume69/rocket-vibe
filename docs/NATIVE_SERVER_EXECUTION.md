@@ -319,6 +319,15 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P14 / J3, raccordement desktop (3 octobre 2026) : composeurs, progression,
+  retry / abandon et lecteurs GTK / SwiftUI existants raccordés. Copie privée,
+  empreinte et intentions SQLite durables ; reprise après réponses perdues,
+  réception du message courant et abandon hors ligne. Cache streamé / vérifié,
+  Range pour réutilisation, recherche temporaire, fermeture après retrait et
+  chemin privé pour les lecteurs Swift. Deux tests SQLite passent ; le banc
+  PostgreSQL et le composeur GTK sous Xvfb passent sans screenshot. Les modèles
+  Swift réels sont compilés et testés avec Secret Service. Codecs, applications
+  installées et fichiers cités restent ouverts ; pas de fermeture globale P14.
 - P14 / J3, raccordement mobile (3 octobre 2026) : file `televersements`, progression,
   retry / abandon et lecteurs / partage actuels raccordés. Intention SQLite 0030
   atomique avec fichier privé d'origine, empreinte, adhésion et deux IDs stables.

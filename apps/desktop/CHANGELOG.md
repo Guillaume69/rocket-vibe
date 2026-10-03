@@ -9,6 +9,11 @@ section here.
 
 ### Fixed
 
+- Native files use the existing GTK and SwiftUI attachment controls, upload
+  progress, retry and discard actions. Private copies and stable operation IDs
+  survive restart; images, audio, video and documents use the existing readers.
+  Downloads stream to a private cache with integrity and membership checks.
+
 - Native direct conversations now show the peer's current name and protected
   photo in the existing GTK and SwiftUI lists and headers. Their information
   button opens the existing profile by stable user ID. Retired photos disappear,

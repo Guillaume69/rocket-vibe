@@ -4,6 +4,7 @@ pub mod authentication_vault;
 pub mod credentials;
 pub mod email_recovery;
 pub mod factor_email;
+pub mod files;
 mod live;
 pub mod markdown;
 pub mod profiles;
@@ -273,6 +274,9 @@ pub struct NativeSession {
     presence_request: Arc<tokio::sync::Mutex<()>>,
     avatars: Mutex<profiles::AvatarCache>,
     avatar_slots: tokio::sync::Semaphore,
+    files: files::Files,
+    file_wake: Notify,
+    file_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 impl NativeSession {
     pub fn start(info: SessionInfo, path: &Path) -> Result<Arc<Self>, Error> {
@@ -289,6 +293,7 @@ impl NativeSession {
         client.restore(info.auth_token.clone());
         let (events, _) = broadcast::channel(32);
         let (control, mut changed) = watch::channel(0);
+        let files = files::Files::new(path, &info);
         let session = Arc::new(Self {
             info,
             store,
@@ -321,6 +326,9 @@ impl NativeSession {
             presence_request: Arc::new(tokio::sync::Mutex::new(())),
             avatars: Mutex::new(profiles::AvatarCache::default()),
             avatar_slots: tokio::sync::Semaphore::new(4),
+            files,
+            file_wake: Notify::new(),
+            file_task: Mutex::new(None),
         });
         let weak = Arc::downgrade(&session);
         let task = tokio::spawn(async move {
@@ -357,6 +365,7 @@ impl NativeSession {
             }
         });
         *session.task.lock().unwrap() = Some(task);
+        session.start_files();
         Ok(session)
     }
     pub fn events(&self) -> broadcast::Receiver<()> {
@@ -505,6 +514,9 @@ impl NativeSession {
         if let Some(task) = self.task.lock().unwrap().take() {
             task.abort();
         }
+        if let Some(task) = self.file_task.lock().unwrap().take() {
+            task.abort();
+        }
         self.set_status(Connection::Offline, None);
     }
     pub fn is_closed(&self) -> bool {
@@ -543,6 +555,7 @@ impl NativeSession {
                     search: true,
                     profiles: true,
                     profile_avatars: true,
+                    uploads: true,
                     fine_permissions: true,
                     session_rotation: self.credentials.is_some(),
                     device_sessions: true,
@@ -606,6 +619,7 @@ impl NativeSession {
             self.snapshot().await?;
         }
         self.verified.store(true, Ordering::SeqCst);
+        self.file_wake.notify_one();
         self.flush().await?;
         let use_live = self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.typing || c.presence);
         let cursor = self.store.cursor()?.unwrap();
@@ -955,7 +969,9 @@ impl NativeSession {
         {
             return Err(Error::Protocol("delivery_revalidate"));
         }
-        search::present(page, rid, &membership)
+        let hits = search::present(page.clone(), rid, &membership)?;
+        self.cache_search_files(&page, &version, &membership)?;
+        Ok(hits)
     }
     pub async fn marked(&self, rid: &str, starred: bool) -> Result<Vec<rv_protocol::Message>, Error> {
         self.ready()?;

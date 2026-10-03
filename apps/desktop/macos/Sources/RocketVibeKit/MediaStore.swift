@@ -18,13 +18,14 @@ public final class MediaStore {
     init(native:NativeChat){self.chat=nil;self.native=native}
 
     public func cached(_ path: String) -> MediaData? {
-        current(path) ? done[path] : nil
+        if native != nil && path.hasPrefix("rv-file:"){return nil}
+        return current(path) ? done[path] : nil
     }
-    public func current(_ path:String)->Bool{guard let native else{return true};guard path.hasPrefix("rv-avatar:")else{return false};return native.profileAvatarCurrent(id:String(path.dropFirst("rv-avatar:".count)))}
+    public func current(_ path:String)->Bool{guard let native else{return true};if path.hasPrefix("rv-file:"){return native.fileCurrent(path:path)};guard path.hasPrefix("rv-avatar:")else{return false};return native.profileAvatarCurrent(id:String(path.dropFirst("rv-avatar:".count)))}
 
     public func load(_ path: String) async -> MediaData? {
         guard current(path) else{return nil}
-        if let hit = done[path] { return hit }
+        if let hit = done[path], native == nil || !path.hasPrefix("rv-file:") { return hit }
         if let task = coming[path] {
             let version=generation
             let media=await task.value
@@ -33,6 +34,7 @@ public final class MediaStore {
         let (chat,native,version) = (chat,self.native,generation)
         let task = Task<MediaData?, Never> {
             if let native {
+                if path.hasPrefix("rv-file:"){return try? await native.media(path:path)}
                 guard path.hasPrefix("rv-avatar:") else{return nil}
                 return try? await native.profileAvatar(id:String(path.dropFirst("rv-avatar:".count)))
             }
@@ -67,6 +69,13 @@ public final class MediaStore {
 
     public func download(_ path: String, to destination: String) async throws {
         if let chat{try await chat.download(path: path, destination: destination)}
+        else if let native{try await native.download(path:path,destination:destination)}
         else{throw RvError.Local(message:"unsupported_feature")}
+    }
+    public func localCopy(_ path:String,name:String) async throws -> URL {
+        if let native{return URL(fileURLWithPath:try await native.localFile(path:path))}
+        let local=FileManager.default.temporaryDirectory.appendingPathComponent("rv-\(abs(path.hashValue))-\(name)")
+        if !FileManager.default.fileExists(atPath:local.path){try await download(path,to:local.path)}
+        return local
     }
 }

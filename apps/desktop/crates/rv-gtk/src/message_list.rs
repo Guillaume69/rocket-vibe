@@ -233,7 +233,12 @@ impl MessageList {
     }
     /// The existing renderer, preserving native server sequence order.
     pub fn set_native_rows(self: &Rc<Self>, fresh: Vec<Display>, me: &str) {
-        let version = self.native_provider.borrow().as_ref().map(|s| s.profile_version()).unwrap_or_default();
+        let version = self
+            .native_provider
+            .borrow()
+            .as_ref()
+            .map(|s| format!("{}:{}", s.profile_version(), s.file_version()))
+            .unwrap_or_default();
         let images_changed = self.native_images.replace(version.clone()) != version;
         if *self.rows.borrow() == fresh && !images_changed {
             return;

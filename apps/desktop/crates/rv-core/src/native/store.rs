@@ -1,4 +1,5 @@
 //! Fallible transactions: a failed projection never acknowledges its cursor or outbox echo.
+mod files;
 mod membership;
 mod profiles;
 mod quotes;
@@ -8,6 +9,7 @@ mod room_access;
 mod room_operations;
 mod threads;
 use super::Identity;
+pub use files::FileIntent;
 pub use profiles::{AvatarUpload, DirectPeer, ProfileOperation, SavedProfileOperation};
 pub use quotes::QuoteSelection;
 pub use read_intents::{PendingRead, SavedFavorite};
@@ -156,6 +158,7 @@ impl NativeStore {
         quotes::initialize(&conn)?;
         profiles::initialize(&conn)?;
         threads::initialize(&conn)?;
+        files::initialize(&conn)?;
         let outbox_columns = conn
             .prepare("PRAGMA table_info(native_outbox)")?
             .query_map([], |r| r.get::<_, String>(1))?
@@ -202,6 +205,7 @@ impl NativeStore {
             ("system_type", "TEXT"),
             ("reply_to", "TEXT"),
             ("thread_replies", "INTEGER NOT NULL DEFAULT 0"),
+            ("files", "TEXT"),
         ] {
             if !columns.iter().any(|c| c == name) {
                 conn.execute_batch(&format!("ALTER TABLE native_messages ADD COLUMN {name} {declaration}"))?;
@@ -222,6 +226,7 @@ impl NativeStore {
         self.atomic_projection(true, |tx| {
             for table in [
                 "native_state",
+                "native_file_intents",
                 "native_users",
                 "native_direct_peers",
                 "native_profile_operations",
@@ -498,7 +503,13 @@ impl NativeStore {
         } else {
             message.body.as_ref().map(json).transpose()?
         };
+        super::files::validate_descriptors(&message.files, &message.room_id)
+            .map_err(|_| rusqlite::Error::InvalidQuery)?;
+        if (message.deleted || system_type.is_some()) && !message.files.is_empty() {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
         tx.execute("INSERT INTO native_messages(id,rid,position,revision,text,author,author_id,ts,deleted,edited,reactions,body,system_type,reply_to,thread_replies) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15) ON CONFLICT(id) DO UPDATE SET position=excluded.position,revision=excluded.revision,text=excluded.text,author=excluded.author,author_id=excluded.author_id,ts=excluded.ts,deleted=excluded.deleted,edited=excluded.edited,reactions=excluded.reactions,body=excluded.body,system_type=excluded.system_type,reply_to=excluded.reply_to,thread_replies=excluded.thread_replies",params![message.id,message.room_id,message.position,message.revision,text,message.author.username,message.author.id,ts,message.deleted,message.edited_at.is_some(),reactions,body,system_type,message.reply_to,replies])?;
+        tx.execute("UPDATE native_messages SET files=?2 WHERE id=?1", params![message.id, json(&message.files)?])?;
         tx.execute("DELETE FROM native_outbox WHERE id=?1", [&message.id])?;
         tx.execute("UPDATE native_messages SET pinned=?2 WHERE id=?1", params![message.id, message.pinned])?;
         quotes::project(tx, message, true)?;
@@ -530,6 +541,7 @@ impl NativeStore {
     }
     fn remove_content(tx: &Transaction, rid: &str) -> rusqlite::Result<()> {
         for table in [
+            "native_file_intents",
             "native_direct_peers",
             "native_messages",
             "native_outbox",
@@ -557,6 +569,7 @@ impl NativeStore {
         self.atomic_projection(true, |tx| {
             if !self.same(tx)? {
                 for table in [
+                    "native_file_intents",
                     "native_users",
                     "native_direct_peers",
                     "native_profile_operations",
@@ -668,7 +681,7 @@ impl NativeStore {
         }
         let mut rows=conn.prepare(&format!("{} WHERE m.rid=?1 AND m.reply_to IS NULL AND NOT m.deleted ORDER BY m.position IS NULL DESC,o.created DESC,length(m.position) DESC,m.position DESC,m.id DESC LIMIT ?2", threads::MESSAGE_SELECT))?.query_map(params![rid,limit as i64],threads::message_row)?.collect::<rusqlite::Result<Vec<_>>>()?;
         for row in &mut rows {
-            row.attachments = quotes::attachments(&conn, &row.id)?;
+            row.attachments = files::attachments(&conn, &row.id)?;
         }
         rows.reverse();
         Ok(rows)
@@ -687,7 +700,7 @@ impl NativeStore {
             if let Some(row) = query
                 .query_row([id], |r| {
                     let mut row = threads::message_row(r)?;
-                    row.attachments = quotes::attachments(&conn, id)?;
+                    row.attachments = files::attachments(&conn, id)?;
                     Ok(row)
                 })
                 .optional()?

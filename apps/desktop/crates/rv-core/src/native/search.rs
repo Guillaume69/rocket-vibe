@@ -28,6 +28,8 @@ pub(super) fn present(page: SearchPage, room: &str, membership: &str) -> Result<
             .map_err(|_| Error::Protocol("invalid_search_page"))?
             .timestamp_millis();
         let document = m.body.map(|d| *d).unwrap_or_else(|| rv_protocol::markdown::parse(&m.text));
+        super::files::validate_descriptors(&m.files, room)?;
+        let files = super::files::attachments(&m.files)?;
         hits.push(crate::normalize::Message {
             id: m.id,
             rid: m.room_id,
@@ -40,6 +42,11 @@ pub(super) fn present(page: SearchPage, room: &str, membership: &str) -> Result<
                 serde_json::to_string(&markdown::tree(&document))
                     .map_err(|_| Error::Protocol("invalid_search_page"))?,
             ),
+            attachments: if files.is_empty() {
+                None
+            } else {
+                Some(serde_json::to_string(&files).map_err(|_| Error::Protocol("invalid_file"))?)
+            },
             ..Default::default()
         });
     }

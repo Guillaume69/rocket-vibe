@@ -3,11 +3,9 @@
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::Arc;
 
 use adw::prelude::*;
 use gtk::{gdk, gdk_pixbuf, gio, glib};
-use rv_core::session::Session;
 use rv_core::uploads::Refusal;
 
 use crate::i18n::{t, tf};
@@ -102,13 +100,14 @@ fn refusal_text(refusal: &Refusal, name: &str) -> String {
     }
 }
 
-pub fn send_all(
-    session: Arc<Session>,
+pub fn send_all_provider(
+    session: crate::media::Provider,
     rid: String,
     items: Vec<(Picked, String)>,
     caption: String,
     reduce_images: bool,
     toast: Rc<dyn Fn(String)>,
+    membership: Option<String>,
 ) {
     glib::spawn_future_local(async move {
         for (i, (item, mime)) in items.into_iter().enumerate() {
@@ -127,13 +126,37 @@ pub fn send_all(
             };
             let caption = (i == 0 && !caption.trim().is_empty()).then(|| caption.clone());
             let (s, r, p, n) = (session.clone(), rid.clone(), path.clone(), name.clone());
-            let result =
-                on_tokio(async move { s.attach(&r, &p, &n, &mime, caption.as_deref(), temporary).await }).await;
-            if let Err(refusal) = result {
+            let membership = membership.clone();
+            let result = on_tokio(async move {
+                match s {
+                    crate::media::Provider::RocketChat(s) => s
+                        .attach(&r, &p, &n, &mime, caption.as_deref(), temporary)
+                        .await
+                        .map_err(|e| refusal_text(&e, &n)),
+                    crate::media::Provider::RocketVibe(s) => s
+                        .attach_file(
+                            &r,
+                            &p,
+                            &n,
+                            &mime,
+                            caption.as_deref(),
+                            temporary,
+                            membership.as_deref().unwrap_or(""),
+                        )
+                        .await
+                        .map_err(|e| match e.code() {
+                            "too-large:100" => refusal_text(&Refusal::TooLarge { max_mb: "100".into() }, &n),
+                            "type-not-allowed" => refusal_text(&Refusal::TypeNotAllowed { mime }, &n),
+                            _ => t("file.failed").into(),
+                        }),
+                }
+            })
+            .await;
+            if let Err(text) = result {
                 if temporary {
                     let _ = std::fs::remove_file(&path);
                 }
-                toast(refusal_text(&refusal, &name));
+                toast(text);
             }
         }
     });

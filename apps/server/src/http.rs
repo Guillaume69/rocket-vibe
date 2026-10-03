@@ -114,6 +114,7 @@ pub fn router(app: App) -> Router {
             "/api/v1/e2ee/rooms/{room}/transitions",
             post(submit_crypto_group).layer(DefaultBodyLimit::max(4 * 1024 * 1024)),
         )
+        .route("/api/v1/e2ee/rooms/{room}/roster", get(crypto_group_roster))
         .route("/api/v1/e2ee/rooms/{room}/state", get(crypto_group_state))
         .route("/api/v1/e2ee/rooms/{room}/events", get(crypto_group_events))
         .route(
@@ -816,6 +817,14 @@ async fn submit_crypto_group(
     Ok(secret_session(
         crate::e2ee::groups::submit(&app, &actor, &room, crypto_body(input)?).await?,
     ))
+}
+async fn crypto_group_roster(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    crate::e2ee::groups::observe_roster(&app, &actor, &room).await
 }
 async fn crypto_group_state(
     State(app): State<App>,

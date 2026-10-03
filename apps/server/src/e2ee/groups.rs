@@ -129,17 +129,8 @@ async fn roster(
     if authority != plan.authority_version {
         return Err(wait());
     }
-    let members:Vec<(String,String,String)>=sqlx::query_as("SELECT m.user_id,m.access_version,u.activation_version FROM members m JOIN users u ON u.id=m.user_id WHERE m.room_id=$1 AND NOT u.disabled ORDER BY m.user_id LIMIT 129")
-        .bind(&plan.scope.room).fetch_all(&mut **tx).await?;
-    if members.len() != plan.members.len()
-        || members.iter().zip(&plan.members).any(|(row, want)| {
-            row != &(
-                want.user.clone(),
-                want.access_version.clone(),
-                want.activation_version.clone(),
-            )
-        })
-    {
+    let members = current_members(tx, &plan.scope.room).await?;
+    if members != plan.members {
         return Err(wait());
     }
     let mut deadline = i64::MAX;
@@ -172,6 +163,25 @@ async fn roster(
         deadline = deadline.min(expires).min(session_deadline);
     }
     Ok(deadline)
+}
+async fn current_members(
+    tx: &mut Transaction<'_, Postgres>,
+    room: &str,
+) -> Result<Vec<public::Member>> {
+    // One statement snapshot, also used by transition validation. An extra row
+    // detects overflow; never let a partial page masquerade as a complete plan.
+    let rows:Vec<(String,String,String)>=sqlx::query_as("SELECT m.user_id,m.access_version,u.activation_version FROM members m JOIN users u ON u.id=m.user_id WHERE m.room_id=$1 AND NOT u.disabled ORDER BY m.user_id LIMIT $2")
+        .bind(room).bind(public::MAX_MEMBERS as i64 + 1).fetch_all(&mut **tx).await?;
+    Ok(rows
+        .into_iter()
+        .map(
+            |(user, access_version, activation_version)| public::Member {
+                user,
+                access_version,
+                activation_version,
+            },
+        )
+        .collect())
 }
 fn same_admission(old: &public::Plan, new: &public::Plan, p: &Participant) -> bool {
     let member = |plan: &public::Plan| plan.members.iter().find(|m| m.user == p.user).cloned();
@@ -600,6 +610,57 @@ fn response<T: Serialize>(
         "application/json",
         remaining,
     ))
+}
+pub async fn observe_roster(app: &App, actor: &Account, room: &str) -> Result<Response> {
+    let ReadAccess {
+        mut tx,
+        scope,
+        authority,
+        deadline,
+        ..
+    } = read_lock(app, actor, room).await?;
+    let members = current_members(&mut tx, room).await?;
+    if members.len() > public::MAX_MEMBERS {
+        return Err(Error::new(StatusCode::CONFLICT, "crypto_group_limit"));
+    }
+    let group: Option<(String, Json<wire::GroupReceipt>)> =
+        sqlx::query_as("SELECT data_epoch,receipt FROM e2ee_groups WHERE room_id=$1")
+            .bind(room)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let group = match group {
+        Some((epoch, receipt))
+            if epoch == scope.data_epoch
+                && receipt.scope.instance_id == scope.instance_id
+                && receipt.scope.data_epoch == scope.data_epoch
+                && receipt.room_id == room =>
+        {
+            Some(receipt.0)
+        }
+        Some(_) => return Err(stale()),
+        None => None,
+    };
+    // Any current member can observe public routing grants, even before device
+    // enrollment or admission. This grants neither MLS membership nor key trust.
+    // Remote activation can change after this snapshot; submit rechecks it.
+    response(
+        &wire::GroupRoster {
+            scope,
+            room_id: room.into(),
+            authority_version: authority,
+            members: members
+                .into_iter()
+                .map(|m| wire::GroupMember {
+                    user_id: m.user,
+                    access_version: m.access_version,
+                    activation_version: m.activation_version,
+                })
+                .collect(),
+            group,
+        },
+        tx,
+        deadline,
+    )
 }
 pub async fn state(app: &App, actor: &Account, room: &str) -> Result<Response> {
     let ReadAccess {

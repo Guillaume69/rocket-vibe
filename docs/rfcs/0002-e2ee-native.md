@@ -259,8 +259,11 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    destinataires / droits, retrait en vol et suspension sans appareil disponible.
    Livraison serveur et genèse cliente protégée / retry original / reçu exact
    livrés. Jointure cliente vérifiant MLS / chaque pin / adhésions / auteur,
-   consommation atomique et retry exact livrée. Transitions suivantes,
-   réception de commits et livraison des messages chiffrés restent ouvertes ;
+   consommation atomique et retry exact livrée.
+   Observation autorisée des versions de salon / adhésions / activations
+   exposée aux SDK et utilisée pour signer un vrai plan par HTTP.
+   Transitions suivantes, réception de commits et livraison des messages
+   chiffrés restent ouvertes ;
    aucune capacité activée.
 5. Pont mobile et intégration aux fournisseurs actuels ; archive / fichiers,
    historique autorisé et corpus d'import RC depuis cache vierge.

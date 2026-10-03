@@ -11,6 +11,9 @@ use rv_protocol::{CreateRoom, Room, SendMessage};
 use serde::de::DeserializeOwned;
 use std::time::Duration;
 
+#[path = "roster_tests.rs"]
+mod roster_observation;
+
 struct Ready {
     actor: Account,
     token: String,
@@ -728,13 +731,13 @@ async fn http_and_rust_sdk_deliver_private_group_routes_without_cache_or_foreign
     let owner = ready(&app, "http-group-owner").await;
     let guest = ready(&app, "http-group-guest").await;
     let room = room(&app, &owner, Some(&guest)).await;
-    let (_, _, input) = add(&app, &owner, &guest, &room).await;
+    let (_, mut transition, mut input) = add(&app, &owner, &guest, &room).await;
     let router = crate::http::router(app.clone());
     let anonymous = router
         .clone()
         .oneshot(
             HttpRequest::builder()
-                .uri(format!("/api/v1/e2ee/rooms/{}/state", room.id))
+                .uri(format!("/api/v1/e2ee/rooms/{}/roster", room.id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -756,7 +759,38 @@ async fn http_and_rust_sdk_deliver_private_group_routes_without_cache_or_foreign
         .await
         .unwrap();
     assert_eq!(package.reference, input.welcomes[0].key_package_ref);
+    // Build the signed policy from the actual authorized SDK observation;
+    // clients must not need the fixture's privileged SQL access to submit it.
+    let observed = native.crypto_group_roster(&room.id).await.unwrap();
+    assert!(observed.group.is_none());
+    assert_eq!(observed.members.len(), 2);
+    transition.plan.authority_version = observed.authority_version;
+    transition.plan.members = observed
+        .members
+        .into_iter()
+        .map(|m| Member {
+            user: m.user_id,
+            access_version: m.access_version,
+            activation_version: m.activation_version,
+        })
+        .collect();
+    transition.signature = owner
+        .client
+        .leaf
+        .sign(&transition.plan.signing_bytes().unwrap())
+        .unwrap();
+    input.transition = B64.encode(&transition.to_bytes().unwrap());
     let receipt = native.submit_crypto_group(&room.id, &input).await.unwrap();
+    assert_eq!(
+        native
+            .crypto_group_roster(&room.id)
+            .await
+            .unwrap()
+            .group
+            .unwrap()
+            .fingerprint,
+        receipt.fingerprint
+    );
     assert_eq!(
         native
             .submit_crypto_group(&room.id, &input)
@@ -806,6 +840,27 @@ async fn http_and_rust_sdk_deliver_private_group_routes_without_cache_or_foreign
         Err(rv_client::Error::Server { status: 404, .. })
     ));
     let http = reqwest::Client::new();
+    let observation = http
+        .get(format!(
+            "http://{address}/api/v1/e2ee/rooms/{}/roster",
+            room.id
+        ))
+        .bearer_auth(&guest.token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(observation.status().as_u16(), 200);
+    assert_eq!(observation.headers()["cache-control"], "no-store");
+    assert_eq!(
+        observation
+            .json::<wire::GroupRoster>()
+            .await
+            .unwrap()
+            .group
+            .unwrap()
+            .fingerprint,
+        receipt.fingerprint
+    );
     let response = http
         .get(format!(
             "http://{address}/api/v1/e2ee/rooms/{}/events?after=01",

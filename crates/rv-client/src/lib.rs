@@ -69,6 +69,15 @@ fn retry_after(response: &reqwest::Response) -> Option<u64> {
 }
 
 impl NativeClient {
+    pub async fn crypto_group_roster(
+        &self,
+        room: &str,
+    ) -> Result<rv_protocol::e2ee::GroupRoster, Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!("/api/v1/e2ee/rooms/{room}/roster")).await
+    }
     pub async fn submit_crypto_group(
         &self,
         room: &str,

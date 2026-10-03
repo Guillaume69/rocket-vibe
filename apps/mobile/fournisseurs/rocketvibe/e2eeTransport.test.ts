@@ -9,6 +9,28 @@ const registration=decodeNative('RegisterDevice',fixture.parity.e2ee_register_de
 const receipt=decodeNative('OperationReceipt',fixture.parity.e2ee_operation_receipt);
 const directory=decodeNative('Directory',fixture.parity.e2ee_directory);
 
+test('current group grants stay typed, private and readable during crypto cooldown',async()=>{
+  const roster=decodeNative('GroupRoster',fixture.parity.e2ee_group_roster);
+  const requests:{url:string;options?:RequestInit}[]=[];
+  const transport=new NativeTransport('https://example.org',async(url,options)=>{
+    requests.push({url:String(url),options});
+    return new URL(String(url)).pathname.endsWith('/roster')?Response.json(roster):Response.json({code:'crypto_busy',request_id:'busy'},{status:429,headers:{'retry-after':'30'}});
+  });
+  transport.restore('saved-token');
+  await assert.rejects(transport.registerCryptoDevice(registration),e=>e instanceof NativeError&&e.status===429);
+  assert.deepEqual(await transport.cryptoGroupRoster('fixture/room'),roster);
+  assert.equal(new URL(requests[1].url).pathname,'/api/v1/e2ee/rooms/fixture%2Froom/roster');
+  assert.equal(requests[1].options?.method,'GET');
+  assert.equal(new Headers(requests[1].options?.headers).get('authorization'),'Bearer saved-token');
+  assert.equal(requests[1].options?.redirect,'error');
+  assert.equal(roster.group?.revision,'9007199254740993');
+  assert.equal(roster.members[0].access_version,'fixture-access');
+  assert.deepEqual(decodeNative('GroupRoster',{...roster,group:null}).group,null);
+  assert.throws(()=>decodeNative('GroupRoster',{...roster,members:[{...roster.members[0],activation_version:1}]}));
+  assert.throws(()=>decodeNative('GroupRoster',{...roster,group:{...roster.group,epoch:9007199254740992}}));
+  assert.throws(()=>decodeNative('GroupRoster',{...roster,welcome:'forbidden'}));
+});
+
 test('signed group transport preserves large revisions, targeted Welcome and original retry',async()=>{
   const input=decodeNative('GroupSubmission',fixture.parity.e2ee_group_submission);
   const state=decodeNative('GroupState',fixture.parity.e2ee_group_state);

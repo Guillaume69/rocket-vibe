@@ -105,6 +105,25 @@ pub struct GroupReceipt {
 }
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct GroupMember {
+    pub user_id: String,
+    pub access_version: String,
+    pub activation_version: String,
+}
+/// Current room authority/grants, independent from a submitted signed plan.
+/// This is an observation: transition acceptance revalidates every version.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GroupRoster {
+    pub scope: Scope,
+    pub room_id: String,
+    pub authority_version: String,
+    pub members: Vec<GroupMember>,
+    /// Public head metadata only; never a Welcome or private MLS material.
+    pub group: Option<GroupReceipt>,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct GroupState {
     pub receipt: GroupReceipt,
     pub needs_rekey: bool,

@@ -315,6 +315,22 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P19 / J4, observation autorisée du roster (4 octobre 2026) : route / SDK Rust
+  et TypeScript exposant politique, versions d'adhésion / activation de chaque
+  membre actif et métadonnées publiques de tête. Même vue SQL que la validation
+  des plans ; liste triée / complète, refus au-delà de 128 membres sans page
+  partielle. Lecture permise avant inscription crypto, sans admission MLS ni
+  approbation de clé. Session / adhésion / époque protégées pendant remise HTTP,
+  corps borné par la lease et l'expiration de session ; `no-store` partout.
+  Six nouveaux scénarios PostgreSQL vérifient confidentialité, compte inactif,
+  départ / retour / réactivation, verrous réellement observés, limite et
+  restauration ; 14 tests de groupes passent. Le vrai SDK obtient les nonces
+  par HTTP et signe une transition acceptée, sans accès SQL côté client.
+  Contrats / SDK Rust, six tests TS crypto / parité, typecheck / lint, Clippy,
+  schéma / génération / inventaire passent. Réception des commits / messages,
+  transitions suivantes, raccordement du coffre aux transports / apps,
+  archives / fichiers / import et revue restent ouverts. Capacité non activée.
+
 - P19 / J4, admission cliente protégée (4 octobre 2026) : preview du vrai Welcome
   sans consommation persistante, confirmation puis jointure atomique. Comparaison
   de chaque feuille / certificat / pin, package réellement consommé, incarnation,

@@ -1393,6 +1393,26 @@
       ],
       "type": "object"
     },
+    "GroupMember": {
+      "additionalProperties": false,
+      "properties": {
+        "access_version": {
+          "type": "string"
+        },
+        "activation_version": {
+          "type": "string"
+        },
+        "user_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id",
+        "access_version",
+        "activation_version"
+      ],
+      "type": "object"
+    },
     "GroupReceipt": {
       "additionalProperties": false,
       "properties": {
@@ -1426,6 +1446,45 @@
         "revision",
         "epoch",
         "fingerprint"
+      ],
+      "type": "object"
+    },
+    "GroupRoster": {
+      "additionalProperties": false,
+      "description": "Current room authority/grants, independent from a submitted signed plan.\nThis is an observation: transition acceptance revalidates every version.",
+      "properties": {
+        "authority_version": {
+          "type": "string"
+        },
+        "group": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GroupReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Public head metadata only; never a Welcome or private MLS material."
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/GroupMember"
+          },
+          "type": "array"
+        },
+        "room_id": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "room_id",
+        "authority_version",
+        "members"
       ],
       "type": "object"
     },
@@ -2689,6 +2748,16 @@
           "anyOf": [
             {
               "$ref": "#/$defs/GroupEventPage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_group_roster": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GroupRoster"
             },
             {
               "type": "null"

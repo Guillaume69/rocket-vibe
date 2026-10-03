@@ -1,6 +1,6 @@
 # Livraison des transitions MLS natives
 
-État au 3 octobre 2026 : protocole serveur expérimental, SDK Rust / TypeScript et
+État au 4 octobre 2026 : protocole serveur expérimental, SDK Rust / TypeScript et
 preuves PostgreSQL / MLS. `capabilities.e2ee` reste désactivé. Le coffre client
 et les interfaces existantes ne sont pas encore raccordés à ces routes.
 Spécification d'ensemble : [RFC 0002](../rfcs/0002-e2ee-native.md).
@@ -12,6 +12,7 @@ refus portent `Cache-Control: no-store`.
 
 | Route sous `/api/v1/e2ee/rooms/{room}` | Usage |
 |---|---|
+| `GET /roster` | Politique et versions d'adhésion / activation des membres actifs, avec métadonnées publiques de tête éventuelle |
 | `POST /transitions` | Transition signée, commit opaque, arbre public et Welcomes nominatifs, dans une transaction |
 | `GET /state` | Dernier reçu, preuve signée, arbre courant et indication `needs_rekey` |
 | `GET /events?after={revision}` | Au plus 16 transitions après une révision décimale canonique ; Welcome de l'appareil appelant seulement |
@@ -22,6 +23,28 @@ L'observation d'un package ne le réserve pas. Deux auteurs peuvent observer la
 même référence ; seule une transition acceptée la consomme. Une observation
 devenue périmée provoque un refus, sans changer de groupe ni de clé silencieusement.
 Les révisions / époques des DTO HTTP restent des chaînes décimales exactes.
+
+`GroupRoster` donne la portée d'instance / époque des données, le salon,
+`authority_version`, les membres triés par UID (`user_id`, `access_version`,
+`activation_version`) et `group`, reçu public de tête ou `null` avant genèse.
+Une session membre peut l'observer avant inscription / admission crypto ;
+cela n'accorde ni Welcome, ni accès au groupe, ni approbation d'identité.
+Les administrateurs sans adhésion privée n'y accèdent pas.
+
+La liste provient de la même requête que la validation des plans. Elle est
+complète jusqu'à 128 membres actifs ; un dépassement retourne
+`409 crypto_group_limit`, sans publier une page partielle. Un client peut
+construire le plan avec ces versions, puis présenter sa confirmation locale.
+Une observation n'est pas une réservation : changement de politique, départ /
+retour ou réactivation rendent le plan ancien obsolète. Les versions sont
+revérifiées lors du commit avant toute consommation de package.
+
+L'autorisation propre, l'adhésion et la portée sont gardées jusqu'à soumission
+du corps HTTP. Retrait et changement d'époque attendent la réponse ; sa lease
+expire au plus après cinq secondes et avant l'expiration réelle de session.
+L'activation d'un autre compte peut évoluer après la vue SQL ; sa version est
+une observation, toujours revalidée à la soumission du plan. Les métadonnées
+d'une tête d'une ancienne époque sont refusées, sans remappage implicite.
 
 ## Preuve publique et vérification client
 
@@ -176,6 +199,12 @@ concurrent, genèse / refus du clair et des uploads antérieurs, départ / retou
 autre appareil du même compte, attente de révocation et expiration du corps.
 Les routes HTTP sont exercées par le vrai SDK Rust ; fixtures / transport TS
 préservent des révisions supérieures à la précision entière de JavaScript.
+Six scénarios d'observation ajoutent : liste privée complète / triée, session
+non inscrite en crypto, membre désactivé, plan ancien après départ / retour et
+réactivation, limite sans page partielle, véritables attentes de verrous dans
+PostgreSQL, expiration du corps et tête périmée après changement d'époque.
+Le parcours SDK construit sa preuve avec les versions réellement obtenues par
+HTTP ; refus anonymes et succès portent aussi `no-store`.
 
 Restent ouverts : suite du coordinateur de groupe dans le coffre, cérémonie de
 consentement et politique vérifiées dans les apps, outbox de messages / réception persistantes, journal et

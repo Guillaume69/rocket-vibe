@@ -27,6 +27,9 @@ export class NativeError extends Error {
 }
 
 export class NativeTransport {
+  cryptoGroupRoster(room:string):Promise<NativeTypes['GroupRoster']> {
+    return this.request('GroupRoster',`/api/v1/e2ee/rooms/${encodeURIComponent(room)}/roster`);
+  }
   submitCryptoGroup(room:string,input:NativeTypes['GroupSubmission']):Promise<NativeTypes['GroupReceipt']> {
     return this.request('GroupReceipt',`/api/v1/e2ee/rooms/${encodeURIComponent(room)}/transitions`,input);
   }

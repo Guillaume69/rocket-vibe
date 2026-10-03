@@ -319,6 +319,27 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P21 / J3, clic hors ligne persistant (3 octobre 2026) : destination minimale
+  conservée dans le SQLite de configuration avant reprise du compte, sans texte
+  ou bearer. Une réservation synchrone avant attente du trousseau garde le dernier
+  clic ; capture et acquittement tardifs ne peuvent remplacer / effacer le nouveau.
+  GTK et SwiftUI reprennent le compte exact avant le compte par défaut, puis
+  valident message / racine / adhésion / époque dans les mêmes écrans. Le registre
+  OS retiré et un snapshot borné ne perdent pas la destination capturée. Erreurs
+  réseau temporaires conservées pour reprise ; refus permanents retirés. Navigation
+  explicite, nouveau lien, changement de compte et logout annulent l'attente.
+  Vérifications : douze tests Rust ciblés (notifications, liens et anciennes
+  réponses), dont huit scénarios HTTP du clic avec SQLite disque, réouverture
+  après 503, racine hors cache, suppression, réadhésion, restauration, clic
+  remplacé et annulation pendant résolution ; métadonnées trop grandes refusées.
+  Huit tests Swift avec bindings régénérés et Clippy cœur / FFI / GTK passent.
+  Le vrai binaire GTK compilé est lancé par D-Bus en XDG jetable : description
+  et dispatch de l'action au startup passent, avec refus d'une portée étrangère.
+  Les deux workflows du lot précédent `d90fdde` sont terminés avec succès :
+  `37122994121` (quatre jobs) et `37122994132` (macOS).
+  KDE à processus arrêté, notifications système installées et liens importés
+  J5 restent ouverts. [Contrat](protocol/PUSH.md).
+
 - P21 / J3, réponses hors ligne avant validation réseau (3 octobre 2026) : GTK
   et SwiftUI inscrivent la réponse et son reçu dans l'outbox du compte exact avant
   reprise / HTTP, même si la racine du fil n'est pas en cache. Métadonnées de la

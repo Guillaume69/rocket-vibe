@@ -1,5 +1,6 @@
 mod common;
 use common::{FakeHttp, Response, respond};
+use rv_core::native::notification_navigation::NavigationQueue;
 use rv_core::native::{Identity, NativeSession, notifications, store::NativeStore};
 use rv_protocol::{Change, Message, Room, Snapshot, SyncBatch};
 use serde_json::{Value, json};
@@ -218,6 +219,192 @@ fn reply_info(server: &FakeHttp) -> rv_core::session::SessionInfo {
         username: "bob".into(),
         auth_token: "fixture-token".into(),
         native: Some(Identity { instance_id: "fixture-instance".into(), data_epoch: "fixture-epoch".into() }),
+    }
+}
+
+#[test]
+fn notification_navigation_reopens_and_fences_slow_capture_old_ack_and_cancellation() {
+    let config = std::env::temp_dir().join(format!("rv-navigation-{:032x}", fastrand::u128(..)));
+    let queue = NavigationQueue::new(&config);
+    let cache = store();
+    let info = rv_core::session::SessionInfo {
+        base_url: "http://127.0.0.1:9".into(),
+        user_id: "bob".into(),
+        username: "bob".into(),
+        auth_token: "private-fixture-bearer".into(),
+        native: Some(Identity { instance_id: "fixture-instance".into(), data_epoch: "fixture-epoch".into() }),
+    };
+    let notices = cache.batch_notifying(&batch(vec![message("target", "9007199254740994")]), Some("bob")).unwrap();
+    assert!(cache.remember_notification(&notices[0]).unwrap());
+    let key = notifications::notification_key(&info, &room().id);
+    let first = queue.begin().unwrap();
+    assert!(queue.pending().unwrap().is_none(), "a reservation cannot navigate before capture");
+    assert!(queue.capture(&first, &info, &cache, &key, "target").unwrap());
+    let queue = NavigationQueue::new(&config);
+    assert_eq!(queue.pending().unwrap().unwrap().id, first);
+    let conn = rusqlite::Connection::open(config.join("notification-navigation.sqlite")).unwrap();
+    let payload: String = conn.query_row("SELECT payload FROM navigation", [], |r| r.get(0)).unwrap();
+    let record: Value = serde_json::from_str(&payload).unwrap();
+    assert_eq!(record["position"], "9007199254740994");
+    assert_eq!(record.as_object().unwrap().len(), 7);
+    assert!(!payload.contains(&info.auth_token));
+    assert!(!payload.contains("body"));
+    assert!(!payload.contains("author"));
+    let second = queue.begin().unwrap();
+    assert!(!queue.capture(&first, &info, &cache, &key, "target").unwrap());
+    assert!(queue.capture(&second, &info, &cache, &key, "target").unwrap());
+    assert!(!queue.clear(&first).unwrap(), "old completion must not erase a new click");
+    assert_eq!(queue.pending().unwrap().unwrap().id, second);
+    queue.cancel().unwrap();
+    assert!(
+        !queue.capture(&second, &info, &cache, &key, "target").unwrap(),
+        "late callback cannot revive a cancelled navigation"
+    );
+    let third = queue.begin().unwrap();
+    let mut wrong = info.clone();
+    wrong.user_id = "other-account".into();
+    assert!(queue.capture(&third, &wrong, &cache, &key, "target").is_err());
+    let mut restored = info.clone();
+    restored.native.as_mut().unwrap().data_epoch = "restored".into();
+    assert!(
+        queue
+            .capture(&third, &restored, &cache, &notifications::notification_key(&restored, &room().id), "target")
+            .is_err()
+    );
+    assert!(queue.capture(&third, &info, &cache, &key, "target").unwrap());
+    conn.execute("UPDATE navigation SET payload=?1", ["{".repeat(9000)]).unwrap();
+    assert!(queue.pending().is_err(), "oversized or malformed metadata never becomes a fallback room link");
+    assert!(queue.clear(&third).unwrap());
+    drop(conn);
+    std::fs::remove_dir_all(config).unwrap();
+}
+
+#[tokio::test]
+async fn durable_notification_click_revalidates_after_restart_and_keeps_only_transient_failures() {
+    for scenario in
+        ["normal", "transient", "deleted", "root-deleted", "rejoined", "restored", "superseded", "cancelled"]
+    {
+        let config = std::env::temp_dir().join(format!("rv-navigation-http-{:032x}", fastrand::u128(..)));
+        let queue = NavigationQueue::new(&config);
+        let path = config.join("native.sqlite");
+        let f = fixture();
+        let failed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let fail_once = failed.clone();
+        let superseding = queue.clone();
+        let late_info = Arc::new(Mutex::new(None::<rv_core::session::SessionInfo>));
+        let capture_info = late_info.clone();
+        let capture_path = path.clone();
+        let server = FakeHttp::start(move |req| match req.path() {
+            "/.well-known/rocketvibe" => {
+                let mut discovery = f["discovery"].clone();
+                if scenario == "restored" { discovery["data_epoch"] = json!("restored"); }
+                respond(200, &discovery.to_string())
+            }
+            "/api/v1/me" => respond(200, &json!({"id":"bob","username":"bob","display_name":"Bob"}).to_string()),
+            "/api/v1/sync/changes" => {
+                let mut r = room();
+                r.read_state.as_mut().unwrap().membership_version = Some("new-grant".into());
+                r.read_state.as_mut().unwrap().revision = "10".into();
+                respond(200, &json!({"protocol_version":1,"changes":if scenario=="rejoined" {vec![Change::RoomUpsert(r)]} else {vec![]},"cursor":"next","has_more":false}).to_string())
+            }
+            "/api/v1/sync/ticket" => respond(200, &f["socket_ticket"].to_string()),
+            "/api/v1/sync/socket" => Response { websocket:true, ..Default::default() },
+            "/api/v1/messages/target" => {
+                assert_eq!(req.headers.get("authorization").map(String::as_str), Some("Bearer fixture-token"));
+                if scenario=="transient" && !fail_once.swap(true,std::sync::atomic::Ordering::SeqCst) { return respond(503,r#"{"code":"temporarily_unavailable"}"#) }
+                if scenario=="superseded" {
+                    let info = capture_info.lock().unwrap().clone().unwrap();
+                    let id = superseding.begin().unwrap();
+                    assert!(superseding.capture_saved(&id,&info,&capture_path,&notifications::notification_key(&info,&room().id),"next-target").unwrap());
+                }
+                if scenario=="cancelled" { superseding.cancel().unwrap(); }
+                let mut target = message("target", "2");
+                target.reply_to = Some("root".into());
+                if scenario=="deleted" { target.deleted=true; target.text.clear(); target.body=None; }
+                respond(200,&serde_json::to_string(&target).unwrap())
+            }
+            "/api/v1/messages/root" => {
+                let mut root = message("root","1");
+                if scenario=="root-deleted" { root.deleted=true; root.text.clear(); root.body=None; }
+                respond(200,&serde_json::to_string(&root).unwrap())
+            }
+            _ => respond(404,r#"{"code":"not_found"}"#),
+        }).await;
+        let info = reply_info(&server);
+        *late_info.lock().unwrap() = Some(info.clone());
+        let id = queue.begin().unwrap();
+        let cache = NativeStore::open(&path, info.native.clone().unwrap()).unwrap();
+        cache
+            .snapshot(&Snapshot {
+                protocol_version: 1,
+                rooms: vec![room()],
+                messages: vec![],
+                cursor: "initial".into(),
+            })
+            .unwrap();
+        let mut target = message("target", "2");
+        target.reply_to = Some("root".into());
+        for n in cache.batch_notifying(&batch(vec![target, message("next-target", "3")]), Some("bob")).unwrap() {
+            assert!(cache.remember_notification(&n).unwrap());
+        }
+        drop(cache);
+        let key = notifications::notification_key(&info, &room().id);
+        assert!(queue.capture_saved(&id, &info, &path, &key, "target").unwrap());
+        let cache = NativeStore::open(&path, info.native.clone().unwrap()).unwrap();
+        cache.forget_notification("target").unwrap();
+        // A bounded catch-up snapshot may no longer contain either target or root.
+        cache
+            .snapshot(&Snapshot {
+                protocol_version: 1,
+                rooms: vec![room()],
+                messages: vec![],
+                cursor: "initial".into(),
+            })
+            .unwrap();
+        drop(cache);
+        assert!(server.requests().is_empty(), "capturing a click must not require network access");
+        let mut session = NativeSession::start(info.clone(), &path).unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !session.is_closed() && session.status().connection != rv_core::session::Connection::Online {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let queue = NavigationQueue::new(&config);
+        if scenario == "transient" {
+            assert!(session.resolve_notification_navigation(&queue, &id).await.is_err());
+            assert!(queue.current(&id).unwrap());
+            common::close_native(session).await;
+            session = NativeSession::start(info, &path).unwrap();
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while session.status().connection != rv_core::session::Connection::Online {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .unwrap();
+        }
+        let resolved = session.resolve_notification_navigation(&queue, &id).await;
+        if matches!(scenario, "normal" | "transient") {
+            let link = resolved.unwrap();
+            assert_eq!(link.message.as_deref(), Some("target"));
+            assert_eq!(link.root.as_deref(), Some("root"));
+            assert!(queue.current(&id).unwrap(), "only the UI opening the destination acknowledges it");
+            assert!(queue.clear(&id).unwrap());
+        } else {
+            assert!(resolved.is_err(), "{scenario}");
+            assert!(!queue.current(&id).unwrap(), "{scenario}");
+            if scenario == "superseded" {
+                assert_eq!(queue.pending().unwrap().unwrap().message, "next-target");
+                assert!(!queue.clear(&id).unwrap());
+            } else {
+                assert!(queue.pending().unwrap().is_none(), "{scenario}");
+            }
+        }
+        common::close_native(session).await;
+        drop(queue);
+        std::fs::remove_dir_all(config).unwrap();
     }
 }
 

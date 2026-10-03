@@ -1,5 +1,13 @@
 use crate::native::NativeChat;
 use crate::*;
+use rv_core::native::notification_navigation::NavigationQueue;
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct NotificationNavigation {
+    pub id: String,
+    pub key: String,
+    pub message: String,
+}
 
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct RoomLink {
@@ -20,6 +28,47 @@ pub fn parse_room_link(url: String) -> Option<RoomLink> {
 
 #[uniffi::export]
 impl Client {
+    pub fn begin_notification_navigation(&self) -> Result<String, RvError> {
+        NavigationQueue::new(&self.dirs.config).begin().map_err(RvError::local)
+    }
+    pub fn pending_notification_navigation(&self) -> Result<Option<NotificationNavigation>, RvError> {
+        NavigationQueue::new(&self.dirs.config)
+            .pending()
+            .map(|n| n.map(|n| NotificationNavigation { id: n.id, key: n.key, message: n.message }))
+            .map_err(RvError::local)
+    }
+    pub fn clear_notification_navigation(&self, id: String) -> Result<bool, RvError> {
+        NavigationQueue::new(&self.dirs.config).clear(&id).map_err(RvError::local)
+    }
+    pub fn cancel_notification_navigation(&self) -> Result<(), RvError> {
+        NavigationQueue::new(&self.dirs.config).cancel().map_err(RvError::local)
+    }
+    pub async fn capture_notification_navigation(
+        &self,
+        id: String,
+        key: String,
+        message: String,
+    ) -> Result<Option<Account>, RvError> {
+        let dirs = self.dirs.clone();
+        blocking(move || {
+            let queue = NavigationQueue::new(&dirs.config);
+            let result = (|| {
+                let infos = accounts::load_all(&dirs);
+                let index = rv_core::native::notifications::notification_account(&key, &infos)
+                    .ok_or_else(|| RvError::local("delivery_revalidate"))?;
+                let info = &infos[index];
+                queue
+                    .capture_saved(&id, info, &dirs.database(info), &key, &message)
+                    .map(|saved| saved.then(|| account(info)))
+                    .map_err(RvError::local)
+            })();
+            if result.is_err() {
+                let _ = queue.clear(&id);
+            }
+            result
+        })
+        .await
+    }
     /// A cold OS response is saved before account resume or network validation.
     pub async fn queue_notification_reply(
         &self,
@@ -68,6 +117,22 @@ impl Chat {
 
 #[uniffi::export]
 impl NativeChat {
+    pub fn capture_notification_navigation(&self, id: String, key: String, message: String) -> Result<bool, RvError> {
+        if self.session.is_closed() {
+            return Err(RvError::local("delivery_revalidate"));
+        }
+        NavigationQueue::new(&self.dirs.config)
+            .capture(&id, &self.session.info, &self.session.store, &key, &message)
+            .map_err(RvError::local)
+    }
+    pub async fn resolve_notification_navigation(&self, id: String) -> Result<RoomLink, RvError> {
+        let s = self.session.clone();
+        let queue = NavigationQueue::new(&self.dirs.config);
+        on_tokio(async move { s.resolve_notification_navigation(&queue, &id).await })
+            .await
+            .map(Into::into)
+            .map_err(RvError::local)
+    }
     pub fn accepts_notification(&self, key: String) -> bool {
         rv_core::native::notifications::notification_account(&key, std::slice::from_ref(&self.session.info)).is_some()
     }

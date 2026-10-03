@@ -66,6 +66,7 @@ pub struct AppWindow {
     pending_link: RefCell<Option<rv_core::links::RoomLink>>,
     link_generation: Cell<u64>,
     pending_notification: RefCell<Option<NotificationAction>>,
+    notification_request: RefCell<Option<String>>,
 }
 
 fn data_dir() -> PathBuf {
@@ -78,6 +79,10 @@ fn last_server_file() -> PathBuf {
     let dir = glib::user_config_dir().join("rocket-vibe-rs");
     let _ = std::fs::create_dir_all(&dir);
     dir.join("last-server")
+}
+
+fn navigation_queue() -> rv_core::native::notification_navigation::NavigationQueue {
+    rv_core::native::notification_navigation::NavigationQueue::new(&glib::user_config_dir().join("rocket-vibe-rs"))
 }
 
 fn database_path(info: &SessionInfo) -> PathBuf {
@@ -165,6 +170,7 @@ impl AppWindow {
             pending_link: RefCell::default(),
             link_generation: Cell::new(0),
             pending_notification: RefCell::default(),
+            notification_request: RefCell::default(),
         });
 
         let weak = Rc::downgrade(&this);
@@ -290,6 +296,13 @@ impl AppWindow {
                 notifier.withdraw(&key);
             }
         });
+        let weak = Rc::downgrade(&this);
+        this.chat.connect_user_navigation(move || {
+            if let Some(this) = weak.upgrade() {
+                this.cancel_navigation();
+                this.pending_link.take();
+            }
+        });
         this.notifier.replace(Some(notifier));
         let weak = Rc::downgrade(&this);
         this.chat.connect_rooms_loaded(move || {
@@ -354,12 +367,40 @@ impl AppWindow {
 
     pub fn start(self: &Rc<Self>) {
         crate::updater::startup();
+        if self.pending_notification.borrow().is_none() && self.pending_link.borrow().is_none() {
+            match navigation_queue().pending() {
+                Ok(Some(saved)) => {
+                    self.notification_request.replace(Some(saved.id));
+                    self.pending_notification.replace(Some(NotificationAction {
+                        key: saved.key,
+                        message: saved.message,
+                        text: None,
+                    }));
+                }
+                Err(_) => {
+                    let _ = navigation_queue().cancel();
+                    self.chat.toast(t("links.unavailable").to_owned());
+                }
+                Ok(None) => {}
+            }
+        }
         let this = self.clone();
         glib::spawn_future_local(async move {
             let accounts = on_tokio(secrets::load_all()).await;
             // A callback or permalink received while loading the keyring owns
             // startup. The default account must not overwrite its selection.
             if this.session.borrow().is_some() || this.chat.native_session().is_some() {
+                return;
+            }
+            if this.pending_notification.borrow().is_some()
+                && this
+                    .notification_request
+                    .borrow()
+                    .as_ref()
+                    .is_none_or(|id| !navigation_queue().current(id).unwrap_or(false))
+            {
+                // A callback is still capturing its action from the keyring.
+                // It must persist before startup resumes its account.
                 return;
             }
             let target = if let Some(action) = this.pending_notification.borrow().as_ref() {
@@ -844,6 +885,8 @@ impl AppWindow {
 
     /// Signs this account out; another one signed in on this machine takes over.
     fn logout(self: &Rc<Self>) {
+        self.cancel_navigation();
+        self.pending_link.take();
         if let Some(session) = self.chat.native_session() {
             let this = self.clone();
             glib::spawn_future_local(async move {
@@ -892,8 +935,7 @@ impl AppWindow {
             self.notification_action(NotificationAction { key, message, text: None });
             return;
         }
-        self.pending_notification.take();
-        self.link_generation.set(self.link_generation.get().wrapping_add(1));
+        self.cancel_navigation();
         self.pending_link.take();
         let Some(link) = rv_core::links::parse(uri) else {
             self.chat.toast(t("links.unavailable").to_owned());
@@ -918,7 +960,7 @@ impl AppWindow {
                 return;
             }
             if let Some(index) = rv_core::links::select(&link, &accounts, current.as_ref()) {
-                this.switch_to(accounts[index].clone());
+                this.switch_to_for_link(accounts[index].clone());
             } else {
                 this.chat.toast(t("links.choose_account").to_owned());
             }
@@ -933,11 +975,43 @@ impl AppWindow {
         }
     }
 
-    fn notification_action(self: &Rc<Self>, action: NotificationAction) {
+    fn cancel_navigation(&self) {
         self.link_generation.set(self.link_generation.get().wrapping_add(1));
+        self.pending_notification.take();
+        self.notification_request.take();
+        if navigation_queue().cancel().is_err() {
+            self.chat.toast(t("links.unavailable").to_owned());
+        }
+    }
+
+    fn retire_notification(&self) {
+        self.link_generation.set(self.link_generation.get().wrapping_add(1));
+        self.pending_notification.take();
+        if let Some(id) = self.notification_request.take() {
+            let _ = navigation_queue().clear(&id);
+        }
+        if self.session.borrow().is_none() && self.chat.native_session().is_none() {
+            self.show_login(None);
+        }
+    }
+
+    fn notification_action(self: &Rc<Self>, action: NotificationAction) {
+        self.cancel_navigation();
         let request = self.link_generation.get();
         self.pending_link.take();
         self.pending_notification.replace(Some(action.clone()));
+        if action.text.is_none() {
+            match navigation_queue().begin() {
+                Ok(id) => {
+                    self.notification_request.replace(Some(id));
+                }
+                Err(_) => {
+                    self.pending_notification.take();
+                    self.chat.toast(t("links.unavailable").to_owned());
+                    return;
+                }
+            }
+        }
         if self.chat.native_session().is_some_and(|s| {
             rv_core::native::notifications::notification_account(&action.key, std::slice::from_ref(&s.info)).is_some()
         }) {
@@ -948,7 +1022,17 @@ impl AppWindow {
                 }
                 return;
             }
-            self.follow_notification(false);
+            let native = self.chat.native_session().unwrap();
+            let id = self.notification_request.borrow().clone().unwrap();
+            if navigation_queue()
+                .capture(&id, &native.info, &native.store, &action.key, &action.message)
+                .unwrap_or(false)
+            {
+                self.follow_notification(false);
+            } else {
+                self.retire_notification();
+                self.chat.toast(t("links.unavailable").to_owned());
+            }
             return;
         }
         let this = self.clone();
@@ -972,10 +1056,20 @@ impl AppWindow {
                         this.chat.toast(t("links.unavailable").to_owned());
                         return;
                     }
+                } else {
+                    let id = this.notification_request.borrow().clone().unwrap();
+                    if !navigation_queue()
+                        .capture_saved(&id, &info, &database_path(&info), &action.key, &action.message)
+                        .unwrap_or(false)
+                    {
+                        this.retire_notification();
+                        this.chat.toast(t("links.unavailable").to_owned());
+                        return;
+                    }
                 }
-                this.switch_to(info);
+                this.switch_to_for_link(info);
             } else {
-                this.pending_notification.take();
+                this.retire_notification();
                 this.chat.toast(t("links.unavailable").to_owned());
             }
         });
@@ -988,17 +1082,33 @@ impl AppWindow {
         if action.text.is_some() {
             return;
         }
+        let Some(id) = self.notification_request.borrow().clone() else { return };
+        // A reservation is not a captured click. Wait for credential lookup.
+        if !navigation_queue().current(&id).unwrap_or(false) {
+            return;
+        }
         let Some(native) = self.chat.native_session() else { return };
-        if native.status().connection != rv_core::session::Connection::Online
-            || rv_core::native::notifications::notification_account(&action.key, std::slice::from_ref(&native.info))
-                .is_none()
+        if rv_core::native::notifications::notification_account(&action.key, std::slice::from_ref(&native.info))
+            .is_none()
         {
+            return;
+        }
+        if native.is_closed() || native.status().error.as_deref() == Some("server_identity_changed") {
+            let _ = navigation_queue().clear(&id);
+            self.pending_notification.take();
+            self.notification_request.take();
+            self.chat.toast(t("links.unavailable").to_owned());
+            return;
+        }
+        if native.status().connection != rv_core::session::Connection::Online {
             return;
         }
         let rid = action.key.rsplit_once(':').map(|(_, rid)| rid).unwrap_or_default();
         if !self.chat.has_room(rid) {
             if rooms_loaded {
+                let _ = navigation_queue().clear(&id);
                 self.pending_notification.take();
+                self.notification_request.take();
                 self.chat.toast(t("links.unavailable").to_owned());
             }
             return;
@@ -1008,8 +1118,9 @@ impl AppWindow {
         let request = self.link_generation.get();
         glib::spawn_future_local(async move {
             let s = native.clone();
-            let (key, message) = (action.key.clone(), action.message.clone());
-            let target = on_tokio(async move { s.resolve_notification(&key, &message).await }).await;
+            let saved_id = id.clone();
+            let target =
+                on_tokio(async move { s.resolve_notification_navigation(&navigation_queue(), &saved_id).await }).await;
             if this.link_generation.get() != request
                 || this.chat.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &native))
             {
@@ -1019,8 +1130,24 @@ impl AppWindow {
                 Ok(link) => {
                     this.window.present();
                     this.show_room_link(&link);
+                    let _ = navigation_queue().clear(&id);
+                    this.notification_request.take();
                 }
-                Err(_) => this.chat.toast(t("links.unavailable").to_owned()),
+                Err(_) if navigation_queue().current(&id).unwrap_or(false) => {
+                    this.pending_notification.replace(Some(action));
+                    let weak = Rc::downgrade(&this);
+                    glib::timeout_add_local_once(std::time::Duration::from_secs(5), move || {
+                        if let Some(this) = weak.upgrade()
+                            && this.link_generation.get() == request
+                        {
+                            this.follow_notification(false);
+                        }
+                    });
+                }
+                Err(_) => {
+                    this.notification_request.take();
+                    this.chat.toast(t("links.unavailable").to_owned());
+                }
             }
         });
     }
@@ -1092,6 +1219,12 @@ impl AppWindow {
     }
 
     pub fn switch_to(self: &Rc<Self>, info: SessionInfo) {
+        self.cancel_navigation();
+        self.pending_link.take();
+        self.switch_to_for_link(info);
+    }
+
+    fn switch_to_for_link(self: &Rc<Self>, info: SessionInfo) {
         secrets::set_active(&info);
         self.previous.replace(None);
         self.start_session(info);
@@ -1099,6 +1232,8 @@ impl AppWindow {
 
     /// The login page, with a way back to the account signed in now.
     pub fn add_account(self: &Rc<Self>) {
+        self.cancel_navigation();
+        self.pending_link.take();
         let current = self.session.borrow().as_ref().map(|s| s.info.clone());
         let current = current.or_else(|| self.chat.native_session().map(|s| s.info.clone()));
         self.previous.replace(current);

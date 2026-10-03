@@ -159,6 +159,7 @@ pub struct ChatPage {
     on_logout: Callback<()>,
     on_room_changed: Callback<Option<String>>,
     on_room_opened: Callback<String>,
+    on_user_navigation: RefCell<Vec<Box<dyn Fn()>>>,
     account_actions: RefCell<Option<Rc<crate::settings::AccountActions>>>,
     on_rooms_loaded: Callback<()>,
     forward_button: gtk::Button,
@@ -431,6 +432,7 @@ impl ChatPage {
             on_logout: RefCell::default(),
             on_room_changed: RefCell::default(),
             on_room_opened: RefCell::default(),
+            on_user_navigation: RefCell::default(),
             account_actions: RefCell::default(),
             on_rooms_loaded: RefCell::default(),
             forward_button,
@@ -619,6 +621,7 @@ impl ChatPage {
             let Some(this) = weak.upgrade() else { return };
             let rid = this.slots.borrow().get(position as usize).cloned().flatten();
             if let Some(rid) = rid {
+                this.user_navigation();
                 this.open_room(&rid);
                 return;
             }
@@ -815,6 +818,7 @@ impl ChatPage {
             let index = selection.selected();
             let rid = this.slots.borrow().get(index as usize).cloned().flatten();
             if let Some(rid) = rid {
+                this.user_navigation();
                 this.open_room(&rid);
             }
         });
@@ -887,6 +891,9 @@ impl ChatPage {
     }
 
     fn handle_event(self: &Rc<Self>, event: RowEvent, in_thread: bool) {
+        if matches!(&event, RowEvent::OpenThread(_)) {
+            self.user_navigation();
+        }
         if self.native_session().is_some() {
             self.native_row_event(event, in_thread);
             return;
@@ -1323,6 +1330,7 @@ impl ChatPage {
 
     /// A `#channel` in a message: open it, joining first if I am not in it.
     fn open_room_named(self: &Rc<Self>, name: &str) {
+        self.user_navigation();
         let known = self
             .rooms
             .borrow()
@@ -1396,6 +1404,7 @@ impl ChatPage {
 
     /// A person: their DM, created if needed. A channel: joined if needed. Then opened.
     pub fn go_to(self: &Rc<Self>, found: rv_core::rooms::Found) {
+        self.user_navigation();
         use rv_core::rooms::Found;
         if let Some(session) = self.native_session() {
             let weak = Rc::downgrade(self);
@@ -1925,6 +1934,7 @@ impl ChatPage {
 
     /// Scrolls the open room to a message, paging back through history until it is loaded.
     pub fn jump_to(self: &Rc<Self>, id: &str) {
+        self.user_navigation();
         self.list.reveal(id);
         let (this, id) = (self.clone(), id.to_owned());
         glib::spawn_future_local(async move {
@@ -2029,6 +2039,7 @@ impl ChatPage {
 
     fn walk_to(self: &Rc<Self>, at: usize) {
         let Some(rid) = self.history.borrow().get(at).cloned() else { return };
+        self.user_navigation();
         self.history_at.set(at);
         self.walking.set(true);
         self.open_room(&rid);
@@ -2069,6 +2080,7 @@ impl ChatPage {
     }
 
     pub fn go_back(&self) {
+        self.user_navigation();
         self.split.set_show_content(false);
     }
 
@@ -2078,6 +2090,15 @@ impl ChatPage {
 
     pub fn connect_room_opened(&self, f: impl Fn(String) + 'static) {
         self.on_room_opened.borrow_mut().push(Box::new(f));
+    }
+
+    pub fn connect_user_navigation(&self, f: impl Fn() + 'static) {
+        self.on_user_navigation.borrow_mut().push(Box::new(f));
+    }
+    fn user_navigation(&self) {
+        for f in self.on_user_navigation.borrow().iter() {
+            f();
+        }
     }
 
     pub fn shows_room(&self) -> bool {

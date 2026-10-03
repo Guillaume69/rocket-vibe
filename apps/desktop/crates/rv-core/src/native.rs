@@ -11,6 +11,7 @@ pub(crate) mod link_previews;
 mod links;
 mod live;
 pub mod markdown;
+pub mod notification_navigation;
 pub mod notifications;
 pub mod profiles;
 mod read_intents;

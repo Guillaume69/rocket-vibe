@@ -9,6 +9,10 @@ section here.
 
 ### Fixed
 
+- Native notification clicks received offline retain their account, room and
+  thread destination across restart. Temporary network failures retry; a newer
+  click or explicit navigation cancels the old destination without opening it.
+
 - Native notification responses are saved before network validation, even with
   an uncached thread root. Restart and concurrent callbacks retain one send ID;
   private revalidation gates retries, and a lost confirmation is recovered from

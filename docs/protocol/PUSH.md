@@ -185,8 +185,18 @@ L'enregistrement suit le [serveur COM de référence Microsoft](https://github.c
 et l'[ABI du callback](https://learn.microsoft.com/en-us/windows/win32/api/notificationactivationcallback/nf-notificationactivationcallback-inotificationactivationcallback-activate) ;
 les raccourcis utilisent le [CLSID prévu par Inno Setup](https://jrsoftware.org/ishelp/topic_iconssection.htm).
 La remise des anciens callbacks KDE à un nouveau processus reste ouverte.
-Une navigation par clic reçue hors ligne attend encore en mémoire sa validation
-réseau ; le texte d'une réponse est désormais durable avant cette validation.
+Une navigation par clic reçue hors ligne est maintenant conservée dans
+`notification-navigation.sqlite`, dans la configuration bureau partagée par GTK
+et SwiftUI. Une seule destination explicite est gardée, sans texte, auteur ou
+bearer : clé de portée, message / salon / racine, adhésion et position d'origine.
+Une réservation est écrite avant d'attendre le trousseau ; une capture tardive
+ne peut modifier qu'elle-même. Au redémarrage, le compte exact est sélectionné
+avant le compte par défaut. Le retrait du toast ou une fenêtre de snapshot bornée
+ne perdent pas un clic déjà capturé. Le message et la racine sont relus en privé,
+avec les gardes d'adhésion / époque / projection ; seules les erreurs temporaires
+conservent la destination pour reprise. L'ouverture dans les écrans existants
+acquitte l'ID exact, sans effacer un clic plus récent. Un nouveau lien, un changement
+explicite de salon / fil / compte ou la déconnexion annulent la navigation en attente.
 Les parcours système installés restent à qualifier sur Linux,
 Windows et macOS ; P21 reste ouvert pour ces chemins et les anciens liens importés.
 Les permaliens natifs et leur routage au démarrage utilisent le [contrat P21](ROOM_LINKS.md).
@@ -223,8 +233,13 @@ cible / racine supprimée, adhésion remplacée, époque restaurée et réponse 
 perdue après commit. La confirmation privée au redémarrage produit un seul POST,
 même si la cible originale a été supprimée. Les tests vérifient aussi la purge
 des intentions retirées et la conservation du texte des refus permanents.
+Les clics hors ligne passent aussi par SQLite disque et HTTP réel : capture sans
+réseau, racine hors cache, registre OS retiré, redémarrage après un 503, refus des
+cibles / racines supprimées, adhésion remplacée et époque restaurée. Réservation,
+capture lente, annulation et acquittement tardif ne peuvent écraser un nouveau
+clic ; les métadonnées malformées / trop volumineuses sont refusées.
 Les modèles Swift compilent avec leurs bindings régénérés ; les notifications
-OS installées et le clic hors ligne persistant restent des validations distinctes.
+OS installées restent une qualification distincte de ces tests.
 
 Le pont Windows passe neuf tests, dont un callback COM réellement invoqué depuis
 un second processus avec le texte saisi ; la classe du banc est temporaire et

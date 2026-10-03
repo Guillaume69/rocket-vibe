@@ -72,8 +72,11 @@ protocole app pour le clic, SwiftUI attend le compte destinataire. La réponse
 Windows possède son activateur COM natif et un test entre vrais processus.
 Les réponses sont conservées avant le réseau dans l'outbox, avec destination
 capturée, validation privée et preuve d'un envoi dont la confirmation est perdue.
-Le parcours Windows installé à processus arrêté, la remise à froid KDE et la
-persistance de la navigation par clic attendant encore le réseau restent ouverts : [détails](PUSH.md).
+Les clics reçus hors ligne conservent aussi leur destination et adhésion avant
+reprise du compte, avec validation privée après redémarrage et acquittement lié
+au dernier clic. Une navigation explicite annule l'ancienne attente.
+Le parcours Windows installé à processus arrêté et la remise à froid KDE
+restent ouverts : [détails](PUSH.md).
 Les anciens permaliens HTTP
 Rocket.Chat importés attendent la table de correspondance et le résolveur J5.
 P21 et J3 ne sont pas déclarés terminés.

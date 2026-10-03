@@ -8,7 +8,7 @@ pub struct Notification {
     pub incoming: Incoming,
     pub reply_to: Option<String>,
     pub(crate) membership: String,
-    position: String,
+    pub(crate) position: String,
 }
 
 #[derive(Clone, Debug)]
@@ -224,6 +224,26 @@ impl NativeStore {
     pub fn notification_valid(&self, n: &Notification, unread: bool) -> rusqlite::Result<bool> {
         let conn = self.conn.lock().unwrap();
         Ok(self.same(&conn)? && valid(&conn, n, unread)?)
+    }
+
+    /// An explicit click can outlive a bounded message snapshot. Reject known
+    /// tombstones now; uncached targets still require private resolution later.
+    pub(crate) fn notification_capturable(&self, n: &Notification, identity: &Identity) -> rusqlite::Result<bool> {
+        if &self.identity != identity {
+            return Ok(false);
+        }
+        let conn = self.conn.lock().unwrap();
+        let cached = conn
+            .query_row(
+                "SELECT deleted,system_type FROM native_messages WHERE id=?1 AND rid=?2",
+                params![n.incoming.id, n.incoming.rid],
+                |r| Ok((r.get::<_, bool>(0)?, r.get::<_, Option<String>>(1)?)),
+            )
+            .optional()?;
+        Ok(self.same(&conn)?
+            && read_states::state_in(&conn, &n.incoming.rid)?.and_then(|s| s.membership_version).as_deref()
+                == Some(&n.membership)
+            && !cached.is_some_and(|(deleted, system)| deleted || system.is_some()))
     }
 
     pub fn pending_notification_replies(&self) -> rusqlite::Result<Vec<NotificationReply>> {

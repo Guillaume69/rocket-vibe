@@ -43,6 +43,7 @@ public final class AppModel {
     @ObservationIgnored private var pendingRoomLink: (String, RoomLink)?
     @ObservationIgnored private var roomLinkRequest = UUID()
     @ObservationIgnored private var pendingNotification: (key: String, message: String, text: String?)?
+    @ObservationIgnored private var notificationRequest: String?
 
     public var onIncoming: ((Incoming) -> Void)?
     public var onWithdraw: ((String) -> Void)?
@@ -63,23 +64,40 @@ public final class AppModel {
     public func start() async {
         accounts = await client.accounts()
         if signedIn { return }
-        if let action = pendingNotification {
-            await notificationAction(key: action.key, message: action.message, text: action.text)
-            if !signedIn { showLogin(error: L("links.choose_account")) }
-            return
-        }
+        // A callback already owns startup, including any keyring await.
+        if pendingNotification != nil { return }
         if let (url, _) = pendingRoomLink {
             await openLink(url)
             if signedIn { return }
             showLogin(error: L("links.choose_account"))
             return
         }
+        do {
+            if let saved = try client.pendingNotificationNavigation() {
+                let request = UUID()
+                roomLinkRequest = request
+                notificationRequest = saved.id
+                pendingNotification = (saved.key,saved.message,nil)
+                let matches = await client.notificationAccounts(key:saved.key)
+                guard roomLinkRequest == request else { return }
+                guard matches.count == 1 else {
+                    _ = try client.clearNotificationNavigation(id:saved.id)
+                    pendingNotification = nil; notificationRequest = nil
+                    showLogin(error:L("links.choose_account")); return
+                }
+                if !(await resume(matches[0],preserveNavigation:true)) { showLogin(error:L("links.choose_account")) }
+                guard roomLinkRequest == request else { return }
+                followNotification()
+                return
+            }
+        } catch { cancelNotificationNavigation(); notice = L("links.unavailable") }
         if let first = accounts.first, await resume(first) { return }
         showLogin(error: nil)
     }
 
     @discardableResult
-    public func resume(_ account: Account) async -> Bool {
+    public func resume(_ account: Account, preserveNavigation: Bool = false) async -> Bool {
+        if !preserveNavigation { cancelNotificationNavigation(); pendingRoomLink = nil }
         let selected = UUID()
         selectionId = selected
         do {
@@ -162,6 +180,8 @@ public final class AppModel {
 
     public func signOut() async {
         guard let provider else { return }
+        cancelNotificationNavigation()
+        pendingRoomLink = nil
         let expected = sessionId
         do { try await provider.signOut() }
         catch { notice = error.localizedDescription; return }
@@ -242,13 +262,13 @@ public final class AppModel {
             else {
                 room.deactivate()
                 self.room = nil
-                closeThread()
+                closeThread(preserveNavigation:true)
             }
         }
         onAttention?(chat?.attention() ?? 0)
         if let thread {
             if thread.membershipIsCurrent, let fresh = rooms.first(where: { $0.rid == thread.rid }) { thread.update(room: fresh) }
-            else { closeThread() }
+            else { closeThread(preserveNavigation:true) }
         }
         followRoomLink(roomsLoaded: true)
         followNotification(roomsLoaded: true)
@@ -256,7 +276,7 @@ public final class AppModel {
 
     /// Used for both a cold launch URL and a link received by an open window.
     public func openLink(_ url: String) async {
-        pendingNotification = nil
+        cancelNotificationNavigation()
         let request = UUID()
         roomLinkRequest = request
         pendingRoomLink = nil
@@ -266,13 +286,14 @@ public final class AppModel {
         let matches = await client.roomLinkAccounts(url: url)
         guard roomLinkRequest == request else { return }
         guard matches.count == 1 else { notice = L("links.choose_account"); return }
-        guard await resume(matches[0]), roomLinkRequest == request else { return }
+        guard await resume(matches[0],preserveNavigation:true), roomLinkRequest == request else { return }
         followRoomLink()
     }
 
     /// Native OS callbacks can precede account startup. Keep their scope until
     /// catch-up, then read privately before opening or enqueueing a reply.
     public func notificationAction(key: String, message: String, text: String? = nil) async {
+        cancelNotificationNavigation()
         let request = UUID()
         roomLinkRequest = request
         pendingRoomLink = nil
@@ -287,26 +308,57 @@ public final class AppModel {
                 let account = try await client.queueNotificationReply(key:key,message:message,text:text)
                 guard roomLinkRequest == request else { return }
                 pendingNotification = nil
-                if !(await resume(account)) { notice = L("links.choose_account") }
+                if !(await resume(account,preserveNavigation:true)) { showLogin(error:L("links.choose_account")) }
             } catch {
-                if roomLinkRequest == request { pendingNotification = nil; notice = L("links.unavailable") }
+                if roomLinkRequest == request { pendingNotification = nil; notice = L("links.unavailable"); if !signedIn { showLogin(error:L("links.choose_account")) } }
             }
             return
         }
-        if native?.acceptsNotification(key:key) == true { followNotification(); return }
-        let matches = await client.notificationAccounts(key:key)
-        guard roomLinkRequest == request else { return }
-        guard matches.count == 1 else { pendingNotification = nil; notice = L("links.unavailable"); return }
-        if !(await resume(matches[0])) { notice = L("links.choose_account") }
-        guard roomLinkRequest == request else { return }
-        followNotification()
+        do {
+            let id = try client.beginNotificationNavigation()
+            notificationRequest = id
+            if let native, native.acceptsNotification(key:key) {
+                guard try native.captureNotificationNavigation(id:id,key:key,message:message) else { retireNotificationNavigation(); return }
+                followNotification(); return
+            }
+            let account = try await client.captureNotificationNavigation(id:id,key:key,message:message)
+            guard roomLinkRequest == request else { return }
+            guard let account else { retireNotificationNavigation(); return }
+            if !(await resume(account,preserveNavigation:true)) { showLogin(error:L("links.choose_account")) }
+            guard roomLinkRequest == request else { return }
+            followNotification()
+        } catch {
+            if roomLinkRequest == request { retireNotificationNavigation(); notice = L("links.unavailable"); if !signedIn { showLogin(error:L("links.choose_account")) } }
+        }
+    }
+
+    private func cancelNotificationNavigation() {
+        roomLinkRequest = UUID()
+        pendingNotification = nil
+        notificationRequest = nil
+        do { try client.cancelNotificationNavigation() }
+        catch { notice = L("links.unavailable") }
+    }
+
+    private func retireNotificationNavigation() {
+        roomLinkRequest = UUID()
+        pendingNotification = nil
+        if let id = notificationRequest { _ = try? client.clearNotificationNavigation(id:id) }
+        notificationRequest = nil
+        if !signedIn { showLogin(error:L("links.choose_account")) }
     }
 
     private func followNotification(roomsLoaded: Bool = false) {
-        guard let action = pendingNotification, action.text == nil, let native,
-              native.acceptsNotification(key:action.key), connection == .online else { return }
+        guard let action = pendingNotification, action.text == nil, let id = notificationRequest,
+              let saved = try? client.pendingNotificationNavigation(), saved.id == id,
+              let native, native.acceptsNotification(key:action.key) else { return }
+        if ["server_identity_changed","session_rejected"].contains(native.status().error ?? "") {
+            _ = try? client.clearNotificationNavigation(id:id)
+            pendingNotification = nil; notificationRequest = nil; notice = L("links.unavailable"); return
+        }
+        guard connection == .online else { return }
         guard rooms.contains(where: { native.notificationKey(rid:$0.rid) == action.key }) else {
-            if roomsLoaded { pendingNotification = nil; notice = L("links.unavailable") }
+            if roomsLoaded { _ = try? client.clearNotificationNavigation(id:id); pendingNotification = nil; notificationRequest = nil; notice = L("links.unavailable") }
             return
         }
         pendingNotification = nil
@@ -314,13 +366,20 @@ public final class AppModel {
         let request = roomLinkRequest
         Task {
             do {
-                let target = try await native.resolveNotification(key:action.key,message:action.message)
+                let target = try await native.resolveNotificationNavigation(id:id)
                 guard expected == sessionId, request == roomLinkRequest else { return }
-                await open(target.rid,message:target.root ?? action.message)
+                await open(target.rid,message:target.root ?? action.message,preserveNavigation:true)
                 guard expected == sessionId, request == roomLinkRequest else { return }
-                if let root = target.root { openThread(root,message:action.message) }
+                if let root = target.root { openThread(root,message:action.message,preserveNavigation:true) }
+                _ = try client.clearNotificationNavigation(id:id)
+                notificationRequest = nil
             } catch {
-                if expected == sessionId, request == roomLinkRequest { notice = L("links.unavailable") }
+                guard expected == sessionId, request == roomLinkRequest else { return }
+                if let saved = try? client.pendingNotificationNavigation(), saved.id == id {
+                    pendingNotification = action
+                    try? await Task.sleep(nanoseconds:5_000_000_000)
+                    if expected == sessionId, request == roomLinkRequest { followNotification() }
+                } else { notificationRequest = nil; notice = L("links.unavailable") }
             }
         }
     }
@@ -343,10 +402,10 @@ public final class AppModel {
             do {
                 let resolved = try await native?.resolveRoomLink(url: url) ?? link
                 guard expected == sessionId, request == roomLinkRequest, acceptsRoomLink(url) else { return }
-                if let message = resolved.root ?? resolved.message { await open(resolved.rid, message: message) }
-                else { open(resolved.rid) }
+                if let message = resolved.root ?? resolved.message { await open(resolved.rid, message: message,preserveNavigation:true) }
+                else { open(resolved.rid,preserveNavigation:true) }
                 guard expected == sessionId, request == roomLinkRequest else { return }
-                if let root = resolved.root { openThread(root, message: resolved.message) }
+                if let root = resolved.root { openThread(root, message: resolved.message,preserveNavigation:true) }
             } catch {
                 guard expected == sessionId, request == roomLinkRequest else { return }
                 notice = L("links.unavailable")
@@ -354,8 +413,9 @@ public final class AppModel {
         }
     }
 
-    public func open(_ rid: String, remember: Bool = true) {
+    public func open(_ rid: String, remember: Bool = true, preserveNavigation: Bool = false) {
         guard let provider, let found = rooms.first(where: { $0.rid == rid }) else { return }
+        if !preserveNavigation { cancelNotificationNavigation(); pendingRoomLink = nil }
         if room?.rid == rid { return }
         selectionId = UUID()
         if remember {
@@ -363,23 +423,24 @@ public final class AppModel {
             historyAt = history.count - 1
         }
         room?.deactivate()
-        closeThread()
+        closeThread(preserveNavigation:true)
         let model = RoomModel(provider: provider, room: found)
         room = model
         Task { await model.load() }
     }
 
     /// The room, scrolled to that message: what a notification opens.
-    public func open(_ rid: String, message: String) async {
-        open(rid)
+    public func open(_ rid: String, message: String, preserveNavigation: Bool = false) async {
+        open(rid,preserveNavigation:preserveNavigation)
         if let room, room.rid == rid, !(await room.jump(to: message)) {
             notice = L("marked.not_loaded")
         }
     }
 
-    public func openThread(_ rootId: String, message: String? = nil) {
+    public func openThread(_ rootId: String, message: String? = nil, preserveNavigation: Bool = false) {
         guard let provider, let room else { return }
         if let native = provider.native, !native.supportedFeatures().contains("threads") { return }
+        if !preserveNavigation { cancelNotificationNavigation(); pendingRoomLink = nil }
         let model = RoomModel(provider: provider, room: room.room, threadId: rootId)
         thread?.deactivate()
         thread = model
@@ -389,7 +450,8 @@ public final class AppModel {
         }
     }
 
-    public func closeThread() {
+    public func closeThread(preserveNavigation: Bool = false) {
+        if !preserveNavigation { cancelNotificationNavigation(); pendingRoomLink = nil }
         thread?.deactivate()
         thread = nil
     }

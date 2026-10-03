@@ -168,7 +168,10 @@ impl NativeSession {
         }
         self.resolve_notification_record(&n).await
     }
-    async fn resolve_notification_record(&self, n: &store::Notification) -> Result<crate::links::RoomLink, Error> {
+    pub(super) async fn resolve_notification_record(
+        &self,
+        n: &store::Notification,
+    ) -> Result<crate::links::RoomLink, Error> {
         self.ready()?;
         if self.store.read_state(&n.incoming.rid)?.and_then(|s| s.membership_version).as_deref() != Some(&n.membership)
         {

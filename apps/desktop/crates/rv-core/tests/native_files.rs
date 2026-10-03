@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use std::{
     sync::{
         Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -136,6 +136,12 @@ async fn lost_prepare_and_confirmation_responses_reopen_the_original_intention_a
     let phase = Arc::new(AtomicUsize::new(0));
     let original = Arc::new(Mutex::new(None::<Value>));
     let complete = Arc::new(Mutex::new(None::<String>));
+    // Keep each response lost until that session has actually stopped. An
+    // immediate worker/HTTP retry must not complete the next phase before the
+    // test has inspected its durable outbox, particularly on Windows runners.
+    let allow_prepare = Arc::new(AtomicBool::new(false));
+    let allow_receipt = Arc::new(AtomicBool::new(false));
+    let (prepared, delivered) = (allow_prepare.clone(), allow_receipt.clone());
     let (stage, saved, key, fixture) = (phase.clone(), original.clone(), complete.clone(), f.clone());
     let server=FakeHttp::start(move |request|match request.path(){
         "/.well-known/rocketvibe"=>{let mut d=fixture["discovery"].clone();d["capabilities"]["uploads"]=json!(true);respond(200,&d.to_string())},
@@ -145,11 +151,12 @@ async fn lost_prepare_and_confirmation_responses_reopen_the_original_intention_a
         "/api/v1/sync/socket"=>common::Response{websocket:true,..Default::default()},
         "/api/v1/uploads"=>{
             let input:Value=serde_json::from_str(&request.body).unwrap();let mut old=saved.lock().unwrap();if let Some(old)=old.as_ref(){assert_eq!(old,&input)}else{*old=Some(input.clone());}
-            if stage.load(Ordering::SeqCst)==0 {stage.store(1,Ordering::SeqCst);return common::dropped()}
+            if !prepared.load(Ordering::SeqCst) {stage.store(1,Ordering::SeqCst);return common::dropped()}
             let finished=key.lock().unwrap().clone();respond(200,&json!({"id":"upload-id","file":{"id":"file-id","room_id":input["room_id"],"bytes":input["bytes"],"sha256":input["sha256"],"media_type":input["media_type"],"filename":input["filename"],"encrypted":false},"state":if finished.is_some(){"completed"}else{"ready"},"expires_at":"2026-10-04T00:00:00Z","message_id":finished}).to_string())
         },
         "/api/v1/uploads/upload-id/complete"=>{
-            let input:Value=serde_json::from_str(&request.body).unwrap();let id=input["operation_id"].as_str().unwrap().to_owned();let mut original=key.lock().unwrap();if let Some(old)=original.as_ref(){assert_eq!(old,&id)}else{*original=Some(id.clone());stage.store(2,Ordering::SeqCst);return common::dropped()}
+            let input:Value=serde_json::from_str(&request.body).unwrap();let id=input["operation_id"].as_str().unwrap().to_owned();let mut original=key.lock().unwrap();if let Some(old)=original.as_ref(){assert_eq!(old,&id)}else{*original=Some(id.clone());stage.store(2,Ordering::SeqCst);}
+            if !delivered.load(Ordering::SeqCst) {return common::dropped()}
             let prepared=saved.lock().unwrap();let p=prepared.as_ref().unwrap();let mut m=fixture["message"].clone();m["id"]=json!(id);m["text"]=json!("caption edited elsewhere");m["body"]=Value::Null;m["quotes"]=json!([]);m["files"]=json!([{"id":"file-id","room_id":p["room_id"],"bytes":p["bytes"],"sha256":p["sha256"],"media_type":p["media_type"],"filename":p["filename"],"encrypted":false}]);respond(200,&m.to_string())
         },
         _=>respond(404,r#"{"code":"not_found","request_id":"files-test"}"#)
@@ -178,10 +185,12 @@ async fn lost_prepare_and_confirmation_responses_reopen_the_original_intention_a
     until(|| phase.load(Ordering::SeqCst) == 1).await;
     let original_intent = first.store.file_intents().unwrap()[0].clone();
     common::close_native(first).await;
+    allow_prepare.store(true, Ordering::SeqCst);
     let second = NativeSession::start(info.clone(), &db).unwrap();
     until(|| phase.load(Ordering::SeqCst) == 2).await;
     assert_eq!(second.store.file_intents().unwrap()[0].complete.operation_id, original_intent.complete.operation_id);
     common::close_native(second).await;
+    allow_receipt.store(true, Ordering::SeqCst);
     let third = NativeSession::start(info, &db).unwrap();
     until(|| third.store.file_intents().unwrap().is_empty()).await;
     let rows = third.store.messages("room-id", 50).unwrap();

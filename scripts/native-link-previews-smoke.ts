@@ -1,4 +1,4 @@
-/** HTTP/WebSocket/SQLite bench; only discovery's still-gated capability is enabled here. */
+/** HTTP/WebSocket/SQLite bench using the server's advertised capability. */
 import assert from 'node:assert/strict';
 import {createHash,randomUUID} from 'node:crypto';
 import {NativeTransport} from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
@@ -17,10 +17,10 @@ const transport=new NativeTransport(base,async(input,options)=>{
   const url=new URL(String(input));assert.equal(url.origin,new URL(base).origin);assert.equal(options?.redirect,'error');
   const response=await fetch(input,options);
   if(url.pathname.includes('/previews/')){imageReads++;assert(new Headers(options?.headers).get('authorization')?.startsWith('Bearer '));assert.equal(url.search,'');}
-  if(url.pathname==='/.well-known/rocketvibe'&&response.ok){const discovery=await response.json();return Response.json({...discovery,capabilities:{...discovery.capabilities,link_previews:true}});}
   return response;
 });
 const discovery=await transport.discover(),auth=await transport.login('owner','test-password-2026');
+assert.equal(discovery.capabilities.link_previews,true);
 const session={baseUrl:base,authToken:auth.token,userId:auth.user.id,username:auth.user.username,genre:'rocketvibe' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
 const h=nativeTestDatabase(),store=new NativeStore(h.adapter,creerFileEcritures(),session),chat=new NativeChat(session,store,randomUUID,{transport});
 const client=new ClientRest(base);client.genre='rocketvibe';

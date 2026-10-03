@@ -319,6 +319,28 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P15 / J3, cartes d'intégration et activation (3 octobre 2026) : contrat
+  `SendMessage.cards` / `Message.cards`, trois pièces et 16 Kio au total,
+  texte / liens / champs bornés et propriétés inconnues refusées. Même envoi,
+  permissions, empreinte de rejeu, journal et tombstone que les messages.
+  L'index GIN des cartes complète la recherche du texte. SQLite, recherche
+  temporaire et actualisation des citations conservent les pièces ; GTK
+  utilise son renderer existant, mobile et SwiftUI complètent leurs cartes
+  actuelles avec les champs manquants pour les deux fournisseurs.
+  Deux tests du contrat, 24 tests mobiles ciblés, typage / lint, export
+  Android / Hermes, projection
+  SQLite bureau et modèle UniFFI, widget GTK et six tests locaux Swift passent.
+  La CI macOS du lecteur précédent `1e073b1` est verte, ainsi que les modèles
+  Swift et le cœur Windows. Le serveur annonce maintenant `structured_cards`,
+  et `link_previews` si un volume d'objets est configuré ; le banc mobile des images
+  n'altère plus la découverte. Les bancs PostgreSQL / HTTP vérifient droits,
+  rejeu, recherche, édition et effacement, ainsi que le fournisseur mobile
+  réel et sa présentation. [Contrat](protocol/INTEGRATION_CARDS.md).
+  Clippy serveur et bureau sans avertissement ; schéma / types / inventaire
+  synchronisés (356 fichiers de production, 443 occurrences).
+  Compilation macOS du lot cartes et qualification des applications installées
+  restent ouvertes ; P15 n'est pas fermé globalement, le chiffré appartient à J4.
+
 - P15 / J3, raccordement desktop des aperçus (3 octobre 2026) : projection
   SQLite et résultats temporaires de recherche dans les cartes d'article,
   d'image et de vidéo GTK / SwiftUI existantes. Les chemins privés ne portent

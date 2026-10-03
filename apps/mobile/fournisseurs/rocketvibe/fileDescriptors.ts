@@ -1,6 +1,7 @@
 import type {FileDescriptor,Message} from './protocol.generated.ts';
 import {decodeNative} from './validation.ts';
 import {roomIdentifier} from './roomOperations.ts';
+import {nativeCardAttachments} from './cards.ts';
 
 export const FILE_MAX=100*1024*1024;
 export const FILE_TYPES=['application/octet-stream','text/plain','application/pdf','application/zip','image/png','image/jpeg','image/gif','image/webp','audio/mpeg','audio/ogg','audio/wav','audio/mp4','video/mp4','video/quicktime','video/webm'];
@@ -15,9 +16,11 @@ export function fileDescriptor(value:unknown,room?:string):FileDescriptor {
 }
 export function nativeAttachments(message:Message):string|null {
   const files=message.files??[];
+  const cards=message.cards??[];
+  if(cards.length&&(message.deleted||message.system))throw new Error('invalid_card');
   if(files.length&&(message.deleted||message.system))throw new Error('invalid_file');
-  if(!files.length)return null;
-  return JSON.stringify(nativeFileAttachments(files,message.room_id));
+  const all=[...nativeFileAttachments(files,message.room_id),...nativeCardAttachments(cards)];
+  return all.length?JSON.stringify(all):null;
 }
 /** Shared projection for message files and membership-scoped quoted sources. */
 export function nativeFileAttachments(files:readonly FileDescriptor[],room:string):Record<string,unknown>[] {

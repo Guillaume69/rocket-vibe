@@ -672,6 +672,9 @@ fn message_from_provider(
         for file in content::files(row.attachments.as_deref()) {
             column.append(&cards::file_provider(provider.clone(), &file));
         }
+        for card in content::cards(row.attachments.as_deref()) {
+            column.append(&cards::attachment_card(&card));
+        }
         for video in content::video_links(row.text.as_deref().unwrap_or_default(), row.urls.as_deref(), 3) {
             column.append(&cards::video_link_provider(provider.clone(), &video));
         }

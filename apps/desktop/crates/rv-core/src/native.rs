@@ -1,6 +1,7 @@
 //! Native desktop pilot: pinned identity, durable SQLite projection and a single replay loop.
 pub mod authentication;
 pub mod authentication_vault;
+mod cards;
 pub mod credentials;
 mod custom_emojis;
 pub mod email_recovery;
@@ -566,6 +567,7 @@ impl NativeSession {
                     uploads: true,
                     custom_emojis: true,
                     link_previews: true,
+                    structured_cards: true,
                     fine_permissions: true,
                     session_rotation: self.credentials.is_some(),
                     device_sessions: true,
@@ -699,6 +701,7 @@ impl NativeSession {
                 .send(
                     &pending.room_id,
                     &rv_protocol::SendMessage {
+                        cards: Vec::new(),
                         reply_to: pending.reply_to.clone(),
                         quotes: pending.quotes,
                         operation_id: pending.id.clone(),

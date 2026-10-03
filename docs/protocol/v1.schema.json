@@ -381,6 +381,10 @@
           "default": false,
           "type": "boolean"
         },
+        "structured_cards": {
+          "default": false,
+          "type": "boolean"
+        },
         "text_messages": {
           "type": "boolean"
         },
@@ -406,6 +410,26 @@
         "push",
         "e2ee",
         "calls"
+      ],
+      "type": "object"
+    },
+    "CardField": {
+      "additionalProperties": false,
+      "properties": {
+        "short": {
+          "default": false,
+          "type": "boolean"
+        },
+        "title": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "value"
       ],
       "type": "object"
     },
@@ -1213,6 +1237,48 @@
       ],
       "type": "string"
     },
+    "IntegrationCard": {
+      "additionalProperties": false,
+      "properties": {
+        "author": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "color": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fields": {
+          "items": {
+            "$ref": "#/$defs/CardField"
+          },
+          "type": "array"
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "LeaveRoom": {
       "additionalProperties": false,
       "properties": {
@@ -1430,6 +1496,12 @@
             }
           ],
           "description": "Optional canonical native presentation. Source remains authoritative;\nno Rocket.Chat tree, HTML markup, or authenticated resource URL."
+        },
+        "cards": {
+          "items": {
+            "$ref": "#/$defs/IntegrationCard"
+          },
+          "type": "array"
         },
         "created_at": {
           "type": "string"
@@ -3625,6 +3697,12 @@
     "SendMessage": {
       "additionalProperties": false,
       "properties": {
+        "cards": {
+          "items": {
+            "$ref": "#/$defs/IntegrationCard"
+          },
+          "type": "array"
+        },
         "operation_id": {
           "type": "string"
         },

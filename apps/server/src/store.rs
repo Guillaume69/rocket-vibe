@@ -54,6 +54,7 @@ pub(crate) struct MessageRow {
     pub quote_references: Json<Vec<rv_protocol::parity::QuoteReference>>,
     pub files: Json<Vec<rv_protocol::parity::FileDescriptor>>,
     pub previews: Json<Vec<rv_protocol::link_previews::LinkPreview>>,
+    pub cards: Json<Vec<rv_protocol::cards::IntegrationCard>>,
 }
 
 impl MessageRow {
@@ -100,6 +101,11 @@ impl MessageRow {
             reactions: self.reactions.0,
             pinned: self.pinned,
             personal_star: None,
+            cards: if self.deleted {
+                Vec::new()
+            } else {
+                self.cards.0
+            },
             previews: if self.deleted {
                 Vec::new()
             } else {
@@ -114,7 +120,7 @@ impl MessageRow {
     }
 }
 
-pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,m.text,m.reply_to,(SELECT count(*) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_replies,(SELECT max(r.created_at) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_last_reply,m.system,m.created_at,m.position,m.revision,m.deleted,m.edited_at,m.pinned,m.quote_references,m.files,m.previews,COALESCE((SELECT jsonb_agg(jsonb_build_object('emoji',g.emoji,'users',g.users) ORDER BY g.emoji) FROM (SELECT e.emoji,jsonb_agg(jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name) ORDER BY a.id) AS users FROM message_reactions e JOIN users a ON a.id=e.user_id WHERE e.message_id=m.id GROUP BY e.emoji) g),'[]'::jsonb) AS reactions FROM messages m JOIN users u ON u.id=m.author_id";
+pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,m.text,m.reply_to,(SELECT count(*) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_replies,(SELECT max(r.created_at) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_last_reply,m.system,m.created_at,m.position,m.revision,m.deleted,m.edited_at,m.pinned,m.quote_references,m.files,m.previews,m.cards,COALESCE((SELECT jsonb_agg(jsonb_build_object('emoji',g.emoji,'users',g.users) ORDER BY g.emoji) FROM (SELECT e.emoji,jsonb_agg(jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name) ORDER BY a.id) AS users FROM message_reactions e JOIN users a ON a.id=e.user_id WHERE e.message_id=m.id GROUP BY e.emoji) g),'[]'::jsonb) AS reactions FROM messages m JOIN users u ON u.id=m.author_id";
 
 pub(crate) fn send_fingerprint(room: &str, text: &str) -> String {
     crate::auth::hash_token(&serde_json::json!([room, text]).to_string())
@@ -557,19 +563,28 @@ pub(crate) async fn send_in_tx(
             .reply_to
             .as_ref()
             .is_some_and(|root| !identifier(root) || root == &input.operation_id)
-        || (input.text.trim().is_empty() && input.quotes.is_empty() && files.is_empty())
+        || (input.text.trim().is_empty()
+            && input.quotes.is_empty()
+            && files.is_empty()
+            && input.cards.is_empty())
         || input.text.len() > 32_768
         || !crate::quotes::valid_references(&input.quotes, &input.operation_id)
+        || !rv_protocol::cards::validate(&input.cards)
     {
         return Err(Error::invalid());
     }
     let expected_fingerprint = fingerprint.map(str::to_owned).unwrap_or_else(|| {
-        crate::threads::send_fingerprint(
+        let original = crate::threads::send_fingerprint(
             room_id,
             &input.text,
             &input.quotes,
             input.reply_to.as_deref(),
-        )
+        );
+        if input.cards.is_empty() {
+            original
+        } else {
+            crate::auth::hash_token(&serde_json::json!([original, input.cards]).to_string())
+        }
     });
     // All sends by a user serialize before room / journal locks. This also protects
     // operation IDs across rooms, including malicious cross-room replays.
@@ -604,6 +619,7 @@ pub(crate) async fn send_in_tx(
                     && existing.quote_references.0 == input.quotes
                     && existing.reply_to == input.reply_to
                     && existing.files.0 == files
+                    && existing.cards.0 == input.cards
             },
             |value| value == expected_fingerprint,
         );
@@ -621,7 +637,7 @@ pub(crate) async fn send_in_tx(
     // Client message IDs are globally unique. A collision belonging to another user
     // is a conflict, never a response exposing that user's message.
     let result = sqlx::query(
-        "INSERT INTO messages(id,room_id,author_id,operation_id,text,send_fingerprint,quote_references,reply_to,files) VALUES($1,$2,$3,$1,$4,$5,$6,$7,$8)",
+        "INSERT INTO messages(id,room_id,author_id,operation_id,text,send_fingerprint,quote_references,reply_to,files,cards) VALUES($1,$2,$3,$1,$4,$5,$6,$7,$8,$9)",
     )
     .bind(&id)
     .bind(room_id)
@@ -631,6 +647,7 @@ pub(crate) async fn send_in_tx(
     .bind(Json(&input.quotes))
     .bind(&input.reply_to)
     .bind(Json(files))
+    .bind(Json(&input.cards))
     .execute(&mut **tx)
     .await;
     match result {

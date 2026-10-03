@@ -30,7 +30,8 @@ pub(super) fn present(page: SearchPage, room: &str, membership: &str) -> Result<
         let urls = super::link_previews::urls(&m)?;
         let document = m.body.map(|d| *d).unwrap_or_else(|| rv_protocol::markdown::parse(&m.text));
         super::files::validate_descriptors(&m.files, room)?;
-        let files = super::files::attachments(&m.files)?;
+        let mut files = super::files::attachments(&m.files)?;
+        files.extend(super::cards::attachments(&m.cards)?);
         hits.push(crate::normalize::Message {
             id: m.id,
             rid: m.room_id,

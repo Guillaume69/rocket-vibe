@@ -27,6 +27,7 @@ async fn marker(client: &NativeClient, rid: &str, text: &str) {
         .send(
             rid,
             &SendMessage {
+                cards: Vec::new(),
                 reply_to: None,
                 quotes: vec![],
                 operation_id: format!("{:032x}", fastrand::u128(..)),

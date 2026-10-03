@@ -188,7 +188,7 @@ pub async fn apply(app: &App, account: &Account, id: &str, command: Command) -> 
         .execute(&mut *tx)
         .await?;
     let position = store::next_position(&mut tx).await?;
-    sqlx::query("UPDATE messages SET text=$2,deleted=$3,revision=$4,edited_at=CASE WHEN $3 THEN edited_at ELSE clock_timestamp() END,send_fingerprint=COALESCE(send_fingerprint,$5),quote_references=$6 WHERE id=$1")
+    sqlx::query("UPDATE messages SET text=$2,deleted=$3,cards=CASE WHEN $3 THEN '[]'::jsonb ELSE cards END,revision=$4,edited_at=CASE WHEN $3 THEN edited_at ELSE clock_timestamp() END,send_fingerprint=COALESCE(send_fingerprint,$5),quote_references=$6 WHERE id=$1")
         .bind(id).bind(text.unwrap_or("")).bind(text.is_none()).bind(position).bind(store::quoted_send_fingerprint(&room,&message.text,&message.quote_references.0)).bind(Json(quotes)).execute(&mut *tx).await?;
     crate::link_previews::enqueue(&mut tx, id, text.unwrap_or("")).await?;
     let current = sqlx::query_as::<_, MessageRow>(&format!("{MESSAGE_SELECT} WHERE m.id=$1"))

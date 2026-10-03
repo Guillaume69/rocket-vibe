@@ -394,6 +394,7 @@ mod tests {
             &f.owner,
             &f.room.id,
             SendMessage {
+                cards: Vec::new(),
                 reply_to: None,
                 operation_id: "quote-lease-source".into(),
                 text: "Private quote bytes".into(),
@@ -407,6 +408,7 @@ mod tests {
             &f.reader,
             &destination.id,
             SendMessage {
+                cards: Vec::new(),
                 reply_to: None,
                 operation_id: "quote-lease-reply".into(),
                 text: "Reply".into(),
@@ -592,6 +594,7 @@ mod tests {
             &f.reader,
             &middle.room_id,
             SendMessage {
+                cards: Vec::new(),
                 reply_to: None,
                 operation_id: "nested-quote-lease".into(),
                 text: "Outer".into(),
@@ -768,6 +771,7 @@ mod tests {
                 &f.owner,
                 &f.room.id,
                 SendMessage {
+                    cards: Vec::new(),
                     reply_to: None,
                     quotes: vec![],
                     operation_id: format!("secret-{index}"),
@@ -1111,6 +1115,7 @@ mod tests {
             &f.owner,
             &f.room.id,
             SendMessage {
+                cards: Vec::new(),
                 reply_to: None,
                 quotes: vec![],
                 operation_id: "protected-message".into(),
@@ -1209,6 +1214,7 @@ mod tests {
             &f.owner,
             &f.room.id,
             SendMessage {
+                cards: Vec::new(),
                 reply_to: None,
                 quotes: vec![],
                 operation_id: "reserved-view-message".into(),
@@ -1387,6 +1393,7 @@ mod tests {
                     &f.reader,
                     &f.room.id,
                     SendMessage {
+                        cards: Vec::new(),
                         reply_to: None,
                         quotes: vec![],
                         operation_id: "revoked-intention".into(),
@@ -1439,6 +1446,7 @@ mod tests {
                         &f.reader,
                         &f.room.id,
                         SendMessage {
+                            cards: Vec::new(),
                             reply_to: None,
                             quotes: vec![],
                             operation_id: "stale-activation".into(),

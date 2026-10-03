@@ -49,6 +49,7 @@ fn native_link_previews_paint_existing_cards_and_revoke_the_old_membership() {
     raw["messages"] = serde_json::json!([fixture["message"].clone()]);
     raw["rooms"][0]["read_state"] = serde_json::json!({"room_id":"room-id","revision":"1","membership_version":"membership","favorite_revision":"1","root_position":"0","reply_position":"0","unread_roots":"0","unread_replies":"0","mentions":"0","group_mentions":"0","favorite":false});
     raw["messages"][0]["previews"] = serde_json::json!([{"url":"https://example.org/article","kind":"page","title":"An article","description":"Description","site":"Example","image":{"file_id":file,"sha256":digest,"bytes":bytes.len().to_string(),"width":1,"height":1,"media_type":"image/png"}}]);
+    raw["messages"][0]["cards"] = serde_json::json!([{"author":"CI","title":"Build ready","url":"https://example.org/build","text":"Details","color":"#1177aa","fields":[{"title":"Commit","value":"abcdef","short":true}]}]);
     let current = Arc::new(Mutex::new(raw["messages"][0].clone()));
     let reads = Arc::new(AtomicUsize::new(0));
     let (remote, count) = (current.clone(), reads.clone());
@@ -93,6 +94,8 @@ fn native_link_previews_paint_existing_cards_and_revoke_the_old_membership() {
     until(|| session.status().connection == Connection::Online);
     let row = session.store.messages("room-id", 10).unwrap().remove(0).presentation("room-id", "alice-id");
     let preview = rv_core::content::link_previews(row.urls.as_deref(), 3).remove(0);
+    let integration = attachment_card(&rv_core::content::cards(row.attachments.as_deref()).remove(0));
+    assert!(integration.has_css_class("attachment-card"));
     let provider = media::Provider::RocketVibe(session.clone());
     let card = link_preview_provider(provider.clone(), &preview);
     assert!(card.has_css_class("link-card"));

@@ -64,7 +64,7 @@ pub(crate) async fn messages(
     .fetch_one(&mut *tx)
     .await?;
     let sql = format!(
-        "{MESSAGE_SELECT} WHERE m.room_id=$1 AND NOT m.deleted AND m.system IS NULL AND m.position<$2 AND m.search_vector @@ plainto_tsquery('simple'::regconfig,$3) ORDER BY m.position DESC LIMIT $4"
+        "{MESSAGE_SELECT} WHERE m.room_id=$1 AND NOT m.deleted AND m.system IS NULL AND m.position<$2 AND (m.search_vector @@ plainto_tsquery('simple'::regconfig,$3) OR m.cards_search_vector @@ plainto_tsquery('simple'::regconfig,$3)) ORDER BY m.position DESC LIMIT $4"
     );
     let mut messages: Vec<Message> = sqlx::query_as::<_, MessageRow>(&sql)
         .bind(room)

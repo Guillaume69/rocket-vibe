@@ -298,6 +298,8 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             profile_avatars: app.objects.is_some(),
             uploads: app.objects.is_some(),
             custom_emojis: app.objects.is_some(),
+            link_previews: app.objects.is_some(),
+            structured_cards: true,
             session_rotation: true,
             device_sessions: true,
             account_invitations: true,

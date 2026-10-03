@@ -175,25 +175,34 @@ pub fn cards(attachments: Option<&str>) -> Vec<CardAttachment> {
         .iter()
         .filter(|a| !is_quote(a) && ["image_url", "audio_url", "video_url"].iter().all(|k| a.get(*k).is_none()))
         .filter(|a| !text(a, "title_link").is_some_and(|link| is_upload(a, &link)))
-        .map(|a| CardAttachment {
-            author: text(a, "author_name"),
-            title: text(a, "title"),
-            link: text(a, "title_link"),
-            text: text(a, "text"),
-            color: text(a, "color"),
-            fields: a
-                .get("fields")
-                .and_then(Value::as_array)
-                .map(|fields| {
-                    fields
-                        .iter()
-                        .filter_map(|f| {
-                            let short = f.get("short").and_then(Value::as_bool).unwrap_or(false);
-                            Some((text(f, "title")?, text(f, "value").unwrap_or_default(), short))
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
+        .map(|a| {
+            let read = |v: &Value, key: &str| {
+                if a.get("native_card").and_then(Value::as_bool) == Some(true) {
+                    v.get(key).and_then(Value::as_str).map(|s| s.trim().to_owned()).filter(|s| !s.is_empty())
+                } else {
+                    text(v, key)
+                }
+            };
+            CardAttachment {
+                author: read(a, "author_name"),
+                title: read(a, "title"),
+                link: read(a, "title_link"),
+                text: read(a, "text"),
+                color: read(a, "color"),
+                fields: a
+                    .get("fields")
+                    .and_then(Value::as_array)
+                    .map(|fields| {
+                        fields
+                            .iter()
+                            .filter_map(|f| {
+                                let short = f.get("short").and_then(Value::as_bool).unwrap_or(false);
+                                Some((read(f, "title")?, read(f, "value").unwrap_or_default(), short))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            }
         })
         .filter(|c| c.title.is_some() || c.text.is_some() || !c.fields.is_empty())
         .collect()

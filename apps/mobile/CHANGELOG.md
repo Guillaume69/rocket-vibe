@@ -9,11 +9,15 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Les cartes d'intégration affichent auteur, titre, texte, couleur et champs
+  dans les lignes de message actuelles, avec Rocket.Chat et RocketVibe.
+  Les cartes natives suivent les droits du salon et la recherche des messages.
+
 - Les aperçus d'articles, d'images et de vidéos utilisent les cartes existantes,
   avec des vignettes privées liées au message et à l'accès au salon. La
   visionneuse conserve le zoom et l'enregistrement dans la galerie ; une édition,
   un retrait d'accès ou un changement de compte retire les pixels en mémoire.
-  Activation serveur prévue après le raccordement des clients bureau.
+  Le serveur natif les active lorsqu'un volume d'objets est configuré.
 
 - Les emojis personnalisés du serveur apparaissent dans les sélecteurs, la
   complétion, les messages et les réactions existants. Les images protégées

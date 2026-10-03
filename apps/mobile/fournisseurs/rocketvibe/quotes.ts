@@ -153,7 +153,7 @@ export class NativeQuoteCache {
     }
     for(const id of ids){
       const row=await this.db.getFirstAsync<{pieces_jointes:string|null}>('SELECT pieces_jointes FROM messages WHERE id=?',[id]);
-      const files:unknown[]=row?.pieces_jointes?JSON.parse(row.pieces_jointes).filter((a:Record<string,unknown>)=>a.native_file!==undefined):[];
+      const files:unknown[]=row?.pieces_jointes?JSON.parse(row.pieces_jointes).filter((a:Record<string,unknown>)=>a.native_file!==undefined||a.native_card===true):[];
       const quotes=await this.attachments(id),all=[...files,...(quotes?JSON.parse(quotes):[])];
       const cards=all.length?JSON.stringify(all):null;
       await this.db.runAsync('UPDATE messages SET pieces_jointes=? WHERE id=? AND pieces_jointes IS NOT ?',[cards,id,cards]);

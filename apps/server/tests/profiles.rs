@@ -524,6 +524,7 @@ async fn profile_budget_does_not_block_messages_and_replays_do_not_consume_it(po
         .send(
             &room.id,
             &rv_protocol::SendMessage {
+                cards: Vec::new(),
                 operation_id: "send".into(),
                 text: "still works".into(),
                 reply_to: None,

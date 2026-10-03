@@ -768,7 +768,7 @@ struct LinkCard: View {
     var body: some View {
         Button {
             if card.url.hasPrefix("rv-preview:"){viewing=true}
-            else if let url = URL(string: card.url) { openURL(url) }
+            else if !card.url.isEmpty, let url = URL(string: card.url) { openURL(url) }
         } label: {
             HStack(alignment: .top, spacing: 10) {
                 if let image = card.image {
@@ -779,12 +779,24 @@ struct LinkCard: View {
                         }
                     }
                 }
-                if card.title != nil || card.description != nil {
+                if card.title != nil || card.description != nil || !card.fields.isEmpty {
                     VStack(alignment: .leading, spacing: 3) {
                         if let site = card.site { Text(site).font(.vibe(11.5, .bold)).foregroundStyle(Vibe.muted) }
-                        if let title = card.title { Text(title).font(.vibe(13.5, .heavy)).lineLimit(2) }
+                        if let title = card.title { Text(title).font(.vibe(13.5, .heavy)).lineLimit(card.integration ? nil : 2) }
                         if let description = card.description {
-                            Text(description).font(.vibe(12)).foregroundStyle(Vibe.soft).lineLimit(3)
+                            Text(description).font(.vibe(12)).foregroundStyle(Vibe.soft).lineLimit(card.integration ? nil : 3)
+                        }
+                        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                            ForEach(Array(fieldRows.enumerated()),id: \.offset) { _, fields in
+                                GridRow {
+                                    ForEach(Array(fields.enumerated()),id: \.offset) { _, field in
+                                        VStack(alignment: .leading,spacing: 2) {
+                                            Text(field.title).font(.vibe(11,.bold)).foregroundStyle(Vibe.muted)
+                                            Text(field.value).font(.vibe(12)).foregroundStyle(Vibe.soft)
+                                        }.gridCellColumns(field.short ? 1 : 2)
+                                    }
+                                }
+                            }
                         }
                     }
                     .multilineTextAlignment(.leading)
@@ -793,9 +805,24 @@ struct LinkCard: View {
             .padding(8)
             .frame(maxWidth: 420, alignment: .leading)
             .vibeCard()
+            .overlay(alignment: .leading) {
+                if card.integration {
+                    RoundedRectangle(cornerRadius: 2).fill(card.color.flatMap{UInt32($0.dropFirst(),radix:16)}.map{Color(hex:$0)} ?? Vibe.pink)
+                        .frame(width: 3).padding(.vertical,8)
+                }
+            }
         }
         .buttonStyle(.plain)
         .sheet(isPresented:$viewing){ImageViewer(path:card.url,title:card.title)}
+    }
+
+    var fieldRows:[[CardField]] {
+        var rows:[[CardField]]=[]
+        for field in card.fields {
+            if field.short,let last=rows.last,last.count==1,last[0].short { rows[rows.count-1].append(field) }
+            else { rows.append([field]) }
+        }
+        return rows
     }
 }
 

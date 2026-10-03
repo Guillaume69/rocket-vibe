@@ -272,7 +272,7 @@ pub struct Quote {
     pub quotes: Vec<Quote>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, uniffi::Record)]
 pub struct Card {
     pub url: String,
     pub title: Option<String>,
@@ -281,6 +281,16 @@ pub struct Card {
     pub site: Option<String>,
     /// A video (YouTube and the like): the card plays it.
     pub video: bool,
+    pub integration: bool,
+    pub color: Option<String>,
+    pub fields: Vec<CardField>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct CardField {
+    pub title: String,
+    pub value: String,
+    pub short: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -375,15 +385,24 @@ pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
             image: v.thumbnail,
             site: Some(v.provider.to_owned()),
             video: true,
+            ..Default::default()
         })
         .collect();
     cards.extend(content::link_previews(row.urls.as_deref(), 3).into_iter().map(|p| match p {
-        LinkPreview::Image { url } => {
-            Card { image: Some(url.clone()), url, title: None, description: None, site: None, video: false }
-        }
+        LinkPreview::Image { url } => Card { image: Some(url.clone()), url, ..Default::default() },
         LinkPreview::Card { url, title, description, image, site } => {
-            Card { url, title, description, image, site, video: false }
+            Card { url, title, description, image, site, ..Default::default() }
         }
+    }));
+    cards.extend(content::cards(attachments).into_iter().map(|c| Card {
+        url: c.link.unwrap_or_default(),
+        title: c.title,
+        description: c.text,
+        site: c.author,
+        color: c.color,
+        integration: true,
+        fields: c.fields.into_iter().map(|(title, value, short)| CardField { title, value, short }).collect(),
+        ..Default::default()
     }));
     let author = row.author.clone().unwrap_or_default();
     MessageItem {
@@ -490,6 +509,19 @@ mod tests {
         );
         assert_eq!(m.reactions[1].glyph, None);
         assert!(matches!(&m.body[0], BodyBlock::Paragraph { runs } if runs[0].text == "look"));
+    }
+
+    #[test]
+    fn integration_cards_reach_existing_swift_cards_with_full_fields() {
+        let row=MessageRow{attachments:Some(serde_json::json!([{"native_card":true,"author_name":"CI","title":"Build &amp; ready","title_link":"https://example.org/build","text":"Details","color":"#1177aa","fields":[{"title":"Commit","value":"abcdef","short":true}]}]).to_string()),..Default::default()};
+        let m = message(display(row), "alice-id", "alice");
+        assert_eq!(m.cards.len(), 1);
+        let card = &m.cards[0];
+        assert!(card.integration);
+        assert_eq!(card.title.as_deref(), Some("Build &amp; ready"));
+        assert_eq!(card.site.as_deref(), Some("CI"));
+        assert_eq!(card.fields[0].value, "abcdef");
+        assert!(card.fields[0].short);
     }
 
     #[test]

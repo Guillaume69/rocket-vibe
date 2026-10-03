@@ -38,6 +38,8 @@ import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar, urlFichierProtege } from '../lib/upload.ts';
 import { LiensEmbed } from './carteEmbed.tsx';
 import { ApercusLien } from './carteLien.tsx';
+import {carteIntegration} from '../lib/cartesIntegration.ts';
+import {CarteIntegration} from './carteIntegration.tsx';
 import { proposerTelechargerOuPartager } from './actionsJointe.ts';
 import { BarreTransfert } from './barreTransfert.tsx';
 import { fichierDechiffre } from './fichierJoint.ts';
@@ -710,6 +712,8 @@ function PiecesJointes({
   return (
     <View style={styles.jointes}>
       {jointes.map((jointe, i) => {
+        const carte=carteIntegration(jointe);
+        if(carte)return <CarteIntegration key={i} c={c} carte={carte} surAppuiLong={surAppuiLong}/>;
         const chiffrement = chiffrementDeJointe(jointe);
         if (chiffrement !== null) {
           return (

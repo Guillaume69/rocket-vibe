@@ -9,6 +9,10 @@ section here.
 
 ### Fixed
 
+- Integration attachments carry author, title, text, color and fields into the
+  existing GTK and SwiftUI cards with either provider. Native cards use normal
+  room permissions, idempotent sends and searchable message history.
+
 - Native link previews use the existing GTK and SwiftUI article, image and video
   cards, search results and image viewer. Protected readers check the current
   message and membership; edits, removal or a new membership retire old images.

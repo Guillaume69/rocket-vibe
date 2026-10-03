@@ -82,8 +82,8 @@ fichier temporaire.
 
 Le banc PostgreSQL exerce le fournisseur mobile réel avec HTTP, WebSocket et
 SQLite : projection, image privée, réutilisation et retrait après édition.
-Il active seulement la capacité de découverte dans son transport de test, car
-l'activation produit attend les clients bureau. Il utilise une image publiée
+Il utilise la capacité de découverte annoncée par le serveur, sans la remplacer
+dans son transport de test. Il utilise une image publiée
 par le collecteur de test ; ce banc ne remplace pas les tests du réseau public
 ni la qualification d'une app Android installée.
 
@@ -102,8 +102,9 @@ d'adhésion. Les tests du cœur utilisent HTTP / WebSocket et SQLite réels.
 Les bindings et modèles Swift compilent ; la compilation de l'interface
 AppKit / SwiftUI est contrôlée séparément par la CI macOS.
 
-P15 reste ouvert : cartes structurées d'intégration, activation serveur après
-validation du lot bureau et qualification des applications installées. La
-capacité `link_previews` reste désactivée dans cette livraison. Aucun nouveau
-client ni renderer n'est introduit. Les aperçus E2EE seront construits côté
-client après déchiffrement.
+La compilation macOS du lot bureau `1e073b1` est verte. Le serveur annonce
+maintenant `link_previews` lorsqu'un volume d'objets est configuré. Les
+[cartes d'intégration](INTEGRATION_CARDS.md) structurées sont également
+raccordées aux trois clients. P15 reste ouvert pour la qualification des
+applications installées ; les aperçus E2EE seront construits côté client
+après déchiffrement dans J4. Les interfaces de messagerie sont conservées.

@@ -326,6 +326,7 @@ async fn settings_enforce_privacy_authority_readonly_and_closed_inputs(pool: PgP
             .send(
                 &room,
                 &SendMessage {
+                    cards: Vec::new(),
                     reply_to: None,
                     quotes: vec![],
                     operation_id: "denied-send".into(),
@@ -352,6 +353,7 @@ async fn settings_enforce_privacy_authority_readonly_and_closed_inputs(pool: PgP
         .send(
             &room,
             &SendMessage {
+                cards: Vec::new(),
                 reply_to: None,
                 quotes: vec![],
                 operation_id: "mod-send".into(),
@@ -698,6 +700,7 @@ async fn mutation_budget_preserves_receipt_reads_and_global_operation_namespace(
         .send(
             &room,
             &SendMessage {
+                cards: Vec::new(),
                 reply_to: None,
                 quotes: vec![],
                 operation_id: "sent-before".into(),
@@ -725,6 +728,7 @@ async fn mutation_budget_preserves_receipt_reads_and_global_operation_namespace(
             .send(
                 &room,
                 &SendMessage {
+                    cards: Vec::new(),
                     reply_to: None,
                     quotes: vec![],
                     operation_id: original.operation_id.clone(),

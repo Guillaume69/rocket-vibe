@@ -145,6 +145,7 @@ async fn catalogue_receipts_aliases_and_protected_images_survive_retirement(pool
         .send(
             &room.id,
             &SendMessage {
+                cards: Vec::new(),
                 operation_id: auth::random_token(),
                 text: ":vibe_parrot:".into(),
                 quotes: vec![],

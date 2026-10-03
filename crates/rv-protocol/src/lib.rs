@@ -3,6 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+pub mod cards;
 pub mod custom_emojis;
 pub mod emojis;
 pub mod link_previews;
@@ -64,6 +65,8 @@ pub struct Capabilities {
     pub custom_emojis: bool,
     #[serde(default)]
     pub link_previews: bool,
+    #[serde(default)]
+    pub structured_cards: bool,
     #[serde(default)]
     pub quotes: bool,
     #[serde(default)]
@@ -129,6 +132,7 @@ impl Default for Capabilities {
             presence: false,
             custom_emojis: false,
             link_previews: false,
+            structured_cards: false,
             quotes: false,
             snapshot_paging: false,
             idempotent_room_creation: false,
@@ -188,6 +192,7 @@ impl Capabilities {
             presence,
             custom_emojis,
             link_previews,
+            structured_cards,
             quotes,
             session_rotation,
             device_sessions,
@@ -325,6 +330,8 @@ pub struct Message {
     pub files: Vec<parity::FileDescriptor>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previews: Vec<link_previews::LinkPreview>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cards: Vec<cards::IntegrationCard>,
     pub created_at: String,
     pub position: String,
     pub revision: String,
@@ -354,6 +361,8 @@ pub struct SendMessage {
     pub reply_to: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub quotes: Vec<parity::QuoteReference>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cards: Vec<cards::IntegrationCard>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]

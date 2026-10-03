@@ -32,6 +32,15 @@ pub(super) fn attachments(conn: &Connection, id: &str) -> rusqlite::Result<Optio
         .transpose()?
         .unwrap_or_default();
     let mut cards = super::super::files::attachments(&files).map_err(|_| rusqlite::Error::InvalidQuery)?;
+    let raw: Option<String> = conn
+        .query_row("SELECT cards FROM native_messages WHERE id=?1 AND NOT deleted", [id], |r| r.get(0))
+        .optional()?
+        .flatten();
+    let native: Vec<rv_protocol::cards::IntegrationCard> = raw
+        .map(|s| serde_json::from_str(&s).map_err(|_| rusqlite::Error::InvalidQuery))
+        .transpose()?
+        .unwrap_or_default();
+    cards.extend(super::super::cards::attachments(&native).map_err(|_| rusqlite::Error::InvalidQuery)?);
     if let Some(quotes) = quotes::attachments(conn, id)? {
         let quotes: Vec<serde_json::Value> =
             serde_json::from_str(&quotes).map_err(|_| rusqlite::Error::InvalidQuery)?;

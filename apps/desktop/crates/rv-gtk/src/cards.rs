@@ -379,7 +379,19 @@ pub fn video_link(session: &Arc<Session>, video: &VideoLink) -> gtk::Widget {
     heading.set_tooltip_text(Some(&video.url));
     let url = video.url.clone();
     on_click(&heading, move |w| open_uri(w, &url));
-    card.append(&heading);
+    heading.set_hexpand(true);
+    let stop = gtk::Button::builder()
+        .icon_name("window-close-symbolic")
+        .tooltip_text(t("player.stop"))
+        .css_classes(["flat", "circular"])
+        .valign(gtk::Align::Start)
+        .visible(false)
+        .build();
+    stop.set_cursor(pointer().as_ref());
+    let top = gtk::Box::builder().spacing(6).build();
+    top.append(&heading);
+    top.append(&stop);
+    card.append(&top);
     let frame = match &video.thumbnail {
         Some(thumbnail) => external_image(session, thumbnail, 300, 169),
         None => widgets::media_frame(300, 169, &["preview-image"]),
@@ -387,6 +399,19 @@ pub fn video_link(session: &Arc<Session>, video: &VideoLink) -> gtk::Widget {
     frame.add_overlay(&widgets::play_badge(56));
     frame.set_margin_top(4);
     card.append(&frame);
+    // The thumbnail, out of the card while the player shows, is kept here to come back.
+    let playing: std::rc::Rc<std::cell::RefCell<Option<(gtk::Overlay, gtk::Overlay)>>> = std::rc::Rc::default();
+    let (weak_card, weak_stop) = (card.downgrade(), stop.downgrade());
+    let shown = playing.clone();
+    stop.connect_clicked(move |stop| {
+        let (Some(card), Some((player, thumbnail))) = (weak_card.upgrade(), shown.take()) else { return };
+        card.insert_child_after(&thumbnail, Some(&player));
+        card.remove(&player);
+        stop.set_visible(false);
+        if let Some(clamp) = card.parent().and_downcast::<adw::Clamp>() {
+            refit(&clamp);
+        }
+    });
     let (weak_card, weak_frame) = (card.downgrade(), frame.downgrade());
     let (provider, id, url) = (video.provider, video.id.clone(), video.url.clone());
     let play: std::rc::Rc<dyn Fn() -> bool> = std::rc::Rc::new(move || {
@@ -403,6 +428,10 @@ pub fn video_link(session: &Arc<Session>, video: &VideoLink) -> gtk::Widget {
             if let Some(clamp) = &clamp {
                 refit(clamp);
             }
+            if let Some(stop) = weak_stop.upgrade() {
+                stop.set_visible(true);
+            }
+            playing.replace(Some((player, thumbnail)));
             return true;
         }
         card.insert_child_after(&thumbnail, Some(&player));

@@ -154,6 +154,8 @@ fn main() -> glib::ExitCode {
     if !rv_native::claim_instance(&args) {
         return glib::ExitCode::SUCCESS;
     }
+    #[cfg(windows)]
+    rv_native::take_notification_flags(&mut args);
     background::take_flag(&mut args);
     let code = app.run_with_args(&args);
     if smoke::failed() { glib::ExitCode::FAILURE } else { code }

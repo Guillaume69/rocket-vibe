@@ -3189,6 +3189,7 @@ dependencies = [
  "objc2-web-kit",
  "webview2-com",
  "windows",
+ "windows-core",
 ]
 
 [[package]]

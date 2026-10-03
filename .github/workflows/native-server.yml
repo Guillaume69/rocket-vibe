@@ -227,6 +227,10 @@ jobs:
             native-desktop-core-windows-${{ hashFiles('apps/desktop/Cargo.lock') }}-
             native-desktop-core-windows-
       - run: cargo test --locked -p rv-core
+      - name: Windows notification bridge and real COM process callback
+        run: |
+          cargo clippy --locked -p rv-native --all-targets -- -D warnings
+          cargo test --locked -p rv-native
 
   native-swift-models:
     runs-on: ubuntu-24.04

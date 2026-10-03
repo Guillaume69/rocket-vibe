@@ -319,6 +319,26 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P21 / J3, activateur de réponse Windows (3 octobre 2026) : serveur COM local
+  `INotificationActivationCallback`, CLSID stable et enregistrement HKCU / raccourcis
+  Inno Setup, nettoyage à la désinstallation. Le switch de lancement COM est retiré
+  avant parsing GTK ; compte / adhésion / époque sont contrôlés par le chemin natif
+  livré au lot précédent. AUMID, arguments et texte UTF-16 bornés sont vérifiés.
+  Le handler COM remplace le handler WinRT en mémoire lorsqu'il est enregistré,
+  pour ne pas soumettre deux fois une réponse du fournisseur Rocket.Chat.
+  Neuf tests Windows passent, dont un second vrai processus qui instancie la
+  classe COM du premier et lui transmet la réponse ; aucun registre du compte
+  Windows de l'utilisateur n'est modifié par le banc. Sept tests portables,
+  formatage Fedora et Clippy Linux / Windows sans avertissement passent ; le
+  workflow Windows ajoute ces vérifications à son job existant.
+  La CI AppKit `37119774771` du lot `abd21db` est terminée avec succès :
+  le défaut de visibilité du menu est corrigé. Les jobs modèles Swift, cœur
+  Windows, serveur / mobile et banc GTK de `37119774779` sont verts : les deux
+  workflows du lot précédent sont terminés avec succès.
+  Le lancement depuis un toast réel d'une app installée reste à qualifier,
+  ainsi que KDE à froid, les actions attendant durablement le réseau et les
+  liens importés J5 ; [contrat](protocol/PUSH.md).
+
 - P21 / J3, actions de notification persistantes (3 octobre 2026) : registre
   SQLite de 256 destinations sans contenu ou bearer, écrit avant remise à l'OS.
   Les callbacks GTK / SwiftUI retrouvent le compte exact, attendent ses salons /

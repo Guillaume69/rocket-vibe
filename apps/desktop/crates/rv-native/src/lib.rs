@@ -67,6 +67,8 @@ mod windows_impl;
 #[cfg(windows)]
 mod windows_shell;
 #[cfg(windows)]
+mod windows_toast;
+#[cfg(windows)]
 pub use windows_call::call_window;
 #[cfg(windows)]
 pub use windows_impl::{available, badge, delivered, init, set_window, show, withdraw};
@@ -144,9 +146,19 @@ pub(crate) fn call_event(what: &str, detail: &str) {
 pub fn forwarded(args: &str) -> Option<AppEvent> {
     match args.lines().find(|a| a.starts_with("rocketvibe:")) {
         Some(link) => Some(AppEvent::Open(link.to_owned())),
-        None if args.lines().any(|a| a == BACKGROUND_FLAG) => None,
+        None if args.lines().any(|a| a == BACKGROUND_FLAG || notification_flag(a)) => None,
         None => Some(AppEvent::Show),
     }
+}
+
+fn notification_flag(arg: &str) -> bool {
+    arg.eq_ignore_ascii_case("-ToastActivated") || arg.eq_ignore_ascii_case("-Embedding")
+}
+
+/// COM delivers the toast arguments and input to its callback, not on the
+/// command line. Remove the server launch switches before GTK parses options.
+pub fn take_notification_flags(args: &mut Vec<String>) {
+    args.retain(|arg| !notification_flag(arg));
 }
 
 /// The Windows `Run` command starting `exe` at login.
@@ -272,6 +284,10 @@ mod tests {
         );
         assert_eq!(forwarded("C:\\app.exe"), Some(AppEvent::Show));
         assert_eq!(forwarded("C:\\app.exe\n--background"), None);
+        assert_eq!(forwarded("C:\\app.exe\n-ToastActivated\n-Embedding"), None);
+        let mut args = vec!["app.exe".into(), "-ToastActivated".into(), "-Embedding".into(), "--background".into()];
+        take_notification_flags(&mut args);
+        assert_eq!(args, ["app.exe", "--background"]);
     }
 
     #[test]

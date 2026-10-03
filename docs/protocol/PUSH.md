@@ -153,8 +153,18 @@ Windows utilise `rocketvibe://notification?key=…&msg=…`, sans texte ou beare
 via le protocole déjà enregistré par l'installeur ; le parser refuse doublons,
 identifiants malformés et paramètres inattendus. SwiftUI traite le callback
 `UNUserNotificationCenter` dans le modèle, même avant reprise du compte.
-La réponse inline Windows à processus arrêté exige encore son activateur natif ;
-la remise des anciens callbacks KDE à un nouveau processus reste ouverte.
+La réponse inline Windows passe maintenant par un serveur COM local
+`INotificationActivationCallback`, enregistré par utilisateur avec le même CLSID
+stable dans l'installeur, les raccourcis et le processus. Windows lance le binaire
+avec `-ToastActivated` ; GTK retire ce switch avant parsing, puis le callback
+transmet arguments et texte à son handler existant. Un processus déjà actif
+utilise le même callback, sans second handler WinRT qui doublerait l'envoi.
+L'AUMID, la forme des arguments et les entrées UTF-16 bornées sont vérifiés ;
+la validation privée de compte / adhésion / époque reste dans le cœur natif.
+L'enregistrement suit le [serveur COM de référence Microsoft](https://github.com/CommunityToolkit/WindowsCommunityToolkit/blob/main/Microsoft.Toolkit.Uwp.Notifications/Toasts/Compat/ToastNotificationManagerCompat.cs)
+et l'[ABI du callback](https://learn.microsoft.com/en-us/windows/win32/api/notificationactivationcallback/nf-notificationactivationcallback-inotificationactivationcallback-activate) ;
+les raccourcis utilisent le [CLSID prévu par Inno Setup](https://jrsoftware.org/ishelp/topic_iconssection.htm).
+La remise des anciens callbacks KDE à un nouveau processus reste ouverte.
 Un callback reçu hors ligne attend encore en mémoire sa validation réseau avant
 création de l'outbox. Les parcours système installés restent à qualifier sur Linux,
 Windows et macOS ; P21 reste ouvert pour ces chemins et les anciens liens importés.
@@ -184,3 +194,11 @@ compte, et ne prouve donc ni un clic sur un toast réel ni la navigation privée
 Ils ne prouvent pas les
 interactions avec les notifications système installées. P17 / J3 ne sont pas
 déclarés terminés.
+
+Le pont Windows passe neuf tests, dont un callback COM réellement invoqué depuis
+un second processus avec le texte saisi ; la classe du banc est temporaire et
+n'écrit pas de registre utilisateur. Le helper est exécuté par ce test, pas
+silencieusement ignoré. Des entrées étrangères / répétées / malformées sont
+refusées. Les sept tests portables et Clippy Windows / Linux passent. Ce banc
+prouve le dispatch COM entre processus, mais pas encore le lancement par le
+centre de notifications d'une application installée et arrêtée.

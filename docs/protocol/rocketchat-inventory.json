@@ -164,6 +164,7 @@
     "apps/desktop/crates/rv-native/src/windows_call.rs",
     "apps/desktop/crates/rv-native/src/windows_impl.rs",
     "apps/desktop/crates/rv-native/src/windows_shell.rs",
+    "apps/desktop/crates/rv-native/src/windows_toast.rs",
     "apps/desktop/macos/Sources/RocketVibe/BodyView.swift",
     "apps/desktop/macos/Sources/RocketVibe/CallWindow.swift",
     "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",

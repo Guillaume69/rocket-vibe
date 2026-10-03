@@ -38,13 +38,19 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 Source: "rocket-vibe.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\rocket-vibe"; Filename: "{app}\bin\rocket-vibe-gtk.exe"; WorkingDir: "{app}\bin"; IconFilename: "{app}\rocket-vibe.ico"; AppUserModelID: "com.rocketvibe.app"
-Name: "{autodesktop}\rocket-vibe"; Filename: "{app}\bin\rocket-vibe-gtk.exe"; WorkingDir: "{app}\bin"; IconFilename: "{app}\rocket-vibe.ico"; AppUserModelID: "com.rocketvibe.app"; Tasks: desktopicon
+Name: "{group}\rocket-vibe"; Filename: "{app}\bin\rocket-vibe-gtk.exe"; WorkingDir: "{app}\bin"; IconFilename: "{app}\rocket-vibe.ico"; AppUserModelID: "com.rocketvibe.app"; AppUserModelToastActivatorCLSID: "83B10F7C-B85B-4A2A-A67E-0C8DC7D71C53"
+Name: "{autodesktop}\rocket-vibe"; Filename: "{app}\bin\rocket-vibe-gtk.exe"; WorkingDir: "{app}\bin"; IconFilename: "{app}\rocket-vibe.ico"; AppUserModelID: "com.rocketvibe.app"; AppUserModelToastActivatorCLSID: "83B10F7C-B85B-4A2A-A67E-0C8DC7D71C53"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Registry]
+; Per-user COM callback for clicks/replies after the original process exits.
+Root: HKCU; Subkey: "Software\Classes\CLSID\{{83B10F7C-B85B-4A2A-A67E-0C8DC7D71C53}"; ValueType: none; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\CLSID\{{83B10F7C-B85B-4A2A-A67E-0C8DC7D71C53}\LocalServer32"; ValueType: string; ValueName: ""; ValueData: """{app}\bin\rocket-vibe-gtk.exe"" -ToastActivated"
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\com.rocketvibe.app"; ValueType: string; ValueName: "CustomActivator"; ValueData: "{{83B10F7C-B85B-4A2A-A67E-0C8DC7D71C53}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\com.rocketvibe.app"; ValueType: string; ValueName: "DisplayName"; ValueData: "rocket-vibe"
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\com.rocketvibe.app"; ValueType: string; ValueName: "IconUri"; ValueData: "{app}\rocket-vibe.ico"
 Root: HKCU; Subkey: "Software\Classes\rocketvibe"; ValueType: string; ValueName: ""; ValueData: "URL:rocketvibe"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\rocketvibe"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
 Root: HKCU; Subkey: "Software\Classes\rocketvibe\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\rocket-vibe.ico"""

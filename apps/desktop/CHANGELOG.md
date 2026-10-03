@@ -9,6 +9,10 @@ section here.
 
 ### Fixed
 
+- Windows inline notification replies register a native COM activator so the
+  system can start the app and deliver its input after the original process exits.
+  A running app uses this same callback without a second WinRT reply submission.
+
 - Native desktop notification targets survive restart in the account's SQLite
   store. Callbacks select the original account and revalidate the message before
   opening its existing room/thread or replying; repeated replies keep one send ID.

@@ -9,6 +9,11 @@ section here.
 
 ### Fixed
 
+- Room and message links distinguish Rocket.Chat from RocketVibe, retain the full
+  server URL and native instance / restore epoch, and refuse ambiguous saved accounts.
+  Native message menus can copy a shareable link; links resolve the actual thread
+  and reveal messages using journal positions instead of timestamps.
+
 - RocketVibe live messages use the existing GTK and SwiftUI desktop notifications,
   account preferences, message navigation and durable replies. History, edits and
   repeated deliveries stay quiet; read markers and membership changes retire

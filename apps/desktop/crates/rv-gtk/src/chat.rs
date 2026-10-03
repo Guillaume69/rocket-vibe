@@ -1871,6 +1871,12 @@ impl ChatPage {
     pub fn open_message(self: &Rc<Self>, rid: &str, id: &str) {
         self.open_room(rid);
         if self.current_rid().as_deref() == Some(rid) {
+            if let Some(native) = self.native_session()
+                && let Ok(Some(rank)) = native.store.message_rank(rid, id)
+            {
+                self.limit.set(self.limit.get().max(i64::from(rank) + HISTORY_PAGE));
+                self.reload_messages();
+            }
             self.list.reveal(id);
             self.composer.grab_focus();
         }

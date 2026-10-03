@@ -16,6 +16,8 @@
 import { cleJour } from './separateurJour.ts';
 
 const fr = {
+  'salon.lienIndisponible': 'Ce lien est indisponible pour ce compte.',
+  'actionsMessage.copierLien': 'Copier le lien du message',
   'gestionSalon.modifier': 'Modifier le salon',
   'gestionSalon.membres': 'Afficher les membres',
   'gestionSalon.suite': 'Membres suivants',
@@ -590,6 +592,8 @@ export type CleTraduction = keyof typeof fr;
  * casse la compilation. Garder le MÊME ordre que `fr` facilite la relecture.
  */
 const en: Record<CleTraduction, string> = {
+  'salon.lienIndisponible': 'This link is unavailable for this account.',
+  'actionsMessage.copierLien': 'Copy message link',
   'gestionSalon.modifier': 'Edit room',
   'gestionSalon.membres': 'Show members',
   'gestionSalon.suite': 'More members',

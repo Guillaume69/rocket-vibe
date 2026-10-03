@@ -1,4 +1,5 @@
 import { getShareExtensionKey } from 'expo-share-intent';
+import {systemRoomPath} from '../lib/roomLinks.ts';
 
 /**
  * iOS : l'extension de partage rouvre l'app par `rocketvibe://dataUrl=<clé>`.
@@ -10,7 +11,7 @@ import { getShareExtensionKey } from 'expo-share-intent';
 export function redirectSystemPath({ path }: { path: string | null; initial: boolean }): string | null {
   try {
     if (path?.includes(`dataUrl=${getShareExtensionKey()}`)) return null;
-    return path;
+    return systemRoomPath(path);
   } catch {
     return path;
   }

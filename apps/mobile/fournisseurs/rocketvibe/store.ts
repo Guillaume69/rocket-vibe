@@ -638,6 +638,15 @@ export class NativeStore {
       return true;
     });
   }
+  messageRank(rid:string,id:string):Promise<number|null> {
+    return this.queue(async()=>{
+      if(!await this.sameGeneration())return null;
+      const target=await this.db.getFirstAsync<{position:string}>('SELECT p.position FROM messages m JOIN native_positions p ON p.id=m.id WHERE m.id=? AND m.rid=? AND m.fil_id IS NULL',[id,rid]);
+      if(!target)return null;
+      const row=await this.db.getFirstAsync<{n:number}>('SELECT count(*) AS n FROM messages m LEFT JOIN native_positions p ON p.id=m.id WHERE m.rid=? AND m.fil_id IS NULL AND (p.position IS NULL OR length(p.position)>length(?) OR (length(p.position)=length(?) AND p.position>?))',[rid,target.position,target.position,target.position]);
+      return row?.n??null;
+    });
+  }
   messages(rid: string, limit = 500): Promise<NativeMessageRow[]> {
     if (!Number.isSafeInteger(limit) || limit < 1) throw new Error('Invalid message window');
     return this.queue(async () => await this.sameGeneration() ? this.db.getAllAsync<NativeMessageRow>('SELECT m.id,m.texte,m.auteur_nom,m.auteur_id,m.horodatage,s.statut FROM messages m LEFT JOIN sortie s ON s.id=m.id LEFT JOIN native_positions p ON p.id=m.id WHERE m.rid=? ORDER BY p.position IS NULL DESC,length(p.position) DESC,p.position DESC,m.horodatage DESC,m.id DESC LIMIT ?', [rid,limit]) : []);

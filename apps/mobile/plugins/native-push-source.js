@@ -120,7 +120,9 @@ private fun verifierServeurNatif(session: JSONObject, scope: JSONObject): Int {
 private fun lienNatif(session: JSONObject, scope: JSONObject): String =
   "rocketvibe://salon/" + Uri.encode(scope.optString("rid")) + "?host=" + Uri.encode(session.optString("baseUrl")) +
     "&nativeScope=" + Uri.encode(JSONObject().put("instanceId", scope.optString("instanceId"))
-      .put("dataEpoch", scope.optString("dataEpoch")).put("userId", scope.optString("userId")).toString())
+      .put("dataEpoch", scope.optString("dataEpoch")).put("userId", scope.optString("userId")).toString()) +
+    "&msg=" + Uri.encode(scope.optString("messageId")) +
+    (scope.optString("tmid").takeIf { it.isNotEmpty() }?.let { "&tmid=" + Uri.encode(it) } ?: "")
 
 private fun recevoirPushNatif(ctx: Context, extras: Bundle) {
   try {

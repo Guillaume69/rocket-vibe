@@ -57,6 +57,7 @@ pub struct AppWindow {
     previous: RefCell<Option<SessionInfo>>,
     /// A room link waiting for its account's rooms to be loaded.
     pending_link: RefCell<Option<rv_core::links::RoomLink>>,
+    link_generation: Cell<u64>,
 }
 
 fn data_dir() -> PathBuf {
@@ -154,6 +155,7 @@ impl AppWindow {
             notifier: RefCell::default(),
             previous: RefCell::default(),
             pending_link: RefCell::default(),
+            link_generation: Cell::new(0),
         });
 
         let weak = Rc::downgrade(&this);
@@ -292,7 +294,7 @@ impl AppWindow {
         let weak = Rc::downgrade(&this);
         this.chat.connect_rooms_loaded(move || {
             if let Some(this) = weak.upgrade() {
-                this.follow_link();
+                this.follow_link(true);
             }
         });
         let weak = Rc::downgrade(&this);
@@ -679,6 +681,7 @@ impl AppWindow {
                                     }
                                 }
                                 NativeUiEvent::Changed => {
+                                    this.follow_link(false);
                                     if let Some(notifier) = this.notifier.borrow().as_ref() {
                                         for key in visible.withdrawn_notifications() {
                                             notifier.withdraw(&key);
@@ -870,45 +873,101 @@ impl AppWindow {
     /// A `rocketvibe://salon/<rid>?host=` link: the room, on the account of
     /// that server (switching to it if another one is open).
     pub fn open_link(self: &Rc<Self>, uri: &str) {
-        let Some(link) = rv_core::links::parse(uri) else { return };
+        self.link_generation.set(self.link_generation.get().wrapping_add(1));
+        self.pending_link.take();
+        let Some(link) = rv_core::links::parse(uri) else {
+            self.chat.toast(t("links.unavailable").to_owned());
+            return;
+        };
         let current = self
             .session
             .borrow()
             .as_ref()
-            .map(|s| s.info.base_url.clone())
-            .or_else(|| self.chat.native_session().map(|s| s.info.base_url.clone()));
-        if current.as_deref().is_some_and(|base| rv_core::links::fits(&link, base)) {
+            .map(|s| s.info.clone())
+            .or_else(|| self.chat.native_session().map(|s| s.info.clone()));
+        if current.as_ref().is_some_and(|info| rv_core::links::fits(&link, info)) {
             self.pending_link.replace(Some(link));
-            self.follow_link();
+            self.follow_link(false);
             return;
         }
         self.pending_link.replace(Some(link.clone()));
         let this = self.clone();
         glib::spawn_future_local(async move {
             let accounts = on_tokio(secrets::load_all()).await;
-            if let Some(account) = accounts.into_iter().find(|a| rv_core::links::fits(&link, &a.base_url)) {
-                this.switch_to(account);
+            if this.pending_link.borrow().as_ref() != Some(&link) {
+                return;
+            }
+            if let Some(index) = rv_core::links::select(&link, &accounts, current.as_ref()) {
+                this.switch_to(accounts[index].clone());
+            } else {
+                this.chat.toast(t("links.choose_account").to_owned());
             }
         });
     }
 
     /// Opens the waiting link's room once the rooms of its server are there.
-    fn follow_link(&self) {
-        let Some(base) = self
+    fn follow_link(self: &Rc<Self>, rooms_loaded: bool) {
+        let Some(info) = self
             .session
             .borrow()
             .as_ref()
-            .map(|s| s.info.base_url.clone())
-            .or_else(|| self.chat.native_session().map(|s| s.info.base_url.clone()))
+            .map(|s| s.info.clone())
+            .or_else(|| self.chat.native_session().map(|s| s.info.clone()))
         else {
             return;
         };
         let link = self.pending_link.borrow().clone();
-        if let Some(link) = link.filter(|l| rv_core::links::fits(l, &base))
+        if rooms_loaded
+            && self.chat.native_session().is_some_and(|s| s.status().connection == rv_core::session::Connection::Online)
+            && link.as_ref().is_some_and(|l| rv_core::links::fits(l, &info) && !self.chat.has_room(&l.rid))
+        {
+            self.pending_link.take();
+            self.chat.toast(t("links.unavailable").to_owned());
+            return;
+        }
+        if let Some(link) = link.filter(|l| rv_core::links::fits(l, &info))
             && self.chat.has_room(&link.rid)
         {
+            if let Some(native) = self.chat.native_session() {
+                if native.status().connection != rv_core::session::Connection::Online {
+                    return;
+                }
+                self.pending_link.take();
+                let this = self.clone();
+                let request = self.link_generation.get();
+                glib::spawn_future_local(async move {
+                    let saved = native.clone();
+                    let resolved = on_tokio(async move { native.resolve_room_link(link).await }).await;
+                    if this.link_generation.get() != request
+                        || this.chat.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &saved))
+                    {
+                        return;
+                    }
+                    match resolved {
+                        Ok(link) => this.show_room_link(&link),
+                        Err(_) => this.chat.toast(t("links.unavailable").to_owned()),
+                    }
+                });
+                return;
+            }
             self.pending_link.replace(None);
+            self.show_room_link(&link);
+        }
+    }
+
+    fn show_room_link(&self, link: &rv_core::links::RoomLink) {
+        if let Some(message) = link.root.as_ref().or(link.message.as_ref()) {
+            self.chat.open_message(&link.rid, message);
+        } else {
             self.chat.open_room(&link.rid);
+        }
+        if let Some(root) = &link.root {
+            self.chat.open_thread_of(root);
+            if let Some(message) = &link.message
+                && let Some(thread) = self.chat.thread()
+            {
+                thread.list.reveal(message);
+            }
         }
     }
 

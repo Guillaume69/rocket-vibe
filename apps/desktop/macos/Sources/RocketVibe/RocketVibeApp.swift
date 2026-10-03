@@ -70,25 +70,10 @@ struct RocketVibeApp: App {
         if app.screen == .starting && !SmokeGallery.requested { await app.start() }
     }
 
-    /// `rocketvibe://salon/<rid>?host=<server>`, from the Android app's links.
+    /// The core resolves provider, full service URL, instance and account scope.
     @MainActor
     func open(_ url: URL) {
-        guard url.scheme == "rocketvibe", ["salon", "room"].contains(url.host() ?? "") else { return }
-        guard let rid = url.pathComponents.first(where: { $0 != "/" }) else { return }
-        let host = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-            .queryItems?.first { $0.name == "host" }?.value
-        if let host, let base = app.account?.baseUrl, let ours = URL(string: base)?.host(),
-           let theirs = (URL(string: host)?.host() ?? URL(string: "https://" + host)?.host()),
-           ours.lowercased() != theirs.lowercased() {
-            if let other = app.accounts.first(where: { URL(string: $0.baseUrl)?.host()?.lowercased() == theirs.lowercased() }) {
-                Task {
-                    await app.resume(other)
-                    app.open(rid)
-                }
-            }
-            return
-        }
-        app.open(rid)
+        Task { await app.openLink(url.absoluteString) }
     }
 }
 

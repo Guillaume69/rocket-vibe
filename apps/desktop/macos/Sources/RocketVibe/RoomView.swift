@@ -560,6 +560,13 @@ struct MessageRow: View, Equatable {
         ForEach(actions.filter { $0 != .react }, id: \.self) { action in
             Button(title(action), role: action == .delete ? .destructive : nil) { run(action) }
         }
+        if message.delivery == .sent, model?.membershipIsCurrent == true,
+           let link = app.native?.permalink(room: message.rid, message: message.id, root: message.threadId) {
+            Button(L("actions.copy_link")) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(link, forType: .string)
+            }
+        }
         if message.delivery == .failed, model?.canAbandon == true {
             Button(L("native.abandon")) { model?.abandon(message.id) }
         }

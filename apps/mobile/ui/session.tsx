@@ -11,6 +11,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { Session } from '../lib/auth.ts';
+import {roomLinkMatches,type RoomLink} from '../lib/roomLinks.ts';
 import { terminerDeconnexions } from '../lib/deconnexionDifferee.ts';
 import { definirClientProfil } from '../lib/profilPreload.ts';
 import { desenregistrerJeton } from '../lib/pushToken.ts';
@@ -48,7 +49,7 @@ type ContexteSession = {
    * vit sous sa propre clé. Rend true si une session y existait ; sinon,
    * l'état retombe sur « deconnecte » et l'écran de connexion se pré-remplit.
    */
-  changerDeServeur: (baseUrl: string) => Promise<boolean>;
+  changerDeServeur: (baseUrl: string,cible?:RoomLink) => Promise<boolean>;
   /**
    * Met à jour les infos de profil PORTÉES par la session (le pseudo) après une
    * édition réussie, et re-persiste. Le pseudo de la session alimente Paramètres
@@ -241,13 +242,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     });
   }, [revoquer]);
 
-  const changerDeServeur = useCallback(async (baseUrl: string) => {
+  const changerDeServeur = useCallback(async (baseUrl: string,cible?:RoomLink) => {
     // Lire AVANT d'écrire quoi que ce soit : s'il n'y a pas de session
     // là-bas, on ne bouge ni l'état ni le pointeur — déconnecter l'utilisateur
     // et déplacer le pointeur de reprise vers un serveur sans session ferait
     // démarrer l'app déconnectée alors qu'une session valide existe ailleurs.
     const session = await lireSession(baseUrl);
-    if (session === null) return false;
+    if (session === null || cible && !roomLinkMatches(cible,session)) return false;
 
     await enregistrerDernierServeur(baseUrl);
     const client = clientPour(session, (jeton) => revoquer(session, jeton));

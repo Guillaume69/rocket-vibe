@@ -41,7 +41,7 @@ Références primaires : [FCM HTTP v1](https://firebase.google.com/docs/cloud-me
   room,message}` avec les règles de lecture normales des citations / fichiers.
   Un autre appareil du même utilisateur ne peut pas lire cette notification.
 
-Les lectures personnelles de `Message` ajoutent `personal_mention`, un booléen
+Les lectures personnelles et les lots HTTP / WebSocket de `Message` ajoutent `personal_mention`, un booléen
 optionnel calculé depuis les destinataires capturés à l'envoi. Le journal partagé
 ne le conserve jamais. Une édition n'ajoute pas de destinataire ; les lecteurs
 bureau ne déduisent donc pas une mention depuis un pseudo changé ou `@here`.
@@ -97,7 +97,7 @@ La notification complète conserve le composant de conversation actuel, groupé
 par instance / époque / compte / salon. Un marqueur durable déduplique les
 livraisons, y compris après un crash serveur entre envoi FCM et acquittement.
 Les non-lus à zéro et le retrait d'un salon effacent la notification de conversation.
-Le lien garde le serveur, son chemin de proxy et l'identité du compte ; un autre
+Le lien garde le serveur, son chemin de proxy, le message / fil et l'identité du compte ; un autre
 compte ou une époque restaurée ne peuvent ouvrir le salon à sa place.
 
 L'action « Répondre » sauvegarde dans WorkManager un identifiant d'opération,
@@ -134,6 +134,7 @@ Les références d'action sont bornées à 256 et vivent pendant la session bure
 Le démarrage à froid et la sélection d'un autre compte depuis une ancienne
 notification restent à couvrir avec P21 ; les parcours système installés restent
 à qualifier sur Linux, Windows et macOS.
+Les permaliens natifs et leur routage au démarrage utilisent le [contrat P21](ROOM_LINKS.md).
 
 ## Preuves et qualification encore ouverte
 

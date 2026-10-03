@@ -40,6 +40,8 @@ public final class AppModel {
     @ObservationIgnored var flush: Task<Void, Never>?
     @ObservationIgnored public private(set) var sessionId = UUID()
     @ObservationIgnored var selectionId = UUID()
+    @ObservationIgnored private var pendingRoomLink: (String, RoomLink)?
+    @ObservationIgnored private var roomLinkRequest = UUID()
 
     public var onIncoming: ((Incoming) -> Void)?
     public var onWithdraw: ((String) -> Void)?
@@ -59,6 +61,13 @@ public final class AppModel {
     /// The active account if there is one, the sign-in form otherwise.
     public func start() async {
         accounts = await client.accounts()
+        if signedIn { return }
+        if let (url, _) = pendingRoomLink {
+            await openLink(url)
+            if signedIn { return }
+            showLogin(error: L("links.choose_account"))
+            return
+        }
         if let first = accounts.first, await resume(first) { return }
         showLogin(error: nil)
     }
@@ -175,6 +184,7 @@ public final class AppModel {
                     Task { await room.load() }
                 }
             }
+            followRoomLink()
         case .expired:
             end()
             Task {
@@ -232,6 +242,51 @@ public final class AppModel {
         if let thread {
             if thread.membershipIsCurrent, let fresh = rooms.first(where: { $0.rid == thread.rid }) { thread.update(room: fresh) }
             else { closeThread() }
+        }
+        followRoomLink(roomsLoaded: true)
+    }
+
+    /// Used for both a cold launch URL and a link received by an open window.
+    public func openLink(_ url: String) async {
+        let request = UUID()
+        roomLinkRequest = request
+        pendingRoomLink = nil
+        guard let link = parseRoomLink(url: url) else { notice = L("links.unavailable"); return }
+        pendingRoomLink = (url, link)
+        if acceptsRoomLink(url) { followRoomLink(); return }
+        let matches = await client.roomLinkAccounts(url: url)
+        guard roomLinkRequest == request else { return }
+        guard matches.count == 1 else { notice = L("links.choose_account"); return }
+        guard await resume(matches[0]), roomLinkRequest == request else { return }
+        followRoomLink()
+    }
+
+    private func acceptsRoomLink(_ url: String) -> Bool {
+        native?.acceptsRoomLink(url: url) ?? chat?.acceptsRoomLink(url: url) ?? false
+    }
+
+    private func followRoomLink(roomsLoaded: Bool = false) {
+        guard let (url, link) = pendingRoomLink, acceptsRoomLink(url), native == nil || connection == .online else { return }
+        guard rooms.contains(where: { $0.rid == link.rid }) else {
+            if roomsLoaded && connection == .online { pendingRoomLink = nil; notice = L("links.unavailable") }
+            return
+        }
+        pendingRoomLink = nil
+        let expected = sessionId
+        let request = roomLinkRequest
+        let native = self.native
+        Task {
+            do {
+                let resolved = try await native?.resolveRoomLink(url: url) ?? link
+                guard expected == sessionId, request == roomLinkRequest, acceptsRoomLink(url) else { return }
+                if let message = resolved.root ?? resolved.message { await open(resolved.rid, message: message) }
+                else { open(resolved.rid) }
+                guard expected == sessionId, request == roomLinkRequest else { return }
+                if let root = resolved.root { openThread(root, message: resolved.message) }
+            } catch {
+                guard expected == sessionId, request == roomLinkRequest else { return }
+                notice = L("links.unavailable")
+            }
         }
     }
 

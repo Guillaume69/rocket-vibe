@@ -9,6 +9,11 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Liens natifs par instance et époque, chemins de proxy conservés et vérification
+  du compte enregistré avant une bascule explicite. Les menus existants peuvent
+  copier le lien d'un message ; les notifications pointent aussi le message / fil,
+  avec résolution autorisée et surlignage dans les écrans actuels.
+
 - Android : inscriptions FCM liées au compte RocketVibe, contenu récupéré par
   session privée, notifications de conversation et réponses différées idempotentes.
   Les liens et le retrait des notifications respectent l'instance et le compte.

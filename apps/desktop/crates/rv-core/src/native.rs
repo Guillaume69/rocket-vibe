@@ -8,6 +8,7 @@ pub mod email_recovery;
 pub mod factor_email;
 pub mod files;
 pub(crate) mod link_previews;
+mod links;
 mod live;
 pub mod markdown;
 mod notifications;

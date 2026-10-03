@@ -19,6 +19,7 @@ import { abonnements, messages, salons } from '../db/schema.ts';
 import { nativeReactions } from '../fournisseurs/rocketvibe/store.ts';
 import { canonicalEmoji } from '../fournisseurs/rocketvibe/emojis.ts';
 import { NativeError } from '../fournisseurs/rocketvibe/transport.ts';
+import {nativeRoomPermalink} from '../lib/roomLinks.ts';
 import {
   actionsPossibles,
   messageDisparuDuServeur,
@@ -501,6 +502,15 @@ export default function EcranActionsMessage() {
             />
           )}
           {actions.includes('partager') && (
+            <>
+              {fournisseur?.native&&charge.revision&&etat.phase==='connecte'&&(
+                <ActionLigne c={c} disabled={occupe} icone="🔗" libelle={t('actionsMessage.copierLien')}
+                  onPress={()=>void agir(()=>{
+                    const link=nativeRoomPermalink(etat.session,message.rid,message.id,message.filId);
+                    if(!link)throw new NativeError(400,'invalid_link');
+                    return Clipboard.setStringAsync(link);
+                  })}/>
+              )}
             <ActionLigne
               c={c}
               disabled={occupe}
@@ -508,6 +518,7 @@ export default function EcranActionsMessage() {
               libelle={t('actionsMessage.partager')}
               onPress={() => void agir(partager)}
             />
+            </>
           )}
           {actions.includes('enregistrer') && (
             <ActionLigne

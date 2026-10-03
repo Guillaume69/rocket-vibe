@@ -319,6 +319,30 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P21 / J3, liens natifs et menus existants (3 octobre 2026) : service HTTP(S)
+  complet, instance / époque et destinataire de notification distincts, parsing
+  strict sans repli de portée, compte courant ou correspondance unique au bureau,
+  geste explicite Android avec validation avant bascule. GTK / SwiftUI attendent
+  la connexion et les salons, refusent les résultats d'un ancien compte / lien ;
+  résolution HTTP du message / vraie racine avec barrières d'adhésion et génération.
+  Les trois menus actuels copient un permalien partageable sans bearer ou compte
+  de l'auteur ; les sauts natifs comparent les positions décimales, les fils
+  existants révèlent la réponse. Cinq tests Rust (dont HTTP réel), 22 contrôles
+  mobiles, huit tests Swift via bindings régénérés, typage / Clippy bureau et
+  export Android Hermes et compilation Kotlin du récepteur Android passent.
+  Parcours installés, actions de notification
+  bureau persistées à froid et résolution des liens importés J5 encore ouverts.
+  [Contrat](protocol/ROOM_LINKS.md).
+
+- P17, correction après CI `74c787e` (3 octobre 2026) : la compilation macOS est
+  verte ; le test serveur de rejeu / confidentialité a révélé que l'annotation
+  personnelle ajoutée aux lectures HTTP n'était pas présente dans la synchro.
+  Les lots HTTP / WebSocket renseignent maintenant les mentions capturées pour
+  leur seul lecteur, sans modifier les étoiles ou le journal partagé. Un test
+  PostgreSQL contrôle destinataire, auteur et @here dans le flux ; le scénario
+  HTTP de rejeu / confidentialité passe avec l'attente personnelle mise à jour.
+  Le test conserve son contrôle indépendant de l'absence d'étoiles privées.
+
 - P17 / J3, raccord des notifications bureau (3 octobre 2026) : créations live
   capturées avec le curseur SQLite, histoire / rattrapage / éditions silencieux,
   déduplication, préférences et barrières de lecture / adhésion. Le contrat

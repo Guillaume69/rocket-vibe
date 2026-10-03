@@ -42,7 +42,7 @@ import { useCouleurs, type Couleurs, POLICES } from '../../ui/theme.ts';
  */
 
 export default function EcranFil() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, message } = useLocalSearchParams<{ id: string;message?:string }>();
   const { etat } = useSession();
   const synchro = useSynchro();
   const c = useCouleurs();
@@ -68,6 +68,7 @@ export default function EcranFil() {
     <FilCadre
       c={c}
       filId={id}
+      cibleMessage={typeof message==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(message)?message:null}
       base={synchro.base}
       brouillons={synchro.brouillons}
       moteur={synchro.moteur}
@@ -105,9 +106,11 @@ function Fil({
   activite,
   generation,
   membership,
+  cibleMessage,
 }: {
   c: Couleurs;
   filId: string;
+  cibleMessage:string|null;
   base: BaseLocale;
   brouillons: DepotBrouillons;
   moteur: MoteurSynchro;
@@ -289,7 +292,7 @@ function Fil({
       }
       const etatEnvoi = sortieParId.get(item.id);
       return (
-        <LigneMessage
+        <View style={item.id===cibleMessage?{backgroundColor:c.surfaceActive}:undefined}><LigneMessage
           c={c}
           message={item}
           client={client}
@@ -303,13 +306,21 @@ function Fil({
           surReagir={etatEnvoi === undefined ? reagir : null}
           suite={suites.has(item.id)}
           heureRepetee={heuresRepetees.has(item.id)}
-        />
+        /></View>
       );
     },
-    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, moi, reagir, suites, heuresRepetees],
+    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, moi, reagir, suites, heuresRepetees,cibleMessage],
   );
 
   const liste = useRef<FlashListRef<LigneDeMessage | LigneJour>>(null);
+  const [listePrete,setListePrete]=useState(false);
+  const cibleRevelee=useRef<string|null>(null);
+  useEffect(()=>{
+    if(!listePrete||!cibleMessage||cibleRevelee.current===cibleMessage)return;
+    const index=donneesListe.findIndex(m=>!('jour' in m)&&m.id===cibleMessage);
+    if(index<0)return;
+    liste.current?.scrollToIndex({index,animated:true,viewPosition:0.5});cibleRevelee.current=cibleMessage;
+  },[listePrete,cibleMessage,donneesListe]);
   // La liste s'ouvre sur la RACINE : sans défilement après envoi, la réponse
   // optimiste naît sous le pli et l'envoi semble n'avoir rien fait. On attend
   // l'`_id` rendu par `envoi.envoyer` DANS les données — c'est le rendu qui
@@ -377,6 +388,8 @@ function Fil({
       ) : (
         <FlashList
           ref={liste}
+          onLoad={()=>setListePrete(true)}
+          extraData={cibleMessage}
           data={donneesListe}
           keyExtractor={(m) => m.id}
           // Trois gabarits (tête avec avatar / suite sans / séparateur de

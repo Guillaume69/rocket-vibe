@@ -1,5 +1,6 @@
 /** Account-scoped native runner: SQLite, durable outbox, journal replay and reconnect. */
 import type { Session } from '../../lib/auth.ts';
+import {roomLinkMatches,type RoomLink} from '../../lib/roomLinks.ts';
 import { Reconnecteur } from '../../lib/reconnexion.ts';
 import { checkIdentity, transportFor } from './auth.ts';
 import { NativeStore, type NativeCommand } from './store.ts';
@@ -525,6 +526,30 @@ export class NativeChat {
     const permissions=await this.transport.messagePermissions(id);
     if (this.stopped || generation!==this.generation) throw new NativeError(0,'session_closed');
     return permissions;
+  }
+  async resolveRoomLink(link:RoomLink):Promise<{link:RoomLink;message:import('./protocol.generated.ts').Message|null}> {
+    this.ready();
+    if(!roomLinkMatches(link,this.session))throw new NativeError(400,'invalid_link');
+    const generation=this.generation,projection=this.store.projectionToken();
+    const membership=(await this.store.readState(link.rid))?.membership_version;
+    if(!membership)throw new NativeError(403,'room_access_denied');
+    checkIdentity(this.session,await this.transport.discover());
+    const id=link.message??link.root;
+    const message=id?await this.transport.message(id):null;
+    if(message){
+      if(message.room_id!==link.rid||message.deleted)throw new NativeError(410,'message_deleted');
+      const root=message.reply_to??null;
+      if(link.message&&link.root&&link.root!==root||!link.message&&root)throw new NativeError(400,'invalid_link');
+      link={...link,root:link.message?root:link.root};
+    }
+    checkIdentity(this.session,await this.transport.discover());
+    this.ready();
+    if(generation!==this.generation||(await this.store.readState(link.rid))?.membership_version!==membership||projection!==this.store.projectionToken())throw new NativeError(409,'delivery_revalidate');
+    if(message&&!await this.store.ingest([message],projection))throw new NativeError(409,'delivery_revalidate');
+    this.ready();
+    if(generation!==this.generation||(await this.store.readState(link.rid))?.membership_version!==membership)throw new NativeError(409,'delivery_revalidate');
+    this.notify();
+    return {link,message};
   }
   async actionContext(id: string): Promise<{message:import('./protocol.generated.ts').Message;permissions:import('./protocol.generated.ts').MessagePermissions;draft:string|null}> {
     this.ready();

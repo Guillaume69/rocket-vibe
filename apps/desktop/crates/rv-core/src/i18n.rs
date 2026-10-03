@@ -22,6 +22,13 @@ pub fn set(lang: Lang) {
 /// (key, French, English). A `{name}` is filled by `tf`; `a | b` is the
 /// singular and plural of `tn`.
 const CATALOG: &[(&str, &str, &str)] = &[
+    ("links.unavailable", "Ce lien est indisponible pour ce compte.", "This link is unavailable for this account."),
+    (
+        "links.choose_account",
+        "Sélectionnez le compte du serveur de ce lien.",
+        "Select the account for this link's server.",
+    ),
+    ("actions.copy_link", "Copier le lien du message", "Copy message link"),
     ("rooms.edit", "Modifier le salon", "Edit room"),
     ("rooms.members", "Afficher les membres", "Show members"),
     ("rooms.more", "Membres suivants", "More members"),

@@ -445,6 +445,19 @@ impl ChatPage {
                     p.popdown();
                 });
                 list.append(&copy);
+                if row.outbox_status.is_none()
+                    && let Some(s) = self.native_session()
+                    && let Some(link) =
+                        rv_core::links::native_permalink(&s.info, &row.rid, Some(&row.id), row.thread_id.as_deref())
+                {
+                    let button = gtk::Button::builder().label(t("actions.copy_link")).css_classes(["flat"]).build();
+                    let (anchor, p) = (anchor.clone(), popover.clone());
+                    button.connect_clicked(move |_| {
+                        anchor.clipboard().set_text(&link);
+                        p.popdown();
+                    });
+                    list.append(&button);
+                }
                 if row.outbox_status.as_deref() == Some("failed") {
                     for (key, abandon) in [("native.retry", false), ("native.abandon", true)] {
                         let button = gtk::Button::builder().label(t(key)).css_classes(["flat"]).build();

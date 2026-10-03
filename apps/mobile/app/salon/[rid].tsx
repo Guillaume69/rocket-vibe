@@ -60,18 +60,17 @@ import {
   surGlisseRetour,
 } from '../../ui/retourAuPlusRecent.ts';
 import { garderAuChaud, salonCouvert } from '../../ui/salonChaud.ts';
-import { consommerSaut, useSaut } from '../../ui/sautMessage.ts';
+import { consommerSaut, demanderSaut, useSaut } from '../../ui/sautMessage.ts';
 import { signaler } from '../../ui/toast.tsx';
 import { marquerSalonCharge, salonChargeSous } from '../../ui/salonsCharges.ts';
 import { BoutonPrincipal, IndicateurSaisie, SeparateurJour } from '../../ui/kit.tsx';
 import { Appuyable } from '../../ui/appuyable.tsx';
-import { memeOrigine, origineDe } from '../../lib/origine.ts';
+import {parseRoomLink,roomLinkMatches,roomLinkUrl,serviceUrl,type RoomLink} from '../../lib/roomLinks.ts';
 import { MoteurSynchro } from '../../lib/sync.ts';
 import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
 import { usePresence } from '../../ui/presence.ts';
 import { useT,traduireCourant } from '../../ui/i18n.ts';
 import { useSession } from '../../ui/session.tsx';
-import {nativePushScope as decodeNativePushScope,nativePushMatches,nativePushServerUrl} from '../../lib/nativePushNavigation.ts';
 import { useSynchro } from '../../ui/synchro.tsx';
 import { ordreMessages } from '../../ui/ordreMessages.ts';
 import { type Couleurs, POLICES, useCouleurs } from '../../ui/theme.ts';
@@ -123,7 +122,17 @@ export default function EcranSalon() {
   // `host` vient du deep-link d'une notification (natif comme expo) : il dit de
   // QUEL serveur ce message parle. Absent pour toute navigation interne — le
   // comportement est alors exactement celui d'avant.
-  const { rid, host, nativeScope } = useLocalSearchParams<{ rid: string; host?: string; nativeScope?:string }>();
+  const { rid, host, nativeScope, roomLink } = useLocalSearchParams<{ rid: string; host?: string; nativeScope?:string;roomLink?:string }>();
+  const external=roomLink!==undefined||host!==undefined||nativeScope!==undefined;
+  const cibleLien=useMemo(()=>{
+    if(roomLink!==undefined)return parseRoomLink(roomLink);
+    if(!external)return null;
+    if(typeof rid!=='string'||host!==undefined&&typeof host!=='string'||nativeScope!==undefined&&typeof nativeScope!=='string')return null;
+    const url=new URL(`rocketvibe://salon/${encodeURIComponent(rid)}`);
+    if(host!==undefined)url.searchParams.set('host',host);
+    if(nativeScope!==undefined)url.searchParams.set('nativeScope',nativeScope);
+    return parseRoomLink(url.toString());
+  },[roomLink,external,rid,host,nativeScope]);
   const { etat } = useSession();
   const synchro = useSynchro();
   const c = useCouleurs();
@@ -160,16 +169,9 @@ export default function EcranSalon() {
   // pas un serveur Rocket.Chat — on l'ignore, et le comportement redevient
   // exactement celui d'avant plutôt que d'afficher au premier plan un texte
   // arbitraire de longueur arbitraire.
-  const origineHote = typeof host === 'string' ? origineDe(host) : null;
-  const nativeHost=nativeScope!==undefined?nativePushServerUrl(host):null;
-  if(nativeHost && nativeHost!==nativePushServerUrl(etat.session.baseUrl))return <AutreServeur c={c} hote={nativeHost} rid={rid} nativeScope={nativeScope} />;
-  if (origineHote !== null && !memeOrigine(host!, etat.session.baseUrl)) {
-    return <AutreServeur c={c} hote={origineHote} rid={rid} nativeScope={nativeScope} />;
-  }
-  if(nativeScope!==undefined){
-    const scope=decodeNativePushScope(nativeScope);
-    if(!scope || !nativePushMatches(scope,etat.session) || host!==undefined&&!nativeHost)return <View style={[styles.centre,{backgroundColor:c.fond}]}><Text style={[styles.erreur,{color:c.texteErreur}]}>{traduireCourant('native.identityChanged')}</Text></View>;
-  }
+  if(external&&(!cibleLien||cibleLien.rid!==rid))return <View style={[styles.centre,{backgroundColor:c.fond}]}><Text style={[styles.erreur,{color:c.texteErreur}]}>{traduireCourant('salon.lienIndisponible')}</Text></View>;
+  if(cibleLien?.host&&cibleLien.host!==serviceUrl(etat.session.baseUrl))return <AutreServeur c={c} cible={cibleLien} />;
+  if(cibleLien&&!roomLinkMatches(cibleLien,etat.session))return <View style={[styles.centre,{backgroundColor:c.fond}]}><Text style={[styles.erreur,{color:c.texteErreur}]}>{traduireCourant('salon.lienIndisponible')}</Text></View>;
 
   const contenu = (membership?:string|null)=>(
     <Salon
@@ -189,6 +191,7 @@ export default function EcranSalon() {
       activite={synchro.activite}
       generation={synchro.generation}
       membership={membership}
+      cibleLien={cibleLien}
     />
   );
   return synchro.fournisseur.native?<BorneAdhesionSalon key={JSON.stringify(synchro.fournisseur.identite)+rid} base={synchro.base} rid={rid}>{contenu}</BorneAdhesionSalon>:contenu();
@@ -201,22 +204,23 @@ export default function EcranSalon() {
  * notification ne doit pas emporter ça sans qu'on le demande. Geste explicite,
  * donc, et le libellé dit où l'on va.
  */
-function AutreServeur({ c, hote, rid, nativeScope }: { c: Couleurs; hote: string; rid: string; nativeScope?:string }) {
+function AutreServeur({ c, cible }: { c: Couleurs; cible:RoomLink }) {
   const t = useT();
   const routeur = useRouter();
   const { changerDeServeur } = useSession();
   const [occupe, setOccupe] = useState(false);
   const [echec, setEchec] = useState(false);
+  const hote=cible.host!;
 
   const basculer = useCallback(() => {
     setOccupe(true);
     setEchec(false);
-    changerDeServeur(hote).then(
+    changerDeServeur(hote,cible).then(
       (ok) => {
         // Succès : `replace` retire le `host` de l'URL. Le laisser rejouerait ce
         // même écran si l'utilisateur repassait plus tard sur l'autre serveur.
         // Aucun `setState` sur ce chemin : l'écran est déjà en train de partir.
-        if (ok) routeur.replace({ pathname: '/salon/[rid]', params: { rid,...(nativeScope?{nativeScope}:{}) } });
+        if (ok) routeur.replace({ pathname: '/salon/[rid]', params: { rid:cible.rid, roomLink:roomLinkUrl(cible) } });
         else {
           setOccupe(false);
           setEchec(true);
@@ -227,7 +231,7 @@ function AutreServeur({ c, hote, rid, nativeScope }: { c: Couleurs; hote: string
         setEchec(true);
       },
     );
-  }, [changerDeServeur, hote, rid, routeur,nativeScope]);
+  }, [changerDeServeur, hote, cible, routeur]);
 
   return (
     <View style={[styles.centre, { backgroundColor: c.fond }]}>
@@ -269,6 +273,7 @@ function Salon({
   activite,
   generation,
   membership,
+  cibleLien,
 }: {
   c: Couleurs;
   rid: string;
@@ -287,10 +292,26 @@ function Salon({
   activite: MoteurActivite;
   generation: number;
   membership?:string|null;
+  cibleLien:RoomLink|null;
 }) {
   const t = useT();
   const [limite, setLimite] = useState(PAGE);
   const native=fournisseur.identite.genre==='rocketvibe';
+  const routeur=useRouter();
+  const nativeChat=fournisseur.native?.chat;
+  const online=useSyncExternalStore(useCallback(fn=>nativeChat?.subscribe(fn)??(()=>{}),[nativeChat]),()=>nativeChat?.status.online??true);
+  const lienConsomme=useRef<RoomLink|null>(null);
+  useEffect(()=>{
+    if(!cibleLien||!online||lienConsomme.current===cibleLien||!nativeChat)return;
+    let annule=false;
+    void nativeChat.resolveRoomLink(cibleLien).then(({link,message})=>{
+      if(annule)return;
+      lienConsomme.current=cibleLien;
+      if(link.root){routeur.push({pathname:'/fil/[id]',params:{id:link.root,...(link.message?{message:link.message}:{})}});}
+      else if(link.message&&message)demanderSaut(rid,{id:link.message,horodatage:Date.parse(message.created_at)});
+    }).catch(()=>{if(!annule){lienConsomme.current=cibleLien;signaler(t('salon.lienIndisponible'));}});
+    return()=>{annule=true;};
+  },[cibleLien,online,nativeChat,rid,routeur,t,membership]);
   type LigneListe = LigneDeMessage | LigneBarre | LigneJour;
   const liste = useRef<FlashListRef<LigneListe>>(null);
   const lireVisibles=useRef(()=>{});
@@ -775,6 +796,14 @@ function Salon({
       consommerSaut(rid, cible.id);
       signaler(t('salon.sautImpossible'));
     };
+    if(fournisseur.native){
+      void fournisseur.native.store.messageRank(rid,cible.id).then(rang=>{
+        if(annule)return;
+        if(rang===null){echouer();return;}
+        consommerSaut(rid,cible.id);setLimite(l=>Math.max(l,rang+PAGE));setSautVise(cible.id);
+      },echouer);
+      return()=>{annule=true;};
+    }
     amenerMessage({
       horodatage: cible.horodatage,
       rang: async () => {
@@ -812,7 +841,7 @@ function Salon({
     return () => {
       annule = true;
     };
-  }, [cibleSaut, type, base, rid, activite, chargerHistorique, t]);
+  }, [cibleSaut, type, base, rid, activite, chargerHistorique, t,fournisseur]);
   const indexSaut = useMemo(
     () =>
       sautVise === null
@@ -843,7 +872,6 @@ function Salon({
     };
   }, [sautVise, indexSaut]);
 
-  const routeur = useRouter();
   const ouvrirActions = useCallback(
     (id: string) => {
       // « Pop » à l'ouverture de la feuille — confirme que l'appui long a pris.

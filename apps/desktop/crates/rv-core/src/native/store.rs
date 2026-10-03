@@ -708,6 +708,22 @@ impl NativeStore {
         })?
         .collect()
     }
+    pub fn message_rank(&self, rid: &str, id: &str) -> rusqlite::Result<Option<u32>> {
+        let conn = self.conn.lock().unwrap();
+        if !self.same(&conn)? {
+            return Ok(None);
+        }
+        let position: Option<String> = conn
+            .query_row(
+                "SELECT position FROM native_messages WHERE id=?1 AND rid=?2 AND reply_to IS NULL AND NOT deleted",
+                params![id, rid],
+                |r| r.get(0),
+            )
+            .optional()?
+            .flatten();
+        let Some(position) = position else { return Ok(None) };
+        conn.query_row("SELECT count(*) FROM native_messages WHERE rid=?1 AND reply_to IS NULL AND NOT deleted AND (position IS NULL OR length(position)>length(?2) OR (length(position)=length(?2) AND position>?2))",params![rid,position],|r|r.get(0)).map(Some)
+    }
     pub fn messages(&self, rid: &str, limit: usize) -> rusqlite::Result<Vec<MessageRow>> {
         let conn = self.conn.lock().unwrap();
         if !self.same(&conn)? {

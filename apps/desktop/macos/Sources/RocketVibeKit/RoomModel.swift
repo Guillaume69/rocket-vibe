@@ -311,6 +311,11 @@ public final class RoomModel {
 
     /// Pages back until the message is loaded, then asks the view to scroll to it.
     public func jump(to id: String) async -> Bool {
+        if active, threadId == nil, let native = provider.native,
+           let rank = try? native.messageRank(room: room.rid, message: id) {
+            limit = max(limit, Int64(rank) + historyPage)
+            reload()
+        }
         for _ in 0..<30 where !messages.contains(where: { $0.id == id }) {
             if !(await loadOlder()) { break }
         }

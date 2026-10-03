@@ -220,7 +220,7 @@ ouverte tant que serveur, clients concernés et scénario de parité manquent.
 | P18 E2EE existant | J4–J5 | Import opaque / paramètres historiques, lecture / envoi depuis cache vierge |
 | P19 E2EE autonome | J4 | Spécification / revue, identités, sauvegardes / nouveaux appareils, rotation / clé perdue |
 | P20 Jitsi | J4 | Réunions autorisées, JWT courts, démarrer / rejoindre ; essai service / révocation |
-| P21 Partage / liens profonds | J3 / J5 | Instance / compte explicites, résolution import, pas de session choisie par un lien tiers |
+| P21 Partage / liens profonds | J3 / J5 | [Liens natifs](ROOM_LINKS.md) par service complet / instance / époque, compte destinataire des notifications, choix non ambigu, résolution du message / fil et copie dans les menus existants des trois clients ; positions décimales pour les sauts. Qualification installée, persistance des actions bureau à froid et résolution des anciens permaliens importés encore ouvertes |
 | P22 Langues / ergonomie / mises à jour | Transversal | UI conservée ; traductions des nouveaux codes et non-régression des 3 plateformes |
 | P23 Administration | J2 / J5 | Bootstrap, invitations / récupération, CLI de comptes / droits / désactivation, salons / membres / réglages, reçus, audit et diagnostic raccordés ; création / adhésion dans les apps P04 ; [contrat](ADMINISTRATION.md). Import / restauration et exploitation J5, qualification installée ouverts |
 

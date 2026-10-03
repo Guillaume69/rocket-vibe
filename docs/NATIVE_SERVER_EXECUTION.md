@@ -319,6 +319,29 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P21 / J3, actions de notification persistantes (3 octobre 2026) : registre
+  SQLite de 256 destinations sans contenu ou bearer, écrit avant remise à l'OS.
+  Les callbacks GTK / SwiftUI retrouvent le compte exact, attendent ses salons /
+  connexion, relisent message / racine en privé et gardent l'adhésion initiale.
+  Réponse et ID sont inscrits atomiquement dans l'outbox avec un reçu local :
+  un callback identique après réouverture ne crée pas de second envoi. Startup
+  GApplication pour GNOME, protocole enregistré pour le clic Windows, traitement
+  de la reprise dans AppModel SwiftUI. Cinq tests cœur, dont réouverture SQLite
+  sur disque et véritable HTTP / WebSocket, sept tests du pont OS, Clippy des
+  quatre crates et huit tests Swift avec bindings régénérés passent. Le vrai
+  binaire GTK est activé comme service D-Bus dans un XDG jetable : description de
+  l'action `(ss)`, dispatch d'une portée étrangère sans compte et fermeture passent.
+  Ce banc de démarrage est ajouté à la CI après la construction existante, sans
+  reconstruire le binaire. Les installations Linux ajoutent le service et les
+  clés desktop nécessaires. La CI
+  macOS précédente a révélé la visibilité interne de `membershipIsCurrent` dans
+  le menu de lien ; elle est rendue publique pour la vue de l'app. Les jobs
+  serveur / mobile, GTK, modèles Swift et cœur Windows du lot `830dd1b` sont
+  tous verts : sa CI native-server est terminée avec succès. La CI AppKit attend
+  le correctif de visibilité dans cette livraison. Réponse Windows à processus arrêté, remise à froid KDE,
+  action hors ligne avant validation réseau, essais installés et liens importés
+  J5 restent ouverts ; [contrat](protocol/PUSH.md).
+
 - P21 / J3, liens natifs et menus existants (3 octobre 2026) : service HTTP(S)
   complet, instance / époque et destinataire de notification distincts, parsing
   strict sans repli de portée, compte courant ou correspondance unique au bureau,

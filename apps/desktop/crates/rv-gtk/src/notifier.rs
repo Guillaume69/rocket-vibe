@@ -92,13 +92,6 @@ impl Notifier {
             );
         }
         let Some(connection) = session_bus() else {
-            let action = gio::SimpleAction::new("open-message", Some(&glib::VariantType::new("(ss)").expect("type")));
-            action.connect_activate(move |_, target| {
-                if let Some((rid, id)) = target.and_then(|v| v.get::<(String, String)>()) {
-                    open(rid, id);
-                }
-            });
-            app.add_action(&action);
             let this = Rc::new(Notifier {
                 app,
                 connection: None,
@@ -234,6 +227,12 @@ impl Notifier {
             format!("{} · #{}", incoming.author, incoming.room_name)
         };
         let body = incoming.body.clone().unwrap_or_else(|| t("message.encrypted").to_owned());
+        // GApplication notifications retain an action target across restarts on
+        // GNOME. Keep KDE's existing inline reply when that service offers it.
+        if self.connection.is_some() && incoming.rid.starts_with("rv-native:") && !self.inline_reply.get() {
+            self.show_gio(incoming, &summary, &body);
+            return;
+        }
         let Some(connection) = self.connection.clone() else {
             if rv_native::available() {
                 let labels =
@@ -243,15 +242,13 @@ impl Notifier {
                     message: &incoming.id,
                     title: &summary,
                     body: &body,
+                    activation_link: rv_core::native::notifications::notification_url(&incoming.rid, &incoming.id)
+                        .as_deref(),
                     reply: Some(labels),
                 });
                 return;
             }
-            let notification = gio::Notification::new(&summary);
-            notification.set_body(Some(&body));
-            let target = (incoming.rid.as_str(), incoming.id.as_str()).to_variant();
-            notification.set_default_action_and_target_value("app.open-message", Some(&target));
-            self.app.send_notification(Some(&incoming.rid), &notification);
+            self.show_gio(incoming, &summary, &body);
             return;
         };
         let mut actions = vec!["default".to_owned(), t("notify.open").to_owned()];
@@ -291,6 +288,9 @@ impl Notifier {
 
     /// Opening a room clears what it had on screen.
     pub fn withdraw(&self, rid: &str) {
+        if rid.starts_with("rv-native:") {
+            self.app.withdraw_notification(rid);
+        }
         let Some(connection) = self.connection.clone() else {
             if rv_native::available() {
                 rv_native::withdraw(rid);
@@ -315,5 +315,14 @@ impl Notifier {
                 )
                 .await;
         });
+    }
+
+    fn show_gio(&self, incoming: &Incoming, summary: &str, body: &str) {
+        let notification = gio::Notification::new(summary);
+        notification.set_body(Some(body));
+        let target = (incoming.rid.as_str(), incoming.id.as_str()).to_variant();
+        notification.set_default_action_and_target_value("app.open-message", Some(&target));
+        notification.add_button_with_target_value(t("notify.reply"), "app.open-message", Some(&target));
+        self.app.send_notification(Some(&incoming.rid), &notification);
     }
 }

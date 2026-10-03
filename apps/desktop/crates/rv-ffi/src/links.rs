@@ -20,6 +20,13 @@ pub fn parse_room_link(url: String) -> Option<RoomLink> {
 
 #[uniffi::export]
 impl Client {
+    pub async fn notification_accounts(&self, key: String) -> Vec<Account> {
+        let dirs = self.dirs.clone();
+        let infos = blocking(move || accounts::load_all(&dirs)).await;
+        rv_core::native::notifications::notification_account(&key, &infos)
+            .map(|i| vec![account(&infos[i])])
+            .unwrap_or_default()
+    }
     /// Return only exact provider / service / instance / account matches.
     pub async fn room_link_accounts(&self, url: String) -> Vec<Account> {
         let Some(link) = rv_core::links::parse(&url) else { return vec![] };
@@ -42,6 +49,16 @@ impl Chat {
 
 #[uniffi::export]
 impl NativeChat {
+    pub fn accepts_notification(&self, key: String) -> bool {
+        rv_core::native::notifications::notification_account(&key, std::slice::from_ref(&self.session.info)).is_some()
+    }
+    pub async fn resolve_notification(&self, key: String, message: String) -> Result<RoomLink, RvError> {
+        let s = self.session.clone();
+        on_tokio(async move { s.resolve_notification(&key, &message).await })
+            .await
+            .map(Into::into)
+            .map_err(RvError::local)
+    }
     pub fn message_rank(&self, room: String, message: String) -> Result<Option<u32>, RvError> {
         self.session.store.message_rank(&room, &message).map_err(RvError::local)
     }

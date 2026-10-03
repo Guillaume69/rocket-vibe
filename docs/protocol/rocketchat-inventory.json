@@ -1691,7 +1691,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/notifier.rs",
-      "line": 259,
+      "line": 256,
       "kind": "endpoint",
       "surface": "im.received"
     },
@@ -2171,25 +2171,25 @@
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 361,
+      "line": 413,
       "kind": "endpoint",
       "surface": "e2e.wrong"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 362,
+      "line": 414,
       "kind": "endpoint",
       "surface": "e2e.no_keys"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 363,
+      "line": 415,
       "kind": "endpoint",
       "surface": "e2e.failed"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 366,
+      "line": 418,
       "kind": "endpoint",
       "surface": "e2e.failed"
     },

@@ -123,17 +123,41 @@ garde les notifications silencieuses ; elle ne coupe pas la messagerie.
 `all`, `nothing` et DM / mentions réutilisent la règle du client existant.
 Un salon déjà visible dans la fenêtre active ne produit pas de notification.
 
-GTK réutilise D-Bus, les toasts Windows et le repli GLib ; SwiftUI conserve
+GTK réutilise D-Bus pour la réponse inline KDE, GApplication pour les notifications
+natives sans réponse inline, et les toasts Windows ; SwiftUI conserve
 `UNUserNotificationCenter`. Les références OS portent une clé calculée depuis
 serveur / compte / instance / époque / salon, sans credential. Un clic ou une
 réponse vérifie l'adhésion d'origine et la présence du message. La réponse prend
 le chemin d'envoi persistant habituel, avec la racine du fil si nécessaire.
 Lectures, retrait du salon et préférence désactivée retirent les notifications.
 
-Les références d'action sont bornées à 256 et vivent pendant la session bureau.
-Le démarrage à froid et la sélection d'un autre compte depuis une ancienne
-notification restent à couvrir avec P21 ; les parcours système installés restent
-à qualifier sur Linux, Windows et macOS.
+Les références d'action sont bornées à 256 et persistées avant remise à l'OS
+dans le SQLite du compte : message, salon, racine, adhésion, position et éligibilité.
+Le registre ne duplique aucun texte, nom, credential ou corps de notification.
+Une préférence encore inconnue au démarrage ne l'efface pas. Une nouvelle époque
+le purge avec la projection ; une adhésion remplacée invalide ses callbacks.
+
+Les modèles GTK / SwiftUI retrouvent le seul compte correspondant à la clé OS,
+attendent connexion et salons, puis relisent message et racine par HTTP privé.
+Le contrôle conserve l'adhésion capturée avant fermeture, avec gardes de compte,
+requête, génération et réponses tardives. La réponse validée entre dans la même
+transaction que son ID d'envoi et son reçu local par notification / empreinte de
+texte ; un callback identique après réouverture ne crée pas une seconde outbox.
+
+GNOME dispose de l'action `(clé, message)` dès le startup GApplication. Les
+installations Linux créent aussi le service D-Bus du même ID et l'entrée desktop
+annonce `DBusActivatable` / `X-GNOME-UsesNotifications`, suivant le
+[contrat GNotification](https://docs.gtk.org/gio/class.Notification.html).
+Le clic
+Windows utilise `rocketvibe://notification?key=…&msg=…`, sans texte ou bearer,
+via le protocole déjà enregistré par l'installeur ; le parser refuse doublons,
+identifiants malformés et paramètres inattendus. SwiftUI traite le callback
+`UNUserNotificationCenter` dans le modèle, même avant reprise du compte.
+La réponse inline Windows à processus arrêté exige encore son activateur natif ;
+la remise des anciens callbacks KDE à un nouveau processus reste ouverte.
+Un callback reçu hors ligne attend encore en mémoire sa validation réseau avant
+création de l'outbox. Les parcours système installés restent à qualifier sur Linux,
+Windows et macOS ; P21 reste ouvert pour ces chemins et les anciens liens importés.
 Les permaliens natifs et leur routage au démarrage utilisent le [contrat P21](ROOM_LINKS.md).
 
 ## Preuves et qualification encore ouverte
@@ -151,6 +175,12 @@ restent ouverts : réception, réveil WorkManager, langue, tap, réponse après 
 de confirmation, refus de permission et révocation. Une compilation ou un banc
 HTTP simulé ne ferme pas ce critère. Les bancs bureau vérifient les créations sur
 un vrai WebSocket, le rejeu, la transaction / rollback, les lectures, les préférences,
-les réponses de fils, la suppression et la réadhésion. Ils ne prouvent pas les
+les réponses de fils, la suppression et la réadhésion. Une base sur disque est
+fermée puis rouverte : résolution HTTP authentifiée, compte / époque, racine,
+réponse identique et purge de restauration sont exercés. Un vrai binaire GTK est
+démarré à la demande par D-Bus dans un XDG jetable, avec description et dispatch
+de l'action avant activation normale ; il utilise une portée étrangère sans
+compte, et ne prouve donc ni un clic sur un toast réel ni la navigation privée.
+Ils ne prouvent pas les
 interactions avec les notifications système installées. P17 / J3 ne sont pas
 déclarés terminés.

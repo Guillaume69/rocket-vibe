@@ -9,6 +9,12 @@ section here.
 
 ### Fixed
 
+- Native desktop notification targets survive restart in the account's SQLite
+  store. Callbacks select the original account and revalidate the message before
+  opening its existing room/thread or replying; repeated replies keep one send ID.
+  GNOME registers its action at application startup and Windows notification clicks
+  use the registered app protocol. SwiftUI waits for the destination account.
+
 - Room and message links distinguish Rocket.Chat from RocketVibe, retain the full
   server URL and native instance / restore epoch, and refuse ambiguous saved accounts.
   Native message menus can copy a shareable link; links resolve the actual thread

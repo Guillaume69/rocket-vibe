@@ -166,6 +166,7 @@ impl NativeStore {
         profiles::initialize(&conn)?;
         threads::initialize(&conn)?;
         files::initialize(&conn)?;
+        notifications::initialize(&conn)?;
         let outbox_columns = conn
             .prepare("PRAGMA table_info(native_outbox)")?
             .query_map([], |r| r.get::<_, String>(1))?
@@ -235,6 +236,8 @@ impl NativeStore {
         self.atomic_projection(true, |tx| {
             for table in [
                 "native_state",
+                "native_notifications",
+                "native_notification_replies",
                 "native_file_intents",
                 "native_users",
                 "native_direct_peers",
@@ -589,6 +592,8 @@ impl NativeStore {
         self.atomic_projection(true, |tx| {
             if !self.same(tx)? {
                 for table in [
+                    "native_notifications",
+                    "native_notification_replies",
                     "native_file_intents",
                     "native_users",
                     "native_direct_peers",
@@ -798,7 +803,7 @@ impl NativeStore {
         membership: Option<Option<&str>>,
         selections: &[QuoteSelection],
     ) -> rusqlite::Result<bool> {
-        let (id, rid, text) = (&pending.id, &pending.room_id, &pending.text);
+        let rid = &pending.room_id;
         self.atomic(|tx| {
             if let Some(expected) = membership
                 && !self.membership_matches_in(tx, rid, expected)?
@@ -810,20 +815,31 @@ impl NativeStore {
             {
                 return Err(rusqlite::Error::InvalidQuery);
             }
-            quotes::enqueue(tx, &self.identity, pending, selections)?;
-            if let Some(root) = pending.reply_to.as_deref() {
-                threads::require_root(tx, rid, root)?;
-            }
-            tx.execute(
-                "INSERT INTO native_messages(id,rid,text,author,ts,reply_to) VALUES(?1,?2,?3,?4,?5,?6)",
-                params![id, rid, text, username, chrono::Utc::now().timestamp_millis(), pending.reply_to],
-            )?;
-            tx.execute(
-                "INSERT INTO native_outbox(id,rid,text,created,quotes,reply_to) VALUES(?1,?2,?3,?4,?5,?6)",
-                params![id, rid, text, chrono::Utc::now().timestamp_millis(), json(&pending.quotes)?, pending.reply_to],
-            )?;
+            self.enqueue_in(tx, pending, username, selections)?;
             Ok(true)
         })
+    }
+    fn enqueue_in(
+        &self,
+        tx: &Transaction,
+        pending: &Pending,
+        username: &str,
+        selections: &[QuoteSelection],
+    ) -> rusqlite::Result<()> {
+        let (id, rid, text) = (&pending.id, &pending.room_id, &pending.text);
+        quotes::enqueue(tx, &self.identity, pending, selections)?;
+        if let Some(root) = pending.reply_to.as_deref() {
+            threads::require_root(tx, rid, root)?;
+        }
+        tx.execute(
+            "INSERT INTO native_messages(id,rid,text,author,ts,reply_to) VALUES(?1,?2,?3,?4,?5,?6)",
+            params![id, rid, text, username, chrono::Utc::now().timestamp_millis(), pending.reply_to],
+        )?;
+        tx.execute(
+            "INSERT INTO native_outbox(id,rid,text,created,quotes,reply_to) VALUES(?1,?2,?3,?4,?5,?6)",
+            params![id, rid, text, chrono::Utc::now().timestamp_millis(), json(&pending.quotes)?, pending.reply_to],
+        )?;
+        Ok(())
     }
     pub fn pending(&self) -> rusqlite::Result<Vec<Pending>> {
         let conn = self.conn.lock().unwrap();

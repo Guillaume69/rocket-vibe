@@ -118,6 +118,18 @@ fn main() -> glib::ExitCode {
             windows::input_method();
         }
         background::install(app);
+        // Register the notification action during GApplication startup, before
+        // activation: the OS can launch us directly with this target.
+        let action = gtk::gio::SimpleAction::new("open-message", Some(&glib::VariantType::new("(ss)").expect("type")));
+        let weak = app.downgrade();
+        action.connect_activate(move |_, target| {
+            if let (Some(app), Some((key, message))) =
+                (weak.upgrade(), target.and_then(|v| v.get::<(String, String)>()))
+            {
+                window_of(&app).open_notification(key, message);
+            }
+        });
+        app.add_action(&action);
         style::load();
         if let Some(display) = gtk::gdk::Display::default() {
             icon::register(&display);

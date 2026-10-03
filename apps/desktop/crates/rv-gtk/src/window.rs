@@ -28,6 +28,13 @@ enum NativeUiEvent {
     Incoming(rv_core::notify::Incoming),
 }
 
+#[derive(Clone, PartialEq, Eq)]
+struct NotificationAction {
+    key: String,
+    message: String,
+    text: Option<String>,
+}
+
 struct PendingLogin {
     server: url::Url,
     user: String,
@@ -58,6 +65,7 @@ pub struct AppWindow {
     /// A room link waiting for its account's rooms to be loaded.
     pending_link: RefCell<Option<rv_core::links::RoomLink>>,
     link_generation: Cell<u64>,
+    pending_notification: RefCell<Option<NotificationAction>>,
 }
 
 fn data_dir() -> PathBuf {
@@ -156,6 +164,7 @@ impl AppWindow {
             previous: RefCell::default(),
             pending_link: RefCell::default(),
             link_generation: Cell::new(0),
+            pending_notification: RefCell::default(),
         });
 
         let weak = Rc::downgrade(&this);
@@ -244,19 +253,12 @@ impl AppWindow {
             app,
             move |rid, message| {
                 if let Some(this) = w1.upgrade() {
-                    if let Some(native) = this.chat.native_session() {
-                        let Some((room, root)) = native.notification_target(&rid, &message) else { return };
+                    if rid.starts_with("rv-native:") {
                         this.window.present();
-                        this.chat.open_message(&room, root.as_deref().unwrap_or(&message));
-                        if let Some(root) = root {
-                            this.chat.open_thread_of(&root);
-                            if let Some(thread) = this.chat.thread() {
-                                thread.list.reveal(&message);
-                            }
-                        }
+                        this.notification_action(NotificationAction { key: rid, message, text: None });
                         return;
                     }
-                    if rid.starts_with("rv-native:") {
+                    if this.chat.native_session().is_some() {
                         return;
                     }
                     this.window.present();
@@ -265,13 +267,11 @@ impl AppWindow {
             },
             move |rid, message, text| {
                 let Some(this) = w2.upgrade() else { return };
-                if let Some(native) = this.chat.native_session() {
-                    if native.reply_notification(&rid, &message, &text).is_err() {
-                        this.chat.toast(t("native.error").to_owned());
-                    }
+                if rid.starts_with("rv-native:") {
+                    this.notification_action(NotificationAction { key: rid, message, text: Some(text) });
                     return;
                 }
-                if rid.starts_with("rv-native:") {
+                if this.chat.native_session().is_some() {
                     return;
                 }
                 if let Some(session) = this.session.borrow().clone() {
@@ -295,6 +295,7 @@ impl AppWindow {
         this.chat.connect_rooms_loaded(move || {
             if let Some(this) = weak.upgrade() {
                 this.follow_link(true);
+                this.follow_notification(true);
             }
         });
         let weak = Rc::downgrade(&this);
@@ -355,7 +356,20 @@ impl AppWindow {
         crate::updater::startup();
         let this = self.clone();
         glib::spawn_future_local(async move {
-            match on_tokio(secrets::load_all()).await.into_iter().next() {
+            let accounts = on_tokio(secrets::load_all()).await;
+            // A callback or permalink received while loading the keyring owns
+            // startup. The default account must not overwrite its selection.
+            if this.session.borrow().is_some() || this.chat.native_session().is_some() {
+                return;
+            }
+            let target = if let Some(action) = this.pending_notification.borrow().as_ref() {
+                rv_core::native::notifications::notification_account(&action.key, &accounts)
+            } else if let Some(link) = this.pending_link.borrow().as_ref() {
+                rv_core::links::select(link, &accounts, None)
+            } else {
+                (!accounts.is_empty()).then_some(0)
+            };
+            match target.map(|i| accounts[i].clone()) {
                 Some(info) => this.start_session(info),
                 None => this.show_login(None),
             }
@@ -682,6 +696,7 @@ impl AppWindow {
                                 }
                                 NativeUiEvent::Changed => {
                                     this.follow_link(false);
+                                    this.follow_notification(false);
                                     if let Some(notifier) = this.notifier.borrow().as_ref() {
                                         for key in visible.withdrawn_notifications() {
                                             notifier.withdraw(&key);
@@ -873,6 +888,11 @@ impl AppWindow {
     /// A `rocketvibe://salon/<rid>?host=` link: the room, on the account of
     /// that server (switching to it if another one is open).
     pub fn open_link(self: &Rc<Self>, uri: &str) {
+        if let Some((key, message)) = rv_core::native::notifications::parse_notification_url(uri) {
+            self.notification_action(NotificationAction { key, message, text: None });
+            return;
+        }
+        self.pending_notification.take();
         self.link_generation.set(self.link_generation.get().wrapping_add(1));
         self.pending_link.take();
         let Some(link) = rv_core::links::parse(uri) else {
@@ -901,6 +921,85 @@ impl AppWindow {
                 this.switch_to(accounts[index].clone());
             } else {
                 this.chat.toast(t("links.choose_account").to_owned());
+            }
+        });
+    }
+
+    pub fn open_notification(self: &Rc<Self>, key: String, message: String) {
+        if key.starts_with("rv-native:") {
+            self.notification_action(NotificationAction { key, message, text: None });
+        } else if self.chat.native_session().is_none() {
+            self.chat.open_message(&key, &message);
+        }
+    }
+
+    fn notification_action(self: &Rc<Self>, action: NotificationAction) {
+        self.link_generation.set(self.link_generation.get().wrapping_add(1));
+        let request = self.link_generation.get();
+        self.pending_link.take();
+        self.pending_notification.replace(Some(action.clone()));
+        if self.chat.native_session().is_some_and(|s| {
+            rv_core::native::notifications::notification_account(&action.key, std::slice::from_ref(&s.info)).is_some()
+        }) {
+            self.follow_notification(false);
+            return;
+        }
+        let this = self.clone();
+        glib::spawn_future_local(async move {
+            let accounts = on_tokio(secrets::load_all()).await;
+            if this.link_generation.get() != request {
+                return;
+            }
+            if let Some(index) = rv_core::native::notifications::notification_account(&action.key, &accounts) {
+                this.switch_to(accounts[index].clone());
+            } else {
+                this.pending_notification.take();
+                this.chat.toast(t("links.unavailable").to_owned());
+            }
+        });
+    }
+
+    fn follow_notification(self: &Rc<Self>, rooms_loaded: bool) {
+        let Some(action) = self.pending_notification.borrow().clone() else { return };
+        let Some(native) = self.chat.native_session() else { return };
+        if native.status().connection != rv_core::session::Connection::Online
+            || rv_core::native::notifications::notification_account(&action.key, std::slice::from_ref(&native.info))
+                .is_none()
+        {
+            return;
+        }
+        let rid = action.key.rsplit_once(':').map(|(_, rid)| rid).unwrap_or_default();
+        if !self.chat.has_room(rid) {
+            if rooms_loaded {
+                self.pending_notification.take();
+                self.chat.toast(t("links.unavailable").to_owned());
+            }
+            return;
+        }
+        self.pending_notification.take();
+        let this = self.clone();
+        let request = self.link_generation.get();
+        glib::spawn_future_local(async move {
+            let s = native.clone();
+            let (key, message) = (action.key.clone(), action.message.clone());
+            let target = on_tokio(async move { s.resolve_notification(&key, &message).await }).await;
+            if this.link_generation.get() != request
+                || this.chat.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &native))
+            {
+                return;
+            }
+            match target {
+                Ok(link) => {
+                    if let Some(text) = action.text {
+                        if native.reply_notification(&action.key, &action.message, &text).is_err() {
+                            this.chat.toast(t("links.unavailable").to_owned());
+                        }
+                    } else {
+                        this.window.present();
+                        this.show_room_link(&link);
+                    }
+                }
+                Err(_) => this.chat.toast(t("links.unavailable").to_owned()),
             }
         });
     }

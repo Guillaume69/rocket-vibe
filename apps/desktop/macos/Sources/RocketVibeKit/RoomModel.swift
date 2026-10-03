@@ -214,7 +214,7 @@ public final class RoomModel {
     }
 
     public var rid: String { room.rid }
-    var membershipIsCurrent: Bool {
+    public var membershipIsCurrent: Bool {
         guard let native = provider.native else { return true }
         do { return try native.membershipVersion(room: room.rid) == nativeMembership }
         catch { return false }

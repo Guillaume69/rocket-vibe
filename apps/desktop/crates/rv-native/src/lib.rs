@@ -25,6 +25,8 @@ pub struct Toast<'a> {
     pub message: &'a str,
     pub title: &'a str,
     pub body: &'a str,
+    /// The registered app protocol can launch a stopped process for a click.
+    pub activation_link: Option<&'a str>,
     /// Offer an inline reply field.
     pub reply: Option<ReplyLabels<'a>>,
 }
@@ -200,17 +202,19 @@ pub fn xml_escape(text: &str) -> String {
 
 /// A Windows toast: title, body, and when asked a reply box and its button.
 pub fn toast_xml(toast: &Toast) -> String {
-    let launch = xml_escape(&encode(toast.room, toast.message));
+    let callback = xml_escape(&encode(toast.room, toast.message));
+    let launch = toast.activation_link.map(xml_escape).unwrap_or_else(|| callback.clone());
+    let activation = if toast.activation_link.is_some() { " activationType=\"protocol\"" } else { "" };
     let actions = toast.reply.as_ref().map_or_else(String::new, |labels| {
         format!(
             "<actions><input id=\"reply\" type=\"text\" placeHolderContent=\"{}\"/>\
-             <action content=\"{}\" arguments=\"{launch}\" hint-inputId=\"reply\"/></actions>",
+             <action content=\"{}\" arguments=\"{callback}\" activationType=\"foreground\" hint-inputId=\"reply\"/></actions>",
             xml_escape(labels.placeholder),
             xml_escape(labels.send),
         )
     });
     format!(
-        "<toast launch=\"{launch}\"><visual><binding template=\"ToastGeneric\"><text>{}</text><text>{}</text>\
+        "<toast launch=\"{launch}\"{activation}><visual><binding template=\"ToastGeneric\"><text>{}</text><text>{}</text>\
          </binding></visual>{actions}</toast>",
         xml_escape(toast.title),
         xml_escape(toast.body),
@@ -244,6 +248,7 @@ mod tests {
             message: "m",
             title: "bob <3",
             body: "a & b",
+            activation_link: None,
             reply: Some(ReplyLabels { placeholder: "Reply", send: "Send" }),
         };
         let xml = toast_xml(&toast);
@@ -252,6 +257,11 @@ mod tests {
         assert!(xml.contains("hint-inputId=\"reply\""));
         let plain = toast_xml(&Toast { reply: None, ..toast });
         assert!(!plain.contains("<actions>"));
+        let native = toast_xml(&Toast { activation_link: Some("rocketvibe://notification?key=scope&msg=m"), ..toast });
+        assert!(
+            native.contains("launch=\"rocketvibe://notification?key=scope&amp;msg=m\" activationType=\"protocol\"")
+        );
+        assert!(native.contains("arguments=\"r|m\" activationType=\"foreground\""));
     }
 
     #[test]

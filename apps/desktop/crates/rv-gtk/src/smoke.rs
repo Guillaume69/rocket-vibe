@@ -1191,6 +1191,7 @@ pub fn gallery(app: &adw::Application) -> bool {
         message: "1",
         title: "bob",
         body: "A native notification 🎉",
+        activation_link: None,
         reply: Some(rv_native::ReplyLabels { placeholder: "Reply", send: "Send" }),
     });
     println!("smoke: native notifications available {}", rv_native::available());
@@ -1289,6 +1290,7 @@ fn soak(column: gtk::Box, samples: Vec<crate::rows::Display>, seconds: u32) {
                 message: "1",
                 title: "bob",
                 body: &body,
+                activation_link: None,
                 reply: Some(rv_native::ReplyLabels { placeholder: "Reply", send: "Send" }),
             });
         }

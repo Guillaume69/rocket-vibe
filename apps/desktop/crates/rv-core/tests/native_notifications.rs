@@ -105,6 +105,7 @@ async fn actual_live_socket_emits_once_and_scopes_persisted_notification_replies
     let f = fixture();
     let mut live = message("live", "2");
     live.personal_mention = Some(false);
+    let resolved_live = live.clone();
     let direct = {
         let mut r = room();
         r.kind = rv_protocol::RoomKind::Direct;
@@ -120,6 +121,10 @@ async fn actual_live_socket_emits_once_and_scopes_persisted_notification_replies
             respond(200, &json!({"protocol_version":1,"changes":[],"cursor":"initial","has_more":false}).to_string())
         }
         "/api/v1/sync/ticket" => respond(200, &responses["socket_ticket"].to_string()),
+        "/api/v1/messages/live" => {
+            assert_eq!(req.headers.get("authorization").map(String::as_str), Some("Bearer fixture-token"));
+            respond(200, &serde_json::to_string(&resolved_live).unwrap())
+        }
         "/api/v1/sync/socket" => {
             Response { websocket: true, websocket_frames: vec![wire.clone(), wire.clone()], ..Default::default() }
         }
@@ -140,15 +145,25 @@ async fn actual_live_socket_emits_once_and_scopes_persisted_notification_replies
         auth_token: "fixture-token".into(),
         native: Some(identity),
     };
-    let s = NativeSession::start(info, &path).unwrap();
+    let s = NativeSession::start(info.clone(), &path).unwrap();
     let mut incoming = s.incoming();
     let n = tokio::time::timeout(Duration::from_secs(5), incoming.recv()).await.unwrap().unwrap();
     assert!(n.direct);
     assert!(!n.mentions_me);
     assert!(s.notification_current(&n));
     assert!(incoming.try_recv().is_err());
-    s.suspend();
     let key = s.notification_key(&n.rid);
+    common::close_native(s).await;
+    let s = NativeSession::start(info, &path).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while s.status().connection != rv_core::session::Connection::Online {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(s.resolve_notification(&key, &n.id).await.unwrap().message.as_deref(), Some("live"));
+    s.suspend();
     assert!(s.notification_target(&key, &n.id).is_some());
     assert!(s.notification_target("rv-native:foreign:room-id", &n.id).is_none());
     let operation = s.reply_notification(&key, &n.id, "exact response").unwrap();

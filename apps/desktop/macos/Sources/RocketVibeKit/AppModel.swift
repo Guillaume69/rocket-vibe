@@ -42,6 +42,7 @@ public final class AppModel {
     @ObservationIgnored var selectionId = UUID()
     @ObservationIgnored private var pendingRoomLink: (String, RoomLink)?
     @ObservationIgnored private var roomLinkRequest = UUID()
+    @ObservationIgnored private var pendingNotification: (key: String, message: String, text: String?)?
 
     public var onIncoming: ((Incoming) -> Void)?
     public var onWithdraw: ((String) -> Void)?
@@ -62,6 +63,11 @@ public final class AppModel {
     public func start() async {
         accounts = await client.accounts()
         if signedIn { return }
+        if let action = pendingNotification {
+            await notificationAction(key: action.key, message: action.message, text: action.text)
+            if !signedIn { showLogin(error: L("links.choose_account")) }
+            return
+        }
         if let (url, _) = pendingRoomLink {
             await openLink(url)
             if signedIn { return }
@@ -185,6 +191,7 @@ public final class AppModel {
                 }
             }
             followRoomLink()
+            followNotification()
         case .expired:
             end()
             Task {
@@ -244,10 +251,12 @@ public final class AppModel {
             else { closeThread() }
         }
         followRoomLink(roomsLoaded: true)
+        followNotification(roomsLoaded: true)
     }
 
     /// Used for both a cold launch URL and a link received by an open window.
     public func openLink(_ url: String) async {
+        pendingNotification = nil
         let request = UUID()
         roomLinkRequest = request
         pendingRoomLink = nil
@@ -259,6 +268,49 @@ public final class AppModel {
         guard matches.count == 1 else { notice = L("links.choose_account"); return }
         guard await resume(matches[0]), roomLinkRequest == request else { return }
         followRoomLink()
+    }
+
+    /// Native OS callbacks can precede account startup. Keep their scope until
+    /// catch-up, then read privately before opening or enqueueing a reply.
+    public func notificationAction(key: String, message: String, text: String? = nil) async {
+        let request = UUID()
+        roomLinkRequest = request
+        pendingRoomLink = nil
+        pendingNotification = (key,message,text)
+        if native?.acceptsNotification(key:key) == true { followNotification(); return }
+        let matches = await client.notificationAccounts(key:key)
+        guard roomLinkRequest == request else { return }
+        guard matches.count == 1 else { pendingNotification = nil; notice = L("links.unavailable"); return }
+        if !(await resume(matches[0])) { notice = L("links.choose_account") }
+        guard roomLinkRequest == request else { return }
+        followNotification()
+    }
+
+    private func followNotification(roomsLoaded: Bool = false) {
+        guard let action = pendingNotification, let native,
+              native.acceptsNotification(key:action.key), connection == .online else { return }
+        guard rooms.contains(where: { native.notificationKey(rid:$0.rid) == action.key }) else {
+            if roomsLoaded { pendingNotification = nil; notice = L("links.unavailable") }
+            return
+        }
+        pendingNotification = nil
+        let expected = sessionId
+        let request = roomLinkRequest
+        Task {
+            do {
+                let target = try await native.resolveNotification(key:action.key,message:action.message)
+                guard expected == sessionId, request == roomLinkRequest else { return }
+                if let text = action.text {
+                    _ = try native.replyNotification(key:action.key,message:action.message,text:text)
+                } else {
+                    await open(target.rid,message:target.root ?? action.message)
+                    guard expected == sessionId, request == roomLinkRequest else { return }
+                    if let root = target.root { openThread(root,message:action.message) }
+                }
+            } catch {
+                if expected == sessionId, request == roomLinkRequest { notice = L("links.unavailable") }
+            }
+        }
     }
 
     private func acceptsRoomLink(_ url: String) -> Bool {

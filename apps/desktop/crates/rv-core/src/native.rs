@@ -11,7 +11,7 @@ pub(crate) mod link_previews;
 mod links;
 mod live;
 pub mod markdown;
-mod notifications;
+pub mod notifications;
 pub mod profiles;
 mod read_intents;
 pub mod read_presentation;
@@ -260,8 +260,8 @@ pub struct NativeSession {
     capabilities: Mutex<Option<rv_protocol::Capabilities>>,
     events: broadcast::Sender<()>,
     incoming: broadcast::Sender<crate::notify::Incoming>,
-    notifications: Mutex<std::collections::VecDeque<store::Notification>>,
     notification_preference: Mutex<String>,
+    notification_settings_known: AtomicBool,
     control: watch::Sender<u64>,
     wake: Notify,
     paused: AtomicBool,
@@ -319,8 +319,8 @@ impl NativeSession {
             capabilities: Mutex::new(None),
             events,
             incoming,
-            notifications: Mutex::new(std::collections::VecDeque::new()),
             notification_preference: Mutex::new("nothing".into()),
+            notification_settings_known: AtomicBool::new(false),
             control,
             wake: Notify::new(),
             paused: AtomicBool::new(false),
@@ -645,6 +645,7 @@ impl NativeSession {
             self.refresh_notification_settings().await?;
         } else {
             *self.notification_preference.lock().unwrap() = "default".into();
+            self.notification_settings_known.store(true, Ordering::SeqCst);
         }
         self.refresh_emojis().await?;
         self.file_wake.notify_one();

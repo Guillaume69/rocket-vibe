@@ -333,7 +333,7 @@ impl NativeChat {
             let mut profiles = String::new();
             loop {
                 let Some(s) = session.upgrade() else { return };
-                let version = format!("{}:{}", s.profile_version(), s.file_version());
+                let version = format!("{}:{}:{}", s.profile_version(), s.file_version(), s.emoji_version());
                 if version != profiles {
                     profiles = version;
                     listener.on_event(Event::Avatar);

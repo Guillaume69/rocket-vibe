@@ -73,6 +73,7 @@ mod tests {
         let mut cache = LiveCache::default();
         let user = User { id: "other".into(), username: "bob".into(), display_name: "Bob".into() };
         let mut state = LiveState {
+            emoji_catalog_revision: None,
             profiles: vec![],
             ttl_ms: 8000,
             limited: false,

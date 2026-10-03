@@ -319,6 +319,26 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P07 / J3, emojis personnalisés (3 octobre 2026) : catalogue opérateur versionné,
+  reçus / audit partagés, import PNG / JPEG normalisé et GIF borné, noms / alias
+  uniques sans masquer Unicode, images privées avec contrôle de taille / empreinte.
+  Le live annonce les révisions ; les caches SQLite masquent les entrées retirées
+  et refusent les catalogues tardifs, y compris après redémarrage. Les sélecteurs,
+  complétions, corps de messages et réactions existants mobile / GTK / SwiftUI
+  utilisent ce catalogue et leurs lecteurs protégés. Une réaction perdue conserve
+  son nom canonique après changement d'alias ; un emoji retiré ne peut plus être
+  ajouté, mais sa réaction existante peut être retirée. Vérifications : 4 parcours
+  PostgreSQL, 1 230 tests mobiles, typage / lint et export Android / Hermes ; 359
+  tests du cœur bureau / UniFFI, clippy et 2 tests ciblés de plancher / image / masque
+  de capacité. Le vrai widget GTK passe 11 contrôles ; modèles Swift fichiers /
+  emojis contre le serveur et Secret Service passent en 3 s. Le fournisseur mobile
+  réel HTTP / WebSocket / SQLite affiche les pixels privés, canonicalise la réaction
+  et retire noms / pixels après une suppression opérateur. La CI du lot précédent
+  est verte sur les clients bureau ; sa seule erreur mobile était l'assertion de
+  tables oubliant `native_upload_intents`, corrigée et vérifiée ici. Compilation
+  macOS du nouveau lot, Android installé et animation desktop restent à qualifier ;
+  P07 / J3 restent ouverts. [Contrat](protocol/CUSTOM_EMOJIS.md). Suite : P15 cartes.
+
 - P14 / P07, fichiers cités (3 octobre 2026) : les résolutions autorisées incluent
   les descripteurs du message source courant, sans créer de lien ni de droit dans
   le salon destinataire. Les caches conservent les fichiers dans la source liée

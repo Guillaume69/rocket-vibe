@@ -35,6 +35,7 @@
     "apps/desktop/crates/rv-core/src/native/authentication.rs",
     "apps/desktop/crates/rv-core/src/native/authentication_vault.rs",
     "apps/desktop/crates/rv-core/src/native/credentials.rs",
+    "apps/desktop/crates/rv-core/src/native/custom_emojis.rs",
     "apps/desktop/crates/rv-core/src/native/email_recovery.rs",
     "apps/desktop/crates/rv-core/src/native/factor_email.rs",
     "apps/desktop/crates/rv-core/src/native/files.rs",
@@ -51,6 +52,7 @@
     "apps/desktop/crates/rv-core/src/native/security/email_settings.rs",
     "apps/desktop/crates/rv-core/src/native/security/factor_email.rs",
     "apps/desktop/crates/rv-core/src/native/store.rs",
+    "apps/desktop/crates/rv-core/src/native/store/custom_emojis.rs",
     "apps/desktop/crates/rv-core/src/native/store/files.rs",
     "apps/desktop/crates/rv-core/src/native/store/membership.rs",
     "apps/desktop/crates/rv-core/src/native/store/profiles.rs",
@@ -83,6 +85,7 @@
     "apps/desktop/crates/rv-ffi/src/model.rs",
     "apps/desktop/crates/rv-ffi/src/native.rs",
     "apps/desktop/crates/rv-ffi/src/native_auth.rs",
+    "apps/desktop/crates/rv-ffi/src/native_emojis.rs",
     "apps/desktop/crates/rv-ffi/src/native_files.rs",
     "apps/desktop/crates/rv-ffi/src/native_profiles.rs",
     "apps/desktop/crates/rv-ffi/src/native_recovery.rs",
@@ -229,6 +232,7 @@
     "apps/mobile/lib/emojis.genere.ts",
     "apps/mobile/lib/emojis.ts",
     "apps/mobile/lib/emojisCustom.ts",
+    "apps/mobile/lib/emojisFournisseur.ts",
     "apps/mobile/lib/envoi.ts",
     "apps/mobile/lib/envoiFichiers.ts",
     "apps/mobile/lib/erreurFournisseur.ts",
@@ -305,6 +309,7 @@
     "apps/mobile/ui/groupeMessages.ts",
     "apps/mobile/ui/i18n.ts",
     "apps/mobile/ui/identites.tsx",
+    "apps/mobile/ui/imageEmoji.tsx",
     "apps/mobile/ui/indicateurOuverture.tsx",
     "apps/mobile/ui/jetonSession.ts",
     "apps/mobile/ui/kit.tsx",
@@ -1396,49 +1401,49 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1166,
+      "line": 1176,
       "kind": "endpoint",
       "surface": "rooms.online"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1167,
+      "line": 1177,
       "kind": "endpoint",
       "surface": "rooms.connecting"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1168,
+      "line": 1178,
       "kind": "endpoint",
       "surface": "rooms.offline"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1616,
+      "line": 1626,
       "kind": "endpoint",
       "surface": "rooms.section_unread"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1617,
+      "line": 1627,
       "kind": "endpoint",
       "surface": "rooms.section_favorites"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1618,
+      "line": 1628,
       "kind": "endpoint",
       "surface": "rooms.section_channels"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1619,
+      "line": 1629,
       "kind": "endpoint",
       "surface": "rooms.section_direct"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1733,
+      "line": 1743,
       "kind": "endpoint",
       "surface": "e2e.read_only"
     },

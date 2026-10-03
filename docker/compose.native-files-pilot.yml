@@ -44,6 +44,15 @@ services:
       RV_FILE_TEST_PASSWORD: disposable-native-files-password
     command: [target/debug/examples/native-files-smoke]
     depends_on: [server]
+  mobile-emojis:
+    image: rocketvibe-native-check
+    working_dir: /src
+    volumes: ['..:/src:ro']
+    environment:
+      RV_FILE_TEST_SERVER: http://server:3400
+      RV_FILE_TEST_PASSWORD: disposable-native-files-password
+    command: [node, scripts/native-custom-emojis-smoke.ts]
+    depends_on: [server]
   gtk:
     image: rocket-vibe-rs-build
     cap_add: [IPC_LOCK]

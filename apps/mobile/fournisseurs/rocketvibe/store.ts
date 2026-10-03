@@ -16,6 +16,7 @@ import {NativeThreadCache,type PendingThreadRead} from './threads.ts';
 import {NativeProfileOperations} from './profileOperations.ts';
 import {NativeUploadIntents} from './uploadIntents.ts';
 import {nativeAttachments,fileDescriptor} from './fileDescriptors.ts';
+import {emojiCatalog,emojiRevision} from './customEmojis.ts';
 
 // Native revisions, checked below as exact decimal strings, order projection.
 // The shared RC statement's wall-clock condition would discard a valid edit
@@ -143,6 +144,39 @@ export class NativeStore {
   state(): Promise<NativeState | null> {
     return this.queue(() => this.db.getFirstAsync<NativeState>('SELECT instance_id,data_epoch,cursor FROM native_sync_state WHERE singleton=1', []));
   }
+  emojiCatalog():Promise<import('./protocol.generated.ts').EmojiCatalog|null> {
+    return this.queue(async()=>{
+      if(!await this.sameGeneration())return null;
+      const row=await this.db.getFirstAsync<{payload:string|null}>('SELECT payload FROM native_emoji_catalog WHERE singleton=1',[]);
+      return row?.payload?emojiCatalog(JSON.parse(row.payload)):null;
+    });
+  }
+  invalidateEmojis(revision:string,valid:()=>boolean):Promise<boolean> {
+    const incoming=emojiRevision(revision);
+    return this.atomic(async()=>{
+      if(!valid()||!await this.sameGeneration())return false;
+      const old=await this.db.getFirstAsync<{revision:string}>('SELECT revision FROM native_emoji_catalog WHERE singleton=1',[]);
+      if(old&&emojiRevision(old.revision)>=incoming)return false;
+      await this.db.runAsync('INSERT INTO native_emoji_catalog(singleton,revision,payload) VALUES(1,?,NULL) ON CONFLICT(singleton) DO UPDATE SET revision=excluded.revision,payload=NULL',[revision]);
+      if(!valid())throw new Error('emoji_scope_closed');
+      return true;
+    });
+  }
+  saveEmojis(value:import('./protocol.generated.ts').EmojiCatalog,valid:()=>boolean):Promise<boolean> {
+    const catalog=emojiCatalog(value),payload=JSON.stringify(catalog);
+    return this.atomic(async()=>{
+      if(!valid()||!await this.sameGeneration())return false;
+      const old=await this.db.getFirstAsync<{revision:string;payload:string|null}>('SELECT revision,payload FROM native_emoji_catalog WHERE singleton=1',[]);
+      if(old&&emojiRevision(old.revision)>emojiRevision(catalog.revision))return false;
+      if(old?.revision===catalog.revision&&old.payload!==null){
+        if(old.payload!==payload)throw new Error('invalid_emoji_catalog');
+        return true;
+      }
+      await this.db.runAsync('INSERT INTO native_emoji_catalog(singleton,revision,payload) VALUES(1,?,?) ON CONFLICT(singleton) DO UPDATE SET revision=excluded.revision,payload=excluded.payload',[catalog.revision,payload]);
+      if(!valid())throw new Error('emoji_scope_closed');
+      return true;
+    });
+  }
   private async sameGeneration(): Promise<boolean> {
     const state = await this.db.getFirstAsync<NativeState>('SELECT instance_id,data_epoch,cursor FROM native_sync_state WHERE singleton=1', []);
     return state?.instance_id === this.session.nativeInstanceId && state?.data_epoch === this.session.nativeDataEpoch;
@@ -151,7 +185,7 @@ export class NativeStore {
   prepare(): Promise<void> {
     return this.atomic(async () => {
       if (await this.sameGeneration()) return;
-      for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs','native_room_creations','native_commands','native_star_states','native_room_operations','native_profile_operations','native_upload_intents','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+      for (const table of ['salons','abonnements','messages','sortie','televersements','brouillons','native_positions','native_sync_state','etat_synchro','utilisateurs','native_room_creations','native_commands','native_star_states','native_room_operations','native_profile_operations','native_emoji_catalog','native_upload_intents','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
     });
   }
   private async membershipMatches(rid:string,membership:string|null):Promise<boolean> {
@@ -277,7 +311,7 @@ export class NativeStore {
       const old = await this.db.getFirstAsync<NativeState>('SELECT instance_id,data_epoch,cursor FROM native_sync_state WHERE singleton=1', []);
       if (!old || old.instance_id !== this.session.nativeInstanceId || old.data_epoch !== this.session.nativeDataEpoch) {
         // A fresh login to a different generation must never replay its predecessor's outbox.
-        for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'brouillons', 'native_positions', 'etat_synchro', 'utilisateurs', 'native_room_creations','native_commands','native_star_states','native_room_operations','native_profile_operations','native_upload_intents','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+        for (const table of ['salons', 'abonnements', 'messages', 'sortie', 'televersements', 'brouillons', 'native_positions', 'etat_synchro', 'utilisateurs', 'native_room_creations','native_commands','native_star_states','native_room_operations','native_profile_operations','native_emoji_catalog','native_upload_intents','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
       } else {
         const live = new Set(snapshot.rooms.map(room => room.id));
         const known = await this.db.getAllAsync<{rid:string}>('SELECT rid FROM salons', []);

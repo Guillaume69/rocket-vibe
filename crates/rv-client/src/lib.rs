@@ -26,6 +26,8 @@ pub enum Error {
     InvalidSnapshot,
     #[error("invalid or oversized native avatar")]
     InvalidAvatar,
+    #[error("invalid native emoji catalogue or image")]
+    InvalidEmoji,
     #[error("session missing")]
     SessionMissing,
     #[error("server refused request ({status}): {code}")]
@@ -704,6 +706,78 @@ impl NativeClient {
                 return Err(Error::InvalidAvatar);
             }
             bytes.extend_from_slice(&chunk);
+        }
+        Ok(bytes)
+    }
+    pub async fn emoji_catalog(&self) -> Result<rv_protocol::custom_emojis::EmojiCatalog, Error> {
+        let sent = self.saved_token().ok_or(Error::SessionMissing)?;
+        let mut response = self
+            .accepted(
+                self.http
+                    .get(format!("{}/api/v1/emoji", self.base))
+                    .bearer_auth(&sent)
+                    .send()
+                    .await?,
+                None,
+                Some(sent),
+            )
+            .await?;
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            if bytes.len() + chunk.len() > 1024 * 1024 {
+                return Err(Error::InvalidEmoji);
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        let catalog = serde_json::from_slice(&bytes).map_err(|_| Error::InvalidEmoji)?;
+        if !rv_protocol::custom_emojis::validate(&catalog) {
+            return Err(Error::InvalidEmoji);
+        }
+        Ok(catalog)
+    }
+    pub async fn emoji_bytes(
+        &self,
+        image: &rv_protocol::custom_emojis::CustomEmoji,
+    ) -> Result<Vec<u8>, Error> {
+        let sent = self.saved_token().ok_or(Error::SessionMissing)?;
+        let mut response = self
+            .accepted(
+                self.http
+                    .get(format!(
+                        "{}/api/v1/emoji/files/{}",
+                        self.base,
+                        encode(&image.file_id)
+                    ))
+                    .bearer_auth(&sent)
+                    .send()
+                    .await?,
+                None,
+                Some(sent),
+            )
+            .await?;
+        if response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            != Some(image.media_type.as_str())
+            || response.content_length() != image.bytes.parse::<u64>().ok()
+        {
+            return Err(Error::InvalidEmoji);
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            if bytes.len() + chunk.len() > 1024 * 1024 {
+                return Err(Error::InvalidEmoji);
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        use sha2::{Digest, Sha256};
+        let hash = Sha256::digest(&bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        if bytes.len().to_string() != image.bytes || hash != image.sha256 {
+            return Err(Error::InvalidEmoji);
         }
         Ok(bytes)
     }

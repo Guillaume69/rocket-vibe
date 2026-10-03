@@ -3,17 +3,19 @@ import type {ClientRest} from './rest.ts';
 
 type Photo={uri:string|null;failed:boolean;revision:number};
 type Entry={photo:Photo;listeners:Set<()=>void>;pending:Promise<void>|null;retired:boolean;used:number};
-type Source={id:number;read:(id:string)=>Promise<Uint8Array>;entries:Map<string,Entry>;active:number;waiters:(()=>void)[]};
+type ImageRead=(id:string)=>Promise<{bytes:Uint8Array;mime:string}>;
+type Source={id:number;kind:'avatar'|'emoji';read:ImageRead;entries:Map<string,Entry>;active:number;waiters:(()=>void)[]};
 const clients=new WeakMap<ClientRest,Source>(),sources=new Map<number,Source>();
+const emojiClients=new WeakMap<ClientRest,Source>();
 const EMPTY:Photo={uri:null,failed:true,revision:0};
 const MAX_ENTRIES=128,MAX_CHARS=32*1024*1024;
 let serial=0,tick=0;
 
 function notify(entry:Entry):void {for(const fn of entry.listeners)fn();}
 function locate(uri:string|null|undefined):{source:Source;id:string}|null {
-  const match=typeof uri==='string'?/^rv-avatar:(\d+):([0-9a-f]{64})$/.exec(uri):null;
-  const source=match?sources.get(Number(match[1])):null;
-  return source&&match?{source,id:match[2]}:null;
+  const match=typeof uri==='string'?/^rv-(avatar|emoji):(\d+):([0-9a-f]{64})$/.exec(uri):null;
+  const source=match?sources.get(Number(match[2])):null;
+  return source&&match&&source.kind===match[1]?{source,id:match[3]}:null;
 }
 function entryFor(source:Source,id:string):Entry|null {
   let entry=source.entries.get(id);
@@ -37,11 +39,29 @@ export function avatarBase64(bytes:Uint8Array):string {
   chunks.push(part);return chunks.join('');
 }
 
-export function definirAvatarsNatifs(client:ClientRest,read:Source['read']):()=>void {
+export function definirAvatarsNatifs(client:ClientRest,read:(id:string)=>Promise<Uint8Array>):()=>void {
   const previous=clients.get(client);
   if(previous)remove(previous);
-  const source:Source={id:++serial,read,entries:new Map(),active:0,waiters:[]};clients.set(client,source);sources.set(source.id,source);
+  const source:Source={id:++serial,kind:'avatar',read:async id=>({bytes:await read(id),mime:'image/png'}),entries:new Map(),active:0,waiters:[]};clients.set(client,source);sources.set(source.id,source);
   return()=>{if(clients.get(client)===source)clients.delete(client);remove(source);};
+}
+export function definirEmojisNatifs(client:ClientRest,read:ImageRead):()=>void {
+  const previous=emojiClients.get(client);if(previous)remove(previous);
+  const source:Source={id:++serial,kind:'emoji',read,entries:new Map(),active:0,waiters:[]};emojiClients.set(client,source);sources.set(source.id,source);
+  return()=>{if(emojiClients.get(client)===source)emojiClients.delete(client);remove(source);};
+}
+export function uriEmojiNatif(client:ClientRest,id:string):string|null {
+  const source=emojiClients.get(client);
+  return source&&/^[0-9a-f]{64}$/.test(id)?`rv-emoji:${source.id}:${id}`:null;
+}
+/** Retire displayed pixels as soon as a newer catalogue or account state is known. */
+export function revaliderEmojisNatifs(client:ClientRest,ids:ReadonlySet<string>,readable:boolean):void {
+  for(const [id,entry] of emojiClients.get(client)?.entries??[]){
+    entry.retired=!ids.has(id);
+    if(entry.retired||!readable||entry.photo.failed){
+      entry.photo={uri:null,failed:entry.retired||!readable,revision:entry.photo.revision+1};notify(entry);
+    }
+  }
 }
 function remove(source:Source):void {
   sources.delete(source.id);
@@ -85,19 +105,22 @@ export function chargerAvatarNatif(uri:string|null|undefined):Promise<void> {
     try{
       if(source.active>=4)await new Promise<void>(resolve=>source.waiters.push(resolve));
       else source.active++;
-      let bytes:Uint8Array;
+      let result:Awaited<ReturnType<ImageRead>>;
       try{
         if(!sources.has(source.id)||entry.retired)return;
-        bytes=await source.read(id);
+        result=await source.read(id);
       }finally{
         if(sources.has(source.id)){
           const next=source.waiters.shift();
           if(next)next();else source.active--;
         }
       }
-      if(bytes.length>2*1024*1024||bytes.length<8||[137,80,78,71,13,10,26,10].some((v,i)=>bytes[i]!==v))throw new Error('invalid_avatar');
+      const {bytes,mime}=result;
+      const png=mime==='image/png'&&bytes.length>=8&&[137,80,78,71,13,10,26,10].every((v,i)=>bytes[i]===v);
+      const gif=source.kind==='emoji'&&mime==='image/gif'&&bytes.length>=6&&[71,73,70,56].every((v,i)=>bytes[i]===v)&&[55,57].includes(bytes[4])&&bytes[5]===97;
+      if(bytes.length>(source.kind==='emoji'?1024*1024:2*1024*1024)||(!png&&!gif))throw new Error('invalid_image');
       if(!sources.has(source.id)||entry.retired||entry.photo.revision!==revision)return;
-      const data=`data:image/png;base64,${avatarBase64(bytes)}`;
+      const data=`data:${mime};base64,${avatarBase64(bytes)}`;
       let chars=[...source.entries.values()].reduce((sum,e)=>sum+(e.photo.uri?.length??0),0);
       for(const candidate of [...source.entries.values()].filter(e=>e!==entry&&!e.listeners.size&&e.photo.uri).sort((a,b)=>a.used-b.used)){
         if(chars+data.length<=MAX_CHARS)break;

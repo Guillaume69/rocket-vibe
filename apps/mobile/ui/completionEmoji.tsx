@@ -22,7 +22,6 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import {
-  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -38,7 +37,8 @@ import {
   type SuggestionEmoji,
 } from '../lib/completionEmoji.ts';
 import { codesEmojiStandard, unicodeDeCodeCourt } from '../lib/emojis.ts';
-import { codesEmojiCustom, urlEmojiCustom } from '../lib/emojisCustom.ts';
+import { urlEmojiCustom } from '../lib/emojisCustom.ts';
+import {ImageEmoji,useCatalogueEmojis} from './imageEmoji.tsx';
 import { type Couleurs, DELAI_PRESSION_LISTE } from './theme.ts';
 import { Appuyable } from './appuyable.tsx';
 
@@ -160,21 +160,18 @@ export function BandeauCompletionEmoji({
   /** Reçoit le texte à insérer et le `debut` du jeton détecté à ce moment. */
   surChoisir: (insertion: string, debut: number) => void;
 }) {
+  const customs=useCatalogueEmojis();
   const resultat = useMemo(() => {
     const jeton = detecterJetonEmoji(texte, curseur);
     if (jeton === null) return null;
-    // Dépend de (texte, curseur) seulement. Un rafraîchissement des customs en
-    // pleine frappe (synchro 1×/session, au raccordement) n'est pas reflété tant
-    // que la frappe n'a pas repris — angle mort assumé : la synchro tombe avant
-    // qu'on compose, et la frappe suivante recalcule.
     const suggestions = completerEmoji(
       jeton.requete,
       codesEmojiStandard(),
-      codesEmojiCustom(),
+      customs,
     );
     if (suggestions.length === 0) return null;
     return { debut: jeton.debut, items: suggestions.map(resoudre) };
-  }, [texte, curseur]);
+  }, [texte, curseur,customs]);
 
   if (resultat === null) return null;
 
@@ -196,7 +193,7 @@ export function BandeauCompletionEmoji({
             accessibilityLabel={`:${suggestion.code}:`}
           >
             {uri !== null ? (
-              <Image source={{ uri }} style={styles.image} resizeMode="contain" />
+              <ImageEmoji uri={uri} style={styles.image} code={suggestion.code}/>
             ) : (
               <Text style={styles.glyphe}>{glyphe}</Text>
             )}

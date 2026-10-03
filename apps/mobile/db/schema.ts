@@ -423,3 +423,10 @@ export const nativeOutboxQuotes = sqliteTable('native_outbox_quotes', {
   rid: text('rid').notNull(),
   payload: text('payload').notNull(),
 });
+
+/** A newer live revision hides obsolete names until its full catalogue arrives. */
+export const nativeEmojiCatalog = sqliteTable('native_emoji_catalog', {
+  singleton: integer('singleton').primaryKey(),
+  revision: text('revision').notNull(),
+  payload: text('payload'),
+});

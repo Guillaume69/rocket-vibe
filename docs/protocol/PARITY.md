@@ -55,6 +55,12 @@ implémentées dans le client ; SwiftUI reçoit la liste stable par UniFFI, GTK
 consulte le même cœur. Les droits restent une décision serveur par transaction.
 Une capacité vraie ne suffit pas à autoriser un compte à inviter, modifier ou lire.
 
+Le [catalogue d'emojis personnalisés](CUSTOM_EMOJIS.md) fournit noms, alias et
+images protégées aux composants existants mobile / GTK / SwiftUI. Les réactions
+conservent leur nom canonique et leur intention lors d'un changement du catalogue.
+Les caches sont versionnés et liés à la génération ; la qualification installée
+et le rendu animé desktop restent ouverts dans P07 / J3.
+
 `Fournisseur.identite` mobile expose genre, origine, compte et, pour RocketVibe,
 instance / génération. Le bureau conserve ces mêmes données dans `SessionInfo`.
 Les diagnostics mobiles neutres gardent code, request ID natif, statut et délai ;
@@ -200,7 +206,7 @@ ouverte tant que serveur, clients concernés et scénario de parité manquent.
 | P04 Salons / DM | J1–J2 | DM / membres, création idempotente, découverte / join, détails et commandes durables de réglages / rôles / départ dans les 3 fiches existantes, droits effectifs de rédaction dans les composeurs livrés ; qualification des applications installées ouverte |
 | P05 Favoris / non-lus / mentions | J2 | États personnels, lectures monotones, mentions nominatives / @all et favoris avec reçus livrés ; queues SQLite, reprises et buffers ouverts liés à l'adhésion livrés ; favoris, badges confirmés, séparateurs et timers d'ID visibles raccordés dans les 3 interfaces ; qualification des applications installées ouverte ; réponses P11 et @here P12 |
 | P06 Historique / temps réel | J1–J2 | Socle, snapshots matérialisés et barrière de révocation livrés ; tombstones / actions J2 |
-| P07 Markdown / emojis / citations | J2–J3 | Documents natifs et corpus commun adaptés aux renderers existants ; références, extraits et fichiers autorisés raccordés aux cartes, caches et contrôles de réponse des 3 clients ; libellé indisponible, purge d'aperçu et intentions durables livrés ; citations sur deux niveaux avec accès indépendant à chaque source, parcours GTK / modèles Swift et fournisseur mobile contre PostgreSQL vérifiés ; activités de salon structurées et traduites livrées ; catalogue custom et qualification installée ouverts |
+| P07 Markdown / emojis / citations | J2–J3 | Documents natifs et corpus commun adaptés aux renderers existants ; références, extraits et fichiers autorisés raccordés aux cartes, caches et contrôles de réponse des 3 clients ; libellé indisponible, purge d'aperçu et intentions durables livrés ; citations sur deux niveaux avec accès indépendant à chaque source, parcours GTK / modèles Swift et fournisseur mobile contre PostgreSQL vérifiés ; activités de salon structurées et traduites livrées ; [catalogue custom](CUSTOM_EMOJIS.md), caches versionnés et lecteurs protégés raccordés aux sélecteurs, complétions, messages et réactions existants ; qualification installée et animation desktop ouvertes |
 | P08 Envoi / brouillons | J1 | Socle livré ; crash réel après commit / réponse perdue, Android ↔ Windows |
 | P09 Édition / suppression | J2 | API, droits / délais, tombstones, intentions SQLite et menus / éditeurs des 3 clients livrés ; parcours appareils à qualifier |
 | P10 Réactions / épingles / étoiles | J2 | API idempotente, alias, épingles, étoiles privées, intentions SQLite et menus / listes existants des 3 clients livrés ; qualification appareils à poursuivre |

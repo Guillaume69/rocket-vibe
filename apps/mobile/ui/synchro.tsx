@@ -22,6 +22,7 @@
 import * as Crypto from 'expo-crypto';
 import {NativeError} from '../fournisseurs/rocketvibe/transport.ts';
 import {monterProfilsFournisseur} from '../lib/profilsFournisseur.ts';
+import {monterEmojisFournisseur} from '../lib/emojisFournisseur.ts';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { AppState } from 'react-native';
 
@@ -195,6 +196,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         const nativeFiles=await creerFichiersNatifsIO(fournisseur);
         if(!alive){chat.stop();return;}
         const unprofile=monterProfilsFournisseur(client,fournisseur);
+        const unemojis=monterEmojisFournisseur(client,fournisseur);
         const unfiles=monterFichiersNatifs(client,fournisseur);
         const fichiers=fournisseur.creerTeleversement(creerDepotTeleversements(brute,fileEcritures),transportExpo,async()=>{},{nativeFiles});
         runner = chat;
@@ -219,7 +221,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           }
           lastError = chat.status.error;
         });
-        stop = () => { unlisten();unlive();unprofile();unfiles();fichiers.fermer?.();presence.invalider();chat.stop(); };
+        stop = () => { unlisten();unlive();unprofile();unemojis();unfiles();fichiers.fermer?.();presence.invalider();chat.stop(); };
         setSynchro({
           phase:'pret',base,brouillons:store.drafts(),moteur,envoi,
           fichiers,

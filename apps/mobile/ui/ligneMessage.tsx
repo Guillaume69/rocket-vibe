@@ -29,6 +29,7 @@ import {
 import { chiffrementDeJointe, type ChiffrementFichier } from '../lib/e2e/crypto.ts';
 import { unicodeDeCodeCourt } from '../lib/emojis.ts';
 import { urlEmojiCustom } from '../lib/emojisCustom.ts';
+import {ImageEmoji,useCatalogueEmojis} from './imageEmoji.tsx';
 import { arbreDuMessage } from '../lib/markdown.ts';
 import { texteSysteme } from '../lib/messagesSysteme.ts';
 import { listeReactions, type ReactionAffichee } from '../lib/reactions.ts';
@@ -378,6 +379,7 @@ function PastilleReaction({
   reaction: ReactionAffichee;
   surPresser: (() => void) | undefined;
 }) {
+  useCatalogueEmojis();
   const glyphe = unicodeDeCodeCourt(reaction.code);
   const uri = glyphe === null ? urlEmojiCustom(reaction.code) : null;
   return (
@@ -400,7 +402,7 @@ function PastilleReaction({
       {glyphe !== null ? (
         <Text style={styles.reactionEmoji}>{glyphe}</Text>
       ) : uri !== null ? (
-        <Image source={{ uri }} style={styles.reactionImage} resizeMode="contain" />
+        <ImageEmoji uri={uri} style={styles.reactionImage} code={reaction.code}/>
       ) : (
         <Text style={[styles.reactionCode, { color: c.attenue }]} numberOfLines={1}>
           :{reaction.code}:

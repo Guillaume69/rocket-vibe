@@ -47,25 +47,38 @@ impl Provider {
         match self {
             Self::RocketChat(_) => path.into(),
             Self::RocketVibe(s) => format!(
-                "{}:{}:{:?}:{}:{}:{path}",
+                "{}:{}:{:?}:{}:{}:{}:{path}",
                 s.info.base_url,
                 s.info.user_id,
                 s.info.native,
                 s.store.projection_token(),
-                s.store.search_token()
+                s.store.search_token(),
+                s.emoji_version()
             ),
         }
     }
     pub fn current(&self, path: &str) -> bool {
         match self {
             Self::RocketChat(_) => true,
-            Self::RocketVibe(s) => s.file_current(path),
+            Self::RocketVibe(s) => {
+                if path.starts_with("rv-emoji:") {
+                    s.emoji_current(path)
+                } else {
+                    s.file_current(path)
+                }
+            }
         }
     }
     async fn fetch(&self, path: &str) -> Option<Arc<rv_core::media::Media>> {
         match self {
             Self::RocketChat(s) => s.media.fetch(path).await.ok(),
-            Self::RocketVibe(s) => s.file_media(path).await.ok().map(Arc::new),
+            Self::RocketVibe(s) => {
+                if path.starts_with("rv-emoji:") {
+                    s.emoji_media(path).await.ok().map(Arc::new)
+                } else {
+                    s.file_media(path).await.ok().map(Arc::new)
+                }
+            }
         }
     }
     pub async fn download(&self, path: &str, dest: &std::path::Path) -> bool {

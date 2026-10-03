@@ -136,6 +136,7 @@ fn direct_peer_identity_survives_offline_and_tracks_profile_changes_only_for_cur
     let mut stamp: ProfileStamp = serde_json::from_value(f["own_profile"]["profile"].clone()).unwrap();
     stamp.avatar_file_id = Some("a".repeat(64));
     let frame = rv_protocol::live::LiveState {
+        emoji_catalog_revision: None,
         profiles: vec![stamp.clone()],
         ttl_ms: 8000,
         limited: false,

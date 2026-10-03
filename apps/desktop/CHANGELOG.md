@@ -9,6 +9,10 @@ section here.
 
 ### Fixed
 
+- Native custom emojis use the existing GTK and SwiftUI pickers, completion,
+  message rendering and reaction controls. The catalogue refreshes after operator
+  changes; protected image readers discard retired entries and account state.
+
 - Native quotes carry source attachments into the existing GTK and SwiftUI
   cards: protected images and compact document, audio and video summaries.
   Source deletion or membership loss removes their previews and read access.

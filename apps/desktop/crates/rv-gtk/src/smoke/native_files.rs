@@ -98,6 +98,28 @@ async fn run(window: Rc<AppWindow>) {
         super::find_by_class(window.chat.widget().upcast_ref(), "quote-card").is_some(),
         (),
     );
+    if std::env::var("RV_SMOKE_NATIVE_EMOJIS").as_deref() == Ok("1") {
+        check("native GTK custom catalogue", session.custom_emoji_names().iter().any(|c| c == "party_parrot"), ());
+        check(
+            "native GTK custom alias",
+            session.custom_emoji("party_parrot") == session.custom_emoji("vibe_parrot"),
+            (),
+        );
+        composer.set_text("GTK :vibe_parrot: custom emoji");
+        composer.submit_now();
+        let mut rendered = false;
+        for _ in 0..100 {
+            rendered = super::find_by_class(window.chat.widget().upcast_ref(), "custom-emoji")
+                .and_then(|w| w.last_child())
+                .and_then(|w| w.downcast::<gtk::Picture>().ok())
+                .is_some_and(|p| p.paintable().is_some());
+            if rendered {
+                break;
+            }
+            glib::timeout_future(Duration::from_millis(100)).await;
+        }
+        check("native GTK custom emoji rendered", rendered, ());
+    }
     let _ = std::fs::remove_file(path);
     window.window.application().unwrap().quit();
 }

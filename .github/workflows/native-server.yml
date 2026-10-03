@@ -161,8 +161,10 @@ jobs:
       - name: Native streamed files and existing GTK attachment controls
         run: |
           docker compose -f docker/compose.native-files-pilot.yml up -d postgres bootstrap server
+          docker compose -f docker/compose.native-files-pilot.yml exec -T server sh /src/apps/server/scripts/seed-test-emoji.sh
           docker compose -f docker/compose.native-files-pilot.yml run --rm --no-deps desktop
-          docker compose -f docker/compose.native-files-pilot.yml run --rm --no-deps gtk
+          docker compose -f docker/compose.native-files-pilot.yml run --rm --no-deps mobile-emojis
+          docker compose -f docker/compose.native-files-pilot.yml run --rm --no-deps -e RV_SMOKE_NATIVE_EMOJIS=1 gtk
       - name: Existing GTK security settings and private receipt after restart
         run: |
           docker compose -p rocketvibe-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml up -d factor-proxy
@@ -294,6 +296,7 @@ jobs:
       - name: Native files in existing Swift room and media models
         run: |
           docker compose -f docker/compose.native-files-pilot.yml up -d postgres bootstrap server
+          docker compose -f docker/compose.native-files-pilot.yml exec -T server sh /src/apps/server/scripts/seed-test-emoji.sh
           docker compose -f docker/compose.native-files-pilot.yml run --rm --no-deps swift
       - name: Swift security settings and private receipt after process restart
         run: |

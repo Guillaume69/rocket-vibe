@@ -21,6 +21,8 @@ test('a server flag alone cannot expose a feature absent from the installed app'
   assert.equal(capacitesEffectives(announced).fichiers,true);
   assert.equal(capacitesEffectives({...announced,uploads:false}).fichiers,false);
   assert.equal(capacitesEffectives(announced,{...CAPACITES_ROCKETVIBE,fichiers:false}).fichiers,false);
+  assert.equal(capacitesEffectives({...announced,custom_emojis:true}).emojisCustom,true);
+  assert.equal(capacitesEffectives({...announced,custom_emojis:true},{...CAPACITES_ROCKETVIBE,emojisCustom:false}).emojisCustom,false);
   assert.equal(capacitesEffectives(announced).typing,true);
   assert.equal(capacitesEffectives(announced).recherche,true);
   assert.equal(capacitesEffectives(announced,{...CAPACITES_ROCKETVIBE,recherche:false}).recherche,false);

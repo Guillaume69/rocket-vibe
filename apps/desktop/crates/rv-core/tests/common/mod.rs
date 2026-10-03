@@ -137,13 +137,22 @@ impl FakeHttp {
                             while ws.next().await.is_some() {}
                             return;
                         }
+                        let content_type = response
+                            .headers
+                            .iter()
+                            .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
+                            .map(|(_, v)| v.as_str())
+                            .unwrap_or("application/json");
                         let mut out = format!(
-                            "HTTP/1.1 {} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\n",
+                            "HTTP/1.1 {} X\r\nContent-Type: {}\r\nContent-Length: {}\r\n",
                             response.status,
+                            content_type,
                             response.body.len()
                         );
                         for (k, v) in &response.headers {
-                            out.push_str(&format!("{k}: {v}\r\n"));
+                            if !k.eq_ignore_ascii_case("content-type") {
+                                out.push_str(&format!("{k}: {v}\r\n"));
+                            }
                         }
                         out.push_str("\r\n");
                         out.push_str(&response.body);

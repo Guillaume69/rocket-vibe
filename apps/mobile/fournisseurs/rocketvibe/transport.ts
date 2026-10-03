@@ -1,6 +1,8 @@
 /** Native HTTP transport shared by the mobile pilot and integration tests. */
 import type { CreateRoom, Discovery, DirectMessage, Message, MessagePage, NativeTypes, Room, SendMessage, Session, Snapshot, SocketTicket, SyncBatch } from './protocol.generated.ts';
 import { decodeNative } from './validation.ts';
+import {createHash} from 'crypto';
+import {emojiCatalog} from './customEmojis.ts';
 
 function utf8Bytes(text: string): number {
   let bytes = 0;
@@ -67,16 +69,17 @@ export class NativeTransport {
       if (response.status === 429 && effectiveBudget !== null) this.cooldowns.set(effectiveBudget,{until:Date.now()+retry*1000,code:error.code,requestId:error.request_id});
       throw new NativeError(response.status, error.code, response.status === 429 ? retry : undefined, error.request_id);
     }
-      if (path === '/api/v1/sync/snapshots' || path.startsWith('/api/v1/sync/snapshots/')) {
+      if (path === '/api/v1/emoji' || path === '/api/v1/sync/snapshots' || path.startsWith('/api/v1/sync/snapshots/')) {
+        const invalid=path==='/api/v1/emoji'?'invalid_emoji_catalog':'invalid_snapshot';
         const length = response.headers.get('content-length');
         if (length && /^\d+$/.test(length) && Number(length)>1024*1024) {
           controller.abort();
-          throw new NativeError(0,'invalid_snapshot');
+          throw new NativeError(0,invalid);
         }
         // React Native fetch buffers the response; check its actual UTF-8 body
         // before JSON parsing too, even when no length header was supplied.
         const text = await response.text();
-        if (utf8Bytes(text)>1024*1024) throw new NativeError(0,'invalid_snapshot');
+        if (utf8Bytes(text)>1024*1024) throw new NativeError(0,invalid);
         return JSON.parse(text);
       }
       if(binary?.read || binary?.file){
@@ -183,6 +186,13 @@ export class NativeTransport {
     return decodeNative('ProfileReceipt',value);
   }
   async avatarBytes(id:string):Promise<Uint8Array> {return await this.value(`/api/v1/avatars/${encodeURIComponent(id)}`,undefined,false,undefined,'GET',{read:true}) as Uint8Array;}
+  async emojiCatalog():Promise<NativeTypes['EmojiCatalog']> {return emojiCatalog(await this.value('/api/v1/emoji'));}
+  async emojiBytes(item:NativeTypes['CustomEmoji']):Promise<Uint8Array> {
+    emojiCatalog({revision:item.revision,items:[item]});
+    const bytes=await this.value(`/api/v1/emoji/files/${item.file_id}`,undefined,false,undefined,'GET',{file:{bytes:Number(item.bytes),mime:item.media_type}}) as Uint8Array;
+    if(createHash('sha256').update(bytes).digest('hex')!==item.sha256)throw new NativeError(502,'invalid_emoji_image');
+    return bytes;
+  }
   accountPermissions(): Promise<NativeTypes['AccountPermissions']> { return this.request('AccountPermissions','/api/v1/me/permissions'); }
   roomPermissions(room: string): Promise<NativeTypes['RoomPermissions']> { return this.request('RoomPermissions',`/api/v1/rooms/${encodeURIComponent(room)}/permissions`); }
   roomDetails(room:string):Promise<NativeTypes['RoomDetails']> { return this.request('RoomDetails',`/api/v1/rooms/${encodeURIComponent(room)}`); }

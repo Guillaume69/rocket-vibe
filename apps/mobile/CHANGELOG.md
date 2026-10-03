@@ -9,6 +9,10 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Les emojis personnalisés du serveur apparaissent dans les sélecteurs, la
+  complétion, les messages et les réactions existants. Les images protégées
+  sont retirées après une mise à jour du catalogue ou un changement de compte.
+
 - Les citations conservent les fichiers du message source : vignette protégée
   pour les images, résumé compact pour les documents, vocaux et vidéos.
   Le retrait du salon source ou la suppression du message retire leur accès.

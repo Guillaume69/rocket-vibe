@@ -18,13 +18,13 @@ pub(super) struct AvatarCache {
     size: usize,
 }
 impl AvatarCache {
-    fn get(&mut self, id: &str) -> Option<Vec<u8>> {
+    pub(super) fn get(&mut self, id: &str) -> Option<Vec<u8>> {
         let value = self.entries.get(id)?.clone();
         self.order.retain(|k| k != id);
         self.order.push_back(id.into());
         Some(value)
     }
-    fn put(&mut self, id: &str, bytes: Vec<u8>) {
+    pub(super) fn put(&mut self, id: &str, bytes: Vec<u8>) {
         if self.entries.contains_key(id) {
             return;
         }

@@ -572,8 +572,10 @@ impl Composer {
         self.set_text(&session.store.draft_from_membership(rid, membership.as_deref()).unwrap_or_default());
         self.completion.popdown();
         self.mentions.replace(None);
-        self.custom_emoji.replace(None);
-        self.custom_names.replace(None);
+        let s = session.clone();
+        self.custom_emoji.replace(Some(Rc::new(move |prefix: &str| s.custom_emoji_codes(prefix))));
+        let s = session.clone();
+        self.custom_names.replace(Some(Rc::new(move || s.custom_emoji_names())));
         let (store, rid, session) = (session.store.clone(), rid.to_owned(), session.clone());
         self.connect_changed(move |text| {
             let _ = store.set_draft_from_membership(&rid, &text, membership.as_deref());

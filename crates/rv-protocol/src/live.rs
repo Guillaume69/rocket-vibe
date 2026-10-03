@@ -49,6 +49,9 @@ pub struct LiveRoom {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct LiveState {
+    /// A refresh hint; the authenticated catalogue remains authoritative.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emoji_catalog_revision: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub profiles: Vec<crate::profiles::ProfileStamp>,
     /// Receiver-relative lifetime; no client wall clock participates in leases.

@@ -19,9 +19,10 @@
 
 import type { BigEmoji, Blocks, Inlines, Paragraph } from '@rocket.chat/message-parser';
 import { Component, type ReactElement, type ReactNode } from 'react';
-import { Image, Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 
 import { urlEmojiCustom } from '../lib/emojisCustom.ts';
+import {ImageEmoji,useCatalogueEmojis} from './imageEmoji.tsx';
 import { texteDe, unicodeDEmoji, type Root } from '../lib/markdown.ts';
 import { ouvrirFicheProfil } from '../lib/profilPreload.ts';
 import { ouvrirLienExterne } from './lienExterne.ts';
@@ -75,6 +76,7 @@ export class GardeRendu extends Component<
 }
 
 export function CorpsMessage({ arbre, c }: { arbre: Root; c: Couleurs }) {
+  useCatalogueEmojis();
   return (
     <View style={styles.corps}>
       {arbre.map((bloc, i) => (
@@ -296,14 +298,13 @@ function rendreEmoji(
   const uri = urlEmojiCustom(shortCode);
   if (uri === null) return null;
   return (
-    <Image
+    <ImageEmoji
       key={cle}
-      source={{ uri }}
+      uri={uri}
       style={taille === 'grand' ? styles.emojiCustomGrand : styles.emojiCustomInline}
       // `contain` : un emoji non carré (bannière, mascotte large) doit tenir
       // entier dans sa boîte, pas être rogné par le `cover` par défaut.
-      resizeMode="contain"
-      accessibilityLabel={`:${shortCode}:`}
+      code={shortCode}
     />
   );
 }

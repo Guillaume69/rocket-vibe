@@ -20,6 +20,11 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Manage the instance custom emoji catalogue on the operator-owned volume.
+    Emoji {
+        #[command(subcommand)]
+        command: EmojiCommand,
+    },
     Serve {
         #[arg(long, env = "RV_BIND", default_value = "127.0.0.1:3400")]
         bind: SocketAddr,
@@ -139,6 +144,28 @@ enum Command {
 }
 
 type CliResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+#[derive(Subcommand)]
+enum EmojiCommand {
+    List,
+    Put {
+        name: String,
+        file: std::path::PathBuf,
+        #[arg(long = "alias")]
+        aliases: Vec<String>,
+        #[arg(long)]
+        revision: Option<String>,
+        #[arg(long)]
+        operation_id: Option<String>,
+    },
+    Remove {
+        name: String,
+        #[arg(long)]
+        revision: String,
+        #[arg(long)]
+        operation_id: Option<String>,
+    },
+}
 fn output(value: impl serde::Serialize) -> CliResult {
     println!("{}", serde_json::to_string(&value)?);
     Ok(())
@@ -181,6 +208,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .await?
         .with_mail(mail);
     match args.command {
+        Command::Emoji { command } => match command {
+            EmojiCommand::List => operator_output(rv_server::custom_emojis::catalog(&app).await)?,
+            EmojiCommand::Put {
+                name,
+                file,
+                aliases,
+                revision,
+                operation_id,
+            } => {
+                use tokio::io::AsyncReadExt;
+                let mut bytes = Vec::new();
+                tokio::fs::File::open(file)
+                    .await?
+                    .take((rv_server::custom_emojis::MAX_BYTES + 1) as u64)
+                    .read_to_end(&mut bytes)
+                    .await?;
+                let app =
+                    app.with_objects(rv_server::objects::LocalObjects::open(&args.objects_dir)?);
+                operator_output(
+                    rv_server::custom_emojis::put(
+                        &app,
+                        &operation_id.unwrap_or_else(rv_server::auth::random_token),
+                        &name,
+                        aliases,
+                        revision.as_deref(),
+                        bytes,
+                    )
+                    .await,
+                )?;
+            }
+            EmojiCommand::Remove {
+                name,
+                revision,
+                operation_id,
+            } => operator_output(
+                rv_server::custom_emojis::remove(
+                    &app,
+                    &operation_id.unwrap_or_else(rv_server::auth::random_token),
+                    &name,
+                    &revision,
+                )
+                .await,
+            )?,
+        },
         Command::Serve { bind } => {
             let app = app.with_objects(rv_server::objects::LocalObjects::open(&args.objects_dir)?);
             app.cleanup().await?;

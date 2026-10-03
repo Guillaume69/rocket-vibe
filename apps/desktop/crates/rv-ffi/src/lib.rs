@@ -6,6 +6,7 @@ pub mod markup;
 pub mod model;
 mod native;
 mod native_auth;
+mod native_emojis;
 mod native_files;
 mod native_profiles;
 mod native_recovery;
@@ -597,6 +598,9 @@ impl Chat {
     /// A server emoji's image path, by shortcode without colons.
     pub fn custom_emoji(&self, code: String) -> Option<String> {
         self.session.custom_emoji(&code)
+    }
+    pub fn custom_emoji_names(&self) -> Vec<String> {
+        self.session.custom_emoji_names()
     }
 
     /// `thread_id` None for the room's own composer.

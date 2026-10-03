@@ -32,6 +32,7 @@ import m0027 from './0027_reflective_spencer_smythe.sql';
 import m0028 from './0028_equal_sally_floyd.sql';
 import m0029 from './0029_parallel_scarlet_spider.sql';
 import m0030 from './0030_native_files.sql';
+import m0031 from './0031_native_custom_emojis.sql';
 
   export default {
     journal,
@@ -66,7 +67,8 @@ m0026,
 m0027,
 m0028,
 m0029,
-m0030
+m0030,
+m0031
     }
   }
   

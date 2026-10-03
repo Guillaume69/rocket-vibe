@@ -19,7 +19,10 @@ pub fn random_token() -> String {
 }
 
 pub fn hash_token(token: &str) -> String {
-    Sha256::digest(token.as_bytes())
+    hash_token_bytes(token.as_bytes())
+}
+pub fn hash_token_bytes(token: &[u8]) -> String {
+    Sha256::digest(token)
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()

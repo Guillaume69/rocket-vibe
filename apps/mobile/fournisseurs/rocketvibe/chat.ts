@@ -12,6 +12,7 @@ import type { Capabilities } from './protocol.generated.ts';
 import type {RoomOperation,SavedRoomOperation} from './roomOperations.ts';
 import type {PendingRead,SavedFavorite} from './readIntents.ts';
 import { canonicalEmoji } from './emojis.ts';
+import {EMPTY_EMOJIS,emojiShortcode,emojiRevision} from './customEmojis.ts';
 import {NativeLive} from './live.ts';
 import type {FactorRemote} from './factorVault.ts';
 import type {EmailRemote} from './emailVault.ts';
@@ -49,6 +50,9 @@ export class NativeChat {
   private livePeers=new Map<string,string>();
   private profileChanges=0;
   private profileReads:Promise<void>=Promise.resolve();
+  private emojiState:import('./protocol.generated.ts').EmojiCatalog=EMPTY_EMOJIS;
+  private emojiChanges=0;
+  private emojiReads:Promise<void>=Promise.resolve();
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private retryAt = 0;
   private retryAttempt = 0;
@@ -84,6 +88,12 @@ export class NativeChat {
   }
   get searchVersion():string {return `${this.generation}:${this.store.projectionToken()}:${this.store.searchToken()}`;}
   get profileVersion():string {return `${this.generation}:${this.store.projectionToken()}:${this.profileChanges}`;}
+  get emojiVersion():string {return `${this.generation}:${this.emojiChanges}`;}
+  get customEmojis():import('./protocol.generated.ts').EmojiCatalog {return this.emojiState;}
+  async restoreEmojis():Promise<void> {
+    const generation=this.generation,version=this.emojiChanges,catalog=await this.store.emojiCatalog();
+    if(!this.stopped&&generation===this.generation&&version===this.emojiChanges&&catalog){this.emojiState=catalog;this.emojiChanges++;this.notify();}
+  }
   profileVersionFor(id:string|null):string {return `${this.generation}:${this.store.projectionToken()}:${id?this.profileHeads.get(id)??'unobserved':this.profileChanges}`;}
   private notify(): void { for (const listener of this.listeners) listener(); }
   start(): void { this.reconnect.declencher(); }
@@ -169,11 +179,15 @@ export class NativeChat {
       }
       if (!alive()) return;
       this.verified = true;
+      this.emojiState=await this.store.emojiCatalog()??EMPTY_EMOJIS;
+      if(this.capabilities?.custom_emojis)await this.refreshEmojis();
+      else this.emojiState=EMPTY_EMOJIS;
+      if(!alive())return;
       this.notify();
       await this.flush();
       if (!alive()) return;
       const cursor = (await this.store.state())!.cursor;
-      const url = await this.transport.socketUrl(cursor,!!(this.capabilities?.typing || this.capabilities?.presence));
+      const url = await this.transport.socketUrl(cursor,!!(this.capabilities?.typing || this.capabilities?.presence || this.capabilities?.custom_emojis));
       if (!alive()) return;
       await this.open(url,generation);
       if (!alive()) return;
@@ -215,6 +229,15 @@ export class NativeChat {
           const value:unknown=JSON.parse(String(event.data));
           if(value && typeof value==='object' && 'type' in value && value.type==='live'){
             const frame=decodeNative('LiveFrame',value);
+            if(frame.data.emoji_catalog_revision!=null&&this.capabilities?.custom_emojis&&frame.data.ttl_ms<=8000&&frame.data.ttl_ms>performance.now()-receivedAt){
+              const revision=frame.data.emoji_catalog_revision;
+              const valid=()=>generation===this.generation&&!this.stopped;
+              if(await this.store.invalidateEmojis(revision,valid)){
+                if(!valid())return;
+                this.emojiState=EMPTY_EMOJIS;this.emojiChanges++;this.notify();
+              }
+              if(valid()&&emojiRevision(revision)>emojiRevision(this.emojiState.revision))void this.refreshEmojis().catch(()=>{});
+            }
             for(const room of frame.data.rooms){
               const grant=await this.store.readState(room.room_id);
               if(generation!==this.generation)return;
@@ -505,7 +528,9 @@ export class NativeChat {
     return this.submitCommand(rid,id,revision,'delete','');
   }
   async react(rid:string,id:string,code:string,present:boolean):Promise<void> {
-    const emoji=canonicalEmoji(code);
+    const short=emojiShortcode(code);
+    const custom=short?this.emojiState.items.find(e=>e.name===short||e.aliases.includes(short)):null;
+    const emoji=canonicalEmoji(code)??custom?.name??(!present?short:null);
     if (!emoji) throw new NativeError(422,'unknown_emoji');
     return this.submitCommand(rid,id,'0','react',JSON.stringify({emoji,present}));
   }
@@ -601,6 +626,30 @@ export class NativeChat {
     checkIdentity(this.session,await this.transport.discover());this.roomOperationGeneration(generation);
     if(projection!==this.store.projectionToken())throw new NativeError(409,'delivery_revalidate');
     return bytes;
+  }
+  refreshEmojis():Promise<void> {
+    const generation=this.generation,valid=()=>generation===this.generation&&!this.stopped&&this.verified;
+    const operation=this.emojiReads.then(async()=>{
+      if(!valid()||!this.capabilities?.custom_emojis)return;
+      const catalog=await this.transport.emojiCatalog();
+      checkIdentity(this.session,await this.transport.discover());
+      if(!valid()||!await this.store.saveEmojis(catalog,valid))return;
+      if(!valid())return;
+      if(JSON.stringify(catalog)!==JSON.stringify(this.emojiState)){this.emojiState=catalog;this.emojiChanges++;this.notify();}
+    });
+    this.emojiReads=operation.then(()=>{},()=>{});return operation;
+  }
+  async customEmojiImage(id:string):Promise<{bytes:Uint8Array;mime:string}> {
+    this.ready();if(!this.capabilities?.custom_emojis)throw new NativeError(501,'unsupported_feature');
+    const generation=this.generation,revision=this.emojiState.revision;
+    const item=this.emojiState.items.find(e=>e.file_id===id);
+    if(!item)throw new NativeError(404,'emoji_retired');
+    checkIdentity(this.session,await this.transport.discover());this.roomOperationGeneration(generation);
+    const bytes=await this.transport.emojiBytes(item);
+    // Authenticate the current catalogue again before exposing cached pixels.
+    await this.refreshEmojis();this.roomOperationGeneration(generation);
+    if(revision!==this.emojiState.revision||!this.emojiState.items.some(e=>e.file_id===id))throw new NativeError(409,'delivery_revalidate');
+    return {bytes,mime:item.media_type};
   }
   async searchMessages(rid:string,q:string,before?:string):Promise<import('./protocol.generated.ts').Message[]> {
     if(!this.capabilities?.search)throw new NativeError(501,'unsupported_feature');
@@ -1019,7 +1068,7 @@ function permanentRoomError(error:unknown):boolean {
 function reactionIntent(text:string):{emoji:string;present:boolean} {
   try {
     const value=JSON.parse(text);
-    if (value && typeof value.emoji==='string' && typeof value.present==='boolean' && Object.keys(value).length===2 && canonicalEmoji(value.emoji)) return value;
+    if (value && typeof value.emoji==='string' && typeof value.present==='boolean' && Object.keys(value).length===2 && (canonicalEmoji(value.emoji)||emojiShortcode(value.emoji)===value.emoji)) return value;
   } catch { /* Invalid persisted input is quarantined, never retried in a loop. */ }
   throw new NativeError(422,'invalid_message_action');
 }

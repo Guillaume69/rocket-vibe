@@ -26,6 +26,8 @@ use crate::{
 
 pub fn router(app: App) -> Router {
     Router::new()
+        .route("/api/v1/emoji", get(emoji_catalog))
+        .route("/api/v1/emoji/files/{id}", get(emoji_image))
         .route("/api/v1/uploads", post(prepare_upload))
         .route(
             "/api/v1/uploads/{id}",
@@ -291,6 +293,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             profiles: true,
             profile_avatars: app.objects.is_some(),
             uploads: app.objects.is_some(),
+            custom_emojis: app.objects.is_some(),
             session_rotation: true,
             device_sessions: true,
             account_invitations: true,
@@ -808,6 +811,19 @@ async fn avatar(
 ) -> Result<Response> {
     let (_, hash, proof) = read_access(&app, &headers, Scope::None).await?;
     crate::profiles::avatar_response(&app, &hash, &proof, &id).await
+}
+
+async fn emoji_catalog(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    let (_, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    crate::custom_emojis::catalog_response(&app, &hash, &proof).await
+}
+async fn emoji_image(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response> {
+    let (_, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    crate::custom_emojis::image_response(&app, &hash, &proof, &id).await
 }
 
 async fn users(State(app): State<App>, headers: HeaderMap) -> Result<Response> {

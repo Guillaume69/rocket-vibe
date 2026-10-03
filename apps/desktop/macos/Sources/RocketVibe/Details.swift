@@ -313,17 +313,20 @@ struct MarkedView: View {
 
 /// The picker's pages, then search by shortcode.
 struct EmojiPicker: View {
+    @Environment(AppModel.self) var app
     let pick: (String, String) -> Void
     @State var category = 0
     @State var query = ""
     let categories = emojiCategories()
+    var customs:[String]{_ = app.imagesVersion;return app.chat?.customEmojiNames() ?? app.native?.customEmojiNames() ?? []}
 
     var shown: [(String, String)] {
         if query.isEmpty {
+            if category==categories.count{return customs.map{(":\($0):", ":\($0):")}}
             let c = categories[category]
             return Array(zip(c.shortcodes, c.glyphs))
         }
-        return completeEmoji(prefix: query, limit: 180).map { (":\($0.shortcode):", $0.glyph) }
+        return customs.filter{$0.hasPrefix(query.lowercased())}.map{(":\($0):", ":\($0):")} + completeEmoji(prefix: query, limit: 180).map { (":\($0.shortcode):", $0.glyph) }
     }
 
     var body: some View {
@@ -335,6 +338,7 @@ struct EmojiPicker: View {
                     ForEach(Array(categories.enumerated()), id: \.offset) { i, c in
                         Text(c.glyphs.first ?? c.name).tag(i)
                     }
+                    if !customs.isEmpty{Text("⭐").tag(categories.count)}
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
@@ -342,7 +346,10 @@ struct EmojiPicker: View {
             ScrollView {
                 LazyVGrid(columns: Array(repeating: GridItem(.fixed(30), spacing: 4), count: 9), spacing: 4) {
                     ForEach(shown, id: \.0) { code, glyph in
-                        Button { pick(code, glyph) } label: { Text(glyph).font(.system(size: 22)) }
+                        Button { pick(code, glyph) } label: {
+                            if let path=app.media?.customEmoji(code){RemoteImage(path:path,width:22,height:22)}
+                            else{Text(glyph).font(.system(size: 22))}
+                        }
                             .buttonStyle(.plain)
                             .help(code)
                     }

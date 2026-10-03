@@ -19,7 +19,7 @@
  * fois — celui de la session active, posé par `definirEmojisCustom`.
  */
 
-export type EmojiCustom = { nom: string; extension: string; aliases: string[] };
+export type EmojiCustom = { nom: string; extension: string; aliases: string[]; uri?:string };
 
 /** Persistance des emojis custom. Implémentée sur SQLite (`db/depot.ts`). */
 export interface DepotEmojis {
@@ -28,7 +28,7 @@ export interface DepotEmojis {
   lister(): Promise<EmojiCustom[]>;
 }
 
-type Cible = { nom: string; extension: string };
+type Cible = { nom: string; extension: string; uri?:string };
 
 /** Un `unknown` (réseau ou JSON de la base) vers une liste d'alias propre. */
 export function filtrerAliases(v: unknown): string[] {
@@ -47,12 +47,12 @@ export function indexer(entrees: EmojiCustom[]): Map<string, Cible> {
     (e) => typeof e?.nom === 'string' && typeof e.extension === 'string',
   );
   for (const e of valides) {
-    if (!index.has(e.nom)) index.set(e.nom, { nom: e.nom, extension: e.extension });
+    if (!index.has(e.nom)) index.set(e.nom, { nom: e.nom, extension: e.extension, ...(e.uri?{uri:e.uri}:{}) });
   }
   for (const e of valides) {
     for (const alias of e.aliases ?? []) {
       if (typeof alias === 'string' && !index.has(alias)) {
-        index.set(alias, { nom: e.nom, extension: e.extension });
+        index.set(alias, { nom: e.nom, extension: e.extension, ...(e.uri?{uri:e.uri}:{}) });
       }
     }
   }
@@ -108,7 +108,7 @@ export function viderEmojisCustom(): void {
 export function urlEmojiCustom(shortCode: string): string | null {
   const cible = index.get(shortCode);
   if (cible === undefined || baseActive === null) return null;
-  return `${baseActive}/emoji-custom/${encodeURIComponent(cible.nom)}.${encodeURIComponent(cible.extension)}`;
+  return cible.uri??`${baseActive}/emoji-custom/${encodeURIComponent(cible.nom)}.${encodeURIComponent(cible.extension)}`;
 }
 
 /**

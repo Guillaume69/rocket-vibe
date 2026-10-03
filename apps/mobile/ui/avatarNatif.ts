@@ -3,7 +3,7 @@ import {abonnerAvatarNatif,chargerAvatarNatif,photoAvatarNatif} from '../lib/ava
 
 /** The image component sees local pixels; the provider owns bearer and redirects. */
 export function useAvatarNatif(uri:string|null|undefined):string|null|undefined {
-  const native=uri?.startsWith('rv-avatar:')??false;
+  const native=uri?.startsWith('rv-avatar:')||uri?.startsWith('rv-emoji:')||false;
   const subscribe=useCallback((fn:()=>void)=>abonnerAvatarNatif(native?uri:null,fn),[native,uri]);
   const snapshot=useCallback(()=>photoAvatarNatif(native?uri:null),[native,uri]);
   const photo=useSyncExternalStore(subscribe,snapshot,snapshot);

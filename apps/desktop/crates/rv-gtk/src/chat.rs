@@ -510,8 +510,15 @@ impl ChatPage {
         });
         let weak = Rc::downgrade(&this);
         crate::markdown_view::set_custom_emoji(move |code| {
-            let session = weak.upgrade()?.session()?;
-            let path = session.custom_emoji(code)?;
+            let owner = weak.upgrade()?;
+            let (session, path) = if let Some(native) = owner.native_session() {
+                let path = native.custom_emoji(code)?;
+                (crate::media::Provider::RocketVibe(native), path)
+            } else {
+                let legacy = owner.session()?;
+                let path = legacy.custom_emoji(code)?;
+                (crate::media::Provider::RocketChat(legacy), path)
+            };
             let frame = gtk::Overlay::builder()
                 .width_request(22)
                 .height_request(22)
@@ -520,8 +527,11 @@ impl ChatPage {
                 .tooltip_text(format!(":{code}:"))
                 .build();
             frame.set_child(Some(&gtk::Box::new(gtk::Orientation::Vertical, 0)));
+            session.watch(&frame, &path, |widget| {
+                widget.set_visible(false);
+            });
             let (target, code) = (frame.downgrade(), code.to_owned());
-            crate::media::load(&session, &path, move |texture| {
+            crate::media::load_provider(session, &path, move |texture| {
                 if let Some(frame) = target.upgrade() {
                     frame.add_overlay(
                         &gtk::Picture::builder()

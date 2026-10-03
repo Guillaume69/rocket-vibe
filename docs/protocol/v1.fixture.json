@@ -128,7 +128,7 @@
   },
   "live_frame": {
     "type":"live",
-    "data":{"ttl_ms":8000,"limited":false,"presence":[],"rooms":[]}
+    "data":{"ttl_ms":8000,"limited":false,"presence":[],"rooms":[],"emoji_catalog_revision":"3"}
   },
   "set_presence":{"status":"online"},
   "set_typing":{"active":true,"membership_version":"current-grant"},
@@ -136,5 +136,14 @@
   "search_page":{"membership_version":"current-grant","messages":[],"has_more":false},
   "mark_thread_read": {
     "position": "9007199254740995"
+  },
+  "emoji_catalog": {
+    "revision": "3",
+    "items": [{
+      "id": "custom-parrot", "name": "party_parrot", "aliases": ["vibe_parrot"],
+      "file_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "media_type": "image/gif", "bytes": "42", "revision": "3"
+    }]
   }
 }

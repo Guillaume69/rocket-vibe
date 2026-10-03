@@ -12,7 +12,7 @@ import {NativeFileOutbox} from './uploads.ts';
 
 export const CAPACITES_ROCKETVIBE: Capacites = {
   edition:true, suppression:true,
-  typing:true, presence:true, push:false, e2ee:false, emojisCustom:false,
+  typing:true, presence:true, push:false, e2ee:false, emojisCustom:true,
   appelVideo:false, recherche:true, modeleFil:'root_id',
   fichiers:true, fils:true, reactions:true, marques:true, profil:true, infosSalon:true, favorisSalon:true, citations:true,
   reglagesSalon:true,rolesSalon:true,quitterSalon:true,lecturesSalon:true,

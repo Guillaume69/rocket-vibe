@@ -23,7 +23,6 @@ import {
 } from 'react';
 import {
   FlatList,
-  Image,
   InteractionManager,
   Keyboard,
   Pressable,
@@ -52,6 +51,7 @@ import {
 } from '../lib/completionEmoji.ts';
 import { codesEmojiStandard, emojisParCategorie, type CategorieEmoji } from '../lib/emojis.ts';
 import { codesEmojiCustom, surChangementEmojisCustom } from '../lib/emojisCustom.ts';
+import {ImageEmoji} from './imageEmoji.tsx';
 import { resoudre } from './completionEmoji.tsx';
 import { useT } from './i18n.ts';
 import type { CleTraduction } from './messages.ts';
@@ -332,7 +332,7 @@ export function NavigateurEmoji({
               accessibilityLabel={`:${suggestion.code}:`}
             >
               {uri !== null ? (
-                <Image source={{ uri }} style={styles.imageCustom} resizeMode="contain" />
+                <ImageEmoji uri={uri} style={styles.imageCustom} code={suggestion.code}/>
               ) : (
                 <Text style={styles.glyphe}>{glyphe}</Text>
               )}

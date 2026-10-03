@@ -142,6 +142,12 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
     .fetch_all(&mut *tx)
     .await?;
     let mut state = LiveState {
+        emoji_catalog_revision: Some(
+            sqlx::query_scalar::<_, i64>("SELECT revision FROM emoji_catalog WHERE singleton")
+                .fetch_one(&mut *tx)
+                .await?
+                .to_string(),
+        ),
         profiles: vec![],
         ttl_ms: 8000,
         limited: false,

@@ -2,6 +2,7 @@
 pub mod authentication;
 pub mod authentication_vault;
 pub mod credentials;
+mod custom_emojis;
 pub mod email_recovery;
 pub mod factor_email;
 pub mod files;
@@ -273,6 +274,8 @@ pub struct NativeSession {
     runtime_handle: tokio::runtime::Handle,
     presence_request: Arc<tokio::sync::Mutex<()>>,
     avatars: Mutex<profiles::AvatarCache>,
+    emojis: Mutex<profiles::AvatarCache>,
+    emoji_refresh: tokio::sync::Mutex<()>,
     avatar_slots: tokio::sync::Semaphore,
     files: files::Files,
     file_wake: Notify,
@@ -325,6 +328,8 @@ impl NativeSession {
             runtime_handle: tokio::runtime::Handle::current(),
             presence_request: Arc::new(tokio::sync::Mutex::new(())),
             avatars: Mutex::new(profiles::AvatarCache::default()),
+            emojis: Mutex::new(profiles::AvatarCache::default()),
+            emoji_refresh: tokio::sync::Mutex::new(()),
             avatar_slots: tokio::sync::Semaphore::new(4),
             files,
             file_wake: Notify::new(),
@@ -556,6 +561,7 @@ impl NativeSession {
                     profiles: true,
                     profile_avatars: true,
                     uploads: true,
+                    custom_emojis: true,
                     fine_permissions: true,
                     session_rotation: self.credentials.is_some(),
                     device_sessions: true,
@@ -619,9 +625,11 @@ impl NativeSession {
             self.snapshot().await?;
         }
         self.verified.store(true, Ordering::SeqCst);
+        self.refresh_emojis().await?;
         self.file_wake.notify_one();
         self.flush().await?;
-        let use_live = self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.typing || c.presence);
+        let use_live =
+            self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.typing || c.presence || c.custom_emojis);
         let cursor = self.store.cursor()?.unwrap();
         let url = if use_live {
             self.client.live_socket_url(&cursor).await?
@@ -648,6 +656,7 @@ impl NativeSession {
                             let value:Value=serde_json::from_str(&text).map_err(|_|Error::Protocol("invalid_batch"))?;
                             if value.get("type").and_then(Value::as_str)==Some("live") {
                                 let rv_protocol::live::LiveFrame::Live(state)=serde_json::from_value(value).map_err(|_|Error::Protocol("invalid_live_frame"))?;
+                                self.observe_emojis(&state).await?;
                                 if state.rooms.iter().any(|r|self.store.read_state(&r.room_id).ok().flatten().and_then(|s|s.membership_version).as_deref()!=Some(&r.membership_version)) {self.clear_live();}
                                 else {self.apply_live_profiles(&state)?;if self.live.lock().unwrap().apply(state,std::time::Instant::now()){let _=self.events.send(());}}
                             } else {
@@ -896,8 +905,20 @@ impl NativeSession {
         self.submit_command(rid, id, revision, store::MessageCommandKind::Delete, "").await
     }
     pub async fn react(&self, rid: &str, id: &str, emoji: &str, present: bool) -> Result<(), Error> {
-        let emoji = rv_protocol::emojis::canonical(emoji).ok_or(Error::Protocol("unknown_emoji"))?;
-        let text = serde_json::to_string(&ReactionIntent { emoji: emoji.into(), present })
+        let short = rv_protocol::custom_emojis::shortcode(emoji);
+        let custom = self
+            .store
+            .emoji_catalog()?
+            .into_iter()
+            .flat_map(|c| c.items)
+            .find(|e| Some(e.name.as_str()) == short || e.aliases.iter().any(|a| Some(a.as_str()) == short))
+            .map(|e| e.name);
+        let emoji = rv_protocol::emojis::canonical(emoji)
+            .map(str::to_owned)
+            .or(custom)
+            .or_else(|| (!present).then(|| short.map(str::to_owned)).flatten())
+            .ok_or(Error::Protocol("unknown_emoji"))?;
+        let text = serde_json::to_string(&ReactionIntent { emoji, present })
             .map_err(|_| Error::Protocol("invalid_message_action"))?;
         // Explicit state actions have no content-revision precondition.
         self.submit_command(rid, id, "0", store::MessageCommandKind::React, &text).await

@@ -3,6 +3,7 @@ import {test} from 'node:test';
 import {ClientRest} from './rest.ts';
 import {urlAvatar} from './upload.ts';
 import {abonnerAvatarNatif,chargerAvatarNatif,definirAvatarsNatifs,photoAvatarNatif,reprendreAvatarsNatifs,retirerAvatarNatif,uriAvatarNatif,revaliderAvatarNatif} from './avatarsNatifs.ts';
+import {definirEmojisNatifs,uriEmojiNatif,revaliderEmojisNatifs} from './avatarsNatifs.ts';
 
 const png=new Uint8Array([137,80,78,71,13,10,26,10,0,127,255]);
 const id='a'.repeat(64);
@@ -67,4 +68,28 @@ test('visible photos cannot exceed the memory budget when every cached tile is s
     assert(uris.some(uri=>photoAvatarNatif(uri).failed));
     assert(uris.reduce((total,uri)=>total+(photoAvatarNatif(uri).uri?.length??0),0)<=32*1024*1024);
   }finally{for(const un of subscriptions)un();stop();}
+});
+
+test('custom GIFs share the protected image reader and retire without affecting avatars',async()=>{
+  const c=client(),gif=new Uint8Array([71,73,70,56,57,97,0]);
+  const unavatar=definirAvatarsNatifs(c,async()=>png),unemoji=definirEmojisNatifs(c,async()=>({bytes:gif,mime:'image/gif'}));
+  try{
+    const avatar=uriAvatarNatif(c,id)!,emoji=uriEmojiNatif(c,id)!;
+    assert.match(emoji,/^rv-emoji:\d+:[a-f0-9]{64}$/);assert.notEqual(avatar,emoji);
+    await Promise.all([chargerAvatarNatif(avatar),chargerAvatarNatif(emoji)]);
+    assert.equal(photoAvatarNatif(emoji).uri,`data:image/gif;base64,${Buffer.from(gif).toString('base64')}`);
+    revaliderEmojisNatifs(c,new Set(),true);assert.equal(photoAvatarNatif(emoji).uri,null);assert(photoAvatarNatif(avatar).uri);
+    revaliderEmojisNatifs(c,new Set([id]),true);await chargerAvatarNatif(emoji);assert(photoAvatarNatif(emoji).uri);
+    revaliderEmojisNatifs(c,new Set([id]),false);assert.equal(photoAvatarNatif(emoji).uri,null);
+    revaliderEmojisNatifs(c,new Set([id]),true);await chargerAvatarNatif(emoji);assert(photoAvatarNatif(emoji).uri);
+    unemoji();assert.equal(photoAvatarNatif(emoji).uri,null);assert(photoAvatarNatif(avatar).uri);
+  }finally{unemoji();unavatar();}
+});
+test('a newer catalogue fences an image download that finishes after retirement',async()=>{
+  const c=client(),pending=deferred<{bytes:Uint8Array;mime:string}>(),stop=definirEmojisNatifs(c,()=>pending.promise);
+  try{
+    const uri=uriEmojiNatif(c,id)!,read=chargerAvatarNatif(uri);
+    revaliderEmojisNatifs(c,new Set(),true);pending.resolve({bytes:png,mime:'image/png'});await read;
+    assert.equal(photoAvatarNatif(uri).uri,null);await chargerAvatarNatif(uri);assert.equal(photoAvatarNatif(uri).uri,null);
+  }finally{stop();}
 });

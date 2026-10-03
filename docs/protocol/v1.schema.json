@@ -581,6 +581,48 @@
       ],
       "type": "object"
     },
+    "CustomEmoji": {
+      "properties": {
+        "aliases": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "bytes": {
+          "type": "string"
+        },
+        "file_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "media_type": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "aliases",
+        "file_id",
+        "sha256",
+        "media_type",
+        "bytes",
+        "revision"
+      ],
+      "type": "object"
+    },
     "DeleteMessage": {
       "additionalProperties": false,
       "properties": {
@@ -907,6 +949,24 @@
         }
       ]
     },
+    "EmojiCatalog": {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/CustomEmoji"
+          },
+          "type": "array"
+        },
+        "revision": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "items"
+      ],
+      "type": "object"
+    },
     "EnableFactor": {
       "additionalProperties": false,
       "properties": {
@@ -1219,6 +1279,13 @@
     },
     "LiveState": {
       "properties": {
+        "emoji_catalog_revision": {
+          "description": "A refresh hint; the authenticated catalogue remains authoritative.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "limited": {
           "description": "Above the bounded pilot capacity, forget observations rather than truncate them.",
           "type": "boolean"
@@ -4291,6 +4358,9 @@
     "discovery": {
       "$ref": "#/$defs/Discovery"
     },
+    "emoji_catalog": {
+      "$ref": "#/$defs/EmojiCatalog"
+    },
     "error": {
       "$ref": "#/$defs/ApiError"
     },
@@ -4365,6 +4435,7 @@
     }
   },
   "required": [
+    "emoji_catalog",
     "own_profile",
     "update_profile",
     "update_preferences",

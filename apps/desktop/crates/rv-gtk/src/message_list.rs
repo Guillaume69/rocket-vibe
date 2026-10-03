@@ -237,7 +237,7 @@ impl MessageList {
             .native_provider
             .borrow()
             .as_ref()
-            .map(|s| format!("{}:{}", s.profile_version(), s.file_version()))
+            .map(|s| format!("{}:{}:{}", s.profile_version(), s.file_version(), s.emoji_version()))
             .unwrap_or_default();
         let images_changed = self.native_images.replace(version.clone()) != version;
         if *self.rows.borrow() == fresh && !images_changed {

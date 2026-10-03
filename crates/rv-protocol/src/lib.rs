@@ -3,6 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+pub mod custom_emojis;
 pub mod emojis;
 pub mod live;
 pub mod markdown;
@@ -478,6 +479,7 @@ pub struct ApiError {
 /// Single schema root, also used by the TypeScript binding generator.
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct Contract {
+    pub emoji_catalog: custom_emojis::EmojiCatalog,
     pub own_profile: profiles::OwnProfile,
     pub update_profile: profiles::UpdateProfile,
     pub update_preferences: profiles::UpdatePreferences,

@@ -18,14 +18,14 @@ public final class MediaStore {
     init(native:NativeChat){self.chat=nil;self.native=native}
 
     public func cached(_ path: String) -> MediaData? {
-        if native != nil && path.hasPrefix("rv-file:"){return nil}
+        if native != nil && (path.hasPrefix("rv-file:")||path.hasPrefix("rv-emoji:")){return nil}
         return current(path) ? done[path] : nil
     }
-    public func current(_ path:String)->Bool{guard let native else{return true};if path.hasPrefix("rv-file:"){return native.fileCurrent(path:path)};guard path.hasPrefix("rv-avatar:")else{return false};return native.profileAvatarCurrent(id:String(path.dropFirst("rv-avatar:".count)))}
+    public func current(_ path:String)->Bool{guard let native else{return true};if path.hasPrefix("rv-file:"){return native.fileCurrent(path:path)};if path.hasPrefix("rv-emoji:"){return native.emojiCurrent(path:path)};guard path.hasPrefix("rv-avatar:")else{return false};return native.profileAvatarCurrent(id:String(path.dropFirst("rv-avatar:".count)))}
 
     public func load(_ path: String) async -> MediaData? {
         guard current(path) else{return nil}
-        if let hit = done[path], native == nil || !path.hasPrefix("rv-file:") { return hit }
+        if let hit = done[path], native == nil || (!path.hasPrefix("rv-file:") && !path.hasPrefix("rv-emoji:")) { return hit }
         if let task = coming[path] {
             let version=generation
             let media=await task.value
@@ -35,6 +35,7 @@ public final class MediaStore {
         let task = Task<MediaData?, Never> {
             if let native {
                 if path.hasPrefix("rv-file:"){return try? await native.media(path:path)}
+                if path.hasPrefix("rv-emoji:"){return try? await native.emojiMedia(path:path)}
                 guard path.hasPrefix("rv-avatar:") else{return nil}
                 return try? await native.profileAvatar(id:String(path.dropFirst("rv-avatar:".count)))
             }
@@ -64,7 +65,7 @@ public final class MediaStore {
     }
 
     public func customEmoji(_ code: String) -> String? {
-        chat?.customEmoji(code: code)
+        chat?.customEmoji(code: code) ?? native?.customEmoji(code:code)
     }
 
     public func download(_ path: String, to destination: String) async throws {

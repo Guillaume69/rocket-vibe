@@ -15,6 +15,7 @@ export type ChangeRoomRole = { "expected_revision": string; "operation_id": stri
 export type CompleteUpload = { "content": MessageContent; "operation_id": string; "reply_to"?: string | null; };
 export type ConfirmEmailVerification = { "code": string; "context": ReauthenticationContext; "operation_id": string; "verification_id": string; };
 export type CreateRoom = { "name": string; "operation_id"?: string | null; "private": boolean; };
+export type CustomEmoji = { "aliases": (string)[]; "bytes": string; "file_id": string; "id": string; "media_type": string; "name": string; "revision": string; "sha256": string; };
 export type DeleteMessage = { "expected_revision": string; "operation_id": string; };
 export type DesktopNotifications = "default" | "all" | "mention" | "nothing";
 export type DeviceSession = { "created_at": string; "current": boolean; "expires_at": string; "id": string; "label": string; "last_seen_at": string; };
@@ -29,6 +30,7 @@ export type EmailRecoveryRequested = { "accepted": boolean; };
 export type EmailRemovalReceipt = { "context": ReauthenticationContext; "verification_version": string; "version": string; };
 export type EmailStatus = { "address"?: string | null; "context": ReauthenticationContext; "verification_version": string; "verified_at"?: string | null; "version": string; };
 export type EmailVerificationStep = { "address": string; "delivery": EmailDeliveryState; "expected_version": string; "expires_at": string; "operation_id": string; "state": "pending"; "verification_id": string; "verification_version": string; } | { "address": string; "state": "verified"; "version": string; };
+export type EmojiCatalog = { "items": (CustomEmoji)[]; "revision": string; };
 export type EnableFactor = { "code": string; "operation_id": string; "setup_id": string; };
 export type EncryptedKeyBackup = { "ciphertext": string; "crypto_identity": string; "format": string; "kdf": string; "revision": string; "user_id": string; };
 export type FactorBackupCodes = { "codes": (string)[]; "factor_version"?: string | null; };
@@ -42,7 +44,7 @@ export type Format = "native1";
 export type LeaveRoom = { "expected_revision": string; "operation_id": string; };
 export type LiveFrame = { "data": LiveState; "type": "live"; };
 export type LiveRoom = { "direct_peer"?: User | null; "membership_version": string; "room_id": string; "typing": (Typist)[]; };
-export type LiveState = { "limited": boolean; "presence": (PresenceEntry)[]; "profiles"?: (ProfileStamp)[]; "rooms": (LiveRoom)[]; "ttl_ms": number; };
+export type LiveState = { "emoji_catalog_revision"?: string | null; "limited": boolean; "presence": (PresenceEntry)[]; "profiles"?: (ProfileStamp)[]; "rooms": (LiveRoom)[]; "ttl_ms": number; };
 export type Login = { "password": string; "username": string; };
 export type MarkRead = { "reply_position": string; "root_position": string; };
 export type MarkThreadRead = { "position": string; };
@@ -122,7 +124,7 @@ export type UserPreferences = { "clock_24h": boolean; "desktop_notifications"?: 
 export type UserProfile = { "avatar_file_id"?: string | null; "bio": string; "revision": string; "status"?: PresenceStatus; "status_text": string; "user": User; };
 export type VerifyFactor = { "challenge_id": string; "code": string; "method": SecondFactor; };
 
-export type NativeTypes = { AcceptInvitation: AcceptInvitation; AccountPermissions: AccountPermissions; ApiError: ApiError; AuthChallenge: AuthChallenge; AuthenticationStep: AuthenticationStep; AvatarCommand: AvatarCommand; BeginEmailVerification: BeginEmailVerification; BeginFactorSetup: BeginFactorSetup; BeginReauthentication: BeginReauthentication; Capabilities: Capabilities; Change: Change; ChangeEmailFactor: ChangeEmailFactor; ChangeRoomRole: ChangeRoomRole; CompleteUpload: CompleteUpload; ConfirmEmailVerification: ConfirmEmailVerification; CreateRoom: CreateRoom; DeleteMessage: DeleteMessage; DesktopNotifications: DesktopNotifications; DeviceSession: DeviceSession; DirectMessage: DirectMessage; DisableFactor: DisableFactor; Discovery: Discovery; Document: Document; EditMessage: EditMessage; EmailDeliveryState: EmailDeliveryState; EmailFactorChange: EmailFactorChange; EmailRecoveryRequested: EmailRecoveryRequested; EmailRemovalReceipt: EmailRemovalReceipt; EmailStatus: EmailStatus; EmailVerificationStep: EmailVerificationStep; EnableFactor: EnableFactor; EncryptedKeyBackup: EncryptedKeyBackup; FactorBackupCodes: FactorBackupCodes; FactorEmailDelivery: FactorEmailDelivery; FactorSetup: FactorSetup; FactorStatus: FactorStatus; FileDescriptor: FileDescriptor; FinishFactor: FinishFactor; FinishReauthentication: FinishReauthentication; Format: Format; LeaveRoom: LeaveRoom; LiveFrame: LiveFrame; LiveRoom: LiveRoom; LiveState: LiveState; Login: Login; MarkRead: MarkRead; MarkThreadRead: MarkThreadRead; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; MessageQuote: MessageQuote; MessageReaction: MessageReaction; Node: Node; OwnProfile: OwnProfile; ParityContract: ParityContract; PersonalStar: PersonalStar; PrepareUpload: PrepareUpload; PresenceEntry: PresenceEntry; PresenceStatus: PresenceStatus; ProfileReceipt: ProfileReceipt; ProfileStamp: ProfileStamp; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; QuoteExcerpt: QuoteExcerpt; QuoteReference: QuoteReference; ReadState: ReadState; ReauthenticationContext: ReauthenticationContext; ReauthenticationGrant: ReauthenticationGrant; ReauthenticationStatus: ReauthenticationStatus; ReauthenticationStep: ReauthenticationStep; RecoverAccount: RecoverAccount; RegenerateFactorBackups: RegenerateFactorBackups; RemoveVerifiedEmail: RemoveVerifiedEmail; RenameDevice: RenameDevice; RenewSession: RenewSession; RequestEmailRecovery: RequestEmailRecovery; RequestFactorEmail: RequestFactorEmail; ResumeEmailRemoval: ResumeEmailRemoval; ResumeEmailVerification: ResumeEmailVerification; ResumeReauthentication: ResumeReauthentication; RetireEmailRemoval: RetireEmailRemoval; RetireEmailVerification: RetireEmailVerification; RetireReauthentication: RetireReauthentication; Room: Room; RoomCommandReceipt: RoomCommandReceipt; RoomDetails: RoomDetails; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomMember: RoomMember; RoomMemberPage: RoomMemberPage; RoomPermissions: RoomPermissions; RoomRole: RoomRole; SearchMessages: SearchMessages; SearchPage: SearchPage; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetPresence: SetPresence; SetReaction: SetReaction; SetRoomFavorite: SetRoomFavorite; SetTyping: SetTyping; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; SyncBatch: SyncBatch; SystemMessage: SystemMessage; ThreadPage: ThreadPage; ThreadReadState: ThreadReadState; ThreadSummary: ThreadSummary; Typist: Typist; UpdatePreferences: UpdatePreferences; UpdateProfile: UpdateProfile; UpdateRoom: UpdateRoom; Upload: Upload; UploadState: UploadState; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; };
+export type NativeTypes = { AcceptInvitation: AcceptInvitation; AccountPermissions: AccountPermissions; ApiError: ApiError; AuthChallenge: AuthChallenge; AuthenticationStep: AuthenticationStep; AvatarCommand: AvatarCommand; BeginEmailVerification: BeginEmailVerification; BeginFactorSetup: BeginFactorSetup; BeginReauthentication: BeginReauthentication; Capabilities: Capabilities; Change: Change; ChangeEmailFactor: ChangeEmailFactor; ChangeRoomRole: ChangeRoomRole; CompleteUpload: CompleteUpload; ConfirmEmailVerification: ConfirmEmailVerification; CreateRoom: CreateRoom; CustomEmoji: CustomEmoji; DeleteMessage: DeleteMessage; DesktopNotifications: DesktopNotifications; DeviceSession: DeviceSession; DirectMessage: DirectMessage; DisableFactor: DisableFactor; Discovery: Discovery; Document: Document; EditMessage: EditMessage; EmailDeliveryState: EmailDeliveryState; EmailFactorChange: EmailFactorChange; EmailRecoveryRequested: EmailRecoveryRequested; EmailRemovalReceipt: EmailRemovalReceipt; EmailStatus: EmailStatus; EmailVerificationStep: EmailVerificationStep; EmojiCatalog: EmojiCatalog; EnableFactor: EnableFactor; EncryptedKeyBackup: EncryptedKeyBackup; FactorBackupCodes: FactorBackupCodes; FactorEmailDelivery: FactorEmailDelivery; FactorSetup: FactorSetup; FactorStatus: FactorStatus; FileDescriptor: FileDescriptor; FinishFactor: FinishFactor; FinishReauthentication: FinishReauthentication; Format: Format; LeaveRoom: LeaveRoom; LiveFrame: LiveFrame; LiveRoom: LiveRoom; LiveState: LiveState; Login: Login; MarkRead: MarkRead; MarkThreadRead: MarkThreadRead; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; MessageQuote: MessageQuote; MessageReaction: MessageReaction; Node: Node; OwnProfile: OwnProfile; ParityContract: ParityContract; PersonalStar: PersonalStar; PrepareUpload: PrepareUpload; PresenceEntry: PresenceEntry; PresenceStatus: PresenceStatus; ProfileReceipt: ProfileReceipt; ProfileStamp: ProfileStamp; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; QuoteExcerpt: QuoteExcerpt; QuoteReference: QuoteReference; ReadState: ReadState; ReauthenticationContext: ReauthenticationContext; ReauthenticationGrant: ReauthenticationGrant; ReauthenticationStatus: ReauthenticationStatus; ReauthenticationStep: ReauthenticationStep; RecoverAccount: RecoverAccount; RegenerateFactorBackups: RegenerateFactorBackups; RemoveVerifiedEmail: RemoveVerifiedEmail; RenameDevice: RenameDevice; RenewSession: RenewSession; RequestEmailRecovery: RequestEmailRecovery; RequestFactorEmail: RequestFactorEmail; ResumeEmailRemoval: ResumeEmailRemoval; ResumeEmailVerification: ResumeEmailVerification; ResumeReauthentication: ResumeReauthentication; RetireEmailRemoval: RetireEmailRemoval; RetireEmailVerification: RetireEmailVerification; RetireReauthentication: RetireReauthentication; Room: Room; RoomCommandReceipt: RoomCommandReceipt; RoomDetails: RoomDetails; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomMember: RoomMember; RoomMemberPage: RoomMemberPage; RoomPermissions: RoomPermissions; RoomRole: RoomRole; SearchMessages: SearchMessages; SearchPage: SearchPage; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetPresence: SetPresence; SetReaction: SetReaction; SetRoomFavorite: SetRoomFavorite; SetTyping: SetTyping; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; SyncBatch: SyncBatch; SystemMessage: SystemMessage; ThreadPage: ThreadPage; ThreadReadState: ThreadReadState; ThreadSummary: ThreadSummary; Typist: Typist; UpdatePreferences: UpdatePreferences; UpdateProfile: UpdateProfile; UpdateRoom: UpdateRoom; Upload: Upload; UploadState: UploadState; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; };
 
 export const nativeSchema = {
   "$defs": {
@@ -707,6 +709,48 @@ export const nativeSchema = {
       ],
       "type": "object"
     },
+    "CustomEmoji": {
+      "properties": {
+        "aliases": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "bytes": {
+          "type": "string"
+        },
+        "file_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "media_type": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "aliases",
+        "file_id",
+        "sha256",
+        "media_type",
+        "bytes",
+        "revision"
+      ],
+      "type": "object"
+    },
     "DeleteMessage": {
       "additionalProperties": false,
       "properties": {
@@ -1033,6 +1077,24 @@ export const nativeSchema = {
         }
       ]
     },
+    "EmojiCatalog": {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/CustomEmoji"
+          },
+          "type": "array"
+        },
+        "revision": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "items"
+      ],
+      "type": "object"
+    },
     "EnableFactor": {
       "additionalProperties": false,
       "properties": {
@@ -1345,6 +1407,13 @@ export const nativeSchema = {
     },
     "LiveState": {
       "properties": {
+        "emoji_catalog_revision": {
+          "description": "A refresh hint; the authenticated catalogue remains authoritative.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "limited": {
           "description": "Above the bounded pilot capacity, forget observations rather than truncate them.",
           "type": "boolean"
@@ -4417,6 +4486,9 @@ export const nativeSchema = {
     "discovery": {
       "$ref": "#/$defs/Discovery"
     },
+    "emoji_catalog": {
+      "$ref": "#/$defs/EmojiCatalog"
+    },
     "error": {
       "$ref": "#/$defs/ApiError"
     },
@@ -4491,6 +4563,7 @@ export const nativeSchema = {
     }
   },
   "required": [
+    "emoji_catalog",
     "own_profile",
     "update_profile",
     "update_preferences",

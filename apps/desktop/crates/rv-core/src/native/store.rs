@@ -1,4 +1,5 @@
 //! Fallible transactions: a failed projection never acknowledges its cursor or outbox echo.
+mod custom_emojis;
 mod files;
 mod membership;
 mod profiles;
@@ -149,6 +150,7 @@ impl NativeStore {
             CREATE TABLE IF NOT EXISTS native_outbox(id TEXT PRIMARY KEY,rid TEXT NOT NULL,text TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',error TEXT,created INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS native_drafts(rid TEXT PRIMARY KEY,text TEXT NOT NULL);")?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_room_creations(id TEXT PRIMARY KEY,name TEXT NOT NULL,private INTEGER NOT NULL,UNIQUE(name,private));")?;
+        conn.execute_batch("CREATE TABLE IF NOT EXISTS native_emoji_catalog(singleton INTEGER PRIMARY KEY CHECK(singleton=1),revision TEXT NOT NULL,payload TEXT);")?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_room_operations(id TEXT PRIMARY KEY,rid TEXT NOT NULL UNIQUE,payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','failed')),error TEXT);")?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_room_access(rid TEXT PRIMARY KEY,revision TEXT NOT NULL,read_only INTEGER NOT NULL,can_send INTEGER NOT NULL,role TEXT NOT NULL);")?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_read_states(rid TEXT PRIMARY KEY,payload TEXT NOT NULL);
@@ -230,6 +232,7 @@ impl NativeStore {
                 "native_users",
                 "native_direct_peers",
                 "native_profile_operations",
+                "native_emoji_catalog",
                 "native_rooms",
                 "native_messages",
                 "native_outbox",
@@ -573,6 +576,7 @@ impl NativeStore {
                     "native_users",
                     "native_direct_peers",
                     "native_profile_operations",
+                    "native_emoji_catalog",
                     "native_rooms",
                     "native_messages",
                     "native_outbox",

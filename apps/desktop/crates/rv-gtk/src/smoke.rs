@@ -39,6 +39,8 @@
 //!   RV_SMOKE_VIDEO=1      plays the last video card built; it must be playing, controls shown
 //!   RV_SMOKE_PLAYER=1     plays the last YouTube, Dailymotion or Vimeo card built, in the card;
 //!                          with the gallery, `<provider>:<id>` plays that video in a frame of its own
+//!   RV_SMOKE_PLAYER_LEAVE=<other room>  with RV_SMOKE_PLAYER=1: opens the other room, and no
+//!                          card may still show its player
 //!   RV_SMOKE_DRAFT_TEXT=<text>  typed in the composer (\n breaks lines), for a screenshot
 //!   RV_SMOKE_NAV=<other room>  opens the other room, then mouse back and forward between the two;
 //!                          in a narrow window, back to the list and forward into the room again
@@ -299,6 +301,22 @@ pub fn install(window: &Rc<AppWindow>) {
                         FAILED.store(true, Ordering::SeqCst);
                     }
                 });
+                if let Ok(other) = std::env::var("RV_SMOKE_PLAYER_LEAVE")
+                    && let Some(other) = w.chat.room_named(&other)
+                {
+                    let chat = w.chat.clone();
+                    glib::timeout_add_local_once(Duration::from_millis(12000), move || {
+                        println!("smoke: players before leaving={}", crate::cards::players_shown());
+                        chat.open_room(&other);
+                        glib::timeout_add_local_once(Duration::from_millis(2000), || {
+                            let shown = crate::cards::players_shown();
+                            println!("smoke: players after leaving={shown}");
+                            if shown != 0 {
+                                FAILED.store(true, Ordering::SeqCst);
+                            }
+                        });
+                    });
+                }
             }
             if std::env::var("RV_SMOKE_REENTER").as_deref() == Ok("1") {
                 let chat = w.chat.clone();

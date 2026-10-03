@@ -359,6 +359,15 @@ fn refit(clamp: &adw::Clamp) {
     clamp.set_tightening_threshold(natural);
 }
 
+thread_local! {
+    static PLAYING: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many video cards show their player rather than their thumbnail.
+pub fn players_shown() -> usize {
+    PLAYING.get()
+}
+
 /// A YouTube, Dailymotion or Vimeo link: thumbnail and title. The thumbnail
 /// plays the video in the card, the title opens it in the browser.
 pub fn video_link(session: &Arc<Session>, video: &VideoLink) -> gtk::Widget {
@@ -405,6 +414,7 @@ pub fn video_link(session: &Arc<Session>, video: &VideoLink) -> gtk::Widget {
     let shown = playing.clone();
     let halt: std::rc::Rc<dyn Fn()> = std::rc::Rc::new(move || {
         let (Some(card), Some((player, thumbnail))) = (weak_card.upgrade(), shown.take()) else { return };
+        PLAYING.set(PLAYING.get() - 1);
         card.insert_child_after(&thumbnail, Some(&player));
         card.remove(&player);
         if let Some(stop) = weak_stop.upgrade() {
@@ -443,6 +453,7 @@ pub fn video_link(session: &Arc<Session>, video: &VideoLink) -> gtk::Widget {
                 glib::idle_add_local_once(move || h());
             });
             playing.replace(Some((player, thumbnail)));
+            PLAYING.set(PLAYING.get() + 1);
             return true;
         }
         card.insert_child_after(&thumbnail, Some(&player));

@@ -22,6 +22,7 @@ import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui
 import { Appuyable } from '../ui/appuyable.tsx';
 import {SectionAppareils} from '../ui/appareils.tsx';
 import {SectionSecuriteNative} from '../ui/securiteNative.tsx';
+import {usePreferencesNatives} from '../ui/preferencesNatives.ts';
 
 /**
  * Écran « Paramètres » : ce qui traînait en bas de la liste des conversations
@@ -68,7 +69,7 @@ type ReponseMe = { settings?: { preferences?: { pushNotifications?: string } } }
  * en arrière si le serveur refuse — un réglage doit répondre au doigt, pas au
  * réseau.
  */
-function usePreferencePush(client: ClientRest) {
+function usePreferencePush(client: ClientRest,natives:ReturnType<typeof usePreferencesNatives>) {
   const [valeur, setValeur] = useState<string | null>(null);
   // L'erreur est stockée comme CLÉ de traduction, pas comme phrase : le
   // composant la traduit au rendu, dans la langue courante.
@@ -102,6 +103,10 @@ function usePreferencePush(client: ClientRest) {
       setValeur(nouvelle);
       setErreur(null);
       try {
+        if(client.genre==='rocketvibe'){
+          await natives.changer({push_enabled:nouvelle!=='nothing',push_mentions_only:nouvelle==='mention'});
+          return;
+        }
         await client.post('users.setPreferences', {
           corps: { data: { pushNotifications: nouvelle } },
         });
@@ -111,10 +116,13 @@ function usePreferencePush(client: ClientRest) {
         setErreur('parametres.enregistrementImpossible');
       }
     },
-    [client, valeur],
+    [client, valeur,natives],
   );
 
-  return { valeur, erreur, definir };
+  const p=natives.preferences;
+  return { valeur:client.genre==='rocketvibe'?(p?(!p.push_enabled?'nothing':p.push_mentions_only?'mention':'all'):null):valeur,
+    erreur:client.genre==='rocketvibe'?(natives.erreur?'parametres.enregistrementImpossible' as const:null):erreur,
+    disabled:client.genre==='rocketvibe'&&(natives.occupe||natives.intention!==null),definir };
 }
 
 function Parametres({
@@ -131,7 +139,10 @@ function Parametres({
   const routeur = useRouter();
   const t = useT();
   const { deconnecter } = useSession();
-  const push = usePreferencePush(client);
+  const synchro=useSynchro();
+  const chat=synchro.phase==='pret'?synchro.fournisseur.native?.chat:null;
+  const natives=usePreferencesNatives(chat,synchro.phase==='pret'?synchro.generation:0);
+  const push = usePreferencePush(client,natives);
   const [deconnexion, setDeconnexion] = useState(false);
   // Version de MA photo : sans elle, la carte de profil garderait l'ancienne
   // image même après l'avoir changée dans « Mon profil » (cache image figé).
@@ -156,7 +167,7 @@ function Parametres({
       <Stack.Screen options={{ title: t('parametres.titre') }} />
 
       <Appuyable
-        disabled={client.genre === 'rocketvibe'}
+        disabled={client.genre==='rocketvibe'&&(synchro.phase!=='pret'||!synchro.fournisseur.native?.chat.capabilities?.profiles)}
         onPress={() => routeur.push('/mon-profil')}
         android_ripple={{ color: c.ondulation }}
         unstable_pressDelay={DELAI_PRESSION_LISTE}
@@ -177,12 +188,12 @@ function Parametres({
           <Text style={[styles.profilNom, { color: c.texte }]} numberOfLines={1}>
             @{username}
           </Text>
-          {client.genre !== 'rocketvibe' && <Text style={[styles.profilLien, { color: c.cyan }]}>{t('parametres.modifierProfil')}</Text>}
+          <Text style={[styles.profilLien, { color: c.cyan }]}>{t('parametres.modifierProfil')}</Text>
         </View>
-        {client.genre !== 'rocketvibe' && <Text style={[styles.chevron, { color: c.attenue }]}>›</Text>}
+        <Text style={[styles.chevron, { color: c.attenue }]}>›</Text>
       </Appuyable>
 
-      {client.genre !== 'rocketvibe' && <>
+      {(client.genre !== 'rocketvibe'||synchro.phase==='pret'&&synchro.capacites.push) && <>
       <Text style={[styles.sectionTitre, { color: c.attenue }]}>{t('parametres.sectionNotifications')}</Text>
       <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
         <Text style={[styles.reglageTitre, { color: c.texte }]}>{t('parametres.push')}</Text>
@@ -197,7 +208,14 @@ function Parametres({
       <Text style={[styles.sectionTitre, { color: c.attenue }]}>{t('parametres.sectionLangue')}</Text>
       <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
         <Text style={[styles.reglageAide, { color: c.attenue }]}>{t('parametres.langueAide')}</Text>
-        <SelecteurLangue c={c} t={t} />
+        <SelecteurLangue c={c} t={t} natives={client.genre==='rocketvibe'?natives:undefined} />
+        {client.genre==='rocketvibe'&&natives.erreur&&<Text style={[styles.erreur,{color:c.texteErreur}]}>{t('native.error')}</Text>}
+        {client.genre==='rocketvibe'&&natives.intention&&<>
+          <Text style={[styles.reglageAide,{color:c.attenue}]}>{t(natives.intention.phase==='failed'?'native.profileRefused':'native.pending')}</Text>
+          <Appuyable disabled={natives.occupe} onPress={()=>void(natives.intention?.phase==='failed'?natives.abandonner():natives.reprendre())}>
+            <Text style={[styles.action,{color:c.cyan}]}>{t(natives.intention.phase==='failed'?'commun.annuler':'commun.reessayer')}</Text>
+          </Appuyable>
+        </>}
       </View>
 
       {client.genre !== 'rocketvibe' && <SectionE2E c={c} t={t} />}
@@ -260,7 +278,7 @@ function ChoixNotification({
           <View key={o.valeur} style={styles.enveloppeOption}>
             <Appuyable
               onPress={() => void push.definir(o.valeur)}
-              disabled={push.valeur === null}
+              disabled={push.valeur === null||push.disabled}
               android_ripple={{ color: c.ondulation }}
               unstable_pressDelay={DELAI_PRESSION_LISTE}
               accessibilityRole="radio"
@@ -297,8 +315,10 @@ function ChoixNotification({
  * (`definirLangue` pousse dans le store abonnable) : tout l'écran, titre compris,
  * se re-rend dans la nouvelle langue sans rechargement.
  */
-function SelecteurLangue({ c, t }: { c: Couleurs; t: Traducteur }) {
+function SelecteurLangue({ c, t,natives }: { c: Couleurs; t: Traducteur;natives?:ReturnType<typeof usePreferencesNatives> }) {
   const preference = usePreferenceLangue();
+  const langue=natives?.preferences?.language;
+  useEffect(()=>{if(langue!==undefined)definirLangue(langue==='fr'||langue==='en'?langue:'auto');},[langue]);
   const options: { pref: PreferenceLangue; libelle: string; aide?: string }[] = [
     { pref: 'auto', libelle: t('langue.auto'), aide: t('langue.autoAide') },
     ...LANGUES.map((l) => ({ pref: l, libelle: NOMS_LANGUE[l] })),
@@ -310,7 +330,8 @@ function SelecteurLangue({ c, t }: { c: Couleurs; t: Traducteur }) {
         return (
           <View key={o.pref} style={styles.enveloppeOption}>
             <Appuyable
-              onPress={() => definirLangue(o.pref)}
+              disabled={natives!==undefined&&(!natives.preferences||natives.occupe||natives.intention!==null)}
+              onPress={() => {definirLangue(o.pref);if(natives)void natives.changer({language:o.pref});}}
               android_ripple={{ color: c.ondulation }}
               unstable_pressDelay={DELAI_PRESSION_LISTE}
               accessibilityRole="radio"

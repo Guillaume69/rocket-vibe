@@ -204,6 +204,13 @@
       "when": 1790981510944,
       "tag": "0028_equal_sally_floyd",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1790992977986,
+      "tag": "0029_parallel_scarlet_spider",
+      "breakpoints": true
     }
   ]
 }

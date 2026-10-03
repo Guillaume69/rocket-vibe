@@ -9,6 +9,13 @@ release, et ses notes sont la section de la version ici.
 
 ### Salons RocketVibe
 
+- Édition du profil personnel, du statut et de la photo dans « Mon profil » ;
+  la langue se synchronise avec les préférences natives. Une sauvegarde dont
+  la confirmation est perdue reprend après redémarrage sans écraser une
+  modification plus récente. Les formulaires refusés restent récupérables,
+  et un changement de pseudo peut demander la confirmation d'identité existante.
+  L'adresse vérifiée se change depuis la section de sécurité des paramètres.
+
 - Fiches des utilisateurs dans la feuille existante, depuis un auteur ou une
   mention, avec pseudo, nom, bio et photo natifs. Les changements d'identité
   alimentent aussi les messages et les avatars des DM. Les photos protégées

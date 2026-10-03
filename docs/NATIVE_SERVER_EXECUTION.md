@@ -319,6 +319,21 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P16, profil personnel mobile (3 octobre 2026) : « Mon profil » et les paramètres
+  existants éditent nom / pseudo / bio / statut, photo PNG bornée et langue native.
+  Email privé en lecture seule avec renvoi au parcours vérifié P02 ; confirmation
+  d'identité existante pour une preuve récente. Migration SQLite 0029, intentions
+  originales de profil / préférences / avatar, octets immuables, reprise après
+  réponse perdue et redémarrage, refus conservés et abandon explicite. Les resets
+  ordinaires préservent les commandes du compte ; une autre génération les purge.
+  Les préférences non modifiées sont conservées ; le réglage push reste masqué
+  jusqu'à P17. Vérifications : 40 tests ciblés en 1,5 s, typage / lint, banc réel
+  HTTP / PostgreSQL / WebSocket / SQLite en 9,7 s (compilation 3,3 s), incluant
+  rejeu après réponse perdue sans écraser une modification concurrente plus récente.
+  La CI du lot public précédent est verte sur ses quatre jobs. Raccordement des
+  fiches / réglages / caches et intentions GTK / SwiftUI, puis qualification
+  installée restent à poursuivre ; P16 reste ouvert.
+
 - P16, fiches publiques mobiles (3 octobre 2026) : la feuille de profil existante
   s'ouvre depuis les auteurs / mentions avec les données de son fournisseur.
   Préchargement gardé au changement de compte, identités / versions d'avatars

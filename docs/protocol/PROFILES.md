@@ -116,7 +116,28 @@ fiche / préchargement, avatar protégé, renommage, retrait, DM par UID stable 
 purge de compte. Les tests ciblés couvrent aussi les réponses tardives et la
 limite de concurrence. Ce banc n'est pas une qualification de l'écran Android.
 
-Restent les intentions de modification persistantes, l'éditeur personnel et les
-préférences mobiles, les fiches / réglages / caches GTK et SwiftUI, puis les
-validations sur applications installées. P16 ne peut être déclaré livré avant
-ces étapes.
+L'éditeur mobile « Mon profil » utilise les mêmes champs / sélecteur photo et
+le fournisseur natif pour le nom, pseudo, bio et statut choisi. Le sélecteur
+réencode la photo en PNG de 512 pixels maximum via le module Expo déjà présent.
+L'email vérifié est privé et en lecture seule ici ; la section de sécurité
+existante conserve le parcours de changement vérifié P02. Une preuve récente
+peut être demandée pour le pseudo, via la confirmation d'identité existante.
+
+La migration mobile 0029 conserve une intention immuable par famille de champs
+(`profile`, `preferences`, `avatar`) : ID, révision attendue, contenu et octets
+de photo d'origine. Aucun mot de passe ni email n'y est stocké. Une réponse
+perdue se rejoue avec ce même ID après reprise ; la réponse courante est relue
+après le reçu et un rejeu ne rétablit jamais l'ancien profil sur un plus récent.
+Les refus définitifs / demandes de preuve cessent les retries automatiques,
+conservent le formulaire et permettent reprise ou abandon explicite. Un reset
+de journal conserve ces intentions du compte ; une autre génération les purge.
+
+Les paramètres existants synchronisent la langue avec la révision indépendante
+des préférences ; les champs non modifiés restent conservés. Les niveaux push
+sont raccordés mais masqués tant que le client n'annonce pas le push P17.
+40 tests ciblés, typage et lint passent ; le banc HTTP / PostgreSQL / WebSocket /
+SQLite couvre aussi le profil personnel, une confirmation perdue puis un profil
+concurrent plus récent, la reprise du fournisseur, les préférences et les photos.
+
+Restent les fiches / réglages / caches et intentions GTK et SwiftUI, puis les
+validations sur applications installées. P16 reste ouvert jusque-là.

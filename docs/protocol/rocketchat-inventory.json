@@ -310,6 +310,7 @@
     "apps/mobile/ui/ordreMessages.ts",
     "apps/mobile/ui/paginationSalon.ts",
     "apps/mobile/ui/piecesEnAttente.tsx",
+    "apps/mobile/ui/preferencesNatives.ts",
     "apps/mobile/ui/preparerPieceJointe.ts",
     "apps/mobile/ui/presence.ts",
     "apps/mobile/ui/progressionFichiers.ts",
@@ -2222,19 +2223,19 @@
     },
     {
       "file": "apps/mobile/app/parametres.tsx",
-      "line": 80,
+      "line": 81,
       "kind": "call:GET",
       "surface": "'me'"
     },
     {
       "file": "apps/mobile/app/parametres.tsx",
-      "line": 105,
+      "line": 110,
       "kind": "call:POST",
       "surface": "'users.setPreferences'"
     },
     {
       "file": "apps/mobile/app/parametres.tsx",
-      "line": 105,
+      "line": 110,
       "kind": "endpoint",
       "surface": "users.setPreferences"
     },
@@ -2642,37 +2643,37 @@
     },
     {
       "file": "apps/mobile/lib/monProfil.ts",
-      "line": 85,
+      "line": 87,
       "kind": "call:GET",
       "surface": "'me'"
     },
     {
       "file": "apps/mobile/lib/monProfil.ts",
-      "line": 105,
+      "line": 107,
       "kind": "call:GET",
       "surface": "'me'"
     },
     {
       "file": "apps/mobile/lib/monProfil.ts",
-      "line": 117,
+      "line": 119,
       "kind": "call:POST",
       "surface": "'users.setStatus'"
     },
     {
       "file": "apps/mobile/lib/monProfil.ts",
-      "line": 118,
+      "line": 120,
       "kind": "endpoint",
       "surface": "users.setStatus"
     },
     {
       "file": "apps/mobile/lib/monProfil.ts",
-      "line": 139,
+      "line": 141,
       "kind": "call:POST",
       "surface": "'users.updateOwnBasicInfo'"
     },
     {
       "file": "apps/mobile/lib/monProfil.ts",
-      "line": 140,
+      "line": 142,
       "kind": "endpoint",
       "surface": "users.updateOwnBasicInfo"
     },
@@ -2930,73 +2931,73 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 288,
+      "line": 289,
       "kind": "endpoint",
       "surface": "e2e.titre"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 289,
+      "line": 290,
       "kind": "endpoint",
       "surface": "e2e.explication"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
-      "line": 291,
-      "kind": "endpoint",
-      "surface": "e2e.champ"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
       "line": 292,
       "kind": "endpoint",
-      "surface": "e2e.deverrouiller"
+      "surface": "e2e.champ"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
       "line": 293,
       "kind": "endpoint",
-      "surface": "e2e.erreurMotDePasse"
+      "surface": "e2e.deverrouiller"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
       "line": 294,
       "kind": "endpoint",
+      "surface": "e2e.erreurMotDePasse"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
+      "line": 295,
+      "kind": "endpoint",
       "surface": "e2e.erreurGenerique"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
-      "line": 845,
-      "kind": "endpoint",
-      "surface": "e2e.titre"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
-      "line": 846,
-      "kind": "endpoint",
-      "surface": "e2e.explication"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
       "line": 848,
       "kind": "endpoint",
-      "surface": "e2e.champ"
+      "surface": "e2e.titre"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
       "line": 849,
       "kind": "endpoint",
+      "surface": "e2e.explication"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
+      "line": 851,
+      "kind": "endpoint",
+      "surface": "e2e.champ"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
+      "line": 852,
+      "kind": "endpoint",
       "surface": "e2e.deverrouiller"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 850,
+      "line": 853,
       "kind": "endpoint",
       "surface": "e2e.erreurMotDePasse"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 851,
+      "line": 854,
       "kind": "endpoint",
       "surface": "e2e.erreurGenerique"
     }

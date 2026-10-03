@@ -341,6 +341,15 @@ export const nativeRoomOperations = sqliteTable('native_room_operations', {
   error: text('error'),
 }, (t) => [uniqueIndex('idx_native_room_operation_room').on(t.rid)]);
 
+/** One immutable attempt per profile field family, with no saved password. */
+export const nativeProfileOperations = sqliteTable('native_profile_operations', {
+  id: text('id').primaryKey(),
+  slot: text('slot').notNull(),
+  payload: text('payload').notNull(),
+  state: text('state').notNull().default('pending'),
+  error: text('error'),
+}, (t) => [uniqueIndex('idx_native_profile_operation_slot').on(t.slot)]);
+
 /** Room version is persisted even before its effective actor rights are read. */
 export const nativeRoomAccess = sqliteTable('native_room_access', {
   rid: text('rid').primaryKey(),

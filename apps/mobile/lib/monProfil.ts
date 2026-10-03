@@ -21,6 +21,8 @@ import type { ClientRest, CodeDeuxFacteurs } from './rest.ts';
 export type StatutDefaut = 'online' | 'away' | 'busy' | 'offline';
 
 export type MonProfil = {
+  /** Présente pour les écritures conditionnelles du fournisseur natif. */
+  revision?: string;
   username: string;
   name: string;
   email: string;

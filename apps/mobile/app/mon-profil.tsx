@@ -18,6 +18,10 @@
 import { Redirect, Stack, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {File} from 'expo-file-system';
+import {NativeError} from '../fournisseurs/rocketvibe/transport.ts';
+import {intentionProfil,monProfilNatif,type SavedProfileOperation} from '../fournisseurs/rocketvibe/profileOperations.ts';
+import {ConfirmerIdentiteNative} from '../ui/securiteNative.tsx';
 
 import { preparerCodeDeuxFacteurs } from '../lib/auth.ts';
 import {
@@ -75,12 +79,16 @@ function FormMonProfil({
 }) {
   const t = useT();
   const routeur = useRouter();
-  const { majProfilSession } = useSession();
+  const { majProfilSession,etat } = useSession();
   const synchro = useSynchro();
   // Le dépôt local, pour y ranger la version de ma photo après l'avoir changée.
   // `null` tant que la base n'est pas prête — l'enregistrement marche quand même,
   // le rattrapage du prochain raccordement (`me`) posera l'etag.
   const depot = synchro.phase === 'pret' ? synchro.moteur.depotSynchro : null;
+  const chat=synchro.phase==='pret'?synchro.fournisseur.native?.chat:null;
+  const native=client.genre==='rocketvibe';
+  const profileVersion=chat?.profileVersionFor(etat.phase==='connecte'?etat.session.userId:null);
+  const online=chat?.status.online===true;
   const etags = useEtagsAvatars();
   // `initial` = référence lue au chargement ; `form` = valeurs en cours d'édition.
   // Le diff des deux décide quels endpoints appeler. Après un enregistrement
@@ -93,6 +101,11 @@ function FormMonProfil({
   const [motDePasse, setMotDePasse] = useState('');
   const [occupe, setOccupe] = useState(false);
   const [bandeau, setBandeau] = useState<Bandeau | null>(null);
+  const [nativeIntent,setNativeIntent]=useState<SavedProfileOperation|null>(null);
+  const [nativeAvatar,setNativeAvatar]=useState<SavedProfileOperation|null>(null);
+  const [nativeProof,setNativeProof]=useState(false);
+  const clientCourant=useRef<ClientRest|null>(client);
+  useEffect(()=>{clientCourant.current=client;return()=>{clientCourant.current=null;};},[client]);
 
   // Second facteur demandé par `users.updateOwnBasicInfo` (e-mail/pseudo).
   const [demande2FA, setDemande2FA] = useState<ErreurDeuxFacteurs | null>(null);
@@ -104,11 +117,18 @@ function FormMonProfil({
 
   useEffect(() => {
     let vivant = true;
-    lireMonProfil(client)
-      .then((p) => {
+    if(native&&(!chat?.status.online||!chat.capabilities?.profiles))return;
+    const load=async()=>{
+      if(!native)return lireMonProfil(client);
+      const p=monProfilNatif(await chat!.ownProfile()),saved=await chat!.store.profileOperations.get('profile'),avatar=await chat!.store.profileOperations.get('avatar');
+      if(vivant){setNativeIntent(saved);setNativeAvatar(avatar);setNativeProof(saved?.phase==='proof'||avatar?.phase==='proof');}
+      return {current:p,desired:intentionProfil(saved,p)};
+    };
+    void load()
+      .then((value) => {
         if (!vivant) return;
-        setInitial(p);
-        setForm(p);
+        setInitial(previous=>native&&previous?previous:('current' in value?value.current:value));
+        setForm(previous=>native&&previous?previous:('desired' in value?value.desired:value));
       })
       .catch((e: unknown) => {
         if (vivant) setChargeErreur(e instanceof Error ? e.message : traduireCourant('monProfil.profilIllisible'));
@@ -116,7 +136,7 @@ function FormMonProfil({
     return () => {
       vivant = false;
     };
-  }, [client]);
+  }, [client,native,chat,online,profileVersion]);
 
   const majChamp = useCallback((champ: keyof MonProfil, valeur: string) => {
     setBandeau(null);
@@ -125,7 +145,7 @@ function FormMonProfil({
 
   const choisirPhoto = useCallback(async () => {
     try {
-      const f = await choisirAvatar();
+      const f = await choisirAvatar(native);
       if (f !== null) {
         setAvatarLocal(f);
         setBandeau(null);
@@ -133,11 +153,44 @@ function FormMonProfil({
     } catch (e) {
       setBandeau({ type: 'erreur', texte: e instanceof Error ? e.message : t('monProfil.selectionImpossible') });
     }
-  }, [t]);
+  }, [t,native]);
 
   const enregistrer = useCallback(
-    async (deuxFacteurs?: CodeDeuxFacteurs) => {
+    async (deuxFacteurs?: CodeDeuxFacteurs,preuveNative=false) => {
       if (form === null || initial === null || enVol.current) return;
+
+      if(native){
+        if(!chat)return;
+        enVol.current=true;setOccupe(true);setBandeau(null);
+        let latest=initial;
+        try{
+          const saved=await chat.store.profileOperations.get('profile');
+          if(saved?.phase==='proof'){
+            if(!preuveNative)throw new NativeError(403,'reauthentication_required');
+            await chat.store.profileOperations.mark(saved,'pending',null);
+          }
+          const change=Object.keys(diffInfos(initial,form)).length>0||form.status!==initial.status||form.statusText!==initial.statusText;
+          if(change||saved){latest=monProfilNatif(await chat.editOwnProfile({...form,revision:latest.revision}));if(clientCourant.current!==client)return;setInitial(latest);setForm(latest);setNativeIntent(null);}
+          const avatar=await chat.store.profileOperations.get('avatar');
+          if(avatarLocal){
+            const file=new File(avatarLocal.uri);if(file.size>2*1024*1024)throw new NativeError(413,'avatar_too_large');
+            latest=monProfilNatif(await chat.setOwnAvatar(latest.revision!,{mime:avatarLocal.type,bytes:new Uint8Array(await file.arrayBuffer())}));
+            if(clientCourant.current!==client)return;
+            setAvatarLocal(null);setNativeAvatar(null);setInitial(latest);setForm(latest);
+          }else if(avatar){latest=monProfilNatif(await chat.resumeProfile('avatar'));if(clientCourant.current!==client)return;setNativeAvatar(null);setInitial(latest);setForm(latest);}
+          setNativeProof(false);setBandeau({type:'succes',texte:t('monProfil.profilEnregistre')});
+        }catch(error){
+          if(clientCourant.current!==client)return;
+          if(error instanceof NativeError&&error.code==='reauthentication_required')setNativeProof(true);
+          setNativeIntent(await chat.store.profileOperations.get('profile').catch(()=>null));
+          setNativeAvatar(await chat.store.profileOperations.get('avatar').catch(()=>null));
+          setBandeau({type:'erreur',texte:t('native.error')});
+        }finally{
+          enVol.current=false;if(clientCourant.current===client)setOccupe(false);
+          if(clientCourant.current===client&&chat.status.online&&latest.username!==username)await majProfilSession({username:latest.username});
+        }
+        return;
+      }
 
       const infos = diffInfos(initial, form);
       const statutChange = form.status !== initial.status || form.statusText !== initial.statusText;
@@ -225,7 +278,7 @@ function FormMonProfil({
         setOccupe(false);
       }
     },
-    [form, initial, avatarLocal, motDePasse, client, depot, majProfilSession, t],
+    [form, initial, avatarLocal, motDePasse, client, depot, majProfilSession, t,native,chat,username],
   );
 
   const validerCode = useCallback(async () => {
@@ -263,17 +316,30 @@ function FormMonProfil({
     );
   }
 
-  const besoinMdp = form.email !== initial?.email || form.username !== initial?.username;
+  const besoinMdp = !native&&(form.email !== initial?.email || form.username !== initial?.username);
+  const waiting=native&&[nativeIntent,nativeAvatar].some(s=>s?.phase==='pending'||s?.phase==='proof');
+  const avatarDraft=nativeAvatar?.command.kind==='avatar'?nativeAvatar.command.upload:null;
   const avatarUri =
-    avatarLocal?.uri ?? urlAvatar(client, { username, etag: etags.parUsername.get(username) });
+    avatarLocal?.uri ?? (avatarDraft?`data:${avatarDraft.mime};base64,${avatarDraft.base64}`:urlAvatar(client, { username, etag: etags.parUsername.get(username) }));
 
   return (
     <VueEvitantLeClavier>
       <Stack.Screen options={{ title: t('monProfil.titre') }} />
       <ScrollView contentContainerStyle={styles.contenu} keyboardShouldPersistTaps="handled">
+        {native&&chat&&(nativeIntent||nativeAvatar)&&<View style={styles.carte2FA}>
+          <Text style={{color:c.attenue}}>{t([nativeIntent,nativeAvatar].some(s=>s?.phase==='failed')?'native.profileRefused':'native.pending')}</Text>
+          {[nativeIntent,nativeAvatar].filter((s):s is SavedProfileOperation=>s!==null&&s.phase!=='pending').map(s=><Appuyable key={s.command.kind} onPress={()=>void(async()=>{
+            if(await chat.discardProfile(s.command.kind,s.command.input.operation_id)){
+              const p=monProfilNatif(await chat.ownProfile());if(clientCourant.current!==client)return;setInitial(p);
+              if(s.command.kind==='profile'){setNativeIntent(null);setNativeProof(false);}else setNativeAvatar(null);
+            }
+          })().catch(()=>{if(clientCourant.current===client)setBandeau({type:'erreur',texte:t('native.error')});})}><Text style={{color:c.cyan}}>{t('commun.annuler')}</Text></Appuyable>)}
+        </View>}
+        {nativeProof&&chat?.capabilities?.reauthentication&&<ConfirmerIdentiteNative c={c} chat={chat} onConfirmed={()=>void enregistrer(undefined,true)}/>}
         {/* Avatar — tap pour changer. Aperçu immédiat de la photo choisie. */}
         <View style={styles.avatarBloc}>
           <Pressable
+            disabled={occupe||waiting||(native&&!chat?.capabilities?.profile_avatars)}
             onPress={() => void choisirPhoto()}
             accessibilityRole="button"
             accessibilityLabel={t('monProfil.changerPhotoLabel')}
@@ -291,7 +357,7 @@ function FormMonProfil({
               <Text style={styles.crayonGlyphe}>✎</Text>
             </View>
           </Pressable>
-          <Pressable onPress={() => void choisirPhoto()} hitSlop={8}>
+          <Pressable disabled={occupe||waiting||(native&&!chat?.capabilities?.profile_avatars)} onPress={() => void choisirPhoto()} hitSlop={8}>
             <Text style={[styles.changerPhoto, { color: c.cyan }]}>{t('monProfil.changerPhoto')}</Text>
           </Pressable>
         </View>
@@ -306,6 +372,7 @@ function FormMonProfil({
               <View key={p} style={styles.enveloppePresence}>
                 <Appuyable
                   onPress={() => {
+                    if(occupe||waiting)return;
                     setBandeau(null);
                     setForm((f) => (f === null ? f : { ...f, status: p }));
                   }}
@@ -345,6 +412,7 @@ function FormMonProfil({
           c={c}
           etiquette={t('monProfil.etiquetteStatut')}
           valeur={form.statusText}
+          editable={!occupe&&!waiting}
           onChangeText={(v) => majChamp('statusText', v)}
           placeholder={t('monProfil.placeholderStatut')}
           autoCapitalize="sentences"
@@ -357,6 +425,7 @@ function FormMonProfil({
           c={c}
           etiquette={t('monProfil.etiquetteNom')}
           valeur={form.name}
+          editable={!occupe&&!waiting}
           onChangeText={(v) => majChamp('name', v)}
           placeholder={t('monProfil.placeholderNom')}
           autoCapitalize="words"
@@ -365,6 +434,7 @@ function FormMonProfil({
           c={c}
           etiquette={t('monProfil.etiquetteBio')}
           valeur={form.bio}
+          editable={!occupe&&!waiting}
           onChangeText={(v) => majChamp('bio', v)}
           placeholder={t('monProfil.placeholderBio')}
           autoCapitalize="sentences"
@@ -379,15 +449,18 @@ function FormMonProfil({
           c={c}
           etiquette={t('monProfil.etiquetteEmail')}
           valeur={form.email}
+          editable={!native&&!occupe}
           onChangeText={(v) => majChamp('email', v)}
           placeholder={t('monProfil.placeholderEmail')}
           keyboardType="email-address"
           autoComplete="email"
         />
+        {native&&<Appuyable onPress={()=>routeur.back()}><Text style={[styles.aide,{color:c.cyan}]}>{t('monProfil.emailNative')}</Text></Appuyable>}
         <ChampPilule
           c={c}
           etiquette={t('monProfil.etiquetteUsername')}
           valeur={form.username}
+          editable={!occupe&&!waiting}
           icone="@"
           onChangeText={(v) => majChamp('username', v)}
           placeholder={t('monProfil.placeholderUsername')}

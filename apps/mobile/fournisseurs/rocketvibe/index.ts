@@ -13,7 +13,7 @@ export const CAPACITES_ROCKETVIBE: Capacites = {
   edition:true, suppression:true,
   typing:true, presence:true, push:false, e2ee:false, emojisCustom:false,
   appelVideo:false, recherche:true, modeleFil:'root_id',
-  fichiers:false, fils:true, reactions:true, marques:true, profil:false, infosSalon:true, favorisSalon:true, citations:true,
+  fichiers:false, fils:true, reactions:true, marques:true, profil:true, infosSalon:true, favorisSalon:true, citations:true,
   reglagesSalon:true,rolesSalon:true,quitterSalon:true,lecturesSalon:true,
 };
 const unsupported = async (): Promise<never> => { throw new NativeError(501,'unsupported_feature'); };

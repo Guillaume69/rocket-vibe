@@ -26,7 +26,7 @@ function entryFor(source:Source,id:string):Entry|null {
   entry={photo:{uri:null,failed:false,revision:0},listeners:new Set(),pending:null,retired:false,used:++tick};
   source.entries.set(id,entry);return entry;
 }
-function base64(bytes:Uint8Array):string {
+export function avatarBase64(bytes:Uint8Array):string {
   const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/',chunks:string[]=[];
   let part='';
   for(let i=0;i<bytes.length;i+=3){
@@ -97,7 +97,7 @@ export function chargerAvatarNatif(uri:string|null|undefined):Promise<void> {
       }
       if(bytes.length>2*1024*1024||bytes.length<8||[137,80,78,71,13,10,26,10].some((v,i)=>bytes[i]!==v))throw new Error('invalid_avatar');
       if(!sources.has(source.id)||entry.retired||entry.photo.revision!==revision)return;
-      const data=`data:image/png;base64,${base64(bytes)}`;
+      const data=`data:image/png;base64,${avatarBase64(bytes)}`;
       let chars=[...source.entries.values()].reduce((sum,e)=>sum+(e.photo.uri?.length??0),0);
       for(const candidate of [...source.entries.values()].filter(e=>e!==entry&&!e.listeners.size&&e.photo.uri).sort((a,b)=>a.used-b.used)){
         if(chars+data.length<=MAX_CHARS)break;

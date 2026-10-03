@@ -4,6 +4,9 @@ import { Reconnecteur } from '../../lib/reconnexion.ts';
 import { checkIdentity, transportFor } from './auth.ts';
 import { NativeStore, type NativeCommand } from './store.ts';
 import { NativeError, type NativeTransport } from './transport.ts';
+import {avatarOctets,type ProfileOperation,type ProfileSlot,type SavedProfileOperation} from './profileOperations.ts';
+import {avatarBase64} from '../../lib/avatarsNatifs.ts';
+import type {MonProfil} from '../../lib/monProfil.ts';
 import { decodeNative } from './validation.ts';
 import type { Capabilities } from './protocol.generated.ts';
 import type {RoomOperation,SavedRoomOperation} from './roomOperations.ts';
@@ -498,6 +501,69 @@ export class NativeChat {
   async setMark(rid:string,id:string,present:boolean,starred:boolean):Promise<void> {
     return this.submitCommand(rid,id,'0',starred?'star':'pin',JSON.stringify(present));
   }
+  async ownProfile():Promise<import('./protocol.generated.ts').OwnProfile> {
+    this.ready();if(!this.capabilities?.profiles)throw new NativeError(501,'unsupported_feature');
+    const generation=this.generation,projection=this.store.projectionToken();
+    checkIdentity(this.session,await this.transport.discover());this.roomOperationGeneration(generation);
+    const own=await this.transport.ownProfile();
+    checkIdentity(this.session,await this.transport.discover());this.roomOperationGeneration(generation);
+    if(own.profile.user.id!==this.session.userId)throw new NativeError(401,'session_rejected');
+    if(projection!==this.store.projectionToken())throw new NativeError(409,'delivery_revalidate');
+    await this.store.profileIdentities([own.profile],()=>generation===this.generation&&!this.stopped&&projection===this.store.projectionToken());
+    this.roomOperationGeneration(generation);return own;
+  }
+  async changeProfile(command:ProfileOperation):Promise<import('./protocol.generated.ts').OwnProfile> {
+    if(this.stopped)throw new NativeError(0,'session_closed');
+    if(!this.capabilities?.profiles)throw new NativeError(501,'unsupported_feature');
+    const saved=await this.store.profileOperations.stage(command);
+    if(!saved)throw new NativeError(409,'profile_action_pending');
+    if(saved.phase==='proof')throw new NativeError(403,'reauthentication_required');
+    this.notify();
+    this.ready();
+    try{return await this.applyProfileOperation(saved);}catch(error){await this.profileOperationFailed(saved,error);throw error;}
+  }
+  editOwnProfile(value:MonProfil):Promise<import('./protocol.generated.ts').OwnProfile> {
+    if(!value.revision)throw new NativeError(409,'revision_required');
+    return this.changeProfile({kind:'profile',input:{operation_id:this.id(),expected_revision:value.revision,username:value.username,display_name:value.name,bio:value.bio,status:value.status,status_text:value.statusText}});
+  }
+  setOwnAvatar(revision:string,upload?:{mime:string;bytes:Uint8Array}):Promise<import('./protocol.generated.ts').OwnProfile> {
+    if(upload&&!['image/png','image/jpeg'].includes(upload.mime))throw new NativeError(422,'invalid_avatar');
+    return this.changeProfile({kind:'avatar',input:{operation_id:this.id(),expected_revision:revision},upload:upload?{mime:upload.mime as 'image/png'|'image/jpeg',base64:avatarBase64(upload.bytes)}:null});
+  }
+  updateOwnPreferences(before:import('./protocol.generated.ts').UserPreferences,changes:Partial<Omit<import('./protocol.generated.ts').UserPreferences,'revision'>>):Promise<import('./protocol.generated.ts').OwnProfile> {
+    return this.changeProfile({kind:'preferences',input:{operation_id:this.id(),expected_revision:before.revision,language:changes.language??before.language,clock_24h:changes.clock_24h??before.clock_24h,push_enabled:changes.push_enabled??before.push_enabled,push_mentions_only:changes.push_mentions_only??before.push_mentions_only,desktop_notifications:changes.desktop_notifications??before.desktop_notifications??'default'}});
+  }
+  async resumeProfile(slot:ProfileSlot):Promise<import('./protocol.generated.ts').OwnProfile> {
+    this.ready();const saved=await this.store.profileOperations.get(slot);
+    if(!saved||saved.phase==='failed')throw new NativeError(409,'profile_action_pending');
+    if(saved.phase==='proof')await this.store.profileOperations.mark(saved,'pending',null);
+    try{return await this.applyProfileOperation({...saved,phase:'pending'});}catch(error){await this.profileOperationFailed(saved,error);throw error;}
+  }
+  async discardProfile(slot:ProfileSlot,id:string):Promise<boolean> {this.ready();const result=await this.store.profileOperations.discard(slot,id);this.notify();return result;}
+  private async applyProfileOperation(saved:SavedProfileOperation):Promise<import('./protocol.generated.ts').OwnProfile> {
+    const operation=this.commands.then(async()=>{
+      this.ready();const generation=this.generation;
+      checkIdentity(this.session,await this.transport.discover());this.roomOperationGeneration(generation);
+      const current=await this.store.profileOperations.get(saved.command.kind);
+      if(!current||current.phase!=='pending'||current.command.input.operation_id!==saved.command.input.operation_id)return this.ownProfile();
+      if(!this.capabilities?.profiles||saved.command.kind==='avatar'&&!this.capabilities.profile_avatars)throw new NativeError(501,'unsupported_feature');
+      const command=saved.command;
+      const receipt=command.kind==='profile'?await this.transport.updateProfile(command.input):command.kind==='preferences'?await this.transport.updatePreferences(command.input):await this.transport.setAvatar(command.input,command.upload?{mime:command.upload.mime,bytes:avatarOctets(command.upload.base64)}:undefined);
+      this.roomOperationGeneration(generation);
+      const own=await this.ownProfile();this.roomOperationGeneration(generation);
+      await this.store.profileOperations.confirm(saved,receipt,()=>generation===this.generation&&!this.stopped);
+      this.retryAttempt=0;this.retryAt=0;this.notify();return own;
+    });
+    this.commands=operation.then(()=>{},()=>{});return operation;
+  }
+  private async profileOperationFailed(saved:SavedProfileOperation,error:unknown):Promise<void> {
+    if(this.stopped||!this.verified)return;
+    if(error instanceof NativeError&&['session_rejected','server_identity_changed'].includes(error.code)){this.status={online:false,error:error.code};this.stop();}
+    else if(error instanceof NativeError&&error.code==='reauthentication_required')await this.store.profileOperations.mark(saved,'proof',error.code);
+    else if(permanentCommandError(error))await this.store.profileOperations.mark(saved,'failed',(error as NativeError).code);
+    else this.deferSend(error);
+    this.notify();
+  }
   async profile(cible:{uid?:string;username?:string}):Promise<import('./protocol.generated.ts').UserProfile> {
     const operation=this.profileReads.then(async()=>{
       this.ready();
@@ -832,6 +898,9 @@ export class NativeChat {
       if(!this.verified || this.stopped)return;
       try{await this.applyRoomOperation(saved);}
       catch(error){await this.roomOperationFailed(saved,error);if(!permanentRoomError(error))return;}
+    }
+    for(const saved of await this.store.profileOperations.pending()){
+      try{await this.applyProfileOperation(saved);}catch(error){await this.profileOperationFailed(saved,error);if(!permanentCommandError(error))return;}
     }
   }
   async retry(id: string): Promise<void> { await this.store.retry(id); this.notify(); await this.flush(); }

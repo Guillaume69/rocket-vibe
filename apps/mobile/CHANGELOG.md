@@ -14,6 +14,11 @@ release, et ses notes sont la section de la version ici.
   dans le fil quand on y est. La réponse du serveur (un salon introuvable, `/help`) s'affiche
   au-dessus du champ, visible par toi seul. Une commande refusée revient dans le champ.
 
+### Corrigé
+
+- Un appui long sur un lien ou une mention ouvre les actions du message, comme ailleurs dans
+  le message ; il n'ouvrait rien.
+
 ## [0.4.0] - 2026-09-30
 
 ### Ajouté

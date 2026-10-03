@@ -14,12 +14,14 @@ import { type StyleProp, StyleSheet, Text, type TextStyle } from 'react-native';
 
 export function TexteTappable({
   onPress,
+  onLongPress,
   style,
   numberOfLines,
   accessibilityLabel,
   children,
 }: {
   onPress?: () => void;
+  onLongPress?: () => void;
   style?: StyleProp<TextStyle>;
   numberOfLines?: number;
   accessibilityLabel?: string;
@@ -31,6 +33,7 @@ export function TexteTappable({
       style={[style, presse && styles.presse]}
       numberOfLines={numberOfLines}
       onPress={onPress}
+      onLongPress={onLongPress}
       onPressIn={onPress === undefined ? undefined : () => setPresse(true)}
       onPressOut={onPress === undefined ? undefined : () => setPresse(false)}
       suppressHighlighting

@@ -130,6 +130,21 @@ fn main() -> glib::ExitCode {
             }
         });
         app.add_action(&action);
+        // Notification v2 passes [target, reply] through ActivateAction; GLib
+        // 2.86 marshals those two values into this exact nested tuple.
+        let reply = gtk::gio::SimpleAction::new(
+            "reply-native-notification",
+            Some(&glib::VariantType::new("((ss)s)").expect("type")),
+        );
+        let weak = app.downgrade();
+        reply.connect_activate(move |_, target| {
+            if let (Some(app), Some(((key, message), text))) =
+                (weak.upgrade(), target.and_then(|v| v.get::<((String, String), String)>()))
+            {
+                window_of(&app).reply_notification(key, message, text);
+            }
+        });
+        app.add_action(&reply);
         style::load();
         if let Some(display) = gtk::gdk::Display::default() {
             icon::register(&display);

@@ -9,6 +9,11 @@ section here.
 
 ### Fixed
 
+- Native Linux notifications use XDG Notification v2 inline replies when the
+  portal advertises support and GLib supports their typed activation. A reply
+  can reactivate the app after exit; late displays cannot undo a withdrawal.
+  Older environments retain their existing live notification path.
+
 - Native notification clicks received offline retain their account, room and
   thread destination across restart. Temporary network failures retry; a newer
   click or explicit navigation cancels the old destination without opening it.

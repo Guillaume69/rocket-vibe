@@ -274,7 +274,7 @@ impl AppWindow {
             move |rid, message, text| {
                 let Some(this) = w2.upgrade() else { return };
                 if rid.starts_with("rv-native:") {
-                    this.notification_action(NotificationAction { key: rid, message, text: Some(text) });
+                    this.reply_notification(rid, message, text);
                     return;
                 }
                 if this.chat.native_session().is_some() {
@@ -973,6 +973,17 @@ impl AppWindow {
         } else if self.chat.native_session().is_none() {
             self.chat.open_message(&key, &message);
         }
+    }
+
+    pub fn reply_notification(self: &Rc<Self>, key: String, message: String, text: String) {
+        if rv_core::native::notifications::notification_url(&key, &message).is_none()
+            || text.trim().is_empty()
+            || text.len() > 32768
+        {
+            self.chat.toast(t("links.unavailable").to_owned());
+            return;
+        }
+        self.notification_action(NotificationAction { key, message, text: Some(text) });
     }
 
     fn cancel_navigation(&self) {

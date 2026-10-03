@@ -184,7 +184,28 @@ la validation privée de compte / adhésion / époque reste dans le cœur natif.
 L'enregistrement suit le [serveur COM de référence Microsoft](https://github.com/CommunityToolkit/WindowsCommunityToolkit/blob/main/Microsoft.Toolkit.Uwp.Notifications/Toasts/Compat/ToastNotificationManagerCompat.cs)
 et l'[ABI du callback](https://learn.microsoft.com/en-us/windows/win32/api/notificationactivationcallback/nf-notificationactivationcallback-inotificationactivationcallback-activate) ;
 les raccourcis utilisent le [CLSID prévu par Inno Setup](https://jrsoftware.org/ishelp/topic_iconssection.htm).
-La remise des anciens callbacks KDE à un nouveau processus reste ouverte.
+Le signal KDE / freedesktop historique `NotificationReplied` est adressé au
+processus qui a envoyé `Notify` ; une fois celui-ci sorti, son ancienne adresse
+D-Bus ne peut pas être récupérée. La remise à froid passe désormais par le
+[portail XDG Notification v2](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.Notification.html)
+quand `SupportedOptions.button-purpose` annonce `im.reply-with-text`, avec
+GLib ≥ 2.86 pour le marshalling de plusieurs arguments. Les actions exportées
+`app.open-message` et `app.reply-native-notification` sont enregistrées dès le
+startup. Le portail garde la cible `(clé, message)` et transmet le texte saisi
+comme second argument de `org.freedesktop.Application.ActivateAction` ; GTK
+reçoit le tuple `((ss)s)` et suit la même capture durable / validation privée.
+Aucun texte de réponse ne passe par l'URL ou la ligne de commande.
+
+La capacité est sondée avant de choisir ce chemin, uniquement pour le fournisseur
+natif. Les environnements qui ne l'annoncent pas conservent leurs notifications
+existantes ; la réponse inline freedesktop y exige encore un processus actif.
+Le [backend Plasma consulté](https://github.com/KDE/plasma-workspace/blob/a82e8a200a37328ff6cd5cbac68ebd609fed306a/libnotificationmanager/portal_p.cpp)
+expose un portail v1 : sa présence ne suffit donc pas à activer ce parcours v2.
+Une application installée sur un système qui annonce v2 reste à qualifier.
+Les affichages / retraits du portail sont sérialisés par portée : un retrait
+pendant un `AddNotification` finit par `RemoveNotification`, un remplacement
+finit par le message le plus récent. Retirer une notification n'active pas un
+portail absent. Le diagnostic des paramètres indique le backend sélectionné.
 Une navigation par clic reçue hors ligne est maintenant conservée dans
 `notification-navigation.sqlite`, dans la configuration bureau partagée par GTK
 et SwiftUI. Une seule destination explicite est gardée, sans texte, auteur ou
@@ -248,3 +269,12 @@ silencieusement ignoré. Des entrées étrangères / répétées / malformées s
 refusées. Les sept tests portables et Clippy Windows / Linux passent. Ce banc
 prouve le dispatch COM entre processus, mais pas encore le lancement par le
 centre de notifications d'une application installée et arrêtée.
+
+Le portail v2 possède deux tests de capacités / payload et un vrai serveur D-Bus
+jetable qui retarde `AddNotification` pour exercer remplacement et retrait en
+vol. Ce test est marqué conditionnel à une session bus et exécuté explicitement
+par le script de qualification, sans faux succès à zéro test. Le même script
+ferme le premier GTK, vérifie la disparition du nom D-Bus, puis réactive un
+second vrai processus par `ActivateAction` avec cible et réponse Unicode ; les
+paramètres malformés sont refusés. Cette cible étrangère n'a pas de credentials :
+elle prouve l'ABI et le démarrage, pas un envoi privé ni un portail Plasma réel.

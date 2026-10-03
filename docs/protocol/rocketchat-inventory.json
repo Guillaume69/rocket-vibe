@@ -133,6 +133,7 @@
     "apps/desktop/crates/rv-gtk/src/message_list.rs",
     "apps/desktop/crates/rv-gtk/src/native_security.rs",
     "apps/desktop/crates/rv-gtk/src/notifier.rs",
+    "apps/desktop/crates/rv-gtk/src/notifier/portal.rs",
     "apps/desktop/crates/rv-gtk/src/recorder.rs",
     "apps/desktop/crates/rv-gtk/src/rows.rs",
     "apps/desktop/crates/rv-gtk/src/secrets.rs",
@@ -1693,7 +1694,25 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/notifier.rs",
-      "line": 256,
+      "line": 281,
+      "kind": "endpoint",
+      "surface": "im.received"
+    },
+    {
+      "file": "apps/desktop/crates/rv-gtk/src/notifier/portal.rs",
+      "line": 44,
+      "kind": "endpoint",
+      "surface": "im.reply-with-text"
+    },
+    {
+      "file": "apps/desktop/crates/rv-gtk/src/notifier/portal.rs",
+      "line": 53,
+      "kind": "endpoint",
+      "surface": "im.reply-with-text"
+    },
+    {
+      "file": "apps/desktop/crates/rv-gtk/src/notifier/portal.rs",
+      "line": 58,
       "kind": "endpoint",
       "surface": "im.received"
     },

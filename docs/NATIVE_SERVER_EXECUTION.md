@@ -319,6 +319,25 @@ Les entrées relatent les lots livrés du plus récent au plus ancien. La matric
 parité donne les conditions de sortie actuelles ; les limites des anciens lots
 sont conservées avec leurs résultats de vérification.
 
+- P21 / J3, réactivation de réponse Linux via portail v2 (3 octobre 2026) :
+  sonde du portail / but `im.reply-with-text` et GLib ≥ 2.86 avant sélection,
+  payload natif avec actions exportées dès le startup, cible et texte reçus
+  via `org.freedesktop.Application.ActivateAction` dans un tuple `((ss)s)`.
+  Capture durable et validation privées restent dans le cœur / fenêtre existants.
+  Affichage et retrait sont sérialisés par portée pour qu'une réponse tardive
+  de `AddNotification` ne conserve pas un toast retiré ou remplacé. Diagnostic
+  cohérent avec le backend choisi ; fournisseurs historiques conservés.
+  Deux tests de capacités / payload, un serveur D-Bus jetable avec affichage
+  retardé / remplacé / retiré, Clippy GTK et le vrai binaire compilé passent.
+  Le script D-Bus ferme GTK, constate la perte du nom et compare les PID avant /
+  après une réactivation avec cible et texte Unicode ; paramètres malformés refusés.
+  Aucun compte utilisateur / installation n'est modifié. Le backend Plasma v1
+  consulté n'annonce pas ce parcours ; il garde la réponse en direct. Portail v2
+  installé / Plasma, compte privé et notifications OS restent à qualifier.
+  Les deux CI du clic persistant `43ec7ea` sont entièrement vertes :
+  `37125203094` (quatre jobs) et `37125203112` (macOS).
+  P21 / J3 ne sont pas déclarés terminés. [Contrat et sources](protocol/PUSH.md).
+
 - P21 / J3, clic hors ligne persistant (3 octobre 2026) : destination minimale
   conservée dans le SQLite de configuration avant reprise du compte, sans texte
   ou bearer. Une réservation synchrone avant attente du trousseau garde le dernier

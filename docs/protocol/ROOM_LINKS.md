@@ -75,8 +75,10 @@ capturée, validation privée et preuve d'un envoi dont la confirmation est perd
 Les clics reçus hors ligne conservent aussi leur destination et adhésion avant
 reprise du compte, avec validation privée après redémarrage et acquittement lié
 au dernier clic. Une navigation explicite annule l'ancienne attente.
-Le parcours Windows installé à processus arrêté et la remise à froid KDE
-restent ouverts : [détails](PUSH.md).
+Le portail XDG Notification v2 raccorde aussi la réponse à froid à l'action
+exportée GTK, quand le service annonce la capacité et GLib ≥ 2.86. Le parcours
+Windows installé à processus arrêté et les portails / Plasma installés restent
+à qualifier ; la réponse freedesktop ancienne exige un processus actif : [détails](PUSH.md).
 Les anciens permaliens HTTP
 Rocket.Chat importés attendent la table de correspondance et le résolveur J5.
 P21 et J3 ne sont pas déclarés terminés.

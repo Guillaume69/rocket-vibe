@@ -13,6 +13,7 @@ use gtk::{gio, glib};
 use rv_core::notify::Incoming;
 
 use crate::i18n::{t, tf};
+mod portal;
 
 const BUS: &str = "org.freedesktop.Notifications";
 const PATH: &str = "/org/freedesktop/Notifications";
@@ -21,6 +22,8 @@ pub struct Notifier {
     app: gio::Application,
     connection: Option<gio::DBusConnection>,
     inline_reply: Cell<bool>,
+    portal_reply: Cell<bool>,
+    portal: Option<Rc<portal::Backend>>,
     /// Notification id → (rid, message id), to route clicks and replies.
     shown: RefCell<HashMap<u32, (String, String)>>,
     /// rid → the notification it has on screen, replaced by the next one.
@@ -96,6 +99,8 @@ impl Notifier {
                 app,
                 connection: None,
                 inline_reply: Cell::new(false),
+                portal_reply: Cell::new(false),
+                portal: None,
                 shown: RefCell::default(),
                 by_room: RefCell::default(),
                 subscriptions: RefCell::default(),
@@ -107,6 +112,8 @@ impl Notifier {
             app,
             connection: Some(connection.clone()),
             inline_reply: Cell::new(false),
+            portal_reply: Cell::new(false),
+            portal: Some(portal::Backend::new(connection.clone())),
             shown: RefCell::default(),
             by_room: RefCell::default(),
             subscriptions: RefCell::default(),
@@ -169,6 +176,10 @@ impl Notifier {
         CURRENT.with_borrow_mut(|c| *c = Rc::downgrade(&this));
         let weak = Rc::downgrade(&this);
         glib::spawn_future_local(async move {
+            let portal_reply = portal::supports_reply(&connection).await;
+            if let Some(this) = weak.upgrade() {
+                this.portal_reply.set(portal_reply);
+            }
             let capabilities = connection
                 .call_future(Some(BUS), PATH, BUS, "GetCapabilities", None, None, gio::DBusCallFlags::NONE, 2000)
                 .await;
@@ -198,6 +209,13 @@ impl Notifier {
 
     /// What shows our notifications, in words.
     pub fn describe(self: &Rc<Self>, done: impl FnOnce(String) + 'static) {
+        if self.portal_reply.get() {
+            done(tf(
+                "notify.backend_server",
+                &[("name", "XDG Desktop Portal"), ("version", "2"), ("reply", t("notify.reply_yes"))],
+            ));
+            return;
+        }
         let Some(connection) = self.connection.clone() else {
             done(t(if cfg!(windows) { "notify.backend_windows" } else { "notify.backend_macos" }).to_owned());
             return;
@@ -227,6 +245,13 @@ impl Notifier {
             format!("{} · #{}", incoming.author, incoming.room_name)
         };
         let body = incoming.body.clone().unwrap_or_else(|| t("message.encrypted").to_owned());
+        if incoming.rid.starts_with("rv-native:")
+            && self.portal_reply.get()
+            && let Some(portal) = &self.portal
+        {
+            portal.show(incoming, &summary, &body);
+            return;
+        }
         // GApplication notifications retain an action target across restarts on
         // GNOME. Keep KDE's existing inline reply when that service offers it.
         if self.connection.is_some() && incoming.rid.starts_with("rv-native:") && !self.inline_reply.get() {
@@ -290,6 +315,9 @@ impl Notifier {
     pub fn withdraw(&self, rid: &str) {
         if rid.starts_with("rv-native:") {
             self.app.withdraw_notification(rid);
+            if let Some(portal) = &self.portal {
+                portal.withdraw(rid);
+            }
         }
         let Some(connection) = self.connection.clone() else {
             if rv_native::available() {

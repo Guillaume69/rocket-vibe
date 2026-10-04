@@ -142,13 +142,13 @@ async fn protected_http_worker_publishes_joins_rotates_and_reconciles_real_postg
     );
     assert_eq!(
         transitions.load(Ordering::SeqCst),
-        4,
-        "expected three accepted transitions and one explicitly fenced late abandoned POST"
+        6,
+        "expected five accepted transitions and one explicitly fenced late abandoned POST"
     );
     assert_eq!(
         applications.load(Ordering::SeqCst),
-        7,
-        "expected six accepted sends and one explicitly fenced late abandoned POST"
+        9,
+        "expected eight accepted sends and one explicitly fenced late abandoned POST"
     );
     let opaque: i64 =
         sqlx::query_scalar("SELECT count(*) FROM e2ee_application_messages WHERE room_id=$1")
@@ -156,7 +156,7 @@ async fn protected_http_worker_publishes_joins_rotates_and_reconciles_real_postg
             .fetch_one(&app.pool)
             .await
             .unwrap();
-    assert_eq!(opaque, 6);
+    assert_eq!(opaque, 8);
     assert_eq!(cancellation_posts.load(Ordering::SeqCst), 3);
     let abandoned: i64 =
         sqlx::query_scalar("SELECT count(*) FROM e2ee_message_cancellations WHERE user_id=$1")
@@ -178,7 +178,7 @@ async fn protected_http_worker_publishes_joins_rotates_and_reconciles_real_postg
         .fetch_one(&app.pool)
         .await
         .unwrap();
-    assert_eq!(delivered, 9);
+    assert_eq!(delivered, 13);
     let clear: i64 =
         sqlx::query_scalar("SELECT count(*) FROM messages WHERE room_id=$1 AND system IS NULL")
             .bind(&room.id)
@@ -203,8 +203,8 @@ async fn protected_http_worker_publishes_joins_rotates_and_reconciles_real_postg
             .fetch_one(&app.pool)
             .await
             .unwrap();
-    assert_eq!(head, (3, 3));
-    for (table, expected) in [("e2ee_group_events", 3_i64), ("e2ee_group_welcomes", 1_i64)] {
+    assert_eq!(head, (5, 5));
+    for (table, expected) in [("e2ee_group_events", 5_i64), ("e2ee_group_welcomes", 2_i64)] {
         let query = format!("SELECT count(*) FROM {table} WHERE room_id=$1");
         let count: i64 = sqlx::query_scalar(&query)
             .bind(&room.id)
@@ -217,7 +217,10 @@ async fn protected_http_worker_publishes_joins_rotates_and_reconciles_real_postg
         .fetch_one(&app.pool)
         .await
         .unwrap();
-    assert_eq!(spent, 1, "only the admitted peer package may be consumed");
+    assert_eq!(
+        spent, 2,
+        "only the initial and readmission peer packages may be consumed"
+    );
     let operations: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM e2ee_operations WHERE result->>'kind'='publish_key_packages'",
     )

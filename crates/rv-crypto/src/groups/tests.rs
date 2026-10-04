@@ -611,5 +611,7 @@ mod group_settlement;
 mod incoming_commits;
 #[path = "journal_tests.rs"]
 mod journal_tests;
+#[path = "readmission_tests.rs"]
+mod readmission;
 #[path = "wire_tests.rs"]
 mod wire_tests;

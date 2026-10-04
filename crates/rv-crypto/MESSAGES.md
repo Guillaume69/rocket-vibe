@@ -6,7 +6,9 @@ existent séparément. Le [worker privé HTTP](GROUP_HTTP.md) raccorde maintenan
 envoi / reprise et réception. Le [journal protégé](JOURNAL.md) ajoute les pages
 communes aux transitions et messages, leur checkpoint et le rattrapage sur
 la même admission, y compris les signatures de feuilles expirées après
-renouvellement du lecteur. Réadmission après retrait et apps restent ouverts.
+renouvellement du lecteur. La [réadmission](READMISSION.md) remplace désormais
+le groupe dans le même coffre et exclut l'ancien cache de la projection courante.
+Son raccordement aux apps et leur suspension après retrait restent ouverts.
 
 ## Authentification et contenu
 
@@ -107,8 +109,8 @@ du temps. Le profil de production et le journal des apps ne changent pas.
 cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --target-dir target --features system-keystore,native-http groups::tests::application_messages
 ```
 
-Suite : politique d'historique des appareils révoqués, réadmission après retrait,
-transitions incertaines, archive / fichiers, pont Android et
+Suite : politique d'historique des appareils révoqués, suspension et réadmission
+dans les apps, archive / fichiers, pont Android et
 fournisseurs des interfaces existantes, revue crypto et qualifications natives.
 
 [L'abandon définitif](SETTLEMENT.md) d'un message personnel est maintenant

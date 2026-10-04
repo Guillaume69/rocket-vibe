@@ -7,7 +7,8 @@ l'original : portée complète, opération, appareil auteur et empreinte signée
 Signature, digests du commit / arbre / Welcomes et identité locale sont
 revérifiés. Une signature historique ne permet aucun nouvel envoi.
 
-`Worker::cancel_group(room, operation)` renvoie `GroupSettlement::Accepted` ou
+`Coordinator::request_group_cancellation` fournit l'original checkpointé ou la
+décision déjà connue, y compris sans la feature HTTP. `Worker::cancel_group(room, operation)` renvoie `GroupSettlement::Accepted` ou
 `Cancelled`. Une acceptation déjà durable gagne toujours. `resume_group` reprend
 l'abandon demandé après coupure ; il ne republie pas cette transition. Les
 marqueurs terminaux permettent le rejeu local de `cancel_group` et interdisent
@@ -46,6 +47,7 @@ que l'acceptation ; [contrat HTTP](../../docs/protocol/E2EE_GROUPS.md). Sa déci
 HTTP authentifiée n'est pas une preuve cryptographique de non-acceptation.
 Les quotas et refus transitoires ne déclenchent pas d'abandon automatique.
 
-La réadmission avec nouveau Welcome, projection dans les interfaces existantes,
+[La réadmission avec nouveau Welcome](READMISSION.md) dans le même coffre est
+ajoutée séparément. Projection dans les interfaces existantes,
 archives / fichiers, pont Android, qualification des trousseaux / appareils et
 revue indépendante restent ouverts. `capabilities.e2ee` reste désactivé.

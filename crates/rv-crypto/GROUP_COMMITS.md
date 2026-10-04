@@ -52,8 +52,9 @@ accepté, la révision et l'époque précédentes, ainsi que les versions de pol
 et membres observées. Le reçu lie la preuve et son opération. OpenMLS authentifie
 et déchiffre ensuite le message : un contenu applicatif, une proposition isolée,
 un auteur externe, une auto-exclusion ou une proposition PSK sont refusés dans
-ce parcours. Un retrait propre de cette installation et sa réadmission par un
-nouveau Welcome restent des parcours à intégrer, sans héritage implicite.
+ce parcours. La [réadmission par un nouveau Welcome](READMISSION.md) remplace
+le groupe dans le même coffre, sans héritage implicite. La suspension après
+retrait et le raccordement de ces parcours aux apps restent à intégrer.
 
 Le véritable auteur MLS doit correspondre à la racine / appareil / incarnation
 et clé de signature du certificat déclarant la transition, avec son indice

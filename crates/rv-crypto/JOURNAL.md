@@ -136,7 +136,9 @@ compromission conjointe des clés de signature et des secrets d'une ancienne
 Les contrôles de révocation connue et d'admission ne constituent pas une
 preuve de date de création. Cette limite relève aussi de la revue crypto.
 
-La réadmission après retrait, l'historique d'un appareil révoqué,
+[La réadmission dans le même coffre](READMISSION.md) remet le curseur à zéro
+pour le nouveau Welcome et marque le cache précédent hors de la projection
+courante. Sa planification dans les apps, l'historique d'un appareil révoqué,
 la découverte d'un ancien Welcome lorsque les autres grants ont changé,
 les refus définitifs d'outbox, archives / fichiers et ponts des apps restent
 ouverts. Le cache conserve au plus 64 documents ; il n'est pas une archive.

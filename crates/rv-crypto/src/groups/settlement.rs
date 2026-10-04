@@ -40,7 +40,7 @@ impl GroupSettlement {
         }
     }
 }
-pub(crate) enum CancellationRequest {
+pub enum CancellationRequest {
     Known(GroupSettlement),
     Original(Submission),
 }
@@ -269,6 +269,23 @@ impl Coordinator {
         }
         self.inspect(|_, records| Ok(self.group_ledger(records)?.terminal.get(operation).cloned()))
     }
+    pub(super) fn ensure_group_settled(
+        &self,
+        records: &Records,
+        room: &str,
+        now: u64,
+    ) -> Result<()> {
+        let ledger = self.group_ledger(records)?;
+        ledger.clock(now)?;
+        if ledger
+            .unresolved
+            .values()
+            .any(|entry| entry.submission.scope.room == room)
+        {
+            return Err(Error::Pending);
+        }
+        Ok(())
+    }
     pub(super) fn group_settlement_in(
         &self,
         records: &Records,
@@ -311,7 +328,7 @@ impl Coordinator {
             superseded: pending.is_none(),
         })
     }
-    pub(crate) fn request_group_cancellation(
+    pub fn request_group_cancellation(
         &self,
         room: &str,
         operation: &str,

@@ -13,6 +13,12 @@ le coffre même après un successeur de pair. `cancel_group` checkpoint l'intent
 d'abandon avant HTTP et valide le reçu terminal avant de libérer le commit.
 Les rotations acceptées restent ordonnées par le journal.
 
+Un Welcome pour un salon déjà accepté passe maintenant par une preview de
+[réadmission](READMISSION.md) : `EventKind::Readmission`, package frais,
+confirmation liée à l'ancien état et remplacement atomique du groupe / curseur
+dans le même coffre. Le cache précédent reste protégé et ne devient pas une
+page visible de l'admission nouvelle. Les interfaces restent à raccorder.
+
 `Genesis::from_wire` prend le roster courant sans groupe, une nouvelle incarnation
 de salon non nulle, l'opération et les réponses de packages disponibles.
 `Change::from_wire` prend le roster avec sa tête, les retraits explicites et les
@@ -222,7 +228,7 @@ MLS supplémentaires passent ; les détails de politique sont dans
 [JOURNAL.md](JOURNAL.md). Le renouvellement dans les apps reste à raccorder.
 
 Planification dans les fournisseurs, réconciliation des refus,
-retrait local / réadmission, projection des messages, fichiers / archives /
+suspension après retrait et réadmission dans les apps, projection des messages, fichiers / archives /
 import, pont Android et interfaces existantes restent ouverts. Les qualifications
 sur appareils / trousseaux et la revue indépendante demeurent nécessaires.
 Aucune capacité E2EE n'est activée.

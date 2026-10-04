@@ -237,6 +237,8 @@ struct Entry {
     created: u64,
     #[serde(default)]
     historical: bool,
+    #[serde(default)]
+    retired: bool,
     submission: MessageSubmission,
     #[serde(with = "secret_bytes")]
     plaintext: Zeroizing<Vec<u8>>,
@@ -322,6 +324,7 @@ impl Coordinator {
                 || operation(&header.author, &header.operation)? != *id
                 || HEXLOWER.encode(&proof.fingerprint()?) != seen.packet
                 || seen.intent.is_none() && entry.receipt.is_none()
+                || entry.retired && seen.receipt.is_none() && seen.cancelled.is_none()
                 || seen.intent.is_some()
                     && (entry.historical
                         || header.author != ledger.scope.user
@@ -505,6 +508,7 @@ impl Coordinator {
                 Entry {
                     created: now,
                     historical: false,
+                    retired: false,
                     submission: submission.clone(),
                     plaintext: Zeroizing::new(plaintext.to_vec()),
                     grant,
@@ -743,6 +747,9 @@ impl Coordinator {
                 return Err(Error::Receipt);
             }
             let entry = ledger.cache.get_mut(&id).ok_or(Error::MessageNotRetained)?;
+            if entry.retired {
+                return Err(Error::MessageRetired);
+            }
             if entry.submission != *submission || entry.grant != grant {
                 return Err(Error::Conflict);
             }
@@ -847,6 +854,7 @@ impl Coordinator {
             Entry {
                 created: now,
                 historical: ordered_receive,
+                retired: false,
                 submission: submission.clone(),
                 plaintext,
                 grant,
@@ -916,7 +924,8 @@ impl Coordinator {
                 .cache
                 .values()
                 .find(|entry| {
-                    entry.grant == *grant
+                    !entry.retired
+                        && entry.grant == *grant
                         && entry.receipt.as_ref().is_some_and(|receipt| {
                             receipt.position == *position && receipt.header.scope == *scope
                         })
@@ -928,6 +937,26 @@ impl Coordinator {
             });
         }
         Ok(messages)
+    }
+    pub(super) fn retire_message_admission(
+        &self,
+        records: &mut Records,
+        room: &str,
+        now: u64,
+    ) -> Result<()> {
+        let mut ledger = self.message_ledger(records)?;
+        ledger_clock(&ledger, now)?;
+        for (id, entry) in &mut ledger.cache {
+            if entry.proof()?.header.scope.room == room {
+                let seen = ledger.seen.get(id).ok_or(Error::Changed)?;
+                if seen.receipt.is_none() && seen.cancelled.is_none() {
+                    return Err(Error::Pending);
+                }
+                entry.retired = true;
+            }
+        }
+        ledger.clock = now;
+        save_ledger(records, &ledger)
     }
 }
 fn current_head(header: &packet::Header, observation: &MessageObservation) -> Result<()> {

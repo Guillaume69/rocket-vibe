@@ -550,10 +550,120 @@ async fn run(input: Input) -> Result<()> {
     rotate(&alice, &bob, &input.room).await?;
     let position = exchange(&alice, &bob, &input.room, 2, &position).await?;
     rotate(&bob, &alice, &input.room).await?;
-    exchange(&alice, &bob, &input.room, 3, &position).await?;
+    let position = exchange(&alice, &bob, &input.room, 3, &position).await?;
+    let old_secret = bob.secret(&input.room)?;
+    let old_grant = bob
+        .client
+        .crypto_group_roster(&input.room)
+        .await?
+        .members
+        .into_iter()
+        .find(|m| m.user_id == bob.root.user)
+        .unwrap();
+    let details = bob.client.room_details(&input.room).await?;
+    bob.client
+        .leave_room(
+            &input.room,
+            &rv_protocol::parity::LeaveRoom {
+                operation_id: HEXLOWER.encode(&random::<32>()),
+                expected_revision: details.revision,
+            },
+        )
+        .await?;
+    assert!(
+        bob.worker()?.journal_last_batch(&input.room).await.is_err(),
+        "withdrawn reader replayed its protected batch"
+    );
+    let worker = alice.worker()?;
+    let remove = worker
+        .preview_change(
+            &input.room,
+            HEXLOWER.encode(&random::<32>()),
+            vec![bob.manager.scope().device.clone()],
+            vec![],
+        )
+        .await?;
+    let fingerprint = remove.preview.fingerprint;
+    lost(worker.prepare_change(remove, fingerprint).await);
+    worker.stop();
+    let removed = alice.worker()?.resume_group(&input.room).await?;
+    let consumed = alice.worker()?.journal_page(&input.room).await?;
+    assert!(
+        consumed.complete && consumed.head == removed && consumed.messages.is_empty(),
+        "remove did not preserve ordered delivery"
+    );
+    alice.client.add_member(&input.room, &bob.root.user).await?;
+    let new_grant = bob
+        .client
+        .crypto_group_roster(&input.room)
+        .await?
+        .members
+        .into_iter()
+        .find(|m| m.user_id == bob.root.user)
+        .unwrap();
+    assert!(
+        new_grant.access_version != old_grant.access_version,
+        "rejoin reused the previous membership grant"
+    );
+    let worker = alice.worker()?;
+    let add = worker
+        .preview_change(
+            &input.room,
+            HEXLOWER.encode(&random::<32>()),
+            vec![],
+            vec![Target {
+                user: bob.root.user.clone(),
+                device: bob.manager.scope().device.clone(),
+            }],
+        )
+        .await?;
+    let fingerprint = add.preview.fingerprint;
+    lost(worker.prepare_change(add, fingerprint).await);
+    worker.stop();
+    let joined = alice.worker()?.resume_group(&input.room).await?;
+    let consumed = alice.worker()?.journal_page(&input.room).await?;
+    assert!(
+        consumed.complete && consumed.head == joined && consumed.messages.is_empty(),
+        "add did not merge at its native position"
+    );
+    let worker = bob.worker()?;
+    let events = worker.events(&input.room).await?;
+    let welcome = events
+        .page
+        .events
+        .into_iter()
+        .find(|event| {
+            event
+                .welcome
+                .as_ref()
+                .is_some_and(|w| w.device_id == bob.manager.scope().device)
+        })
+        .expect("fresh targeted Welcome missing");
+    let preview = worker.preview_event(welcome).await?;
+    assert!(
+        preview.kind == delivery::EventKind::Readmission && bob.secret(&input.room)? == old_secret,
+        "preview replaced the old admission"
+    );
+    let fingerprint = preview.preview.fingerprint;
+    assert!(
+        worker.accept_event(preview, fingerprint).await? == joined,
+        "wrong readmission receipt"
+    );
+    worker.stop();
+    assert!(
+        bob.secret(&input.room)? == alice.secret(&input.room)?
+            && bob.secret(&input.room)? != old_secret,
+        "fresh Welcome did not replace the old MLS secrets"
+    );
+    let joined_batch = bob.worker()?.journal_page(&input.room).await?;
+    assert!(
+        joined_batch.complete && joined_batch.head == joined && joined_batch.messages.is_empty(),
+        "new admission exposed older journal contents"
+    );
+    exchange(&alice, &bob, &input.room, 4, &position).await?;
     let head = alice.client.crypto_group_state(&input.room).await?;
     assert!(
-        head.receipt.revision == "3" && head.receipt.epoch == "3" && !head.needs_rekey,
+        head.receipt.revision == "5" && head.receipt.epoch == "5" && !head.needs_rekey,
         "wrong final server head"
     );
     println!("protected-worker-http-smoke: passed");

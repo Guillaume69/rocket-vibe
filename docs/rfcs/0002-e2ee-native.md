@@ -330,8 +330,11 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    nouvelle opération obligatoire. [Règlement des transitions préparées](../../crates/rv-crypto/GROUP_SETTLEMENT.md)
    ajouté : original conservé après succession d'un pair, abandon checkpoint
    avant HTTP, décision terminale et libération du seul commit non accepté.
-   Les confirmations de rotation restent ordonnées par le journal. Réadmission, historique après
-   révocation et projection des apps restent ouverts ;
+   Les confirmations de rotation restent ordonnées par le journal.
+   [Réadmission dans le même coffre](../../crates/rv-crypto/READMISSION.md)
+   ajoutée : package frais, preview temporaire, confirmation courante, remplacement
+   atomique et cache / curseur de l'ancienne admission séparés. Suspension après
+   retrait, historique après révocation et projection des apps restent ouverts ;
    aucune capacité activée.
 5. Pont mobile et intégration aux fournisseurs actuels ; archive / fichiers,
    historique autorisé et corpus d'import RC depuis cache vierge.

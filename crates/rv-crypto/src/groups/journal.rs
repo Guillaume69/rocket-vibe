@@ -82,6 +82,11 @@ fn read(records: &Records, scope: &Scope) -> Result<Option<Cursor>> {
 pub(super) fn started(records: &Records, scope: &Scope) -> Result<bool> {
     Ok(read(records, scope)?.is_some())
 }
+pub(super) fn reset_admission(records: &mut Records, scope: &Scope) -> Result<()> {
+    read(records, scope)?;
+    records.remove(&key(&scope.room)?);
+    Ok(())
+}
 impl Coordinator {
     fn admission_witness(&self, plan: &Plan, grant: &Member) -> Result<Fingerprint> {
         let scope = self.manager.scope();

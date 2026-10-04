@@ -11,7 +11,7 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques et règlement des intentions interrompues | Messages dans les apps, réadmission / historique après révocation, ponts / interfaces, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues et réadmission dans le même coffre | Messages et lifecycle dans les apps, historique après révocation, ponts / interfaces, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
 La dernière livraison qualifiée (`c667ce0`) passe les neuf jobs de la CI
@@ -25,8 +25,11 @@ même admission. Authentification des signatures expirées sur cette admission
 ajoutée ; abandon durable des envois personnels ajouté ensuite avec intention
 privée checkpoint avant HTTP et document récupérable. Règlement des transitions
 ajouté ensuite : original conservé après succession d'un pair, décision
-terminale durable et libération du seul commit non accepté. Réadmissions et
-fournisseurs des apps constituent les étapes suivantes.
+terminale durable et libération du seul commit non accepté. Réadmission du
+même coffre avec nouveau Welcome / package, remplacement atomique et cache
+précédent marqué hors projection ajoutés. Raccordement aux fournisseurs des
+apps, suspension après retrait et historique autorisé constituent les étapes
+suivantes.
 Les critères externes encore ouverts restent des critères de sortie de la RFC.
 
 ## Premier incrément : socle serveur et transports pilotes
@@ -340,6 +343,34 @@ Le parcours mobile pilote et les tests sans appareil ne ferment pas J1 : il exig
 les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
+
+- P19 / J4, réadmission dans le même coffre (4 octobre 2026) : nouveau package /
+  Welcome, preview dans un provider temporaire et consentement liant paquet,
+  ancien état, pins et certificat courants. Aucune mutation persistante pendant
+  la preview. Acceptation atomique : ancien MLS retiré, nouveau package consommé,
+  références acceptées conservées, curseur précédent retiré et cache précédent
+  marqué hors projection courante. Opérations incertaines réglées avant la
+  réadmission ; documents personnels abandonnés encore récupérables.
+  `EventKind::Readmission` annonce le remplacement au fournisseur avant sa
+  confirmation ; aucune interface ni capacité activée. Six scénarios privés
+  réussissent en 5,15 s, dont Welcome corrompu avec signature valide, pins / droits
+  périmés, ancien cache, réouverture et checkpoint externe perdu. Régressions
+  ciblées : 14 cas de messages hors test lourd de capacité, 12 journaux et
+  17 workers HTTP ; Clippy strict avec HTTP. Banc réel HTTP / PostgreSQL réussi
+  en 59,00 s : départ / retour, droit d'accès frais, remove / add MLS et Welcome
+  dans le même coffre / appareil ; aucun contenu de l'ancienne admission dans
+  le nouveau journal. Huit messages, cinq transitions / époques, deux Welcomes
+  et deux packages consommés ; treize frames acceptées, zéro message clair.
+  La CI du précédent `2959999` passe les suites crypto des trois OS et le banc
+  HTTP, mais `verify` refuse trois éléments internes inutilisés sans HTTP.
+  Correction : demande d'abandon publique dans l'API du coordinateur protégé,
+  conforme à celle des messages ; Clippy strict sans HTTP et suite complète
+  par défaut réussis : 135 succès, zéro échec, un enfant de crash ignoré et
+  exécuté par son parent, en 160,47 s. Les huit autres jobs du précédent commit
+  ont terminé avec succès ; sa CI complète reste rouge à cause de `verify`.
+  Suspension / projection dans les apps, archives / fichiers, appareils /
+  trousseaux physiques et revue indépendante restent ouverts.
+  [Politique du remplacement](../crates/rv-crypto/READMISSION.md).
 
 - P19 / J4, règlement des transitions de groupe (4 octobre 2026) : reçu personnel
   disponible après retrait / expiration, route d'abandon avec intention opaque

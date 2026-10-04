@@ -57,8 +57,15 @@ pub struct ChangePreview {
 }
 pub struct EventPreview {
     pub preview: groups::Preview,
+    pub kind: EventKind,
     event: http::GroupEvent,
     consent: groups::Consent,
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum EventKind {
+    Admission,
+    Readmission,
+    Commit,
 }
 /// Public, validated page envelope. Each event still needs its own protected
 /// preview/consent/accept; a page or head cannot grant admission or trust.
@@ -788,14 +795,25 @@ impl Worker {
             .await?;
         self.owned(move |manager, root, now| {
             let coordinator = groups::Coordinator::new(manager, root)?;
-            let (preview, consent) = if event.welcome.is_some() {
-                coordinator
-                    .preview_admission(&groups::Admission::from_wire(&roster, &event)?, now)?
+            let (kind, preview, consent) = if event.welcome.is_some() {
+                let admission = groups::Admission::from_wire(&roster, &event)?;
+                match coordinator.preview_admission(&admission, now) {
+                    Ok((preview, consent)) => (EventKind::Admission, preview, consent),
+                    Err(groups::Error::Exists) => {
+                        let (preview, consent) =
+                            coordinator.preview_readmission(&admission, now)?;
+                        (EventKind::Readmission, preview, consent)
+                    }
+                    Err(error) => return Err(error.into()),
+                }
             } else {
-                coordinator.preview_commit(&groups::Commit::from_wire(&roster, &event)?, now)?
+                let (preview, consent) = coordinator
+                    .preview_commit(&groups::Commit::from_wire(&roster, &event)?, now)?;
+                (EventKind::Commit, preview, consent)
             };
             Ok(EventPreview {
                 preview,
+                kind,
                 event,
                 consent,
             })
@@ -815,7 +833,14 @@ impl Worker {
             .await?;
         self.owned(move |manager, root, now| {
             let coordinator = groups::Coordinator::new(manager, root)?;
-            if preview.event.welcome.is_some() {
+            if preview.kind == EventKind::Readmission {
+                coordinator.accept_readmission(
+                    &groups::Admission::from_wire(&roster, &preview.event)?,
+                    &preview.consent,
+                    confirmed,
+                    now,
+                )?;
+            } else if preview.event.welcome.is_some() {
                 coordinator.accept_admission(
                     &groups::Admission::from_wire(&roster, &preview.event)?,
                     &preview.consent,

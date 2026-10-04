@@ -30,9 +30,9 @@ mod changes;
 pub use changes::Change;
 mod journal;
 mod messages;
+mod readmission;
 mod settlement;
-pub(crate) use settlement::CancellationRequest;
-pub use settlement::{GroupCancellation, GroupSettlement};
+pub use settlement::{CancellationRequest, GroupCancellation, GroupSettlement};
 pub mod wire;
 pub use journal::{JournalBatch, JournalObservation, JournalRequest};
 pub use messages::{
@@ -81,6 +81,8 @@ pub enum Error {
     MessageCancelled,
     #[error("crypto_message_not_retained")]
     MessageNotRetained,
+    #[error("crypto_message_previous_admission")]
+    MessageRetired,
     #[error("crypto_journal_order_changed")]
     JournalOrder,
 }

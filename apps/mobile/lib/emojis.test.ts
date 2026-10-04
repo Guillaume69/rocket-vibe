@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import { unicodeOfShortcode } from './emojis.ts';
-import { CODES_EMOJI } from './emojis.generated.ts';
+import { EMOJI_CODES } from './emojis.generated.ts';
 
 describe('unicodeDeCodeCourt', () => {
   test('résout les codes courts usuels', () => {
@@ -44,13 +44,13 @@ describe('unicodeDeCodeCourt', () => {
 
 describe('la table générée', () => {
   test('reste ASCII pure — sinon Hermes double son poids dans le bundle', () => {
-    assert.match(CODES_EMOJI, /^[\x00-\x7f]*$/);
+    assert.match(EMOJI_CODES, /^[\x00-\x7f]*$/);
   });
 
   test('les 6222 entrées se décodent toutes en un glyphe non vide', () => {
     // `String.fromCodePoint` lève sur un point de code invalide : un artefact
     // de génération corrompu doit tomber ICI, pas dans le rendu d'un message.
-    const codes = Object.keys(JSON.parse(CODES_EMOJI) as Record<string, string>);
+    const codes = Object.keys(JSON.parse(EMOJI_CODES) as Record<string, string>);
     assert.equal(codes.length, 6222);
     for (const code of codes) {
       const glyph = unicodeOfShortcode(code);

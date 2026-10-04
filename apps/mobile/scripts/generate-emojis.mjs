@@ -120,13 +120,13 @@ const file = `// ⚠️ GÉNÉRÉ par \`npm run emojis:generate\` — ne pas éd
 // Des POINTS DE CODE en hexadécimal, pas des glyphes : la chaîne reste ASCII,
 // que Hermes range sur un octet par caractère au lieu de deux (−124 Ko).
 
-export const CODES_EMOJI = ${JSON.stringify(json)};
+export const EMOJI_CODES = ${JSON.stringify(json)};
 
 // Catégories du navigateur d'emojis : ${baseCount} codes de BASE (hors variantes de
 // teinte), groupés et ordonnés comme JoyPixels. Une chaîne \`JSON.parse\`-ée à la
 // demande, tout ASCII, pour la même raison que ci-dessus. On ne stocke que des
 // NOMS (pas les glyphes) : le rendu les résout via \`unicodeDeCodeCourt\`.
-export const EMOJIS_PAR_CATEGORIE = ${JSON.stringify(jsonCategories)};
+export const EMOJIS_BY_CATEGORY = ${JSON.stringify(jsonCategories)};
 `;
 
 writeFileSync(OUTPUT, file);

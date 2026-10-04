@@ -17,7 +17,7 @@
  * par `scripts/generate-emojis.mjs` (voir sa doc pour la source et la licence).
  */
 
-import { CODES_EMOJI, EMOJIS_PAR_CATEGORIE } from './emojis.generated.ts';
+import { EMOJI_CODES, EMOJIS_BY_CATEGORY } from './emojis.generated.ts';
 
 let table: Record<string, string> | null = null;
 
@@ -26,7 +26,7 @@ let table: Record<string, string> | null = null;
  * qu'un appelant confondrait avec « emoji sans glyphe ».
  */
 export function unicodeOfShortcode(code: string): string | null {
-  table ??= JSON.parse(CODES_EMOJI) as Record<string, string>;
+  table ??= JSON.parse(EMOJI_CODES) as Record<string, string>;
   // `typeof` et pas `in` : le `md` vient d'autrui, et `:constructor:` est un
   // code court parfaitement légal côté serveur. Il remonterait une fonction
   // du prototype d'`Object` jusque dans un `<Text>`.
@@ -51,7 +51,7 @@ let codes: readonly string[] | null = null;
  * complétions suivantes — `Object.freeze` fait échouer la mutation d'emblée.
  */
 export function codesEmojiStandard(): readonly string[] {
-  table ??= JSON.parse(CODES_EMOJI) as Record<string, string>;
+  table ??= JSON.parse(EMOJI_CODES) as Record<string, string>;
   return (codes ??= Object.freeze(Object.keys(table)));
 }
 
@@ -75,7 +75,7 @@ let categories: Record<EmojiCategory, readonly string[]> | null = null;
  * objet est rendu à chaque appel — ne pas le muter.
  */
 export function emojisByCategory(): Record<EmojiCategory, readonly string[]> {
-  return (categories ??= JSON.parse(EMOJIS_PAR_CATEGORIE) as Record<
+  return (categories ??= JSON.parse(EMOJIS_BY_CATEGORY) as Record<
     EmojiCategory,
     readonly string[]
   >);

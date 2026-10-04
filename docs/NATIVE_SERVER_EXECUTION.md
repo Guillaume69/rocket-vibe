@@ -333,6 +333,18 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- CI / fichiers, retrait effectif (4 octobre 2026) : le job `verify` de
+  `37173763923` échoue sur une assertion de lecture lancée en concurrence avec
+  un retrait encore bloqué. Une lecture compatible peut être admise avant le
+  commit du retrait ; les verrous de ligne PostgreSQL ne garantissent pas cette
+  priorité de file. Le test conserve la preuve du retrait en attente, puis
+  attend son commit avant d'exiger le refus du prochain chunk. Une seconde
+  réponse capturée avant retrait reste refusée après réadhésion ; une nouvelle
+  requête autorisée retrouve le fichier. Les huit scénarios fichiers passent
+  localement en 13,38 s, avec formatage / Clippy strict ; aucun changement du
+  transport de production. Les trois suites crypto, le banc HTTP privé,
+  Swift et le cœur Windows de cette CI sont verts.
+
 - P19 / J4, messages applicatifs protégés (4 octobre 2026) : vrai ciphertext
   MLS avec AAD de routage et preuve d'appareil externe, auteur MLS / certificat
   comparés à la liste active et document riche canonique (Markdown, fil,

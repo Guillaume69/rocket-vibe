@@ -724,6 +724,23 @@ async fn file_stream_revalidates_membership_before_each_next_chunk(pool: PgPool)
     assert_eq!(response.status(), StatusCode::OK);
     let mut stream = response.into_body().into_data_stream();
     assert_eq!(stream.next().await.unwrap().unwrap().len(), 256 * 1024);
+    // Capture another old grant without submitting any of its payload. Rejoining
+    // later must not revive this already-authorized response.
+    let old_response = bench
+        .app
+        .clone()
+        .router()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/files/{}", upload.id))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(old_response.status(), StatusCode::OK);
+    let mut old_grant = old_response.into_body().into_data_stream();
     let request = reqwest::Client::new()
         .delete(format!("{}/api/v1/rooms/{room}/members/{uid}", bench.base))
         .bearer_auth(owner.saved_token().unwrap());
@@ -732,12 +749,31 @@ async fn file_stream_revalidates_membership_before_each_next_chunk(pool: PgPool)
     // Wait for this revocation's room lock, rather than an unrelated response
     // lease that is still being released on another connection.
     tokio::time::timeout(Duration::from_secs(2),async{loop{let waiting:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query='SELECT kind FROM rooms WHERE id=$1 FOR UPDATE')").fetch_one(&bench.app.pool).await.unwrap();if waiting{break;}tokio::task::yield_now().await;}}).await.unwrap();
-    let (next, removed) = tokio::join!(stream.next(), remove);
-    removed.unwrap();
+    // The previous submitted chunk's bounded lease can still delay the writer.
+    // PostgreSQL does not promise that a new compatible reader queues behind a
+    // waiting writer. Test the grant after revocation COMMIT, not that fairness.
+    tokio::time::timeout(Duration::from_secs(8), remove)
+        .await
+        .unwrap()
+        .unwrap();
+    let next = stream.next().await;
     assert!(next.is_none() || next.unwrap().is_err());
     assert_eq!(
         code(member.file_response(&upload.id, None).await.unwrap_err()),
         "not_found"
+    );
+    owner.add_member(&room, &uid).await.unwrap();
+    let next = old_grant.next().await;
+    assert!(next.is_none() || next.unwrap().is_err());
+    assert_eq!(
+        member
+            .file_response(&upload.id, None)
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap(),
+        bytes.as_slice()
     );
 }
 

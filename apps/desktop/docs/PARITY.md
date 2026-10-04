@@ -22,20 +22,20 @@ the same rv-core, with these differences:
 ## 1. Login, session, servers
 
 - [x] Server + username/email + password login (`POST login`)
-- [x] 2FA: TOTP, email (send and resend code), password (SHA-256)
+- [~] 2FA: TOTP, email, password (SHA-256). The email code is requested automatically when the server has not sent one; no resend control, which the Android app has
 - [x] Session kept in the system keychain, resumed at launch; a 401 on an authenticated call signs out
 - [x] Server probe before login (`/api/info`, `settings.public`): version, password login available
 - [x] Known servers offered on the login screen
 - [x] Several servers side by side, switch without signing out (one database per server and account)
-- [x] Sign out: `logout` sent, keychain and cache wiped (no push token to remove on desktop)
+- [x] Sign out: `logout` sent, keychain item and database files deleted (no push token to remove on desktop). The Android app keeps the account's SQLite file; the SwiftUI app deletes the `.sqlite` file only, leaving its `-wal` and `-shm`
 
 ## 2. Room list
 
 - [x] Rooms sorted by last activity, live (`rooms.get`/`subscriptions.get` deltas, `rooms-changed`/`subscriptions-changed`)
 - [x] Avatar (room photo, DM partner photo), name, preview, time, yellow unread badge (`@n` on mentions)
-- [x] Encrypted rooms: 🔒 tile, "Encrypted message" preview
+- [x] Encrypted rooms: 🔒 tile, "Encrypted message" preview (desktop keeps the padlock tile once unlocked, Android switches back to the room's tile)
 - [x] Sync comet while connecting or loading
-- [x] Sections: Unread, Channels, Direct messages
+- [x] Sections: Unread, Favourites, Channels, Direct messages
 - [x] Presence dot on DMs (`users.presence`, `user-status`)
 - [x] System and video-call messages translated in previews
 - [x] "New conversation": search users and channels (`spotlight`), open a DM (`im.create`), join a channel (`channels.join`)
@@ -50,7 +50,7 @@ the same rv-core, with these differences:
 - [x] Markdown from the server's `md`: bold, italic, strike, inline code, code block, heading, quote, lists, tasks, links (http(s)/mailto), big emoji, mentions (mine highlighted), #channels
 - [x] `:shortcode:` emoji to Unicode (6222 codes, same table as Android)
 - [x] Images inline (original, not the thumbnail), viewer on click, protected-file token only to our origin
-- [x] Photo avatars over gradient tiles
+- [x] Photo avatars over gradient tiles (desktop: a DM's tile uses `/avatar/uid/<uid>` with no version, so the partner's new photo shows in the room list only at the next session)
 - [x] Read-only rooms: no composer
 - [x] Header: room info, DM partner's presence, search in room, start a call
 - [x] "✦ new messages" bar at the first unread
@@ -81,11 +81,11 @@ the same rv-core, with these differences:
 - [x] Emoji picker (search, categories)
 - [x] Reply with quote (permalink prefix)
 - [x] Attach files (file chooser; desktop: drag-and-drop and paste replace the Android share sheet)
-- [x] Pre-send preview: captions, reduced/original quality
+- [x] Pre-send preview: captions, reduced/original quality (desktop reduces still images only, Android videos too)
 - [x] Checks against `FileUpload_MaxFileSize` and `FileUpload_MediaTypeWhiteList`
 - [x] Upload in two steps (`rooms.media`, `rooms.mediaConfirm`) with progress
 - [x] Voice recording
-- [x] Slash commands (`commands.list`, `commands.run`), their private answers above the composer: desktop only
+- [x] Slash commands (`commands.list`, `commands.run`), their private answers above the composer
 
 ## 5. Message actions
 
@@ -99,7 +99,7 @@ the same rv-core, with these differences:
 
 ## 6. Threads
 
-- [x] Thread view: root and replies (`chat.getMessage`, `chat.getThreadMessages`), live, composer targeting the thread
+- [~] Thread view: root and replies (`chat.getMessage`, `chat.getThreadMessages`), live, composer targeting the thread. Files and voice messages never reach a thread: Android hides attach and microphone there; the GTK thread composer shows both but drops picked files and throws the recording away; the SwiftUI app posts them to the room
 
 ## 7. Search
 
@@ -144,7 +144,7 @@ the same rv-core, with these differences:
 
 ## 13. Sharing and links
 
-- [x] `rocketvibe://salon/<rid>?host=` links open the room (desktop entry registered as URL handler)
+- [x] `rocketvibe://salon/<rid>?host=` links open the room (desktop entry registered as URL handler). Desktop matches the host name only and switches to the fitting account by itself; Android compares origins and asks before switching server
 - [x] Drop or paste files and text from other apps into a room (desktop equivalent of the share intent)
 
 ## 14. Offline and resilience
@@ -152,5 +152,7 @@ the same rv-core, with these differences:
 - [x] Local SQLite per server and account, screens from the database
 - [x] Text outbox surviving restarts, retry on reconnection
 - [x] Reconnection with back-off, dead-socket probe, catch-up after the subscriptions are armed
-- [x] Rooms deleted server-side purged locally (reconciliation)
-- [x] `chat.syncMessages` catch-up of edits and deletions in the open room
+- [~] Rooms deleted server-side purged locally (reconciliation). Desktop purges against `subscriptions.get` without Android's snapshot taken before the request, so a room created meanwhile can be purged until the next catch-up brings it back
+- [~] `chat.syncMessages` catch-up of edits and deletions in the open room. Desktop catches a room up once per session on opening: a message deleted in a room already caught up, while another was open, stays visible until it is caught up again (a reconnection while it is open, or the next session)
+- [ ] Message retention (Android keeps the 500 newest per room): desktop keeps everything
+- [ ] Replay of a sign-out that failed offline (Android retries it at the next start): desktop does not

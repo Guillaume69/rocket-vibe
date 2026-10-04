@@ -11,7 +11,7 @@ const path = require('path');
 // Matches the version expo-notifications bundles (transitive, not exposed to the
 // app module, hence this direct declaration to compile the subclass).
 const FIREBASE_MESSAGING = 'com.google.firebase:firebase-messaging:25.0.1';
-// Deferred catch-up of failed push.get calls (see RattrapagePushWorker below).
+// Deferred catch-up of failed push.get calls (see PushCatchUpWorker below).
 const ANDROIDX_WORK = 'androidx.work:work-runtime:2.10.1';
 
 /**
@@ -79,7 +79,7 @@ const ANDROIDX_WORK = 'androidx.work:work-runtime:2.10.1';
  *     by the real content.
  *
  * LOGBOOK: every event of the circuit (receipt, failure with code or exception,
- * catch-up, replacement, giving up) is written to files/rvpush-journal.log (the
+ * catch-up, replacement, giving up) is written to files/rvpush.log (the
  * app's external storage, `adb pull`); the Pixel's logcat buffer (256 KiB)
  * proved too short for the overnight occurrences. Technical identifiers only,
  * never content.
@@ -95,7 +95,8 @@ const ANDROIDX_WORK = 'androidx.work:work-runtime:2.10.1';
  */
 
 const SERVICE_CLASS = 'RocketVibeMessagingService';
-const RECEIVER_CLASS = 'ReponseNotifReceiver';
+const RECEIVER_CLASS = 'NotificationReplyReceiver';
+const LEGACY_RECEIVER_CLASS = 'ReponseNotifReceiver';
 
 /**
  * The user-visible strings of the native path. `en` is the DEFAULT resource
@@ -328,7 +329,7 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
    * Debug only, and only with the probe armed, see postRoomNotification: replays
    * session decryption + push.get on an ordinary content push and logs the
    * result. A failed fetch also schedules the catch-up in "shadow" mode (log
-   * without notification): it is the ONLY way to exercise RattrapagePushWorker
+   * without notification): it is the ONLY way to exercise PushCatchUpWorker
    * locally, since only a licensed server emits the message-id-only branch.
    */
   private fun verifyPushGetInDebug(ejson: JSONObject) {
@@ -377,11 +378,11 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
  * second worker. In "shadow" mode (debug), logs instead of posting, see
  * verifyPushGetInDebug.
  */
-class RattrapagePushWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
+open class PushCatchUpWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
   override fun doWork(): Result {
     val host = inputData.getString("host") ?: return Result.failure()
     val messageId = inputData.getString("messageId") ?: return Result.failure()
-    val shadow = inputData.getBoolean("ombre", false)
+    val shadow = inputData.getBoolean("shadow", false) || inputData.getBoolean("ombre", false)
     // \`cancelUniqueWork\` does not interrupt an IN-FLIGHT worker: it only sets
     // \`isStopped\`. Without this test, a cancellation decided by the direct path
     // (FCM redelivery handled successfully) came too late and the message was
@@ -464,10 +465,11 @@ private const val TAG = "RVPush"
 private const val ACCENT_COLOR = 0xFFFF5FA2.toInt()
 
 /** Prefix of the unique work names, shared by scheduling and cancellation. */
-private const val CATCH_UP_WORK_PREFIX = "rattrapage-push-"
+private const val CATCH_UP_WORK_PREFIX = "push-catch-up-"
+private const val LEGACY_CATCH_UP_WORK_PREFIX = "rattrapage-push-"
 
 /** Memory of the messageIds already shown as a conversation notification. */
-private const val PREFS_SHOWN = "rvpush-affiches"
+private const val PREFS_SHOWN = "rvpush-shown"
 
 /**
  * Beyond this, a marker is forgotten. One hour amply covers FCM's redelivery
@@ -482,7 +484,7 @@ private val SHOWN_LOCK = Any()
 
 /**
  * Logbook of the push circuit, in the app's external folder:
- * \`/sdcard/Android/data/<pkg>/files/rvpush-journal.log\`. Readable with
+ * \`/sdcard/Android/data/<pkg>/files/rvpush.log\`. Readable with
  * \`adb pull\`, it SURVIVES logcat rotation (256 KiB on a Pixel, a few hours:
  * the overnight occurrences in the field were always lost). Technical
  * identifiers only (messageId, rid, codes), NEVER message content.
@@ -492,7 +494,7 @@ private fun debugLog(ctx: Context, line: String) {
   try {
     synchronized(LOG_LOCK) {
       val dir = ctx.getExternalFilesDir(null) ?: return
-      val file = File(dir, "rvpush-journal.log")
+      val file = File(dir, "rvpush.log")
       if (file.length() > 256 * 1024) file.writeText("")
       val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date())
       file.appendText(timestamp + " " + line + "\\n")
@@ -504,7 +506,7 @@ private fun debugLog(ctx: Context, line: String) {
 
 /**
  * EXPLICIT flag for the debug probe: the file
- * \`/sdcard/Android/data/<pkg>/files/rvpush-sonde\`, created by hand
+ * \`/sdcard/Android/data/<pkg>/files/rvpush-probe\`, created by hand
  * (\`adb shell touch …\`). It used to chain a SECOND full push.get after every
  * content push, on the FCM dispatch thread: twice the time budget, and one more
  * chance of being killed mid-fetch, which FEEDS the very redelivery we are
@@ -514,7 +516,7 @@ private fun debugLog(ctx: Context, line: String) {
 private fun probeArmed(ctx: Context): Boolean {
   return try {
     val dir = ctx.getExternalFilesDir(null) ?: return false
-    File(dir, "rvpush-sonde").exists()
+    File(dir, "rvpush-probe").exists()
   } catch (e: Exception) {
     false
   }
@@ -753,7 +755,7 @@ private fun publishRoomNotification(
 
 /**
  * The "Reply" action: a text field in the notification, delivered to
- * \`ReponseNotifReceiver\`. The PendingIntent must be MUTABLE: the system puts
+ * \`${RECEIVER_CLASS}\`. The PendingIntent must be MUTABLE: the system puts
  * the typed text into it. It is explicit (named class), which stops any other
  * app from hijacking it.
  */
@@ -843,9 +845,9 @@ private fun scheduleCatchUp(
     val workData = Data.Builder()
       .putString("host", host)
       .putString("messageId", messageId)
-      .putBoolean("ombre", shadow)
+      .putBoolean("shadow", shadow)
       .build()
-    val builder = OneTimeWorkRequest.Builder(RattrapagePushWorker::class.java)
+    val builder = OneTimeWorkRequest.Builder(PushCatchUpWorker::class.java)
       .setInputData(workData)
       .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
       .setBackoffCriteria(BackoffPolicy.LINEAR, 30, TimeUnit.SECONDS)
@@ -871,6 +873,7 @@ private fun scheduleCatchUp(
 private fun cancelCatchUp(ctx: Context, messageId: String) {
   try {
     WorkManager.getInstance(ctx).cancelUniqueWork(CATCH_UP_WORK_PREFIX + messageId)
+    WorkManager.getInstance(ctx).cancelUniqueWork(LEGACY_CATCH_UP_WORK_PREFIX + messageId)
   } catch (e: Exception) {
     Log.w(TAG, "cancelCatchUp: failed", e)
   }
@@ -965,7 +968,8 @@ private fun decryptSecureStore(envelope: String): String? {
 }
 
 /** Key of the text typed in the notification (RemoteInput). */
-private const val REPLY_KEY = "rv_reponse"
+private const val REPLY_KEY = "rv_reply"
+private const val LEGACY_REPLY_KEY = "rv_reponse"
 private const val EXTRA_RID = "rid"
 private const val EXTRA_HOST = "host"
 private const val EXTRA_TMID = "tmid"
@@ -982,10 +986,10 @@ private const val REPLY_TIMEOUT_MS = 4000
  * origin guard). The notification is always reposted afterwards: until we do,
  * Android keeps the sending indicator spinning.
  */
-class ${RECEIVER_CLASS} : BroadcastReceiver() {
+open class ${RECEIVER_CLASS} : BroadcastReceiver() {
   override fun onReceive(ctx: Context, intent: Intent) {
-    val text = RemoteInput.getResultsFromIntent(intent)
-      ?.getCharSequence(REPLY_KEY)
+    val results = RemoteInput.getResultsFromIntent(intent)
+    val text = (results?.getCharSequence(REPLY_KEY) ?: results?.getCharSequence(LEGACY_REPLY_KEY))
       ?.toString()
       ?.trim()
       .orEmpty()
@@ -1010,6 +1014,14 @@ class ${RECEIVER_CLASS} : BroadcastReceiver() {
     }.start()
   }
 }
+
+/**
+ * The names before the English rename: notifications and catch-ups posted by
+ * the previous build still target these classes.
+ */
+class ${LEGACY_RECEIVER_CLASS} : ${RECEIVER_CLASS}()
+
+class RattrapagePushWorker(context: Context, params: WorkerParameters) : PushCatchUpWorker(context, params)
 
 /** POST <baseUrl>/api/v1/chat.sendMessage, \`true\` if the server accepted it. */
 private fun sendReply(
@@ -1319,6 +1331,7 @@ function withServiceManifest(config) {
     }
     addService(application);
     addReceiver(application);
+    addReceiver(application, `.${LEGACY_RECEIVER_CLASS}`);
     return config;
   });
 }
@@ -1374,6 +1387,7 @@ module.exports = function withFcmDeeplink(config) {
 module.exports.internals = {
   SERVICE_CLASS,
   RECEIVER_CLASS,
+  LEGACY_RECEIVER_CLASS,
   addDependencies,
   addReceiver,
   addService,

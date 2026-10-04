@@ -30,6 +30,7 @@ const {
   stringsXml,
   NATIVE_STRINGS,
   RECEIVER_CLASS,
+  LEGACY_RECEIVER_CLASS,
   SERVICE_CLASS,
 } = plugin.internals;
 
@@ -145,6 +146,16 @@ describe('addReceiver', () => {
     assert.equal(application.receiver[0], other);
     assert.equal(application.receiver[1].$['android:name'], `.${RECEIVER_CLASS}`);
     assert.equal(application.receiver[1].$['android:exported'], 'false');
+  });
+
+  it('also declares the receiver under its old name, which posted notifications still target', () => {
+    const application = {};
+    addReceiver(application);
+    addReceiver(application, `.${LEGACY_RECEIVER_CLASS}`);
+    assert.deepEqual(
+      application.receiver.map((r) => r.$['android:name']),
+      [`.${RECEIVER_CLASS}`, `.${LEGACY_RECEIVER_CLASS}`],
+    );
   });
 });
 

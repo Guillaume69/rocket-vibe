@@ -6,7 +6,7 @@ What both clients rely on from Rocket.Chat 8.5 (the target `chat.barrut.me` and 
 
 DDP method calls are deprecated since 8.0 and announced for removal in 9.0. Both clients therefore send every action over REST and use the WebSocket only to receive. The one DDP method still called is `login` (with `{resume: authToken}`, the same token REST got from `POST /api/v1/login`), because a `sub` without an authenticated socket gets `nosub: not-allowed`, even on a public channel.
 
-- Mobile: `ClientRest` in `apps/mobile/lib/rest.ts`, `ClientDdp` in `apps/mobile/lib/ddp.ts`. See [mobile-transport.md](mobile-transport.md).
+- Mobile: `RestClient` in `apps/mobile/lib/rest.ts`, `ClientDdp` in `apps/mobile/lib/ddp.ts`. See [mobile-transport.md](mobile-transport.md).
 - Desktop: `RestClient` in `apps/desktop/crates/rv-core/src/rest.rs`, the DDP actor in `apps/desktop/crates/rv-core/src/ddp.rs`. See [desktop-core.md](desktop-core.md).
 
 Both DDP clients are written from the DDP spec. `@rocket.chat/ddp-client` ships without a `license` field and with an Enterprise Edition `LICENSE`, so its code is never copied.
@@ -27,15 +27,15 @@ All subscriptions use Rocket.Chat's "streamer" convention: `params: [key, {useCo
 | `stream-notify-room` / `<rid>/deleteMessage` | `{_id}` | per open room | open room only |
 | `stream-notify-room` / `<rid>/user-activity` | `[username, ["user-typing"]]`, empty list = stopped | per open room | open room only |
 
-Where the lists live: mobile `souscriptionsInitiales()` and `souscriptionsSalon(rid)` in `apps/mobile/providers/rocketchat/index.ts`; desktop `Session::start` and `Session::open_room` in `apps/desktop/crates/rv-core/src/session.rs`.
+Where the lists live: mobile `initialSubscriptions()` and `roomSubscriptions(rid)` in `apps/mobile/providers/rocketchat/index.ts`; desktop `Session::start` and `Session::open_room` in `apps/desktop/crates/rv-core/src/session.rs`.
 
-The two apps differ on `__my_messages__`. Desktop subscribes to it once, so every room's new messages and edits reach SQLite and the notifier without opening the room. Mobile does not (CLAUDE.md records it as "piste non retenue"): it listens to `stream-room-messages/<rid>` for the open room, keeps up to three recently left rooms subscribed (`apps/mobile/ui/hotRooms.ts`), and relies on `rooms-changed` for list previews and on push for notifications. Deletions are never on `__my_messages__`, so both apps subscribe to `deleteMessage` per room.
+The two apps differ on `__my_messages__`. Desktop subscribes to it once, so every room's new messages and edits reach SQLite and the notifier without opening the room. Mobile does not (CLAUDE.md records it as "a lead not taken so far"): it listens to `stream-room-messages/<rid>` for the open room, keeps up to three recently left rooms subscribed (`apps/mobile/ui/hotRooms.ts`), and relies on `rooms-changed` for list previews and on push for notifications. Deletions are never on `__my_messages__`, so both apps subscribe to `deleteMessage` per room.
 
 Presence uses `stream-notify-logged/user-status`, not `stream-user-presence`: on 8.5 the latter uses a proprietary `{added: [uid]}` protocol on a per-connection publication that a replayable `sub` cannot express (`apps/mobile/lib/presence.ts`). Typing uses `user-activity`, not the deprecated `/typing`.
 
 ## REST endpoints by purpose
 
-All paths are under `/api/v1/` except `/api/info`, which both clients reach through an explicit opt-out (`horsApiV1` on mobile, the `api/info` path in `apps/desktop/crates/rv-core/src/server.rs`) so it keeps the 15 s timeout.
+All paths are under `/api/v1/` except `/api/info`, which both clients reach through an explicit opt-out (`outsideApiV1` on mobile, the `api/info` path in `apps/desktop/crates/rv-core/src/server.rs`) so it keeps the 15 s timeout.
 
 | Purpose | Endpoints | Mobile | Desktop |
 |---|---|---|---|
@@ -60,12 +60,12 @@ All paths are under `/api/v1/` except `/api/info`, which both clients reach thro
 | Calls | `video-conference.capabilities`, `.start`, `.join`; desktop also `.info` | `lib/call.ts` | `actions.rs`, `session.rs` |
 | Push (mobile only) | `POST` / `DELETE push.token`; `push.get` from native code | `lib/pushToken.ts`, `plugins/with-fcm-deeplink.js` | - |
 
-Mobile code reaches Rocket.Chat only through the `Fournisseur` facade (`apps/mobile/lib/provider.ts`), whose Rocket.Chat driver is `apps/mobile/fournisseurs/rocketchat/`. Screens never name an endpoint for history, threads or subscriptions.
+Mobile code reaches Rocket.Chat only through the `Provider` facade (`apps/mobile/lib/provider.ts`), whose Rocket.Chat driver is `apps/mobile/providers/rocketchat/`. Screens never name an endpoint for history, threads or subscriptions.
 
 ## Status codes and the response envelope
 
-- **A 401 means "not authenticated" and nothing else** on 8.5. Missing permission is 403, excluded or unknown room is 400, a 2FA challenge is 400 (`totp-required`, `totp-invalid`). Both clients have one predicate allowed to trigger an automatic logout: `estJetonRefuse` (`apps/mobile/lib/rest.ts`) and `is_token_rejected` (`apps/desktop/crates/rv-core/src/rest.rs`). It requires status 401, not a 2FA error, and a body that carries the Rocket.Chat envelope (`success` boolean, `status: 'error'`, or `errorType`), because a proxy or captive portal also answers 401.
-- **`/api/v1/login` maps every failure to 401.** Calls that carry no auth headers (login, session resume, which sends the token in the body) are flagged anonymous and never fire the token-rejected hook. The mobile resume check applies `estJetonRefuse` itself (`apps/mobile/ui/session.tsx`).
+- **A 401 means "not authenticated" and nothing else** on 8.5. Missing permission is 403, excluded or unknown room is 400, a 2FA challenge is 400 (`totp-required`, `totp-invalid`). Both clients have one predicate allowed to trigger an automatic logout: `isTokenRejected` (`apps/mobile/lib/rest.ts`) and `is_token_rejected` (`apps/desktop/crates/rv-core/src/rest.rs`). It requires status 401, not a 2FA error, and a body that carries the Rocket.Chat envelope (`success` boolean, `status: 'error'`, or `errorType`), because a proxy or captive portal also answers 401.
+- **`/api/v1/login` maps every failure to 401.** Calls that carry no auth headers (login, session resume, which sends the token in the body) are flagged anonymous and never fire the token-rejected hook. The mobile resume check applies `isTokenRejected` itself (`apps/mobile/ui/session.tsx`).
 - The hook passes the token **actually sent**, captured before the request. A late 401 for a token that has since been replaced is ignored by the subscriber, so it cannot wipe a fresh session.
 - 2FA arrives two ways: `{error: 'totp-required'}` on `/login`, `{errorType: 'totp-required'}` elsewhere. The method expected is in `details.method`; for `password` the code is the SHA-256 of the password.
 - Failure is `success: false` on `/api/v1/*` and `status: 'error'` on `/login`. `POST logout` answers 200 with an empty body, which both clients read as success.

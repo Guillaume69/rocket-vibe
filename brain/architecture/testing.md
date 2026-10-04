@@ -14,17 +14,17 @@ How each app is tested: fast unit and integration suites that run everywhere (in
 
 Notable test techniques:
 
-- **SQL is tested on real SQLite.** `db/upserts.test.ts` and `db/schema.test.ts` open `node:sqlite`'s `DatabaseSync`, apply the real Drizzle migrations from `db/migrations/`, and run the exact SQL strings and parameter builders that `db/store.ts` executes on the device through `expo-sqlite` (the depot deliberately avoids Drizzle's query builder so tested and shipped SQL cannot diverge).
-- **Fake stores keep the deadlock invariant.** `lib/testStore.ts` wraps fake `Depot`s so that calling a queued write method inside `transaction` throws, as the real write queue would deadlock; a naive fake would let such a refactor pass every test and then freeze on the device.
+- **SQL is tested on real SQLite.** `db/upserts.test.ts` and `db/schema.test.ts` open `node:sqlite`'s `DatabaseSync`, apply the real Drizzle migrations from `db/migrations/`, and run the exact SQL strings and parameter builders that `db/store.ts` executes on the device through `expo-sqlite` (the store deliberately avoids Drizzle's query builder so tested and shipped SQL cannot diverge).
+- **Fake stores keep the deadlock invariant.** `lib/testStore.ts` wraps fake `Store`s so that calling a queued write method inside `transaction` throws, as the real write queue would deadlock; a naive fake would let such a refactor pass every test and then freeze on the device.
 - **Transports are faked at the socket.** `lib/ddp.test.ts` drives the DDP client through an in-memory `WebSocketLike`; `lib/rest.test.ts` injects its own `fetch` into the client.
 - **Crypto runs on `node:crypto`.** Metro aliases `crypto` to react-native-quick-crypto in the app bundle only, so `lib/e2e/*.test.ts` exercise the same calls against Node's OpenSSL. `lib/e2e/surfaceQuickCrypto.test.ts` runs the real `metro.config.js` resolver with a fake context to prove the alias still points at quick-crypto (if it broke, the app would load a pure-JS polyfill or nothing and no other test would notice); the quick-crypto API surface itself is pinned by type assertions in `lib/e2e/surfaceQuickCrypto.ts`, checked by `tsc`.
-- **Config plugins are tested as functions**: each `plugins/with-*.test.mjs` feeds a template file to the plugin's exported transform (for example `signer` in `with-signature-release.js`).
+- **Config plugins are tested as functions**: each `plugins/with-*.test.mjs` feeds a template file to the plugin's exported transform (for example `sign` in `with-signature-release.js`).
 
 Alongside: `npx tsc --noEmit` (strict, no implicit `any`) and `npm run lint`. CI runs all three on every relevant push and PR ([../operations.md](../operations.md)).
 
 ### End-to-end: Maestro (`e2e/`)
 
-`MAESTRO=/path/to/maestro e2e/run.sh` runs five flows against a dev build on the emulator and the local server (`SERVEUR`, default `http://localhost:3000`):
+`MAESTRO=/path/to/maestro e2e/run.sh` runs five flows against a dev build on the emulator and the local server (`SERVER`, default `http://localhost:3000`):
 
 | Flow | What it proves | Harness around it |
 |---|---|---|

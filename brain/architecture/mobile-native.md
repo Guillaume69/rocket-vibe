@@ -10,11 +10,11 @@ The mobile app uses Expo's Continuous Native Generation: `android/` and `ios/` a
 
 ## Config plugins (`apps/mobile/plugins/`)
 
-Each plugin that rewrites a generated file is idempotent (it checks for a marker before editing) and throws if its anchor is missing, so a template change fails the prebuild instead of silently skipping. Their pure functions are exported (often as `chirurgie`) and tested by `plugins/*.test.mjs`, which `npm test` runs.
+Each plugin that rewrites a generated file is idempotent (it checks for a marker before editing) and throws if its anchor is missing, so a template change fails the prebuild instead of silently skipping. Their pure functions are exported (`internals`, `neutralize`, `sign`) and tested by `plugins/*.test.mjs`, which `npm test` runs.
 
 | Plugin | What it does |
 |---|---|
-| `with-fcm-deeplink.js` | The Android push path. Generates `RocketVibeMessagingService.kt` (an `ExpoFirebaseMessagingService` subclass registered above expo's priority) that strips the FCM `notification` block so the message becomes data-only and reaches the app even when killed. Rocket.Chat message pushes are posted as one `MessagingStyle` notification per room (id derived from the rid) whose tap opens `rocketvibe://salon/<rid>?host=<server>`; other pushes fall through to expo-notifications. In hidden-content mode it reads the session from expo-secure-store's SharedPreferences (decrypting via the AndroidKeyStore, no JS runtime) and calls `push.get`; on failure it shows "New message" and schedules `RattrapagePushWorker` (WorkManager: network constraint, 30 s linear backoff, 8 attempts, unique per messageId) except on 401/403. It also generates `ReponseNotifReceiver`, a `BroadcastReceiver` for the inline "Reply" action that posts via `chat.sendMessage`. Adds `firebase-messaging` and `androidx.work` Gradle dependencies, manifest entries, and the user-visible strings in `res/values` (English) and `res/values-fr`. Writes a diagnostic journal to `files/rvpush-journal.log` (ids only, no content). |
+| `with-fcm-deeplink.js` | The Android push path. Generates `RocketVibeMessagingService.kt` (an `ExpoFirebaseMessagingService` subclass registered above expo's priority) that strips the FCM `notification` block so the message becomes data-only and reaches the app even when killed. Rocket.Chat message pushes are posted as one `MessagingStyle` notification per room (id derived from the rid) whose tap opens `rocketvibe://room/<rid>?host=<server>`; other pushes fall through to expo-notifications. In hidden-content mode it reads the session from expo-secure-store's SharedPreferences (decrypting via the AndroidKeyStore, no JS runtime) and calls `push.get`; on failure it shows "New message" and schedules `PushCatchUpWorker` (WorkManager: network constraint, 30 s linear backoff, 8 attempts, unique per messageId) except on 401/403. It also generates `NotificationReplyReceiver`, a `BroadcastReceiver` for the inline "Reply" action (RemoteInput key `rv_reply`) that posts via `chat.sendMessage`. Already-shown messageIds are remembered in the SharedPreferences `rvpush-shown`; catch-up work names are `push-catch-up-<messageId>`. The pre-rename names stay for one release so notifications and WorkManager jobs posted by the previous build still land: `ReponseNotifReceiver` and `RattrapagePushWorker` are generated as empty subclasses of the new classes (the old receiver is also declared in the manifest), the old RemoteInput key `rv_reponse` is still read, and cancelling a catch-up cancels both `push-catch-up-` and `rattrapage-push-` names. Adds `firebase-messaging` and `androidx.work` Gradle dependencies, manifest entries, and the user-visible strings in `res/values` (English) and `res/values-fr`. Writes a diagnostic log to `files/rvpush.log` (ids only, no content); the debug probe is armed by the flag file `files/rvpush-probe`. |
 | `with-ios-push.js` | The iOS push path: `FirebaseAppDelegateProxyEnabled = false` (no swizzling against expo-notifications), Firebase pods with `modular_headers` in the Podfile, a keychain access group shared by app and extension (first in the app's list, since that is where expo-secure-store writes), and a `NotificationService` app-extension target (iOS 16.4 minimum) built from `ios-notification-service/NotificationService.swift` plus `modules/notification-reply/ios/SessionPush.swift`. |
 | `ios-notification-service/NotificationService.swift` | Not a plugin but its payload: the Notification Service Extension. Reads the session from the shared keychain, fetches `push.get`, rewrites title and body, sets `threadIdentifier` to the rid and stores `ejson` in `userInfo["body"]` for expo-notifications' tap routing. No WorkManager equivalent: a failed fetch stays "New message". |
 | `with-target-architectures.js` | Sets `reactNativeArchitectures=arm64-v8a,x86_64` in `gradle.properties` (Pixel and Apple Silicon AVD are arm64, the Linux AVD is x86_64); drops about 55 MB of unused ABIs. CI overrides it to `arm64-v8a` on the Gradle command line. |
@@ -29,7 +29,7 @@ Autolinked by Expo from `modules/`. Each `index.ts` uses `requireOptionalNativeM
 
 | Module | Platforms | Purpose |
 |---|---|---|
-| `video-compressor` | Android (Kotlin, Media3 Transformer), iOS (Swift, AVFoundation) | `compress(uri, maxShortSide, videoBitrate)`: re-encodes a video to MP4 H.264 before upload, short side capped, writing into the app cache so `supprimerSiTemporaire` can clean it. Used by `ui/prepareAttachment.ts`; if the result is not smaller, the original is sent. |
+| `video-compressor` | Android (Kotlin, Media3 Transformer), iOS (Swift, AVFoundation) | `compress(uri, maxShortSide, videoBitrate)`: re-encodes a video to MP4 H.264 before upload, short side capped, writing into the app cache so `deleteIfTemporary` can clean it. Used by `ui/prepareAttachment.ts`; if the result is not smaller, the original is sent. |
 | `downloads` | Android only | `save(source, name, type)`: copies a cached file into the public Downloads folder (`MediaStore.Downloads` from Android 10, the public directory before). On iOS it is `null` and `ui/attachment.ts` opens the share sheet instead. |
 | `fcm-token` | iOS only | Hands the APNs token to Firebase and returns the FCM token Rocket.Chat expects as `gcm`; emits `tokenRefreshed` on rotation. Android gets its FCM token directly from `getDevicePushTokenAsync()` (`lib/push.ts`). |
 | `notification-reply` | iOS only, no JS API | `NotificationReplyAppDelegate`, an `ExpoAppDelegateSubscriber` registered at launch (so it is in place when iOS wakes the app only to deliver a reply), posts the notification's "Reply" text via `chat.sendMessage` natively. `SessionPush.swift` reads session and language from the keychain and is compiled into both this pod and the NotificationService extension. |
@@ -70,6 +70,7 @@ Prepared, never built. `app.json` has an `ios` section (`bundleIdentifier` `com.
 - apps/mobile/package.json
 - apps/mobile/metro.config.js
 - apps/mobile/plugins/with-fcm-deeplink.js
+- apps/mobile/plugins/with-fcm-deeplink.test.mjs
 - apps/mobile/plugins/with-ios-push.js
 - apps/mobile/plugins/ios-notification-service/NotificationService.swift
 - apps/mobile/plugins/with-target-architectures.js
@@ -77,7 +78,7 @@ Prepared, never built. `app.json` has an `ios` section (`bundleIdentifier` `com.
 - apps/mobile/plugins/with-incoming-share.js
 - apps/mobile/modules/video-compressor/index.ts
 - apps/mobile/modules/video-compressor/android/src/main/java/com/rocketvibe/videocompressor/VideoCompressorModule.kt
-- apps/mobile/modules/video-compressor/ios/ReducteurVideoModule.swift
+- apps/mobile/modules/video-compressor/ios/VideoCompressorModule.swift
 - apps/mobile/modules/downloads/index.ts
 - apps/mobile/modules/downloads/android/src/main/java/com/rocketvibe/downloads/DownloadsModule.kt
 - apps/mobile/modules/fcm-token/index.ts

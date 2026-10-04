@@ -7,13 +7,13 @@ Two searches, both server-side and debounced: finding people and channels to sta
 - **One request per typing pause, not per key**: REST is limited to 10 calls per minute. Mobile waits 300 ms (`ui/debouncedSearch.ts`), GTK 300 ms for spotlight and 350 ms for messages, SwiftUI 250 ms and 300 ms.
 - **Late answers are dropped** by a sequence or generation counter: without it, the slow answer for "a" would overwrite the fresh results for "ab" (the REST client's replay after a 429 makes this a real case).
 - **An empty query resets everything at once**, results and error alike, without a request.
-- Errors show inline ("search failed"); "no result" is shown only once a request for the current text has answered. Mobile derives "searching" from the query whose results are on screen (`repondue`), so the debounce window never shows a false "no result".
+- Errors show inline ("search failed"); "no result" is shown only once a request for the current text has answered. Mobile derives "searching" from the query whose results are on screen (`answered`), so the debounce window never shows a false "no result".
 
 ## Starting a conversation (spotlight)
 
 `GET spotlight?query=` returns users and public rooms. Picking a user opens or creates the DM (`im.create`, idempotent on the server); picking a channel joins it (`channels.join`). The returned room is ingested right away so navigation does not wait for the stream.
 
-- Mobile: `app/search.tsx`, reached from the room list. Users first, then channels. A DM goes through `actions.ouvrirOuCreerDm`, a channel through `channels.join`, then the screen is replaced by the room. A ref blocks double taps; errors share the screen's message line with the search.
+- Mobile: `app/search.tsx`, reached from the room list. Users first, then channels. A DM goes through `actions.openOrCreateDm`, a channel through `channels.join`, then the screen is replaced by the room. A ref blocks double taps; errors share the screen's message line with the search.
 - GTK: the "New conversation" dialog (`rv-gtk/src/spotlight.rs`), results from `rooms::spotlight_results` (users first, then rooms, each marked when already joined). `Chat::go_to` opens a DM with `Session::open_dm`, joins a channel only if not already a member (`Session::join_channel`), catches up the room list, then opens the room.
 - SwiftUI: the sidebar's search field (`.searchable` in `ChatView.swift`) replaces the room sections with spotlight results while it holds text; a pick goes through `AppModel.go(to:)`.
 
@@ -23,7 +23,7 @@ This is the only place the apps call `spotlight`; `@` mention completion deliber
 
 `GET chat.search?roomId=&searchText=&count=50`, opened from the room header's search button.
 
-- Mobile: `app/message-search.tsx`. Results are **ephemeral**: normalised with `versMessage` like any server document, rendered with the regular `LigneMessage`, and never written to SQLite (isolated old messages have no place in the local window). They are read-only: no long press (the action sheet reads the database by id, and an old result may not be there), no reaction toggling, each with its own header. There is **no jump** to the message in the history; the file header records that it waits for targeted backward paging.
+- Mobile: `app/message-search.tsx`. Results are **ephemeral**: normalised with `toMessage` like any server document, rendered with the regular `MessageRow`, and never written to SQLite (isolated old messages have no place in the local window). They are read-only: no long press (the action sheet reads the database by id, and an old result may not be there), no reaction toggling, each with its own header. There is **no jump** to the message in the history; the file header records that it waits for targeted backward paging.
 - GTK: a dialog (`details::search` in `rv-gtk/src/details.rs`) listing author, date and the rendered body. A click closes it and **goes to the message**: a thread reply opens its thread, anything else is revealed in the room after paging older history up to 30 times (`Chat::jump_to`), with a "not loaded" toast if it is still not there.
 - SwiftUI: `SearchView` in `Details.swift`, the same list; a tap jumps through `RoomModel.jump(to:)` (also up to 30 older pages). It does not special-case thread replies.
 
@@ -37,7 +37,7 @@ Both apps: spotlight for new conversations, `chat.search` in a room. Desktop onl
 - apps/mobile/app/search.tsx
 - apps/mobile/app/message-search.tsx
 - apps/mobile/app/index.tsx
-- apps/mobile/app/salon/[rid].tsx
+- apps/mobile/app/room/[rid].tsx
 - apps/mobile/providers/rocketchat/actions.ts
 - apps/mobile/lib/normalize.ts
 - apps/desktop/crates/rv-core/src/session.rs

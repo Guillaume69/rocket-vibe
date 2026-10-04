@@ -18,8 +18,8 @@ shared docs or to the app you are working on. Back to [../BRAIN.md](../BRAIN.md)
 | Doc | What's here |
 |---|---|
 | [mobile-app.md](mobile-app.md) | Layering (`app/` routes, `ui/`, Node-pure `lib/`, `db/`, the `providers/` facade), root providers, session and sync state, module stores and their purge rule, live queries, theme and kit, the native-components rule. |
-| [mobile-data.md](mobile-data.md) | One SQLite file per (server, account), every table, the per-connection write queue, drizzle-kit migrations, upsert rules, depots, reconciliation, 500-messages-per-room retention. |
-| [mobile-transport.md](mobile-transport.md) | The listen-only DDP client (ref-counted replayable subscriptions, silence watchdog, ping probe), the REST client (timeouts, 429, token-rejected hook), backoff, `raccordement`, background handling, deferred logout. |
+| [mobile-data.md](mobile-data.md) | One SQLite file per (server, account), every table, the per-connection write queue, drizzle-kit migrations, upsert rules, stores, reconciliation, 500-messages-per-room retention. |
+| [mobile-transport.md](mobile-transport.md) | The listen-only DDP client (ref-counted replayable subscriptions, silence watchdog, ping probe), the REST client (timeouts, 429, token-rejected hook), backoff, connection setup, background handling, deferred logout. |
 | [mobile-native.md](mobile-native.md) | CNG (`android/` and `ios/` gitignored), every config plugin, the four local Expo modules, the patches, Metro's `crypto`/`buffer` aliasing, when a dev-client rebuild is needed, iOS status. |
 
 ## Desktop (`apps/desktop`)

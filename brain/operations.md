@@ -104,7 +104,7 @@ Path filters do not apply to tag pushes, so a release tag always builds. Maestro
 
 - `node scripts/version.mjs mobile|desktop [--tag <tag>]` prints the version. For mobile it fails unless `package.json` equals `app.json` and `android.versionCode == major*10000 + minor*100 + patch` (so each release installs over the last); for desktop it reads `[workspace.package] version`. With `--tag` the tag must be exactly `<app>-v<version>`.
 - `node scripts/changelog.mjs mobile|desktop <version>` prints that version's section of `apps/<app>/CHANGELOG.md` (Keep a Changelog) and fails if it is missing or empty.
-- Every user-visible change goes under `## [Non publié]` (mobile, in French) or `## [Unreleased]` (desktop, in English).
+- Every user-visible change goes under `## [Unreleased]` in that app's changelog, in English.
 
 ## Release flow
 

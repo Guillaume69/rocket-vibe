@@ -5,7 +5,7 @@ the GTK app (`apps/desktop`, Linux, Windows, macOS) and the SwiftUI app
 (`apps/desktop/macos`, over the same rv-core). Neither app is the reference. A row
 that is not `done` or `mapped` in an app is debt that app owes, and is listed again
 under [Open debt](#open-debt). The rule that keeps this file true is in `CLAUDE.md`
-("La parité"); the mechanism behind each row is in the linked feature doc.
+("Parity"); the mechanism behind each row is in the linked feature doc.
 
 Status: `done` · `partial` · `missing` · `mapped` (the same need met by the
 platform's own mechanism, said in the note) · `n/a` (the need does not exist on that
@@ -186,7 +186,7 @@ beta does.
 
 | Feature | Mobile | GTK | SwiftUI | Notes |
 |---|---|---|---|---|
-| `rocketvibe://salon/<rid>?host=` opens the room | done | done | done | Mobile compares origins and asks before switching server; desktop matches the host name and switches account by itself. |
+| `rocketvibe://room/<rid>?host=` opens the room | done | done | done | Mobile compares origins and asks before switching server; desktop matches the host name and switches account by itself. All three still accept the pre-rename `rocketvibe://salon/` form. |
 | Share files and text into a room from other apps | done | mapped | mapped | Desktop: drop or paste. |
 
 ## 14. Offline and resilience - [offline-and-sync](features/offline-and-sync.md)

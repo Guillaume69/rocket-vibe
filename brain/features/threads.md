@@ -12,16 +12,16 @@ A thread is a root message plus the replies that carry its id as `tmid`. Both ap
 
 ## Storage
 
-Replies are ordinary message rows with a thread column (mobile `messages.fil_id`, `fil_reponses` = `tcount`, `fil_dernier` = `tlm`, `fil_affiche` = `tshow`, in `db/schema.ts`; desktop `thread_id`, `thread_count`, `thread_last`, `thread_shown` in `rv-core/src/store.rs`). Desktop reads a thread with `Store::thread_messages` (the root or anything whose `thread_id` is the root).
+Replies are ordinary message rows with a thread column (mobile `messages.thread_id`, `thread_count` = `tcount`, `thread_last` = `tlm`, `thread_shown` = `tshow`, in `db/schema.ts`; desktop `thread_id`, `thread_count`, `thread_last`, `thread_shown` in `rv-core/src/store.rs`). Desktop reads a thread with `Store::thread_messages` (the root or anything whose `thread_id` is the root).
 
 ## Mobile
 
 - Route `app/thread/[id].tsx`, `id` being the root's `_id`. It projects SQLite through live queries: the root, the replies ordered by timestamp then id (the id breaks millisecond ties deterministically), day separators and author grouping in oldest-first order.
 - The `rid` comes from the root or, failing that, from any reply: opened by a link before the root is local, the screen can still subscribe and answer.
-- **Loading**: `fournisseur.chargerFil` (`providers/rocketchat/history.ts`) fetches the root, then the pages of replies, and ingests them through the same idempotent upserts as everything else. `ui/loadedThreads.ts` remembers which threads were loaded under which **connection generation**: without that guard, every reconnection (each return to the foreground, each network flap) replayed `chat.getMessage` plus the whole pagination, 4 REST calls for a 300-reply thread on a route limited to 10 per minute. It is marked only on success, so a thread opened offline loads at the next connection, and a session-token check rejects a late success from a previous session. (The header comment of `app/thread/[id].tsx` still says the thread loads in one `count=0` pass without pagination; the loader pages as described above.)
-- **Live**: the screen subscribes to everything the provider declares for the room (`souscriptionsSalon`: messages, deletions, typing), refcounted, so a thread stacked on its room costs no extra `sub` and a thread opened by link still lives.
-- **Composer**: the shared composer with `filId`, placeholder "Reply...", draft key `rid:tmid`, mention candidates from the whole room. `fichiers={null}`: no 📎 and no 🎤, because the upload queue cannot target a thread. A reply target armed from this thread's action sheet is keyed `rid:filId` so it stays with this composer. After a send, the list scrolls to the end when the optimistic message actually appears in the data (no timer; the write-to-render chain has no upper bound).
-- A root's chip in the room shows "💬 N replies · time of last" (`ui/messageRow.tsx`); inside the thread the root shows no chip. "Reply in thread" on a reply opens its root (`filId ?? id`). In the pinned and starred lists, a reply not shown in the room opens its thread rather than jumping in the room.
+- **Loading**: `provider.loadThread` (`providers/rocketchat/history.ts`) fetches the root, then the pages of replies, and ingests them through the same idempotent upserts as everything else. `ui/loadedThreads.ts` remembers which threads were loaded under which **connection generation**: without that guard, every reconnection (each return to the foreground, each network flap) replayed `chat.getMessage` plus the whole pagination, 4 REST calls for a 300-reply thread on a route limited to 10 per minute. It is marked only on success, so a thread opened offline loads at the next connection, and a session-token check rejects a late success from a previous session. (The header comment of `app/thread/[id].tsx` still says the thread loads in one `count=0` pass without pagination; the loader pages as described above.)
+- **Live**: the screen subscribes to everything the provider declares for the room (`roomSubscriptions`: messages, deletions, typing), refcounted, so a thread stacked on its room costs no extra `sub` and a thread opened by link still lives.
+- **Composer**: the shared composer with `threadId`, placeholder "Reply...", draft key `rid:tmid`, mention candidates from the whole room. `files={null}`: no 📎 and no 🎤, because the upload queue cannot target a thread. A reply target armed from this thread's action sheet is keyed `rid:threadId` so it stays with this composer. After a send, the list scrolls to the end when the optimistic message actually appears in the data (no timer; the write-to-render chain has no upper bound).
+- A root's chip in the room shows "💬 N replies · time of last" (`ui/messageRow.tsx`); inside the thread the root shows no chip. "Reply in thread" on a reply opens its root (`threadId ?? id`). In the pinned and starred lists, a reply not shown in the room opens its thread rather than jumping in the room.
 - Failed sends show retry and discard on their row, as in the room; reactions toggle on tap.
 
 ## Desktop (GTK)
@@ -50,7 +50,7 @@ Thread view, live replies and thread composer in all three. Not available anywhe
 - apps/mobile/lib/outbox.ts
 - apps/mobile/lib/normalize.ts
 - apps/mobile/db/schema.ts
-- apps/mobile/app/salon/[rid].tsx
+- apps/mobile/app/room/[rid].tsx
 - apps/mobile/app/marked-messages.tsx
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/crates/rv-core/src/store.rs

@@ -13,17 +13,17 @@ The home screen of both apps: every room the account is subscribed to, grouped i
 - **Folding.** Tapping or clicking a section title folds it; folded, it shows its count. With a single section there is no title at all, so nothing can be folded (otherwise it could never be unfolded). The folded set is remembered across launches.
 - **Ordering.** By the last message's timestamp, descending. Mobile takes `lastMessage.ts`, falling back to the room's `lm`.
 - **Hidden rooms.** A subscription with `open: false` is left out.
-- **DM names and partners.** On 8.5 a DM's rid is a random id, not the two uids concatenated, so the other participant comes from the room's `uids`, and only for two-person DMs (a group DM has no single presence). A DM has no `name`/`fname` in `rooms.get`; its display name comes from `usernames`, excluding me only when I am provably in the list (mobile `versSalon` in `lib/normalize.ts`).
+- **DM names and partners.** On 8.5 a DM's rid is a random id, not the two uids concatenated, so the other participant comes from the room's `uids`, and only for two-person DMs (a group DM has no single presence). A DM has no `name`/`fname` in `rooms.get`; its display name comes from `usernames`, excluding me only when I am provably in the list (mobile `toRoom` in `lib/normalize.ts`).
 - **Presence.** Kept in memory only, never persisted (a stale presence from cache is worse than none). Loaded with `users.presence` at each connection, then kept current by `stream-notify-logged` / `user-status`, whose args are `[[uid, username, statusCode, statusText]]` with codes 0 offline, 1 online, 2 away, 3 busy. The dedicated `stream-user-presence` uses a proprietary protocol the minimal DDP clients do not speak. Past about 200 connections the server sets `Presence_broadcast_disabled` and goes quiet; nothing depends on presence.
 - **Previews.** The last message flattened to one line of plain text (markdown syntax removed). A message that is only a file has an empty `msg`, so the preview falls back to the attachment's `description` then `title`. A system message (a join, a call) is translated at render time from its stored type, so a language switch applies immediately. Encrypted rooms never show ciphertext.
 
 ## Mobile
 
-- **Screen.** `app/index.tsx` (`EcranAccueil`) is both gatekeeper (no session redirects to `/login`) and list. It runs **two live queries, one per table** (`salons` (rooms) ordered by `horodatage_dernier_message`, and `abonnements` (subscriptions)), because drizzle's `useLiveQuery` only listens to the table in its `FROM`: a join would miss writes that only touch subscriptions (read on another device, room hidden). The merge happens in JS.
-- **Projection.** `ui/homeSections.ts` (`construireSections`, `replierSections`) is pure and unit-tested. A room without a subscription row stays visible rather than flickering. `ui/collapsedSections.ts` keeps the folded set in Secure Store under `sections-repliees`, read synchronously at module load so the first render is already folded; it is global to the device, not per server.
-- **Row.** `LigneSalon`: avatar tile (`AvatarSalon`, see [avatars.md](avatars.md)), name in bold when the room is in alert, one-line preview, and `BadgeNonLus` (yellow, `99+` cap). No timestamp and no separate mention marker in the row. Encrypted rooms show a 🔒 before the name and a grey padlock tile while E2EE is locked; their preview reads "encrypted messages" until a message is decrypted locally, at which point `MAJ_APERCU_CHIFFRE` stores a clear preview. `apercuTexte` (`lib/markdown.ts`) and `apercuSysteme` (`lib/systemMessages.ts`) build the text.
-- **Presence.** `MoteurPresence` (`lib/presence.ts`) holds the statuses; `usePresence` (`ui/presence.ts`) reads them through `useSyncExternalStore`, and a row without a DM partner does not subscribe at all. An unknown status draws nothing. Colours come from theme tokens via `couleursPresence`.
-- **Header.** Brand, settings gear and the `BarreSynchro` comet, lit while the global catch-up runs (`useActivite('global')`).
+- **Screen.** `app/index.tsx` (`HomeScreen`) is both gatekeeper (no session redirects to `/login`) and list. It runs **two live queries, one per table** (`rooms` ordered by `last_message_ts`, and `subscriptions`), because drizzle's `useLiveQuery` only listens to the table in its `FROM`: a join would miss writes that only touch subscriptions (read on another device, room hidden). The merge happens in JS.
+- **Projection.** `ui/homeSections.ts` (`buildSections`, `collapseSections`) is pure and unit-tested. A room without a subscription row stays visible rather than flickering. `ui/collapsedSections.ts` keeps the folded set in Secure Store under `collapsed-sections` (section keys `unread`, `favorites`, `rooms`, `directMessages`), read synchronously at module load so the first render is already folded; it is global to the device, not per server. A value still under the pre-0016 key `sections-repliees` is moved on first read (`readMovedKeySync`, `lib/storageKeys.ts`), and the old French section keys it holds are mapped to the new ones (`readCollapsedSections` in `ui/homeSections.ts`).
+- **Row.** `RoomRow`: avatar tile (`RoomAvatar`, see [avatars.md](avatars.md)), name in bold when the room is in alert, one-line preview, and `UnreadBadge` (yellow, `99+` cap). No timestamp and no separate mention marker in the row. Encrypted rooms show a 🔒 before the name and a grey padlock tile while E2EE is locked; their preview reads "encrypted messages" until a message is decrypted locally, at which point `UPDATE_ENCRYPTED_PREVIEW` stores a clear preview. `textPreview` (`lib/markdown.ts`) and `systemPreview` (`lib/systemMessages.ts`) build the text.
+- **Presence.** `PresenceEngine` (`lib/presence.ts`) holds the statuses; `usePresence` (`ui/presence.ts`) reads them through `useSyncExternalStore`, and a row without a DM partner does not subscribe at all. An unknown status draws nothing. Colours come from theme tokens via `presenceColors`.
+- **Header.** Brand, settings gear and the `SyncBar` comet, lit while the global catch-up runs (`useActivity('global')`).
 - **New conversation.** A fixed first row opens `/search` (spotlight search, DM creation, channel join); see [search.md](search.md).
 
 ## Desktop
@@ -37,13 +37,14 @@ The home screen of both apps: every room the account is subscribed to, grouped i
 
 ## Parity
 
-[Parity](../parity.md) §2 is implemented, Favourites included (`rooms::Section::Favorites`, `sectionsAccueil` key `favoris`). Visible differences: desktop shows the time and an `@` badge on mentions, mobile does neither; desktop keeps the padlock tile on encrypted rooms even when unlocked, mobile switches back to the normal tile; desktop treats an unlisted user as offline once presence loaded, mobile shows nothing for an unknown status.
+[Parity](../parity.md) §2 is implemented, Favourites included (`rooms::Section::Favorites`, `homeSections` key `favorites`). Visible differences: desktop shows the time and an `@` badge on mentions, mobile does neither; desktop keeps the padlock tile on encrypted rooms even when unlocked, mobile switches back to the normal tile; desktop treats an unlisted user as offline once presence loaded, mobile shows nothing for an unknown status.
 
 ## Sources
 
 - apps/mobile/app/index.tsx
 - apps/mobile/ui/homeSections.ts
 - apps/mobile/ui/collapsedSections.ts
+- apps/mobile/lib/storageKeys.ts
 - apps/mobile/ui/presence.ts
 - apps/mobile/ui/kit.tsx
 - apps/mobile/lib/presence.ts

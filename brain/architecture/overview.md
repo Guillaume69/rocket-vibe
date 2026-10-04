@@ -5,7 +5,7 @@ rocket-vibe is a monorepo of two independent third-party Rocket.Chat clients, a 
 ## The repository
 
 ```
-apps/mobile/     Expo / React Native app, Android first (TypeScript, French identifiers)
+apps/mobile/     Expo / React Native app, Android first (TypeScript)
 apps/desktop/    Rust workspace (rv-core, rv-gtk, rv-native, rv-ffi) + SwiftUI app in macos/
 docker/          Rocket.Chat 8.5.1 + MongoDB 8.0 test server, push-patched bundle
 scripts/         seed.mjs (test data), version.mjs, changelog.mjs, spike-ddp.mjs
@@ -38,14 +38,14 @@ An Expo SDK 57 app on React Native 0.86 (New Architecture), Android first, iOS p
 
 | Directory | Role |
 |---|---|
-| `app/` | expo-router routes: `index.tsx` (room list), `login.tsx` (login), `salon/[rid].tsx` (room), `thread/[id].tsx` (thread), `call/[callId].tsx` (Jitsi call, the one WebView), search, settings, profiles, share target. |
+| `app/` | expo-router routes: `index.tsx` (room list), `login.tsx`, `room/[rid].tsx`, `thread/[id].tsx`, `call/[callId].tsx` (Jitsi call, the one WebView), search, settings, profiles, share target. |
 | `ui/` | Components, theme, i18n catalog (`messages.ts`), and the React glue that owns the session and the sync engine (`session.tsx`, `sync.tsx`). |
-| `providers/` | "Providers": `creerFournisseur` picks the chat backend by `session.genre`; `fournisseurs/rocketchat/` is the only one and translates Rocket.Chat's wire format into neutral sync changes (`ChangementSync`). The contract is `lib/provider.ts`. |
-| `lib/` | Platform-free core: DDP client (`ddp.ts`), REST client (`rest.ts`), auth, sync engine (`sync.ts`, `MoteurSynchro`), catch-up (`catchUp.ts`), reconnection, send queue (`outbox.ts`), uploads, markdown, E2EE (`lib/e2e/`). Loadable by plain Node, which is how it is tested. |
-| `db/` | SQLite schema (Drizzle), the SQL of every upsert (`upserts.ts`), the `Depot` (store) implementation (`store.ts`) and its serialised write queue (`writeQueue.ts`), migrations. |
+| `providers/` | "Providers": `createProvider` picks the chat backend by `session.kind`; `providers/rocketchat/` is the only one and translates Rocket.Chat's wire format into neutral sync changes (`SyncChange`). The contract is `lib/provider.ts`. |
+| `lib/` | Platform-free core: DDP client (`ddp.ts`), REST client (`rest.ts`), auth, sync engine (`sync.ts`, `SyncEngine`), catch-up (`catchUp.ts`), reconnection, send queue (`outbox.ts`), uploads, markdown, E2EE (`lib/e2e/`). Loadable by plain Node, which is how it is tested. |
+| `db/` | SQLite schema (Drizzle), the SQL of every upsert (`upserts.ts`), the `Store` implementation (`store.ts`) and its serialised write queue (`writeQueue.ts`), migrations. |
 | `plugins/`, `modules/` | Config plugins that shape the generated `android/`/`ios/` projects, and local Expo native modules. |
 
-Dependencies point downward: `app/` and `ui/` use `lib/` and `db/`; `lib/` defines interfaces such as `Depot` and never imports React Native, so its modules run under `node --test`. Details: [mobile-app.md](mobile-app.md), [mobile-data.md](mobile-data.md), [mobile-transport.md](mobile-transport.md), [mobile-native.md](mobile-native.md).
+Dependencies point downward: `app/` and `ui/` use `lib/` and `db/`; `lib/` defines interfaces such as `Store` and never imports React Native, so its modules run under `node --test`. Details: [mobile-app.md](mobile-app.md), [mobile-data.md](mobile-data.md), [mobile-transport.md](mobile-transport.md), [mobile-native.md](mobile-native.md).
 
 Push notifications arrive through FCM directly (our Firebase project, no Expo Push), with content hidden: the app fetches the message by `push.get` on receipt ([../features/notifications.md](../features/notifications.md)).
 
@@ -72,7 +72,7 @@ The desktop app has no push: it stays connected (optionally in the background or
 ## Footguns worth knowing before touching anything
 
 - **The mobile `lib/` and `db/` must stay loadable by Node**: no `enum`, no constructor parameter properties (ESLint rule in `apps/mobile/eslint.config.js`), imports with `.ts` extensions. Break it and the unit tests stop running.
-- **Calling a queued `Depot` method inside a mobile transaction deadlocks** the write queue; transactions receive a direct writer. `lib/testStore.ts` makes the test fakes enforce this.
+- **Calling a queued `Store` method inside a mobile transaction deadlocks** the write queue; transactions receive a direct writer. `lib/testStore.ts` makes the test fakes enforce this.
 - **`android/` and `ios/` are regenerated** by every `expo prebuild`; hand edits vanish. Native changes go through `plugins/`, and a native module change needs a rebuild, not a Metro reload.
 - **The desktop binary built in the container runs only on a host with matching GTK/libadwaita** (Fedora 44); elsewhere use the AppImage.
 - **One version per app, checked by CI**: a mobile bump touches `app.json` (including `versionCode`) and `package.json`; a desktop bump touches `Cargo.toml` and `Cargo.lock`.
